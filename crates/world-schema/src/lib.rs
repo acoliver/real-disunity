@@ -4,7 +4,8 @@
 use worldrunner_core_types::{GenerationVersion, SchemaVersion};
 
 pub const CURRENT_WORLD_SCHEMA: SchemaVersion = SchemaVersion(1);
-pub const CURRENT_GENERATOR_VERSION: GenerationVersion = GenerationVersion(1);
+/// Revision 2 replaces platform-dependent generated yaw with integer Q56/Q40 math.
+pub const CURRENT_GENERATOR_VERSION: GenerationVersion = GenerationVersion(2);
 
 pub mod document;
 pub mod frame;

@@ -32,11 +32,13 @@ fn check_sources(root: &Path, data: &metadata::Metadata) -> Result<(), String> {
         .iter()
         .filter(|p| data.workspace_members.contains(&p.id))
     {
-        let dir = package
-            .manifest_path
-            .parent()
-            .ok_or("package manifest has no parent")?
-            .join("src");
+        let dir = metadata::canonical(
+            &package
+                .manifest_path
+                .parent()
+                .ok_or("package manifest has no parent")?
+                .join("src"),
+        )?;
         let start = paths.len();
         source::rust_files(&dir, &mut paths)?;
         if paths.len() == start {

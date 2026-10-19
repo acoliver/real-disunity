@@ -48,18 +48,26 @@ pub fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
 }
 
 pub fn load(root: &Path, paths: Vec<PathBuf>) -> Result<Vec<Source>, String> {
+    let root = crate::metadata::canonical(root)?;
     paths
         .into_iter()
         .map(|path| {
+            let path = crate::metadata::canonical(&path)?;
+            let relative = path
+                .strip_prefix(&root)
+                .map_err(|_| {
+                    format!(
+                        "policy source {} is outside workspace {}",
+                        path.display(),
+                        root.display()
+                    )
+                })?
+                .to_string_lossy()
+                .replace('\\', "/");
             let text = std::fs::read_to_string(&path)
                 .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
             let syntax = syn::parse_file(&text)
                 .map_err(|e| format!("cannot parse {}: {e}", path.display()))?;
-            let relative = path
-                .strip_prefix(root)
-                .map_err(|e| e.to_string())?
-                .to_string_lossy()
-                .replace('\\', "/");
             let mut production = syntax.clone();
             Production.visit_file_mut(&mut production);
             Ok(Source {
@@ -99,3 +107,6 @@ impl VisitMut for Production {
         visit_mut::visit_item_mod_mut(self, module);
     }
 }
+
+#[cfg(test)]
+mod tests;

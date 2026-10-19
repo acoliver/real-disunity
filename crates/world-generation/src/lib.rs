@@ -6,18 +6,21 @@ use worldrunner_core_types::{
 };
 use worldrunner_world_schema::{
     BiomeDefinition, BiomeRegion, CURRENT_GENERATOR_VERSION, CURRENT_WORLD_SCHEMA, CatalogBinding,
-    EnvironmentInstance, EnvironmentOrientation, EnvironmentPlacement, GenerationParameters,
-    TerrainDocument, TerrainMaterialSlot, WorldCoordinateFrame, WorldDocument,
-    WorldValidationError, canonical_world_hash,
+    EnvironmentInstance, EnvironmentPlacement, GenerationParameters, TerrainDocument,
+    TerrainMaterialSlot, WorldCoordinateFrame, WorldDocument, WorldValidationError,
+    canonical_world_hash,
 };
 
 mod profile;
+mod rotation;
 
 pub use profile::{
     BiomeChoice, BiomeProfile, CatalogProfile, GenerationProfile, MaterialChoice, PlacementProfile,
     ProfileAssetError, ProfileDigest, PropFamily, SurfaceProfile,
 };
 
+// Random streams remain at revision 1 when only the output rotation algorithm changes.
+const GENERATION_STREAM_VERSION: u32 = 1;
 const FIXED_ONE: i64 = 65_536;
 const ENVIRONMENT_LIMIT: u64 = 100_000;
 const BIOME_GRID: u32 = 8;
@@ -389,7 +392,6 @@ fn place_environment(
         let Some(choice) = choose_prop(random, rock_terrain, &request.profile.placement) else {
             continue;
         };
-        let yaw = i32::try_from(random % 6_283_185).expect("yaw is bounded to i32");
         let instance_id = u64::try_from(instances.len())
             .map_err(|_| GenerationError::TerrainTooLarge)?
             .checked_add(1)
@@ -402,7 +404,7 @@ fn place_environment(
                 elevation_meters: f64::from(heights[sample]) / 1_000.0,
                 north_meters: millimeters_to_centered_meters(north_mm, world_depth_mm),
             },
-            orientation: EnvironmentOrientation::from_yaw_radians(f64::from(yaw) / 1_000_000.0),
+            orientation: rotation::from_draw(random),
             placement: EnvironmentPlacement::BoundsGrounded,
             uniform_scale_millionths: choice.scale,
             visible: true,
@@ -535,7 +537,7 @@ fn apply_island_falloff(value: i64, east: u32, north: u32, width: u32, depth: u3
 fn hash_u64(seed: u64, domain: &str, coordinates: &[u32]) -> u64 {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"REAL-DISUNITY-GENERATION-STREAM-V2");
-    hasher.update(&CURRENT_GENERATOR_VERSION.0.to_le_bytes());
+    hasher.update(&GENERATION_STREAM_VERSION.to_le_bytes());
     hasher.update(&seed.to_le_bytes());
     hasher.update(domain.as_bytes());
     for coordinate in coordinates {
@@ -740,10 +742,11 @@ mod tests {
         let generated =
             generate_world_with_hash(&WorldGenerationRequest::development(42, authored_profile()))
                 .unwrap();
-        // Caller-supplied synthetic recipe under the fresh-v1 document/hash contract.
+        // Generator revision 2: portable Q56/Q40 yaw, unchanged revision-1 streams
+        // and synthetic profile under the fresh-v1 document/hash contract.
         assert_eq!(
             hash_hex(generated.canonical_hash),
-            "4ff0e0ab57f8a7e1b5de5a964facc50e0a0215ab021db9198525c7c9f9d4f98a"
+            "dea43c1c90bf9095183ed85bf6669c677ccedb83d76a53d1285f0ecd612ea104"
         );
     }
 

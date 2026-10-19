@@ -20,7 +20,7 @@ jobs:
           toolchain: 1.97.0
           components: rustfmt, clippy
       - name: Install software Vulkan implementation and isolated X11 display
-        run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth
+        run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth libxkbcommon-x11-0
       - uses: Swatinem/rust-cache@v2
       - name: Select lavapipe explicitly and verify the device
         shell: bash

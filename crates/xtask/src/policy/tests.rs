@@ -47,6 +47,23 @@ fn clean_fixture_passes_without_history_or_exception_data() {
 }
 
 #[test]
+fn metadata_source_paths_are_normalized_without_skipping_cpu_checks() {
+    let dir = fixture(VALID);
+    let mut data = metadata::read(dir.path(), &["--offline", "--all-features"]).unwrap();
+    for package in &mut data.packages {
+        package.manifest_path = dir.path().join("crates/model/../model/Cargo.toml");
+    }
+    check_sources(dir.path(), &data).unwrap();
+    dir.write(
+        FILE,
+        &format!("{VALID}\nfn f() {{ let _ = std::env::var(\"X\"); }}"),
+    )
+    .unwrap();
+    let error = check_sources(dir.path(), &data).unwrap_err();
+    assert!(error.contains("environment"), "{error}");
+}
+
+#[test]
 fn strict_dto_shape_rejects_unknown_fields_defaults_and_options() {
     for (source, expected) in [
         (

@@ -28,7 +28,3 @@ cargo xtask ci-managed   # explicit .NET 8 fixture and native host verification
 ```
 
 `cargo xtask ci` requires a current lockfile and runs formatting, policy, strict lint and complexity gates, then locked check/build/test/doctests. CPU, software-Vulkan, and managed CI jobs use separate explicit profiles; missing prerequisites fail rather than skip tests. Compilation subprocesses use two jobs. See [quality gates](docs/quality.md) for the layer graph, exact initial registry/literal scope, behavioral fixtures, and limitations; the environment lookup scan alone is not an explicit-policy guarantee.
-
-## Repository scope and provenance
-
-This workspace is being assembled from reusable components. Its Git history and upstream repository are not required to run a fresh checkout's quality gates. The project does not assert that code or assets are original merely because they appear here: provenance and license review must be completed before redistribution. No named commercial products, source material, or asset collections are included in this repository.

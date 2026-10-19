@@ -1,0 +1,102 @@
+literal_scopes = ["crates/camera/src/profile.rs", "crates/world-runtime/src/profile_discovery.rs"]
+owners = []
+
+[[types]]
+name = "RtsTuning"
+file = "crates/camera/src/profile.rs"
+role = "dto"
+
+[[types]]
+name = "ViewConvention"
+file = "crates/camera/src/profile.rs"
+role = "dto"
+
+[[types]]
+name = "CameraTuning"
+file = "crates/camera/src/profile.rs"
+role = "runtime"
+
+[[types]]
+name = "ResolutionPolicy"
+file = "crates/catalog/src/lib.rs"
+role = "runtime"
+
+[[types]]
+name = "RuntimeProfileLimits"
+file = "crates/world-runtime/src/authored_profile.rs"
+role = "runtime"
+
+[[types]]
+name = "RuntimeProfileDiscoveryLimits"
+file = "crates/world-runtime/src/profile_discovery.rs"
+role = "runtime"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "move_speed_normal"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_move_speed_normal"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "move_speed_fast"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_move_speed_fast"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "zoomed_pan_speed"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_zoomed_pan_speed"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "zoom_min_m"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_zoom_min_m"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "zoom_max_m"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_zoom_max_m"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "pitch_min_deg"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_pitch_min_deg"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "pitch_max_deg"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_pitch_max_deg"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "rotation_speed_radians_per_second"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_rotation_speed_radians_per_second"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "zoom_step"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_zoom_step"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "zoom_time_seconds"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_zoom_time_seconds"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "look_at_height_min_m"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_look_at_height_min_m"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "look_at_height_max_m"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_look_at_height_max_m"
+
+[[coverage]]
+dto = "RtsTuning"
+field = "hfov_by_aspect"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_hfov_by_aspect"
+
+[[coverage]]
+dto = "ViewConvention"
+field = "handedness"
+test = "crates/camera/tests/profile_consumers.rs::reaches_consumer_handedness"

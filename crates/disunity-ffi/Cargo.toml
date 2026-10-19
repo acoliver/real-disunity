@@ -1,0 +1,18 @@
+[package]
+name = "worldrunner-disunity-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Disunity C ABI: versioned, append-only exports over engine-owned handle storage"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+
+[build-dependencies]
+csbindgen = "1.9.8"
+
+[dev-dependencies]
+serde_json.workspace = true

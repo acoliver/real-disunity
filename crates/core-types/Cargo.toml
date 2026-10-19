@@ -1,0 +1,15 @@
+[package]
+name = "worldrunner-core-types"
+description = "Stable identifiers, units, coordinates, and hashes for the generic world engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

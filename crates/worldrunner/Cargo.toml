@@ -1,0 +1,63 @@
+[package]
+name = "worldrunner"
+description = "Real Disunity engine facade for applications and tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The facade adds no code of its own: it re-exports engine crates behind
+# feature-gated modules that mirror the engine layers. Games and tools depend
+# on `worldrunner` alone, so the engine can restructure internally without
+# touching game code.
+[dependencies]
+glam.workspace = true
+worldrunner-asset-id = { path = "../asset-id" }
+worldrunner-core-types = { path = "../core-types" }
+worldrunner-camera = { path = "../camera", optional = true }
+worldrunner-catalog = { path = "../catalog", optional = true }
+worldrunner-import-schema = { path = "../import-schema", optional = true }
+worldrunner-material = { path = "../material", optional = true }
+worldrunner-mesh = { path = "../mesh", optional = true }
+worldrunner-package = { path = "../package", optional = true }
+worldrunner-render-plan = { path = "../render-plan", optional = true }
+worldrunner-render-scene = { path = "../render-scene", optional = true }
+worldrunner-scene-viewer = { path = "../scene-viewer", optional = true }
+worldrunner-save = { path = "../save", optional = true }
+worldrunner-script = { path = "../script", optional = true }
+worldrunner-texture = { path = "../texture", optional = true }
+worldrunner-world-generation = { path = "../world-generation", optional = true }
+worldrunner-world-model = { path = "../world-model", optional = true }
+worldrunner-world-runtime = { path = "../world-runtime", optional = true }
+worldrunner-world-schema = { path = "../world-schema", optional = true }
+
+[features]
+default = ["assets", "gfx", "world"]
+assets = [
+    "dep:worldrunner-catalog",
+    "dep:worldrunner-import-schema",
+    "dep:worldrunner-material",
+    "dep:worldrunner-mesh",
+    "dep:worldrunner-package",
+    "dep:worldrunner-texture",
+]
+gfx = ["dep:worldrunner-camera", "dep:worldrunner-render-scene"]
+scene-viewer = ["scene", "dep:worldrunner-scene-viewer"]
+scene = ["dep:worldrunner-render-plan", "dep:worldrunner-render-scene"]
+script = ["dep:worldrunner-script"]
+world = [
+    "dep:worldrunner-render-plan",
+    "dep:worldrunner-save",
+    "dep:worldrunner-world-generation",
+    "dep:worldrunner-world-model",
+    "dep:worldrunner-world-runtime",
+    "dep:worldrunner-world-schema",
+]
+
+[lints]
+workspace = true
+
+[[example]]
+name = "scene-viewer"
+required-features = ["scene-viewer"]

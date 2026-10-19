@@ -1,0 +1,66 @@
+{
+  "abi_version": 1,
+  "description": "Disunity C ABI surface; append-only. Never change a listed signature: add an export and bump abi_version.",
+  "functions": [
+    {
+      "name": "disunity_abi_version",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_create",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_destroy",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gameobject_create",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gameobject_destroy",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_set_position",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_set_rotation_y",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_command_buffer_submit",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_step",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_error_message",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_store_statistics",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_export_objects",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    }
+  ]
+}

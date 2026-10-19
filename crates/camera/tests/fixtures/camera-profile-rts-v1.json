@@ -1,0 +1,66 @@
+{
+  "schema": "real-disunity.camera-profile",
+  "schema_version": 1,
+  "profile_id": "synthetic-orbit-v1",
+  "source": "Original synthetic editor-camera fixture; no external capture or preset.",
+  "view_convention": {
+    "handedness": "RightHanded"
+  },
+  "interactive": {
+    "clip": {
+      "near_m": 0.25,
+      "far_m": 1600.0
+    }
+  },
+  "fixed_capture": {
+    "clip": {
+      "near_m": 0.125,
+      "far_m": 800.0
+    },
+    "viewport": {
+      "width": 960,
+      "height": 720
+    },
+    "horizontal_fov_deg": 76.0
+  },
+  "free_fly": {
+    "default_speed_meters_per_second": 24.0,
+    "minimum_ground_clearance_m": 1.25
+  },
+  "rts": {
+    "move_speed_normal": 6.0,
+    "move_speed_fast": 18.0,
+    "zoomed_pan_speed": 96.0,
+    "zoom_min_m": 6.0,
+    "zoom_max_m": 72.0,
+    "pitch_min_deg": -65.0,
+    "pitch_max_deg": -15.0,
+    "rotation_speed_radians_per_second": 0.8,
+    "zoom_step": 0.125,
+    "zoom_time_seconds": 0.16,
+    "look_at_height_min_m": 1.5,
+    "look_at_height_max_m": 9.0,
+    "hfov_by_aspect": [
+      [
+        1.0,
+        60.0
+      ],
+      [
+        1.5,
+        80.0
+      ],
+      [
+        2.0,
+        100.0
+      ]
+    ]
+  },
+  "input": {
+    "mouse_sensitivity_radians_per_unit": 0.002,
+    "free_fly_slow_multiplier": 0.4,
+    "free_fly_fast_multiplier": 3.0,
+    "rts_fast_pan_multiplier": 3.0,
+    "free_fly_wheel_speed_factor": 1.125,
+    "free_fly_wheel_zoom_seconds": 0.3
+  }
+}

@@ -1,0 +1,28 @@
+[package]
+name = "worldrunner-render-scene"
+description = "Pathless wgpu renderer driven solely by a governed RenderScene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# This crate deliberately depends on no asset, catalog, package or filesystem
+# crate. Everything it draws arrives as an already-validated `RenderScene`, so
+# the absence of those dependencies is what makes "pathless" a checked property
+# rather than a claim: there is no API in scope through which a path could be
+# resolved.
+[dependencies]
+glam.workspace = true
+worldrunner-render-plan = { path = "../render-plan" }
+thiserror.workspace = true
+wgpu.workspace = true
+
+# Only for tests: naga is the shader front end wgpu itself uses, so validating
+# the WGSL here fails a build rather than a frame on a machine with a GPU.
+[dev-dependencies]
+naga = { version = "30.0.0", features = ["wgsl-in"] }
+pollster.workspace = true
+
+[lints]
+workspace = true

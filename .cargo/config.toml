@@ -1,0 +1,11 @@
+[build]
+target-dir = "target"
+incremental = false
+
+[term]
+color = "always"
+
+[alias]
+xtask-check = "check --locked --workspace --all-targets --all-features"
+xtask-test = "test --locked --workspace --all-targets --all-features"
+xtask = "run --locked --package xtask --"

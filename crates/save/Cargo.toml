@@ -1,0 +1,23 @@
+[package]
+name = "worldrunner-save"
+description = "Versioned and integrity-checked world save encoding"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+atomic-write-file.workspace = true
+blake3.workspace = true
+postcard.workspace = true
+worldrunner-core-types = { path = "../core-types" }
+worldrunner-world-schema = { path = "../world-schema" }
+thiserror.workspace = true
+
+[dev-dependencies]
+worldrunner-asset-id = { path = "../asset-id" }
+worldrunner-world-generation = { path = "../world-generation" }
+
+[lints]
+workspace = true

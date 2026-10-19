@@ -1,0 +1,16 @@
+[package]
+name = "worldrunner-camera"
+description = "Frame-rate-independent free-flight camera and input contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

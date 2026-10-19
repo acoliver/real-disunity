@@ -1,0 +1,25 @@
+[package]
+name = "worldrunner-render-plan"
+description = "GPU-free CPU planning boundary minting owned render world plans from verified normal publications"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+worldrunner-asset-id = { path = "../asset-id" }
+worldrunner-material = { path = "../material" }
+worldrunner-mesh = { path = "../mesh" }
+worldrunner-package = { path = "../package" }
+worldrunner-texture = { path = "../texture" }
+worldrunner-world-model = { path = "../world-model" }
+worldrunner-world-runtime = { path = "../world-runtime" }
+worldrunner-world-schema = { path = "../world-schema" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

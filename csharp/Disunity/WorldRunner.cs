@@ -1,0 +1,215 @@
+using System.Runtime.InteropServices;
+
+namespace Disunity;
+
+/// <summary>Command kinds as defined by the native ABI.</summary>
+public enum NativeCommandKind : uint
+{
+    SetPosition = 0,
+    SetRotationY = 1,
+    SetMaterialSlot = 2,
+}
+
+/// <summary>One native command; slot values ride in X for small integers.</summary>
+internal readonly record struct NativeCommand(ulong Object, NativeCommandKind Kind, float X, float Y, float Z);
+
+/// <summary>
+/// Managed engine entry point. One native world at a time;
+/// the host loads, ticks, extracts, and unloads.
+/// </summary>
+public static class WorldRunner
+{
+    private static readonly List<NativeCommand> Pending = new();
+    private static readonly List<GameObject> Tracked = new();
+    private static readonly List<MonoBehaviour> Behaviours = new();
+    private static bool _started;
+    private static bool _loaded;
+
+    /// <summary>Selects the shared native engine image before any engine APIs are used.</summary>
+    public static void ConfigureNativeLibrary(string path) => NativeLibrary.Configure(path);
+
+    /// <summary>The native world handle; hosts pass it to bulk export calls.</summary>
+    public static ulong WorldHandle { get; private set; }
+
+    /// <summary>True between <see cref="LoadWorld"/> and <see cref="UnloadWorld"/>.</summary>
+    public static bool IsLoaded => _loaded;
+
+    /// <summary>Creates the native world and runs Awake on all behaviours.</summary>
+    public static void LoadWorld()
+    {
+        EnsureLoaded();
+        if (_loaded)
+        {
+            throw new InvalidOperationException("a world is already loaded");
+        }
+        ulong world;
+        DisunityResult result;
+        unsafe
+        {
+            result = NativeBindings.disunity_world_create(&world);
+        }
+        ThrowIfError(result);
+        WorldHandle = world;
+        _loaded = true;
+        _started = false;
+        Time.DeltaTime = 0.0f;
+        Time.Frame = 0;
+    }
+
+    /// <summary>Creates a tracked object in the native store.</summary>
+    public static GameObject CreateGameObject()
+    {
+        EnsureLoaded();
+        ulong handle;
+        DisunityResult result;
+        unsafe
+        {
+            result = NativeBindings.disunity_gameobject_create(WorldHandle, &handle);
+        }
+        ThrowIfError(result);
+        var gameObject = new GameObject(handle);
+        Tracked.Add(gameObject);
+        return gameObject;
+    }
+
+    /// <summary>Attaches a behaviour whose lifecycle the host drives.</summary>
+    public static T AddComponent<T>(T behaviour) where T : MonoBehaviour
+    {
+        ArgumentNullException.ThrowIfNull(behaviour);
+        if (!_loaded)
+        {
+            throw new InvalidOperationException("components require a loaded world");
+        }
+        behaviour.gameObject = CreateGameObject();
+        Behaviours.Add(behaviour);
+        behaviour.Awake();
+        return behaviour;
+    }
+
+    /// <summary>
+    /// One simulation tick: flush the command buffer, step the native world,
+    /// then run script phases. Start runs once, before the first tick's
+    /// Update; LateUpdate runs after Update, before state extraction.
+    /// </summary>
+    public static void Step(float deltaTime)
+    {
+        EnsureLoaded();
+        if (!_loaded)
+        {
+            throw new InvalidOperationException("no world is loaded");
+        }
+        SubmitPending();
+        var stepResult = NativeBindings.disunity_world_step(WorldHandle, deltaTime, 1);
+        ThrowIfError(stepResult);
+        Time.DeltaTime = deltaTime;
+        Time.Frame += 1;
+        if (!_started)
+        {
+            foreach (var behaviour in Behaviours)
+            {
+                behaviour.Start();
+            }
+            _started = true;
+        }
+        foreach (var behaviour in Behaviours)
+        {
+            behaviour.Update();
+        }
+        foreach (var behaviour in Behaviours)
+        {
+            behaviour.LateUpdate();
+        }
+    }
+
+    /// <summary>Drains pending commands into the native buffer.</summary>
+    internal static void SubmitPending()
+    {
+        if (Pending.Count == 0)
+        {
+            return;
+        }
+        unsafe
+        {
+            var buffer = new DisunityCommand[Pending.Count];
+            for (var i = 0; i < Pending.Count; i++)
+            {
+                buffer[i] = new DisunityCommand
+                {
+                    @object = Pending[i].Object,
+                    kind = (uint)Pending[i].Kind,
+                    x = Pending[i].X,
+                    y = Pending[i].Y,
+                    z = Pending[i].Z,
+                };
+            }
+            fixed (DisunityCommand* commands = buffer)
+            {
+                var result = NativeBindings.disunity_command_buffer_submit(
+                    WorldHandle, commands, (uint)buffer.Length);
+                ThrowIfError(result);
+            }
+        }
+        Pending.Clear();
+    }
+
+    internal static void Enqueue(NativeCommand command) => Pending.Add(command);
+
+    internal static void Forget(GameObject gameObject) => Tracked.Remove(gameObject);
+
+    /// <summary>Destroys the native world and runs OnDestroy on all behaviours.</summary>
+    public static void UnloadWorld()
+    {
+        if (!_loaded)
+        {
+            return;
+        }
+        foreach (var behaviour in Behaviours)
+        {
+            behaviour.OnDestroy();
+        }
+        foreach (var gameObject in Tracked)
+        {
+            gameObject.MarkDestroyed();
+        }
+        Behaviours.Clear();
+        Tracked.Clear();
+        Pending.Clear();
+        var destroyResult = NativeBindings.disunity_world_destroy(WorldHandle);
+        ThrowIfError(destroyResult);
+        WorldHandle = 0;
+        _loaded = false;
+        _started = false;
+    }
+
+    internal static void EnsureLoaded() => NativeLibrary.EnsureLoaded();
+
+    internal static void ThrowIfError(DisunityResult result)
+    {
+        if (result.code == 0)
+        {
+            return;
+        }
+        var message = FetchErrorMessage();
+        throw new DisunityException(result.code, string.IsNullOrEmpty(message) ? $"native error {result.code}" : message);
+    }
+
+    private static string FetchErrorMessage()
+    {
+        var buffer = new byte[512];
+        int decoded;
+        unsafe
+        {
+            uint length = 0;
+            fixed (byte* target = buffer)
+            {
+                var errorResult = NativeBindings.disunity_error_message(
+                    WorldHandle, target, (uint)buffer.Length, &length);
+                decoded = errorResult.code == 0 ? (int)length : 0;
+            }
+        }
+        return decoded > 0 ? System.Text.Encoding.UTF8.GetString(buffer.AsSpan(0, decoded)) : string.Empty;
+    }
+}
+
+/// <summary>Native failure surfaced with the engine's own message.</summary>
+public sealed class DisunityException(int code, string message) : Exception($"[{code}] {message}");

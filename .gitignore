@@ -1,0 +1,12 @@
+/target/
+**/*.rs.bk
+.env
+.env.*
+!.env.example
+
+/artifacts/
+*.log
+__pycache__/
+*.py[cod]
+/csharp/**/bin/
+/csharp/**/obj/

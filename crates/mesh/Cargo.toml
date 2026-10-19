@@ -1,0 +1,17 @@
+[package]
+name = "worldrunner-mesh"
+description = "Versioned portable static-mesh artifacts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+postcard.workspace = true
+serde.workspace = true
+worldrunner-asset-id = { path = "../asset-id" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

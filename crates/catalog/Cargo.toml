@@ -1,0 +1,16 @@
+[package]
+name = "worldrunner-catalog"
+description = "Deterministic runtime asset catalog resolution and dependency planning"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+worldrunner-asset-id = { path = "../asset-id" }
+worldrunner-package = { path = "../package" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

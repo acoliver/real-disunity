@@ -1,0 +1,43 @@
+name: Software Vulkan
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  lavapipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - name: Install software Vulkan implementation and isolated X11 display
+        run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth
+      - uses: Swatinem/rust-cache@v2
+      - name: Select lavapipe explicitly and verify the device
+        shell: bash
+        run: |
+          set -euo pipefail
+          icd=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          if [ ! -f "$icd" ]; then icd=/usr/share/vulkan/icd.d/lvp_icd.json; fi
+          test -f "$icd"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+          echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP/vulkan-runtime" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/vulkan-runtime"
+          chmod 700 "$RUNNER_TEMP/vulkan-runtime"
+          VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" vulkaninfo --summary | tee "$RUNNER_TEMP/vulkan-device.txt"
+          grep -Ei 'llvmpipe|lavapipe' "$RUNNER_TEMP/vulkan-device.txt"
+      - name: Required full GPU suite, all targets/features and doctests
+        env:
+          WGPU_BACKEND: vulkan
+          WGPU_ADAPTER_NAME: llvmpipe
+        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu

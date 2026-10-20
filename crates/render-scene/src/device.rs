@@ -1,8 +1,5 @@
 //! Explicit GPU acquisition with caller-selected feature requirements.
-use wgpu::{
-    Adapter, Backends, Device, DeviceDescriptor, Features, Instance, Limits, PowerPreference,
-    Queue, RequestAdapterOptions, Trace,
-};
+use wgpu::{Adapter, Device, Features, Instance, PowerPreference, Queue, RequestAdapterOptions};
 
 use thiserror::Error;
 
@@ -56,10 +53,7 @@ impl GpuContext {
     /// Use [`Features::empty()`] for scenes containing only raw textures.
     /// Returns [`DeviceError`] if no adapter exists or any requirement is unmet.
     pub async fn request_with_features(required_features: Features) -> Result<Self, DeviceError> {
-        let instance = Instance::new(wgpu::InstanceDescriptor {
-            backends: Backends::PRIMARY,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
+        let instance = worldrunner_render_gpu::device::headless_instance();
         Self::from_instance_with_features(&instance, required_features).await
     }
 
@@ -108,17 +102,15 @@ impl GpuContext {
             });
         }
 
-        let (device, queue) = adapter
-            .request_device(&DeviceDescriptor {
-                label: Some("worldrunner-render-scene"),
+        let (device, queue, _) = worldrunner_render_gpu::device::request_device(
+            &adapter,
+            &worldrunner_render_gpu::device::DeviceRequirements {
                 required_features,
-                required_limits: Limits::default(),
-                memory_hints: wgpu::MemoryHints::default(),
-                trace: Trace::Off,
-                ..DeviceDescriptor::default()
-            })
-            .await
-            .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;
 
         Ok(Self {
             adapter,

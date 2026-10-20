@@ -61,8 +61,11 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-world-generation", Layer::World),
     ("worldrunner-save", Layer::World),
     ("worldrunner-render-plan", Layer::Bridge),
+    ("worldrunner-render-gpu", Layer::Graphics),
     ("worldrunner-render-scene", Layer::Graphics),
     ("worldrunner-render-shadow", Layer::Graphics),
+    ("worldrunner-render-lighting", Layer::Graphics),
+    ("worldrunner-render-post", Layer::Graphics),
     ("worldrunner-scene-viewer", Layer::Host),
     ("worldrunner-disunity-runtime", Layer::Managed),
     ("worldrunner-content-tool", Layer::Tool),
@@ -209,8 +212,11 @@ fn forbidden(name: &str) -> bool {
     .any(|prefix| name == *prefix || name.starts_with(&format!("{prefix}-")))
         || matches!(
             name,
-            "worldrunner-render-scene"
+            "worldrunner-render-gpu"
+                | "worldrunner-render-scene"
                 | "worldrunner-render-shadow"
+                | "worldrunner-render-lighting"
+                | "worldrunner-render-post"
                 | "worldrunner-scene-viewer"
                 | "worldrunner-disunity-runtime"
         )

@@ -1,0 +1,50 @@
+/// Literal expansion permits static shader composition without a filesystem or runtime loader.
+#[macro_export]
+macro_rules! lighting_wgsl {
+    () => { r"
+// Universal kernels: caller supplies data, basis, algorithm and numerical guards.
+fn rd_distribution_ggx(no_h: f32, roughness: f32, epsilon: f32, guard_normalized_denominator: bool) -> f32 {
+    let alpha = roughness * roughness;
+    let raw_denominator = no_h * no_h * (alpha * alpha - 1.0) + 1.0;
+    if guard_normalized_denominator {
+        return alpha * alpha / max(3.141592653589793 * raw_denominator * raw_denominator, epsilon);
+    }
+    let denominator = max(raw_denominator, epsilon);
+    let ratio = alpha / denominator;
+    return ratio * ratio / 3.141592653589793;
+}
+// algorithm 0: height-correlated Smith; 1: Schlick-Smith with hotness reduction.
+fn rd_visibility(no_v: f32, no_l: f32, roughness: f32, algorithm: u32) -> f32 {
+    if algorithm == 1u {
+        let k = max((roughness + 1.0) * (roughness + 1.0) * 0.125, 1e-5);
+        return 0.25 / ((no_l * (1.0-k) + k) * (no_v * (1.0-k) + k));
+    }
+    let a2 = roughness * roughness * roughness * roughness;
+    let v = no_l * sqrt(no_v * no_v * (1.0-a2) + a2);
+    let l = no_v * sqrt(no_l * no_l * (1.0-a2) + a2);
+    return 0.5 / max(v+l, 1e-7);
+}
+fn rd_fresnel_schlick(cosine: f32, f0: vec3<f32>) -> vec3<f32> {
+    let t = clamp(1.0-cosine, 0.0, 1.0);
+    return f0 + (vec3<f32>(1.0)-f0) * t*t*t*t*t;
+}
+fn rd_hemisphere(normal: vec3<f32>, up: vec3<f32>, ground: vec3<f32>, sky: vec3<f32>) -> vec3<f32> {
+    return mix(ground, sky, dot(normal, up)*0.5+0.5);
+}
+fn rd_toward_light(direction: vec3<f32>, is_light_travel: bool) -> vec3<f32> {
+    return normalize(select(direction, -direction, is_light_travel));
+}
+fn rd_apply_exposure(radiance: vec3<f32>, multiplier: f32) -> vec3<f32> {
+    return radiance * multiplier;
+}
+fn rd_exposure_from_stops(stops: f32) -> f32 { return exp2(stops); }
+// Coefficients multiply [1,x,y,z,xy,xz,yz,x²-y²,z²] in an explicitly supplied frame.
+fn rd_irradiance_polynomial(direction: vec3<f32>, c: array<vec3<f32>, 9>) -> vec3<f32> {
+    let x = direction.x;
+    let y = direction.y;
+    let z = direction.z;
+    return c[0] + c[1]*x + c[2]*y + c[3]*z + c[4]*(x*y)
+        + c[5]*(x*z) + c[6]*(y*z) + c[7]*(x*x-y*y) + c[8]*(z*z);
+}
+" };
+}

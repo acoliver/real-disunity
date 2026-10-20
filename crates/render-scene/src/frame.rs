@@ -25,8 +25,12 @@
 //! visible.
 
 use crate::view::SceneView;
-use glam::{Mat4, Vec3};
+use glam::{Mat3, Mat4, Vec3};
 use thiserror::Error;
+use worldrunner_render_lighting::{
+    AmbientLight, DirectionSemantics, DirectionalLight, EnvironmentConfig, ExposureOwnership,
+    LightingFrame,
+};
 use worldrunner_render_plan::{
     ROTATION_MICRO_SCALE, SceneAmbient, SceneColor, SceneEffects, SceneSky, SceneSun,
 };
@@ -58,6 +62,9 @@ const CHANNEL_MAX: f32 = 255.0;
 /// A frame uniform could not be built from the governed scene.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum FrameError {
+    /// The decoded lighting environment cannot be represented safely.
+    #[error(transparent)]
+    Environment(#[from] worldrunner_render_lighting::EnvironmentError),
     /// The sun direction is not a unit vector in its first three components.
     #[error(
         "sun direction (x,y,z) = ({x}, {y}, {z}) is not unit length in micro-units; \
@@ -113,14 +120,31 @@ impl FrameUniform {
     /// colour.
     pub fn new(view: &SceneView, effects: &SceneEffects) -> Result<Self, FrameError> {
         let (sky, ground) = ambient_radiance(*effects.sky(), effects.ambient())?;
+        let environment = EnvironmentConfig {
+            frame: LightingFrame {
+                up: Vec3::Z,
+                coefficient_from_world: Mat3::IDENTITY,
+                direction_semantics: DirectionSemantics::TowardLight,
+            },
+            direct: DirectionalLight {
+                direction: sun_direction(effects.sun())?,
+                radiance: Vec3::splat(micro_to_unit(effects.sun().irradiance_micro)),
+            },
+            shadow_direction: None,
+            ambient: AmbientLight::Hemisphere { sky, ground },
+            exposure: ExposureOwnership::SceneLinear(micro_to_unit(u64::from(
+                effects.grading().exposure_micro,
+            ))),
+        }
+        .prepare()?;
         Ok(Self {
             view_projection: view.view_projection_matrix(),
             camera_position: view.eye_meters(),
-            sun_direction: sun_direction(effects.sun())?,
-            sun_irradiance: Vec3::splat(micro_to_unit(effects.sun().irradiance_micro)),
+            sun_direction: environment.toward_light,
+            sun_irradiance: environment.direct_radiance,
             ambient_sky: sky,
             ambient_ground: ground,
-            exposure: micro_to_unit(u64::from(effects.grading().exposure_micro)),
+            exposure: environment.scene_exposure,
         })
     }
 

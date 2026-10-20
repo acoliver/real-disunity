@@ -28,6 +28,8 @@ const NEAREST_LEVEL: usize = 0;
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
 pub enum DrawError {
+    #[error(transparent)]
+    Upload(#[from] worldrunner_render_gpu::texture::UploadError),
     /// One texture payload could not be read as an uploadable container.
     #[error("scene texture {index} could not be prepared: {source}")]
     Texture {
@@ -295,48 +297,11 @@ fn upload_textures(
     for (index, texture) in scene.resources().textures().iter().enumerate() {
         let prepared =
             prepare_texture(texture).map_err(|source| DrawError::Texture { index, source })?;
-        let uploaded = upload_texture(device, queue, &prepared);
+        let uploaded = upload_texture(device, queue, &prepared)?;
         views.push(uploaded.create_view(&TextureViewDescriptor::default()));
         textures.push(uploaded);
     }
     Ok((textures, views))
-}
-
-/// Binds one material's uniform, five maps and sampler into group one.
-///
-/// The five views are bound in the order the shader declares them — albedo,
-/// normal, roughness-metallic, ambient occlusion, self illumination — at
-/// bindings one through five. Building those entries in a loop rather than by
-/// hand keeps that correspondence in one place: a transposed pair here would
-/// not fail validation, because all five slots have identical layouts, and
-/// would instead surface as a material sampling its normal map as colour.
-fn material_bind_group(
-    device: &Device,
-    layout: &BindGroupLayout,
-    uniform: &Buffer,
-    bound: [&TextureView; 5],
-    sampler: &Sampler,
-) -> BindGroup {
-    let mut entries = Vec::with_capacity(7);
-    entries.push(BindGroupEntry {
-        binding: 0,
-        resource: uniform.as_entire_binding(),
-    });
-    for (slot, view) in bound.into_iter().enumerate() {
-        entries.push(BindGroupEntry {
-            binding: u32::try_from(slot + 1).expect("five texture slots number far below u32::MAX"),
-            resource: BindingResource::TextureView(view),
-        });
-    }
-    entries.push(BindGroupEntry {
-        binding: 6,
-        resource: BindingResource::Sampler(sampler),
-    });
-    device.create_bind_group(&BindGroupDescriptor {
-        label: Some("material"),
-        layout,
-        entries: &entries,
-    })
 }
 
 /// What every material bind group shares, as opposed to its own maps.
@@ -364,13 +329,6 @@ fn upload_materials(
     let mut groups = Vec::new();
     let mut uniforms = Vec::new();
     for material in scene.resources().materials() {
-        let uniform = upload_buffer(
-            device,
-            queue,
-            "material uniform",
-            BufferUsages::UNIFORM,
-            &MaterialUniform::from_material(material).to_bytes(),
-        );
         let optional = |handle: Option<TextureHandle>| {
             handle.map_or(placeholder, |handle| &views[table_index(handle)])
         };
@@ -381,10 +339,20 @@ fn upload_materials(
             optional(material.ambient_occlusion()),
             optional(material.self_illumination()),
         ];
-        groups.push(material_bind_group(
-            device, layout, &uniform, bound, sampler,
-        ));
-        uniforms.push(uniform);
+        let prepared = worldrunner_render_gpu::resource::PreparedMaterial::new(
+            device,
+            queue,
+            worldrunner_render_gpu::resource::MaterialDescriptor {
+                label: "material",
+                layout,
+                bindings: None,
+                uniform_bytes: &MaterialUniform::from_material(material).to_bytes(),
+                textures: &bound,
+                sampler,
+            },
+        );
+        groups.push(prepared.bind_group);
+        uniforms.push(prepared.uniform);
     }
     (groups, uniforms)
 }
@@ -506,7 +474,7 @@ fn upload_terrain(
         terrain.columns(),
         terrain.rows(),
         terrain.surface_indices(),
-    );
+    )?;
     let palettes = upload_palettes(device, queue, scene, uniform.layer_materials())?;
 
     // The uniform buffer is built here rather than inside the bind group so
@@ -655,11 +623,13 @@ fn upload_palettes(
         "terrain-palette-normal",
         "terrain-palette-rough-metal",
     ];
-    Ok(prepared
+    prepared
         .iter()
         .zip(labels)
-        .filter_map(|(layers, label)| upload_palette_array(device, queue, label, layers))
-        .collect())
+        .map(|(layers, label)| {
+            upload_palette_array(device, queue, label, layers).map_err(DrawError::from)
+        })
+        .collect()
 }
 
 #[cfg(test)]

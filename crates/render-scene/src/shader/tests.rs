@@ -170,7 +170,7 @@ fn ambient_light_blends_about_the_scenes_own_up_axis() {
     // on y would run the horizon vertically and light the world sideways - a
     // fault that looks like a broken sky rather than a wrong axis.
     assert!(
-        ENVIRONMENT_WGSL.contains("let sky_fraction = normal.z * 0.5 + 0.5;"),
+        ENVIRONMENT_WGSL.contains("rd_hemisphere(normal, vec3<f32>(0.0, 0.0, 1.0),"),
         "the ambient hemisphere must blend on the scene's up axis"
     );
 }

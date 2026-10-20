@@ -1,10 +1,13 @@
 //! Bounded offscreen RGBA capture, independent of files, image codecs or provenance.
 
+#[cfg(test)]
 use std::sync::mpsc;
+#[cfg(test)]
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
 use worldrunner_render_plan::RenderScene;
+use worldrunner_render_post::{FrameConfig, Readback, ReadbackError, color_texture};
 
 use crate::device::GpuContext;
 use crate::draw::{DrawError, SceneGpu};
@@ -69,6 +72,9 @@ pub enum OffscreenError {
     /// The mapped range was unavailable.
     #[error("offscreen mapped range is unavailable: {0}")]
     MappedRange(#[source] wgpu::MapRangeError),
+    /// Shared target/readback validation retained at the canonical boundary.
+    #[error("offscreen output service failed: {0}")]
+    Output(#[source] ReadbackError),
 }
 
 /// A tightly packed, top-to-bottom RGBA8 image in sRGB colour space.
@@ -92,7 +98,9 @@ struct ReadbackLayout {
     viewport: Viewport,
     bytes_per_row: u32,
     padded_bytes: usize,
+    #[cfg(test)]
     image_bytes: usize,
+    #[cfg(test)]
     width_bytes: usize,
 }
 
@@ -111,6 +119,7 @@ impl ReadbackLayout {
                 limit: limits.max_texture_dimension_2d,
             });
         }
+        #[cfg(test)]
         let width_bytes = u64::from(viewport.width) * 4;
         let bytes_per_row = aligned_bytes_per_row(viewport.width)?;
         let required = u64::from(bytes_per_row) * u64::from(viewport.height);
@@ -123,28 +132,22 @@ impl ReadbackLayout {
             viewport,
             bytes_per_row,
             padded_bytes: host_size(required)?,
+            #[cfg(test)]
             image_bytes: host_size(width_bytes * u64::from(viewport.height))?,
+            #[cfg(test)]
             width_bytes: host_size(width_bytes)?,
         })
     }
 
+    #[cfg(test)]
     fn unpad(&self, bytes: &[u8]) -> Result<Vec<u8>, OffscreenError> {
-        if bytes.len() < self.padded_bytes {
-            return Err(OffscreenError::ShortReadback {
-                expected: self.padded_bytes,
-                actual: bytes.len(),
-            });
-        }
-        let mut pixels = Vec::new();
-        pixels
-            .try_reserve_exact(self.image_bytes)
-            .map_err(OffscreenError::Allocation)?;
-        // These sizes were checked together before allocation; no saturating pitch
-        // can silently truncate a row or shear the output image.
-        for row in bytes[..self.padded_bytes].chunks_exact(self.bytes_per_row as usize) {
-            pixels.extend_from_slice(&row[..self.width_bytes]);
-        }
-        Ok(pixels)
+        worldrunner_render_post::unpad_rows(
+            self.bytes_per_row,
+            self.width_bytes,
+            self.viewport.height,
+            bytes,
+        )
+        .map_err(output_error)
     }
 }
 
@@ -157,7 +160,7 @@ pub struct OffscreenTarget {
     color: wgpu::Texture,
     color_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
-    buffer: wgpu::Buffer,
+    readback: Readback,
     layout: ReadbackLayout,
 }
 
@@ -179,30 +182,21 @@ impl OffscreenTarget {
         max_bytes: u64,
     ) -> Result<Self, OffscreenError> {
         let layout = ReadbackLayout::new(viewport, &device.limits(), max_bytes)?;
-        let color = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("offscreen RGBA target"),
-            size: extent(viewport),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: Self::COLOR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        let config = FrameConfig::new([viewport.width, viewport.height], Self::COLOR_FORMAT, 1);
+        let color = color_texture(device, "offscreen RGBA target", config.size, config.format);
         let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_view =
             depth_texture(device, viewport).create_view(&wgpu::TextureViewDescriptor::default());
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("offscreen readback"),
-            size: layout.padded_bytes as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        debug_assert_eq!(
+            u64::from(layout.bytes_per_row) * u64::from(viewport.height),
+            layout.padded_bytes as u64
+        );
+        let readback = Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?;
         Ok(Self {
             color,
             color_view,
             depth_view,
-            buffer,
+            readback,
             layout,
         })
     }
@@ -270,81 +264,38 @@ impl OffscreenTarget {
     /// Timeouts return [`OffscreenError::Poll`] with [`wgpu::PollError::Timeout`].
     /// All resources and the supplied context must belong to the same device.
     pub fn read_rgba8(&mut self, context: &GpuContext) -> Result<RgbaImage, OffscreenError> {
-        let mut encoder =
-            context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("offscreen readback"),
-                });
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.color,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &self.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.layout.bytes_per_row),
-                    rows_per_image: Some(self.viewport().height),
-                },
-            },
-            extent(self.viewport()),
-        );
-        let submission = context.queue().submit([encoder.finish()]);
-        let result = self.map_pixels(context.device(), submission);
-        self.buffer.unmap();
-        result.map(|pixels| RgbaImage {
+        let pixels = self
+            .readback
+            .read(context.device(), context.queue(), &self.color)
+            .map_err(output_error)?;
+        Ok(RgbaImage {
             viewport: self.viewport(),
             pixels,
         })
     }
-
-    fn map_pixels(
-        &self,
-        device: &wgpu::Device,
-        submission: wgpu::SubmissionIndex,
-    ) -> Result<Vec<u8>, OffscreenError> {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let slice = self.buffer.slice(..);
-        let (send, recv) = mpsc::sync_channel(1);
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            // A timeout can drop the receiver before the driver delivers this callback.
-            let _ = send.send(result);
-        });
-        wait_for_map(
-            deadline,
-            |timeout| {
-                device.poll(wgpu::PollType::Wait {
-                    submission_index: Some(submission),
-                    timeout: Some(timeout),
-                })
-            },
-            |timeout| recv.recv_timeout(timeout),
-        )?;
-        let mapped = slice
-            .get_mapped_range()
-            .map_err(OffscreenError::MappedRange)?;
-        self.layout.unpad(&mapped)
-    }
 }
 
+#[cfg(test)]
 fn wait_for_map(
     deadline: Instant,
     poll: impl FnOnce(Duration) -> Result<wgpu::PollStatus, wgpu::PollError>,
     receive: impl FnOnce(Duration) -> Result<Result<(), wgpu::BufferAsyncError>, mpsc::RecvTimeoutError>,
 ) -> Result<(), OffscreenError> {
-    poll(deadline.saturating_duration_since(Instant::now())).map_err(OffscreenError::Poll)?;
-    // Another poller can collect the callback but not yet deliver its result.
-    // Poll completion is not a barrier for callbacks running on other threads.
-    receive(deadline.saturating_duration_since(Instant::now()))
-        .map_err(|error| match error {
-            mpsc::RecvTimeoutError::Timeout => OffscreenError::Poll(wgpu::PollError::Timeout),
-            mpsc::RecvTimeoutError::Disconnected => OffscreenError::MapCallback,
-        })?
-        .map_err(OffscreenError::Map)
+    worldrunner_render_post::wait_for_map(deadline, poll, receive).map_err(output_error)
+}
+
+fn output_error(error: ReadbackError) -> OffscreenError {
+    match error {
+        ReadbackError::Poll(error) => OffscreenError::Poll(error),
+        ReadbackError::Map(error) => OffscreenError::Map(error),
+        ReadbackError::Callback => OffscreenError::MapCallback,
+        ReadbackError::Range(error) => OffscreenError::MappedRange(error),
+        ReadbackError::Short { expected, actual } => {
+            OffscreenError::ShortReadback { expected, actual }
+        }
+        ReadbackError::Allocation(error) => OffscreenError::Allocation(error),
+        error => OffscreenError::Output(error),
+    }
 }
 
 /// Uploads and captures a scene using standard pipelines, without encoding or I/O.
@@ -361,14 +312,6 @@ pub fn capture_scene(
     let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
     gpu.set_frame(context.queue(), frame);
     target.render(context, &gpu, &pipelines)
-}
-
-const fn extent(viewport: Viewport) -> wgpu::Extent3d {
-    wgpu::Extent3d {
-        width: viewport.width,
-        height: viewport.height,
-        depth_or_array_layers: 1,
-    }
 }
 
 #[cfg(test)]

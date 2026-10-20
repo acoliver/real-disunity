@@ -1,6 +1,7 @@
 use std::sync::{Arc, mpsc};
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
+use worldrunner_render_gpu::surface::{AcquiredFrame, Presenter, SurfaceError, SurfacePolicy};
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_scene::{
     SceneView, Viewport,
@@ -18,17 +19,14 @@ use crate::{
 
 pub(super) struct Renderer {
     // Surface is dropped before its instance/window; it also owns an Arc<Window>.
-    surface: wgpu::Surface<'static>,
+    presenter: Presenter<'static>,
     instance: wgpu::Instance,
     pub window: Arc<Window>,
     context: GpuContext,
-    config: wgpu::SurfaceConfiguration,
     presentation: Presentation,
     resident: Resident,
     pub viewport: Option<Viewport>,
     errors: mpsc::Receiver<String>,
-    #[cfg(test)]
-    configurations: usize,
 }
 
 enum Resident {
@@ -48,9 +46,9 @@ impl Renderer {
         scene: &RenderScene,
         shadows: Option<DirectionalShadowSettings>,
     ) -> Result<Self, ViewerError> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
-            Box::new(display),
-        ));
+        let instance = wgpu::Instance::new(
+            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display)),
+        );
         let surface = instance.create_surface(window.clone())?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -77,24 +75,21 @@ impl Renderer {
             },
         });
         let viewport = extents.map(|extents| extents.surface);
-        let config = surface_config(&surface, &context, initial.surface)?;
-        if viewport.is_some() {
-            surface.configure(context.device(), &config);
-        }
-        let presentation = Presentation::new(context.device(), config.format, initial.render);
+        let capabilities = surface.get_capabilities(context.adapter());
+        let policy = surface_policy(&capabilities, [size.width, size.height])?;
+        let presenter = Presenter::new(surface, &capabilities, context.device(), policy)
+            .map_err(surface_error)?;
+        let presentation = Presentation::new(context.device(), policy.format, initial.render);
         let resident = Resident::new(&context, scene, shadows)?;
         let renderer = Self {
-            surface,
+            presenter,
             instance,
             window,
             context,
-            config,
             presentation,
             resident,
             viewport,
             errors,
-            #[cfg(test)]
-            configurations: usize::from(viewport.is_some()),
         };
         renderer.check_errors()?;
         Ok(renderer)
@@ -105,27 +100,18 @@ impl Renderer {
             size,
             self.context.device().limits().max_texture_dimension_2d,
         )?;
+        self.presenter
+            .resize(self.context.device(), size)
+            .map_err(surface_error)?;
         self.viewport = extents.map(|extents| extents.surface);
-        if let Some(extents) = extents {
-            if self.presentation.targets.color.texture().width() != extents.render.width
-                || self.presentation.targets.color.texture().height() != extents.render.height
-            {
-                self.presentation
-                    .resize(self.context.device(), extents.render);
-            }
-            self.config.width = extents.surface.width;
-            self.config.height = extents.surface.height;
-            self.configure();
+        if let Some(extents) = extents
+            && (self.presentation.targets.color.texture().width() != extents.render.width
+                || self.presentation.targets.color.texture().height() != extents.render.height)
+        {
+            self.presentation
+                .resize(self.context.device(), extents.render);
         }
         Ok(())
-    }
-
-    fn configure(&mut self) {
-        self.surface.configure(self.context.device(), &self.config);
-        #[cfg(test)]
-        {
-            self.configurations += 1;
-        }
     }
 
     pub fn check_errors(&self) -> Result<(), ViewerError> {
@@ -141,32 +127,42 @@ impl Renderer {
         if self.viewport.is_none() {
             return Ok(false);
         }
-        self.render_acquired(view, self.surface.get_current_texture())
+        let acquired = self
+            .presenter
+            .acquire(self.context.device())
+            .map_err(surface_error)?;
+        self.render_frame(view, acquired)
     }
 
+    #[cfg(test)]
     fn render_acquired(
         &mut self,
         view: &SceneView,
         acquired: wgpu::CurrentSurfaceTexture,
     ) -> Result<bool, ViewerError> {
+        let acquired = self
+            .presenter
+            .handle_acquired(self.context.device(), acquired)
+            .map_err(surface_error)?;
+        self.render_frame(view, acquired)
+    }
+
+    fn render_frame(
+        &mut self,
+        view: &SceneView,
+        acquired: AcquiredFrame,
+    ) -> Result<bool, ViewerError> {
         let frame = match acquired {
-            // Suboptimal is usable. Reconfiguration is left to resize/outdated:
-            // dropping it can starve presentation forever on some platforms.
-            wgpu::CurrentSurfaceTexture::Success(frame)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+            AcquiredFrame::Frame(frame) => frame,
+            AcquiredFrame::Skip | AcquiredFrame::Reconfigure => return Ok(false),
+            AcquiredFrame::Recreate => {
+                let surface = self.instance.create_surface(self.window.clone())?;
+                let capabilities = surface.get_capabilities(self.context.adapter());
+                self.presenter
+                    .replace_surface(surface, &capabilities, self.context.device())
+                    .map_err(surface_error)?;
                 return Ok(false);
             }
-            wgpu::CurrentSurfaceTexture::Outdated => {
-                self.configure();
-                return Ok(false);
-            }
-            wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface = self.instance.create_surface(self.window.clone())?;
-                self.configure();
-                return Ok(false);
-            }
-            wgpu::CurrentSurfaceTexture::Validation => return Err(ViewerError::SurfaceValidation),
         };
         let targets = &self.presentation.targets;
         let mut encoder =
@@ -214,28 +210,35 @@ fn device_errors(device: &wgpu::Device) -> mpsc::Receiver<String> {
     errors
 }
 
-fn surface_config(
-    surface: &wgpu::Surface<'_>,
-    context: &GpuContext,
-    size: Viewport,
-) -> Result<wgpu::SurfaceConfiguration, ViewerError> {
-    let mut config = surface
-        .get_default_config(context.adapter(), size.width, size.height)
+fn surface_error(error: SurfaceError) -> ViewerError {
+    match error {
+        SurfaceError::Validation => ViewerError::SurfaceValidation,
+        other => ViewerError::Gpu(other.to_string()),
+    }
+}
+
+fn surface_policy(
+    capabilities: &wgpu::SurfaceCapabilities,
+    size: [u32; 2],
+) -> Result<SurfacePolicy, ViewerError> {
+    let format = worldrunner_render_gpu::surface::select_format(
+        capabilities,
+        worldrunner_render_gpu::surface::FormatPreference::Srgb,
+    )
+    .map_err(|_| ViewerError::SurfaceFormat)?
+    .format;
+    let alpha_mode = *capabilities
+        .alpha_modes
+        .first()
         .ok_or(ViewerError::SurfaceFormat)?;
-    config.format = surface
-        .get_capabilities(context.adapter())
-        .formats
-        .into_iter()
-        .find(|format| {
-            matches!(
-                format,
-                wgpu::TextureFormat::Bgra8UnormSrgb | wgpu::TextureFormat::Rgba8UnormSrgb
-            )
-        })
-        .ok_or(ViewerError::SurfaceFormat)?;
-    config.present_mode = wgpu::PresentMode::Fifo;
-    config.desired_maximum_frame_latency = 2;
-    Ok(config)
+    Ok(SurfacePolicy {
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        size,
+        present_mode: wgpu::PresentMode::Fifo,
+        desired_maximum_frame_latency: 2,
+        alpha_mode,
+    })
 }
 
 impl Resident {

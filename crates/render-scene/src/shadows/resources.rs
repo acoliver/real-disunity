@@ -13,6 +13,9 @@ use super::DirectionalShadowSettings;
 const SHADOW_UNIFORM_BYTES: usize = 80;
 
 pub(super) const SHADOWED_WGSL: &str = concat!(
+    worldrunner_render_shadow::shadow_wgsl!(),
+    worldrunner_render_lighting::lighting_wgsl!(),
+    worldrunner_render_post::post_wgsl!(),
     include_str!("../shader/lighting.wgsl"),
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/environment.wgsl")
@@ -35,15 +38,10 @@ pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 pub(super) fn depth_pipelines(
     device: &wgpu::Device,
     pipelines: &ScenePipelines,
+    settings: DirectionalShadowSettings,
 ) -> [wgpu::RenderPipeline; 4] {
-    let source = format!(
-        "{ENVIRONMENT_WGSL}\n{}",
-        include_str!("../shader/shadow_depth.wgsl")
-    );
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("shadow caster"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
+    let configuration = settings.configuration();
+    let module = depth_shader(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shadow caster"),
         bind_group_layouts: &[
@@ -82,8 +80,8 @@ pub(super) fn depth_pipelines(
                     cull_mode: key.cull_mode(),
                     ..Default::default()
                 },
-                compare: wgpu::CompareFunction::Less,
-                bias: wgpu::DepthBiasState::default(),
+                compare: configuration.caster_compare,
+                bias: configuration.caster_bias,
                 fragment: Some(DepthFragmentState {
                     module: &module,
                     entry_point: Some(if key.masked {
@@ -95,6 +93,17 @@ pub(super) fn depth_pipelines(
                 }),
             },
         )
+    })
+}
+
+fn depth_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
+    let source = format!(
+        "{ENVIRONMENT_WGSL}\n{}",
+        include_str!("../shader/shadow_depth.wgsl")
+    );
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("shadow caster"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
     })
 }
 
@@ -129,8 +138,7 @@ impl ShadowMap {
                 },
             },
         )?;
-        let sampler =
-            worldrunner_render_shadow::comparison_sampler(device, wgpu::CompareFunction::LessEqual);
+        let sampler = settings.configuration().comparison_sampler(device);
         let uniform = upload_buffer(
             device,
             context.queue(),
@@ -168,11 +176,20 @@ pub(super) fn uniform_bytes(
     matrix: glam::Mat4,
     settings: DirectionalShadowSettings,
 ) -> [u8; SHADOW_UNIFORM_BYTES] {
+    let configuration = settings.configuration();
+    let worldrunner_render_shadow::ShadowFilter::Grid { radius, .. } = configuration.filter else {
+        unreachable!("scene adapter uses a receiver-plane grid")
+    };
     let mut bytes = [0; SHADOW_UNIFORM_BYTES];
     for (slot, value) in matrix
         .to_cols_array()
         .into_iter()
-        .chain([settings.depth_bias, settings.normal_bias_meters, 0.0, 0.0])
+        .chain([
+            configuration.receiver_depth_bias,
+            configuration.receiver_normal_bias,
+            f32::from(u16::try_from(radius).expect("bounded grid radius")),
+            0.0,
+        ])
         .enumerate()
     {
         bytes[slot * 4..slot * 4 + 4].copy_from_slice(&value.to_le_bytes());

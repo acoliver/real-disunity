@@ -1,136 +1,53 @@
 use crate::ViewerError;
+use worldrunner_render_post::{CopyOutput, FrameConfig, PostChain, Resources};
 use worldrunner_render_scene::{Viewport, renderer::depth_texture};
 
-/// Always use the shadow renderer's honest attachment contract. The final pass
-/// handles channel ordering through a pipeline matching the negotiated surface.
+/// Keep the scene renderer's sRGB contract; copy output adds no new display look.
 pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 pub(super) struct Presentation {
-    pipeline: wgpu::RenderPipeline,
-    layout: wgpu::BindGroupLayout,
+    chain: PostChain<CopyOutput>,
     pub targets: Targets,
 }
 
 pub(super) struct Targets {
     pub color: wgpu::TextureView,
     pub depth: wgpu::TextureView,
-    group: wgpu::BindGroup,
 }
 
 impl Presentation {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: Viewport) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("viewer blit layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
-        });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("viewer presentation"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("presentation.wgsl").into()),
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("viewer presentation"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("viewer presentation"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vertex"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fragment"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-        let targets = Targets::new(device, &layout, size);
-        Self {
-            pipeline,
-            layout,
-            targets,
-        }
+        let chain = PostChain::new(
+            device,
+            FrameConfig::new([size.width, size.height], COLOR, 1),
+            Resources::default(),
+            CopyOutput::new(device, format),
+        )
+        .expect("validated viewer extent");
+        let targets = Targets::new(device, &chain, size);
+        Self { chain, targets }
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, size: Viewport) {
-        self.targets = Targets::new(device, &self.layout, size);
+        if self
+            .chain
+            .resize(device, [size.width, size.height])
+            .expect("validated viewer extent")
+        {
+            self.targets = Targets::new(device, &self.chain, size);
+        }
     }
 
     pub fn present(&self, encoder: &mut wgpu::CommandEncoder, surface: &wgpu::TextureView) {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("viewer presentation"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: surface,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            ..Default::default()
-        });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.targets.group, &[]);
-        pass.draw(0..3, 0..1);
+        self.chain.encode(encoder, surface);
     }
 }
 
 impl Targets {
-    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, size: Viewport) -> Self {
-        let color = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("viewer RGBA intermediate"),
-                size: wgpu::Extent3d {
-                    width: size.width,
-                    height: size.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: COLOR,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let depth =
-            depth_texture(device, size).create_view(&wgpu::TextureViewDescriptor::default());
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("viewer blit source"),
-            layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&color),
-            }],
-        });
+    fn new(device: &wgpu::Device, chain: &PostChain<CopyOutput>, size: Viewport) -> Self {
         Self {
-            color,
-            depth,
-            group,
+            color: chain.targets().scene().clone(),
+            depth: depth_texture(device, size).create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
 }
@@ -240,6 +157,18 @@ mod tests {
                 width: 257,
                 height: 241
             })
+        );
+    }
+}
+
+#[cfg(test)]
+mod source_graph_tests {
+    #[test]
+    fn retired_presentation_shader_is_absent() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/presentation.wgsl");
+        assert!(
+            !path.exists(),
+            "CopyOutput is the canonical viewer output shader"
         );
     }
 }

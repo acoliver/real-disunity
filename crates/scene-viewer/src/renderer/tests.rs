@@ -59,6 +59,7 @@ fn actual_resize_and_consecutive_suboptimal_frames_are_presented() {
     assert_native_resizes(&mut event_loop, &mut harness);
     let renderer = harness.renderer.as_mut().unwrap();
     let view = view(renderer);
+    assert_presenter_configuration_errors(renderer);
     assert_suboptimal(renderer, &view);
     assert_recovery(renderer, &view);
     assert_resize_rejection_and_suspension(renderer, &view);
@@ -109,7 +110,13 @@ fn assert_native_resizes(event_loop: &mut EventLoop<()>, harness: &mut Harness) 
             );
         }
         let renderer = harness.renderer.as_mut().unwrap();
-        assert_eq!([renderer.config.width, renderer.config.height], physical);
+        assert_eq!(
+            [
+                renderer.presenter.configuration().width,
+                renderer.presenter.configuration().height
+            ],
+            physical
+        );
         let texture = renderer.presentation.targets.color.texture();
         assert_eq!([texture.width(), texture.height()], intermediate);
         let scene = crate::tests::scene(false);
@@ -123,12 +130,14 @@ fn assert_native_resizes(event_loop: &mut EventLoop<()>, harness: &mut Harness) 
 }
 
 fn assert_suboptimal(renderer: &mut Renderer, view: &SceneView) {
-    let configurations = renderer.configurations;
+    let configurations = renderer.presenter.configuration_generation();
     for _ in 0..8 {
-        let acquired = renderer.surface.get_current_texture();
+        let acquired = renderer
+            .presenter
+            .acquire(renderer.context.device())
+            .unwrap();
         let frame = match acquired {
-            wgpu::CurrentSurfaceTexture::Success(frame)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            AcquiredFrame::Frame(frame) => frame,
             other => panic!("expected usable actual surface frame, got {other:?}"),
         };
         assert!(
@@ -138,13 +147,14 @@ fn assert_suboptimal(renderer: &mut Renderer, view: &SceneView) {
         );
     }
     assert_eq!(
-        renderer.configurations, configurations,
+        renderer.presenter.configuration_generation(),
+        configurations,
         "usable frames must not cause a configure loop"
     );
 }
 
 fn assert_recovery(renderer: &mut Renderer, view: &SceneView) {
-    let configurations = renderer.configurations;
+    let configurations = renderer.presenter.configuration_generation();
     assert!(
         !renderer
             .render_acquired(view, wgpu::CurrentSurfaceTexture::Timeout)
@@ -155,19 +165,28 @@ fn assert_recovery(renderer: &mut Renderer, view: &SceneView) {
             .render_acquired(view, wgpu::CurrentSurfaceTexture::Occluded)
             .unwrap()
     );
-    assert_eq!(renderer.configurations, configurations);
+    assert_eq!(
+        renderer.presenter.configuration_generation(),
+        configurations
+    );
     assert!(
         !renderer
             .render_acquired(view, wgpu::CurrentSurfaceTexture::Outdated)
             .unwrap()
     );
-    assert_eq!(renderer.configurations, configurations + 1);
+    assert_eq!(
+        renderer.presenter.configuration_generation(),
+        configurations + 1
+    );
     assert!(
         !renderer
             .render_acquired(view, wgpu::CurrentSurfaceTexture::Lost)
             .unwrap()
     );
-    assert_eq!(renderer.configurations, configurations + 2);
+    assert_eq!(
+        renderer.presenter.configuration_generation(),
+        configurations + 2
+    );
     assert!(renderer.render(view).unwrap());
     assert!(matches!(
         renderer.render_acquired(view, wgpu::CurrentSurfaceTexture::Validation),
@@ -176,7 +195,7 @@ fn assert_recovery(renderer: &mut Renderer, view: &SceneView) {
 }
 
 fn assert_resize_rejection_and_suspension(renderer: &mut Renderer, view: &SceneView) {
-    let configurations = renderer.configurations;
+    let configurations = renderer.presenter.configuration_generation();
     let previous = renderer.viewport;
     let limit = renderer.context.device().limits().max_texture_dimension_2d;
     assert!(matches!(
@@ -184,11 +203,139 @@ fn assert_resize_rejection_and_suspension(renderer: &mut Renderer, view: &SceneV
         Err(ViewerError::SurfaceExtent { .. })
     ));
     assert_eq!(renderer.viewport, previous);
-    assert_eq!(renderer.configurations, configurations);
+    assert_eq!(
+        renderer.presenter.configuration_generation(),
+        configurations
+    );
     renderer.resize([0, 480]).unwrap();
     assert_eq!(renderer.viewport, None);
     assert!(!renderer.render(view).unwrap());
-    assert_eq!(renderer.configurations, configurations);
+    assert_eq!(
+        renderer.presenter.configuration_generation(),
+        configurations
+    );
     renderer.resize([640, 480]).unwrap();
     assert!(renderer.render(view).unwrap());
+}
+
+fn assert_presenter_configuration_errors(renderer: &mut Renderer) {
+    use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
+    let surface = renderer
+        .instance
+        .create_surface(renderer.window.clone())
+        .unwrap();
+    let capabilities = surface.get_capabilities(renderer.context.adapter());
+    let config = renderer.presenter.configuration();
+    let mut policy = SurfacePolicy {
+        format: config.format,
+        usage: config.usage,
+        size: [0, 480],
+        present_mode: wgpu::PresentMode::AutoVsync,
+        desired_maximum_frame_latency: 2,
+        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+    };
+    let mut presenter =
+        Presenter::new(surface, &capabilities, renderer.context.device(), policy).unwrap();
+    assert!(presenter.is_suspended());
+    assert!(matches!(
+        presenter.acquire(renderer.context.device()).unwrap(),
+        worldrunner_render_gpu::surface::AcquiredFrame::Skip
+    ));
+    assert_eq!(presenter.configuration_generation(), 0);
+    presenter
+        .resize(renderer.context.device(), [800, 600])
+        .unwrap();
+    assert!(!presenter.is_suspended());
+    assert_eq!(presenter.configuration_generation(), 1);
+    assert_configuration_failure_is_recoverable(&mut presenter, renderer.context.device());
+    presenter
+        .handle_acquired(renderer.context.device(), wgpu::CurrentSurfaceTexture::Lost)
+        .unwrap();
+    presenter
+        .resize(renderer.context.device(), [0, 480])
+        .unwrap();
+    assert!(matches!(
+        presenter.acquire(renderer.context.device()).unwrap(),
+        AcquiredFrame::Skip
+    ));
+    presenter
+        .resize(renderer.context.device(), [800, 600])
+        .unwrap();
+    assert!(matches!(
+        presenter.acquire(renderer.context.device()).unwrap(),
+        AcquiredFrame::Recreate
+    ));
+    assert_replacement_capabilities(&mut presenter, renderer);
+    drop(presenter);
+    policy.format = wgpu::TextureFormat::R32Uint;
+    let surface = renderer
+        .instance
+        .create_surface(renderer.window.clone())
+        .unwrap();
+    let capabilities = surface.get_capabilities(renderer.context.adapter());
+    assert!(matches!(
+        Presenter::new(surface, &capabilities, renderer.context.device(), policy),
+        Err(SurfaceError::UnsupportedFormat(
+            wgpu::TextureFormat::R32Uint
+        ))
+    ));
+}
+
+fn assert_configuration_failure_is_recoverable(
+    presenter: &mut Presenter<'_>,
+    device: &wgpu::Device,
+) {
+    let frame = match presenter.acquire(device).unwrap() {
+        AcquiredFrame::Frame(frame) => frame,
+        other => panic!("expected actual frame before configure failure: {other:?}"),
+    };
+    assert!(matches!(
+        presenter.resize(device, [800, 600]),
+        Err(SurfaceError::Configuration(_))
+    ));
+    assert!(matches!(
+        presenter.acquire(device),
+        Err(SurfaceError::Unconfigured)
+    ));
+    // wgpu invalidates the outstanding output on a failed reconfigure; discarding that
+    // deliberately retained output is itself invalid and must not pollute the host callback.
+    let discard_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    drop(frame);
+    assert!(pollster::block_on(discard_scope.pop()).is_some());
+    presenter.resize(device, [800, 600]).unwrap();
+    assert!(matches!(
+        presenter.acquire(device).unwrap(),
+        AcquiredFrame::Frame(_)
+    ));
+}
+
+fn assert_replacement_capabilities(presenter: &mut Presenter<'_>, renderer: &Renderer) {
+    let surface = renderer
+        .instance
+        .create_surface(renderer.window.clone())
+        .unwrap();
+    let mut capabilities = surface.get_capabilities(renderer.context.adapter());
+    capabilities.formats.clear();
+    assert!(matches!(
+        presenter.replace_surface(surface, &capabilities, renderer.context.device()),
+        Err(SurfaceError::UnsupportedFormat(_))
+    ));
+    assert!(matches!(
+        presenter.acquire(renderer.context.device()).unwrap(),
+        AcquiredFrame::Recreate
+    ));
+    let surface = renderer
+        .instance
+        .create_surface(renderer.window.clone())
+        .unwrap();
+    let capabilities = surface.get_capabilities(renderer.context.adapter());
+    assert!(
+        presenter
+            .replace_surface(surface, &capabilities, renderer.context.device())
+            .unwrap()
+    );
+    assert!(matches!(
+        presenter.acquire(renderer.context.device()).unwrap(),
+        AcquiredFrame::Frame(_)
+    ));
 }

@@ -1,0 +1,16 @@
+[package]
+name = "worldrunner-render-gpu"
+description = "Pathless device negotiation, surface lifecycle and validated GPU resource uploads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+wgpu.workspace = true
+thiserror.workspace = true
+pollster.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "worldrunner-render-lighting"
+description = "Configurable pathless lighting math and composable WGSL kernels"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+glam.workspace = true
+
+[dev-dependencies]
+wgpu.workspace = true
+pollster.workspace = true
+naga = { version = "30.0.0", features = ["wgsl-in"] }
+
+[lints]
+workspace = true

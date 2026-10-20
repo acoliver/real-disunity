@@ -3917,6 +3917,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "worldrunner-render-gpu"
+version = "0.1.0"
+dependencies = [
+ "pollster",
+ "thiserror 2.0.21",
+ "wgpu",
+]
+
+[[package]]
+name = "worldrunner-render-lighting"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "naga",
+ "pollster",
+ "wgpu",
+]
+
+[[package]]
 name = "worldrunner-render-plan"
 version = "0.1.0"
 dependencies = [
@@ -3935,6 +3954,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "worldrunner-render-post"
+version = "0.1.0"
+dependencies = [
+ "naga",
+ "pollster",
+ "thiserror 2.0.21",
+ "wgpu",
+]
+
+[[package]]
 name = "worldrunner-render-scene"
 version = "0.1.0"
 dependencies = [
@@ -3943,7 +3972,10 @@ dependencies = [
  "pollster",
  "thiserror 2.0.21",
  "wgpu",
+ "worldrunner-render-gpu",
+ "worldrunner-render-lighting",
  "worldrunner-render-plan",
+ "worldrunner-render-post",
  "worldrunner-render-shadow",
 ]
 
@@ -3951,6 +3983,7 @@ dependencies = [
 name = "worldrunner-render-shadow"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "pollster",
  "thiserror 2.0.21",
  "wgpu",
@@ -3979,7 +4012,9 @@ dependencies = [
  "thiserror 2.0.21",
  "wgpu",
  "winit",
+ "worldrunner-render-gpu",
  "worldrunner-render-plan",
+ "worldrunner-render-post",
  "worldrunner-render-scene",
 ]
 

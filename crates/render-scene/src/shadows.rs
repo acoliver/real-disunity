@@ -114,7 +114,7 @@ impl ShadowedScene {
             SHADOWED_WGSL,
             Some(&shadow_layout),
         );
-        let depth_pipelines = resources::depth_pipelines(context.device(), &pipelines);
+        let depth_pipelines = resources::depth_pipelines(context.device(), &pipelines, settings);
         let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
         let depth_frame = upload_buffer(
             context.device(),

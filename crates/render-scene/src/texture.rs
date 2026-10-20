@@ -33,12 +33,11 @@ const DX10_HEADER_END: usize = 148;
 /// The four-character code marking an extended `DX10` header.
 const FOURCC_DX10: &[u8; 4] = b"DX10";
 
-/// Edge length in texels of one block-compression block.
-const BLOCK_EDGE: u32 = 4;
-
 /// A governed texture could not be prepared for upload.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum TextureError {
+    #[error(transparent)]
+    Upload(#[from] worldrunner_render_gpu::texture::UploadError),
     /// The payload did not begin with the DDS magic number.
     #[error("texture payload is not a DDS container")]
     NotADdsContainer,
@@ -106,20 +105,7 @@ pub enum TextureError {
     },
 }
 
-/// One mip level, borrowed from the archive rather than copied.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MipLevel<'a> {
-    /// Width of this level in texels.
-    pub width: u32,
-    /// Height of this level in texels.
-    pub height: u32,
-    /// Bytes in one row of blocks, the stride a copy expects.
-    pub bytes_per_row: u32,
-    /// Number of block rows in this level.
-    pub rows: u32,
-    /// The level's payload, still block-compressed.
-    pub bytes: &'a [u8],
-}
+pub use worldrunner_render_gpu::texture::MipLevel;
 
 /// A governed texture resolved to a `wgpu` format and a borrowed mip chain.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -206,32 +192,7 @@ fn prepare_texels(
         return Err(TextureError::ZeroExtent { width, height });
     }
     let gpu_format = texel_format(format, declared)?;
-    let bytes_per_texel = u32::try_from(format.bytes_per_texel()).unwrap_or(u32::MAX);
-    let mut offset = 0usize;
-    let mut mips = Vec::with_capacity(usize::try_from(mip_count).unwrap_or(0));
-    for level in 0..mip_count {
-        let mip_width = width.checked_shr(level).unwrap_or(0).max(1);
-        let mip_height = height.checked_shr(level).unwrap_or(0).max(1);
-        let bytes_per_row = bytes_per_texel.saturating_mul(mip_width);
-        let level_bytes =
-            usize::try_from(u64::from(bytes_per_row) * u64::from(mip_height)).unwrap_or(usize::MAX);
-        let available = bytes.len().saturating_sub(offset);
-        if level_bytes > available {
-            return Err(TextureError::TruncatedPayload {
-                level,
-                needed: level_bytes,
-                available,
-            });
-        }
-        mips.push(MipLevel {
-            width: mip_width,
-            height: mip_height,
-            bytes_per_row,
-            rows: mip_height,
-            bytes: &bytes[offset..offset + level_bytes],
-        });
-        offset += level_bytes;
-    }
+    let mips = canonical_mips(gpu_format, width, height, mip_count, bytes)?;
     Ok(PreparedTexture {
         format: gpu_format,
         width,
@@ -293,7 +254,7 @@ fn prepare_dds(
         return Err(TextureError::ZeroExtent { width, height });
     }
     let code = read_u32(bytes, OFFSET_DXGI_FORMAT);
-    let (format, block_bytes, container_space) =
+    let (format, _block_bytes, container_space) =
         dxgi_format(code).ok_or(TextureError::UnsupportedDxgiFormat { code })?;
     if container_space != declared {
         return Err(TextureError::ColorSpaceDisagreement {
@@ -303,12 +264,12 @@ fn prepare_dds(
         });
     }
 
-    let mips = slice_mips(
-        &bytes[DX10_HEADER_END..],
+    let mips = canonical_mips(
+        format,
         width,
         height,
         read_u32(bytes, OFFSET_MIP_COUNT).max(1),
-        block_bytes,
+        &bytes[DX10_HEADER_END..],
     )?;
     Ok(PreparedTexture {
         format,
@@ -318,41 +279,28 @@ fn prepare_dds(
     })
 }
 
-/// Divides a payload into the mip levels its header declares.
-fn slice_mips(
-    payload: &[u8],
+fn canonical_mips(
+    format: TextureFormat,
     width: u32,
     height: u32,
-    mip_count: u32,
-    block_bytes: u32,
+    count: u32,
+    bytes: &[u8],
 ) -> Result<Vec<MipLevel<'_>>, TextureError> {
-    let mut mips = Vec::with_capacity(usize::try_from(mip_count).unwrap_or(1));
-    let mut offset = 0usize;
-    for level in 0..mip_count {
-        let level_width = (width >> level).max(1);
-        let level_height = (height >> level).max(1);
-        let bytes_per_row = level_width.div_ceil(BLOCK_EDGE).max(1) * block_bytes;
-        let rows = level_height.div_ceil(BLOCK_EDGE).max(1);
-        let needed =
-            usize::try_from(u64::from(bytes_per_row) * u64::from(rows)).unwrap_or(usize::MAX);
-        let available = payload.len().saturating_sub(offset);
-        if needed > available {
-            return Err(TextureError::TruncatedPayload {
+    worldrunner_render_gpu::texture::packed_mips(format, width, height, count, bytes).map_err(
+        |error| match error {
+            worldrunner_render_gpu::texture::UploadError::Payload {
                 level,
-                needed,
-                available,
-            });
-        }
-        mips.push(MipLevel {
-            width: level_width,
-            height: level_height,
-            bytes_per_row,
-            rows,
-            bytes: &payload[offset..offset + needed],
-        });
-        offset += needed;
-    }
-    Ok(mips)
+                expected,
+                actual,
+                ..
+            } => TextureError::TruncatedPayload {
+                level: u32::try_from(level).expect("validated mip chain has at most 32 levels"),
+                needed: expected,
+                available: actual,
+            },
+            other => TextureError::Upload(other),
+        },
+    )
 }
 
 const fn dxgi_format(code: u32) -> Option<(TextureFormat, u32, TextureColorSpace)> {

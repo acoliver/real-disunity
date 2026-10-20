@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 mod commands;
 mod layers;
@@ -18,10 +18,12 @@ fn root() -> Result<PathBuf, String> {
 }
 
 fn run_command(root: &Path, program: &str, args: &[&str]) -> Result<(), String> {
+    let root = metadata::canonical(root)?;
+    let executable =
+        std::env::current_exe().map_err(|error| format!("cannot locate running xtask: {error}"))?;
+    let executable = metadata::canonical(&executable)?;
     eprintln!("+ {program} {}", args.join(" "));
-    let status = Command::new(program)
-        .args(args)
-        .current_dir(root)
+    let status = commands::process(&root, program, args, &executable)
         .status()
         .map_err(|error| format!("could not start {program}: {error}"))?;
     if status.success() {

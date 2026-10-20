@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command;
 
 use crate::{layers, metadata, run_command};
 
@@ -20,6 +21,21 @@ const COMPLEXITY: &[&str] = &[
     "-D",
     "clippy::struct_excessive_bools",
 ];
+
+pub fn process(root: &Path, program: &str, args: &[&str], executable: &Path) -> Command {
+    let mut target = root.join("target/validation");
+    // A validation-built xtask must not overwrite itself either. Use a sibling,
+    // not a nested directory, so repeated launches never grow the target path.
+    if executable.starts_with(&target) {
+        target = root.join("target/validation-alt");
+    }
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .current_dir(root)
+        .env("CARGO_TARGET_DIR", target);
+    command
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
@@ -163,6 +179,72 @@ pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn target(command: &Command) -> std::path::PathBuf {
+        command
+            .get_envs()
+            .find_map(|(key, value)| (key == "CARGO_TARGET_DIR").then_some(value))
+            .flatten()
+            .expect("child commands must explicitly share an isolated target directory")
+            .into()
+    }
+
+    #[test]
+    fn child_builds_cannot_replace_the_running_xtask() {
+        let root = std::env::temp_dir().join("xtask-command-planning");
+        for bootstrap in [
+            "target",
+            "custom-target",
+            "target/validation",
+            "target/validation-alt",
+        ] {
+            let executable = root.join(bootstrap).join("debug/xtask.exe");
+            let args = cargo_args("build", &["--package".into(), "xtask".into()], false);
+            let refs: Vec<_> = args.iter().map(String::as_str).collect();
+            let command = process(&root, "cargo", &refs, &executable);
+            let output = target(&command);
+            let expected = if bootstrap == "target/validation" {
+                "target/validation-alt"
+            } else {
+                "target/validation"
+            };
+            assert_eq!(output, root.join(expected));
+            assert!(output.is_absolute());
+            assert!(!executable.starts_with(&output));
+            assert_eq!(command.get_current_dir(), Some(root.as_path()));
+            assert_eq!(command.get_args().collect::<Vec<_>>(), refs);
+            assert!(args.windows(2).any(|pair| pair == ["--package", "xtask"]));
+            assert!(args.contains(&"--all-targets".into()));
+        }
+    }
+
+    #[test]
+    fn validation_commands_share_the_target_inherited_by_ffi_builds() {
+        let root = std::env::temp_dir().join("xtask-command-planning");
+        let executable = root.join("target/debug/xtask.exe");
+        let expected = root.join("target/validation");
+        for action in ["lint", "complexity", "check", "build", "test", "doc"] {
+            let args = cargo_args(action, &[], false);
+            let refs: Vec<_> = args.iter().map(String::as_str).collect();
+            assert_eq!(
+                target(&process(&root, "cargo", &refs, &executable)),
+                expected
+            );
+        }
+        assert_eq!(
+            target(&process(&root, "dotnet", &["build"], &executable)),
+            expected
+        );
+        assert_eq!(
+            target(&process(
+                &root,
+                "cargo",
+                &["fmt", "--all", "--check"],
+                &executable
+            )),
+            expected
+        );
+    }
 
     #[test]
     fn required_gpu_runs_every_test_including_ignored_without_filters() {

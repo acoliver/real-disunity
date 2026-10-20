@@ -59,6 +59,9 @@ pub enum ShadowError {
         /// Effective maximum dimension.
         limit: u32,
     },
+    /// Shared GPU resource validation rejected the allocation.
+    #[error(transparent)]
+    DepthMap(#[from] worldrunner_render_shadow::DepthMapError),
     /// No cascade splitting or blending is implemented.
     #[error("directional shadows require exactly one declared cascade and zero blend band")]
     UnsupportedCascades,
@@ -130,7 +133,7 @@ impl ShadowedScene {
                     resource: depth_frame.as_entire_binding(),
                 }],
             });
-        let map = ShadowMap::new(context, settings, &shadow_layout);
+        let map = ShadowMap::new(context, settings, &shadow_layout)?;
         Ok(Self {
             gpu,
             pipelines,
@@ -154,7 +157,7 @@ impl ShadowedScene {
         settings.validate(&context.device().limits())?;
         settings.validate_light(&self.effects)?;
         if settings.resolution != self.settings.resolution {
-            self.map = ShadowMap::new(context, settings, &self.shadow_layout);
+            self.map = ShadowMap::new(context, settings, &self.shadow_layout)?;
         }
         self.settings = settings;
         Ok(())
@@ -201,12 +204,11 @@ impl ShadowedScene {
                     label: Some("shadowed scene"),
                 });
         {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("directional shadow depth"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(depth_attachment(&self.map.view)),
-                ..Default::default()
-            });
+            let mut pass = self.map.depth.begin_layer_pass(
+                &mut encoder,
+                0,
+                Some("directional shadow depth"),
+            )?;
             self.gpu
                 .draw_objects(&mut pass, &self.depth_frame_group, &self.depth_pipelines);
         }

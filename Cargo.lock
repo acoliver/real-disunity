@@ -3944,6 +3944,16 @@ dependencies = [
  "thiserror 2.0.21",
  "wgpu",
  "worldrunner-render-plan",
+ "worldrunner-render-shadow",
+]
+
+[[package]]
+name = "worldrunner-render-shadow"
+version = "0.1.0"
+dependencies = [
+ "pollster",
+ "thiserror 2.0.21",
+ "wgpu",
 ]
 
 [[package]]

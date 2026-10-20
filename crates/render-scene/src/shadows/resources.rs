@@ -1,8 +1,12 @@
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
 use crate::pipeline::PipelineKey;
-use crate::renderer::{DEPTH_FORMAT, ScenePipelines, build};
+use crate::renderer::ScenePipelines;
 use crate::shader::ENVIRONMENT_WGSL;
 use crate::upload::upload_buffer;
+use worldrunner_render_shadow::{
+    DepthFragmentState, DepthMap, DepthMapBudget, DepthMapDescriptor, DepthMapError,
+    DepthPipelineDescriptor, ReceiverDescriptor, ReceiverDimension,
+};
 
 use super::DirectionalShadowSettings;
 
@@ -15,37 +19,17 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
 );
 
 pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("directional shadow"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                count: None,
-            },
-        ],
-    })
+    worldrunner_render_shadow::receiver_layout(
+        device,
+        ReceiverDescriptor {
+            label: Some("directional shadow"),
+            dimension: ReceiverDimension::D2,
+            texture_binding: 1,
+            sampler_binding: 2,
+            uniform_binding: 0,
+            min_uniform_binding_size: None,
+        },
+    )
 }
 
 pub(super) fn depth_pipelines(
@@ -83,20 +67,32 @@ pub(super) fn depth_pipelines(
         }),
     ];
     PipelineKey::ALL.map(|key| {
-        build(
+        worldrunner_render_shadow::create_depth_pipeline(
             device,
-            key,
-            &layout,
-            &buffers,
-            wgpu::FragmentState {
-                module: &module,
-                entry_point: Some(if key.masked {
-                    "fs_depth_masked"
-                } else {
-                    "fs_depth_opaque"
+            DepthPipelineDescriptor {
+                label: Some("environment"),
+                layout: &layout,
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some(crate::shader::VERTEX_ENTRY_POINT),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: key.cull_mode(),
+                    ..Default::default()
+                },
+                compare: wgpu::CompareFunction::Less,
+                bias: wgpu::DepthBiasState::default(),
+                fragment: Some(DepthFragmentState {
+                    module: &module,
+                    entry_point: Some(if key.masked {
+                        "fs_depth_masked"
+                    } else {
+                        "fs_depth_opaque"
+                    }),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 }),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[],
             },
         )
     })
@@ -104,7 +100,7 @@ pub(super) fn depth_pipelines(
 
 #[derive(Debug)]
 pub(super) struct ShadowMap {
-    pub view: wgpu::TextureView,
+    pub depth: DepthMap,
     pub uniform: wgpu::Buffer,
     pub group: wgpu::BindGroup,
 }
@@ -114,30 +110,27 @@ impl ShadowMap {
         context: &crate::device::GpuContext,
         settings: DirectionalShadowSettings,
         layout: &wgpu::BindGroupLayout,
-    ) -> Self {
+    ) -> Result<Self, DepthMapError> {
         let device = context.device();
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("directional shadow depth"),
-            size: wgpu::Extent3d {
-                width: settings.resolution,
-                height: settings.resolution,
-                depth_or_array_layers: 1,
+        let max_resolution = u64::from(super::MAX_SHADOW_RESOLUTION);
+        let depth = DepthMap::new(
+            device,
+            DepthMapDescriptor {
+                label: Some("directional shadow depth"),
+                resolution: settings.resolution,
+                layers: 1,
+                receiver_dimension: ReceiverDimension::D2,
+                readback: false,
+                budget: DepthMapBudget {
+                    max_resolution: super::MAX_SHADOW_RESOLUTION,
+                    max_layers: 1,
+                    max_texture_bytes: max_resolution * max_resolution * 4,
+                    max_readback_bytes: 0,
+                },
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("directional shadow comparison"),
-            compare: Some(wgpu::CompareFunction::LessEqual),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        )?;
+        let sampler =
+            worldrunner_render_shadow::comparison_sampler(device, wgpu::CompareFunction::LessEqual);
         let uniform = upload_buffer(
             device,
             context.queue(),
@@ -155,7 +148,7 @@ impl ShadowMap {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
+                    resource: wgpu::BindingResource::TextureView(depth.receiver_view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -163,12 +156,11 @@ impl ShadowMap {
                 },
             ],
         });
-        // The view and bind group retain the texture/sampler through wgpu handles.
-        Self {
-            view,
+        Ok(Self {
+            depth,
             uniform,
             group,
-        }
+        })
     }
 }
 

@@ -16,6 +16,7 @@ publish.workspace = true
 glam.workspace = true
 worldrunner-render-plan = { path = "../render-plan" }
 thiserror.workspace = true
+worldrunner-render-shadow = { path = "../render-shadow" }
 wgpu.workspace = true
 
 # Only for tests: naga is the shader front end wgpu itself uses, so validating

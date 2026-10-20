@@ -62,6 +62,7 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-save", Layer::World),
     ("worldrunner-render-plan", Layer::Bridge),
     ("worldrunner-render-scene", Layer::Graphics),
+    ("worldrunner-render-shadow", Layer::Graphics),
     ("worldrunner-scene-viewer", Layer::Host),
     ("worldrunner-disunity-runtime", Layer::Managed),
     ("worldrunner-content-tool", Layer::Tool),
@@ -209,6 +210,7 @@ fn forbidden(name: &str) -> bool {
         || matches!(
             name,
             "worldrunner-render-scene"
+                | "worldrunner-render-shadow"
                 | "worldrunner-scene-viewer"
                 | "worldrunner-disunity-runtime"
         )

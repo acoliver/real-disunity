@@ -187,6 +187,7 @@ fn ci_profiles_select_disjoint_managed_and_gpu_requirements() {
         ("asset", "worldrunner-asset-id"),
         ("ffi", "worldrunner-disunity-ffi"),
         ("gfx", "worldrunner-render-scene"),
+        ("shadow", "worldrunner-render-shadow"),
         ("host", "worldrunner-scene-viewer"),
         ("managed", "worldrunner-disunity-runtime"),
         ("tool", "xtask"),
@@ -200,6 +201,7 @@ fn ci_profiles_select_disjoint_managed_and_gpu_requirements() {
     assert!(cpu.contains(&"xtask".into()));
     for absent in [
         "worldrunner-render-scene",
+        "worldrunner-render-shadow",
         "worldrunner-scene-viewer",
         "worldrunner-disunity-runtime",
         "--workspace",
@@ -208,12 +210,56 @@ fn ci_profiles_select_disjoint_managed_and_gpu_requirements() {
     }
     let gpu = selection(&data, Profile::Gpu).unwrap();
     assert!(gpu.contains(&"worldrunner-render-scene".into()));
+    assert!(gpu.contains(&"worldrunner-render-shadow".into()));
     assert!(gpu.contains(&"worldrunner-scene-viewer".into()));
     assert!(gpu.contains(&"worldrunner".into()));
     assert!(!gpu.contains(&"worldrunner-disunity-runtime".into()));
     let managed = selection(&data, Profile::Managed).unwrap();
     assert!(managed.contains(&"worldrunner-disunity-runtime".into()));
     assert!(!managed.contains(&"worldrunner-render-scene".into()));
+    assert!(!managed.contains(&"worldrunner-render-shadow".into()));
+}
+
+#[test]
+fn shared_shadow_backend_is_graphics_and_rejected_from_cpu_graphs() {
+    let dir = workspace();
+    package(&dir, "crates/shadow", "worldrunner-render-shadow", "");
+    package(
+        &dir,
+        "crates/scene",
+        "worldrunner-render-scene",
+        "[dependencies]\nworldrunner-render-shadow = { path = \"../shadow\" }",
+    );
+    let data = graph(&dir);
+    assert_eq!(
+        workspace_layers(&data).unwrap()["worldrunner-render-shadow"],
+        Layer::Graphics
+    );
+    check(&data).unwrap();
+    assert!(forbidden("worldrunner-render-shadow"));
+
+    package(
+        &dir,
+        "crates/asset",
+        "worldrunner-asset-id",
+        "[dependencies]\nhelper = { path = \"../../vendor/helper\" }",
+    );
+    package(
+        &dir,
+        "vendor/helper",
+        "helper",
+        "[dependencies]\nrenamed = { package = \"worldrunner-render-shadow\", path = \"../../crates/shadow\" }",
+    );
+    dir.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"vendor/helper\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    let error = check(&graph(&dir)).unwrap_err();
+    assert!(
+        error.contains("worldrunner-asset-id -> helper -> worldrunner-render-shadow"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -1,0 +1,18 @@
+[package]
+name = "worldrunner-render-shadow"
+description = "Bounded, pathless GPU depth-map mechanics for shadow renderers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true
+
+[lints]
+workspace = true

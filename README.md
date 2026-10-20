@@ -1,6 +1,6 @@
 # Real Disunity
 
-A Rust 2024 workspace for reusable CPU, graphics, and application components. The project is proprietary; packages are not published. This repository contains no third-party game assets or provenance corpus.
+A Rust 2024 workspace for reusable CPU, graphics, and application components. 
 
 ## Prerequisites
 

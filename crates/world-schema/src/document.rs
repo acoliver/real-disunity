@@ -99,24 +99,13 @@ impl WorldDocument {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GenerationParameters {
     pub sea_level_millimeters: i32,
     pub elevation_amplitude_millimeters: u32,
     pub terrain_frequency_microunits: u32,
     pub environment_density_per_square_kilometer: u32,
-}
-
-impl Default for GenerationParameters {
-    fn default() -> Self {
-        Self {
-            sea_level_millimeters: 0,
-            elevation_amplitude_millimeters: 80_000,
-            terrain_frequency_microunits: 4_000,
-            environment_density_per_square_kilometer: 600,
-        }
-    }
 }
 
 /// Embedded heightfield centred at the world origin. Samples are row-major:

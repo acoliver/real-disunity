@@ -75,6 +75,8 @@ const PROFILE_DIGEST_DOMAIN: &[u8] = b"REAL-DISUNITY-GENERATION-PROFILE-DIGEST-V
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GenerationProfile {
+    /// Complete named inputs, separate from the content-profile digest.
+    pub requests: Vec<crate::GenerationPreset>,
     /// Stable label used in provenance records and digest input.
     pub name: String,
     /// Provenance citation for humans; deliberately outside the digest input.
@@ -226,6 +228,7 @@ impl GenerationProfile {
     /// generation can publish a world.
     pub fn validate(&self) -> Result<(), String> {
         validate_non_empty(&self.name, "profile name")?;
+        crate::request::validate_presets(&self.requests)?;
         validate_biomes(&self.biomes)?;
         validate_surfaces(&self.surfaces)?;
         validate_placement(&self.placement)?;

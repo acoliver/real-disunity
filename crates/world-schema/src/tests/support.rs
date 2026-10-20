@@ -21,7 +21,12 @@ pub(super) fn world() -> WorldDocument {
         world_id: WorldId::from_uuid(Uuid::from_u128(1)),
         seed: WorldSeed(7),
         dimensions: WorldDimensions::new(64, 64),
-        generation_parameters: GenerationParameters::default(),
+        generation_parameters: GenerationParameters {
+            sea_level_millimeters: 0,
+            elevation_amplitude_millimeters: 80_000,
+            terrain_frequency_microunits: 4_000,
+            environment_density_per_square_kilometer: 600,
+        },
         terrain: TerrainDocument {
             width_samples: 2,
             depth_samples: 2,

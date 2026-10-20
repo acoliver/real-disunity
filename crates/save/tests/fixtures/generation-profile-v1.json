@@ -70,5 +70,26 @@
       "portable-rgba"
     ],
     "maximum_quality": "Baseline"
-  }
+  },
+  "requests": [
+    {
+      "name": "smoke",
+      "seed": 42,
+      "dimensions_meters": [
+        4096,
+        4096
+      ],
+      "terrain_samples": [
+        257,
+        257
+      ],
+      "parameters": {
+        "sea_level_millimeters": 0,
+        "elevation_amplitude_millimeters": 320000,
+        "terrain_frequency_microunits": 2500,
+        "environment_density_per_square_kilometer": 600
+      },
+      "asset_catalog_version": 1
+    }
+  ]
 }

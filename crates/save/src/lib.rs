@@ -676,7 +676,9 @@ mod tests {
         let profile =
             worldrunner_world_generation::GenerationProfile::from_authoring(&profile_path)
                 .expect("authored generation profile parses");
-        generate_world(&WorldGenerationRequest::development(seed, profile)).unwrap()
+        let mut request = WorldGenerationRequest::from_profile(profile, "smoke").unwrap();
+        request.seed = worldrunner_core_types::WorldSeed(seed);
+        generate_world(&request).unwrap()
     }
 
     fn test_directory(label: &str) -> PathBuf {

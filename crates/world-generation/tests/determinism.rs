@@ -8,7 +8,7 @@ fn request() -> WorldGenerationRequest {
             .join("tests/fixtures/generation-profile-v1.json"),
     )
     .unwrap();
-    WorldGenerationRequest::development(42, profile)
+    WorldGenerationRequest::from_profile(profile, "smoke").unwrap()
 }
 
 #[test]

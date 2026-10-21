@@ -13,9 +13,20 @@ fn receiver_pipeline(device: &wgpu::Device, abi: ReceiverDescriptor<'_>) -> wgpu
             20,
         ),
     };
+    receiver_pipeline_with_sample(device, abi, texture_type, sample, slots)
+}
+
+pub(super) fn receiver_pipeline_with_sample(
+    device: &wgpu::Device,
+    abi: ReceiverDescriptor<'_>,
+    texture_type: &str,
+    sample: &str,
+    slots: u32,
+) -> wgpu::RenderPipeline {
     let source = format!(
         r"
 {TRIANGLE}
+{WGSL}
 @group(0) @binding({texture}) var map: {texture_type};
 @group(0) @binding({sampler}) var cmp: sampler_comparison;
 struct Params {{ data: array<vec4<f32>, {slots}> }}
@@ -62,7 +73,7 @@ struct Params {{ data: array<vec4<f32>, {slots}> }}
     )
 }
 
-fn receiver_group(
+pub(super) fn receiver_group(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     map: &DepthMap,
@@ -143,7 +154,7 @@ fn receiver_abis_keep_binding_order_uniform_extent_dimension_and_equality_rule()
     }
 }
 
-fn variants() -> [(ReceiverDescriptor<'static>, wgpu::CompareFunction, u32); 2] {
+pub(super) fn variants() -> [(ReceiverDescriptor<'static>, wgpu::CompareFunction, u32); 2] {
     [
         (
             ReceiverDescriptor {

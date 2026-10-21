@@ -97,7 +97,7 @@ fn every_supported_block_format_uploads_without_validation_error() {
         let texture = encoded(dxgi, block_bytes, 16, 16, 5);
         let prepared = prepare_texture(&texture).expect("the fixture container parses");
         let error = validation_error(context.device(), || {
-            upload_texture(context.device(), context.queue(), &prepared)
+            upload_texture(context.device(), context.queue(), &prepared).unwrap()
         });
         assert_eq!(error, None, "DXGI format {dxgi} was rejected on upload");
     }
@@ -120,7 +120,7 @@ fn mip_levels_narrower_than_one_block_upload_at_their_natural_stride() {
         "the last level is a single block, well under any alignment rule"
     );
     let error = validation_error(context.device(), || {
-        upload_texture(context.device(), context.queue(), &prepared)
+        upload_texture(context.device(), context.queue(), &prepared).unwrap()
     });
     assert_eq!(error, None, "an unaligned mip stride was rejected");
 }
@@ -148,11 +148,11 @@ fn a_material_bind_group_with_every_texture_present_satisfies_its_layout() {
     let rough = prepare_texture(&rough_source).expect("rough/metal parses");
     let data = prepare_texture(&data_source).expect("single channel parses");
     let textures = [
-        upload_texture(device, queue, &albedo),
-        upload_texture(device, queue, &normal),
-        upload_texture(device, queue, &rough),
-        upload_texture(device, queue, &data),
-        upload_texture(device, queue, &data),
+        upload_texture(device, queue, &albedo).unwrap(),
+        upload_texture(device, queue, &normal).unwrap(),
+        upload_texture(device, queue, &rough).unwrap(),
+        upload_texture(device, queue, &data).unwrap(),
+        upload_texture(device, queue, &data).unwrap(),
     ];
     let views: Vec<TextureView> = textures.iter().map(view).collect();
     let error = validation_error(device, || {
@@ -195,7 +195,7 @@ fn the_placeholder_stands_in_for_all_four_optional_textures_at_once() {
     );
     let albedo_source = encoded(72, 8, 16, 16, 5);
     let albedo = prepare_texture(&albedo_source).expect("albedo parses");
-    let albedo_texture = upload_texture(device, queue, &albedo);
+    let albedo_texture = upload_texture(device, queue, &albedo).unwrap();
     let placeholder = placeholder_texture(device, queue);
     let albedo_view = view(&albedo_texture);
     let placeholder_view = view(&placeholder);
@@ -328,7 +328,7 @@ fn raw_npot_mip_chain_uploads_on_a_real_adapter() {
         [(5, 3), (2, 1), (1, 1)]
     );
     let error = validation_error(context.device(), || {
-        upload_texture(context.device(), context.queue(), &prepared)
+        upload_texture(context.device(), context.queue(), &prepared).unwrap()
     });
     assert_eq!(error, None, "the GPU rejected the raw NPOT mip chain");
 }

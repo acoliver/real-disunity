@@ -26,26 +26,17 @@ const MINIMUM_ROUGHNESS: f32 = 0.045;
 
 // GGX normal distribution.
 fn distribution_ggx(normal_dot_half: f32, roughness: f32) -> f32 {
-    let alpha = roughness * roughness;
-    let alpha_squared = alpha * alpha;
-    let denominator = normal_dot_half * normal_dot_half * (alpha_squared - 1.0) + 1.0;
-    return alpha_squared / max(PI * denominator * denominator, 1e-7);
+    return rd_distribution_ggx(normal_dot_half, roughness, 1e-7, true);
 }
 
 // Smith height-correlated visibility term, already divided by the 4 (n.l)(n.v)
 // denominator of the Cook-Torrance specular term.
 fn visibility_smith(normal_dot_view: f32, normal_dot_light: f32, roughness: f32) -> f32 {
-    let alpha = roughness * roughness;
-    let alpha_squared = alpha * alpha;
-    let view_term = normal_dot_light
-        * sqrt(normal_dot_view * normal_dot_view * (1.0 - alpha_squared) + alpha_squared);
-    let light_term = normal_dot_view
-        * sqrt(normal_dot_light * normal_dot_light * (1.0 - alpha_squared) + alpha_squared);
-    return 0.5 / max(view_term + light_term, 1e-7);
+    return rd_visibility(normal_dot_view, normal_dot_light, roughness, 0u);
 }
 
 fn fresnel_schlick(cosine: f32, f0: vec3<f32>) -> vec3<f32> {
-    return f0 + (vec3<f32>(1.0) - f0) * pow(clamp(1.0 - cosine, 0.0, 1.0), 5.0);
+    return rd_fresnel_schlick(cosine, f0);
 }
 
 // Resolves one surface's outgoing radiance from the sun and the ambient
@@ -62,7 +53,7 @@ fn surface_lighting(
     let roughness = clamp(roughness_in, MINIMUM_ROUGHNESS, 1.0);
 
     let view = normalize(frame.camera_position.xyz - world_position);
-    let light = normalize(frame.sun_direction.xyz);
+    let light = rd_toward_light(frame.sun_direction.xyz, false);
     let half_vector = normalize(view + light);
 
     let normal_dot_view = clamp(dot(normal, view), 1e-4, 1.0);
@@ -85,8 +76,7 @@ fn surface_lighting(
     // Hemisphere ambient about the scene's own up axis. Scene space is Z-up, so
     // the sky/ground blend reads the z component; using y here would light the
     // world as though the horizon ran vertically.
-    let sky_fraction = normal.z * 0.5 + 0.5;
-    let ambient = mix(frame.ambient_ground.rgb, frame.ambient_sky.rgb, sky_fraction)
+    let ambient = rd_hemisphere(normal, vec3<f32>(0.0, 0.0, 1.0), frame.ambient_ground.rgb, frame.ambient_sky.rgb)
         * diffuse_colour
         * ambient_occlusion;
 
@@ -94,7 +84,7 @@ fn surface_lighting(
 }
 
 fn apply_exposure(radiance: vec3<f32>) -> vec3<f32> {
-    return radiance * frame.grading.x;
+    return rd_post_exposure(radiance, frame.grading.x);
 }
 
 // Builds a tangent frame from screen-space derivatives.

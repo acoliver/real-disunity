@@ -1,10 +1,11 @@
 use crate::texture::PreparedTexture;
 use wgpu::{
-    BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer,
-    BufferDescriptor, BufferUsages, Device, Extent3d, FilterMode, Origin3d, Queue, Sampler,
-    SamplerDescriptor, ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
-    TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType,
-    TextureUsages, TextureViewDimension,
+    BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Device,
+    FilterMode, Queue, Sampler, SamplerDescriptor, ShaderStages, Texture, TextureFormat,
+    TextureSampleType, TextureUsages, TextureViewDimension,
+};
+use worldrunner_render_gpu::texture::{
+    TextureKind, TextureLayer, TextureUpload, UploadError, packed_mips,
 };
 
 /// Bind group index carrying per-frame state.
@@ -156,41 +157,19 @@ pub fn upload_type_grid(
     columns: u32,
     rows: u32,
     indices: &[u8],
-) -> Texture {
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("terrain-type-grid"),
-        size: Extent3d {
+) -> Result<Texture, UploadError> {
+    let mips = packed_mips(TextureFormat::R8Uint, columns, rows, 1, indices)?;
+    TextureUpload::new(
+        &[TextureLayer {
+            format: TextureFormat::R8Uint,
             width: columns,
             height: rows,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TextureFormat::R8Uint,
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    queue.write_texture(
-        TexelCopyTextureInfo {
-            texture: &texture,
-            mip_level: 0,
-            origin: Origin3d::ZERO,
-            aspect: TextureAspect::All,
-        },
-        indices,
-        TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(columns),
-            rows_per_image: Some(rows),
-        },
-        Extent3d {
-            width: columns,
-            height: rows,
-            depth_or_array_layers: 1,
-        },
-    );
-    texture
+            mips: &mips,
+        }],
+        0,
+        TextureKind::D2,
+    )?
+    .upload(device, queue, "terrain-type-grid", TextureUsages::empty())
 }
 
 pub fn upload_palette_array(
@@ -198,58 +177,23 @@ pub fn upload_palette_array(
     queue: &Queue,
     label: &str,
     layers: &[PreparedTexture],
-) -> Option<Texture> {
-    let first = layers.first()?;
-    let layer_count = u32::try_from(layers.len()).ok()?;
-    let mip_level_count = u32::try_from(first.mips().len()).unwrap_or(1).max(1);
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some(label),
-        size: Extent3d {
-            width: first.width(),
-            height: first.height(),
-            depth_or_array_layers: layer_count,
-        },
-        mip_level_count,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: first.format(),
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    let (block_width, block_height) = first.format().block_dimensions();
-    for (layer, prepared) in layers.iter().enumerate() {
-        let layer_index = u32::try_from(layer).unwrap_or(0);
-        for (level, mip) in prepared.mips().iter().enumerate() {
-            let mip_level = u32::try_from(level).unwrap_or(0);
-            if mip_level >= mip_level_count {
-                break;
-            }
-            queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level,
-                    origin: Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: layer_index,
-                    },
-                    aspect: TextureAspect::All,
-                },
-                mip.bytes,
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(mip.bytes_per_row),
-                    rows_per_image: Some(mip.rows),
-                },
-                Extent3d {
-                    width: whole_blocks(mip.width, block_width),
-                    height: whole_blocks(mip.height, block_height),
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
+) -> Result<Texture, UploadError> {
+    let layers: Vec<_> = layers.iter().map(texture_layer).collect();
+    TextureUpload::new(&layers, 0, TextureKind::Array)?.upload(
+        device,
+        queue,
+        label,
+        TextureUsages::empty(),
+    )
+}
+
+fn texture_layer<'a>(prepared: &'a PreparedTexture<'a>) -> TextureLayer<'a> {
+    TextureLayer {
+        format: prepared.format(),
+        width: prepared.width(),
+        height: prepared.height(),
+        mips: prepared.mips(),
     }
-    Some(texture)
 }
 
 pub fn material_sampler(device: &Device) -> Sampler {
@@ -265,98 +209,37 @@ pub fn material_sampler(device: &Device) -> Sampler {
     })
 }
 
-/// Rounds a mip extent up to whole blocks.
-///
-/// Below a certain level a block-compressed mip chain stops shrinking in
-/// texels and starts padding: the 2x2 and 1x1 levels of a BC format each still
-/// occupy one whole 4x4 block. A copy extent has to describe that physical
-/// size, because the logical extent a mip level reports is neither a multiple
-/// of the block width nor, once rounded up, inside the level's own bounds --
-/// so the driver rejects it. The failure would appear only at the tail of
-/// every chain, on the two levels that are hardest to see.
-fn whole_blocks(extent: u32, block: u32) -> u32 {
-    extent.next_multiple_of(block)
-}
-
-/// Uploads a prepared texture, copying every mip level block for block.
-pub fn upload_texture(device: &Device, queue: &Queue, prepared: &PreparedTexture) -> Texture {
-    let mip_level_count = u32::try_from(prepared.mips().len()).unwrap_or(1).max(1);
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("material-texture"),
-        size: Extent3d {
-            width: prepared.width(),
-            height: prepared.height(),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: prepared.format(),
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    let (block_width, block_height) = prepared.format().block_dimensions();
-    for (level, mip) in prepared.mips().iter().enumerate() {
-        let mip_level = u32::try_from(level).unwrap_or(0);
-        queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level,
-                origin: Origin3d::ZERO,
-                aspect: TextureAspect::All,
-            },
-            mip.bytes,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(mip.bytes_per_row),
-                rows_per_image: Some(mip.rows),
-            },
-            Extent3d {
-                width: whole_blocks(mip.width, block_width),
-                height: whole_blocks(mip.height, block_height),
-                depth_or_array_layers: 1,
-            },
-        );
-    }
-    texture
+/// Uploads all validated mip levels through the common resource implementation.
+pub fn upload_texture(
+    device: &Device,
+    queue: &Queue,
+    prepared: &PreparedTexture,
+) -> Result<Texture, UploadError> {
+    TextureUpload::new(&[texture_layer(prepared)], 0, TextureKind::D2)?.upload(
+        device,
+        queue,
+        "material-texture",
+        TextureUsages::empty(),
+    )
 }
 
 /// Creates the neutral texture bound where a material omits an optional map.
 pub fn placeholder_texture(device: &Device, queue: &Queue) -> Texture {
-    let texture = device.create_texture(&TextureDescriptor {
-        label: Some("placeholder"),
-        size: Extent3d {
+    let mips = packed_mips(TextureFormat::Rgba8Unorm, 1, 1, 1, &PLACEHOLDER_TEXEL)
+        .expect("constant texel layout");
+    TextureUpload::new(
+        &[TextureLayer {
+            format: TextureFormat::Rgba8Unorm,
             width: 1,
             height: 1,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba8Unorm,
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    queue.write_texture(
-        TexelCopyTextureInfo {
-            texture: &texture,
-            mip_level: 0,
-            origin: Origin3d::ZERO,
-            aspect: TextureAspect::All,
-        },
-        &PLACEHOLDER_TEXEL,
-        TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4),
-            rows_per_image: Some(1),
-        },
-        Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-    );
-    texture
+            mips: &mips,
+        }],
+        0,
+        TextureKind::D2,
+    )
+    .expect("constant texel layout")
+    .upload(device, queue, "placeholder", TextureUsages::empty())
+    .expect("constant texture supported")
 }
 
 /// Uploads already-encoded bytes into a buffer of the requested usage.
@@ -364,25 +247,7 @@ pub fn placeholder_texture(device: &Device, queue: &Queue) -> Texture {
 /// Every caller in this crate encodes its own bytes, because the ban on
 /// unsafe code rules out casting a struct to a byte slice. That keeps the
 /// layout explicit in Rust and testable without a GPU.
-pub fn upload_buffer(
-    device: &Device,
-    queue: &Queue,
-    label: &str,
-    usage: BufferUsages,
-    bytes: &[u8],
-) -> Buffer {
-    let size = u64::try_from(bytes.len()).unwrap_or(0);
-    let buffer = device.create_buffer(&BufferDescriptor {
-        label: Some(label),
-        size: size.max(wgpu::COPY_BUFFER_ALIGNMENT),
-        usage: usage | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    if !bytes.is_empty() {
-        queue.write_buffer(&buffer, 0, bytes);
-    }
-    buffer
-}
+pub use worldrunner_render_gpu::resource::upload_buffer;
 
 #[cfg(test)]
 mod tests;

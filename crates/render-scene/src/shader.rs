@@ -15,6 +15,8 @@
 
 /// WGSL source for governed environment geometry.
 pub const ENVIRONMENT_WGSL: &str = concat!(
+    worldrunner_render_lighting::lighting_wgsl!(),
+    worldrunner_render_post::post_wgsl!(),
     include_str!("shader/lighting.wgsl"),
     include_str!("shader/unshadowed.wgsl"),
     include_str!("shader/environment.wgsl")
@@ -22,6 +24,8 @@ pub const ENVIRONMENT_WGSL: &str = concat!(
 
 /// WGSL source for the per-fragment terrain splat blend.
 pub const TERRAIN_WGSL: &str = concat!(
+    worldrunner_render_lighting::lighting_wgsl!(),
+    worldrunner_render_post::post_wgsl!(),
     include_str!("shader/lighting.wgsl"),
     include_str!("shader/unshadowed.wgsl"),
     include_str!("shader/terrain.wgsl")
@@ -66,3 +70,6 @@ pub const fn fragment_entry_point(masked: bool) -> &'static str {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod gpu_math_tests;

@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+worldrunner-render-post = { path = "../render-post" }
+worldrunner-render-gpu = { path = "../render-gpu" }
 glam.workspace = true
 pollster.workspace = true
 thiserror.workspace = true

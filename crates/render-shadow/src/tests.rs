@@ -1,6 +1,8 @@
 use super::*;
 
+mod fit;
 mod receiver;
+mod sampling;
 mod validation;
 
 fn descriptor(layers: u32, dimension: ReceiverDimension) -> DepthMapDescriptor<'static> {

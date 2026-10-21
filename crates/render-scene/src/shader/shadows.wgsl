@@ -18,28 +18,10 @@ fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     let uv_dy = dpdy(uv);
     let depth_dx = dpdx(ndc.z);
     let depth_dy = dpdy(ndc.z);
-    let determinant = uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x;
-    var depth_gradient = vec2<f32>(0.0);
-    if abs(determinant) > 1e-10 {
-        depth_gradient = vec2<f32>(uv_dy.y * depth_dx - uv_dx.y * depth_dy,
-                                   uv_dx.x * depth_dy - uv_dy.x * depth_dx) / determinant;
-    }
+    let depth_gradient = rd_shadow_plane_gradient(uv_dx, uv_dy, depth_dx, depth_dy);
     if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z < 0.0 || ndc.z > 1.0 {
         return 1.0;
     }
-    let texel = 1.0 / vec2<f32>(textureDimensions(shadow_depth));
-    var visibility = 0.0;
-    for (var y = -1; y <= 1; y += 1) {
-        for (var x = -1; x <= 1; x += 1) {
-            let offset = vec2<f32>(f32(x), f32(y)) * texel;
-            let tap_uv = uv + offset;
-            // Taps outside coverage are lit, not clamped to an edge occluder.
-            var tap = 1.0;
-            if all(tap_uv >= vec2<f32>(0.0)) && all(tap_uv <= vec2<f32>(1.0)) {
-                tap = textureSampleCompareLevel(shadow_depth, shadow_sampler, tap_uv, ndc.z + dot(depth_gradient, offset) - shadow.bias.x);
-            }
-            visibility += tap;
-        }
-    }
-    return visibility / 9.0;
+    return rd_shadow_2d_grid(shadow_depth, shadow_sampler, uv, ndc.z - shadow.bias.x,
+        depth_gradient, i32(shadow.bias.z), true);
 }

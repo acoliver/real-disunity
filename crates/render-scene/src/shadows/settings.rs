@@ -1,4 +1,3 @@
-use glam::camera::rh::{proj::directx::orthographic, view::look_at_mat4};
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::{RenderScene, SceneEffects};
 
@@ -29,6 +28,27 @@ pub struct DirectionalShadowSettings {
 }
 
 impl DirectionalShadowSettings {
+    /// Canonical receiver/caster policy for this scene adapter; fitting remains scene-owned.
+    pub fn configuration(self) -> worldrunner_render_shadow::DirectionalShadowConfig {
+        use worldrunner_render_shadow::{
+            DirectionalCoverage, DirectionalShadowConfig, ReceiverDimension, ShadowFilter,
+        };
+        DirectionalShadowConfig {
+            coverage: DirectionalCoverage::Single,
+            dimension: ReceiverDimension::D2,
+            resolution: self.resolution,
+            caster_compare: wgpu::CompareFunction::Less,
+            receiver_compare: wgpu::CompareFunction::LessEqual,
+            caster_bias: wgpu::DepthBiasState::default(),
+            receiver_depth_bias: self.depth_bias,
+            receiver_normal_bias: self.normal_bias_meters,
+            filter: ShadowFilter::Grid {
+                radius: 1,
+                receiver_plane: true,
+            },
+        }
+    }
+
     /// Validates all fields and the bounded texture size before GPU allocation.
     /// Construction and updates additionally validate the fit against the active
     /// sun direction, since representability depends on the light orientation.
@@ -52,6 +72,9 @@ impl DirectionalShadowSettings {
                 limit,
             });
         }
+        self.configuration()
+            .validate(limits)
+            .map_err(|_| ShadowError::InvalidSettings)?;
         // Positive finite input alone does not guarantee a representable transform.
         self.matrix(Vec3::Z)?;
         Ok(())
@@ -63,27 +86,19 @@ impl DirectionalShadowSettings {
     }
 
     pub(super) fn matrix(self, toward_sun: Vec3) -> Result<Mat4, ShadowError> {
-        let up = if toward_sun.dot(Vec3::Z).abs() > 0.99 {
-            Vec3::Y
-        } else {
-            Vec3::Z
-        };
-        let eye = self.focus_meters + toward_sun * self.depth_half_extent_meters;
-        let view = look_at_mat4(eye, self.focus_meters, up);
-        let extent = self.half_extent_meters;
-        let projection = orthographic(
-            -extent,
-            extent,
-            -extent,
-            extent,
-            0.0,
-            self.depth_half_extent_meters * 2.0,
-        );
-        let matrix = projection * view;
-        if !matrix.is_finite() || !matrix.determinant().is_finite() || matrix.determinant() == 0.0 {
-            return Err(ShadowError::InvalidSettings);
+        worldrunner_render_shadow::DirectionalFit {
+            center: self.focus_meters,
+            toward_light: toward_sun,
+            up: if toward_sun.dot(Vec3::Z).abs() > 0.99 {
+                Vec3::Y
+            } else {
+                Vec3::Z
+            },
+            half_extent: self.half_extent_meters,
+            depth_half_extent: self.depth_half_extent_meters,
         }
-        Ok(matrix)
+        .matrix()
+        .map_err(|_| ShadowError::InvalidSettings)
     }
 }
 

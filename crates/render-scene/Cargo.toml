@@ -13,6 +13,9 @@ publish.workspace = true
 # rather than a claim: there is no API in scope through which a path could be
 # resolved.
 [dependencies]
+worldrunner-render-gpu = { path = "../render-gpu" }
+worldrunner-render-post = { path = "../render-post" }
+worldrunner-render-lighting = { path = "../render-lighting" }
 glam.workspace = true
 worldrunner-render-plan = { path = "../render-plan" }
 thiserror.workspace = true

@@ -9,6 +9,31 @@ fn canonical_lighting_kernels_match_retired_float32_expressions() {
     assert_parity(&values);
 }
 
+#[test]
+fn sh_parity_rejects_mismatch_in_each_direction_and_channel() {
+    for direction in 0..3 {
+        for channel in 0..3 {
+            let mut values = [0.0; 48];
+            values[24 + direction * 4 + channel] = 1.0;
+            let result = std::panic::catch_unwind(|| assert_parity(&values));
+            assert!(
+                result.is_err(),
+                "missed SH mismatch at direction {direction}, channel {channel}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sh_parity_ignores_padding_in_each_direction() {
+    let mut values = [0.0; 48];
+    for direction in 0..3 {
+        values[24 + direction * 4 + 3] = f32::NAN;
+        values[36 + direction * 4 + 3] = f32::INFINITY;
+    }
+    assert_parity(&values);
+}
+
 fn comparison_source() -> String {
     format!(
         r"{WGSL}
@@ -158,7 +183,12 @@ fn assert_parity(values: &[f32]) {
                 (values[i * 4 + 2], values[i * 4 + 3]),
             ]
         })
-        .chain((0..9).map(|i| (values[24 + i], values[36 + i])))
+        .chain((0..3).flat_map(|direction| {
+            (0..3).map(move |channel| {
+                let component = direction * 4 + channel;
+                (values[24 + component], values[36 + component])
+            })
+        }))
     {
         let error = (current - retired).abs();
         max_abs = max_abs.max(error);

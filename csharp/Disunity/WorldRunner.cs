@@ -22,7 +22,6 @@ public static class WorldRunner
     private static readonly List<NativeCommand> Pending = new();
     private static readonly List<GameObject> Tracked = new();
     private static readonly List<MonoBehaviour> Behaviours = new();
-    private static bool _started;
     private static bool _loaded;
 
     /// <summary>Selects the shared native engine image before any engine APIs are used.</summary>
@@ -51,7 +50,6 @@ public static class WorldRunner
         ThrowIfError(result);
         WorldHandle = world;
         _loaded = true;
-        _started = false;
         Time.DeltaTime = 0.0f;
         Time.Frame = 0;
     }
@@ -81,6 +79,7 @@ public static class WorldRunner
             throw new InvalidOperationException("components require a loaded world");
         }
         behaviour.gameObject = CreateGameObject();
+        behaviour.HasStarted = false;
         Behaviours.Add(behaviour);
         behaviour.Awake();
         return behaviour;
@@ -89,7 +88,8 @@ public static class WorldRunner
     /// <summary>
     /// One simulation tick: run script phases, then flush their commands and
     /// step the native world before state extraction. Start runs once before
-    /// the first Update; LateUpdate runs after Update in the same tick.
+    /// each behaviour's first Update; LateUpdate runs after Update in the same tick.
+    /// Behaviours added during callbacks join the next tick.
     /// </summary>
     public static void Step(float deltaTime)
     {
@@ -100,21 +100,28 @@ public static class WorldRunner
         }
         Time.DeltaTime = deltaTime;
         Time.Frame += 1;
-        if (!_started)
+        var participants = Behaviours.ToArray();
+        foreach (var behaviour in participants)
         {
-            foreach (var behaviour in Behaviours)
+            if (!behaviour.gameObject.IsDestroyed && !behaviour.HasStarted)
             {
+                behaviour.HasStarted = true;
                 behaviour.Start();
             }
-            _started = true;
         }
-        foreach (var behaviour in Behaviours)
+        foreach (var behaviour in participants)
         {
-            behaviour.Update();
+            if (!behaviour.gameObject.IsDestroyed)
+            {
+                behaviour.Update();
+            }
         }
-        foreach (var behaviour in Behaviours)
+        foreach (var behaviour in participants)
         {
-            behaviour.LateUpdate();
+            if (!behaviour.gameObject.IsDestroyed)
+            {
+                behaviour.LateUpdate();
+            }
         }
         SubmitPending();
         var stepResult = NativeBindings.disunity_world_step(WorldHandle, deltaTime, 1);
@@ -154,7 +161,17 @@ public static class WorldRunner
 
     internal static void Enqueue(NativeCommand command) => Pending.Add(command);
 
-    internal static void Forget(GameObject gameObject) => Tracked.Remove(gameObject);
+    internal static void Forget(GameObject gameObject)
+    {
+        Tracked.Remove(gameObject);
+        var index = Behaviours.FindIndex(candidate => ReferenceEquals(candidate.gameObject, gameObject));
+        if (index >= 0)
+        {
+            var behaviour = Behaviours[index];
+            Behaviours.RemoveAt(index);
+            behaviour.OnDestroy();
+        }
+    }
 
     /// <summary>Destroys the native world and runs OnDestroy on all behaviours.</summary>
     public static void UnloadWorld()
@@ -163,22 +180,22 @@ public static class WorldRunner
         {
             return;
         }
-        foreach (var behaviour in Behaviours)
+        while (Behaviours.Count > 0)
         {
+            var behaviour = Behaviours[0];
+            Behaviours.RemoveAt(0);
             behaviour.OnDestroy();
         }
         foreach (var gameObject in Tracked)
         {
             gameObject.MarkDestroyed();
         }
-        Behaviours.Clear();
         Tracked.Clear();
         Pending.Clear();
         var destroyResult = NativeBindings.disunity_world_destroy(WorldHandle);
         ThrowIfError(destroyResult);
         WorldHandle = 0;
         _loaded = false;
-        _started = false;
     }
 
     internal static void EnsureLoaded() => NativeLibrary.EnsureLoaded();

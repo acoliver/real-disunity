@@ -29,6 +29,8 @@ public sealed class GameObject : IDisposable
 
     public Transform Transform { get; }
 
+    internal bool IsDestroyed => _destroyed;
+
     public void Destroy()
     {
         if (_destroyed)

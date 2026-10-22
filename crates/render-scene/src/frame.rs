@@ -32,7 +32,8 @@ use worldrunner_render_lighting::{
     LightingFrame,
 };
 use worldrunner_render_plan::{
-    ROTATION_MICRO_SCALE, SceneAmbient, SceneColor, SceneEffects, SceneSky, SceneSun,
+    ROTATION_MICRO_SCALE, SceneAmbient, SceneAntiAlias, SceneColor, SceneEffects, SceneSky,
+    SceneSun,
 };
 
 /// Size in bytes of the frame uniform block.
@@ -62,23 +63,12 @@ const CHANNEL_MAX: f32 = 255.0;
 /// A frame uniform could not be built from the governed scene.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum FrameError {
+    /// An authored effect has no implementation in the stock renderer.
+    #[error("stock renderer does not support requested effect: {0}")]
+    UnsupportedEffect(&'static str),
     /// The decoded lighting environment cannot be represented safely.
     #[error(transparent)]
     Environment(#[from] worldrunner_render_lighting::EnvironmentError),
-    /// The sun direction is not a unit vector in its first three components.
-    #[error(
-        "sun direction (x,y,z) = ({x}, {y}, {z}) is not unit length in micro-units; \
-         SceneSun::direction carries the direction toward the sun in x, y and z, \
-         so an identity rotation means no sun has been authored"
-    )]
-    SunDirectionUnset {
-        /// East component in micro-units.
-        x: i64,
-        /// North component in micro-units.
-        y: i64,
-        /// Elevation component in micro-units.
-        z: i64,
-    },
     /// Ambient light was requested from a sky that has no CPU-side colour.
     #[error(
         "a dome-texture sky carries no colour the CPU can read, so hemispheric \
@@ -108,6 +98,8 @@ pub struct FrameUniform {
     /// that the remaining grading terms, which are decoded but equally
     /// unplumbed, have somewhere to land without moving any field.
     pub exposure: f32,
+    /// True when the scene explicitly omits its environmental profile.
+    pub unlit: bool,
 }
 
 impl FrameUniform {
@@ -115,10 +107,13 @@ impl FrameUniform {
     ///
     /// # Errors
     ///
-    /// Returns [`FrameError`] when the sun direction has never been authored or
-    /// when hemispheric ambient is requested from a sky with no readable
+    /// Returns [`FrameError`] when hemispheric ambient is requested from a sky with no readable
     /// colour.
-    pub fn new(view: &SceneView, effects: &SceneEffects) -> Result<Self, FrameError> {
+    pub fn new(view: &SceneView, effects: Option<&SceneEffects>) -> Result<Self, FrameError> {
+        let Some(effects) = effects else {
+            return Ok(Self::unlit(view));
+        };
+        validate_stock_effects(effects)?;
         let (sky, ground) = ambient_radiance(*effects.sky(), effects.ambient())?;
         let environment = EnvironmentConfig {
             frame: LightingFrame {
@@ -127,7 +122,7 @@ impl FrameUniform {
                 direction_semantics: DirectionSemantics::TowardLight,
             },
             direct: DirectionalLight {
-                direction: sun_direction(effects.sun())?,
+                direction: sun_direction(effects.sun()),
                 radiance: Vec3::splat(micro_to_unit(effects.sun().irradiance_micro)),
             },
             shadow_direction: None,
@@ -145,7 +140,21 @@ impl FrameUniform {
             ambient_sky: sky,
             ambient_ground: ground,
             exposure: environment.scene_exposure,
+            unlit: false,
         })
+    }
+
+    fn unlit(view: &SceneView) -> Self {
+        Self {
+            view_projection: view.view_projection_matrix(),
+            camera_position: view.eye_meters(),
+            sun_direction: Vec3::ZERO,
+            sun_irradiance: Vec3::ZERO,
+            ambient_sky: Vec3::ZERO,
+            ambient_ground: Vec3::ZERO,
+            exposure: 1.0,
+            unlit: true,
+        }
     }
 
     /// Encodes the block in the layout the shader expects.
@@ -168,16 +177,27 @@ impl FrameUniform {
             write_f32(&mut bytes, &mut offset, vector.z);
             write_f32(&mut bytes, &mut offset, 0.0);
         }
-        // The grading lane. Only exposure is plumbed; contrast and saturation
-        // are decoded but do not yet reach a shader, and are left zero rather
-        // than given a stand-in value that would read as authored.
         write_f32(&mut bytes, &mut offset, self.exposure);
-        write_f32(&mut bytes, &mut offset, 0.0);
+        write_f32(&mut bytes, &mut offset, f32::from(u8::from(self.unlit)));
         write_f32(&mut bytes, &mut offset, 0.0);
         write_f32(&mut bytes, &mut offset, 0.0);
         debug_assert_eq!(offset, FRAME_UNIFORM_BYTES, "the block is written in full");
         bytes
     }
+}
+
+/// Rejects authored requests that the stock pipelines cannot execute.
+pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), FrameError> {
+    if effects.ssao().is_some() {
+        return Err(FrameError::UnsupportedEffect("SSAO"));
+    }
+    if !effects.post().is_empty() {
+        return Err(FrameError::UnsupportedEffect("post-processing"));
+    }
+    if *effects.anti_alias() != SceneAntiAlias::Disabled {
+        return Err(FrameError::UnsupportedEffect("anti-aliasing"));
+    }
+    Ok(())
 }
 
 /// Writes one little-endian `f32` and advances the cursor.
@@ -186,29 +206,10 @@ fn write_f32(bytes: &mut [u8; FRAME_UNIFORM_BYTES], offset: &mut usize, value: f
     *offset += 4;
 }
 
-/// Reads the direction toward the sun out of its governed rotation.
-///
-/// [`SceneSun::direction`] is typed as a rotation but documented as an exactly
-/// normalized direction, and the two readings disagree. Requiring the first
-/// three components to be unit length settles it in a single check: a true
-/// rotation quaternion with a non-zero real part has a shorter vector part and
-/// is rejected, and so is the identity, whose vector part is zero. The
-/// alternative — rotating some reference axis — would require inventing which
-/// axis, and no authored data exists to confirm a choice.
-pub(crate) fn sun_direction(sun: &SceneSun) -> Result<Vec3, FrameError> {
-    let direction = sun.direction;
-    let (x, y, z) = (direction.x, direction.y, direction.z);
-    let squared = i128::from(x) * i128::from(x)
-        + i128::from(y) * i128::from(y)
-        + i128::from(z) * i128::from(z);
-    // The same soundness rule the rotation domain applies: accept every
-    // correctly rounded quantization of a unit vector, and nothing looser.
-    let scale = i128::from(ROTATION_MICRO_SCALE);
-    let tolerance = 2 * scale + 1;
-    if (squared - scale * scale).abs() > tolerance {
-        return Err(FrameError::SunDirectionUnset { x, y, z });
-    }
-    Ok(Vec3::new(micro_component(x), micro_component(y), micro_component(z)).normalize())
+/// Converts the validated scene-space direction to the shader's float format.
+pub(crate) fn sun_direction(sun: &SceneSun) -> Vec3 {
+    let [x, y, z] = sun.direction.components_micro().map(i64::from);
+    Vec3::new(micro_component(x), micro_component(y), micro_component(z)).normalize()
 }
 
 /// Derives hemispheric ambient radiance from the sky and its irradiance scales.

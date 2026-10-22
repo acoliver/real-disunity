@@ -11,6 +11,9 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SceneValidationError {
+    /// A light direction is not a quantized unit vector.
+    #[error("scene direction must be a unit vector in micro-units")]
+    DirectionNotNormalized,
     /// A mandatory collection was empty.
     #[error("{part} must not be empty")]
     EmptyCollection {

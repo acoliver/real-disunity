@@ -48,14 +48,6 @@ fn build_fixture(root: &Path) -> ManagedHostConfig {
             ])
             .current_dir(root),
     );
-    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
-    run(Command::new(&dotnet)
-        .args(["run", "--project"])
-        .arg(root.join("csharp/Disunity.Tests/Disunity.Tests.csproj"))
-        .arg("-p:TreatWarningsAsErrors=true"));
-    run(Command::new(&dotnet)
-        .args(["build", "--warnaserror"])
-        .arg(root.join("csharp/PortableFixture/PortableFixture.csproj")));
     let target =
         std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
     let target = if target.is_absolute() {
@@ -68,6 +60,16 @@ fn build_fixture(root: &Path) -> ManagedHostConfig {
         std::env::consts::DLL_PREFIX,
         std::env::consts::DLL_SUFFIX
     );
+    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
+    run(Command::new(&dotnet)
+        .args(["run", "--project"])
+        .arg(root.join("csharp/Disunity.Tests/Disunity.Tests.csproj"))
+        .arg("-p:TreatWarningsAsErrors=true")
+        .arg("--")
+        .arg(target.join("debug").join(&name)));
+    run(Command::new(&dotnet)
+        .args(["build", "--warnaserror"])
+        .arg(root.join("csharp/PortableFixture/PortableFixture.csproj")));
     let managed = root.join("csharp/PortableFixture/bin/Debug/net8.0");
     ManagedHostConfig {
         ffi_library: target.join("debug").join(name),

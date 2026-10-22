@@ -80,7 +80,7 @@ impl App {
             return Ok(());
         }
         if let Some(viewport) = renderer.viewport {
-            let view = self.camera.view(*self.scene.effects().camera(), viewport)?;
+            let view = self.camera.view(self.options.camera, viewport)?;
             renderer.render(&view)?;
         }
         self.next_frame = Instant::now() + Duration::from_millis(16);

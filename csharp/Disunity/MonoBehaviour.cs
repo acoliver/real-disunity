@@ -2,13 +2,13 @@ namespace Disunity;
 
 /// <summary>
 /// Script lifecycle over the native world. The host drives the phases:
-/// Awake on load/create, Start before the first render, Update on each
-/// simulation tick, LateUpdate after the tick before state extraction,
+/// Awake on load/create, Start before the first Update, Update on each
+/// simulation tick, LateUpdate after Update before commands are applied,
 /// OnDestroy when the world unloads.
 /// </summary>
 public abstract class MonoBehaviour
 {
-    private protected MonoBehaviour()
+    protected MonoBehaviour()
     {
     }
 

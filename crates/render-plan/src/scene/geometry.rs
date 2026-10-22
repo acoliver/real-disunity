@@ -258,14 +258,19 @@ impl SceneRotation {
     ///
     /// # Errors
     ///
-    /// Returns [`SceneValidationError`] when the component squares deviate
-    /// from one squared micro-unit scale by more than
+    /// Returns [`SceneValidationError`] when the component squares overflow
+    /// their sum or deviate from one squared micro-unit scale by more than
     /// `ROTATION_NORMALIZATION_TOLERANCE`.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        let squares = i128::from(self.x) * i128::from(self.x)
-            + i128::from(self.y) * i128::from(self.y)
-            + i128::from(self.z) * i128::from(self.z)
-            + i128::from(self.w) * i128::from(self.w);
+        let squares = [self.x, self.y, self.z, self.w]
+            .into_iter()
+            .try_fold(0_i128, |sum, component| {
+                let component = i128::from(component);
+                sum.checked_add(component * component)
+            })
+            .ok_or(SceneValidationError::ArithmeticOverflow {
+                part: "scene rotation",
+            })?;
         let deviation = (squares - ROTATION_MICRO_SCALE_SQUARED).abs();
         if deviation <= ROTATION_NORMALIZATION_TOLERANCE {
             Ok(())

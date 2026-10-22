@@ -17,9 +17,9 @@ use crate::document::terrain::TerrainRecipe;
 use crate::document::validate::require_identifier;
 
 /// Schema tag of the authored render-contract document family.
-pub const RENDER_CONTRACT_SCHEMA: &str = "real-disunity.render-contract.v1";
+pub const RENDER_CONTRACT_SCHEMA: &str = "real-disunity.render-contract.v2";
 /// Schema version of the authored render-contract document family.
-pub const RENDER_CONTRACT_SCHEMA_VERSION: u32 = 1;
+pub const RENDER_CONTRACT_SCHEMA_VERSION: u32 = 2;
 
 /// Version envelope shared by every authored render contract.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

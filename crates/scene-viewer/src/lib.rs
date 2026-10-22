@@ -13,7 +13,7 @@ mod presentation;
 mod renderer;
 
 pub use camera::{OrbitCamera, OrbitLimits};
-use worldrunner_render_plan::RenderScene;
+use worldrunner_render_plan::{RenderScene, SceneCamera};
 use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 
 /// Explicit caller-owned desktop presentation settings.
@@ -25,6 +25,8 @@ pub struct ViewerOptions {
     pub size: [u32; 2],
     /// Initial Z-up scene-space camera pose, restored exactly by R/Home.
     pub pose: CameraPose,
+    /// Projection intrinsics, independent of an optional environmental profile.
+    pub camera: SceneCamera,
     /// Camera bounds; the initial pose must be within these bounds.
     pub orbit: OrbitLimits,
     /// Opt-in single-map directional shadows with an explicit caller-owned fit.
@@ -88,11 +90,14 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
     if scene.terrain().is_some() {
         return Err(ViewerError::UnsupportedScene("terrain"));
     }
-    if scene.effects().water().is_some() {
+    if scene
+        .effects()
+        .is_some_and(|effects| effects.water().is_some())
+    {
         return Err(ViewerError::UnsupportedScene("water"));
     }
     OrbitCamera::new(options.pose, options.orbit)?.view(
-        *scene.effects().camera(),
+        options.camera,
         worldrunner_render_scene::Viewport {
             width: options.size[0],
             height: options.size[1],

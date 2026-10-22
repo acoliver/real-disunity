@@ -3,12 +3,13 @@
 //!
 //! Every quantity is an integer micro-unit, millimeter, or millidegree count
 //! and every renderer-semantic choice is a closed variant, so one effects
-//! value admits exactly one interpretation. Sky, sun, ambient, shadow
-//! cascades, SSAO, camera, color grading, the post stack, and
-//! anti-aliasing are mandatory; only water is authored-optional.
+//! value admits exactly one interpretation. A scene may omit this entire
+//! environmental profile for unlit rendering. Within a profile, water and
+//! SSAO are optional; sky, sun, ambient, cascades, camera, grading, the post
+//! stack, and the anti-aliasing choice are explicit.
 
+use crate::scene::direction::SceneDirection;
 use crate::scene::error::SceneValidationError;
-use crate::scene::geometry::SceneRotation;
 use crate::scene::resource::TextureHandle;
 
 /// Micro-unit scale shared by every effects ratio.
@@ -45,25 +46,24 @@ pub enum SceneSky {
     },
 }
 
-/// One directional light with an exact orientation and unit-interval scale.
+/// One directional light with a unit direction and absolute irradiance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSun {
-    /// Exactly normalized direction toward the light source.
-    pub direction: SceneRotation,
+    /// Quantized unit direction toward the light source in the scene Z-up basis.
+    pub direction: SceneDirection,
     /// Absolute irradiance scale in micro-units within
     /// `0..=MAXIMUM_SUN_IRRADIANCE_MICRO`.
     pub irradiance_micro: u64,
 }
 
 impl SceneSun {
-    /// Validates orientation and irradiance closure.
+    /// Validates irradiance bounds. The direction is valid by construction.
     ///
     /// # Errors
     ///
-    /// Returns [`SceneValidationError`] when the direction is unnormalized or
-    /// the irradiance exceeds `MAXIMUM_SUN_IRRADIANCE_MICRO`.
+    /// Returns [`SceneValidationError`] when irradiance exceeds
+    /// `MAXIMUM_SUN_IRRADIANCE_MICRO`.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        self.direction.validate()?;
         require_range(
             "sun irradiance_micro",
             self.irradiance_micro,
@@ -458,8 +458,8 @@ pub struct SceneEffectsParts {
     pub ambient: SceneAmbient,
     /// Mandatory shadow cascade set.
     pub shadows: SceneShadowCascades,
-    /// Mandatory screen-space ambient occlusion.
-    pub ssao: SceneSsao,
+    /// Optional screen-space ambient occlusion request.
+    pub ssao: Option<SceneSsao>,
     /// Mandatory camera projection intrinsics.
     pub camera: SceneCamera,
     /// Mandatory color grading.
@@ -472,9 +472,8 @@ pub struct SceneEffectsParts {
 
 /// Complete owned effects state of one scene.
 ///
-/// Everything but water is mandatory: a scene always states its sky, sun,
-/// ambient light, shadow cascades, SSAO, camera, color grading, post stack,
-/// and anti-aliasing explicitly.
+/// An optional scene profile with explicit lighting and grading policy. Water
+/// and SSAO may be absent within a profile; the other fields are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffects {
     water: Option<SceneWaterPlane>,
@@ -482,7 +481,7 @@ pub struct SceneEffects {
     sun: SceneSun,
     ambient: SceneAmbient,
     shadows: SceneShadowCascades,
-    ssao: SceneSsao,
+    ssao: Option<SceneSsao>,
     camera: SceneCamera,
     grading: SceneColorGrading,
     post: Box<[ScenePostStage]>,
@@ -542,10 +541,10 @@ impl SceneEffects {
         &self.shadows
     }
 
-    /// Returns the mandatory SSAO parameters.
+    /// Returns the optional SSAO request.
     #[must_use]
-    pub const fn ssao(&self) -> &SceneSsao {
-        &self.ssao
+    pub const fn ssao(&self) -> Option<&SceneSsao> {
+        self.ssao.as_ref()
     }
 
     /// Returns the mandatory camera intrinsics.
@@ -584,7 +583,9 @@ impl SceneEffects {
         self.sun.validate()?;
         self.ambient.validate()?;
         self.shadows.validate()?;
-        self.ssao.validate()?;
+        if let Some(ssao) = self.ssao {
+            ssao.validate()?;
+        }
         self.camera.validate()?;
         self.grading.validate()?;
         for stage in &self.post {
@@ -635,7 +636,7 @@ fn checked_corner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::geometry::SceneRotation;
+    use crate::scene::direction::SceneDirection;
 
     fn parts() -> SceneEffectsParts {
         SceneEffectsParts {
@@ -658,7 +659,7 @@ mod tests {
                 },
             },
             sun: SceneSun {
-                direction: SceneRotation::IDENTITY,
+                direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
                 irradiance_micro: 800_000,
             },
             ambient: SceneAmbient {
@@ -667,11 +668,11 @@ mod tests {
             },
             shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
                 .expect("synthetic cascades validate"),
-            ssao: SceneSsao {
+            ssao: Some(SceneSsao {
                 radius_millimeters: 1_200,
                 intensity_micro: 1_000_000,
                 horizon_angle_millidegrees: 90_000,
-            },
+            }),
             camera: SceneCamera {
                 vertical_fov_millidegrees: 60_000,
                 near_plane_millimeters: 100,
@@ -814,10 +815,12 @@ mod tests {
     }
 
     #[test]
-    fn water_is_the_only_optional_part() {
+    fn water_and_ssao_can_be_omitted_within_a_profile() {
         let mut staged = parts();
         staged.water = None;
+        staged.ssao = None;
         let effects = SceneEffects::new(staged).expect("waterless effects validate");
         assert!(effects.water().is_none());
+        assert!(effects.ssao().is_none());
     }
 }

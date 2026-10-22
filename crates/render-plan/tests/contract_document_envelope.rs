@@ -9,11 +9,11 @@ use worldrunner_render_plan::{
 };
 #[test]
 fn contract_identity_has_an_independent_version_boundary() {
-    assert_eq!(RENDER_CONTRACT_SCHEMA, "real-disunity.render-contract.v1");
-    assert_eq!(RENDER_CONTRACT_SCHEMA_VERSION, 1);
+    assert_eq!(RENDER_CONTRACT_SCHEMA, "real-disunity.render-contract.v2");
+    assert_eq!(RENDER_CONTRACT_SCHEMA_VERSION, 2);
     assert_eq!(
         worldrunner_render_plan::RENDER_CONTRACT_CAPABILITY_URI,
-        "urn:real-disunity:capability:render-contract:v1"
+        "urn:real-disunity:capability:render-contract:v2"
     );
     let mut contract = valid_contract();
     contract["schema"] = json!("legacy.render-contract.v1");
@@ -74,15 +74,13 @@ fn wrong_schema_tag_is_rejected() {
 #[test]
 fn future_schema_version_is_rejected() {
     let mut contract = valid_contract();
-    contract["schema_version"] = json!(2);
+    contract["schema_version"] = json!(RENDER_CONTRACT_SCHEMA_VERSION + 1);
     let error = ContractDocument::from_json_bytes(&contract_bytes(&contract))
         .expect_err("unknown schema version must fail");
     assert!(matches!(
         error,
-        ContractDocumentError::UnsupportedSchemaVersion {
-            expected: 1,
-            observed: 2
-        }
+        ContractDocumentError::UnsupportedSchemaVersion { expected, observed }
+            if expected == RENDER_CONTRACT_SCHEMA_VERSION && observed == expected + 1
     ));
 }
 

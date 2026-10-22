@@ -16,8 +16,19 @@ Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map directional shadows are implemented. Water, SSAO, post
 processing, anti-aliasing, distance-based mesh LOD selection, and textured-sky
 rendering are not implemented by this renderer; their presence in the shared
-scene vocabulary is not a rendering guarantee. The desktop viewer additionally
-rejects terrain and water before startup.
+scene vocabulary is not a rendering guarantee. Requested SSAO, nonempty post
+stacks, and enabled FXAA/TAA return `FrameError::UnsupportedEffect` before upload
+or rendering, including requests with zero weights. Omit SSAO with `None` and
+select `SceneAntiAlias::Disabled` when no such operation is wanted. These checks
+are limited to SSAO, post stages, and anti-aliasing. Contrast and saturation
+grading are not applied or rejected; only exposure is implemented. The plain
+renderer neither renders nor rejects water requests. The shadow path and desktop
+viewer reject water separately, so rejection is not uniform across stock paths.
+
+A scene without an environmental profile renders unlit albedo plus emission,
+without lighting or grading. Directional shadows require an environmental
+profile. The desktop viewer takes camera intrinsics explicitly in `ViewerOptions`
+and additionally rejects terrain and water before startup.
 
 The tests construct procedural geometry and textures. GPU tests require a real
 hardware or software adapter and fail if one cannot be acquired. For a software

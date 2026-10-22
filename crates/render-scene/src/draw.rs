@@ -28,6 +28,9 @@ const NEAREST_LEVEL: usize = 0;
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
 pub enum DrawError {
+    /// The environmental profile requests an unsupported stock effect.
+    #[error(transparent)]
+    Frame(#[from] crate::frame::FrameError),
     #[error(transparent)]
     Upload(#[from] worldrunner_render_gpu::texture::UploadError),
     /// One texture payload could not be read as an uploadable container.
@@ -165,6 +168,9 @@ impl SceneGpu {
         scene: &RenderScene,
         pipelines: &ScenePipelines,
     ) -> Result<Self, DrawError> {
+        if let Some(effects) = scene.effects() {
+            crate::frame::validate_stock_effects(effects)?;
+        }
         let (textures, views) = upload_textures(device, queue, scene)?;
         let placeholder = placeholder_texture(device, queue);
         let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());

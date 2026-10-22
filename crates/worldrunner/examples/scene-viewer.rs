@@ -4,12 +4,13 @@ use worldrunner::scene::{
         MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode,
         SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
         SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh,
-        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades,
-        SceneSky, SceneSsao, SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat,
-        TextureColorSpace, TextureHandle,
+        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneShadowCascades, SceneSky,
+        SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat, TextureColorSpace,
+        TextureHandle,
     },
     viewer::{OrbitLimits, ViewerOptions, run},
 };
+use worldrunner_render_plan::SceneDirection;
 const MICRO: i64 = 1_000_000;
 
 fn camera() -> SceneCamera {
@@ -36,12 +37,7 @@ fn effects() -> SceneEffects {
             },
         },
         sun: SceneSun {
-            direction: SceneRotation {
-                x: 0,
-                y: 0,
-                z: ROTATION_MICRO_SCALE,
-                w: 0,
-            },
+            direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
             // Ambient-only lighting makes channel-order errors obvious in this small example.
             irradiance_micro: 0,
         },
@@ -50,11 +46,7 @@ fn effects() -> SceneEffects {
             ground_irradiance_micro: 1_000_000,
         },
         shadows: SceneShadowCascades::new(vec![10_000], 0).expect("one unblended cascade is valid"),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 0,
-            horizon_angle_millidegrees: 30_000,
-        },
+        ssao: None,
         camera: camera(),
         grading: SceneColorGrading {
             exposure_micro: 1_000_000,
@@ -68,24 +60,23 @@ fn effects() -> SceneEffects {
 }
 
 fn identity() -> SceneTransform {
-    SceneTransform {
-        position_millimeters: [0, 0, 0],
-        rotation: SceneRotation {
-            x: 0,
-            y: 0,
-            z: 0,
-            w: ROTATION_MICRO_SCALE,
-        },
-        scale_millionths: 1_000_000,
-    }
+    SceneTransform::from_world_schema(
+        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
+        [0; 3],
+        [0, 0, 0, ROTATION_MICRO_SCALE],
+        1_000_000,
+    )
+    .expect("the example placement uses the schema boundary")
 }
 
 fn vertex(position: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
-    SceneVertex {
-        position_millimeters: position,
-        normal_micro: [0, 0, MICRO],
-        texcoord_micro: texcoord,
-    }
+    SceneVertex::from_world_schema(
+        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
+        position,
+        [0, MICRO, 0],
+        texcoord,
+    )
+    .expect("the example mesh uses the schema boundary")
 }
 
 /// A two-metre ground quad at elevation zero, facing up.
@@ -99,10 +90,10 @@ fn quad() -> SceneMesh {
         SceneMeshLod::new(
             0,
             vec![
-                vertex([-half, -half, 0], [0, 0]),
-                vertex([half, -half, 0], [MICRO, 0]),
-                vertex([half, half, 0], [MICRO, MICRO]),
-                vertex([-half, half, 0], [0, MICRO]),
+                vertex([-half, 0, half], [0, 0]),
+                vertex([half, 0, half], [MICRO, 0]),
+                vertex([half, 0, -half], [MICRO, MICRO]),
+                vertex([-half, 0, -half], [0, MICRO]),
             ],
             vec![0, 1, 2, 0, 2, 3],
             None,
@@ -152,7 +143,7 @@ fn scene() -> RenderScene {
         )
         .unwrap(),
         terrain: None,
-        effects: effects(),
+        effects: Some(effects()),
     })
     .unwrap()
 }
@@ -172,6 +163,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     run(
         scene(),
         ViewerOptions {
+            camera: SceneCamera {
+                vertical_fov_millidegrees: 60_000,
+                near_plane_millimeters: 100,
+                far_plane_millimeters: 1_000_000,
+            },
             title: "Generic scene viewer".into(),
             size: [800, 600],
             pose: CameraPose {

@@ -99,7 +99,8 @@ fn light_projection_maps_focus_and_handles_vertical_sun() {
 }
 
 fn with_cascades(effects: &SceneEffects, extents: Vec<u64>, blend: u64) -> SceneEffects {
-    let mut parts = fixture::effects_parts(effects.sun().direction.x);
+    let mut parts =
+        fixture::effects_parts(i64::from(effects.sun().direction.components_micro()[0]));
     parts.shadows = SceneShadowCascades::new(extents, blend).unwrap();
     SceneEffects::new(parts).unwrap()
 }
@@ -350,7 +351,7 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
         resources: source.resources().clone(),
         geometry: source.geometry().clone(),
         terrain: None,
-        effects: SceneEffects::new(parts).unwrap(),
+        effects: Some(SceneEffects::new(parts).unwrap()),
     })
     .unwrap();
     assert!(matches!(
@@ -375,11 +376,11 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
             .is_err()
     );
     assert!(matches!(
-        renderer.set_effects(&with_cascades(source.effects(), vec![100, 200], 0)),
+        renderer.set_effects(&with_cascades(source.effects().unwrap(), vec![100, 200], 0)),
         Err(ShadowError::UnsupportedCascades)
     ));
     assert!(matches!(
-        renderer.set_effects(water.effects()),
+        renderer.set_effects(water.effects().unwrap()),
         Err(ShadowError::UnsupportedFeature("water"))
     ));
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -433,7 +434,7 @@ fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
         .unwrap(),
         geometry: source.geometry().clone(),
         terrain: None,
-        effects: SceneEffects::new(effects).unwrap(),
+        effects: Some(SceneEffects::new(effects).unwrap()),
     })
     .unwrap();
     let baseline = capture_scene(&context, &source, &view()).unwrap();

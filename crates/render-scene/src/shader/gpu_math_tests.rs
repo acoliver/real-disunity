@@ -91,6 +91,7 @@ fn configured_frame(
     .prepare()
     .unwrap();
     crate::frame::FrameUniform {
+        unlit: false,
         view_projection: Mat4::IDENTITY,
         camera_position: Vec3::Z,
         sun_direction: environment.toward_light,

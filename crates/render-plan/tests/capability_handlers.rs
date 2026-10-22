@@ -125,7 +125,6 @@ fn material_artifact() -> MaterialArtifact {
         translucent_foliage: false,
         uv_tiling: [1.0, 1.0],
         terrain_distorted: false,
-        terrain_fold_source: None,
     }
 }
 

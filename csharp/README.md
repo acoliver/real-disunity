@@ -44,6 +44,10 @@ imports' complete parameter and result types, entry points, native image,
 calling conventions, and all 3 structs' field types, offsets, and sizes. Native
 and runtime Rust layout tests independently check sizes, alignment, and offsets.
 
+The managed console tests also derive a behaviour from the separate PortableFixture
+assembly and export native state after each step. Commands from Start, Update,
+and LateUpdate must be visible immediately; Start must run only once.
+
 The fixture uses only `csharp/PortableFixture/triangle.fixture`. It verifies 100
 load/step/export/unload cycles with deterministic native object state, reused
 world slots, and zero native worlds and managed GCHandle tokens after each

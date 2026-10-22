@@ -7,6 +7,8 @@
 //! publication. Every constructor validates its own closure, so an invalid
 //! scene cannot exist.
 
+mod direction;
+pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
 mod composition;
 mod effects;
 mod error;
@@ -45,8 +47,8 @@ pub struct SceneParts {
     pub geometry: SceneGeometry,
     /// Optional terrain; its palette resolves against the material table.
     pub terrain: Option<SceneTerrain>,
-    /// Mandatory effects state.
-    pub effects: SceneEffects,
+    /// Optional environmental profile. Absence requests unlit rendering.
+    pub effects: Option<SceneEffects>,
 }
 
 /// Mesh table plus ordered objects of one scene.
@@ -113,7 +115,7 @@ pub struct RenderScene {
     resources: SceneResources,
     geometry: SceneGeometry,
     terrain: Option<SceneTerrain>,
-    effects: SceneEffects,
+    effects: Option<SceneEffects>,
 }
 
 impl RenderScene {
@@ -152,10 +154,10 @@ impl RenderScene {
         self.terrain.as_ref()
     }
 
-    /// Returns the mandatory effects state.
+    /// Returns the optional environmental profile.
     #[must_use]
-    pub const fn effects(&self) -> &SceneEffects {
-        &self.effects
+    pub const fn effects(&self) -> Option<&SceneEffects> {
+        self.effects.as_ref()
     }
 
     /// Re-runs the complete internal closure.
@@ -166,7 +168,9 @@ impl RenderScene {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.resources.validate()?;
         self.geometry.validate()?;
-        self.effects.validate()?;
+        if let Some(effects) = &self.effects {
+            effects.validate()?;
+        }
         let material_limit = table_limit(self.resources.materials().len(), "materials")?;
         let mesh_limit = table_limit(self.geometry.meshes().len(), "meshes")?;
         for object in self.geometry.objects() {
@@ -189,7 +193,9 @@ impl RenderScene {
                 )?;
             }
         }
-        if let crate::scene::effects::SceneSky::DomeTexture { texture } = self.effects.sky() {
+        if let Some(crate::scene::effects::SceneSky::DomeTexture { texture }) =
+            self.effects.as_ref().map(SceneEffects::sky)
+        {
             let texture_limit = table_limit(self.resources.textures().len(), "textures")?;
             require_handle("effects sky", texture.raw(), "texture", texture_limit)?;
         }
@@ -255,7 +261,7 @@ mod tests {
                 },
             },
             sun: SceneSun {
-                direction: SceneRotation::IDENTITY,
+                direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
                 irradiance_micro: 800_000,
             },
             ambient: SceneAmbient {
@@ -264,11 +270,11 @@ mod tests {
             },
             shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
                 .expect("synthetic cascades validate"),
-            ssao: SceneSsao {
+            ssao: Some(SceneSsao {
                 radius_millimeters: 1_200,
                 intensity_micro: 1_000_000,
                 horizon_angle_millidegrees: 90_000,
-            },
+            }),
             camera: SceneCamera {
                 vertical_fov_millidegrees: 60_000,
                 near_plane_millimeters: 100,
@@ -320,7 +326,7 @@ mod tests {
             resources,
             geometry: SceneGeometry::new(vec![mesh()], objects)?,
             terrain,
-            effects: effects(),
+            effects: Some(effects()),
         })
     }
 
@@ -401,7 +407,7 @@ mod tests {
             resources: SceneResources::new(Vec::new(), Vec::new()).expect("empty tables validate"),
             geometry: SceneGeometry::new(Vec::new(), Vec::new()).expect("empty geometry validates"),
             terrain: None,
-            effects: dome_sky_effects(),
+            effects: Some(dome_sky_effects()),
         };
         assert!(matches!(
             RenderScene::new(parts),
@@ -423,7 +429,7 @@ mod tests {
             sun: *base.sun(),
             ambient: *base.ambient(),
             shadows: base.shadows().clone(),
-            ssao: *base.ssao(),
+            ssao: base.ssao().copied(),
             camera: *base.camera(),
             grading: *base.grading(),
             post: Vec::new(),
@@ -461,7 +467,7 @@ mod tests {
             .expect("resources validate"),
             geometry: SceneGeometry::new(Vec::new(), Vec::new()).expect("empty geometry validates"),
             terrain: None,
-            effects: effects(),
+            effects: Some(effects()),
         })
         .expect("scene without objects validates");
         assert_eq!(scene.geometry().objects().len(), 0);

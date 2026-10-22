@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Disunity/Disunity.Engine.csproj" />
+    <ProjectReference Include="../PortableFixture/PortableFixture.csproj" />
   </ItemGroup>
 </Project>

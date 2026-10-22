@@ -31,14 +31,14 @@ public static class NativeBridge
                 return -2;
             }
             WorldRunner.LoadWorld();
-            for (var i = 0; i < 3; i++)
-            {
-                var item = WorldRunner.CreateGameObject();
-                item.Transform.position = new Vector3(i * 2.0f, 1.25f, -i * 3.0f);
-                item.Transform.rotationY = i * 0.25f;
-                item.Transform.materialSlot = i;
-            }
+            var behaviours = Enumerable.Range(0, 3)
+                .Select(i => WorldRunner.AddComponent(new TriangleBehaviour(i))).ToArray();
             WorldRunner.Step(0.125f);
+            if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
+                || Time.Frame != 1 || Time.DeltaTime != 0.125f)
+            {
+                throw new InvalidOperationException("all lifecycle phases must run in the first step");
+            }
             return 0;
         }
         catch

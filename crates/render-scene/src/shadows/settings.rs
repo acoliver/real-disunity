@@ -81,7 +81,7 @@ impl DirectionalShadowSettings {
     }
 
     pub(super) fn validate_light(self, effects: &SceneEffects) -> Result<(), ShadowError> {
-        self.matrix(crate::frame::sun_direction(effects.sun())?)?;
+        self.matrix(crate::frame::sun_direction(effects.sun()))?;
         Ok(())
     }
 
@@ -103,6 +103,7 @@ impl DirectionalShadowSettings {
 }
 
 pub(super) fn validate_effects(effects: &SceneEffects) -> Result<(), ShadowError> {
+    crate::frame::validate_stock_effects(effects)?;
     let cascades = effects.shadows();
     if cascades.extents_millimeters().len() != 1 || cascades.blend_band_micro() != 0 {
         return Err(ShadowError::UnsupportedCascades);
@@ -114,7 +115,9 @@ pub(super) fn validate_effects(effects: &SceneEffects) -> Result<(), ShadowError
 }
 
 pub(super) fn validate_scene(scene: &RenderScene) -> Result<(), ShadowError> {
-    validate_effects(scene.effects())?;
+    validate_effects(scene.effects().ok_or(ShadowError::UnsupportedFeature(
+        "shadows require an environmental profile",
+    ))?)?;
     if scene.terrain().is_some() {
         return Err(ShadowError::UnsupportedFeature("terrain"));
     }

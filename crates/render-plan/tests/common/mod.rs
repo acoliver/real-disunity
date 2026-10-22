@@ -89,7 +89,7 @@ fn effects() -> Value {
         },
         "sky": { "asset_uri": "synthetic:element/sky-dome" },
         "sun": {
-            "direction": { "x": 0, "y": 0, "z": 0, "w": 1_000_000 },
+            "direction": [0, 0, 1_000_000],
             "irradiance_micro": 1_250_000,
         },
         "ambient": { "irradiance_micro": 300_000 },
@@ -189,8 +189,8 @@ fn assets() -> Value {
 /// One minimal fully valid authored render contract.
 pub fn valid_contract() -> Value {
     json!({
-        "schema": "real-disunity.render-contract.v1",
-        "schema_version": 1,
+        "schema": "real-disunity.render-contract.v2",
+        "schema_version": 2,
         "contract_id": "synthetic-contract-alpha",
         "basis": basis(),
         "scene": { "meshes": [

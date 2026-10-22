@@ -21,15 +21,17 @@ use wgpu::{
     TexelCopyBufferLayout, Texture, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsages, TextureView, TextureViewDescriptor,
 };
+use worldrunner_render_plan::SceneDirection;
 use worldrunner_render_plan::{
     BillboardPolicy, MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode,
     SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
     SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod,
     SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades, SceneSky,
-    SceneSsao, SceneSun, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
-    TextureColorSpace, TextureEncoding, TextureHandle,
+    SceneSun, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface,
+    SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy, TextureColorSpace,
+    TextureEncoding, TextureHandle,
 };
+mod environment;
 mod material_factors;
 mod terrain_blend;
 
@@ -282,7 +284,7 @@ fn card_scene(billboard: Option<BillboardPolicy>, rotation: SceneRotation) -> Re
         geometry: SceneGeometry::new(vec![card(billboard)], vec![object])
             .expect("the fixture geometry validates"),
         terrain: None,
-        effects: effects(),
+        effects: Some(effects()),
     })
     .expect("the fixture scene validates")
 }
@@ -309,7 +311,11 @@ fn camera() -> SceneCamera {
 }
 
 fn effects() -> SceneEffects {
-    SceneEffects::new(SceneEffectsParts {
+    SceneEffects::new(effect_parts()).expect("the fixture effects validate")
+}
+
+fn effect_parts() -> SceneEffectsParts {
+    SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
             zenith: SceneColor {
@@ -326,12 +332,7 @@ fn effects() -> SceneEffects {
         sun: SceneSun {
             // Straight down from the zenith, so the upward-facing quad is lit
             // head on and a dark result cannot be blamed on grazing incidence.
-            direction: SceneRotation {
-                x: 0,
-                y: 0,
-                z: ROTATION_MICRO_SCALE,
-                w: 0,
-            },
+            direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
             irradiance_micro: 1_000_000,
         },
         ambient: SceneAmbient {
@@ -340,11 +341,7 @@ fn effects() -> SceneEffects {
         },
         shadows: SceneShadowCascades::new(vec![10_000, 40_000], 50_000)
             .expect("two ascending cascades are valid"),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 500_000,
-            horizon_angle_millidegrees: 30_000,
-        },
+        ssao: None,
         camera: camera(),
         grading: SceneColorGrading {
             exposure_micro: 1_000_000,
@@ -353,8 +350,7 @@ fn effects() -> SceneEffects {
         },
         post: Vec::new(),
         anti_alias: SceneAntiAlias::Disabled,
-    })
-    .expect("the fixture effects are valid")
+    }
 }
 
 /// Builds a scene holding exactly one texture, material and mesh.
@@ -378,7 +374,7 @@ fn build(
             .expect("the fixture resources validate"),
         geometry: SceneGeometry::new(vec![mesh], objects).expect("the fixture geometry validates"),
         terrain: None,
-        effects: effects(),
+        effects: Some(effects()),
     })
     .expect("the fixture scene validates")
 }
@@ -431,7 +427,7 @@ fn terrain_scene(materials: usize) -> RenderScene {
         geometry: SceneGeometry::new(vec![quad()], vec![object])
             .expect("the fixture geometry validates"),
         terrain: Some(terrain(materials)),
-        effects: effects(),
+        effects: Some(effects()),
     })
     .expect("the fixture scene validates")
 }
@@ -477,7 +473,7 @@ fn frame_from(pose: CameraPose) -> FrameUniform {
         },
     )
     .expect("the fixture pose is well formed");
-    FrameUniform::new(&view, &effects()).expect("the fixture frame builds")
+    FrameUniform::new(&view, Some(&effects())).expect("the fixture frame builds")
 }
 
 /// Renders one scene into a fresh target and returns the RGBA pixels.

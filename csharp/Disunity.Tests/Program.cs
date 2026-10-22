@@ -66,3 +66,5 @@ CheckLayout(command, 24, ("object", u64, 0), ("kind", u32, 8),
 CheckLayout(state, 32, ("object", u64, 0), ("x", f32, 8), ("y", f32, 12),
     ("z", f32, 16), ("rotation_y_radians", f32, 20), ("material_slot", u32, 24));
 Console.WriteLine("PASS: all 12 native import signatures/calling conventions and all 3 ABI struct layouts");
+if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
+LifecycleTests.Run(args[0]);

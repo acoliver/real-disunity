@@ -72,11 +72,10 @@ fn actual_resize_and_consecutive_suboptimal_frames_are_presented() {
 }
 
 fn view(renderer: &Renderer) -> SceneView {
-    let scene = crate::tests::scene(false);
     let options = crate::tests::options();
     crate::OrbitCamera::new(options.pose, options.orbit)
         .unwrap()
-        .view(*scene.effects().camera(), renderer.viewport.unwrap())
+        .view(options.camera, renderer.viewport.unwrap())
         .unwrap()
 }
 
@@ -119,11 +118,10 @@ fn assert_native_resizes(event_loop: &mut EventLoop<()>, harness: &mut Harness) 
         );
         let texture = renderer.presentation.targets.color.texture();
         assert_eq!([texture.width(), texture.height()], intermediate);
-        let scene = crate::tests::scene(false);
         let options = crate::tests::options();
         let camera = crate::OrbitCamera::new(options.pose, options.orbit).unwrap();
         let view = camera
-            .view(*scene.effects().camera(), renderer.viewport.unwrap())
+            .view(options.camera, renderer.viewport.unwrap())
             .unwrap();
         assert!(renderer.render(&view).unwrap());
     }

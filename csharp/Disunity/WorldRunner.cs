@@ -87,9 +87,9 @@ public static class WorldRunner
     }
 
     /// <summary>
-    /// One simulation tick: flush the command buffer, step the native world,
-    /// then run script phases. Start runs once, before the first tick's
-    /// Update; LateUpdate runs after Update, before state extraction.
+    /// One simulation tick: run script phases, then flush their commands and
+    /// step the native world before state extraction. Start runs once before
+    /// the first Update; LateUpdate runs after Update in the same tick.
     /// </summary>
     public static void Step(float deltaTime)
     {
@@ -98,9 +98,6 @@ public static class WorldRunner
         {
             throw new InvalidOperationException("no world is loaded");
         }
-        SubmitPending();
-        var stepResult = NativeBindings.disunity_world_step(WorldHandle, deltaTime, 1);
-        ThrowIfError(stepResult);
         Time.DeltaTime = deltaTime;
         Time.Frame += 1;
         if (!_started)
@@ -119,6 +116,9 @@ public static class WorldRunner
         {
             behaviour.LateUpdate();
         }
+        SubmitPending();
+        var stepResult = NativeBindings.disunity_world_step(WorldHandle, deltaTime, 1);
+        ThrowIfError(stepResult);
     }
 
     /// <summary>Drains pending commands into the native buffer.</summary>

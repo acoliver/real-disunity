@@ -36,7 +36,7 @@ enum Resident {
 struct PlainScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
-    effects: SceneEffects,
+    effects: Option<SceneEffects>,
 }
 
 impl Renderer {
@@ -134,7 +134,7 @@ impl Renderer {
         self.render_frame(view, acquired)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     fn render_acquired(
         &mut self,
         view: &SceneView,
@@ -255,7 +255,7 @@ impl Resident {
             Self::Plain(Box::new(PlainScene {
                 gpu,
                 pipelines,
-                effects: scene.effects().clone(),
+                effects: scene.effects().cloned(),
             }))
         })
     }
@@ -276,7 +276,7 @@ impl Resident {
                     pipelines,
                     effects,
                 } = plain.as_ref();
-                gpu.set_frame(context.queue(), FrameUniform::new(view, effects)?);
+                gpu.set_frame(context.queue(), FrameUniform::new(view, effects.as_ref())?);
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("viewer scene"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {

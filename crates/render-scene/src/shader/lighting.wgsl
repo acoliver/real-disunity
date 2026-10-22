@@ -6,9 +6,8 @@ struct Frame {
     sun_irradiance: vec4<f32>,
     ambient_sky: vec4<f32>,
     ambient_ground: vec4<f32>,
-    // x is the linear exposure multiplier. y, z and w are reserved for the
-    // contrast and saturation terms, which the domain carries and the decoder
-    // reads but which do not yet reach this shader.
+    // x is exposure; y selects unlit rendering when no environment is authored.
+    // z and w are reserved and zero.
     grading: vec4<f32>,
 }
 
@@ -50,6 +49,9 @@ fn surface_lighting(
     metalness: f32,
     ambient_occlusion: f32,
 ) -> vec3<f32> {
+    if frame.grading.y != 0.0 {
+        return albedo;
+    }
     let roughness = clamp(roughness_in, MINIMUM_ROUGHNESS, 1.0);
 
     let view = normalize(frame.camera_position.xyz - world_position);

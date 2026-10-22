@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::error::ContractDocumentError;
 use crate::document::numeric::MICRO_SCALE;
-use crate::document::spatial::RotationQuaternion;
 use crate::document::validate::{
     checked_add_i64, checked_sub_i64, require_positive_u32, require_positive_u64, require_range,
     require_sorted_unique, require_uri,
 };
+use crate::scene::SceneDirection;
 
 const MAXIMUM_SUN_IRRADIANCE_MICRO: i64 = 10 * MICRO_SCALE;
 
@@ -119,16 +119,18 @@ impl SkyRecipe {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DirectionalLightMicro {
-    /// Exactly normalized direction toward the light source.
-    pub direction: RotationQuaternion,
+    /// Quantized unit direction from a surface toward the light in the document's
+    /// caller-specified coordinate basis. The composition factory must convert
+    /// these XYZ components to scene Z-up before constructing a scene sun.
+    pub direction: SceneDirection,
     /// Irradiance scale as a unit-interval micro value.
     pub irradiance_micro: u64,
 }
 
 impl DirectionalLightMicro {
-    /// Returns the exact light direction quaternion.
+    /// Returns the validated unit direction toward the light.
     #[must_use]
-    pub const fn direction(&self) -> &RotationQuaternion {
+    pub const fn direction(&self) -> &SceneDirection {
         &self.direction
     }
 
@@ -138,14 +140,12 @@ impl DirectionalLightMicro {
         self.irradiance_micro
     }
 
-    /// Validates direction normalization and irradiance bounds.
+    /// Validates irradiance bounds. The direction is valid by construction.
     ///
     /// # Errors
     ///
-    /// Returns [`ContractDocumentError`] when the quaternion is unnormalized
-    /// or the irradiance exceeds `MAXIMUM_SUN_IRRADIANCE_MICRO`.
+    /// Returns [`ContractDocumentError`] when the irradiance exceeds `MAXIMUM_SUN_IRRADIANCE_MICRO`.
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
-        self.direction.validate()?;
         require_range(
             "sun irradiance_micro",
             0,

@@ -1,7 +1,5 @@
 use worldrunner_asset_id::LogicalAssetId;
-use worldrunner_material::{
-    AlphaMode, MaterialArtifact, MaterialError, TerrainFoldSource, TerrainRequestOverride,
-};
+use worldrunner_material::{AlphaMode, MaterialArtifact, MaterialError};
 
 fn id(value: &str) -> LogicalAssetId {
     LogicalAssetId::new(value).unwrap()
@@ -24,19 +22,15 @@ fn material() -> MaterialArtifact {
         translucent_foliage: true,
         uv_tiling: [2.0, 3.0],
         terrain_distorted: true,
-        terrain_fold_source: Some(TerrainFoldSource {
-            provided_capability: true,
-            request_override: TerrainRequestOverride::ForceOn,
-        }),
     }
 }
 
 #[test]
-fn portable_version_one_round_trip_preserves_authored_material() {
+fn portable_version_two_round_trip_preserves_authored_material() {
     let material = material();
     let bytes = material.encode().unwrap();
     assert_eq!(&bytes[..8], b"RDMATL01");
-    assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 1);
+    assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 2);
     assert_eq!(MaterialArtifact::decode(&bytes).unwrap(), material);
     assert_eq!(
         material.dependencies(),
@@ -103,13 +97,11 @@ fn decoder_rejects_corruption_versions_and_trailing_container_bytes() {
 }
 
 #[test]
-fn explicit_terrain_requests_do_not_depend_on_binary_source_flags() {
-    for request in [None, Some(false), Some(true)] {
-        assert_eq!(
-            TerrainRequestOverride::ForceOff.resolve(request),
-            Some(false)
-        );
-        assert_eq!(TerrainRequestOverride::ForceOn.resolve(request), Some(true));
-        assert_eq!(TerrainRequestOverride::Inherit.resolve(request), request);
-    }
+fn removed_material_payload_version_is_rejected() {
+    let mut bytes = material().encode().unwrap();
+    bytes[8..12].copy_from_slice(&1_u32.to_le_bytes());
+    assert!(matches!(
+        MaterialArtifact::decode(&bytes),
+        Err(MaterialError::UnsupportedVersion(1))
+    ));
 }

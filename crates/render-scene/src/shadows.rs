@@ -106,7 +106,9 @@ impl ShadowedScene {
     ) -> Result<Self, ShadowError> {
         settings.validate(&context.device().limits())?;
         settings::validate_scene(scene)?;
-        settings.validate_light(scene.effects())?;
+        settings.validate_light(scene.effects().ok_or(ShadowError::UnsupportedFeature(
+            "shadows require an environmental profile",
+        ))?)?;
         let shadow_layout = resources::layout(context.device());
         let pipelines = ScenePipelines::with_environment(
             context.device(),
@@ -143,7 +145,12 @@ impl ShadowedScene {
             shadow_layout,
             map,
             settings,
-            effects: scene.effects().clone(),
+            effects: scene
+                .effects()
+                .cloned()
+                .ok_or(ShadowError::UnsupportedFeature(
+                    "shadows require an environmental profile",
+                ))?,
         })
     }
 
@@ -180,7 +187,7 @@ impl ShadowedScene {
         color: &wgpu::TextureView,
         depth: &wgpu::TextureView,
     ) -> Result<(), ShadowError> {
-        let frame = FrameUniform::new(view, &self.effects)?;
+        let frame = FrameUniform::new(view, Some(&self.effects))?;
         let matrix = self.settings.matrix(frame.sun_direction)?;
         self.gpu.set_frame(context.queue(), frame);
         // Keep the actual camera position: billboards must face the camera in
@@ -245,7 +252,9 @@ pub fn capture_scene_shadowed(
 ) -> Result<RgbaImage, ShadowError> {
     settings.validate(&context.device().limits())?;
     settings::validate_scene(scene)?;
-    settings.validate_light(scene.effects())?;
+    settings.validate_light(scene.effects().ok_or(ShadowError::UnsupportedFeature(
+        "shadows require an environmental profile",
+    ))?)?;
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let mut renderer = ShadowedScene::new(context, scene, settings)?;
     renderer.render(context, view, target.color_view(), target.depth_view())?;

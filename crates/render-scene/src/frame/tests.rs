@@ -3,10 +3,10 @@
 use super::{FRAME_UNIFORM_BYTES, FrameError, FrameUniform};
 use crate::view::{CameraPose, SceneView, Viewport};
 use glam::Vec3;
+use worldrunner_render_plan::SceneDirection;
 use worldrunner_render_plan::{
-    ROTATION_MICRO_SCALE, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
-    SceneEffects, SceneEffectsParts, SceneRotation, SceneShadowCascades, SceneSky, SceneSsao,
-    SceneSun,
+    SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
+    SceneEffectsParts, SceneShadowCascades, SceneSky, SceneSun,
 };
 
 /// Reads one little-endian `f32` back out of the encoded block.
@@ -17,13 +17,8 @@ fn read_f32(bytes: &[u8; FRAME_UNIFORM_BYTES], offset: usize) -> f32 {
 }
 
 /// A direction pointing due east, expressed the way the domain stores it.
-fn east() -> SceneRotation {
-    SceneRotation {
-        x: ROTATION_MICRO_SCALE,
-        y: 0,
-        z: 0,
-        w: 0,
-    }
+fn east() -> SceneDirection {
+    SceneDirection::new([1_000_000, 0, 0]).unwrap()
 }
 
 fn effects(sky: SceneSky, sun: SceneSun, ambient: SceneAmbient) -> SceneEffects {
@@ -34,11 +29,7 @@ fn effects(sky: SceneSky, sun: SceneSun, ambient: SceneAmbient) -> SceneEffects 
         ambient,
         shadows: SceneShadowCascades::new(vec![10_000, 40_000], 50_000)
             .expect("two ascending cascades are valid"),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 500_000,
-            horizon_angle_millidegrees: 30_000,
-        },
+        ssao: None,
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,
@@ -87,7 +78,7 @@ fn view() -> SceneView {
 }
 
 fn uniform(sky: SceneSky, sun: SceneSun, ambient: SceneAmbient) -> FrameUniform {
-    FrameUniform::new(&view(), &effects(sky, sun, ambient)).expect("the fixture frame builds")
+    FrameUniform::new(&view(), Some(&effects(sky, sun, ambient))).expect("the fixture frame builds")
 }
 
 fn lit() -> FrameUniform {
@@ -191,57 +182,13 @@ fn the_camera_position_is_the_scene_space_eye_in_metres() {
 }
 
 #[test]
-fn an_identity_rotation_is_reported_as_an_unauthored_sun() {
-    // Every SceneSun in the tree is currently SceneRotation::IDENTITY, and no
-    // authored contract supplies one at all. Reading that as a direction gives
-    // the zero vector, which would light nothing while looking like a shading
-    // bug. Saying so is more useful than rendering a black world.
-    let error = FrameUniform::new(
-        &view(),
-        &effects(
-            procedural(grey(255), grey(255)),
-            SceneSun {
-                direction: SceneRotation::IDENTITY,
-                irradiance_micro: 1_000_000,
-            },
-            SceneAmbient {
-                sky_irradiance_micro: 0,
-                ground_irradiance_micro: 0,
-            },
-        ),
-    )
-    .expect_err("an identity sun direction is reported");
-    assert_eq!(error, FrameError::SunDirectionUnset { x: 0, y: 0, z: 0 });
-}
-
-#[test]
-fn a_genuine_rotation_quaternion_is_rejected_rather_than_silently_reinterpreted() {
-    // SceneSun::direction is typed as a rotation but documented as a
-    // direction. Requiring the vector part to be unit length settles the
-    // ambiguity in one check: a real quaternion with a non-zero real part has
-    // a shorter vector part and cannot be mistaken for a direction.
-    let half = ROTATION_MICRO_SCALE / 2;
-    let error = FrameUniform::new(
-        &view(),
-        &effects(
-            procedural(grey(255), grey(255)),
-            SceneSun {
-                direction: SceneRotation {
-                    x: 0,
-                    y: 0,
-                    z: half,
-                    w: 866_025,
-                },
-                irradiance_micro: 1_000_000,
-            },
-            SceneAmbient {
-                sky_irradiance_micro: 0,
-                ground_irradiance_micro: 0,
-            },
-        ),
-    )
-    .expect_err("a rotation quaternion is not a direction");
-    assert!(matches!(error, FrameError::SunDirectionUnset { .. }));
+fn invalid_sun_directions_fail_at_the_contract() {
+    for components in [[0; 3], [0, 0, 500_000]] {
+        assert_eq!(
+            SceneDirection::new(components),
+            Err(worldrunner_render_plan::SceneValidationError::DirectionNotNormalized)
+        );
+    }
 }
 
 #[test]
@@ -335,7 +282,7 @@ fn a_dome_sky_cannot_supply_hemispheric_ambient() {
     // invention with no basis in the authored data.
     let error = FrameUniform::new(
         &view(),
-        &effects(
+        Some(&effects(
             SceneSky::DomeTexture {
                 texture: worldrunner_render_plan::TextureHandle::from_raw(0),
             },
@@ -347,7 +294,7 @@ fn a_dome_sky_cannot_supply_hemispheric_ambient() {
                 sky_irradiance_micro: 1_000_000,
                 ground_irradiance_micro: 1_000_000,
             },
-        ),
+        )),
     )
     .expect_err("a dome sky is reported");
     assert_eq!(error, FrameError::AmbientFromDomeTexture);

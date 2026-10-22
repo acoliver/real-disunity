@@ -255,13 +255,10 @@ fn light_intensities_are_bounded() {
     ));
 
     let mut contract = valid_contract();
-    contract["effects"]["sun"]["direction"]["w"] = json!(999_999);
+    contract["effects"]["sun"]["direction"] = json!([0, 0, 500_000]);
     assert!(matches!(
         reject(&contract),
-        ContractDocumentError::ViolatedInvariant {
-            field: "rotation quaternion",
-            ..
-        }
+        ContractDocumentError::Json(error) if error.to_string().contains("unit vector")
     ));
 }
 

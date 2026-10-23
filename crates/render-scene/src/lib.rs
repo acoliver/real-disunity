@@ -23,6 +23,7 @@ pub mod terrain_uniform;
 pub mod texture;
 pub mod upload;
 pub mod view;
+pub mod water;
 
 /// GPU API types used by scene construction and capture.
 pub use wgpu;

@@ -12,7 +12,10 @@ pub enum PassSlot {
     SsaoBlur,
     Opaque,
     AfterOpaqueSnapshot,
+    AfterOpaqueDepth,
     TransparentWater,
+    TransparentAlpha,
+    AfterWaterDepth,
     ScreenSpaceAfterTransparent,
 }
 
@@ -103,6 +106,10 @@ impl FeatureDeclaration {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
+    #[error("invalid or unsupported water setting: {0}")]
+    WaterSettings(&'static str),
+    #[error("transparent features require unsupported cross-feature sorting")]
+    TransparentOrdering,
     #[error("scene exposure differs from the compiled fixed-exposure profile")]
     FixedExposureMismatch,
     #[error("invalid or unsupported SSAO setting: {0}")]
@@ -131,6 +138,7 @@ pub fn validate_frame(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
 ) -> Result<(), FrameError> {
+    validate_transparency(features)?;
     if passes.windows(2).any(|pair| pair[0].slot >= pair[1].slot) {
         return Err(FrameError::SlotOrder);
     }
@@ -163,6 +171,24 @@ pub fn validate_frame(
         for attachment in attachments {
             produced.insert(attachment.resource, attachment.clone());
         }
+    }
+    Ok(())
+}
+fn validate_transparency(features: &[FeatureDeclaration]) -> Result<(), FrameError> {
+    // Water replaces radiance from an opaque snapshot. Combining transparent
+    // writers requires packet sorting, which this executor does not yet provide.
+    let water_count = features
+        .iter()
+        .flat_map(|feature| &feature.passes)
+        .filter(|pass| pass.slot == PassSlot::TransparentWater)
+        .count();
+    if water_count > 1
+        || features
+            .iter()
+            .flat_map(|feature| &feature.passes)
+            .any(|pass| pass.slot == PassSlot::TransparentAlpha)
+    {
+        return Err(FrameError::TransparentOrdering);
     }
     Ok(())
 }
@@ -207,6 +233,14 @@ fn validate_attachments(
             )
         {
             return Err(FrameError::AttachmentContract(pass.slot));
+        }
+        if produced.contains_key(&attachment.resource)
+            && matches!(
+                attachment.resource.name,
+                "opaque snapshot color" | "opaque snapshot depth" | "post-water depth"
+            )
+        {
+            return Err(FrameError::AttachmentHazard(attachment.resource));
         }
         if attachment.load == AttachmentLoad::Load {
             let previous = require_producer(produced, attachment.resource)?;
@@ -270,6 +304,7 @@ pub struct PrepareContext<'a> {
     device: &'a wgpu::Device,
     encoder: &'a mut wgpu::CommandEncoder,
     copies: Vec<(wgpu::Buffer, u64, wgpu::Buffer, u64, u64)>,
+    views: Vec<AttachmentView>,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(device: &'a wgpu::Device, encoder: &'a mut wgpu::CommandEncoder) -> Self {
@@ -277,7 +312,18 @@ impl<'a> PrepareContext<'a> {
             device,
             encoder,
             copies: Vec::new(),
+            views: Vec::new(),
         }
+    }
+    pub(crate) fn set_views(&mut self, views: &[AttachmentView]) {
+        self.views = views.to_vec();
+    }
+    /// Frame-local checked inputs, available only after full plan validation.
+    pub fn resource(&self, resource: ResourceRef) -> Result<&AttachmentView, FrameError> {
+        self.views
+            .iter()
+            .find(|view| view.resource() == resource)
+            .ok_or(FrameError::AttachmentView(resource))
     }
     pub fn device(&self) -> &wgpu::Device {
         self.device
@@ -319,6 +365,14 @@ pub struct DrawContext {
 /// Features receive neither a queue nor authority to open or replace attachments.
 pub trait FrameFeature {
     fn declare(&self) -> FeatureDeclaration;
+    /// Adds owned attachments/passes before validation, never uploads or encodes.
+    fn plan(
+        &self,
+        _passes: &mut Vec<PassDeclaration>,
+        _views: &mut Vec<AttachmentView>,
+    ) -> Result<FeatureDeclaration, FrameError> {
+        Ok(self.declare())
+    }
     fn build(&self, context: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError>;
 }
 /// Preparation may stage uploads, but must not publish resident state.
@@ -358,6 +412,10 @@ impl AttachmentView {
     }
     pub fn texture(&self) -> &wgpu::Texture {
         self.view.texture()
+    }
+    /// The exact checked subresource, suitable for a declared sampled input.
+    pub fn view(&self) -> &wgpu::TextureView {
+        &self.view
     }
     /// The checked view's attachment format, not an inferred pipeline format.
     pub const fn format(&self) -> wgpu::TextureFormat {

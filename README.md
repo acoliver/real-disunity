@@ -37,7 +37,7 @@ Run the procedural viewer with a heightfield ridge and an elevated mesh:
 cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --terrain --shadows
 ```
 
-Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. The retained frame scheduler renders four directional shadow cascades into independent depth-array layers. Scene extents specify light-space coverage half-widths about the caller-supplied focus; overlapping terrain and mesh casters extend each cascade toward the light. Optional blend bands cross-fade to the next cascade near coverage edges. Water remains unsupported and returns a typed error. Omit `--terrain` to retain the original mesh-only example.
+Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. The retained frame scheduler renders four directional shadow cascades into independent depth-array layers. Scene extents specify light-space coverage half-widths about the caller-supplied focus; overlapping terrain and mesh casters extend each cascade toward the light. Optional blend bands cross-fade to the next cascade near coverage edges. Water requires the HDR profile described below. Omit `--terrain` for the mesh-only example.
 
 ## Frame admission and surface lifecycle
 
@@ -87,10 +87,46 @@ and unlit colour are unchanged. With SSAO absent the original shaders and pass
 sequence remain in use.
 
 The scene and document settings now include explicit `sample_count` (1 through
-64) and `bias_millimeters`. Authored documents use render contract v3; v2 is
+64) and `bias_millimeters`. Authored documents use render contract v4; earlier versions are
 rejected rather than migrated implicitly. The stock radius range is 1 through 1,000,000
 millimetres, with bias strictly below radius. Unsupported settings fail before
 allocation. Legacy upload rejects SSAO with a typed error. Custom HDR hosts use
 `ScenePipelines::with_ssao` with a matching `FrameRenderer::hdr` profile. Resize
 builds replacement screen resources before publication. Submit successful
 encoders in preparation order, as required by the frame admission contract.
+
+Planar water is available in the HDR frame profile at 1x and 4x MSAA. Run the
+procedural scene viewer with `--water` (optionally `--msaa` and `--terrain`).
+It uses one authored rectangle, procedural animated normals, opaque-only
+refraction, Beer absorption, surface depth writes and shared cascade shadows.
+Refraction rejects foreground depth samples. Snapshot depth stores positive
+view-space metres and selects the nearest covered MSAA sample. Snapshot colour
+is the linear average of the retained opaque samples. Three admitted slots
+own independent snapshots; resize builds replacements before publication.
+Hosts supply animation time with `FrameRenderer::set_frame_time`. Water settings
+are immutable for a compiled profile. Water is a retained `FrameFeature`, using
+registration, planning, validation, preparation and drawing like external features.
+
+Snapshot production is independent of water. A feature declares reads of
+`ResourceRef::new("opaque snapshot color")` or `ResourceRef::new("opaque snapshot depth")`.
+Camera-aware composition installs those producers only when an active declaration
+reads them. `FrameRenderer::encode_frame` supplies the camera needed for depth
+linearization. Features obtain the current slot's checked texture view through
+`PrepareContext::resource` and `AttachmentView::view` when creating bindings.
+With no reader, there are no snapshot draws or copies. Resource versions and
+attachment hazards are validated before any feature prepares.
+
+The typed slot sequence is opaque, opaque snapshots, `TransparentWater`,
+`AfterWaterDepth`, then `ScreenSpaceAfterTransparent` and post output. SSAO and
+opaque snapshots see pre-water depth. Water loads and writes the camera depth
+attachment; subsequent passes reading that attachment see surface depth. The
+`post-water depth` resource is a distinct positive-view-metre resolve, refreshed
+after water at 1x and 4x. Later depth-based effects must declare this resource,
+not reuse the pre-water SSAO pyramid. Reflection normals and roughness are not
+provided yet, so effects requiring those inputs remain unsupported.
+
+One water writer is supported. Multiple water writers, and the reserved
+`TransparentAlpha` slot, return `FrameError::TransparentOrdering` before
+preparation. Supporting ordinary alpha features will require stable, cross-feature
+back-to-front packet sorting with depth read-only, rather than registration order.
+Intersecting transparent geometry remains outside that policy.

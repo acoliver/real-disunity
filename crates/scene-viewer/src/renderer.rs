@@ -30,6 +30,7 @@ pub(super) struct Renderer {
     resident: Resident,
     pub viewport: Option<Viewport>,
     errors: mpsc::Receiver<String>,
+    animation_start: std::time::Instant,
 }
 
 enum Resident {
@@ -92,6 +93,7 @@ impl Renderer {
             frames_in_flight,
         )?;
         let renderer = Self {
+            animation_start: std::time::Instant::now(),
             execution,
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
@@ -164,6 +166,9 @@ impl Renderer {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("viewer frame"),
                 });
+        self.presentation
+            .scheduler
+            .set_frame_time(self.animation_start.elapsed().as_secs_f32())?;
         self.resident.render(
             &self.context,
             view,

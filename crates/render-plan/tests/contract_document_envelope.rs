@@ -10,19 +10,19 @@ use worldrunner_render_plan::{
 
 #[test]
 fn previous_contract_is_rejected_at_the_identity_boundary() {
-    let bytes = include_bytes!("fixtures/render-contract-v2.json");
+    let bytes = include_bytes!("fixtures/render-contract-v3.json");
     assert!(matches!(
         ContractDocument::from_json_bytes(bytes),
         Err(ContractDocumentError::SchemaTagMismatch { expected, observed })
-            if expected == RENDER_CONTRACT_SCHEMA && observed == "real-disunity.render-contract.v2"
+            if expected == RENDER_CONTRACT_SCHEMA && observed == "real-disunity.render-contract.v3"
     ));
     let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     value["schema"] = json!(RENDER_CONTRACT_SCHEMA);
     assert!(matches!(
         ContractDocument::from_json_bytes(&contract_bytes(&value)),
         Err(ContractDocumentError::UnsupportedSchemaVersion {
-            expected: 3,
-            observed: 2
+            expected: 4,
+            observed: 3
         })
     ));
 }
@@ -30,7 +30,7 @@ fn previous_contract_is_rejected_at_the_identity_boundary() {
 #[test]
 fn current_contract_matches_the_golden_bytes() {
     let document = ContractDocument::from_json_bytes(&contract_bytes(&valid_contract())).unwrap();
-    let golden = include_bytes!("fixtures/render-contract-v3.json");
+    let golden = include_bytes!("fixtures/render-contract-v4.json");
     assert_eq!(document.to_json_bytes().unwrap(), golden);
     assert_eq!(ContractDocument::from_json_bytes(golden).unwrap(), document);
 }
@@ -51,11 +51,11 @@ fn current_contract_requires_each_new_ssao_field() {
 }
 #[test]
 fn contract_identity_has_an_independent_version_boundary() {
-    assert_eq!(RENDER_CONTRACT_SCHEMA, "real-disunity.render-contract.v3");
-    assert_eq!(RENDER_CONTRACT_SCHEMA_VERSION, 3);
+    assert_eq!(RENDER_CONTRACT_SCHEMA, "real-disunity.render-contract.v4");
+    assert_eq!(RENDER_CONTRACT_SCHEMA_VERSION, 4);
     assert_eq!(
         worldrunner_render_plan::RENDER_CONTRACT_CAPABILITY_URI,
-        "urn:real-disunity:capability:render-contract:v3"
+        "urn:real-disunity:capability:render-contract:v4"
     );
     let mut contract = valid_contract();
     contract["schema"] = json!("legacy.render-contract.v1");
@@ -215,4 +215,23 @@ fn revalidation_of_decoded_document_succeeds() {
     let bytes = contract_bytes(&valid_contract());
     let document = ContractDocument::from_json_bytes(&bytes).expect("valid fixture must decode");
     assert!(document.validate().is_ok());
+}
+
+#[test]
+fn current_contract_requires_each_water_field() {
+    for field in [
+        "height_millimeters",
+        "color_micro",
+        "absorption_micro",
+        "roughness_micro",
+    ] {
+        let mut value = valid_contract();
+        value["effects"]["water"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(
+            matches!(ContractDocument::from_json_bytes(&contract_bytes(&value)), Err(ContractDocumentError::Json(error)) if error.to_string().contains(field))
+        );
+    }
 }

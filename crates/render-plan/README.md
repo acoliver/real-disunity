@@ -14,12 +14,13 @@ Disunity. The package name is retained for application API compatibility.
   basis when constructing `SceneSun`; the direction type performs no basis
   conversion. JSON directions contain three integers, never a quaternion.
 - `ContractDocument` describes caller-authored recipes and exact routes. Its
-  schema is `real-disunity.render-contract.v3`, version 3. Discovery selects
-  `urn:real-disunity:capability:render-contract:v3` exactly. Other schema families
+  schema is `real-disunity.render-contract.v4`, version 4. Discovery selects
+  `urn:real-disunity:capability:render-contract:v4` exactly. Other schema families
   are rejected; there is no implicit migration or alias. Its `EffectsRecipe`
   remains mandatory, including sky and SSAO fields. Omitting these authored
-  fields fails deserialization. Version 3 adds required SSAO `sample_count` and
-  `bias_millimeters`; version 2 documents and discovery bindings are rejected.
+  fields fails deserialization. Version 4 adds required water `height_millimeters`, linear `color_micro`,
+  per-metre `absorption_micro` and `roughness_micro`. Version 3 documents and
+  discovery bindings are rejected. SSAO `sample_count` and `bias_millimeters` remain required.
   Runtime `RenderScene` profile optionality does not change the document contract. There is no stock document-to-scene
   interpreter; the application composition factory chooses the runtime profile
   and which authored requests it implements.

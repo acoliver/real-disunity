@@ -125,11 +125,12 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
             "window dimensions must be in 1..=4096",
         ));
     }
-    if scene
-        .effects()
-        .is_some_and(|effects| effects.water().is_some())
-    {
-        return Err(ViewerError::UnsupportedScene("water"));
+
+    if let Some(water) = scene.effects().and_then(|effects| effects.water()) {
+        if matches!(options.frame_profile, FrameProfile::Legacy) {
+            return Err(ViewerError::UnsupportedScene("water requires HDR"));
+        }
+        worldrunner_render_scene::water::validate_settings(water)?;
     }
     OrbitCamera::new(options.pose, options.orbit)?.view(
         options.camera,

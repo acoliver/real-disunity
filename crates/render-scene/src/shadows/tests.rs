@@ -346,6 +346,10 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
     let source = scene(&[], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
     parts.water = Some(SceneWaterPlane {
+        height_millimeters: 0,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
         east_min_millimeters: 0,
         north_min_millimeters: 0,
         east_extent_millimeters: 1_000,
@@ -360,7 +364,9 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
     .unwrap();
     assert!(matches!(
         ShadowedScene::new(&context, &water, settings()),
-        Err(ShadowError::UnsupportedFeature("water"))
+        Err(ShadowError::Draw(DrawError::Frame(
+            FrameError::UnsupportedEffect("water requires HDR")
+        )))
     ));
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     assert!(
@@ -384,7 +390,9 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
     ));
     assert!(matches!(
         renderer.set_effects(water.effects().unwrap()),
-        Err(ShadowError::UnsupportedFeature("water"))
+        Err(ShadowError::Schedule(
+            worldrunner_render_post::FrameError::WaterSettings(_)
+        ))
     ));
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     render_target(&mut renderer, &context, &view(), &target).unwrap();

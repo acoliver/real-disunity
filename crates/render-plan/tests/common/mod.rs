@@ -80,7 +80,7 @@ fn environment() -> Value {
 
 fn effects() -> Value {
     json!({
-        "water": {
+        "water": { "height_millimeters": 0, "color_micro": [50000,200_000,250_000], "absorption_micro": [300_000,100_000,50000], "roughness_micro": 200_000,
             "asset_uri": "synthetic:element/water-surface",
             "east_min_millimeters": -1000,
             "north_min_millimeters": -1000,
@@ -191,8 +191,8 @@ fn assets() -> Value {
 /// One minimal fully valid authored render contract.
 pub fn valid_contract() -> Value {
     json!({
-        "schema": "real-disunity.render-contract.v3",
-        "schema_version": 3,
+        "schema": "real-disunity.render-contract.v4",
+        "schema_version": 4,
         "contract_id": "synthetic-contract-alpha",
         "basis": basis(),
         "scene": { "meshes": [

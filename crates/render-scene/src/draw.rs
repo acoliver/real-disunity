@@ -141,6 +141,7 @@ struct Retained {
 #[derive(Debug)]
 pub struct SceneGpu {
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
+    pub(crate) water: Option<worldrunner_render_plan::SceneWaterPlane>,
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
@@ -169,12 +170,7 @@ impl SceneGpu {
         scene: &RenderScene,
         pipelines: &ScenePipelines,
     ) -> Result<Self, DrawError> {
-        if let Some(effects) = scene.effects() {
-            crate::frame::validate_stock_effects(effects)?;
-            if effects.ssao().is_some() && !pipelines.ssao {
-                return Err(crate::frame::FrameError::UnsupportedEffect("SSAO").into());
-            }
-        }
+        validate_profile(scene, pipelines)?;
         let (textures, views) = upload_textures(device, queue, scene)?;
         let placeholder = placeholder_texture(device, queue);
         let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());
@@ -203,6 +199,7 @@ impl SceneGpu {
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
+            water: scene.effects().and_then(|effects| effects.water()).copied(),
             frame_slots,
             frame_buffer,
             frame_group,
@@ -746,3 +743,17 @@ fn upload_palettes(
 
 #[cfg(test)]
 mod tests;
+
+fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(), DrawError> {
+    if let Some(effects) = scene.effects() {
+        crate::frame::validate_stock_effects(effects)?;
+        if effects.water().is_some() && pipelines.color_format != wgpu::TextureFormat::Rgba16Float {
+            return Err(crate::frame::FrameError::UnsupportedEffect("water requires HDR").into());
+        }
+        if effects.ssao().is_some() && !pipelines.ssao {
+            return Err(crate::frame::FrameError::UnsupportedEffect("SSAO").into());
+        }
+    }
+
+    Ok(())
+}

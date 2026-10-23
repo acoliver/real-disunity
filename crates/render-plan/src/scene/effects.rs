@@ -433,6 +433,15 @@ impl SceneAntiAlias {
 /// One axis-aligned water plane rectangle in the east/north plane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneWaterPlane {
+    /// Surface elevation in scene millimetres.
+    pub height_millimeters: i64,
+    /// Linear scattering colour, in millionths per channel.
+    pub color_micro: [u32; 3],
+    /// Beer absorption coefficients per metre, in millionths.
+    pub absorption_micro: [u32; 3],
+    /// Surface roughness in millionths.
+    pub roughness_micro: u32,
+
     /// Signed minimum east corner in millimeters.
     pub east_min_millimeters: i64,
     /// Signed minimum north corner in millimeters.
@@ -668,6 +677,10 @@ mod tests {
     fn parts() -> SceneEffectsParts {
         SceneEffectsParts {
             water: Some(SceneWaterPlane {
+                height_millimeters: 0,
+                color_micro: [50_000, 200_000, 250_000],
+                absorption_micro: [300_000, 100_000, 50_000],
+                roughness_micro: 200_000,
                 east_min_millimeters: -1_000,
                 north_min_millimeters: -1_000,
                 east_extent_millimeters: 2_000,
@@ -832,6 +845,10 @@ mod tests {
         ));
         let mut staged = parts();
         staged.water = Some(SceneWaterPlane {
+            height_millimeters: 0,
+            color_micro: [50_000, 200_000, 250_000],
+            absorption_micro: [300_000, 100_000, 50_000],
+            roughness_micro: 200_000,
             east_min_millimeters: i64::MAX,
             north_min_millimeters: 0,
             east_extent_millimeters: 2_000,

@@ -4,7 +4,7 @@
 //! followed by a lit pass, without readback or filesystem policy. Alpha masks,
 //! double-sided materials, instancing and camera-facing billboards use the same
 //! geometry/material code in both passes. Terrain casts and receives through the
-//! same scheduler. Water remains unsupported.
+//! same scheduler, including planar water receivers.
 //!
 //! ```no_run
 //! use worldrunner_render_scene::{device::GpuContext, offscreen::OffscreenTarget, shadows::*};
@@ -33,6 +33,10 @@ mod cascades;
 mod resources;
 mod schedule;
 mod settings;
+
+pub(crate) fn water_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    resources::layout(device)
+}
 
 pub use settings::{DirectionalShadowSettings, MAX_SHADOW_RESOLUTION};
 
@@ -238,6 +242,12 @@ impl ShadowedScene {
             )
             .into());
         }
+        if self.effects.water() != effects.water() {
+            return Err(worldrunner_render_post::FrameError::WaterSettings(
+                "water settings are immutable; rebuild the profile and resident",
+            )
+            .into());
+        }
         self.effects = effects.clone();
         Ok(())
     }
@@ -291,6 +301,7 @@ impl ShadowedScene {
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         scheduler.validate_ssao(&self.pipelines, self.effects.ssao())?;
+        scheduler.validate_water(self.effects.water())?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         let cascades = cascades::CascadeViews::new(
             &self.gpu,
@@ -336,7 +347,7 @@ impl ShadowedScene {
                 declaration: schedule.declaration,
                 prepared: &mut feature,
             }],
-            frame,
+            (frame, Some(&map.group)),
         )?;
         if let Some(map) = replacement {
             self.map = map;

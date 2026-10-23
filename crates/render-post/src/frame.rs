@@ -100,6 +100,8 @@ impl FeatureDeclaration {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
+    #[error("scene exposure differs from the compiled fixed-exposure profile")]
+    FixedExposureMismatch,
     #[error("frame slots must be unique and in execution order")]
     SlotOrder,
     #[error("feature requests an undeclared slot {0:?}")]
@@ -181,7 +183,11 @@ fn validate_attachments(
             .as_ref()
             .is_some_and(|item| std::ptr::eq(item, *attachment));
         if attachment.size.contains(&0)
-            || attachment.samples != 1
+            || !attachment
+                .format
+                .guaranteed_format_features(wgpu::Features::empty())
+                .flags
+                .sample_count_supported(attachment.samples)
             || attachment.format.is_depth_stencil_format() != depth
             || (depth && !attachment.format.has_depth_aspect())
             || !attachment
@@ -217,7 +223,9 @@ fn validate_feature(
     attachments: &[&AttachmentDeclaration],
     produced: &BTreeMap<ResourceRef, AttachmentDeclaration>,
 ) -> Result<(), FrameError> {
-    if feature.samples != 1
+    if attachments
+        .iter()
+        .any(|attachment| attachment.samples != feature.samples)
         || feature
             .color_format
             .is_some_and(|format| pass.color.as_ref().is_none_or(|a| a.format != format))

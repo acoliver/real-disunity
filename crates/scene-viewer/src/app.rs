@@ -123,6 +123,7 @@ impl ApplicationHandler for App {
                     Arc::new(window),
                     &self.scene,
                     self.options.shadows,
+                    self.options.frame_profile,
                 ))
             });
         match result {

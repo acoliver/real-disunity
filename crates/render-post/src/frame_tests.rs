@@ -88,7 +88,7 @@ fn attachment_and_pipeline_mismatches_are_rejected() {
     );
     pass.color.as_mut().unwrap().samples = 4;
     assert_eq!(
-        validate_frame(&[pass], &[], &[]),
+        validate_frame(&[pass], &[FeatureDeclaration::new(PassSlot::Opaque)], &[]),
         Err(FrameError::AttachmentContract(PassSlot::Opaque))
     );
 }

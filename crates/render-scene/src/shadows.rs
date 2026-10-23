@@ -54,6 +54,8 @@ pub enum ShadowError {
     #[error("invalid directional shadow fit or bias settings")]
     InvalidSettings,
     #[error(transparent)]
+    Post(#[from] worldrunner_render_post::PostError),
+    #[error(transparent)]
     Schedule(#[from] worldrunner_render_post::FrameError),
     /// Resolution exceeds the explicit resource ceiling or device limit.
     #[error("shadow resolution {requested} is outside 1..={limit}")]
@@ -86,7 +88,8 @@ pub enum ShadowError {
 /// Reusable resident scene, pipelines and a bounded directional depth array.
 ///
 /// Attachment views must belong to the supplied context, match the view's
-/// viewport, use sample count 1, `Rgba8UnormSrgb` colour and `Depth32Float` depth.
+/// viewport and the receiver pipelines' colour/sample contract, with `Depth32Float` depth.
+/// `new` selects single-sample `Rgba8UnormSrgb`; `with_target` selects an explicit target.
 /// This is also usable without an offscreen target by a compatible viewer.
 #[derive(Debug)]
 pub struct ShadowedScene {
@@ -109,6 +112,19 @@ impl ShadowedScene {
         scene: &RenderScene,
         settings: DirectionalShadowSettings,
     ) -> Result<Self, ShadowError> {
+        Self::with_target(context, scene, settings, OffscreenTarget::COLOR_FORMAT, 1)
+    }
+
+    /// Builds receiver pipelines for a validated frame attachment profile.
+    pub fn with_target(
+        context: &GpuContext,
+        scene: &RenderScene,
+        settings: DirectionalShadowSettings,
+        format: wgpu::TextureFormat,
+        samples: u32,
+    ) -> Result<Self, ShadowError> {
+        worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
+            .validate_adapter(context.adapter())?;
         settings.validate(&context.device().limits())?;
         settings::validate_scene(scene)?;
         settings.validate_light(scene.effects().ok_or(ShadowError::UnsupportedFeature(
@@ -117,7 +133,7 @@ impl ShadowedScene {
         let shadow_layout = resources::layout(context.device());
         let pipelines = ScenePipelines::with_environment(
             context.device(),
-            OffscreenTarget::COLOR_FORMAT,
+            (format, samples),
             SHADOWED_WGSL,
             resources::SHADOWED_TERRAIN_WGSL,
             Some(&shadow_layout),
@@ -252,7 +268,8 @@ impl ShadowedScene {
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
         let (color, depth) = attachments;
-        let frame = FrameUniform::new(view, Some(&self.effects))?;
+        let scheduler = scheduler.unwrap_or(&mut self.scheduler);
+        let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         let cascades = cascades::CascadeViews::new(
             &self.gpu,
             view,
@@ -272,7 +289,7 @@ impl ShadowedScene {
             )?)
         };
         let map = replacement.as_ref().unwrap_or(&self.map);
-        let schedule = schedule::ShadowSchedule::new(&map.depth, color, depth)?;
+        let schedule = schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
         let mut feature = ShadowFeature {
             gpu: &mut self.gpu,
             pipelines: &self.pipelines,
@@ -285,7 +302,7 @@ impl ShadowedScene {
             shadow_uniform: &map.uniform,
             settings: self.settings,
         };
-        scheduler.unwrap_or(&mut self.scheduler).encode(
+        scheduler.encode(
             context.device(),
             encoder,
             &schedule.passes,

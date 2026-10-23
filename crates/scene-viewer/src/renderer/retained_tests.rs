@@ -1,8 +1,9 @@
 use super::*;
+use crate::presentation::COLOR;
 use worldrunner_render_plan::*;
 use worldrunner_render_scene::offscreen::{OffscreenTarget, RgbaImage};
 
-fn terrain_source() -> RenderScene {
+pub(super) fn terrain_source() -> RenderScene {
     let base = source();
     let mut textures = base.resources().textures().to_vec();
     for bytes in [[128, 128, 255, 255], [0, 255, 0, 255]] {
@@ -69,11 +70,13 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
         worldrunner_render_scene::offscreen::capture_scene(&context, &source, &view).unwrap();
     for shadows in [None, Some(shadow_settings())] {
         let options = crate::ViewerOptions {
+            frame_profile: crate::FrameProfile::Legacy,
             shadows,
             ..crate::tests::options()
         };
         crate::validate(&source, &options).unwrap();
-        let mut resident = Resident::new(&context, &source, shadows).unwrap();
+        let mut resident =
+            Resident::new(&context, &source, shadows, crate::FrameProfile::Legacy).unwrap();
         let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
         assert_eq!(frame(&mut resident, &context, &mut target), expected);
         let handle = resident.scene_mut().instance_handles().next().unwrap();
@@ -179,7 +182,7 @@ fn frame(resident: &mut Resident, context: &GpuContext, target: &mut OffscreenTa
     target.read_encoded(context, submission).unwrap()
 }
 
-fn shadow_settings() -> DirectionalShadowSettings {
+pub(super) fn shadow_settings() -> DirectionalShadowSettings {
     DirectionalShadowSettings {
         focus_meters: [0.0, 0.0, 0.0].into(),
         half_extent_meters: 4.0,
@@ -195,7 +198,8 @@ fn viewer_callback_edits_flush_in_plain_and_shadowed_residents() {
     let context =
         pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     for shadows in [None, Some(shadow_settings())] {
-        let mut resident = Resident::new(&context, &source(), shadows).unwrap();
+        let mut resident =
+            Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
         let mut target = OffscreenTarget::new(
             context.device(),
             Viewport {
@@ -260,7 +264,13 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
         .unwrap()
         .view(options.camera, size)
         .unwrap();
-    let mut resident = Resident::new(&context, &source(), Some(shadow_settings())).unwrap();
+    let mut resident = Resident::new(
+        &context,
+        &source(),
+        Some(shadow_settings()),
+        crate::FrameProfile::Legacy,
+    )
+    .unwrap();
     let mut presentation = crate::presentation::Presentation::new(context.device(), COLOR, size);
     let mut output = OffscreenTarget::new(context.device(), size).unwrap();
     let mut encoder = context
@@ -282,6 +292,17 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
     output.encode_readback(&mut encoder).unwrap();
     let submission = context.queue().submit([encoder.finish()]);
     let image = output.read_encoded(&context, submission).unwrap();
+    let expected = worldrunner_render_scene::shadows::capture_scene_shadowed(
+        &context,
+        &source(),
+        &view,
+        shadow_settings(),
+    )
+    .unwrap();
+    assert_eq!(
+        image, expected,
+        "legacy presentation is byte-equivalent to direct capture"
+    );
     assert!(
         image
             .pixels

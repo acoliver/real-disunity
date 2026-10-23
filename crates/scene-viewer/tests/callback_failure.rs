@@ -24,6 +24,7 @@ fn main() {
     })
     .unwrap();
     let options = ViewerOptions {
+        frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
         title: "Callback failure regression".into(),
         size: [64, 64],
         camera: SceneCamera {

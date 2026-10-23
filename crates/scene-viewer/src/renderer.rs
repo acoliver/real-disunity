@@ -14,7 +14,7 @@ use worldrunner_render_scene::{
 
 use crate::{
     ViewerError,
-    presentation::{COLOR, Extents, Presentation},
+    presentation::{Extents, Presentation},
 };
 
 pub(super) struct Renderer {
@@ -45,6 +45,7 @@ impl Renderer {
         window: Arc<Window>,
         scene: &RenderScene,
         shadows: Option<DirectionalShadowSettings>,
+        profile: crate::FrameProfile,
     ) -> Result<Self, ViewerError> {
         let instance = wgpu::Instance::new(
             wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display)),
@@ -79,8 +80,14 @@ impl Renderer {
         let policy = surface_policy(&capabilities, [size.width, size.height])?;
         let presenter = Presenter::new(surface, &capabilities, context.device(), policy)
             .map_err(surface_error)?;
-        let presentation = Presentation::new(context.device(), policy.format, initial.render);
-        let resident = Resident::new(&context, scene, shadows)?;
+        let presentation = Presentation::with_profile(
+            &context,
+            policy.format,
+            initial.render,
+            profile,
+            scene.effects(),
+        )?;
+        let resident = Resident::new(&context, scene, shadows, profile)?;
         let renderer = Self {
             presenter,
             instance,
@@ -262,11 +269,22 @@ impl Resident {
         context: &GpuContext,
         scene: &RenderScene,
         shadows: Option<DirectionalShadowSettings>,
+        profile: crate::FrameProfile,
     ) -> Result<Self, ViewerError> {
         Ok(if let Some(settings) = shadows {
-            Self::Shadowed(Box::new(ShadowedScene::new(context, scene, settings)?))
+            Self::Shadowed(Box::new(ShadowedScene::with_target(
+                context,
+                scene,
+                settings,
+                profile.target().0,
+                profile.target().1,
+            )?))
         } else {
-            let pipelines = ScenePipelines::new(context.device(), COLOR);
+            let pipelines = ScenePipelines::with_samples(
+                context.device(),
+                profile.target().0,
+                profile.target().1,
+            )?;
             let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
             Self::Plain(Box::new(PlainScene {
                 gpu,
@@ -317,3 +335,6 @@ mod tests;
 
 #[cfg(test)]
 mod retained_tests;
+
+#[cfg(test)]
+mod hdr_tests;

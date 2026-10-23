@@ -16,6 +16,7 @@ impl ShadowSchedule {
         map: &DepthMap,
         color: &AttachmentView,
         depth: &AttachmentView,
+        pipelines: &crate::renderer::ScenePipelines,
     ) -> Result<Self, ShadowError> {
         let color_id = crate::compositor::attachment_resource("scene color", color);
         let depth_id = crate::compositor::attachment_resource("scene depth", depth);
@@ -23,7 +24,7 @@ impl ShadowSchedule {
         let mut views = Vec::new();
         let mut declaration = FeatureDeclaration::new(PassSlot::ShadowCasters(0));
         declaration.passes.clear();
-        let mut opaque_feature = crate::compositor::SceneFeature::declaration()
+        let mut opaque_feature = crate::compositor::SceneFeature::declaration(pipelines)
             .passes
             .remove(0);
         for index in 0..map.layers() {

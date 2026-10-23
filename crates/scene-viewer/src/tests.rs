@@ -65,6 +65,7 @@ pub(crate) fn scene(water: bool) -> RenderScene {
 }
 pub(crate) fn options() -> ViewerOptions {
     ViewerOptions {
+        frame_profile: crate::FrameProfile::Legacy,
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,

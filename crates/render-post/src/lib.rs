@@ -2,6 +2,8 @@
 //! Shader policy, adaptation rules and LUT data remain caller-authored.
 mod chain;
 mod copy;
+mod tone_map;
+pub use tone_map::{ToneMap, ToneMapOutput};
 mod frame;
 #[cfg(test)]
 mod frame_tests;
@@ -26,6 +28,8 @@ pub use targets::{FrameConfig, FrameTargets, color_texture};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PostError {
+    #[error("unsupported frame profile: {0}")]
+    UnsupportedProfile(&'static str),
     #[error(transparent)]
     Frame(#[from] FrameError),
     #[error("post target extent is empty")]
@@ -174,3 +178,6 @@ mod tests;
 
 #[cfg(test)]
 mod readback_gpu_tests;
+
+#[cfg(test)]
+mod tone_map_gpu_tests;

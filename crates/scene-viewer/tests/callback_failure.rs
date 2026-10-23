@@ -1,4 +1,4 @@
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, rc::Rc, time::Duration};
 
 use worldrunner_render_plan::{
     RenderScene, SceneCamera, SceneGeometry, SceneParts, SceneResources,
@@ -14,8 +14,22 @@ impl Drop for CallbackDrop {
     }
 }
 
+fn start_deadline_watchdog() {
+    // An independent watchdog also runs when an occluded event loop is asleep.
+    // This executable exits on completion without waiting for the watchdog.
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_secs(30));
+        eprintln!(
+            "callback failure test exceeded its 30-second deadline: \
+             window did not produce the required frames (occluded?)"
+        );
+        std::process::exit(1);
+    });
+}
+
 // A separate test executable keeps the native event loop on the main thread.
 fn main() {
+    start_deadline_watchdog();
     let scene = RenderScene::new(SceneParts {
         resources: SceneResources::new(vec![], vec![]).unwrap(),
         geometry: SceneGeometry::new(vec![], vec![]).unwrap(),

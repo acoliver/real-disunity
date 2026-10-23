@@ -201,7 +201,7 @@ fn assert_lost_recovery(
         presenter.acquire(device).unwrap(),
         AcquiredFrame::Skip
     ));
-    presenter.resize(device, [800, 600]).unwrap();
+    presenter.resize(device, [640, 480]).unwrap();
     assert!(matches!(
         presenter.apply_pending(device).unwrap(),
         AcquiredFrame::Recreate
@@ -246,7 +246,7 @@ fn assert_configuration_failure(presenter: &mut Presenter<'static>, device: &wgp
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     drop(frame);
     assert!(pollster::block_on(scope.pop()).is_some());
-    presenter.resize(device, [800, 600]).unwrap();
+    presenter.resize(device, [640, 480]).unwrap();
     presenter.apply_pending(device).unwrap();
     assert!(matches!(
         presenter.acquire(device).unwrap(),
@@ -315,7 +315,8 @@ fn initial_presenter(
         presenter.acquire(device).unwrap(),
         AcquiredFrame::Skip
     ));
-    presenter.resize(device, [800, 600]).unwrap();
+    // The native resize sequence leaves the X11 window at 640x480.
+    presenter.resize(device, [640, 480]).unwrap();
     assert_eq!(presenter.configuration_generation(), 0);
     presenter.apply_pending(device).unwrap();
     assert!(!presenter.is_suspended());

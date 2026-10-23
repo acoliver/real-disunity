@@ -31,6 +31,17 @@ fn encode(value: f64) -> f64 {
     }
 }
 
+fn encoded_byte(radiance: f64, exposure: f64) -> u8 {
+    let encoded = encode(ToneMapOutput::evaluate(radiance, exposure)) * 255.0;
+    assert!(
+        (encoded - encoded.round()).abs() < 0.1,
+        "exact-byte fixture must stay away from sRGB rounding boundaries: {encoded}"
+    );
+    (0..=u8::MAX)
+        .find(|&byte| f64::from(byte).total_cmp(&encoded.round()).is_eq())
+        .expect("encoded fixture must fit a byte")
+}
+
 #[test]
 fn half_decoder_covers_subnormals_and_special_values() {
     for (bits, expected) in [
@@ -140,7 +151,7 @@ fn special_pipeline(device: &wgpu::Device, samples: u32) -> wgpu::RenderPipeline
 }
 
 const SPECIAL_HALF_WORDS: [u16; 12] = [
-    0x7c00, 0xfc00, 0x7e00, 0x3c00, 0x3c00, 0xbc00, 0x4400, 0x3c00, 0x7bff, 0x7bff, 0x7bff, 0x3c00,
+    0x7c00, 0xfc00, 0x7e00, 0x3c00, 0x3a00, 0xbc00, 0x42a0, 0x3c00, 0x7bff, 0x7bff, 0x7bff, 0x3c00,
 ];
 
 fn special_group(
@@ -219,7 +230,16 @@ fn assert_nonfinite_output(displayed: &[u8], samples: u32, exposure: f64) {
     let expected = if exposure == 0.0 {
         [[0, 0, 0, 255]; 3]
     } else {
-        [[255, 0, 0, 255], [188, 0, 231, 255], [255, 255, 255, 255]]
+        [
+            [255, 0, 0, 255],
+            [
+                encoded_byte(half(&SPECIAL_HALF_WORDS[4].to_le_bytes()), exposure),
+                0,
+                encoded_byte(half(&SPECIAL_HALF_WORDS[6].to_le_bytes()), exposure),
+                255,
+            ],
+            [255, 255, 255, 255],
+        ]
     };
     for (pixel, expected) in displayed.chunks_exact(4).zip(expected) {
         assert_eq!(pixel, expected, "samples={samples}, exposure={exposure}");
@@ -277,6 +297,7 @@ fn hdr_edge_resolve_fixed_exposure_and_single_srgb_transfer() {
 #[test]
 fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
     let (device, queue) = crate::gpu_tests::gpu();
+    let radiance = 0.75;
     let config = FrameConfig::new([5, 3], wgpu::TextureFormat::Rgba16Float, 4);
     let mut chain = PostChain::new(
         &device,
@@ -302,7 +323,12 @@ fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
             resolve_target: chain.targets().resolve(),
             depth_slice: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                load: wgpu::LoadOp::Clear(wgpu::Color {
+                    r: radiance,
+                    g: radiance,
+                    b: radiance,
+                    a: 1.0,
+                }),
                 store: wgpu::StoreOp::Store,
             },
         })],
@@ -324,10 +350,11 @@ fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
         .unwrap()
         .read(&device, &queue, &output)
         .unwrap();
+    let expected = encoded_byte(radiance, 1.0);
     assert!(
         pixels
             .chunks_exact(4)
-            .all(|pixel| pixel == [188, 188, 188, 255])
+            .all(|pixel| pixel == [expected, expected, expected, 255])
     );
 }
 

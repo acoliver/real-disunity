@@ -209,6 +209,19 @@ impl StageSet {
 /// Creates bindings and a linear schedule after allocation/resize, never encodes or submits.
 /// Kernel code, exposure ABI, adaptation rules and LUT contents belong to the provider.
 pub trait StageFactory {
+    fn frame_slots(&self) -> usize {
+        1
+    }
+    fn build_for_slot(
+        &self,
+        device: &wgpu::Device,
+        targets: &FrameTargets,
+        persistent: &Resources,
+        _slot: usize,
+    ) -> Result<StageSet, PostError> {
+        self.build(device, targets, persistent)
+    }
+
     fn build(
         &self,
         device: &wgpu::Device,
@@ -222,7 +235,7 @@ pub struct PostChain<F> {
     targets: FrameTargets,
     persistent: Resources,
     factory: F,
-    configured: StageSet,
+    configured: Vec<StageSet>,
     features: Vec<crate::frame::RegisteredFeature>,
     upload_slots: [Vec<wgpu::Buffer>; 3],
     frame_slot: usize,
@@ -236,8 +249,7 @@ impl<F: StageFactory> PostChain<F> {
         factory: F,
     ) -> Result<Self, PostError> {
         let targets = FrameTargets::new(device, config)?;
-        let configured = factory.build(device, &targets, &persistent)?;
-        configured.validate(device)?;
+        let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
             persistent,
@@ -261,8 +273,7 @@ impl<F: StageFactory> PostChain<F> {
                 ..self.targets.config()
             },
         )?;
-        let configured = self.factory.build(device, &targets, &self.persistent)?;
-        configured.validate(device)?;
+        let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
         for feature in &mut self.features {
             feature.prepared = None;
         }
@@ -279,7 +290,7 @@ impl<F: StageFactory> PostChain<F> {
     }
 
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
-        for stage in &self.configured.stages {
+        for stage in &self.configured[self.frame_slot % self.configured.len()].stages {
             stage.encode(encoder, output);
         }
     }
@@ -296,8 +307,7 @@ impl<F: StageFactory> PostChain<F> {
 
     /// Reconfigure shaders/options and all dependent bindings without resetting fixed history.
     pub fn reconfigure(&mut self, device: &wgpu::Device, factory: F) -> Result<(), PostError> {
-        let configured = factory.build(device, &self.targets, &self.persistent)?;
-        configured.validate(device)?;
+        let configured = build_slots(&factory, device, &self.targets, &self.persistent)?;
         self.factory = factory;
         self.configured = configured;
         Ok(())
@@ -452,3 +462,29 @@ impl<F: StageFactory> PostChain<F> {
         Ok(())
     }
 }
+
+fn build_slots<F: StageFactory>(
+    factory: &F,
+    device: &wgpu::Device,
+    targets: &FrameTargets,
+    persistent: &Resources,
+) -> Result<Vec<StageSet>, PostError> {
+    if !matches!(factory.frame_slots(), 1 | 3) {
+        return Err(PostError::UnsupportedProfile("post frame slot count"));
+    }
+    (0..factory.frame_slots())
+        .map(|slot| {
+            let set = factory.build_for_slot(device, targets, persistent, slot)?;
+            set.validate(device)?;
+            Ok(set)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "post_effect_tests.rs"]
+mod post_effect_tests;
+
+#[cfg(test)]
+#[path = "post_regression_tests.rs"]
+mod post_regression_tests;

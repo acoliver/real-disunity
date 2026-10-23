@@ -272,3 +272,52 @@ fn optional_ssr_keeps_v4_identity_and_requires_its_complete_policy() {
     contract["effects"]["ssr"]["resolution_scale_micro"] = json!(750_000);
     assert!(ContractDocument::from_json_bytes(&contract_bytes(&contract)).is_err());
 }
+
+#[test]
+fn optional_hdr_post_keeps_v4_and_requires_complete_valid_settings() {
+    let mut contract = valid_contract();
+    assert!(
+        ContractDocument::from_json_bytes(&contract_bytes(&contract))
+            .unwrap()
+            .effects()
+            .hdr_post()
+            .is_none()
+    );
+    let policy = json!({
+        "adaptive_exposure": {
+            "log_min_milli": -12_000, "log_max_milli": 12_000,
+            "low_percentile_micro": 10_000, "high_percentile_micro": 990_000,
+            "key_micro": 180_000, "min_exposure_micro": 10_000, "max_exposure_micro": 64_000_000,
+            "speed_up_milli": 3000, "speed_down_milli": 1000,
+            "fixed_delta_microseconds": 16_667, "fixed_exposure_micro": null
+        },
+        "bloom": {"threshold_micro": 1_000_000, "soft_knee_micro": 500_000, "intensity_micro": 200_000, "levels": 5},
+        "fxaa_subpixel_micro": 750_000
+    });
+    contract["effects"]["hdr_post"] = policy.clone();
+    let document = ContractDocument::from_json_bytes(&contract_bytes(&contract)).unwrap();
+    assert_eq!(document.header().schema_version, 4);
+    assert_eq!(
+        ContractDocument::from_json_bytes(&document.to_json_bytes().unwrap()).unwrap(),
+        document
+    );
+    for field in ["adaptive_exposure", "bloom", "fxaa_subpixel_micro"] {
+        let mut missing = contract.clone();
+        missing["effects"]["hdr_post"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(ContractDocument::from_json_bytes(&contract_bytes(&missing)).is_err());
+    }
+    for (section, field, invalid) in [
+        ("adaptive_exposure", "log_max_milli", -12_000),
+        ("adaptive_exposure", "high_percentile_micro", 10_000),
+        ("adaptive_exposure", "speed_down_milli", 0),
+        ("bloom", "levels", 9),
+        ("bloom", "soft_knee_micro", 1_000_001),
+    ] {
+        let mut invalid_contract = contract.clone();
+        invalid_contract["effects"]["hdr_post"][section][field] = json!(invalid);
+        assert!(ContractDocument::from_json_bytes(&contract_bytes(&invalid_contract)).is_err());
+    }
+}

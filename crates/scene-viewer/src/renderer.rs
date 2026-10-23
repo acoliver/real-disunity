@@ -180,7 +180,7 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        self.presentation.present(&mut encoder, &output);
+        self.presentation.present(&mut encoder, &output)?;
         self.execution
             .submit(ready, encoder.finish(), &self.context);
         self.check_errors()?;

@@ -2,7 +2,12 @@
 //! Shader policy, adaptation rules and LUT data remain caller-authored.
 mod chain;
 mod copy;
+mod hdr_post;
+mod post_filters;
 mod tone_map;
+pub use hdr_post::{
+    AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,
+};
 pub use tone_map::{ToneMap, ToneMapOutput};
 mod frame;
 #[cfg(test)]
@@ -30,6 +35,8 @@ pub use targets::{FrameConfig, FrameTargets, color_texture};
 pub enum PostError {
     #[error("unsupported frame profile: {0}")]
     UnsupportedProfile(&'static str),
+    #[error("frame delta must be finite and within 0..=10 seconds")]
+    FrameDelta,
     #[error(transparent)]
     Frame(#[from] FrameError),
     #[error("post target extent is empty")]

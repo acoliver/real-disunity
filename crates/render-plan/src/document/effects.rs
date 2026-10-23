@@ -468,6 +468,8 @@ pub struct EffectsRecipeParts {
 #[serde(deny_unknown_fields)]
 pub struct EffectsRecipe {
     #[serde(skip_serializing_if = "Option::is_none")]
+    hdr_post: Option<crate::SceneHdrPost>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ssr: Option<crate::SceneSsr>,
     water: Option<WaterPlaneRecipe>,
     sky: SkyRecipe,
@@ -479,6 +481,18 @@ pub struct EffectsRecipe {
 }
 
 impl EffectsRecipe {
+    pub fn with_hdr_post(
+        mut self,
+        settings: crate::SceneHdrPost,
+    ) -> Result<Self, ContractDocumentError> {
+        self.hdr_post = Some(settings);
+        self.validate()?;
+        Ok(self)
+    }
+    pub const fn hdr_post(&self) -> Option<&crate::SceneHdrPost> {
+        self.hdr_post.as_ref()
+    }
+
     /// Adopts the optional authored reflection policy after validating its quantities.
     pub fn with_ssr(mut self, settings: crate::SceneSsr) -> Result<Self, ContractDocumentError> {
         self.ssr = Some(settings);
@@ -497,6 +511,7 @@ impl EffectsRecipe {
     /// Returns [`ContractDocumentError`] on the first violated invariant.
     pub fn new(parts: EffectsRecipeParts) -> Result<Self, ContractDocumentError> {
         let effects = Self {
+            hdr_post: None,
             ssr: None,
             water: parts.water,
             sky: parts.sky,
@@ -560,6 +575,13 @@ impl EffectsRecipe {
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
         if let Some(water) = &self.water {
             water.validate()?;
+        }
+        if let Some(post) = self.hdr_post {
+            post.validate()
+                .map_err(|_| ContractDocumentError::ViolatedInvariant {
+                    field: "hdr_post",
+                    reason: "invalid HDR post policy",
+                })?;
         }
         if let Some(ssr) = self.ssr {
             ssr.validate()

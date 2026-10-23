@@ -40,14 +40,8 @@ fn stock_frames_reject_each_requested_unimplemented_effect() {
         (
             None,
             vec![],
-            SceneAntiAlias::Fxaa { subpixel_micro: 0 },
-            "anti-aliasing",
-        ),
-        (
-            None,
-            vec![],
             SceneAntiAlias::Taa { history_micro: 0 },
-            "anti-aliasing",
+            "post-processing",
         ),
     ] {
         let mut parts = effect_parts();

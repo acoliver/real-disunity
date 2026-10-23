@@ -11,6 +11,8 @@ mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
 mod composition;
 mod effects;
+mod post;
+pub use post::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
 mod ssr;
 pub use ssr::SceneSsr;
 mod error;

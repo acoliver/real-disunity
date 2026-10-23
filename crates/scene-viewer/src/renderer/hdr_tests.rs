@@ -42,9 +42,7 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
                     .view(options.camera, size)
                     .unwrap();
                 let mut output = OffscreenTarget::new(context.device(), size).unwrap();
-                let mut encoder = context
-                    .device()
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                let mut encoder = hdr_encoder(&context);
                 resident
                     .render(
                         &context,
@@ -54,7 +52,9 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
                         &mut presentation.scheduler,
                     )
                     .unwrap();
-                presentation.present(&mut encoder, output.color_view());
+                presentation
+                    .present(&mut encoder, output.color_view())
+                    .unwrap();
                 output.encode_readback(&mut encoder).unwrap();
                 let submission = context.queue().submit([encoder.finish()]);
                 let image = output.read_encoded(&context, submission).unwrap();
@@ -63,4 +63,10 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
             }
         }
     }
+}
+
+fn hdr_encoder(context: &GpuContext) -> wgpu::CommandEncoder {
+    context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default())
 }

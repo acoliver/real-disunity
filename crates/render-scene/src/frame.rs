@@ -32,8 +32,7 @@ use worldrunner_render_lighting::{
     LightingFrame,
 };
 use worldrunner_render_plan::{
-    ROTATION_MICRO_SCALE, SceneAmbient, SceneAntiAlias, SceneColor, SceneEffects, SceneSky,
-    SceneSun,
+    ROTATION_MICRO_SCALE, SceneAmbient, SceneColor, SceneEffects, SceneSky, SceneSun,
 };
 
 /// Size in bytes of the frame uniform block.
@@ -205,12 +204,7 @@ pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), Frame
         crate::ssao::validate_settings(settings)
             .map_err(|_| FrameError::UnsupportedEffect("SSAO settings"))?;
     }
-    if !effects.post().is_empty() {
-        return Err(FrameError::UnsupportedEffect("post-processing"));
-    }
-    if *effects.anti_alias() != SceneAntiAlias::Disabled {
-        return Err(FrameError::UnsupportedEffect("anti-aliasing"));
-    }
+    crate::post::settings(effects).map_err(|_| FrameError::UnsupportedEffect("post-processing"))?;
     Ok(())
 }
 

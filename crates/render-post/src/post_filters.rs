@@ -1,0 +1,195 @@
+use crate::{FrameTargets, HdrPostSettings, Stage, StageSet, StageTarget, color_texture};
+
+pub(crate) struct Filters<'a> {
+    pub device: &'a wgpu::Device,
+    pub set: &'a mut StageSet,
+    module: wgpu::ShaderModule,
+}
+struct FilterPass<'a> {
+    entry: &'static str,
+    source: &'a wgpu::TextureView,
+    lower: Option<&'a wgpu::TextureView>,
+    exposure: Option<&'a wgpu::Buffer>,
+    constants: &'a [(&'a str, f64)],
+    format: wgpu::TextureFormat,
+    target: StageTarget,
+}
+impl<'a> Filters<'a> {
+    pub fn new(device: &'a wgpu::Device, set: &'a mut StageSet) -> Self {
+        Self {
+            device,
+            set,
+            module: device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("HDR post filters"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("post_filters.wgsl").into()),
+            }),
+        }
+    }
+    pub fn build(
+        &mut self,
+        targets: &FrameTargets,
+        settings: HdrPostSettings,
+        exposure: &wgpu::Buffer,
+        output: (wgpu::TextureFormat, f64),
+    ) {
+        let bloom = settings
+            .bloom
+            .map_or_else(|| targets.resolved().clone(), |b| self.bloom(targets, b));
+        let constants = [
+            ("FIXED", output.1),
+            ("ADAPTIVE", f64::from(u8::from(settings.adaptive.is_some()))),
+            (
+                "INTENSITY",
+                settings.bloom.map_or(0.0, |b| f64::from(b.intensity)),
+            ),
+        ];
+        let fxaa = settings.fxaa.filter(|weight| *weight > 0.0);
+        let ldr = fxaa.map(|_| {
+            let texture = color_texture(
+                self.device,
+                "display-linear FXAA source",
+                targets.config().size,
+                wgpu::TextureFormat::Rgba32Float,
+            );
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.set.resources.textures.push(texture);
+            view
+        });
+        self.pass(FilterPass {
+            entry: "tone",
+            source: targets.resolved(),
+            lower: Some(&bloom),
+            exposure: Some(exposure),
+            constants: &constants,
+            format: if fxaa.is_some() {
+                wgpu::TextureFormat::Rgba32Float
+            } else {
+                output.0
+            },
+            target: ldr
+                .as_ref()
+                .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
+        });
+        if let Some(weight) = fxaa {
+            self.pass(FilterPass {
+                entry: "fxaa",
+                source: ldr.as_ref().unwrap(),
+                lower: None,
+                exposure: None,
+                constants: &[("FXAA", weight.into())],
+                format: output.0,
+                target: StageTarget::Output,
+            });
+        }
+    }
+    fn bloom(&mut self, targets: &FrameTargets, b: crate::Bloom) -> wgpu::TextureView {
+        let mut levels = Vec::new();
+        let mut size = targets.config().size;
+        let first = self.texture(size);
+        self.filter(
+            "prefilter",
+            targets.resolved(),
+            None,
+            &[("THRESHOLD", b.threshold.into()), ("KNEE", b.knee.into())],
+            &first,
+        );
+        levels.push(first);
+        for _ in 1..b.levels {
+            if size == [1, 1] {
+                break;
+            }
+            size = [size[0].div_ceil(2), size[1].div_ceil(2)];
+            let next = self.texture(size);
+            self.filter("downsample", levels.last().unwrap(), None, &[], &next);
+            levels.push(next);
+        }
+        let mut bloom = levels.pop().unwrap();
+        for high in levels.iter().rev() {
+            let next = self.texture([high.texture().width(), high.texture().height()]);
+            self.filter("upsample", high, Some(&bloom), &[], &next);
+            bloom = next;
+        }
+        bloom
+    }
+    fn filter(
+        &mut self,
+        entry: &'static str,
+        source: &wgpu::TextureView,
+        lower: Option<&wgpu::TextureView>,
+        constants: &[(&str, f64)],
+        target: &wgpu::TextureView,
+    ) {
+        self.pass(FilterPass {
+            entry,
+            source,
+            lower,
+            exposure: None,
+            constants,
+            format: wgpu::TextureFormat::Rgba16Float,
+            target: StageTarget::Texture(target.clone()),
+        });
+    }
+    fn texture(&mut self, size: [u32; 2]) -> wgpu::TextureView {
+        let texture = color_texture(
+            self.device,
+            "HDR post intermediate",
+            size,
+            wgpu::TextureFormat::Rgba16Float,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.set.resources.textures.push(texture);
+        view
+    }
+    fn pass(&mut self, p: FilterPass<'_>) {
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(p.entry),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: &self.module,
+                    entry_point: Some("vertex"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &self.module,
+                    entry_point: Some(p.entry),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: p.constants,
+                        ..Default::default()
+                    },
+                    targets: &[Some(p.format.into())],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+        let mut entries = vec![wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(p.source),
+        }];
+        if let Some(lower) = p.lower {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(lower),
+            });
+        }
+        if let Some(exposure) = p.exposure {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 2,
+                resource: exposure.as_entire_binding(),
+            });
+        }
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(p.entry),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        self.set
+            .stages
+            .push(Stage::fullscreen(p.entry, &pipeline, &[&group], p.target));
+    }
+}

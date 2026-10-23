@@ -53,7 +53,9 @@ fn hdr_capture(
             Some(&mut frame),
         )
         .unwrap();
-    frame.encode_output(&mut encoder, output.color_view());
+    frame
+        .encode_output(&mut encoder, output.color_view())
+        .unwrap();
     output.encode_readback(&mut encoder).unwrap();
     let submission = context.queue().submit([encoder.finish()]);
     let image = output.read_encoded(context, submission).unwrap();
@@ -132,7 +134,7 @@ fn hdr_profile_rejects_uninstalled_settings_before_gpu_execution() {
         .is_err()
     );
     let mut effects = fixture::effects_parts(600_000);
-    effects.anti_alias = SceneAntiAlias::Fxaa { subpixel_micro: 0 };
+    effects.anti_alias = SceneAntiAlias::Taa { history_micro: 0 };
     let effects = SceneEffects::new(effects).unwrap();
     assert!(
         FrameRenderer::hdr(
@@ -228,5 +230,57 @@ fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_1x_and_4x() {
         let (raw, image) = hdr_capture(&context, &source, samples, 0.001);
         assert!(raw.iter().any(|byte| *byte != 0));
         assert!(image.pixels.chunks_exact(4).any(|pixel| pixel[0] > 0));
+    }
+}
+
+#[test]
+fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
+    use worldrunner_render_plan::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
+    let context = context();
+    let source = exposed(&scene(&[[0, 0, 1_000]], 600_000, None), 1_000_000);
+    let effects = source
+        .effects()
+        .unwrap()
+        .clone()
+        .with_hdr_post(SceneHdrPost {
+            adaptive_exposure: Some(SceneAdaptiveExposure {
+                log_min_milli: -12_000,
+                log_max_milli: 12_000,
+                low_percentile_micro: 10_000,
+                high_percentile_micro: 990_000,
+                key_micro: 180_000,
+                min_exposure_micro: 10_000,
+                max_exposure_micro: 64_000_000,
+                speed_up_milli: 3_000,
+                speed_down_milli: 1_000,
+                fixed_delta_microseconds: Some(250_000),
+                fixed_exposure_micro: None,
+            }),
+            bloom: Some(SceneBloom {
+                threshold_micro: 500_000,
+                soft_knee_micro: 500_000,
+                intensity_micro: 500_000,
+                levels: 4,
+            }),
+            fxaa_subpixel_micro: Some(750_000),
+        })
+        .unwrap();
+    let filtered = RenderScene::new(SceneParts {
+        resources: source.resources().clone(),
+        geometry: source.geometry().clone(),
+        terrain: None,
+        effects: Some(effects),
+    })
+    .unwrap();
+    for samples in [1, 4] {
+        let (plain_hdr, plain) = hdr_capture(&context, &source, samples, 0.001);
+        let (filtered_hdr, image) = hdr_capture(&context, &filtered, samples, 0.001);
+        assert_eq!(plain_hdr, filtered_hdr, "post never changes scene radiance");
+        assert_ne!(
+            plain.pixels, image.pixels,
+            "effects must contribute at each sample count"
+        );
+        let (_, repeated) = hdr_capture(&context, &filtered, samples, 0.001);
+        assert_eq!(image.pixels, repeated.pixels);
     }
 }

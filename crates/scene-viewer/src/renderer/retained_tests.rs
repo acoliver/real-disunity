@@ -289,7 +289,9 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
     if let Resident::Shadowed(renderer) = &resident {
         assert_eq!(renderer.cascade_view_stats(3).considered, 1);
     }
-    presentation.present(&mut encoder, output.color_view());
+    presentation
+        .present(&mut encoder, output.color_view())
+        .unwrap();
     output.encode_readback(&mut encoder).unwrap();
     let submission = context.queue().submit([encoder.finish()]);
     let image = output.read_encoded(&context, submission).unwrap();

@@ -35,3 +35,42 @@ For a capture inside an existing frame encoder, construct `Readback` with the **
 Supported native formats are RGBA8/BGRA8 linear and sRGB, RGBA16Float, R32Float and RGBA32Float. Wrong-format, multisampled, array, non-D2, wrong-size and missing-COPY_SRC sources are rejected before copy encoding. Floating-point data is never interpreted or converted: NaN payloads, infinities and signed zeros survive byte-for-byte. `read_encoded_padded` plus `padded_bytes_per_row` retains the GPU copy layout for diagnostic exporters with an existing pitch receipt contract; ordinary `read_encoded` strips padding.
 
 `BufferReadback` provides the same allocation ceiling, ordered encode, shared 30-second deadline and guaranteed unmap-on-return for opaque diagnostic buffers. Its configured byte count must be nonzero and copy-aligned; encoding copies exactly that count from source offset zero. The provider, not the SDK, interprets exposure/statistics layouts. Capture publication, metadata, float decoding and surface BGRA-to-RGBA packing remain host responsibilities.
+
+## Stock HDR effects
+
+`ToneMapOutput::with_effects` installs optional adaptive exposure, bloom and
+FXAA. An empty policy uses the unchanged fixed-exposure shader. Slot-aware
+factories build one immutable schedule per admitted slot. Exposure history
+survives resize, while sized filter targets rebuild transactionally.
+
+Metering sanitizes each channel, clamps log2 luminance into 256 bins, and reduces
+the fractionally trimmed low/high percentile interval using bin centres.
+Adaptation is `previous + (target - previous) * (1 - exp(-speed * delta))`,
+starting from exposure one. Up and down rates are independent. Before encoding,
+call `prepare_effects` with the selected slot and explicit delta/reset. Its
+upload is an encoder-ordered copy, never a queue write. A fixed capture delta
+overrides host timing; fixed capture exposure bypasses adaptation. One queue-ordered carry buffer advances history in submission order. Each
+reduction publishes its result into a separate slot buffer before tone mapping,
+so later frames cannot change that frame's result. Submit successful encoders
+in preparation order; do not reuse a slot until its submission completes. A
+reset applies once at the requested frame boundary. The effective delta must
+be finite and within 0..=10 seconds; invalid preparation returns
+`PostError::FrameDelta` before allocation or encoder mutation. A valid fixed
+capture delta overrides even invalid host timing. Clearing an installed policy
+with empty settings removes all effects and restores the fixed schedule.
+
+Bloom prefilters unexposed radiance with a quadratic soft knee, downsamples
+with normalized 13-tap weights, and upsamples with a normalized 3x3 tent. Each
+upsample averages its local and coarser levels, preserving constant energy
+instead of multiplying brightness by pyramid depth. Bloom adds before Reinhard.
+NaN, infinities and negative channels contribute zero to metering and bloom.
+Positive infinity remains a white highlight in direct output but does not
+spread into neighbours or enter histogram arithmetic. Finite half-float
+highlights remain eligible. This extends the existing output special-value
+policy to finite statistical/filter inputs without changing direct tone mapping.
+
+FXAA uses perceptual luma from display-linear RGB, span 8, reduction 1/8,
+minimum reduction 1/128, and contrast thresholds 1/32 absolute and 1/8 relative.
+Its scene weight blends the directional result with the original pixel.
+An Rgba32Float LDR intermediate preserves flat-region precision. Only the
+final sRGB attachment applies output transfer; alpha is preserved.

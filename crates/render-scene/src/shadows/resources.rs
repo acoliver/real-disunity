@@ -1,4 +1,4 @@
-use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
+use crate::geometry::{instance_attributes, vertex_attributes};
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::shader::ENVIRONMENT_WGSL;
@@ -21,6 +21,15 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     include_str!("../shader/environment.wgsl")
 );
 
+pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
+    worldrunner_render_shadow::shadow_wgsl!(),
+    worldrunner_render_lighting::lighting_wgsl!(),
+    worldrunner_render_post::post_wgsl!(),
+    include_str!("../shader/lighting.wgsl"),
+    include_str!("../shader/shadows.wgsl"),
+    include_str!("../shader/terrain.wgsl")
+);
+
 pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     worldrunner_render_shadow::receiver_layout(
         device,
@@ -39,7 +48,7 @@ pub(super) fn depth_pipelines(
     device: &wgpu::Device,
     pipelines: &ScenePipelines,
     settings: DirectionalShadowSettings,
-) -> [wgpu::RenderPipeline; 4] {
+) -> ([wgpu::RenderPipeline; 4], wgpu::RenderPipeline) {
     let configuration = settings.configuration();
     let module = depth_shader(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -52,19 +61,15 @@ pub(super) fn depth_pipelines(
     });
     let vertices = vertex_attributes();
     let instances = instance_attributes();
-    let buffers = [
-        Some(wgpu::VertexBufferLayout {
-            array_stride: VERTEX_STRIDE,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &vertices,
-        }),
-        Some(wgpu::VertexBufferLayout {
-            array_stride: INSTANCE_STRIDE,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &instances,
-        }),
-    ];
-    PipelineKey::ALL.map(|key| {
+    let buffers = crate::renderer::vertex_buffers(&vertices, &instances);
+    let terrain = terrain_depth_pipeline(
+        device,
+        &module,
+        pipelines.frame_layout(),
+        &buffers,
+        settings,
+    );
+    let objects = PipelineKey::ALL.map(|key| {
         worldrunner_render_shadow::create_depth_pipeline(
             device,
             DepthPipelineDescriptor {
@@ -93,7 +98,43 @@ pub(super) fn depth_pipelines(
                 }),
             },
         )
-    })
+    });
+    (objects, terrain)
+}
+
+fn terrain_depth_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    frame_layout: &wgpu::BindGroupLayout,
+    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+    settings: DirectionalShadowSettings,
+) -> wgpu::RenderPipeline {
+    let configuration = settings.configuration();
+    let terrain_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("terrain shadow caster"),
+        bind_group_layouts: &[Some(frame_layout)],
+        immediate_size: 0,
+    });
+    worldrunner_render_shadow::create_depth_pipeline(
+        device,
+        DepthPipelineDescriptor {
+            label: Some("terrain"),
+            layout: &terrain_layout,
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: Some(crate::shader::VERTEX_ENTRY_POINT),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            compare: configuration.caster_compare,
+            bias: configuration.caster_bias,
+            fragment: None,
+        },
+    )
 }
 
 fn depth_shader(device: &wgpu::Device) -> wgpu::ShaderModule {

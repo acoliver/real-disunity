@@ -87,13 +87,14 @@ impl ScenePipelines {
     /// face an unusual material.
     #[must_use]
     pub fn new(device: &Device, color_format: TextureFormat) -> Self {
-        Self::with_environment(device, color_format, ENVIRONMENT_WGSL, None)
+        Self::with_environment(device, color_format, ENVIRONMENT_WGSL, TERRAIN_WGSL, None)
     }
 
     pub(crate) fn with_environment(
         device: &Device,
         color_format: TextureFormat,
         source: &str,
+        terrain_source: &str,
         shadow_layout: Option<&BindGroupLayout>,
     ) -> Self {
         let module = device.create_shader_module(ShaderModuleDescriptor {
@@ -115,18 +116,7 @@ impl ScenePipelines {
 
         let vertex_attributes = vertex_attributes();
         let instance_attributes = instance_attributes();
-        let buffers = [
-            Some(VertexBufferLayout {
-                array_stride: VERTEX_STRIDE,
-                step_mode: VertexStepMode::Vertex,
-                attributes: &vertex_attributes,
-            }),
-            Some(VertexBufferLayout {
-                array_stride: INSTANCE_STRIDE,
-                step_mode: VertexStepMode::Instance,
-                attributes: &instance_attributes,
-            }),
-        ];
+        let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
         let targets = [Some(ColorTargetState {
             format: color_format,
             blend: None,
@@ -147,7 +137,19 @@ impl ScenePipelines {
                 },
             )
         });
-        let terrain = build_terrain(device, &frame_layout, &terrain_layout, &buffers, &targets);
+        groups[1] = Some(&terrain_layout);
+        let terrain_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("terrain"),
+            bind_group_layouts: &groups,
+            immediate_size: 0,
+        });
+        let terrain = build_terrain(
+            device,
+            &terrain_pipeline_layout,
+            terrain_source,
+            &buffers,
+            &targets,
+        );
 
         Self {
             frame_layout,
@@ -191,6 +193,24 @@ impl ScenePipelines {
     pub const fn terrain_layout(&self) -> &BindGroupLayout {
         &self.terrain_layout
     }
+}
+
+pub(crate) fn vertex_buffers<'a>(
+    vertices: &'a [wgpu::VertexAttribute],
+    instances: &'a [wgpu::VertexAttribute],
+) -> [Option<VertexBufferLayout<'a>>; 2] {
+    [
+        Some(VertexBufferLayout {
+            array_stride: VERTEX_STRIDE,
+            step_mode: VertexStepMode::Vertex,
+            attributes: vertices,
+        }),
+        Some(VertexBufferLayout {
+            array_stride: INSTANCE_STRIDE,
+            step_mode: VertexStepMode::Instance,
+            attributes: instances,
+        }),
+    ]
 }
 
 /// Builds the one pipeline a single material state requires.
@@ -257,29 +277,19 @@ pub(crate) fn build(
 /// reversing it culls the visible surface and renders the world inside out.
 fn build_terrain(
     device: &Device,
-    frame_layout: &BindGroupLayout,
-    terrain_layout: &BindGroupLayout,
+    layout: &PipelineLayout,
+    source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
 ) -> RenderPipeline {
     let module = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("terrain"),
-        source: ShaderSource::Wgsl(Cow::Borrowed(TERRAIN_WGSL)),
-    });
-    // Group 0 is the very same layout object the environment pipeline uses, so
-    // the two pipeline layouts agree at that slot and the frame binding is not
-    // invalidated when the pass switches between them. Substituting an
-    // equivalent-but-separate layout here would work today and would make that
-    // guarantee depend on two declarations staying in step.
-    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("terrain"),
-        bind_group_layouts: &[Some(frame_layout), Some(terrain_layout)],
-        immediate_size: 0,
+        source: ShaderSource::Wgsl(Cow::Borrowed(source)),
     });
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("terrain"),
-        layout: Some(&layout),
+        layout: Some(layout),
         vertex: VertexState {
             module: &module,
             entry_point: Some(shader::TERRAIN_VERTEX_ENTRY_POINT),

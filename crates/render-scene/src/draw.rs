@@ -111,6 +111,7 @@ struct GpuTerrain {
     lod: GpuLod,
     instances: Buffer,
     bind_group: BindGroup,
+    bounds: visibility::Bounds,
     #[expect(
         dead_code,
         reason = "owns the grid and palette memory the bind group reads"
@@ -244,15 +245,56 @@ impl SceneGpu {
     /// anyway. Terrain draws last so that this reasoning is needed in one
     /// direction only.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
+        self.draw_color(pass, pipelines, None);
+    }
+
+    pub(crate) fn draw_shadowed(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        shadow: &BindGroup,
+    ) {
+        self.draw_color(pass, pipelines, Some(shadow));
+    }
+
+    fn draw_color(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        shadow: Option<&BindGroup>,
+    ) {
         self.draw_objects(pass, &self.frame_group, pipelines.object_pipelines(), None);
         if let Some(terrain) = &self.terrain {
             pass.set_pipeline(pipelines.terrain());
             pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
-            pass.set_vertex_buffer(0, terrain.lod.vertices.slice(..));
-            pass.set_vertex_buffer(1, terrain.instances.slice(..));
-            pass.set_index_buffer(terrain.lod.indices.slice(..), IndexFormat::Uint32);
-            pass.draw_indexed(0..terrain.lod.index_count, 0, 0..1);
+            if let Some(shadow) = shadow {
+                pass.set_bind_group(2, shadow, &[]);
+            }
+            Self::draw_terrain_geometry(pass, terrain);
         }
+    }
+
+    pub(crate) fn draw_terrain_depth(
+        &self,
+        pass: &mut RenderPass<'_>,
+        frame: &BindGroup,
+        pipeline: &wgpu::RenderPipeline,
+        matrix: glam::Mat4,
+    ) {
+        if let Some(terrain) = &self.terrain
+            && visibility::Frustum::new(matrix).intersects(terrain.bounds)
+        {
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(FRAME_GROUP, frame, &[]);
+            Self::draw_terrain_geometry(pass, terrain);
+        }
+    }
+
+    fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) {
+        pass.set_vertex_buffer(0, terrain.lod.vertices.slice(..));
+        pass.set_vertex_buffer(1, terrain.instances.slice(..));
+        pass.set_index_buffer(terrain.lod.indices.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(0..terrain.lod.index_count, 0, 0..1);
     }
 
     pub(crate) fn draw_objects(
@@ -317,7 +359,12 @@ impl SceneGpu {
     }
 
     pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
-        visibility::caster_matrix(&self.instances, &self.mesh_selection, receiver)
+        visibility::caster_matrix(
+            &self.instances,
+            &self.mesh_selection,
+            self.terrain.as_ref().map(|terrain| terrain.bounds),
+            receiver,
+        )
     }
 
     /// Returns live mesh/material batch counts per pipeline variant.
@@ -517,6 +564,7 @@ fn upload_terrain(
     let mut retained = palettes;
     retained.push(grid);
     Ok(Some(GpuTerrain {
+        bounds: visibility::terrain_bounds(&mesh.vertices),
         lod: GpuLod {
             vertices: upload_buffer(
                 device,

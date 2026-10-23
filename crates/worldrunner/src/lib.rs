@@ -78,7 +78,7 @@ pub mod world {
 pub mod scene {
     pub use worldrunner_render_plan as plan;
     pub use worldrunner_render_scene as gpu;
-    /// Optional terrain-free desktop host (engine layer L3).
+    /// Optional desktop host (engine layer L3).
     #[cfg(feature = "scene-viewer")]
     pub use worldrunner_scene_viewer as viewer;
 }

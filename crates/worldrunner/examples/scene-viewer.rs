@@ -10,7 +10,10 @@ use worldrunner::scene::{
     },
     viewer::{OrbitLimits, ViewerOptions, run},
 };
-use worldrunner_render_plan::SceneDirection;
+use worldrunner_render_plan::{
+    SceneDirection, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface,
+    TerrainLodPolicy,
+};
 const MICRO: i64 = 1_000_000;
 
 fn camera() -> SceneCamera {
@@ -21,7 +24,7 @@ fn camera() -> SceneCamera {
     }
 }
 
-fn effects() -> SceneEffects {
+fn effects(terrain: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
@@ -37,13 +40,17 @@ fn effects() -> SceneEffects {
             },
         },
         sun: SceneSun {
-            direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
-            // Ambient-only lighting makes channel-order errors obvious in this small example.
-            irradiance_micro: 0,
+            direction: SceneDirection::new(if terrain {
+                [600_000, 0, 800_000]
+            } else {
+                [0, 0, 1_000_000]
+            })
+            .unwrap(),
+            irradiance_micro: if terrain { 1_000_000 } else { 0 },
         },
         ambient: SceneAmbient {
-            sky_irradiance_micro: 1_000_000,
-            ground_irradiance_micro: 1_000_000,
+            sky_irradiance_micro: if terrain { 100_000 } else { 1_000_000 },
+            ground_irradiance_micro: if terrain { 100_000 } else { 1_000_000 },
         },
         shadows: SceneShadowCascades::new(vec![10_000], 0).expect("one unblended cascade is valid"),
         ssao: None,
@@ -118,7 +125,27 @@ fn material(alpha_mode: SceneAlphaMode, double_sided: bool) -> SceneMaterial {
     .expect("the example material carries in-range scalars")
 }
 
-fn scene() -> RenderScene {
+fn terrain() -> SceneTerrain {
+    SceneTerrain::new(SceneTerrainParts {
+        columns: 7,
+        rows: 7,
+        origin_east_millimeters: -3_000,
+        origin_north_millimeters: -3_000,
+        sample_spacing_millimeters: 1_000,
+        heights_millimeters: (0..49)
+            .map(|i| if i % 7 == 4 { 2_000 } else { 0 })
+            .collect(),
+        surface_indices: vec![0; 49],
+        surfaces: vec![SceneTerrainSurface::new(
+            MaterialHandle::from_raw(1),
+            SceneTerrainAppearance::NEUTRAL,
+        )],
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap()
+}
+
+fn scene(with_terrain: bool) -> RenderScene {
     let texture = SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,
         color_space: TextureColorSpace::Srgb,
@@ -127,28 +154,54 @@ fn scene() -> RenderScene {
         mips: 1,
         bytes: vec![255, 0, 0, 255].into(),
     };
+    let map = |bytes: [u8; 4]| SceneTexture::Texels {
+        format: TexelFormat::Rgba8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 1,
+        height: 1,
+        mips: 1,
+        bytes: Vec::from(bytes).into(),
+    };
+    let terrain_material = SceneMaterial::new(SceneMaterialParts {
+        albedo: TextureHandle::from_raw(0),
+        normal: Some(TextureHandle::from_raw(1)),
+        roughness_metallic: Some(TextureHandle::from_raw(2)),
+        ambient_occlusion: None,
+        self_illumination: None,
+        roughness_micro: 1_000_000,
+        metalness_micro: 0,
+        alpha_mode: SceneAlphaMode::Opaque,
+        double_sided: false,
+    })
+    .unwrap();
+    let terrain = with_terrain.then(terrain);
+    let mut placement = identity();
+    if with_terrain {
+        placement.position_millimeters[2] = 1_500;
+    }
     RenderScene::new(SceneParts {
         resources: SceneResources::new(
-            vec![texture],
-            vec![material(SceneAlphaMode::Opaque, false)],
+            vec![texture, map([128, 128, 255, 255]), map([0, 255, 0, 255])],
+            vec![material(SceneAlphaMode::Opaque, false), terrain_material],
         )
         .unwrap(),
         geometry: SceneGeometry::new(
             vec![quad()],
             vec![SceneObject::new(
-                identity(),
+                placement,
                 MeshHandle::from_raw(0),
                 MaterialHandle::from_raw(0),
             )],
         )
         .unwrap(),
-        terrain: None,
-        effects: Some(effects()),
+        terrain,
+        effects: Some(effects(with_terrain)),
     })
     .unwrap()
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let terrain = std::env::args().any(|arg| arg == "--terrain");
     let shadows =
         std::env::args()
             .any(|arg| arg == "--shadows")
@@ -161,7 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 normal_bias_meters: 0.01,
             });
     run(
-        scene(),
+        scene(terrain),
         ViewerOptions {
             camera: SceneCamera {
                 vertical_fov_millidegrees: 60_000,
@@ -171,7 +224,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             title: "Generic scene viewer".into(),
             size: [800, 600],
             pose: CameraPose {
-                eye_millimeters: [0, -2000, 2000],
+                eye_millimeters: if terrain {
+                    [0, -7_000, 6_000]
+                } else {
+                    [0, -2000, 2000]
+                },
                 target_millimeters: [0, 0, 0],
             },
             orbit: OrbitLimits {

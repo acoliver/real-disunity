@@ -195,28 +195,3 @@ pub(super) fn caster_scene(
     })
     .unwrap()
 }
-
-pub(super) fn terrain_scene(source: &RenderScene) -> RenderScene {
-    let terrain = SceneTerrain::new(SceneTerrainParts {
-        columns: 2,
-        rows: 2,
-        origin_east_millimeters: 0,
-        origin_north_millimeters: 0,
-        sample_spacing_millimeters: 1_000,
-        heights_millimeters: vec![0; 4],
-        surface_indices: vec![0; 4],
-        surfaces: vec![SceneTerrainSurface::new(
-            MaterialHandle::from_raw(0),
-            SceneTerrainAppearance::NEUTRAL,
-        )],
-        lod_policy: TerrainLodPolicy::FullResolution,
-    })
-    .unwrap();
-    RenderScene::new(SceneParts {
-        resources: source.resources().clone(),
-        geometry: source.geometry().clone(),
-        terrain: Some(terrain),
-        effects: source.effects().cloned(),
-    })
-    .unwrap()
-}

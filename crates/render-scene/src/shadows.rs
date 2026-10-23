@@ -154,6 +154,16 @@ impl ShadowedScene {
         })
     }
 
+    /// Counts from the most recently recorded main-camera pass.
+    pub fn view_stats(&self) -> std::cell::Ref<'_, crate::draw::ViewStats> {
+        self.gpu.view_stats()
+    }
+
+    /// Counts from the most recently recorded shadow cascade (index zero).
+    pub fn shadow_view_stats(&self) -> std::cell::Ref<'_, crate::draw::ViewStats> {
+        self.gpu.shadow_view_stats()
+    }
+
     /// Returns the resident scene for handle-based placement edits.
     pub fn scene_mut(&mut self) -> &mut SceneGpu {
         &mut self.gpu
@@ -184,7 +194,7 @@ impl ShadowedScene {
     }
 
     /// Submits both passes, clearing colour to opaque black and depth to one.
-    /// Each pass builds host-side visible and pending instance-range vectors.
+    /// Each view reuses its host-side visible-range storage after warmup.
     /// No readback occurs. Use the same device as construction.
     pub fn render(
         &mut self,
@@ -194,7 +204,12 @@ impl ShadowedScene {
         depth: &wgpu::TextureView,
     ) -> Result<(), ShadowError> {
         let frame = FrameUniform::new(view, Some(&self.effects))?;
-        let matrix = self.settings.matrix(frame.sun_direction)?;
+        let matrix = self
+            .gpu
+            .caster_matrix(self.settings.matrix(frame.sun_direction)?);
+        if !matrix.is_finite() || matrix.determinant() == 0.0 {
+            return Err(ShadowError::InvalidSettings);
+        }
         self.gpu.flush_instances(context.device(), context.queue());
         self.gpu.set_frame(context.queue(), frame);
         // Keep the actual camera position: billboards must face the camera in
@@ -223,8 +238,12 @@ impl ShadowedScene {
                 0,
                 Some("directional shadow depth"),
             )?;
-            self.gpu
-                .draw_objects(&mut pass, &self.depth_frame_group, &self.depth_pipelines);
+            self.gpu.draw_objects(
+                &mut pass,
+                &self.depth_frame_group,
+                &self.depth_pipelines,
+                Some(matrix),
+            );
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

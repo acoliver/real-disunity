@@ -32,6 +32,7 @@ use worldrunner_render_plan::{
     TextureEncoding, TextureHandle,
 };
 mod environment;
+mod lod;
 mod material_factors;
 mod retained;
 mod terrain_blend;

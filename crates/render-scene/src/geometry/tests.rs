@@ -125,19 +125,15 @@ fn the_declared_stride_matches_the_bytes_actually_written() {
 #[test]
 fn instance_attributes_tile_the_declared_instance_stride() {
     let attributes = instance_attributes();
-    assert_eq!(
-        attributes.len(),
-        5,
-        "a mat4 arrives as four vec4 slots, then the billboard mode"
-    );
+    assert_eq!(attributes.len(), 4, "a mat4 arrives as four vec4 slots");
     for (slot, attribute) in attributes.iter().take(4).enumerate() {
         assert_eq!(attribute.offset, slot as u64 * 16);
     }
     // A stride that outran its attributes would leave the tail unread, so the
     // last attribute must finish exactly where one instance ends.
-    let last = attributes[4];
-    assert_eq!(last.shader_location, 7);
-    assert_eq!(last.offset, 64);
+    let last = attributes[3];
+    assert_eq!(last.shader_location, 6);
+    assert_eq!(last.offset, 48);
     assert_eq!(last.offset + last.format.size(), INSTANCE_STRIDE);
 }
 
@@ -215,7 +211,7 @@ fn an_instance_is_packed_column_major_to_match_wgsl() {
     // placement, which reads on screen as objects rotated and displaced in a
     // way that still looks like geometry.
     let placement = transform([1_000, 2_000, 3_000], SceneRotation::IDENTITY, MICRO as u64);
-    let packed = pack_instance(&placement, None);
+    let packed = pack_instance(&placement);
     assert_eq!(packed.len() as u64, INSTANCE_STRIDE);
     let expected = model_matrix(&placement).to_cols_array();
     for (slot, value) in expected.iter().enumerate() {
@@ -227,26 +223,35 @@ fn an_instance_is_packed_column_major_to_match_wgsl() {
 }
 
 #[test]
-fn the_billboard_mode_follows_the_matrix_where_the_shader_reads_it() {
-    // The vertex stage declares this word at byte 64, location 7. If packing
-    // put it anywhere else the attribute would still validate — it would just
-    // read matrix bytes as a mode, and cards would turn at random.
-    let placement = transform([0, 0, 0], SceneRotation::IDENTITY, MICRO as u64);
+fn the_billboard_mode_belongs_to_the_selected_mesh_level() {
+    let attributes = vertex_attributes();
+    assert_eq!(attributes[3].shader_location, 8);
+    assert_eq!(attributes[3].offset, 32);
+    assert_eq!(
+        attributes[3].offset + attributes[3].format.size(),
+        VERTEX_STRIDE
+    );
     for (policy, expected) in [
         (None, BILLBOARD_FIXED),
-        // Crossed quads approximate by standing still, so they pack as fixed.
         (Some(BillboardPolicy::CrossQuads), BILLBOARD_FIXED),
         (Some(BillboardPolicy::YawLocked), BILLBOARD_YAW_LOCKED),
         (Some(BillboardPolicy::Spherical), BILLBOARD_SPHERICAL),
     ] {
-        let packed = pack_instance(&placement, policy);
-        assert_eq!(packed.len() as u64, INSTANCE_STRIDE);
-        let mode = u32::from_le_bytes(
-            packed[64..68]
-                .try_into()
-                .expect("the packed instance carries a mode word"),
-        );
-        assert_eq!(mode, expected, "policy {policy:?} packed the wrong mode");
+        let source = lod_with([0, 0, MICRO], [0, 0]);
+        let level = SceneMeshLod::new(
+            0,
+            source.vertices().to_vec(),
+            source.indices().to_vec(),
+            policy,
+        )
+        .unwrap();
+        let bytes = pack_vertices(&level).unwrap();
+        for vertex in bytes.chunks_exact(36) {
+            assert_eq!(
+                u32::from_le_bytes(vertex[32..36].try_into().unwrap()),
+                expected
+            );
+        }
     }
 }
 

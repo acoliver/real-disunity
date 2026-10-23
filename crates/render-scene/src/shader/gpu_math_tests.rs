@@ -94,6 +94,7 @@ fn configured_frame(
         unlit: false,
         view_projection: Mat4::IDENTITY,
         camera_position: Vec3::Z,
+        camera_position_millimeters: [0, 0, 1_000],
         sun_direction: environment.toward_light,
         sun_irradiance: environment.direct_radiance,
         ambient_sky: environment.ambient_radiance(Vec3::Z),

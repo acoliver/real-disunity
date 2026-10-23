@@ -67,7 +67,7 @@ pub enum TerrainError {
 /// uniform's surface table, where it can vary within a triangle.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerrainMesh {
-    /// Packed vertices: position, normal, texture coordinate, 32 bytes each.
+    /// Packed vertices: position, normal, texture coordinate and fixed billboard mode, 36 bytes each.
     pub vertices: Vec<u8>,
     /// Packed little-endian `u32` indices addressing [`Self::vertices`].
     pub indices: Vec<u8>,
@@ -288,6 +288,7 @@ impl<'a> TerrainGrid<'a> {
         push_vec3(bytes, self.normal(column, row));
         push_f32(bytes, position.x / TERRAIN_METERS_PER_TILE);
         push_f32(bytes, position.y / TERRAIN_METERS_PER_TILE);
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
     }
 }
 

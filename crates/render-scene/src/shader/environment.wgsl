@@ -29,6 +29,7 @@ struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) texcoord: vec2<f32>,
+    @location(8) lod_billboard_mode: u32,
 }
 
 struct InstanceInput {
@@ -36,7 +37,6 @@ struct InstanceInput {
     @location(4) model_column_1: vec4<f32>,
     @location(5) model_column_2: vec4<f32>,
     @location(6) model_column_3: vec4<f32>,
-    @location(7) billboard_mode: u32,
 }
 
 // Draw the authored geometry unturned. Crossed quads land here too: they earn
@@ -118,12 +118,12 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     );
     let pivot = model[3].xyz;
 
-    if instance.billboard_mode != BILLBOARD_FIXED {
+    if vertex.lod_billboard_mode != BILLBOARD_FIXED {
         // The authored rotation is replaced, not composed with: a billboard's
         // whole purpose is to face the camera whatever the placement said.
         // Position and scale survive, and scale is one column's length because
         // SceneTransform scales all three axes alike.
-        rotation = billboard_basis(instance.billboard_mode, pivot) * length(model[0].xyz);
+        rotation = billboard_basis(vertex.lod_billboard_mode, pivot) * length(model[0].xyz);
     }
 
     let world_position = pivot + rotation * vertex.position;

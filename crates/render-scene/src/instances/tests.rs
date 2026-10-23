@@ -13,7 +13,7 @@ fn handle_slot_reuse_increments_generation_and_keeps_scene_identity() {
     })
     .unwrap();
     let mut instances = Instances::new(&scene);
-    instances.billboards.push(None);
+    instances.mesh_count += 1;
     instances.pipelines.push(0);
     let object = SceneObject::new(
         SceneTransform {

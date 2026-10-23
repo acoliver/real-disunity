@@ -77,13 +77,15 @@ pub enum FrameError {
     AmbientFromDomeTexture,
 }
 
-/// The per-frame uniform block, in the order the shader declares it.
+/// Per-frame data, including the uniform block and CPU selection coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameUniform {
     /// Clip-from-scene transform; the only field that leaves scene space.
     pub view_projection: Mat4,
     /// Eye position in scene space, metres, Z-up.
     pub camera_position: Vec3,
+    /// Authored eye position for CPU selection; not encoded in the GPU block.
+    pub camera_position_millimeters: [i64; 3],
     /// Unit vector pointing from the surface toward the sun, scene space.
     pub sun_direction: Vec3,
     /// Linear sun radiance, already scaled by irradiance.
@@ -135,6 +137,7 @@ impl FrameUniform {
         Ok(Self {
             view_projection: view.view_projection_matrix(),
             camera_position: view.eye_meters(),
+            camera_position_millimeters: view.eye_millimeters(),
             sun_direction: environment.toward_light,
             sun_irradiance: environment.direct_radiance,
             ambient_sky: sky,
@@ -148,6 +151,7 @@ impl FrameUniform {
         Self {
             view_projection: view.view_projection_matrix(),
             camera_position: view.eye_meters(),
+            camera_position_millimeters: view.eye_millimeters(),
             sun_direction: Vec3::ZERO,
             sun_irradiance: Vec3::ZERO,
             ambient_sky: Vec3::ZERO,

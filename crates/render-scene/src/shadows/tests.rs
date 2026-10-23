@@ -1,14 +1,18 @@
+mod bias;
+mod cascades;
 mod culling;
 mod fixture;
 mod geometry;
 mod retained;
 mod scheduler;
+mod selection;
 mod subresources;
 mod terrain;
 mod validation;
 
 use glam::{Vec3, Vec4};
 use worldrunner_render_plan::*;
+use worldrunner_render_post::{PassSlot, ResourceRef};
 
 use super::*;
 use crate::offscreen::capture_scene;
@@ -111,16 +115,13 @@ fn with_cascades(effects: &SceneEffects, extents: Vec<u64>, blend: u64) -> Scene
 }
 
 #[test]
-fn multiple_cascades_and_blending_are_explicitly_rejected() {
+fn cascades_and_blending_are_supported_with_a_bounded_count() {
     let effects = fixture::effects(600_000);
-    for unsupported in [
+    for supported in [
         with_cascades(&effects, vec![1_000, 4_000], 0),
         with_cascades(&effects, vec![4_000], 1),
     ] {
-        assert!(matches!(
-            settings::validate_effects(&unsupported),
-            Err(ShadowError::UnsupportedCascades)
-        ));
+        settings::validate_effects(&supported).unwrap();
     }
 }
 
@@ -372,7 +373,11 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
             .is_err()
     );
     assert!(matches!(
-        renderer.set_effects(&with_cascades(source.effects().unwrap(), vec![100, 200], 0)),
+        renderer.set_effects(&with_cascades(
+            source.effects().unwrap(),
+            vec![100, 200, 300, 400, 500],
+            0
+        )),
         Err(ShadowError::UnsupportedCascades)
     ));
     assert!(matches!(

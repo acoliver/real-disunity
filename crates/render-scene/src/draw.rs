@@ -148,7 +148,7 @@ pub struct SceneGpu {
     instances: Instances,
     frame: Cell<Option<FrameUniform>>,
     camera_selection: RefCell<Selection>,
-    shadow_selection: RefCell<Selection>,
+    shadow_selection: [RefCell<Selection>; 4],
     terrain: Option<GpuTerrain>,
     #[expect(dead_code, reason = "owns the memory the bind groups read")]
     retained: Retained,
@@ -211,7 +211,7 @@ impl SceneGpu {
             instances,
             frame: Cell::new(None),
             camera_selection: RefCell::default(),
-            shadow_selection: RefCell::default(),
+            shadow_selection: std::array::from_fn(|_| RefCell::default()),
             terrain,
             retained: Retained {
                 textures,
@@ -302,7 +302,7 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         frame_group: &BindGroup,
         pipelines: &[wgpu::RenderPipeline; 4],
-        shadow_matrix: Option<glam::Mat4>,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
     ) {
         assert!(
             self.instances
@@ -312,15 +312,15 @@ impl SceneGpu {
             "flush instance updates before drawing"
         );
         let frame = self.frame.get().expect("set a frame before drawing");
-        let mut selection = if shadow_matrix.is_some() {
-            self.shadow_selection.borrow_mut()
+        let mut selection = if let Some((index, _)) = shadow_matrix {
+            self.shadow_selection[index as usize].borrow_mut()
         } else {
             self.camera_selection.borrow_mut()
         };
         selection.rebuild(
             &self.instances,
             &self.mesh_selection,
-            shadow_matrix.unwrap_or(frame.view_projection),
+            shadow_matrix.map_or(frame.view_projection, |(_, matrix)| matrix),
             frame.camera_position_millimeters,
         );
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
@@ -351,11 +351,18 @@ impl SceneGpu {
         Ref::map(self.camera_selection.borrow(), |selection| &selection.stats)
     }
 
-    /// Counts from the most recently recorded directional shadow pass.
+    /// Counts from the most recently recorded directional shadow cascade zero.
     /// Drop the returned guard before recording the next shadow draw;
     /// holding it across that draw causes a runtime borrow panic.
     pub fn shadow_view_stats(&self) -> Ref<'_, ViewStats> {
-        Ref::map(self.shadow_selection.borrow(), |selection| &selection.stats)
+        self.cascade_view_stats(0)
+    }
+
+    /// Counts for one of the four supported shadow view indices.
+    pub fn cascade_view_stats(&self, index: usize) -> Ref<'_, ViewStats> {
+        Ref::map(self.shadow_selection[index].borrow(), |selection| {
+            &selection.stats
+        })
     }
 
     pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {

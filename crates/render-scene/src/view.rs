@@ -92,6 +92,7 @@ pub struct SceneView {
     eye_meters: Vec3,
     eye_millimeters: [i64; 3],
     viewport: Viewport,
+    clip_distances_meters: [f32; 2],
 }
 
 impl SceneView {
@@ -151,7 +152,17 @@ impl SceneView {
             eye_meters: eye,
             eye_millimeters: pose.eye_millimeters,
             viewport,
+            clip_distances_meters: [
+                meters_scalar(camera.near_plane_millimeters),
+                meters_scalar(camera.far_plane_millimeters),
+            ],
         })
+    }
+
+    /// Exact near and far distances used to construct this projection, in metres.
+    #[must_use]
+    pub const fn clip_distances_meters(&self) -> [f32; 2] {
+        self.clip_distances_meters
     }
 
     /// Returns the viewport used to resolve this projection.
@@ -214,7 +225,7 @@ fn meters(millimeters: [i64; 3]) -> Vec3 {
 }
 
 /// Rewrites one integral millimetre distance into metres.
-fn meters_scalar(millimeters: u32) -> f32 {
+pub(crate) fn meters_scalar(millimeters: u32) -> f32 {
     f64_to_f32(f64::from(millimeters) / f64::from(MILLIMETERS_PER_METER))
 }
 

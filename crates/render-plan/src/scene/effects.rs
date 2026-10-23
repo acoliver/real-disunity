@@ -105,11 +105,14 @@ impl SceneAmbient {
     }
 }
 
-/// Owned shadow cascade set with a unit-fraction cross-fade band.
+/// Owned directional cascade policy with a unit-fraction cross-fade band.
+/// `new` declares light-space coverage half-widths about a renderer-supplied focus.
+/// `camera_splits` declares explicit camera-view depth boundaries instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneShadowCascades {
     extents_millimeters: Box<[u64]>,
     blend_band_micro: u64,
+    camera_splits: bool,
 }
 
 impl SceneShadowCascades {
@@ -127,12 +130,31 @@ impl SceneShadowCascades {
         let shadows = Self {
             extents_millimeters: extents_millimeters.into_boxed_slice(),
             blend_band_micro,
+            camera_splits: false,
         };
         shadows.validate()?;
         Ok(shadows)
     }
 
-    /// Returns the strictly increasing cascade extents from nearest outward.
+    /// Uses explicit positive camera-view depth splits in millimetres, rather than
+    /// light-space coverage boxes. The renderer checks these against camera planes.
+    pub fn camera_splits(
+        distances_millimeters: Vec<u64>,
+        blend_band_micro: u64,
+    ) -> Result<Self, SceneValidationError> {
+        let mut value = Self::new(distances_millimeters, blend_band_micro)?;
+        value.camera_splits = true;
+        Ok(value)
+    }
+
+    /// Explicit camera-view far distance of each slice, or `None` for coverage boxes.
+    #[must_use]
+    pub fn split_distances_millimeters(&self) -> Option<&[u64]> {
+        self.camera_splits.then_some(&self.extents_millimeters)
+    }
+
+    /// Returns strictly increasing coverage half-widths, or explicit depth splits
+    /// when constructed with [`Self::camera_splits`], in millimetres.
     #[must_use]
     pub fn extents_millimeters(&self) -> &[u64] {
         &self.extents_millimeters
@@ -824,3 +846,7 @@ mod tests {
         assert!(effects.ssao().is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "cascade_tests.rs"]
+mod cascade_tests;

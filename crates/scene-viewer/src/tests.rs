@@ -39,7 +39,8 @@ fn effects(water: bool) -> SceneEffects {
             sky_irradiance_micro: 1_000_000,
             ground_irradiance_micro: 1_000_000,
         },
-        shadows: SceneShadowCascades::new(vec![10_000], 0).expect("one unblended cascade is valid"),
+        shadows: SceneShadowCascades::new(vec![1_000, 2_000, 4_000, 8_000], 100_000)
+            .expect("four cascades are valid"),
         ssao: None,
         camera: camera(),
         grading: SceneColorGrading {

@@ -29,7 +29,7 @@ pub struct ViewerOptions {
     pub camera: SceneCamera,
     /// Camera bounds; the initial pose must be within these bounds.
     pub orbit: OrbitLimits,
-    /// Opt-in single-map directional shadows with an explicit caller-owned fit.
+    /// Opt-in directional shadows with scene cascade policy and caller-owned coverage focus.
     pub shadows: Option<DirectionalShadowSettings>,
 }
 

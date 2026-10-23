@@ -15,7 +15,10 @@ fn gpu_off_camera_terrain_ridge_still_shadows_visible_valley() {
         view().viewport(),
     )
     .unwrap();
-    let source = terrain_scene(&scene(&[], 600_000, None), true, false);
+    let source = super::cascades::source_with(
+        &terrain_scene(&scene(&[], 600_000, None), true, false),
+        SceneShadowCascades::new(vec![1_000, 2_000, 3_000, 4_000], 100_000).unwrap(),
+    );
     let ridge = view
         .view_projection_matrix()
         .project_point3(Vec3::new(1.0, 0.0, 3.0));
@@ -75,7 +78,7 @@ fn gpu_masked_billboards_receive_terrain_shadows_and_preserve_holes() {
     }
 }
 
-fn terrain_scene(source: &RenderScene, ridge: bool, keep_ground: bool) -> RenderScene {
+pub(super) fn terrain_scene(source: &RenderScene, ridge: bool, keep_ground: bool) -> RenderScene {
     let mut textures = source.resources().textures().to_vec();
     let normal = u32::try_from(textures.len()).unwrap();
     textures.extend(terrain_maps());

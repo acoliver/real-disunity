@@ -1,7 +1,7 @@
 use crate::ViewerError;
 use worldrunner_render_post::FrameConfig;
+use worldrunner_render_scene::Viewport;
 use worldrunner_render_scene::compositor::FrameRenderer;
-use worldrunner_render_scene::{Viewport, renderer::depth_texture};
 
 /// Keep the scene renderer's sRGB contract; copy output adds no new display look.
 pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -17,6 +17,7 @@ pub(super) struct Targets {
 }
 
 impl Presentation {
+    #[cfg(test)]
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: Viewport) -> Self {
         let chain = FrameRenderer::with_output(
             device,
@@ -29,6 +30,32 @@ impl Presentation {
             scheduler: chain,
             targets,
         }
+    }
+
+    pub fn with_profile(
+        context: &worldrunner_render_scene::device::GpuContext,
+        format: wgpu::TextureFormat,
+        size: Viewport,
+        profile: crate::FrameProfile,
+        effects: Option<&worldrunner_render_plan::SceneEffects>,
+    ) -> Result<Self, ViewerError> {
+        let scheduler = match profile {
+            crate::FrameProfile::Legacy => FrameRenderer::with_output(
+                context.device(),
+                FrameConfig::new([size.width, size.height], COLOR, 1),
+                format,
+            )?,
+            crate::FrameProfile::Hdr { samples, tone_map } => FrameRenderer::hdr(
+                context,
+                [size.width, size.height],
+                format,
+                samples,
+                tone_map,
+                effects,
+            )?,
+        };
+        let targets = Targets::new(context.device(), &scheduler, size);
+        Ok(Self { scheduler, targets })
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, size: Viewport) {
@@ -47,10 +74,10 @@ impl Presentation {
 }
 
 impl Targets {
-    fn new(device: &wgpu::Device, chain: &FrameRenderer, size: Viewport) -> Self {
+    fn new(_device: &wgpu::Device, chain: &FrameRenderer, _size: Viewport) -> Self {
         Self {
             color: chain.targets().scene().clone(),
-            depth: depth_texture(device, size).create_view(&wgpu::TextureViewDescriptor::default()),
+            depth: chain.targets().depth().clone(),
         }
     }
 }

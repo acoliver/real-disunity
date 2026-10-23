@@ -71,6 +71,8 @@ pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 /// The complete, closed set of pipelines a governed scene can require.
 #[derive(Debug)]
 pub struct ScenePipelines {
+    pub(crate) color_format: TextureFormat,
+    pub(crate) samples: u32,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
@@ -87,20 +89,40 @@ impl ScenePipelines {
     /// face an unusual material.
     #[must_use]
     pub fn new(device: &Device, color_format: TextureFormat) -> Self {
-        Self::with_environment(device, color_format, ENVIRONMENT_WGSL, TERRAIN_WGSL, None)
+        Self::with_environment(
+            device,
+            (color_format, 1),
+            ENVIRONMENT_WGSL,
+            TERRAIN_WGSL,
+            None,
+        )
+    }
+
+    pub fn with_samples(
+        device: &Device,
+        color_format: TextureFormat,
+        samples: u32,
+    ) -> Result<Self, worldrunner_render_post::PostError> {
+        worldrunner_render_post::FrameConfig::new([1, 1], color_format, samples)
+            .validate(&device.limits())?;
+        Ok(Self::with_environment(
+            device,
+            (color_format, samples),
+            ENVIRONMENT_WGSL,
+            TERRAIN_WGSL,
+            None,
+        ))
     }
 
     pub(crate) fn with_environment(
         device: &Device,
-        color_format: TextureFormat,
+        target: (TextureFormat, u32),
         source: &str,
         terrain_source: &str,
         shadow_layout: Option<&BindGroupLayout>,
     ) -> Self {
-        let module = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("environment"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(source)),
-        });
+        let (color_format, samples) = target;
+        let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
         let terrain_layout = terrain_bind_group_layout(device);
@@ -129,6 +151,7 @@ impl ScenePipelines {
                 key,
                 &layout,
                 &buffers,
+                samples,
                 FragmentState {
                     module: &module,
                     entry_point: Some(shader::fragment_entry_point(key.masked)),
@@ -149,9 +172,12 @@ impl ScenePipelines {
             terrain_source,
             &buffers,
             &targets,
+            samples,
         );
 
         Self {
+            color_format,
+            samples,
             frame_layout,
             material_layout,
             terrain_layout,
@@ -224,6 +250,7 @@ pub(crate) fn build(
     key: PipelineKey,
     layout: &PipelineLayout,
     buffers: &[Option<VertexBufferLayout<'_>>],
+    samples: u32,
     fragment: FragmentState<'_>,
 ) -> RenderPipeline {
     device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -251,7 +278,10 @@ pub(crate) fn build(
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         }),
-        multisample: MultisampleState::default(),
+        multisample: MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         fragment: Some(fragment),
         multiview_mask: None,
         cache: None,
@@ -281,11 +311,9 @@ fn build_terrain(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
+    samples: u32,
 ) -> RenderPipeline {
-    let module = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some("terrain"),
-        source: ShaderSource::Wgsl(Cow::Borrowed(source)),
-    });
+    let module = scene_shader(device, "terrain", source);
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("terrain"),
@@ -312,7 +340,10 @@ fn build_terrain(
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         }),
-        multisample: MultisampleState::default(),
+        multisample: MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         fragment: Some(FragmentState {
             module: &module,
             entry_point: Some(shader::TERRAIN_FRAGMENT_ENTRY_POINT),
@@ -349,3 +380,10 @@ pub fn depth_texture(device: &Device, viewport: Viewport) -> Texture {
 
 #[cfg(test)]
 mod tests;
+
+fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModule {
+    device.create_shader_module(ShaderModuleDescriptor {
+        label: Some(label),
+        source: ShaderSource::Wgsl(Cow::Borrowed(source)),
+    })
+}

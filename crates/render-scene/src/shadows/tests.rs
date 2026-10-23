@@ -3,6 +3,7 @@ mod cascades;
 mod culling;
 mod fixture;
 mod geometry;
+mod hdr;
 mod retained;
 mod scheduler;
 mod selection;

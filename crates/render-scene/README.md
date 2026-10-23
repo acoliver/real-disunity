@@ -160,3 +160,34 @@ Depth extension therefore cannot increase the world-space bias. The sampled
 layer supplies its own value, including both samples within a blend band. A single
 coverage box continues to subtract `depth_bias` directly without this conversion;
 its existing output remains unchanged. Normal bias remains in world metres.
+
+## Explicit HDR frame profile
+
+`FrameRenderer::hdr` compiles a fixed scene-exposure profile into the retained
+post executor. Its scene target is `Rgba16Float`; choose one or four samples.
+Object, masked and terrain receiver pipelines must use the same colour attachment
+and sample count (`ScenePipelines::with_samples` or `ShadowedScene::with_target`).
+Shadow depth arrays stay single-sample. `FrameTargets::depth` supplies the matching
+camera depth attachment. Resizing builds colour, depth and output bindings before
+replacing the live generation; a rejected extent leaves the old generation usable.
+
+Geometry retains unexposed linear radiance, including values above one. Output
+first resolves stored colour samples, then applies the scene contract's linear
+`exposure_micro / 1_000_000` multiplier. Component-wise Reinhard maps
+`x = max(radiance, 0) * exposure` to `x / (1 + x)`. At this output boundary,
+negative radiance (including negative infinity) and NaN map to zero. Positive
+infinity, including half-float storage overflow, maps to the curve's limit of one.
+Zero exposure maps every radiance input to zero, including positive infinity.
+WGSL does not guarantee that NaN and infinity survive texture loads or arithmetic.
+This policy is verified on Metal and the lavapipe Vulkan CI job, rather than guaranteed by the language.
+The final sRGB attachment performs the only output transfer conversion. No gamma
+power is applied in WGSL.
+The fixed profile survives resize unchanged. Rebuild the profile when authored
+exposure changes; mismatched frame exposure returns `FixedExposureMismatch`
+before preparation. Adaptive exposure, filmic curves, nonneutral grading, FXAA
+and TAA remain rejected, including requests with zero weights.
+
+`FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with
+no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
+The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
+`--terrain` and `--shadows`.

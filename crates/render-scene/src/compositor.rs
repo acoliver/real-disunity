@@ -1,8 +1,8 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, CopyOutput,
-    FeatureDeclaration, FrameConfig, FrameError, PassDeclaration, PassSlot, PostChain,
-    PreparedFeature, Resources,
+    FeatureDeclaration, FrameConfig, FrameError, FrameTargets, PassDeclaration, PassSlot,
+    PostChain, PostError, PreparedFeature, Resources, StageFactory, StageSet, ToneMapOutput,
 };
 
 /// Retained executor for encoder-only composition. Submission belongs to the host.
@@ -10,7 +10,7 @@ use worldrunner_render_post::{
 /// On error, no uploads or draws are appended and resident state is unchanged.
 /// A successful encoder must not be abandoned: its uploads have been committed.
 pub struct FrameRenderer {
-    chain: PostChain<CopyOutput>,
+    chain: PostChain<FrameOutput>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -36,10 +36,57 @@ impl FrameRenderer {
                 device,
                 config,
                 Resources::default(),
-                CopyOutput::new(device, output_format),
+                FrameOutput::Copy(CopyOutput::new(device, output_format)),
             )?,
         })
     }
+    /// HDR exposure is taken from the scene contract, never applied by geometry.
+    pub fn hdr(
+        context: &crate::device::GpuContext,
+        size: [u32; 2],
+        output_format: wgpu::TextureFormat,
+        samples: u32,
+        tone_map: worldrunner_render_post::ToneMap,
+        effects: Option<&worldrunner_render_plan::SceneEffects>,
+    ) -> Result<Self, PostError> {
+        if !matches!(samples, 1 | 4) {
+            return Err(PostError::SampleCount(samples));
+        }
+        if let Some(effects) = effects {
+            crate::frame::validate_stock_effects(effects)
+                .map_err(|_| PostError::UnsupportedProfile("scene effects"))?;
+        }
+        let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
+        config.validate_adapter(context.adapter())?;
+        let exposure = effects.map_or(1.0, |effects| {
+            f64::from(effects.grading().exposure_micro) / 1_000_000.0
+        });
+        let factory = ToneMapOutput::new(output_format, exposure, tone_map)?;
+        Ok(Self {
+            chain: PostChain::new(
+                context.device(),
+                config,
+                Resources::default(),
+                FrameOutput::Hdr(factory),
+            )?,
+        })
+    }
+
+    /// A fixed-exposure profile is immutable. Rebuild it when scene exposure changes.
+    /// Geometry stays unexposed only when this executor owns the post multiplier.
+    pub fn prepare_uniform(
+        &self,
+        mut frame: crate::frame::FrameUniform,
+    ) -> Result<crate::frame::FrameUniform, FrameError> {
+        if let FrameOutput::Hdr(factory) = self.chain.factory() {
+            if !factory.matches_exposure(frame.exposure) {
+                return Err(FrameError::FixedExposureMismatch);
+            }
+            frame.exposure = 1.0;
+        }
+        Ok(frame)
+    }
+
     pub fn targets(&self) -> &worldrunner_render_post::FrameTargets {
         self.chain.targets()
     }
@@ -51,6 +98,7 @@ impl FrameRenderer {
         self.chain.resize(device, size)
     }
     pub fn encode_output(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
+        self.chain.targets().encode_resolve(encoder);
         self.chain.encode(encoder, output);
     }
     pub fn register(
@@ -118,9 +166,10 @@ pub(crate) struct SceneFeature<'a> {
     pub frame: crate::frame::FrameUniform,
 }
 impl SceneFeature<'_> {
-    pub fn declaration() -> FeatureDeclaration {
+    pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
         let mut declaration = FeatureDeclaration::new(PassSlot::Opaque);
-        declaration.passes[0].color_format = Some(crate::offscreen::OffscreenTarget::COLOR_FORMAT);
+        declaration.passes[0].color_format = Some(pipelines.color_format);
+        declaration.passes[0].samples = pipelines.samples;
         declaration.passes[0].depth_format = Some(wgpu::TextureFormat::Depth32Float);
         declaration
     }
@@ -153,6 +202,7 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     let color_id = attachment_resource("scene color", color);
     let depth_id = attachment_resource("scene depth", depth);
@@ -173,8 +223,45 @@ pub fn encode_scene(
             depth.with_resource(depth_id)?,
         ],
         &mut [BorrowedFeature {
-            declaration: SceneFeature::declaration(),
+            declaration: SceneFeature::declaration(pipelines),
             prepared: &mut feature,
         }],
     )
+}
+
+enum FrameOutput {
+    Copy(CopyOutput),
+    Hdr(ToneMapOutput),
+}
+impl StageFactory for FrameOutput {
+    fn build(
+        &self,
+        device: &wgpu::Device,
+        targets: &FrameTargets,
+        persistent: &Resources,
+    ) -> Result<StageSet, PostError> {
+        match self {
+            Self::Copy(factory) => factory.build(device, targets, persistent),
+            Self::Hdr(factory) => factory.build(device, targets, persistent),
+        }
+    }
+}
+
+/// Opt-in attachment and output policy. Scene anti-aliasing effects remain independent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FrameProfile {
+    #[default]
+    Legacy,
+    Hdr {
+        samples: u32,
+        tone_map: worldrunner_render_post::ToneMap,
+    },
+}
+impl FrameProfile {
+    pub const fn target(self) -> (wgpu::TextureFormat, u32) {
+        match self {
+            Self::Legacy => (wgpu::TextureFormat::Rgba8UnormSrgb, 1),
+            Self::Hdr { samples, .. } => (wgpu::TextureFormat::Rgba16Float, samples),
+        }
+    }
 }

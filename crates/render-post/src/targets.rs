@@ -17,6 +17,32 @@ impl FrameConfig {
         }
     }
 
+    /// Adapter capabilities are checked before any engine profile allocation.
+    pub fn validate_adapter(self, adapter: &wgpu::Adapter) -> Result<(), PostError> {
+        self.validate(&adapter.limits())?;
+        for format in [self.format, wgpu::TextureFormat::Depth32Float] {
+            let features = adapter.get_texture_format_features(format);
+            if !features.flags.sample_count_supported(self.samples) {
+                return Err(PostError::SampleCount(self.samples));
+            }
+            if !features
+                .allowed_usages
+                .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+            {
+                return Err(PostError::UnsupportedFormat(format));
+            }
+            if format == self.format
+                && self.samples > 1
+                && !features
+                    .flags
+                    .contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
+            {
+                return Err(PostError::UnsupportedResolve(format));
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate(self, limits: &wgpu::Limits) -> Result<(), PostError> {
         if self.size.contains(&0) {
             return Err(PostError::EmptyExtent);
@@ -55,6 +81,13 @@ impl FrameConfig {
         {
             return Err(PostError::UnsupportedResolve(self.format));
         }
+        if !wgpu::TextureFormat::Depth32Float
+            .guaranteed_format_features(wgpu::Features::empty())
+            .flags
+            .sample_count_supported(self.samples)
+        {
+            return Err(PostError::SampleCount(self.samples));
+        }
         Ok(())
     }
 }
@@ -66,6 +99,7 @@ pub struct FrameTargets {
     texture: wgpu::Texture,
     resolved: wgpu::TextureView,
     multisampled: Option<(wgpu::Texture, wgpu::TextureView)>,
+    depth: wgpu::TextureView,
 }
 
 impl FrameTargets {
@@ -87,12 +121,48 @@ impl FrameTargets {
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             (texture, view)
         });
+        let depth = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("frame depth"),
+                size: extent(config.size),
+                mip_level_count: 1,
+                sample_count: config.samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
         Ok(Self {
             config,
             texture,
             resolved,
             multisampled,
+            depth,
         })
+    }
+
+    pub const fn depth(&self) -> &wgpu::TextureView {
+        &self.depth
+    }
+
+    /// Resolve retained scene samples without altering their values.
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        if let Some(resolve) = self.resolve() {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("frame MSAA resolve"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: self.scene(),
+                    resolve_target: Some(resolve),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+        }
     }
 
     pub const fn config(&self) -> FrameConfig {

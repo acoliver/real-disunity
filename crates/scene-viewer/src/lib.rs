@@ -14,6 +14,8 @@ mod renderer;
 
 pub use camera::{OrbitCamera, OrbitLimits};
 use worldrunner_render_plan::{RenderScene, SceneCamera};
+pub use worldrunner_render_post::ToneMap;
+pub use worldrunner_render_scene::compositor::FrameProfile;
 use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 
 /// Explicit caller-owned desktop presentation settings.
@@ -31,11 +33,15 @@ pub struct ViewerOptions {
     pub orbit: OrbitLimits,
     /// Opt-in directional shadows with scene cascade policy and caller-owned coverage focus.
     pub shadows: Option<DirectionalShadowSettings>,
+    /// Legacy copy output or explicit HDR with fixed scene exposure and tone mapping.
+    pub frame_profile: FrameProfile,
 }
 
 /// Startup, presentation or scene rendering failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ViewerError {
+    #[error(transparent)]
+    Post(#[from] worldrunner_render_post::PostError),
     #[error("invalid viewer options: {0}")]
     InvalidOptions(&'static str),
     #[error("the viewer does not support {0}")]

@@ -30,6 +30,7 @@ impl ApplicationHandler for Harness {
                     Arc::new(window),
                     &crate::tests::scene(false),
                     None,
+                    crate::FrameProfile::Legacy,
                 ))
                 .unwrap(),
             );

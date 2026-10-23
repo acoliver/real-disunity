@@ -3797,6 +3797,7 @@ name = "worldrunner"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "pollster",
  "worldrunner-asset-id",
  "worldrunner-camera",
  "worldrunner-catalog",

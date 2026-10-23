@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use crate::{FrameConfig, FrameTargets, PostError, fullscreen_pass};
+use crate::{FrameConfig, FrameTargets, PostError, fullscreen_pass_timed};
 
 /// Opaque caller-authored ABI. The chain allocates these once; resize never resets history.
 #[derive(Clone, Debug)]
@@ -85,6 +85,7 @@ pub enum Operation {
 
 #[derive(Debug)]
 pub struct Stage {
+    pub id: crate::StageId,
     pub label: &'static str,
     pub enabled: bool,
     pub operation: Operation,
@@ -92,13 +93,14 @@ pub struct Stage {
 
 impl Stage {
     pub fn fullscreen(
-        label: &'static str,
+        id: crate::StageId,
         pipeline: &wgpu::RenderPipeline,
         groups: &[&wgpu::BindGroup],
         target: StageTarget,
     ) -> Self {
         Self {
-            label,
+            id,
+            label: id.name,
             enabled: true,
             operation: Operation::Fullscreen {
                 pipeline: pipeline.clone(),
@@ -108,7 +110,12 @@ impl Stage {
         }
     }
 
-    fn encode(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
+    fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        output: &wgpu::TextureView,
+        stamp: Option<&crate::timing::Stamp>,
+    ) {
         if !self.enabled {
             return;
         }
@@ -126,7 +133,7 @@ impl Stage {
             } => {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(self.label),
-                    timestamp_writes: None,
+                    timestamp_writes: stamp.map(crate::timing::Stamp::compute),
                 });
                 pass.set_pipeline(pipeline);
                 for (index, group) in groups.iter().enumerate() {
@@ -147,7 +154,7 @@ impl Stage {
                     StageTarget::Output => output,
                     StageTarget::Texture(view) => view,
                 };
-                fullscreen_pass(
+                fullscreen_pass_timed(
                     encoder,
                     Some(self.label),
                     wgpu::RenderPassColorAttachment {
@@ -161,6 +168,7 @@ impl Stage {
                     },
                     pipeline,
                     &groups.iter().collect::<Vec<_>>(),
+                    stamp,
                 );
             }
         }
@@ -175,11 +183,23 @@ pub struct StageSet {
 
 impl StageSet {
     fn validate(&self, device: &wgpu::Device) -> Result<(), PostError> {
+        let mut identities = Vec::new();
         let mut outputs = 0;
         let mut output_seen = false;
         for stage in self.stages.iter().filter(|stage| stage.enabled) {
             if output_seen {
                 return Err(PostError::OutputStage);
+            }
+            if matches!(
+                stage.operation,
+                Operation::Compute { .. } | Operation::Fullscreen { .. }
+            ) {
+                if identities.contains(&stage.id) {
+                    return Err(PostError::UnsupportedProfile(
+                        "duplicate post stage identity",
+                    ));
+                }
+                identities.push(stage.id);
             }
             match &stage.operation {
                 Operation::Fullscreen {
@@ -239,6 +259,7 @@ pub struct PostChain<F> {
     features: Vec<crate::frame::RegisteredFeature>,
     upload_slots: [Vec<wgpu::Buffer>; 3],
     frame_slot: usize,
+    timing: std::cell::RefCell<Option<crate::PassTimer>>,
 }
 
 impl<F: StageFactory> PostChain<F> {
@@ -258,6 +279,7 @@ impl<F: StageFactory> PostChain<F> {
             features: Vec::new(),
             upload_slots: std::array::from_fn(|_| Vec::new()),
             frame_slot: 0,
+            timing: std::cell::RefCell::new(None),
         })
     }
 
@@ -291,8 +313,72 @@ impl<F: StageFactory> PostChain<F> {
 
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         for stage in &self.configured[self.frame_slot % self.configured.len()].stages {
-            stage.encode(encoder, output);
+            let stamp = if stage.enabled
+                && matches!(
+                    stage.operation,
+                    Operation::Compute { .. } | Operation::Fullscreen { .. }
+                ) {
+                self.stamp(crate::PassId::Stage(stage.id))
+            } else {
+                None
+            };
+            stage.encode(encoder, output, stamp.as_ref());
         }
+    }
+
+    /// Enables timing only after device capability negotiation.
+    pub fn configure_timing(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mode: crate::TimingMode,
+    ) -> Result<crate::TimingSupport, crate::TimingError> {
+        let timer = crate::PassTimer::new(device, queue, mode)?;
+        let support = timer.support();
+        *self.timing.borrow_mut() = Some(timer);
+        Ok(support)
+    }
+    pub fn begin_timing(&self, frame_id: u64) {
+        if let Some(timer) = self.timing.borrow_mut().as_mut() {
+            timer.begin_frame(frame_id);
+        }
+    }
+    pub fn finish_timing(&self, encoder: &mut wgpu::CommandEncoder) {
+        if let Some(timer) = self.timing.borrow_mut().as_mut() {
+            timer.finish_frame(encoder);
+        }
+    }
+    pub fn take_timings(&self) -> Result<Vec<crate::FrameTiming>, crate::TimingError> {
+        self.timing
+            .borrow_mut()
+            .as_mut()
+            .map_or_else(|| Ok(Vec::new()), crate::PassTimer::take_ready)
+    }
+    pub fn dropped_timing_frames(&self) -> u64 {
+        self.timing
+            .borrow()
+            .as_ref()
+            .map_or(0, crate::PassTimer::dropped_frames)
+    }
+    pub fn unavailable_timing_passes(&self) -> u64 {
+        self.timing
+            .borrow()
+            .as_ref()
+            .map_or(0, crate::PassTimer::unavailable_passes)
+    }
+    fn stamp(&self, pass: crate::PassId) -> Option<crate::timing::Stamp> {
+        self.timing
+            .borrow_mut()
+            .as_mut()
+            .and_then(|timer| timer.stamp(pass))
+    }
+    /// Resolve is an executor pass, including when used by encoder-only hosts.
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        let stamp = self
+            .targets
+            .resolve()
+            .and_then(|_| self.stamp(crate::PassId::Resolve));
+        self.targets.encode_resolve_timed(encoder, stamp.as_ref());
     }
 
     pub const fn targets(&self) -> &FrameTargets {
@@ -434,7 +520,8 @@ impl<F: StageFactory> PostChain<F> {
             let context = crate::DrawContext {
                 slot: declaration.slot,
             };
-            crate::frame::encode_pass(encoder, declaration, views, |pass| {
+            let stamp = self.stamp(crate::PassId::Geometry(declaration.slot));
+            crate::frame::encode_pass(encoder, declaration, views, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature
                         .declaration
@@ -488,3 +575,7 @@ mod post_effect_tests;
 #[cfg(test)]
 #[path = "post_regression_tests.rs"]
 mod post_regression_tests;
+
+#[cfg(test)]
+#[path = "timing_identity_tests.rs"]
+mod timing_identity_tests;

@@ -1,0 +1,50 @@
+//! Encoder-only adapter for hosts that already uploaded their frame uniforms.
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, DrawContext, FrameError, PassDeclaration, PassSlot,
+    PrepareContext, PreparedFeature,
+};
+
+use super::FrameRenderer;
+use crate::{draw::SceneGpu, renderer::ScenePipelines};
+
+struct Resident<'a> {
+    scene: &'a SceneGpu,
+    pipelines: &'a ScenePipelines,
+}
+impl PreparedFeature for Resident<'_> {
+    fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+        Ok(())
+    }
+    fn draw(&self, _: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
+        self.scene.draw(pass, self.pipelines);
+    }
+}
+
+/// Appends a legacy resident draw to the shared executor without submitting.
+/// The caller has already set the frame and flushed instance edits. For staged
+/// frame uploads, snapshots and screen effects use [`super::encode_scene`] instead.
+/// This entry retains the legacy exposed sRGB output, with no new post look.
+pub fn encode_resident(
+    renderer: &mut FrameRenderer,
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    scene: (&SceneGpu, &ScenePipelines),
+    attachments: (&AttachmentView, &AttachmentView),
+) -> Result<(), FrameError> {
+    let (scene, pipelines) = scene;
+    let (color, depth) = attachments;
+    let mut pass = PassDeclaration::new(PassSlot::Opaque);
+    pass.color = Some(super::attachment(color.resource(), color, false));
+    pass.depth = Some(super::attachment(depth.resource(), depth, true));
+    let mut feature = Resident { scene, pipelines };
+    renderer.encode(
+        device,
+        encoder,
+        &[pass],
+        &[color.clone(), depth.clone()],
+        &mut [BorrowedFeature {
+            declaration: super::SceneFeature::declaration(pipelines),
+            prepared: &mut feature,
+        }],
+    )
+}

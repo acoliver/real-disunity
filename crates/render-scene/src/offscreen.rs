@@ -73,6 +73,8 @@ pub enum OffscreenError {
     #[error("offscreen mapped range is unavailable: {0}")]
     MappedRange(#[source] wgpu::MapRangeError),
     /// Shared target/readback validation retained at the canonical boundary.
+    #[error(transparent)]
+    Post(#[from] worldrunner_render_post::PostError),
     #[error("offscreen output service failed: {0}")]
     Output(#[source] ReadbackError),
 }
@@ -162,6 +164,7 @@ pub struct OffscreenTarget {
     depth_view: wgpu::TextureView,
     readback: [Readback; 3],
     layout: ReadbackLayout,
+    scheduler: Option<crate::compositor::FrameRenderer>,
 }
 
 impl OffscreenTarget {
@@ -204,6 +207,7 @@ impl OffscreenTarget {
             depth_view,
             readback,
             layout,
+            scheduler: None,
         })
     }
 
@@ -253,30 +257,19 @@ impl OffscreenTarget {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("offscreen scene"),
                 });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("offscreen scene"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: self.color_view(),
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.depth_view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..Default::default()
-            });
-            scene.draw(&mut pass, pipelines);
-        }
+        let color = self.color_attachment();
+        let depth = self.depth_attachment();
+        let renderer = self
+            .scheduler
+            .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()));
+        crate::compositor::encode_resident(
+            renderer,
+            context.device(),
+            &mut encoder,
+            (scene, pipelines),
+            (&color, &depth),
+        )
+        .map_err(worldrunner_render_post::PostError::from)?;
         self.encode_readback(&mut encoder)?;
         let submission = context.queue().submit([encoder.finish()]);
         self.read_encoded(context, submission)

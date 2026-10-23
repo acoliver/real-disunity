@@ -150,9 +150,18 @@ impl FrameTargets {
 
     /// Resolve retained scene samples without altering their values.
     pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.encode_resolve_timed(encoder, None);
+    }
+
+    pub(crate) fn encode_resolve_timed(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        stamp: Option<&crate::timing::Stamp>,
+    ) {
         if let Some(resolve) = self.resolve() {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("frame MSAA resolve"),
+                timestamp_writes: stamp.map(crate::timing::Stamp::render),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.scene(),
                     resolve_target: Some(resolve),

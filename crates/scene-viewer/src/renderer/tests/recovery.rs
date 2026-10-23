@@ -5,7 +5,7 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
     device
         .poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: None,
+            timeout: Some(Duration::from_secs(10)),
         })
         .unwrap();
     let generation = renderer.execution.presenter.configuration_generation();
@@ -19,13 +19,24 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
             .handle_acquired(&device, outcome)
             .unwrap();
         renderer.resize([700, 500]).unwrap();
+        let previous_view = view(renderer);
+        let before_suspend = renderer.execution.presenter.configuration_generation();
         renderer.resize([0, 480]).unwrap();
+        let mut update: crate::SceneUpdate = Box::new(|_| panic!("suspended recovery update"));
+        for _ in 0..3 {
+            assert!(!renderer.render(&previous_view, &mut update).unwrap());
+            renderer.poll().unwrap();
+        }
+        assert_eq!(
+            renderer.execution.presenter.configuration_generation(),
+            before_suspend
+        );
         renderer.resize([640, 480]).unwrap();
         present(renderer);
         device
             .poll(wgpu::PollType::Wait {
                 submission_index: None,
-                timeout: None,
+                timeout: Some(Duration::from_secs(10)),
             })
             .unwrap();
     }

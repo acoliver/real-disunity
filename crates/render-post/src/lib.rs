@@ -1,5 +1,10 @@
 //! Configured linear post/output chains with canonical targets, history ownership and scheduling.
 //! Shader policy, adaptation rules and LUT data remain caller-authored.
+mod timing;
+pub use timing::{
+    FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,
+    TimingSupport,
+};
 mod chain;
 mod copy;
 mod hdr_post;
@@ -149,8 +154,20 @@ pub fn fullscreen_pass(
     pipeline: &wgpu::RenderPipeline,
     groups: &[&wgpu::BindGroup],
 ) {
+    fullscreen_pass_timed(encoder, label, attachment, pipeline, groups, None);
+}
+
+fn fullscreen_pass_timed(
+    encoder: &mut wgpu::CommandEncoder,
+    label: Option<&str>,
+    attachment: wgpu::RenderPassColorAttachment<'_>,
+    pipeline: &wgpu::RenderPipeline,
+    groups: &[&wgpu::BindGroup],
+    stamp: Option<&timing::Stamp>,
+) {
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label,
+        timestamp_writes: stamp.map(timing::Stamp::render),
         color_attachments: &[Some(attachment)],
         ..Default::default()
     });

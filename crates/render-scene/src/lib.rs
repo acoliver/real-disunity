@@ -28,6 +28,8 @@ pub mod water;
 
 /// GPU API types used by scene construction and capture.
 pub use wgpu;
+/// Shared executor contracts for external frame features.
+pub use worldrunner_render_post as executor;
 
 pub use view::{CameraPose, SceneView, ViewError, Viewport};
 

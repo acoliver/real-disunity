@@ -93,6 +93,26 @@ impl GpuContext {
         adapter: Adapter,
         required_features: Features,
     ) -> Result<Self, DeviceError> {
+        Self::from_adapter_with_timing(
+            adapter,
+            required_features,
+            worldrunner_render_post::TimingMode::Disabled,
+        )
+        .await
+    }
+
+    /// Optional timing enables supported timestamp queries; required timing rejects absent capability.
+    pub async fn from_adapter_with_timing(
+        adapter: Adapter,
+        required_features: Features,
+        timing: worldrunner_render_post::TimingMode,
+    ) -> Result<Self, DeviceError> {
+        let required_features = required_features
+            | if timing == worldrunner_render_post::TimingMode::Required {
+                timing.features()
+            } else {
+                Features::empty()
+            };
         let available = adapter.features();
         let missing = required_features.difference(available);
         if !missing.is_empty() {
@@ -106,6 +126,11 @@ impl GpuContext {
             &adapter,
             &worldrunner_render_gpu::device::DeviceRequirements {
                 required_features,
+                optional_features: if timing == worldrunner_render_post::TimingMode::Optional {
+                    timing.features()
+                } else {
+                    Features::empty()
+                },
                 ..Default::default()
             },
         )

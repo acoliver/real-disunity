@@ -509,6 +509,7 @@ pub(crate) fn encode_pass(
     encoder: &mut wgpu::CommandEncoder,
     declaration: &PassDeclaration,
     views: &[AttachmentView],
+    stamp: Option<&crate::timing::Stamp>,
     mut draw: impl FnMut(&mut wgpu::RenderPass<'_>),
 ) {
     let view = |resource| {
@@ -552,6 +553,7 @@ pub(crate) fn encode_pass(
     let colors = [color];
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("frame slot"),
+        timestamp_writes: stamp.map(crate::timing::Stamp::render),
         color_attachments: if declaration.color.is_some() {
             &colors
         } else {

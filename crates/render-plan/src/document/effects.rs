@@ -25,6 +25,15 @@ const MAXIMUM_SUN_IRRADIANCE_MICRO: i64 = 10 * MICRO_SCALE;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WaterPlaneRecipe {
+    /// Surface elevation in scene millimetres.
+    pub height_millimeters: i64,
+    /// Linear scattering colour, in millionths per channel.
+    pub color_micro: [u32; 3],
+    /// Beer absorption coefficients per metre, in millionths.
+    pub absorption_micro: [u32; 3],
+    /// Surface roughness in millionths.
+    pub roughness_micro: u32,
+
     /// Structural URI of the water surface asset.
     pub asset_uri: String,
     /// Signed minimum east corner in millimeters.
@@ -67,6 +76,18 @@ impl WaterPlaneRecipe {
     /// extent is zero, or a corner computation overflows.
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
         require_uri("water plane asset_uri", &self.asset_uri)?;
+        require_range(
+            "water roughness",
+            0,
+            1_000_000,
+            i128::from(self.roughness_micro),
+        )?;
+        for color in self.color_micro {
+            require_range("water colour", 0, 1_000_000, i128::from(color))?;
+        }
+        for absorption in self.absorption_micro {
+            require_range("water absorption", 0, 10_000_000, i128::from(absorption))?;
+        }
         require_positive_u64(
             "water plane east_extent_millimeters",
             self.east_extent_millimeters,

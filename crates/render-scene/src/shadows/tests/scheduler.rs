@@ -65,15 +65,16 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
 fn stock_water_and_non_neutral_grading_are_explicit_errors() {
     let mut water = fixture::effects_parts(600_000);
     water.water = Some(SceneWaterPlane {
+        height_millimeters: 0,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
         east_min_millimeters: 0,
         north_min_millimeters: 0,
         east_extent_millimeters: 1000,
         north_extent_millimeters: 1000,
     });
-    assert_eq!(
-        FrameUniform::new(&view(), Some(&SceneEffects::new(water).unwrap())),
-        Err(FrameError::UnsupportedEffect("water"))
-    );
+    assert!(FrameUniform::new(&view(), Some(&SceneEffects::new(water).unwrap())).is_ok());
     for contrast in [true, false] {
         let mut grading = fixture::effects_parts(600_000);
         if contrast {

@@ -13,6 +13,10 @@ fn camera() -> SceneCamera {
 fn effects(water: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: water.then_some(SceneWaterPlane {
+            height_millimeters: 0,
+            color_micro: [50_000, 200_000, 250_000],
+            absorption_micro: [300_000, 100_000, 50_000],
+            roughness_micro: 200_000,
             east_min_millimeters: 0,
             north_min_millimeters: 0,
             east_extent_millimeters: 1000,
@@ -101,7 +105,7 @@ fn invalid_window_size_returns_before_event_loop_startup() {
 fn water_is_rejected_before_event_loop_startup() {
     assert!(matches!(
         run(scene(true), options()),
-        Err(ViewerError::UnsupportedScene("water"))
+        Err(ViewerError::UnsupportedScene("water requires HDR"))
     ));
 }
 #[test]

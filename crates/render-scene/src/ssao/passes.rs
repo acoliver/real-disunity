@@ -3,7 +3,7 @@ use worldrunner_render_post::{
     PreparedFeature, ResourceRef,
 };
 
-pub(super) fn texture(
+pub(crate) fn texture(
     device: &wgpu::Device,
     size: [u32; 2],
     format: wgpu::TextureFormat,
@@ -277,4 +277,34 @@ pub(crate) fn geometry_declaration(declaration: &mut FeatureDeclaration) {
         .expect("opaque feature")
         .reads
         .push(ResourceRef::new("ambient occlusion"));
+}
+
+impl ScreenFeature<'_> {
+    pub(crate) fn schedule(
+        &self,
+        passes: &mut Vec<PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<FeatureDeclaration, FrameError> {
+        let ssao = self.ssao;
+        if passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.color.as_ref())
+            .is_none_or(|color| color.size != ssao.size)
+        {
+            return Err(FrameError::SsaoSettings(
+                "prepass and opaque render extents must match",
+            ));
+        }
+        let mut screen_passes = Vec::new();
+        crate::ssao::passes::prepass(ssao, &mut screen_passes, views)?;
+        let declaration = ssao.passes.schedule(&mut screen_passes, views)?;
+        let insertion = passes
+            .iter()
+            .position(|pass| pass.slot >= PassSlot::DepthNormalPrepass)
+            .unwrap_or(passes.len());
+        passes.splice(insertion..insertion, screen_passes);
+
+        Ok(declaration)
+    }
 }

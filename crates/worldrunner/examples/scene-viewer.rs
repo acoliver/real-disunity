@@ -26,7 +26,18 @@ fn camera() -> SceneCamera {
 
 fn effects(terrain: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
-        water: None,
+        water: std::env::args().any(|arg| arg == "--water").then_some(
+            worldrunner_render_plan::SceneWaterPlane {
+                height_millimeters: 100,
+                east_min_millimeters: -900,
+                north_min_millimeters: -900,
+                east_extent_millimeters: 1800,
+                north_extent_millimeters: 1800,
+                color_micro: [50000, 200_000, 250_000],
+                absorption_micro: [300_000, 100_000, 50000],
+                roughness_micro: 200_000,
+            },
+        ),
         sky: SceneSky::ProceduralHemisphere {
             zenith: SceneColor {
                 red: 255,
@@ -218,7 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         scene(terrain),
         ViewerOptions {
             frames_in_flight: 2,
-            frame_profile: if std::env::args().any(|arg| arg == "--hdr") {
+            frame_profile: if std::env::args().any(|arg| arg == "--hdr" || arg == "--water") {
                 worldrunner::scene::viewer::FrameProfile::Hdr {
                     samples: if std::env::args().any(|arg| arg == "--msaa") {
                         4

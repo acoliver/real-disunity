@@ -322,11 +322,29 @@ impl<F: StageFactory> PostChain<F> {
         Ok(id)
     }
 
+    /// Collects retained feature plans before resource validation or preparation.
+    pub fn plan_features(
+        &mut self,
+        passes: &mut Vec<crate::PassDeclaration>,
+        views: &mut Vec<crate::AttachmentView>,
+    ) -> Result<Vec<crate::FeatureDeclaration>, crate::FrameError> {
+        let declarations = self
+            .features
+            .iter()
+            .map(|feature| feature.source.plan(passes, views))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (feature, declaration) in self.features.iter_mut().zip(&declarations) {
+            feature.declaration = declaration.clone();
+        }
+        Ok(declarations)
+    }
+
     fn prepare_features(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
+        views: &[crate::AttachmentView],
     ) -> Result<(), crate::FrameError> {
         let replacements = self
             .features
@@ -351,6 +369,7 @@ impl<F: StageFactory> PostChain<F> {
             }
         }
         let mut context = crate::PrepareContext::new(device, encoder);
+        context.set_views(views);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
         }
@@ -400,7 +419,7 @@ impl<F: StageFactory> PostChain<F> {
             .collect();
         crate::validate_frame(passes, &declarations, requested)?;
         crate::frame::validate_views(passes, views)?;
-        self.prepare_features(device, encoder, borrowed)?;
+        self.prepare_features(device, encoder, borrowed, views)?;
         for declaration in passes {
             let context = crate::DrawContext {
                 slot: declaration.slot,

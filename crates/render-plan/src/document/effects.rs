@@ -305,6 +305,10 @@ impl ShadowCascadesRecipe {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SsaoRecipe {
+    /// Number of deterministic hemisphere samples, within 1..=64.
+    pub sample_count: u32,
+    /// Surface self-occlusion bias in millimetres.
+    pub bias_millimeters: u32,
     /// Occlusion sample radius in millimeters; strictly positive.
     pub radius_millimeters: u64,
     /// Occlusion strength micro value in `[0, 2_000_000]`.
@@ -338,6 +342,7 @@ impl SsaoRecipe {
     ///
     /// Returns [`ContractDocumentError`] on the first out-of-bounds field.
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
+        require_range("ssao sample_count", 1, 64, i128::from(self.sample_count))?;
         require_positive_u64("ssao radius_millimeters", self.radius_millimeters)?;
         require_range(
             "ssao intensity_micro",

@@ -271,6 +271,8 @@ mod tests {
             shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
                 .expect("synthetic cascades validate"),
             ssao: Some(SceneSsao {
+                sample_count: 16,
+                bias_millimeters: 10,
                 radius_millimeters: 1_200,
                 intensity_micro: 1_000_000,
                 horizon_angle_millidegrees: 90_000,

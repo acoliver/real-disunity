@@ -1,0 +1,237 @@
+{
+  "assets": {
+    "bindings": [
+      {
+        "asset_uri": "synthetic:element/mesh-alpha",
+        "binding_id": "binding-0001",
+        "role_uri": "synthetic:role/mesh"
+      },
+      {
+        "asset_uri": "synthetic:element/terrain-material",
+        "binding_id": "binding-0002",
+        "role_uri": "synthetic:role/terrain"
+      },
+      {
+        "asset_uri": "synthetic:element/lod-mesh-near",
+        "binding_id": "binding-0003",
+        "role_uri": "synthetic:role/vegetation"
+      },
+      {
+        "asset_uri": "synthetic:element/lod-mesh-far",
+        "binding_id": "binding-0004",
+        "role_uri": "synthetic:role/vegetation"
+      },
+      {
+        "asset_uri": "synthetic:element/water-surface",
+        "binding_id": "binding-0005",
+        "role_uri": "synthetic:role/water"
+      },
+      {
+        "asset_uri": "synthetic:element/sky-dome",
+        "binding_id": "binding-0006",
+        "role_uri": "synthetic:role/sky"
+      },
+      {
+        "asset_uri": "synthetic:element/terrain-height",
+        "binding_id": "binding-0007",
+        "role_uri": "synthetic:role/terrain"
+      }
+    ]
+  },
+  "basis": {
+    "forward_axis": "positive_z",
+    "handedness": "right_handed",
+    "unit_millimeters": 1000,
+    "up_axis": "positive_y"
+  },
+  "contract_id": "synthetic-contract-alpha",
+  "effects": {
+    "ambient": {
+      "irradiance_micro": 300000
+    },
+    "camera": {
+      "far_plane_millimeters": 2000000,
+      "near_plane_millimeters": 100,
+      "vertical_fov_millidegrees": 60000
+    },
+    "shadows": {
+      "blend_band_micro": 10000,
+      "cascades": [
+        {
+          "cascade_index": 0,
+          "extent_millimeters": 8000
+        },
+        {
+          "cascade_index": 1,
+          "extent_millimeters": 32000
+        }
+      ]
+    },
+    "sky": {
+      "asset_uri": "synthetic:element/sky-dome"
+    },
+    "ssao": {
+      "horizon_angle_millidegrees": 90000,
+      "intensity_micro": 1000000,
+      "radius_millimeters": 750
+    },
+    "sun": {
+      "direction": [
+        0,
+        0,
+        1000000
+      ],
+      "irradiance_micro": 1250000
+    },
+    "water": {
+      "asset_uri": "synthetic:element/water-surface",
+      "east_extent_millimeters": 2000,
+      "east_min_millimeters": -1000,
+      "north_extent_millimeters": 2000,
+      "north_min_millimeters": -1000
+    }
+  },
+  "environment": {
+    "lod_policies": [
+      {
+        "levels": [
+          {
+            "level_index": 0,
+            "max_distance_millimeters": 50000,
+            "mesh_uri": "synthetic:element/lod-mesh-near"
+          },
+          {
+            "level_index": 1,
+            "max_distance_millimeters": 200000,
+            "mesh_uri": "synthetic:element/lod-mesh-far"
+          }
+        ],
+        "lod_id": "vegetation-alpha"
+      }
+    ],
+    "wind": {
+      "amplitude_micro": 75000,
+      "direction_microradians": 0,
+      "period_milliseconds": 1800
+    }
+  },
+  "limits": {
+    "max_lod_levels_per_policy": 4,
+    "max_mesh_components": 16,
+    "stream": {
+      "max_stream_bytes": 1048576,
+      "max_total_bytes": 8388608
+    }
+  },
+  "routes": {
+    "capabilities": [
+      {
+        "capability_uri": "synthetic:capability/mesh-artifact",
+        "cardinality": {
+          "maximum": 16,
+          "minimum": 1
+        },
+        "element_policy": {
+          "kind": "bare"
+        },
+        "handler_factory_uri": "synthetic:factory/mesh-handler",
+        "handler_id": "synthetic-mesh-handler",
+        "handler_revision": 2,
+        "payload_contract_uri": "synthetic:payload/mesh-payload",
+        "role_uri": "synthetic:role/mesh"
+      },
+      {
+        "capability_uri": "synthetic:capability/terrain-height",
+        "cardinality": {
+          "maximum": 1,
+          "minimum": 1
+        },
+        "element_policy": {
+          "element_uri": "synthetic:element/terrain-height",
+          "kind": "exact"
+        },
+        "handler_factory_uri": "synthetic:factory/height-handler",
+        "handler_id": "synthetic-height-handler",
+        "handler_revision": 1,
+        "payload_contract_uri": "synthetic:payload/height-payload",
+        "role_uri": "synthetic:role/terrain"
+      }
+    ],
+    "components": [
+      {
+        "cardinality": {
+          "maximum": 16,
+          "minimum": 0
+        },
+        "handler_factory_uri": "synthetic:factory/mesh-handler",
+        "handler_id": "synthetic-mesh-handler",
+        "handler_revision": 2,
+        "payload_contract_uri": "synthetic:payload/mesh-payload",
+        "role_uri": "synthetic:role/mesh",
+        "schema_uri": "synthetic:schema/component-mesh"
+      },
+      {
+        "cardinality": {
+          "maximum": 1,
+          "minimum": 0
+        },
+        "handler_factory_uri": "synthetic:factory/water-handler",
+        "handler_id": "synthetic-water-handler",
+        "handler_revision": 0,
+        "payload_contract_uri": "synthetic:payload/water-payload",
+        "role_uri": "synthetic:role/water",
+        "schema_uri": "synthetic:schema/component-water"
+      }
+    ],
+    "document": {
+      "handler_factory_uri": "synthetic:factory/document-handler",
+      "handler_id": "synthetic-document-handler",
+      "handler_revision": 3,
+      "payload_contract_uri": "synthetic:payload/document-payload",
+      "role_uri": "synthetic:role/document",
+      "schema_uri": "synthetic:schema/document-alpha",
+      "schema_version": 1
+    }
+  },
+  "scene": {
+    "meshes": [
+      {
+        "asset_uri": "synthetic:element/mesh-alpha",
+        "component_id": "mesh-alpha",
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "w": 1000000,
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "millionths": 1000000
+          }
+        }
+      }
+    ]
+  },
+  "schema": "real-disunity.render-contract.v2",
+  "schema_version": 2,
+  "terrain": {
+    "columns": 3,
+    "height_asset_uri": "synthetic:element/terrain-height",
+    "material_palette": [
+      {
+        "material_uri": "synthetic:element/terrain-material",
+        "slot_index": 0,
+        "uv_scale_millimeters": 1000
+      }
+    ],
+    "origin_east_millimeters": -250,
+    "origin_north_millimeters": -500,
+    "rows": 5,
+    "sample_spacing_millimeters": 250
+  }
+}

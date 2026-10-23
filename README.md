@@ -66,3 +66,31 @@ until reuse after completion. Shared GPU attachments and instance destinations r
 queue ordered. Offscreen capture exposes three independent readback slots and rejects
 an unread slot overwrite. Read each capture with the submission index containing its copy;
 that read does not request a queue-wide wait.
+
+### Depth, normals and ambient occlusion
+
+HDR frames can opt into `SceneEffects::ssao`. The stock prepass runs at the full
+render extent with one sample, independently of forward 1x or 4x MSAA. It writes
+`Depth32Float` camera depth and signed view-space geometric XYZ normals in
+`Rgba16Float`; alpha marks covered pixels. Meshes and terrain share camera
+selection, and masked cards use the colour shader's texture, sampler, billboard
+transform and alpha cutoff. Forward colour uses its own matching-sample depth,
+so a centre-sampled prepass cannot remove MSAA edge coverage.
+
+PostChain schedules depth linearization, a conservative minimum-depth pyramid,
+SSAO and a depth-aware 5x5 bilateral filter before opaque lighting. Pyramid
+levels use ceiling-half extents in separate textures, including odd final rows
+and columns. Background linearizes to the camera far distance. The deterministic
+hemisphere kernel consumes radius, intensity, sample count, surface bias and
+horizon angle. AO multiplies ambient diffuse lighting only; sunlight, emission
+and unlit colour are unchanged. With SSAO absent the original shaders and pass
+sequence remain in use.
+
+The scene and document settings now include explicit `sample_count` (1 through
+64) and `bias_millimeters`. Authored documents use render contract v3; v2 is
+rejected rather than migrated implicitly. The stock radius range is 1 through 1,000,000
+millimetres, with bias strictly below radius. Unsupported settings fail before
+allocation. Legacy upload rejects SSAO with a typed error. Custom HDR hosts use
+`ScenePipelines::with_ssao` with a matching `FrameRenderer::hdr` profile. Resize
+builds replacement screen resources before publication. Submit successful
+encoders in preparation order, as required by the frame admission contract.

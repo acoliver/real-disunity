@@ -7,6 +7,7 @@ mod hdr;
 mod retained;
 mod scheduler;
 mod selection;
+mod ssao;
 mod subresources;
 mod terrain;
 mod validation;

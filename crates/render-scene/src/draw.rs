@@ -140,6 +140,7 @@ struct Retained {
 /// One scene resident on the GPU, ready to draw.
 #[derive(Debug)]
 pub struct SceneGpu {
+    pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
@@ -170,6 +171,9 @@ impl SceneGpu {
     ) -> Result<Self, DrawError> {
         if let Some(effects) = scene.effects() {
             crate::frame::validate_stock_effects(effects)?;
+            if effects.ssao().is_some() && !pipelines.ssao {
+                return Err(crate::frame::FrameError::UnsupportedEffect("SSAO").into());
+            }
         }
         let (textures, views) = upload_textures(device, queue, scene)?;
         let placeholder = placeholder_texture(device, queue);
@@ -198,6 +202,7 @@ impl SceneGpu {
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
+            ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             frame_slots,
             frame_buffer,
             frame_group,
@@ -241,6 +246,16 @@ impl SceneGpu {
     /// anyway. Terrain draws last so that this reasoning is needed in one
     /// direction only.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
+        self.draw_color(pass, pipelines, None);
+    }
+
+    pub(crate) fn draw_prepass(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        group: &BindGroup,
+    ) {
+        pass.set_bind_group(3, group, &[]);
         self.draw_color(pass, pipelines, None);
     }
 

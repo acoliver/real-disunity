@@ -268,11 +268,12 @@ impl Resident {
                 profile.target().1,
             )?))
         } else {
-            let pipelines = ScenePipelines::with_samples(
-                context.device(),
-                profile.target().0,
-                profile.target().1,
-            )?;
+            let constructor = if scene.effects().and_then(|effects| effects.ssao()).is_some() {
+                ScenePipelines::with_ssao
+            } else {
+                ScenePipelines::with_samples
+            };
+            let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
             let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
             Self::Plain(Box::new(PlainScene {
                 gpu,

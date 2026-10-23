@@ -281,3 +281,37 @@ pub(super) fn depth_frames(
         })
         .collect()
 }
+
+pub(super) fn receiver_pipelines(
+    context: &crate::device::GpuContext,
+    scene: &worldrunner_render_plan::RenderScene,
+    target: (wgpu::TextureFormat, u32),
+    shadow_layout: &wgpu::BindGroupLayout,
+) -> Result<ScenePipelines, super::ShadowError> {
+    let (format, samples) = target;
+    let screen_layout = scene
+        .effects()
+        .and_then(|effects| effects.ssao())
+        .map(|_| crate::ssao::ambient_layout(context.device()));
+    if screen_layout.is_some() && format != wgpu::TextureFormat::Rgba16Float {
+        return Err(crate::frame::FrameError::UnsupportedEffect("SSAO").into());
+    }
+    let source = screen_layout.as_ref().map_or_else(
+        || SHADOWED_WGSL.to_owned(),
+        |_| crate::ssao::ambient_source(SHADOWED_WGSL),
+    );
+    let terrain_source = screen_layout.as_ref().map_or_else(
+        || SHADOWED_TERRAIN_WGSL.to_owned(),
+        |_| crate::ssao::ambient_source(SHADOWED_TERRAIN_WGSL),
+    );
+    let pipelines = ScenePipelines::with_screen_space(
+        context.device(),
+        (format, samples),
+        &source,
+        &terrain_source,
+        Some(shadow_layout),
+        screen_layout.as_ref(),
+    );
+
+    Ok(pipelines)
+}

@@ -172,3 +172,30 @@ fn fixed_exposure_mismatch_is_typed_before_preparation() {
         Err(worldrunner_render_post::FrameError::FixedExposureMismatch)
     );
 }
+
+#[test]
+fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
+    let context = context();
+    for samples in [1, 4] {
+        let base =
+            super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
+        let mut parts = fixture::effects_parts(600_000);
+        parts.ssao = Some(SceneSsao {
+            radius_millimeters: 2000,
+            intensity_micro: 1_000_000,
+            sample_count: 32,
+            bias_millimeters: 10,
+            horizon_angle_millidegrees: 90_000,
+        });
+        let source = RenderScene::new(SceneParts {
+            resources: base.resources().clone(),
+            geometry: base.geometry().clone(),
+            terrain: base.terrain().cloned(),
+            effects: Some(SceneEffects::new(parts).unwrap()),
+        })
+        .unwrap();
+        let (raw, image) = hdr_capture(&context, &source, samples, 0.001);
+        assert!(raw.iter().any(|byte| *byte != 0));
+        assert!(image.pixels.chunks_exact(4).any(|pixel| pixel[0] > 0));
+    }
+}

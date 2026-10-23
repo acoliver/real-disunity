@@ -92,6 +92,7 @@ fn configured_frame(
     .unwrap();
     crate::frame::FrameUniform {
         unlit: false,
+        view: glam::Mat4::IDENTITY,
         view_projection: Mat4::IDENTITY,
         camera_position: Vec3::Z,
         camera_position_millimeters: [0, 0, 1_000],

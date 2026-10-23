@@ -18,5 +18,9 @@ worldrunner-render-scene = { path = "../render-scene" }
 wgpu.workspace = true
 winit.workspace = true
 
+[[test]]
+name = "callback_failure"
+harness = false
+
 [lints]
 workspace = true

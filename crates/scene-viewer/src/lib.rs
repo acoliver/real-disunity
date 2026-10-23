@@ -61,6 +61,8 @@ pub enum ViewerError {
     #[error("GPU error: {0}")]
     Gpu(String),
     #[error(transparent)]
+    Instance(#[from] worldrunner_render_scene::draw::InstanceError),
+    #[error(transparent)]
     Draw(#[from] worldrunner_render_scene::draw::DrawError),
     #[error(transparent)]
     Frame(#[from] worldrunner_render_scene::frame::FrameError),
@@ -77,9 +79,30 @@ pub enum ViewerError {
 /// per side. Zero-area windows suspend rendering. Lost surfaces are recreated,
 /// outdated surfaces reconfigured, and timeouts retried without busy-spinning. The scene is never reuploaded per frame.
 pub fn run(scene: RenderScene, options: ViewerOptions) -> Result<(), ViewerError> {
-    validate(&scene, &options)?;
-    app::run(scene, options)
+    run_with_updates(scene, options, |_| Ok(()))
 }
+
+/// Runs the viewer with a placement-edit callback before each rendered frame.
+/// The callback sees the same resident scene in plain and shadowed modes.
+/// Handles obtained on its first call remain valid until explicitly removed.
+/// Edits are flushed automatically; returning an error exits the viewer.
+pub fn run_with_updates(
+    scene: RenderScene,
+    options: ViewerOptions,
+    update: impl FnMut(
+        &mut worldrunner_render_scene::draw::SceneGpu,
+    ) -> Result<(), worldrunner_render_scene::draw::InstanceError>
+    + 'static,
+) -> Result<(), ViewerError> {
+    validate(&scene, &options)?;
+    app::run(scene, options, Box::new(update))
+}
+
+pub(crate) type SceneUpdate = Box<
+    dyn FnMut(
+        &mut worldrunner_render_scene::draw::SceneGpu,
+    ) -> Result<(), worldrunner_render_scene::draw::InstanceError>,
+>;
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {
     if options.size.iter().any(|&side| side == 0 || side > 4096) {

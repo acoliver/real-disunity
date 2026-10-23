@@ -154,6 +154,11 @@ impl ShadowedScene {
         })
     }
 
+    /// Returns the resident scene for handle-based placement edits.
+    pub fn scene_mut(&mut self) -> &mut SceneGpu {
+        &mut self.gpu
+    }
+
     /// Updates fit/bias, recreating only the map if its resolution changes.
     /// A rejected update leaves the current settings and resources intact.
     pub fn set_settings(
@@ -179,7 +184,8 @@ impl ShadowedScene {
     }
 
     /// Submits both passes, clearing colour to opaque black and depth to one.
-    /// No host allocation or readback occurs. Use the same device as construction.
+    /// Each pass builds host-side visible and pending instance-range vectors.
+    /// No readback occurs. Use the same device as construction.
     pub fn render(
         &mut self,
         context: &GpuContext,
@@ -189,6 +195,7 @@ impl ShadowedScene {
     ) -> Result<(), ShadowError> {
         let frame = FrameUniform::new(view, Some(&self.effects))?;
         let matrix = self.settings.matrix(frame.sun_direction)?;
+        self.gpu.flush_instances(context.device(), context.queue());
         self.gpu.set_frame(context.queue(), frame);
         // Keep the actual camera position: billboards must face the camera in
         // BOTH passes, not rotate toward the light during shadow rendering.

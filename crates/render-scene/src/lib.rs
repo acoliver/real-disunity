@@ -10,6 +10,7 @@ pub mod device;
 pub mod draw;
 pub mod frame;
 pub mod geometry;
+mod instances;
 pub mod offscreen;
 pub mod pipeline;
 pub mod renderer;

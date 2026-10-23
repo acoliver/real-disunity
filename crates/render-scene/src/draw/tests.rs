@@ -33,6 +33,7 @@ use worldrunner_render_plan::{
 };
 mod environment;
 mod material_factors;
+mod retained;
 mod terrain_blend;
 
 /// The colour format every test renders into.

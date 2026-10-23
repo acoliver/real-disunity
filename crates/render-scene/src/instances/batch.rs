@@ -125,27 +125,27 @@ fn ranges(positions: impl Iterator<Item = usize>) -> Vec<Range<u32>> {
     ranges
 }
 
-pub(crate) fn flush(
+pub(crate) fn flush_prepared(
     batch: &mut InstanceBatch,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    context: &mut worldrunner_render_post::PrepareContext<'_>,
 ) -> Vec<Range<u32>> {
     let ranges = batch.pending_ranges();
     if ranges.is_empty() {
         batch.commit(&ranges);
         return ranges;
     }
-    grow(batch, device, queue);
+    grow(batch, context);
     let buffer = batch.buffer.as_ref().expect("allocated instance buffer");
     for range in &ranges {
         let bytes = byte_range(range);
-        queue.write_buffer(buffer, bytes.start as u64, &batch.bytes[bytes]);
+        context.upload_buffer(buffer, bytes.start as u64, &batch.bytes[bytes]);
     }
     batch.commit(&ranges);
     ranges
 }
 
-fn grow(batch: &mut InstanceBatch, device: &wgpu::Device, queue: &wgpu::Queue) {
+fn grow(batch: &mut InstanceBatch, context: &mut worldrunner_render_post::PrepareContext<'_>) {
+    let device = context.device();
     let size = batch.bytes.len() as u64;
     if batch
         .buffer
@@ -170,11 +170,7 @@ fn grow(batch: &mut InstanceBatch, device: &wgpu::Device, queue: &wgpu::Queue) {
         mapped_at_creation: false,
     });
     if let Some(old) = &batch.buffer {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("grow instances"),
-        });
-        encoder.copy_buffer_to_buffer(old, 0, &buffer, 0, old.size());
-        queue.submit([encoder.finish()]);
+        context.copy_buffer(old, &buffer, old.size());
     }
     batch.buffer = Some(buffer);
 }

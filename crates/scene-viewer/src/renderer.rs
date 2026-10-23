@@ -175,8 +175,13 @@ impl Renderer {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("viewer frame"),
                 });
-        self.resident
-            .render(&self.context, view, targets, &mut encoder)?;
+        self.resident.render(
+            &self.context,
+            view,
+            targets,
+            &mut encoder,
+            &mut self.presentation.scheduler,
+        )?;
         let output = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -276,41 +281,31 @@ impl Resident {
         view: &SceneView,
         targets: &crate::presentation::Targets,
         encoder: &mut wgpu::CommandEncoder,
+        scheduler: &mut worldrunner_render_scene::compositor::FrameRenderer,
     ) -> Result<(), ViewerError> {
+        let color = worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene color"),
+            targets.color.texture(),
+        )
+        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        let depth = worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene depth"),
+            targets.depth.texture(),
+        )
+        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
         match self {
             Resident::Shadowed(renderer) => {
-                renderer.render(context, view, &targets.color, &targets.depth)?;
+                renderer.encode_with(context, view, (&color, &depth), encoder, Some(scheduler))?;
             }
             Resident::Plain(plain) => {
-                let PlainScene {
-                    gpu,
-                    pipelines,
-                    effects,
-                } = plain.as_mut();
-                gpu.flush_instances(context.device(), context.queue());
-                gpu.set_frame(context.queue(), FrameUniform::new(view, effects.as_ref())?);
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("viewer scene"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &targets.color,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &targets.depth,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    ..Default::default()
-                });
-                gpu.draw(&mut pass, pipelines);
+                worldrunner_render_scene::compositor::encode_scene(
+                    scheduler,
+                    context.device(),
+                    encoder,
+                    (&mut plain.gpu, &plain.pipelines),
+                    (&color, &depth),
+                    FrameUniform::new(view, plain.effects.as_ref())?,
+                )?;
             }
         }
         Ok(())

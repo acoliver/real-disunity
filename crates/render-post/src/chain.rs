@@ -223,6 +223,7 @@ pub struct PostChain<F> {
     persistent: Resources,
     factory: F,
     configured: StageSet,
+    features: Vec<crate::frame::RegisteredFeature>,
 }
 
 impl<F: StageFactory> PostChain<F> {
@@ -240,6 +241,7 @@ impl<F: StageFactory> PostChain<F> {
             persistent,
             factory,
             configured,
+            features: Vec::new(),
         })
     }
 
@@ -257,6 +259,9 @@ impl<F: StageFactory> PostChain<F> {
         )?;
         let configured = self.factory.build(device, &targets, &self.persistent)?;
         configured.validate(device)?;
+        for feature in &mut self.features {
+            feature.prepared = None;
+        }
         self.targets = targets;
         self.configured = configured;
         Ok(true)
@@ -284,6 +289,136 @@ impl<F: StageFactory> PostChain<F> {
         configured.validate(device)?;
         self.factory = factory;
         self.configured = configured;
+        Ok(())
+    }
+}
+
+impl<F: StageFactory> PostChain<F> {
+    /// Registration retains declarations without building resources.
+    /// Registration order breaks ties within each named slot.
+    pub fn register(
+        &mut self,
+        _device: &wgpu::Device,
+        feature: Box<dyn crate::FrameFeature>,
+    ) -> Result<crate::FeatureId, crate::FrameError> {
+        let declaration = feature.declare();
+        let id = crate::FeatureId(self.features.len());
+        self.features.push(crate::frame::RegisteredFeature {
+            declaration,
+            prepared: None,
+            source: feature,
+        });
+        Ok(id)
+    }
+
+    fn prepare_features(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+    ) -> Result<(), crate::FrameError> {
+        let replacements = self
+            .features
+            .iter()
+            .map(|feature| {
+                if feature.prepared.is_none() {
+                    feature
+                        .source
+                        .build(&crate::BuildContext {
+                            device,
+                            targets: &self.targets,
+                        })
+                        .map(Some)
+                } else {
+                    Ok(None)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (feature, replacement) in self.features.iter_mut().zip(replacements) {
+            if let Some(prepared) = replacement {
+                feature.prepared = Some(prepared);
+            }
+        }
+        let mut context = crate::PrepareContext::new(device, encoder);
+        for feature in borrowed.iter_mut() {
+            feature.prepared.prepare(&mut context)?;
+        }
+        for feature in &mut self.features {
+            feature
+                .prepared
+                .as_mut()
+                .expect("validated feature build")
+                .prepare(&mut context)?;
+        }
+        for feature in borrowed.iter_mut() {
+            feature.prepared.commit(&mut context);
+        }
+        for feature in &mut self.features {
+            feature
+                .prepared
+                .as_mut()
+                .expect("validated feature build")
+                .commit(&mut context);
+        }
+        context.finish();
+        Ok(())
+    }
+
+    /// Validates the complete frame before any feature prepares or draws.
+    /// Borrowed resident features precede retained registrations in a slot.
+    pub fn encode_geometry(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &crate::FramePlan<'_>,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+    ) -> Result<(), crate::FrameError> {
+        let crate::FramePlan {
+            passes,
+            views,
+            requested,
+        } = *plan;
+        let declarations: Vec<_> = borrowed
+            .iter()
+            .map(|feature| feature.declaration.clone())
+            .chain(
+                self.features
+                    .iter()
+                    .map(|feature| feature.declaration.clone()),
+            )
+            .collect();
+        crate::validate_frame(passes, &declarations, requested)?;
+        crate::frame::validate_views(passes, views)?;
+        self.prepare_features(device, encoder, borrowed)?;
+        for declaration in passes {
+            let context = crate::DrawContext {
+                slot: declaration.slot,
+            };
+            crate::frame::encode_pass(encoder, declaration, views, |pass| {
+                for feature in borrowed.iter().filter(|feature| {
+                    feature
+                        .declaration
+                        .passes
+                        .iter()
+                        .any(|pass| pass.slot == context.slot)
+                }) {
+                    feature.prepared.draw(&context, pass);
+                }
+                for feature in self.features.iter().filter(|feature| {
+                    feature
+                        .declaration
+                        .passes
+                        .iter()
+                        .any(|pass| pass.slot == context.slot)
+                }) {
+                    feature
+                        .prepared
+                        .as_ref()
+                        .expect("validated feature build")
+                        .draw(&context, pass);
+                }
+            });
+        }
         Ok(())
     }
 }

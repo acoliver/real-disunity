@@ -56,9 +56,40 @@ impl SceneGpu {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Vec<InstanceWrite> {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("instance uploads"),
+        });
+        let writes = self.flush_instances_encoded(device, &mut encoder);
+        if !writes.is_empty() {
+            queue.submit([encoder.finish()]);
+        }
+        writes
+    }
+}
+
+impl SceneGpu {
+    /// Encodes growth copies followed by changed ranges before this frame's draws.
+    /// The caller must submit this encoder before encoding another frame.
+    pub fn flush_instances_encoded(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Vec<InstanceWrite> {
+        let mut context = worldrunner_render_post::PrepareContext::new(device, encoder);
+        let writes = self.prepare_instances(&mut context);
+        context.finish();
+        writes
+    }
+
+    /// Commits sparse edits using the restricted upload context.
+    /// Call only after all fallible frame preparation succeeds, then finish the context.
+    pub fn prepare_instances(
+        &mut self,
+        context: &mut worldrunner_render_post::PrepareContext<'_>,
+    ) -> Vec<InstanceWrite> {
         let mut writes = Vec::new();
         for (&(_, mesh, material), batch) in &mut self.instances.batches {
-            for instances in crate::instances::batch::flush(batch, device, queue) {
+            for instances in crate::instances::batch::flush_prepared(batch, context) {
                 writes.push(InstanceWrite {
                     mesh,
                     material,
@@ -67,5 +98,28 @@ impl SceneGpu {
             }
         }
         writes
+    }
+}
+
+impl SceneGpu {
+    #[cfg(test)]
+    pub(crate) fn current_frame(&self) -> Option<crate::frame::FrameUniform> {
+        self.frame.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn frame_buffer(&self) -> &wgpu::Buffer {
+        &self.frame_buffer
+    }
+
+    /// Publishes CPU selection state and stages its matching encoder-ordered uniform.
+    /// Call only within the scheduler's infallible commit phase.
+    pub fn commit_frame(
+        &self,
+        context: &mut worldrunner_render_post::PrepareContext<'_>,
+        frame: crate::frame::FrameUniform,
+    ) {
+        self.frame.set(Some(frame));
+        context.upload_buffer(&self.frame_buffer, 0, &frame.to_bytes());
     }
 }

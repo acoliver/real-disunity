@@ -104,13 +104,13 @@ impl DirectionalShadowSettings {
 }
 
 pub(super) fn validate_effects(effects: &SceneEffects) -> Result<(), ShadowError> {
+    if effects.water().is_some() {
+        return Err(ShadowError::UnsupportedFeature("water"));
+    }
     crate::frame::validate_stock_effects(effects)?;
     let cascades = effects.shadows();
     if cascades.extents_millimeters().len() != 1 || cascades.blend_band_micro() != 0 {
         return Err(ShadowError::UnsupportedCascades);
-    }
-    if effects.water().is_some() {
-        return Err(ShadowError::UnsupportedFeature("water"));
     }
     Ok(())
 }

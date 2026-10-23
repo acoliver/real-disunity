@@ -75,11 +75,13 @@ fn frame(resident: &mut Resident, context: &GpuContext, target: &mut OffscreenTa
     let mut encoder = context
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut scheduler = worldrunner_render_scene::compositor::FrameRenderer::new(context.device());
     resident
-        .render(context, &view, &targets, &mut encoder)
+        .render(context, &view, &targets, &mut encoder, &mut scheduler)
         .unwrap();
-    context.queue().submit([encoder.finish()]);
-    target.read_rgba8(context).unwrap()
+    target.encode_readback(&mut encoder).unwrap();
+    let submission = context.queue().submit([encoder.finish()]);
+    target.read_encoded(context, submission).unwrap()
 }
 
 fn shadow_settings() -> DirectionalShadowSettings {
@@ -148,4 +150,44 @@ fn viewer_callback_edits_flush_in_plain_and_shadowed_residents() {
                 .is_empty()
         );
     }
+}
+
+#[test]
+fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let size = Viewport {
+        width: 64,
+        height: 64,
+    };
+    let options = crate::tests::options();
+    let view = crate::OrbitCamera::new(options.pose, options.orbit)
+        .unwrap()
+        .view(options.camera, size)
+        .unwrap();
+    let mut resident = Resident::new(&context, &source(), Some(shadow_settings())).unwrap();
+    let mut presentation = crate::presentation::Presentation::new(context.device(), COLOR, size);
+    let mut output = OffscreenTarget::new(context.device(), size).unwrap();
+    let mut encoder = context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    resident
+        .render(
+            &context,
+            &view,
+            &presentation.targets,
+            &mut encoder,
+            &mut presentation.scheduler,
+        )
+        .unwrap();
+    presentation.present(&mut encoder, output.color_view());
+    output.encode_readback(&mut encoder).unwrap();
+    let submission = context.queue().submit([encoder.finish()]);
+    let image = output.read_encoded(&context, submission).unwrap();
+    assert!(
+        image
+            .pixels
+            .chunks_exact(4)
+            .any(|pixel| pixel[..3] != [0, 0, 0])
+    );
 }

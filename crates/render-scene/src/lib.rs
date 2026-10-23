@@ -6,6 +6,7 @@
 //!
 //! [`RenderScene`]: worldrunner_render_plan::RenderScene
 
+pub mod compositor;
 pub mod device;
 pub mod draw;
 pub mod frame;

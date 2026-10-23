@@ -91,9 +91,7 @@ fn retained_image(
     renderer: &mut ShadowedScene,
     target: &mut OffscreenTarget,
 ) -> RgbaImage {
-    renderer
-        .render(context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(renderer, context, &view(), target).unwrap();
     target.read_rgba8(context).unwrap()
 }
 

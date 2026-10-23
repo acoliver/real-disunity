@@ -69,10 +69,11 @@ that read does not request a queue-wide wait.
 
 ### Depth, normals and ambient occlusion
 
-HDR frames can opt into `SceneEffects::ssao`. The stock prepass runs at the full
+HDR frames can opt into `SceneEffects::ssao` and `SceneEffects::with_ssr`. The stock prepass runs at the full
 render extent with one sample, independently of forward 1x or 4x MSAA. It writes
-`Depth32Float` camera depth and signed view-space geometric XYZ normals in
-`Rgba16Float`; alpha marks covered pixels. Meshes and terrain share camera
+`Depth32Float` camera depth and signed view-space XYZ normals in
+`Rgba16Float`; alpha marks covered pixels. SSAO alone uses geometric normals.
+Enabling SSR installs shading-normal variants and a matching F0/roughness pass. Meshes and terrain share camera
 selection, and masked cards use the colour shader's texture, sampler, billboard
 transform and alpha cutoff. Forward colour uses its own matching-sample depth,
 so a centre-sampled prepass cannot remove MSAA edge coverage.
@@ -83,8 +84,8 @@ levels use ceiling-half extents in separate textures, including odd final rows
 and columns. Background linearizes to the camera far distance. The deterministic
 hemisphere kernel consumes radius, intensity, sample count, surface bias and
 horizon angle. AO multiplies ambient diffuse lighting only; sunlight, emission
-and unlit colour are unchanged. With SSAO absent the original shaders and pass
-sequence remain in use.
+and unlit colour are unchanged. With both SSAO and SSR absent the original shaders
+and pass sequence remain in use.
 
 The scene and document settings now include explicit `sample_count` (1 through
 64) and `bias_millimeters`. Authored documents use render contract v4; earlier versions are
@@ -122,8 +123,11 @@ opaque snapshots see pre-water depth. Water loads and writes the camera depth
 attachment; subsequent passes reading that attachment see surface depth. The
 `post-water depth` resource is a distinct positive-view-metre resolve, refreshed
 after water at 1x and 4x. Later depth-based effects must declare this resource,
-not reuse the pre-water SSAO pyramid. Reflection normals and roughness are not
-provided yet, so effects requiring those inputs remain unsupported.
+not reuse the pre-water SSAO pyramid. Optional SSR uses the opaque snapshot as
+its reflected source, validates hit coverage and orientation, and adds filtered
+Fresnel-weighted specular with a smooth roughness cutoff. Matching pre-water and
+post-water sample reductions exclude water-covered receivers. Water is absent
+from the reflected source and does not export reflection metadata.
 
 One water writer is supported. Multiple water writers, and the reserved
 `TransparentAlpha` slot, return `FrameError::TransparentOrdering` before

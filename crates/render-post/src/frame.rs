@@ -7,6 +7,7 @@ use crate::FrameTargets;
 pub enum PassSlot {
     ShadowCasters(u32),
     DepthNormalPrepass,
+    ReflectionMaterial,
     DepthPyramid(u32),
     Ssao,
     SsaoBlur,
@@ -16,6 +17,8 @@ pub enum PassSlot {
     TransparentWater,
     TransparentAlpha,
     AfterWaterDepth,
+    ReflectionTrace,
+    ReflectionMip(u32),
     ScreenSpaceAfterTransparent,
 }
 
@@ -106,6 +109,8 @@ impl FeatureDeclaration {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
+    #[error("invalid or unsupported SSR setting: {0}")]
+    SsrSettings(&'static str),
     #[error("invalid or unsupported water setting: {0}")]
     WaterSettings(&'static str),
     #[error("transparent features require unsupported cross-feature sorting")]

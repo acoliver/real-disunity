@@ -110,6 +110,14 @@ fn level(index: u32) -> ResourceRef {
     }
 }
 impl ScreenPasses {
+    pub(crate) fn depth_levels(&self) -> Vec<&wgpu::Texture> {
+        self.stages
+            .iter()
+            .filter(|stage| matches!(stage.slot, PassSlot::DepthPyramid(_)))
+            .map(|stage| &stage.target)
+            .collect()
+    }
+
     pub fn new(
         device: &wgpu::Device,
         size: [u32; 2],

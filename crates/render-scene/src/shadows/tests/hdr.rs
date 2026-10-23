@@ -199,3 +199,34 @@ fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
         assert!(image.pixels.chunks_exact(4).any(|pixel| pixel[0] > 0));
     }
 }
+
+#[test]
+fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_1x_and_4x() {
+    let context = context();
+    for samples in [1, 4] {
+        let base =
+            super::terrain::terrain_scene(&scene(&[[0, 0, 1000]], 600_000, None), false, false);
+        let effects = base
+            .effects()
+            .unwrap()
+            .clone()
+            .with_ssr(worldrunner_render_plan::SceneSsr {
+                enabled: true,
+                max_steps: 64,
+                thickness_millimeters: 100,
+                roughness_cutoff_micro: 600_000,
+                resolution_scale_micro: 500_000,
+            })
+            .unwrap();
+        let source = RenderScene::new(SceneParts {
+            resources: base.resources().clone(),
+            geometry: base.geometry().clone(),
+            terrain: base.terrain().cloned(),
+            effects: Some(effects),
+        })
+        .unwrap();
+        let (raw, image) = hdr_capture(&context, &source, samples, 0.001);
+        assert!(raw.iter().any(|byte| *byte != 0));
+        assert!(image.pixels.chunks_exact(4).any(|pixel| pixel[0] > 0));
+    }
+}

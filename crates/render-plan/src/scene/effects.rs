@@ -512,6 +512,7 @@ pub struct SceneEffectsParts {
 /// and SSAO may be absent within a profile; the other fields are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffects {
+    ssr: Option<super::SceneSsr>,
     water: Option<SceneWaterPlane>,
     sky: SceneSky,
     sun: SceneSun,
@@ -525,6 +526,17 @@ pub struct SceneEffects {
 }
 
 impl SceneEffects {
+    /// Installs explicitly validated screen-space reflection settings.
+    pub fn with_ssr(mut self, settings: super::SceneSsr) -> Result<Self, SceneValidationError> {
+        settings.validate()?;
+        self.ssr = Some(settings);
+        Ok(self)
+    }
+    /// Returns the authored reflection policy, including an explicit disabled request.
+    pub const fn ssr(&self) -> Option<&super::SceneSsr> {
+        self.ssr.as_ref()
+    }
+
     /// Adopts every effects part after validating all quantity bounds.
     ///
     /// # Errors
@@ -532,6 +544,7 @@ impl SceneEffects {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn new(parts: SceneEffectsParts) -> Result<Self, SceneValidationError> {
         let effects = Self {
+            ssr: None,
             water: parts.water,
             sky: parts.sky,
             sun: parts.sun,
@@ -615,6 +628,9 @@ impl SceneEffects {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         if let Some(water) = self.water {
             water.validate()?;
+        }
+        if let Some(ssr) = self.ssr {
+            ssr.validate()?;
         }
         self.sun.validate()?;
         self.ambient.validate()?;

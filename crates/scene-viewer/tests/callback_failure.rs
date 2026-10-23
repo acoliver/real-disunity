@@ -25,6 +25,7 @@ fn main() {
     .unwrap();
     let options = ViewerOptions {
         frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
+        frames_in_flight: 2,
         title: "Callback failure regression".into(),
         size: [64, 64],
         camera: SceneCamera {
@@ -46,11 +47,15 @@ fn main() {
     };
     let dropped = Rc::new(Cell::new(false));
     let callback_drop = CallbackDrop(dropped.clone());
-    let called = Rc::new(Cell::new(false));
+    let called = Rc::new(Cell::new(0));
     let callback_called = called.clone();
     let result = run_with_updates(scene, options, move |_| {
         assert!(!callback_drop.0.get());
-        callback_called.set(true);
+        let count = callback_called.get() + 1;
+        callback_called.set(count);
+        if count < 3 {
+            return Ok(());
+        }
         Err(InstanceError::Resource {
             resource: "callback sentinel",
             index: 17,
@@ -63,7 +68,7 @@ fn main() {
             index: 17,
         }))
     ));
-    assert!(called.get());
+    assert_eq!(called.get(), 3);
     assert!(dropped.get(), "the application must release its callback");
     println!("application callback failure propagates and cleans up: passed");
 }

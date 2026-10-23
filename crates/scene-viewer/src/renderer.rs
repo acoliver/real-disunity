@@ -1,7 +1,9 @@
 use std::sync::{Arc, mpsc};
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
-use worldrunner_render_gpu::surface::{AcquiredFrame, Presenter, SurfaceError, SurfacePolicy};
+use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
+
+mod execution;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_scene::{
     SceneView, Viewport,
@@ -19,7 +21,8 @@ use crate::{
 
 pub(super) struct Renderer {
     // Surface is dropped before its instance/window; it also owns an Arc<Window>.
-    presenter: Presenter<'static>,
+    execution: execution::SurfaceExecution,
+    #[cfg(all(test, target_os = "linux"))]
     instance: wgpu::Instance,
     pub window: Arc<Window>,
     context: GpuContext,
@@ -46,6 +49,7 @@ impl Renderer {
         scene: &RenderScene,
         shadows: Option<DirectionalShadowSettings>,
         profile: crate::FrameProfile,
+        frames_in_flight: usize,
     ) -> Result<Self, ViewerError> {
         let instance = wgpu::Instance::new(
             wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display)),
@@ -65,16 +69,7 @@ impl Renderer {
             [size.width, size.height],
             context.device().limits().max_texture_dimension_2d,
         )?;
-        let initial = extents.unwrap_or(Extents {
-            surface: Viewport {
-                width: 1,
-                height: 1,
-            },
-            render: Viewport {
-                width: 1,
-                height: 1,
-            },
-        });
+        let initial = extents.unwrap_or_else(Extents::placeholder);
         let viewport = extents.map(|extents| extents.surface);
         let capabilities = surface.get_capabilities(context.adapter());
         let policy = surface_policy(&capabilities, [size.width, size.height])?;
@@ -88,9 +83,18 @@ impl Renderer {
             scene.effects(),
         )?;
         let resident = Resident::new(&context, scene, shadows, profile)?;
-        let renderer = Self {
+        #[cfg(all(test, target_os = "linux"))]
+        let test_instance = instance.clone();
+        let execution = execution::SurfaceExecution::new(
             presenter,
             instance,
+            window.clone(),
+            frames_in_flight,
+        )?;
+        let renderer = Self {
+            execution,
+            #[cfg(all(test, target_os = "linux"))]
+            instance: test_instance,
             window,
             context,
             presentation,
@@ -102,26 +106,14 @@ impl Renderer {
         Ok(renderer)
     }
 
-    pub fn scene_mut(&mut self) -> &mut SceneGpu {
-        self.resident.scene_mut()
-    }
-
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
         let extents = Extents::new(
             size,
             self.context.device().limits().max_texture_dimension_2d,
         )?;
-        self.presenter
-            .resize(self.context.device(), size)
-            .map_err(surface_error)?;
+        self.execution.resize(self.context.device(), size)?;
         self.viewport = extents.map(|extents| extents.surface);
-        if let Some(extents) = extents
-            && (self.presentation.targets.color.texture().width() != extents.render.width
-                || self.presentation.targets.color.texture().height() != extents.render.height)
-        {
-            self.presentation
-                .resize(self.context.device(), extents.render);
-        }
+        self.window.request_redraw();
         Ok(())
     }
 
@@ -132,50 +124,40 @@ impl Renderer {
         Ok(())
     }
 
-    /// Returns whether a frame was actually presented (not merely requested).
-    pub fn render(&mut self, view: &SceneView) -> Result<bool, ViewerError> {
-        self.check_errors()?;
-        if self.viewport.is_none() {
+    pub fn poll(&self) -> Result<(), ViewerError> {
+        self.context
+            .device()
+            .poll(wgpu::PollType::Poll)
+            .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+        self.check_errors()
+    }
+
+    /// Admission and completion progress never wait for GPU work on the event thread.
+    pub fn render(
+        &mut self,
+        view: &SceneView,
+        update: &mut crate::SceneUpdate,
+    ) -> Result<bool, ViewerError> {
+        self.poll()?;
+        let resident = &mut self.resident;
+        let Some(ready) = self.execution.acquire(&self.context, || {
+            update(resident.scene_mut()).map_err(ViewerError::from)
+        })?
+        else {
             return Ok(false);
-        }
-        let acquired = self
-            .presenter
-            .acquire(self.context.device())
-            .map_err(surface_error)?;
-        self.render_frame(view, acquired)
-    }
-
-    #[cfg(all(test, target_os = "linux"))]
-    fn render_acquired(
-        &mut self,
-        view: &SceneView,
-        acquired: wgpu::CurrentSurfaceTexture,
-    ) -> Result<bool, ViewerError> {
-        let acquired = self
-            .presenter
-            .handle_acquired(self.context.device(), acquired)
-            .map_err(surface_error)?;
-        self.render_frame(view, acquired)
-    }
-
-    fn render_frame(
-        &mut self,
-        view: &SceneView,
-        acquired: AcquiredFrame,
-    ) -> Result<bool, ViewerError> {
-        let frame = match acquired {
-            AcquiredFrame::Frame(frame) => frame,
-            AcquiredFrame::Skip | AcquiredFrame::Reconfigure => return Ok(false),
-            AcquiredFrame::Recreate => {
-                let surface = self.instance.create_surface(self.window.clone())?;
-                let capabilities = surface.get_capabilities(self.context.adapter());
-                self.presenter
-                    .replace_surface(surface, &capabilities, self.context.device())
-                    .map_err(surface_error)?;
-                return Ok(false);
-            }
         };
-        let targets = &self.presentation.targets;
+        let size = self.viewport.expect("acquired nonzero extent");
+        let extents = Extents::new(
+            [size.width, size.height],
+            self.context.device().limits().max_texture_dimension_2d,
+        )?
+        .expect("acquired nonzero extent");
+        self.presentation
+            .resize(self.context.device(), extents.render);
+        self.resident.select_frame_slot(ready.admission.slot());
+        self.presentation
+            .scheduler
+            .select_frame_slot(ready.admission.slot());
         let mut encoder =
             self.context
                 .device()
@@ -185,18 +167,18 @@ impl Renderer {
         self.resident.render(
             &self.context,
             view,
-            targets,
+            &self.presentation.targets,
             &mut encoder,
             &mut self.presentation.scheduler,
         )?;
-        let output = frame
+        let output = ready
+            .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.presentation.present(&mut encoder, &output);
-        self.context.queue().submit([encoder.finish()]);
+        self.execution
+            .submit(ready, encoder.finish(), &self.context);
         self.check_errors()?;
-        self.window.pre_present_notify();
-        self.context.queue().present(frame);
         Ok(true)
     }
 }
@@ -258,6 +240,12 @@ fn surface_policy(
 }
 
 impl Resident {
+    fn select_frame_slot(&mut self, slot: usize) {
+        match self {
+            Self::Plain(plain) => plain.gpu.select_frame_slot(slot),
+            Self::Shadowed(shadowed) => shadowed.select_frame_slot(slot),
+        }
+    }
     fn scene_mut(&mut self) -> &mut SceneGpu {
         match self {
             Self::Plain(plain) => &mut plain.gpu,

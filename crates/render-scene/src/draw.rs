@@ -142,6 +142,7 @@ struct Retained {
 pub struct SceneGpu {
     frame_buffer: Buffer,
     frame_group: BindGroup,
+    frame_slots: Vec<(Buffer, BindGroup)>,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
@@ -194,15 +195,10 @@ impl SceneGpu {
             .map(MeshSelection::new)
             .collect();
         let terrain = upload_terrain(device, queue, scene, pipelines.terrain_layout(), &sampler)?;
-        let frame_buffer = upload_buffer(
-            device,
-            queue,
-            "frame uniform",
-            BufferUsages::UNIFORM | BufferUsages::COPY_SRC,
-            &[0u8; FRAME_UNIFORM_BYTES],
-        );
-        let frame_group = frame_group(device, pipelines.frame_layout(), &frame_buffer);
+        let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
+        let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
+            frame_slots,
             frame_buffer,
             frame_group,
             materials,
@@ -386,6 +382,26 @@ impl SceneGpu {
                 .count()
         })
     }
+}
+
+fn allocate_frame_slots(
+    device: &Device,
+    queue: &Queue,
+    layout: &BindGroupLayout,
+) -> Vec<(Buffer, BindGroup)> {
+    (0..3)
+        .map(|_| {
+            let buffer = upload_buffer(
+                device,
+                queue,
+                "frame slot uniform",
+                BufferUsages::UNIFORM | BufferUsages::COPY_SRC,
+                &[0u8; FRAME_UNIFORM_BYTES],
+            );
+            let group = frame_group(device, layout, &buffer);
+            (buffer, group)
+        })
+        .collect()
 }
 
 fn frame_group(device: &Device, layout: &BindGroupLayout, buffer: &Buffer) -> BindGroup {

@@ -217,6 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     run(
         scene(terrain),
         ViewerOptions {
+            frames_in_flight: 2,
             frame_profile: if std::env::args().any(|arg| arg == "--hdr") {
                 worldrunner::scene::viewer::FrameProfile::Hdr {
                     samples: if std::env::args().any(|arg| arg == "--msaa") {

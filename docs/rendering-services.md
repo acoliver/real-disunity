@@ -25,6 +25,10 @@ The service crates do not own application assets, scene documents, filesystem pu
 
 `surface::Presenter`, `SurfacePolicy` and `AcquiredFrame` separate presentation mechanics from host recovery. Zero-area suspension, configure/recreate actions and validation errors remain distinct. Native surface extent and bounded scene-attachment extent are different contracts; the host must not silently substitute one for the other.
 
+## Viewer frame pacing
+
+Admission and completion progress never block the event thread. Backend drawable acquisition can wait for a presentable image through Metal `nextDrawable`, Vulkan `acquire_next_image`, or the DX12 frame-latency wait. Present mode and frames-in-flight settings bound that wait according to the backend's presentation policy.
+
 ## Lighting, shadows and exposure
 
 `EnvironmentConfig::prepare` validates `LightingFrame`, direct and optional independent shadow directions, radiance, ambient inputs and `ExposureOwnership`. The coefficient transform must be orthonormal; reflections are permitted, scale and shear are not. Direction semantics are explicit rather than inferred. Polynomial coefficients retain the documented `[1,x,y,z,xy,xz,yz,x²-y²,z²]` order and the caller's normalization/convolution convention.

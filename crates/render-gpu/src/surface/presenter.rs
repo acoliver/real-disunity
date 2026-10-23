@@ -9,6 +9,7 @@ pub struct Presenter<'window> {
     config: wgpu::SurfaceConfiguration,
     state: PresenterState,
     generation: u64,
+    transition: super::SurfaceTransition,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +33,7 @@ impl<'window> Presenter<'window> {
             config,
             state: PresenterState::Unconfigured,
             generation: 0,
+            transition: super::SurfaceTransition::new(policy.size),
         };
         presenter.reconfigure(device)?;
         Ok(presenter)
@@ -58,10 +60,27 @@ impl<'window> Presenter<'window> {
         validate_extent(size, device.limits().max_texture_dimension_2d)?;
         self.config.width = size[0];
         self.config.height = size[1];
-        if self.state == PresenterState::Lost {
-            return Ok(!size.contains(&0));
+        self.transition.resize(size);
+        Ok(!size.contains(&0))
+    }
+
+    /// Apply coalesced requests only after all acquired images and admissions retire.
+    /// The host calls this on its render execution thread, never in an input callback.
+    pub fn apply_pending(&mut self, device: &wgpu::Device) -> Result<AcquiredFrame, SurfaceError> {
+        if self.is_suspended() {
+            return Ok(AcquiredFrame::Skip);
         }
-        self.reconfigure(device)
+        if self.state == PresenterState::Lost {
+            return Ok(AcquiredFrame::Recreate);
+        }
+        if self.transition.action(0) == super::SurfaceAction::Configure {
+            self.reconfigure(device)?;
+        }
+        Ok(AcquiredFrame::Reconfigure)
+    }
+
+    pub fn has_pending_transition(&self) -> bool {
+        !matches!(self.transition.action(0), super::SurfaceAction::None)
     }
 
     fn reconfigure(&mut self, device: &wgpu::Device) -> Result<bool, SurfaceError> {
@@ -71,6 +90,7 @@ impl<'window> Presenter<'window> {
             return Ok(false);
         }
         self.state = PresenterState::Ready;
+        self.transition.configured();
         self.generation += 1;
         Ok(true)
     }
@@ -107,6 +127,9 @@ impl<'window> Presenter<'window> {
             PresenterState::Suspended => Ok(AcquiredFrame::Skip),
             PresenterState::Lost => Ok(AcquiredFrame::Recreate),
             PresenterState::Unconfigured => Err(SurfaceError::Unconfigured),
+            PresenterState::Ready if self.has_pending_transition() => {
+                Ok(AcquiredFrame::Reconfigure)
+            }
             PresenterState::Ready => {
                 self.handle_acquired(device, self.surface.get_current_texture())
             }
@@ -117,7 +140,7 @@ impl<'window> Presenter<'window> {
     /// injection). Usable suboptimal frames never trigger a reconfiguration loop.
     pub fn handle_acquired(
         &mut self,
-        device: &wgpu::Device,
+        _device: &wgpu::Device,
         acquired: wgpu::CurrentSurfaceTexture,
     ) -> Result<AcquiredFrame, SurfaceError> {
         if self.is_suspended() {
@@ -131,11 +154,12 @@ impl<'window> Presenter<'window> {
         }
         match classify(acquired)? {
             AcquiredFrame::Reconfigure => {
-                self.reconfigure(device)?;
-                Ok(AcquiredFrame::Skip)
+                self.transition.outdated();
+                Ok(AcquiredFrame::Reconfigure)
             }
             AcquiredFrame::Recreate => {
                 self.state = PresenterState::Lost;
+                self.transition.lost();
                 Ok(AcquiredFrame::Recreate)
             }
             outcome => Ok(outcome),

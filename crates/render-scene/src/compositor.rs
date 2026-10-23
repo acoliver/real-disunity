@@ -6,7 +6,8 @@ use worldrunner_render_post::{
 };
 
 /// Retained executor for encoder-only composition. Submission belongs to the host.
-/// Submit a successful encoder before preparing another frame on shared resources.
+/// Select a distinct admitted slot before preparing each overlapping frame, then submit
+/// successful encoders in preparation order before reusing their slots after completion.
 /// On error, no uploads or draws are appended and resident state is unchanged.
 /// A successful encoder must not be abandoned: its uploads have been committed.
 pub struct FrameRenderer {
@@ -18,6 +19,10 @@ impl std::fmt::Debug for FrameRenderer {
     }
 }
 impl FrameRenderer {
+    /// Select the host's admitted frame slot before preparing any features.
+    pub fn select_frame_slot(&mut self, slot: usize) {
+        self.chain.select_frame_slot(slot);
+    }
     pub fn new(device: &wgpu::Device) -> Self {
         Self::with_output(
             device,

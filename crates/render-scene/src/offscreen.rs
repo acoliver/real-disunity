@@ -151,16 +151,16 @@ impl ReadbackLayout {
     }
 }
 
-/// Retained colour, depth and staging resources for repeated captures.
+/// Retained colour, depth and three independent staging slots for repeated captures.
 ///
 /// Submit custom rendering against the views, then call [`Self::read_rgba8`].
-/// Mutable readback access prevents overlapping mappings of the staging buffer.
+/// The convenience methods use slot zero. Explicit slots retain unread captures independently.
 #[derive(Debug)]
 pub struct OffscreenTarget {
     color: wgpu::Texture,
     color_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
-    readback: Readback,
+    readback: [Readback; 3],
     layout: ReadbackLayout,
 }
 
@@ -173,9 +173,11 @@ impl OffscreenTarget {
         Self::with_max_readback_bytes(device, viewport, DEFAULT_MAX_READBACK_BYTES)
     }
 
-    /// Creates a target with an explicit padded staging byte cap, still device-bounded.
-    /// The colour and depth textures each need about the same bytes as the staging
-    /// buffer; readback also allocates one tightly packed CPU image.
+    /// Creates a target with an explicit per-slot padded staging byte cap, still device-bounded.
+    /// Three staging buffers together allocate three times the padded image size. Colour and
+    /// depth each need about one image; each read also allocates a tightly packed CPU image.
+    /// An encoder containing a capture must be submitted and read before reusing its slot;
+    /// abandoning it does not cancel the unread capture.
     pub fn with_max_readback_bytes(
         device: &wgpu::Device,
         viewport: Viewport,
@@ -191,7 +193,11 @@ impl OffscreenTarget {
             u64::from(layout.bytes_per_row) * u64::from(viewport.height),
             layout.padded_bytes as u64
         );
-        let readback = Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?;
+        let readback = [
+            Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?,
+            Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?,
+            Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?,
+        ];
         Ok(Self {
             color,
             color_view,
@@ -277,13 +283,22 @@ impl OffscreenTarget {
     }
 
     /// Appends capture to the frame encoder, avoiding a second submission.
-    /// Reuses one capture buffer. Complete `read_encoded` before encoding another
-    /// capture if both results are needed; a borrow does not reserve a capture slot.
+    /// Uses slot zero and rejects overwriting an unread capture.
+    /// Use explicit slots when more than one capture is pending.
     pub fn encode_readback(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), OffscreenError> {
-        self.readback
+        self.encode_readback_slot(0, encoder)
+    }
+
+    /// Encode into an admitted slot. Unread captures cannot be overwritten.
+    pub fn encode_readback_slot(
+        &mut self,
+        slot: usize,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), OffscreenError> {
+        self.readback[slot]
             .encode(encoder, &self.color)
             .map_err(output_error)
     }
@@ -294,8 +309,17 @@ impl OffscreenTarget {
         context: &GpuContext,
         submission: wgpu::SubmissionIndex,
     ) -> Result<RgbaImage, OffscreenError> {
-        let pixels = self
-            .readback
+        self.read_encoded_slot(context, 0, submission)
+    }
+
+    /// Read only the named capture's submission, leaving other slots untouched.
+    pub fn read_encoded_slot(
+        &mut self,
+        context: &GpuContext,
+        slot: usize,
+        submission: wgpu::SubmissionIndex,
+    ) -> Result<RgbaImage, OffscreenError> {
+        let pixels = self.readback[slot]
             .read_encoded(context.device(), Some(submission))
             .map_err(output_error)?;
         Ok(RgbaImage {
@@ -310,8 +334,7 @@ impl OffscreenTarget {
     /// Timeouts return [`OffscreenError::Poll`] with [`wgpu::PollError::Timeout`].
     /// All resources and the supplied context must belong to the same device.
     pub fn read_rgba8(&mut self, context: &GpuContext) -> Result<RgbaImage, OffscreenError> {
-        let pixels = self
-            .readback
+        let pixels = self.readback[0]
             .read(context.device(), context.queue(), &self.color)
             .map_err(output_error)?;
         Ok(RgbaImage {

@@ -3,6 +3,14 @@ use worldrunner_render_plan::{SceneObject, SceneTransform};
 use super::{InstanceError, InstanceHandle, InstanceWrite, SceneGpu};
 
 impl SceneGpu {
+    /// Select the admitted slot before encoding. The host must retain its admission
+    /// until submission completion before selecting the same slot again.
+    pub fn select_frame_slot(&mut self, slot: usize) {
+        let (buffer, group) = &self.frame_slots[slot];
+        self.frame_buffer = buffer.clone();
+        self.frame_group = group.clone();
+    }
+
     /// Adds a placement referencing this scene's existing mesh/material tables.
     /// Queue writes are deferred until [`Self::flush_instances`].
     pub fn add_instance(

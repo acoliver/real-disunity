@@ -35,6 +35,8 @@ pub struct ViewerOptions {
     pub shadows: Option<DirectionalShadowSettings>,
     /// Legacy copy output or explicit HDR with fixed scene exposure and tone mapping.
     pub frame_profile: FrameProfile,
+    /// Maximum admitted submissions, in 1..=3. Select two for interactive presentation.
+    pub frames_in_flight: usize,
 }
 
 /// Startup, presentation or scene rendering failed.
@@ -113,6 +115,11 @@ pub(crate) type SceneUpdate = Box<
 >;
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {
+    if !(1..=3).contains(&options.frames_in_flight) {
+        return Err(ViewerError::InvalidOptions(
+            "frames in flight must be in 1..=3",
+        ));
+    }
     if options.size.iter().any(|&side| side == 0 || side > 4096) {
         return Err(ViewerError::InvalidOptions(
             "window dimensions must be in 1..=4096",

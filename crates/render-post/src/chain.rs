@@ -224,6 +224,8 @@ pub struct PostChain<F> {
     factory: F,
     configured: StageSet,
     features: Vec<crate::frame::RegisteredFeature>,
+    upload_slots: [Vec<wgpu::Buffer>; 3],
+    frame_slot: usize,
 }
 
 impl<F: StageFactory> PostChain<F> {
@@ -242,6 +244,8 @@ impl<F: StageFactory> PostChain<F> {
             factory,
             configured,
             features: Vec::new(),
+            upload_slots: std::array::from_fn(|_| Vec::new()),
+            frame_slot: 0,
         })
     }
 
@@ -265,6 +269,13 @@ impl<F: StageFactory> PostChain<F> {
         self.targets = targets;
         self.configured = configured;
         Ok(true)
+    }
+
+    /// Select only a reserved slot whose preceding submission has completed.
+    /// Immutable staging allocations remain owned by this slot until its next use.
+    pub fn select_frame_slot(&mut self, slot: usize) {
+        assert!(slot < self.upload_slots.len(), "frame slot out of range");
+        self.frame_slot = slot;
     }
 
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
@@ -360,7 +371,7 @@ impl<F: StageFactory> PostChain<F> {
                 .expect("validated feature build")
                 .commit(&mut context);
         }
-        context.finish();
+        self.upload_slots[self.frame_slot] = context.finish();
         Ok(())
     }
 

@@ -90,6 +90,19 @@ pub(super) struct Extents {
 }
 
 impl Extents {
+    pub fn placeholder() -> Self {
+        Self {
+            surface: Viewport {
+                width: 1,
+                height: 1,
+            },
+            render: Viewport {
+                width: 1,
+                height: 1,
+            },
+        }
+    }
+
     pub fn new(size: [u32; 2], device_limit: u32) -> Result<Option<Self>, ViewerError> {
         if size.contains(&0) {
             return Ok(None);

@@ -206,6 +206,7 @@ internal static class LifecycleTests
             CallbackAttachment();
             RemovalBeforeStart();
             LifecycleDestructionTests.Run(image);
+            CommandDestructionTests.Run(image);
         }
         finally
         {

@@ -35,7 +35,7 @@ pub(super) fn assert_pending_submission_cleanup(mut renderer: Renderer) {
         renderer
             .execution
             .submit_with_completion(ready, commands, &renderer.context, |callback| {
-                complete = Some(callback)
+                complete = Some(callback);
             });
     // Finish GPU work but withhold the completion acknowledgment through production cleanup.
     ticket.wait(renderer.context.device()).unwrap();

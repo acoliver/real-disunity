@@ -2,6 +2,8 @@ mod culling;
 mod fixture;
 mod geometry;
 mod retained;
+mod scheduler;
+mod subresources;
 mod validation;
 
 use glam::{Vec3, Vec4};
@@ -267,9 +269,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     let first = target.read_rgba8(&context).unwrap();
     renderer.set_effects(&fixture::effects(-600_000)).unwrap();
     renderer
@@ -281,9 +281,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
             },
         )
         .unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     let second = target.read_rgba8(&context).unwrap();
     let reversed = scene(&[[0, 0, 1_000]], -600_000, None);
     let baseline = capture_scene(&context, &reversed, &view()).unwrap();
@@ -304,9 +302,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
             },
         )
         .unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     let outside = target.read_rgba8(&context).unwrap();
     assert_lit(
         &outside,
@@ -386,9 +382,7 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
         Err(ShadowError::UnsupportedFeature("water"))
     ));
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert!(
         target.read_rgba8(&context).unwrap() == capture_scene(&context, &source, &view()).unwrap(),
         "invalid updates must leave usable old resources and effects"
@@ -446,4 +440,18 @@ fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
         "shadow visibility must not multiply hemisphere ambient or emission"
     );
     assert!(at(&image, Vec3::new(-0.75, 0.0, 0.0)) > 150);
+}
+
+fn render_target(
+    renderer: &mut ShadowedScene,
+    context: &GpuContext,
+    view: &SceneView,
+    target: &OffscreenTarget,
+) -> Result<(), ShadowError> {
+    renderer.render(
+        context,
+        view,
+        &target.color_attachment(),
+        &target.depth_attachment(),
+    )
 }

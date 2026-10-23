@@ -197,7 +197,7 @@ impl SceneGpu {
             device,
             queue,
             "frame uniform",
-            BufferUsages::UNIFORM,
+            BufferUsages::UNIFORM | BufferUsages::COPY_SRC,
             &[0u8; FRAME_UNIFORM_BYTES],
         );
         let frame_group = frame_group(device, pipelines.frame_layout(), &frame_buffer);

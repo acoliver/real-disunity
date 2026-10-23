@@ -2,6 +2,14 @@
 //! Shader policy, adaptation rules and LUT data remain caller-authored.
 mod chain;
 mod copy;
+mod frame;
+#[cfg(test)]
+mod frame_tests;
+pub use frame::{
+    AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
+    DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature, FramePlan,
+    PassDeclaration, PassSlot, PrepareContext, PreparedFeature, ResourceRef, validate_frame,
+};
 #[cfg(test)]
 mod copy_gpu_tests;
 #[cfg(test)]
@@ -18,6 +26,8 @@ pub use targets::{FrameConfig, FrameTargets, color_texture};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PostError {
+    #[error(transparent)]
+    Frame(#[from] FrameError),
     #[error("post target extent is empty")]
     EmptyExtent,
     #[error("post extent {size:?} exceeds texture limit {limit}")]

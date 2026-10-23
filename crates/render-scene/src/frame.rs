@@ -192,6 +192,14 @@ impl FrameUniform {
 
 /// Rejects authored requests that the stock pipelines cannot execute.
 pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), FrameError> {
+    if effects.water().is_some() {
+        return Err(FrameError::UnsupportedEffect("water"));
+    }
+    if effects.grading().contrast_micro != 1_000_000
+        || effects.grading().saturation_micro != 1_000_000
+    {
+        return Err(FrameError::UnsupportedEffect("color grading"));
+    }
     if effects.ssao().is_some() {
         return Err(FrameError::UnsupportedEffect("SSAO"));
     }

@@ -1,12 +1,13 @@
 use crate::ViewerError;
-use worldrunner_render_post::{CopyOutput, FrameConfig, PostChain, Resources};
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_scene::compositor::FrameRenderer;
 use worldrunner_render_scene::{Viewport, renderer::depth_texture};
 
 /// Keep the scene renderer's sRGB contract; copy output adds no new display look.
 pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 pub(super) struct Presentation {
-    chain: PostChain<CopyOutput>,
+    pub scheduler: FrameRenderer,
     pub targets: Targets,
 }
 
@@ -17,34 +18,36 @@ pub(super) struct Targets {
 
 impl Presentation {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: Viewport) -> Self {
-        let chain = PostChain::new(
+        let chain = FrameRenderer::with_output(
             device,
             FrameConfig::new([size.width, size.height], COLOR, 1),
-            Resources::default(),
-            CopyOutput::new(device, format),
+            format,
         )
         .expect("validated viewer extent");
         let targets = Targets::new(device, &chain, size);
-        Self { chain, targets }
+        Self {
+            scheduler: chain,
+            targets,
+        }
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, size: Viewport) {
         if self
-            .chain
+            .scheduler
             .resize(device, [size.width, size.height])
             .expect("validated viewer extent")
         {
-            self.targets = Targets::new(device, &self.chain, size);
+            self.targets = Targets::new(device, &self.scheduler, size);
         }
     }
 
     pub fn present(&self, encoder: &mut wgpu::CommandEncoder, surface: &wgpu::TextureView) {
-        self.chain.encode(encoder, surface);
+        self.scheduler.encode_output(encoder, surface);
     }
 }
 
 impl Targets {
-    fn new(device: &wgpu::Device, chain: &PostChain<CopyOutput>, size: Viewport) -> Self {
+    fn new(device: &wgpu::Device, chain: &FrameRenderer, size: Viewport) -> Self {
         Self {
             color: chain.targets().scene().clone(),
             depth: depth_texture(device, size).create_view(&wgpu::TextureViewDescriptor::default()),

@@ -61,6 +61,8 @@ pub enum ViewerError {
     #[error("GPU error: {0}")]
     Gpu(String),
     #[error(transparent)]
+    Schedule(#[from] worldrunner_render_post::FrameError),
+    #[error(transparent)]
     Instance(#[from] worldrunner_render_scene::draw::InstanceError),
     #[error(transparent)]
     Draw(#[from] worldrunner_render_scene::draw::DrawError),

@@ -143,7 +143,7 @@ impl ShadowMap {
             device,
             context.queue(),
             "shadow uniform",
-            wgpu::BufferUsages::UNIFORM,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_SRC,
             &[0; SHADOW_UNIFORM_BYTES],
         );
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {

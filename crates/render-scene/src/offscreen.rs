@@ -201,6 +201,23 @@ impl OffscreenTarget {
         })
     }
 
+    /// Checked mip-zero, layer-zero color attachment for stock composition.
+    pub fn color_attachment(&self) -> worldrunner_render_post::AttachmentView {
+        worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene color"),
+            self.color_view().texture(),
+        )
+        .expect("offscreen color subresource")
+    }
+    /// Checked mip-zero, layer-zero depth attachment for stock composition.
+    pub fn depth_attachment(&self) -> worldrunner_render_post::AttachmentView {
+        worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene depth"),
+            self.depth_view().texture(),
+        )
+        .expect("offscreen depth subresource")
+    }
+
     /// Returns the retained colour attachment for custom rendering.
     pub const fn color_view(&self) -> &wgpu::TextureView {
         &self.color_view
@@ -254,8 +271,37 @@ impl OffscreenTarget {
             });
             scene.draw(&mut pass, pipelines);
         }
-        context.queue().submit([encoder.finish()]);
-        self.read_rgba8(context)
+        self.encode_readback(&mut encoder)?;
+        let submission = context.queue().submit([encoder.finish()]);
+        self.read_encoded(context, submission)
+    }
+
+    /// Appends capture to the frame encoder, avoiding a second submission.
+    /// Reuses one capture buffer. Complete `read_encoded` before encoding another
+    /// capture if both results are needed; a borrow does not reserve a capture slot.
+    pub fn encode_readback(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), OffscreenError> {
+        self.readback
+            .encode(encoder, &self.color)
+            .map_err(output_error)
+    }
+
+    /// Waits only for a submitted frame that already contains the capture copy.
+    pub fn read_encoded(
+        &mut self,
+        context: &GpuContext,
+        submission: wgpu::SubmissionIndex,
+    ) -> Result<RgbaImage, OffscreenError> {
+        let pixels = self
+            .readback
+            .read_encoded(context.device(), Some(submission))
+            .map_err(output_error)?;
+        Ok(RgbaImage {
+            viewport: self.viewport(),
+            pixels,
+        })
     }
 
     /// Copies previously submitted rendering and strips its padded rows.

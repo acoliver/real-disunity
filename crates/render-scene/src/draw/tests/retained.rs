@@ -278,3 +278,55 @@ fn assert_gpu_growth(
         gpu.remove_instance(handle).unwrap();
     }
 }
+
+#[test]
+fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
+    use worldrunner_render_post::BufferReadback;
+    let context = context();
+    let source = scene(SceneAlphaMode::Opaque, false, 2);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let handle = gpu.instance_handles().next().unwrap();
+    let old_size = gpu
+        .instances
+        .batches
+        .values()
+        .next()
+        .unwrap()
+        .buffer
+        .as_ref()
+        .unwrap()
+        .size();
+    gpu.set_instance_transform(handle, moved(1234)).unwrap();
+    for _ in 0..8 {
+        gpu.add_instance(source.geometry().objects()[0], true)
+            .unwrap();
+    }
+    let mut encoder = context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let writes = gpu.flush_instances_encoded(context.device(), &mut encoder);
+    assert_eq!(
+        writes
+            .iter()
+            .map(|write| write.instances.clone())
+            .collect::<Vec<_>>(),
+        [0..1, 2..10]
+    );
+    let batch = gpu.instances.batches.values().next().unwrap();
+    let buffer = batch.buffer.as_ref().unwrap();
+    assert!(buffer.size() > old_size);
+    let mut readback =
+        BufferReadback::new(context.device(), batch.bytes.len() as u64, 4096).unwrap();
+    readback.encode(&mut encoder, buffer).unwrap();
+    let submission = context.queue().submit([encoder.finish()]);
+    let bytes = readback
+        .read_encoded(context.device(), Some(submission))
+        .unwrap();
+    assert_eq!(
+        bytes, batch.bytes,
+        "growth copy precedes changed-range uploads"
+    );
+}
+
+mod scheduler;

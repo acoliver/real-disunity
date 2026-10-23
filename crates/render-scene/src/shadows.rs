@@ -23,7 +23,7 @@
 //! // Retain these for subsequent views/lighting changes, with no reupload.
 //! let mut renderer = ShadowedScene::new(context, scene, settings)?;
 //! let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
-//! renderer.render(context, view, target.color_view(), target.depth_view())?;
+//! renderer.render(context, view, &target.color_attachment(), &target.depth_attachment())?;
 //! let image = target.read_rgba8(context)?;
 //! # Ok(())
 //! # }
@@ -35,6 +35,9 @@ mod settings;
 pub use settings::{DirectionalShadowSettings, MAX_SHADOW_RESOLUTION};
 
 use worldrunner_render_plan::{RenderScene, SceneEffects};
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FeatureDeclaration, PassDeclaration, PassSlot, ResourceRef,
+};
 
 use crate::device::GpuContext;
 use crate::draw::{DrawError, SceneGpu};
@@ -51,6 +54,8 @@ pub enum ShadowError {
     /// Settings must describe a finite, representable coverage box and biases.
     #[error("invalid directional shadow fit or bias settings")]
     InvalidSettings,
+    #[error(transparent)]
+    Schedule(#[from] worldrunner_render_post::FrameError),
     /// Resolution exceeds the explicit resource ceiling or device limit.
     #[error("shadow resolution {requested} is outside 1..={limit}")]
     Resolution {
@@ -95,6 +100,7 @@ pub struct ShadowedScene {
     map: ShadowMap,
     settings: DirectionalShadowSettings,
     effects: SceneEffects,
+    scheduler: crate::compositor::FrameRenderer,
 }
 
 impl ShadowedScene {
@@ -122,7 +128,7 @@ impl ShadowedScene {
             context.device(),
             context.queue(),
             "shadow frame",
-            wgpu::BufferUsages::UNIFORM,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_SRC,
             &[0; FRAME_UNIFORM_BYTES],
         );
         let depth_frame_group = context
@@ -137,6 +143,7 @@ impl ShadowedScene {
             });
         let map = ShadowMap::new(context, settings, &shadow_layout)?;
         Ok(Self {
+            scheduler: crate::compositor::FrameRenderer::new(context.device()),
             gpu,
             pipelines,
             depth_pipelines,
@@ -200,9 +207,46 @@ impl ShadowedScene {
         &mut self,
         context: &GpuContext,
         view: &SceneView,
-        color: &wgpu::TextureView,
-        depth: &wgpu::TextureView,
+        color: &AttachmentView,
+        depth: &AttachmentView,
     ) -> Result<(), ShadowError> {
+        let mut encoder =
+            context
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("shadowed scene"),
+                });
+        self.encode(context, view, color, depth, &mut encoder)?;
+        context.queue().submit([encoder.finish()]);
+        Ok(())
+    }
+
+    /// Encodes all uploads and passes without submitting, for composition with output.
+    /// Submit before preparing another frame. Errors leave resident state and the
+    /// encoder unchanged; a successful encoder must be submitted, not abandoned.
+    /// Checked attachments retain their selected mip and array layer.
+    pub fn encode(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        color: &AttachmentView,
+        depth: &AttachmentView,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), ShadowError> {
+        self.encode_with(context, view, (color, depth), encoder, None)
+    }
+
+    /// Uses a host's retained scheduler for both scene and output composition.
+    /// The submission, abandonment and checked-attachment rules of [`Self::encode`] apply.
+    pub fn encode_with(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        attachments: (&AttachmentView, &AttachmentView),
+        encoder: &mut wgpu::CommandEncoder,
+        scheduler: Option<&mut crate::compositor::FrameRenderer>,
+    ) -> Result<(), ShadowError> {
+        let (color, depth) = attachments;
         let frame = FrameUniform::new(view, Some(&self.effects))?;
         let matrix = self
             .gpu
@@ -210,60 +254,50 @@ impl ShadowedScene {
         if !matrix.is_finite() || matrix.determinant() == 0.0 {
             return Err(ShadowError::InvalidSettings);
         }
-        self.gpu.flush_instances(context.device(), context.queue());
-        self.gpu.set_frame(context.queue(), frame);
-        // Keep the actual camera position: billboards must face the camera in
-        // BOTH passes, not rotate toward the light during shadow rendering.
-        let light_frame = FrameUniform {
-            view_projection: matrix,
-            ..frame
+        let shadow = ResourceRef::new("shadow depth");
+        let color_id = crate::compositor::attachment_resource("scene color", color);
+        let depth_id = crate::compositor::attachment_resource("scene depth", depth);
+        let shadow_view = self.map.depth.layer_view(0)?;
+        let mut shadow_pass = PassDeclaration::new(PassSlot::ShadowCasters(0));
+        let shadow_view = AttachmentView::new(shadow, shadow_view.texture())?;
+        shadow_pass.depth = Some(crate::compositor::attachment(shadow, &shadow_view, true));
+        let mut opaque = PassDeclaration::new(PassSlot::Opaque);
+        opaque.color = Some(crate::compositor::attachment(color_id, color, false));
+        opaque.depth = Some(crate::compositor::attachment(depth_id, depth, true));
+        let views = [
+            shadow_view,
+            color.with_resource(color_id)?,
+            depth.with_resource(depth_id)?,
+        ];
+        let mut feature = ShadowFeature {
+            gpu: &mut self.gpu,
+            pipelines: &self.pipelines,
+            depth_pipelines: &self.depth_pipelines,
+            depth_frame_group: &self.depth_frame_group,
+            shadow_group: &self.map.group,
+            matrix,
+            frame,
+            depth_frame: &self.depth_frame,
+            shadow_uniform: &self.map.uniform,
+            settings: self.settings,
         };
-        context
-            .queue()
-            .write_buffer(&self.depth_frame, 0, &light_frame.to_bytes());
-        context.queue().write_buffer(
-            &self.map.uniform,
-            0,
-            &resources::uniform_bytes(matrix, self.settings),
-        );
-        let mut encoder =
-            context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("shadowed scene"),
-                });
-        {
-            let mut pass = self.map.depth.begin_layer_pass(
-                &mut encoder,
-                0,
-                Some("directional shadow depth"),
-            )?;
-            self.gpu.draw_objects(
-                &mut pass,
-                &self.depth_frame_group,
-                &self.depth_pipelines,
-                Some(matrix),
-            );
-        }
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("shadowed scene colour"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(depth_attachment(depth)),
-                ..Default::default()
-            });
-            pass.set_bind_group(2, &self.map.group, &[]);
-            self.gpu.draw(&mut pass, &self.pipelines);
-        }
-        context.queue().submit([encoder.finish()]);
+        let mut declaration = FeatureDeclaration::new(PassSlot::ShadowCasters(0));
+        declaration.passes[0].depth_format = Some(wgpu::TextureFormat::Depth32Float);
+        let mut opaque_feature = crate::compositor::SceneFeature::declaration()
+            .passes
+            .remove(0);
+        opaque_feature.reads.push(shadow);
+        declaration.passes.push(opaque_feature);
+        scheduler.unwrap_or(&mut self.scheduler).encode(
+            context.device(),
+            encoder,
+            &[shadow_pass, opaque],
+            &views,
+            &mut [BorrowedFeature {
+                declaration,
+                prepared: &mut feature,
+            }],
+        )?;
         Ok(())
     }
 }
@@ -283,18 +317,73 @@ pub fn capture_scene_shadowed(
     ))?)?;
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let mut renderer = ShadowedScene::new(context, scene, settings)?;
-    renderer.render(context, view, target.color_view(), target.depth_view())?;
-    Ok(target.read_rgba8(context)?)
+    let mut encoder = context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("shadowed capture"),
+        });
+    renderer.encode(
+        context,
+        view,
+        &target.color_attachment(),
+        &target.depth_attachment(),
+        &mut encoder,
+    )?;
+    target.encode_readback(&mut encoder)?;
+    let submission = context.queue().submit([encoder.finish()]);
+    Ok(target.read_encoded(context, submission)?)
 }
 
-fn depth_attachment(view: &wgpu::TextureView) -> wgpu::RenderPassDepthStencilAttachment<'_> {
-    wgpu::RenderPassDepthStencilAttachment {
-        view,
-        depth_ops: Some(wgpu::Operations {
-            load: wgpu::LoadOp::Clear(1.0),
-            store: wgpu::StoreOp::Store,
-        }),
-        stencil_ops: None,
+struct ShadowFeature<'a> {
+    gpu: &'a mut SceneGpu,
+    pipelines: &'a ScenePipelines,
+    depth_pipelines: &'a [wgpu::RenderPipeline; 4],
+    depth_frame_group: &'a wgpu::BindGroup,
+    shadow_group: &'a wgpu::BindGroup,
+    matrix: glam::Mat4,
+    frame: FrameUniform,
+    depth_frame: &'a wgpu::Buffer,
+    shadow_uniform: &'a wgpu::Buffer,
+    settings: DirectionalShadowSettings,
+}
+impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
+    fn prepare(
+        &mut self,
+        _context: &mut worldrunner_render_post::PrepareContext<'_>,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        Ok(())
+    }
+    fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
+        self.gpu.prepare_instances(context);
+        self.gpu.commit_frame(context, self.frame);
+        // Billboards retain the camera position in both passes.
+        let light_frame = FrameUniform {
+            view_projection: self.matrix,
+            ..self.frame
+        };
+        context.upload_buffer(self.depth_frame, 0, &light_frame.to_bytes());
+        context.upload_buffer(
+            self.shadow_uniform,
+            0,
+            &resources::uniform_bytes(self.matrix, self.settings),
+        );
+    }
+    fn draw(
+        &self,
+        context: &worldrunner_render_post::DrawContext,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        if context.slot == worldrunner_render_post::PassSlot::ShadowCasters(0) {
+            self.gpu.draw_objects(
+                pass,
+                self.depth_frame_group,
+                self.depth_pipelines,
+                Some(self.matrix),
+            );
+        } else {
+            pass.set_bind_group(2, self.shadow_group, &[]);
+            self.gpu.draw(pass, self.pipelines);
+        }
     }
 }
 

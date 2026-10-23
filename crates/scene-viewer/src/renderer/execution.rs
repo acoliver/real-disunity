@@ -166,9 +166,10 @@ impl SurfaceOps for NativeSurface<'_> {
             .map_err(surface_error)?
         {
             AcquiredFrame::Frame(frame) => Ok(Some(frame)),
-            _other => {
+            other => {
                 #[cfg(test)]
-                trace_skip(&format!("native {_other:?}"));
+                trace_skip(&format!("native {other:?}"));
+                let _ = other;
                 Ok(None)
             }
         }

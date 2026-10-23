@@ -64,6 +64,7 @@ fn present(renderer: &mut Renderer) {
             Instant::now() < deadline,
             "surface failed to deliver a frame"
         );
+        renderer.poll().unwrap();
         std::thread::yield_now();
     }
 }

@@ -161,6 +161,9 @@ public static class WorldRunner
 
     internal static void Enqueue(NativeCommand command) => Pending.Add(command);
 
+    internal static void RemovePendingCommands(ulong handle) =>
+        Pending.RemoveAll(command => command.Object == handle);
+
     internal static void Forget(GameObject gameObject)
     {
         Tracked.Remove(gameObject);

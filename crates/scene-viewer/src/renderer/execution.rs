@@ -98,25 +98,17 @@ fn acquire_frame<S: SurfaceOps>(
     update: impl FnOnce() -> Result<(), ViewerError>,
 ) -> Result<Option<(Admission, S::Frame)>, ViewerError> {
     if surface.suspended() {
-        #[cfg(test)]
-        trace_skip("suspended");
         return Ok(None);
     }
     if surface.pending() {
         if !flight.is_idle() {
-            #[cfg(test)]
-            trace_skip("pending transition waiting for flight");
             return Ok(None);
         }
         surface.apply()?;
     }
     let admission = match flight.try_acquire() {
         Ok(admission) => admission,
-        Err(AdmissionError::WouldBlock) => {
-            #[cfg(test)]
-            trace_skip("flight capacity");
-            return Ok(None);
-        }
+        Err(AdmissionError::WouldBlock) => return Ok(None),
         Err(error) => return Err(ViewerError::Gpu(error.to_string())),
     };
     let Some(frame) = surface.acquire()? else {
@@ -166,23 +158,8 @@ impl SurfaceOps for NativeSurface<'_> {
             .map_err(surface_error)?
         {
             AcquiredFrame::Frame(frame) => Ok(Some(frame)),
-            other => {
-                #[cfg(test)]
-                trace_skip(&format!("native {other:?}"));
-                let _ = other;
-                Ok(None)
-            }
+            _ => Ok(None),
         }
-    }
-}
-
-#[cfg(test)]
-fn trace_skip(reason: &str) {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static SKIPS: AtomicUsize = AtomicUsize::new(0);
-    let count = SKIPS.fetch_add(1, Ordering::Relaxed) + 1;
-    if count <= 32 || count.is_power_of_two() {
-        eprintln!("acquire skip {count}: {reason}");
     }
 }
 

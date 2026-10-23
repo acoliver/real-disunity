@@ -47,7 +47,9 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
             AcquiredFrame::Frame(frame) => frame,
             other => panic!("{other:?}"),
         };
-        drop(frame);
+        // Discarding usable images can exhaust the Vulkan swapchain instead of releasing them.
+        renderer.window.pre_present_notify();
+        renderer.context.queue().present(frame);
         present(renderer);
     }
     assert_eq!(

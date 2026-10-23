@@ -57,13 +57,6 @@ fn view(renderer: &Renderer) -> SceneView {
 }
 #[track_caller]
 fn present(renderer: &mut Renderer) {
-    eprintln!(
-        "present at {}: viewport {:?}, generation {}, pending {}",
-        std::panic::Location::caller(),
-        renderer.viewport,
-        renderer.execution.presenter.configuration_generation(),
-        renderer.execution.presenter.has_pending_transition()
-    );
     let deadline = Instant::now() + Duration::from_secs(10);
     let view = view(renderer);
     let mut update: crate::SceneUpdate = Box::new(|_| Ok(()));

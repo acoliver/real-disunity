@@ -45,7 +45,7 @@ fn light_and_camera_views_share_lod_but_not_visibility() {
     shadow.rebuild(
         &instances,
         &meshes,
-        caster_matrix(&instances, &meshes, Mat4::IDENTITY),
+        caster_matrix(&instances, &meshes, None, Mat4::IDENTITY),
         eye,
     );
     assert_eq!(camera.stats.culled, 1);
@@ -53,7 +53,7 @@ fn light_and_camera_views_share_lod_but_not_visibility() {
     shadow.rebuild(
         &instances,
         &meshes,
-        caster_matrix(&instances, &meshes, Mat4::IDENTITY),
+        caster_matrix(&instances, &meshes, None, Mat4::IDENTITY),
         [0; 3],
     );
     assert_eq!(shadow.stats.drawn_per_lod, vec![0, 0, 1]);
@@ -160,7 +160,7 @@ fn rebuild_preserves_authored_boundaries_for_camera_and_shadow() {
             let receiver = Mat4::from_scale(Vec3::splat(0.1));
             for matrix in [
                 frame.view_projection,
-                caster_matrix(&instances, &meshes, receiver),
+                caster_matrix(&instances, &meshes, None, receiver),
             ] {
                 let mut selection = Selection::default();
                 selection.rebuild(
@@ -354,12 +354,34 @@ fn shadow_extrusion_retains_upstream_casters_outside_the_camera_and_receiver_box
     let meshes = [MeshSelection::new(&mesh())];
     let bounds = meshes[0].world_bounds(object.transform());
     assert!(!Frustum::new(Mat4::IDENTITY).intersects(bounds));
-    let matrix = caster_matrix(&instances, &meshes, Mat4::IDENTITY);
+    let matrix = caster_matrix(&instances, &meshes, None, Mat4::IDENTITY);
     assert!(Frustum::new(matrix).intersects(bounds));
     assert!((matrix.project_point3(Vec3::Z).z - 1.0).abs() < 1e-6);
     instances.set_visible(handle, false).unwrap();
     assert_eq!(
-        caster_matrix(&instances, &meshes, Mat4::IDENTITY),
+        caster_matrix(&instances, &meshes, None, Mat4::IDENTITY),
+        Mat4::IDENTITY
+    );
+}
+
+#[test]
+fn terrain_bounds_extend_only_overlapping_light_depth_and_preserve_far_plane() {
+    let instances = Instances::new(&scene());
+    let meshes = [MeshSelection::new(&mesh())];
+    let terrain = Bounds {
+        min: Vec3::new(-0.5, -0.5, -4.0),
+        max: Vec3::new(0.5, 0.5, -2.0),
+    };
+    let matrix = caster_matrix(&instances, &meshes, Some(terrain), Mat4::IDENTITY);
+    assert!(Frustum::new(matrix).intersects(terrain));
+    assert!(matrix.project_point3(terrain.min).z.abs() < 1e-6);
+    assert!((matrix.project_point3(Vec3::Z).z - 1.0).abs() < 1e-6);
+    let outside = Bounds {
+        min: terrain.min + Vec3::X * 3.0,
+        max: terrain.max + Vec3::X * 3.0,
+    };
+    assert_eq!(
+        caster_matrix(&instances, &meshes, Some(outside), Mat4::IDENTITY),
         Mat4::IDENTITY
     );
 }

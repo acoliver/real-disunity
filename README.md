@@ -28,3 +28,13 @@ cargo xtask ci-managed   # explicit .NET 8 fixture and native host verification
 ```
 
 `cargo xtask ci` requires a current lockfile and runs formatting, policy, strict lint and complexity gates, then locked check/build/test/doctests. CPU, software-Vulkan, and managed CI jobs use separate explicit profiles; missing prerequisites fail rather than skip tests. Compilation subprocesses use two jobs. See [quality gates](docs/quality.md) for the layer graph, exact initial registry/literal scope, behavioral fixtures, and limitations; the environment lookup scan alone is not an explicit-policy guarantee.
+
+## Terrain shadow example
+
+Run the procedural viewer with a heightfield ridge and an elevated mesh:
+
+```sh
+cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --terrain --shadows
+```
+
+Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. Both passes use the retained frame scheduler and one directional shadow map. The caller supplies receiver coverage; overlapping terrain and mesh casters extend its toward-light depth. Water and multiple cascades remain unsupported and return typed errors. Omit `--terrain` to retain the original mesh-only example.

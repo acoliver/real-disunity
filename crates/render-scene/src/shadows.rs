@@ -3,8 +3,8 @@
 //! A retained [`ShadowedScene`] uploads geometry once and submits a depth pass
 //! followed by a lit pass, without readback or filesystem policy. Alpha masks,
 //! double-sided materials, instancing and camera-facing billboards use the same
-//! geometry/material code in both passes. Terrain, water and multiple cascades
-//! are rejected rather than silently rendered without their requested shadows.
+//! geometry/material code in both passes. Terrain casts and receives through the
+//! same scheduler. Water and multiple cascades remain unsupported.
 //!
 //! ```no_run
 //! use worldrunner_render_scene::{device::GpuContext, offscreen::OffscreenTarget, shadows::*};
@@ -94,6 +94,7 @@ pub struct ShadowedScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
     depth_pipelines: [wgpu::RenderPipeline; 4],
+    terrain_depth_pipeline: wgpu::RenderPipeline,
     depth_frame: wgpu::Buffer,
     depth_frame_group: wgpu::BindGroup,
     shadow_layout: wgpu::BindGroupLayout,
@@ -120,9 +121,11 @@ impl ShadowedScene {
             context.device(),
             OffscreenTarget::COLOR_FORMAT,
             SHADOWED_WGSL,
+            resources::SHADOWED_TERRAIN_WGSL,
             Some(&shadow_layout),
         );
-        let depth_pipelines = resources::depth_pipelines(context.device(), &pipelines, settings);
+        let (depth_pipelines, terrain_depth_pipeline) =
+            resources::depth_pipelines(context.device(), &pipelines, settings);
         let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
         let depth_frame = upload_buffer(
             context.device(),
@@ -147,6 +150,7 @@ impl ShadowedScene {
             gpu,
             pipelines,
             depth_pipelines,
+            terrain_depth_pipeline,
             depth_frame,
             depth_frame_group,
             shadow_layout,
@@ -273,6 +277,7 @@ impl ShadowedScene {
             gpu: &mut self.gpu,
             pipelines: &self.pipelines,
             depth_pipelines: &self.depth_pipelines,
+            terrain_depth_pipeline: &self.terrain_depth_pipeline,
             depth_frame_group: &self.depth_frame_group,
             shadow_group: &self.map.group,
             matrix,
@@ -338,6 +343,7 @@ struct ShadowFeature<'a> {
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
     depth_pipelines: &'a [wgpu::RenderPipeline; 4],
+    terrain_depth_pipeline: &'a wgpu::RenderPipeline,
     depth_frame_group: &'a wgpu::BindGroup,
     shadow_group: &'a wgpu::BindGroup,
     matrix: glam::Mat4,
@@ -380,9 +386,16 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 self.depth_pipelines,
                 Some(self.matrix),
             );
+            self.gpu.draw_terrain_depth(
+                pass,
+                self.depth_frame_group,
+                self.terrain_depth_pipeline,
+                self.matrix,
+            );
         } else {
             pass.set_bind_group(2, self.shadow_group, &[]);
-            self.gpu.draw(pass, self.pipelines);
+            self.gpu
+                .draw_shadowed(pass, self.pipelines, self.shadow_group);
         }
     }
 }

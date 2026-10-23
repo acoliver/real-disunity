@@ -119,8 +119,5 @@ pub(super) fn validate_scene(scene: &RenderScene) -> Result<(), ShadowError> {
     validate_effects(scene.effects().ok_or(ShadowError::UnsupportedFeature(
         "shadows require an environmental profile",
     ))?)?;
-    if scene.terrain().is_some() {
-        return Err(ShadowError::UnsupportedFeature("terrain"));
-    }
     Ok(())
 }

@@ -2,6 +2,101 @@ use super::*;
 use worldrunner_render_plan::*;
 use worldrunner_render_scene::offscreen::{OffscreenTarget, RgbaImage};
 
+fn terrain_source() -> RenderScene {
+    let base = source();
+    let mut textures = base.resources().textures().to_vec();
+    for bytes in [[128, 128, 255, 255], [0, 255, 0, 255]] {
+        textures.push(SceneTexture::Texels {
+            format: TexelFormat::Rgba8Unorm,
+            color_space: TextureColorSpace::Linear,
+            width: 1,
+            height: 1,
+            mips: 1,
+            bytes: Vec::from(bytes).into(),
+        });
+    }
+    let material = SceneMaterial::new(SceneMaterialParts {
+        albedo: TextureHandle::from_raw(0),
+        normal: Some(TextureHandle::from_raw(1)),
+        roughness_metallic: Some(TextureHandle::from_raw(2)),
+        ambient_occlusion: None,
+        self_illumination: None,
+        roughness_micro: 1_000_000,
+        metalness_micro: 0,
+        alpha_mode: SceneAlphaMode::Opaque,
+        double_sided: false,
+    })
+    .unwrap();
+    let terrain = SceneTerrain::new(SceneTerrainParts {
+        columns: 2,
+        rows: 2,
+        origin_east_millimeters: -1_000,
+        origin_north_millimeters: -1_000,
+        sample_spacing_millimeters: 2_000,
+        heights_millimeters: vec![-300; 4],
+        surface_indices: vec![0; 4],
+        surfaces: vec![SceneTerrainSurface::new(
+            MaterialHandle::from_raw(0),
+            SceneTerrainAppearance::NEUTRAL,
+        )],
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap();
+    RenderScene::new(SceneParts {
+        resources: SceneResources::new(textures, vec![material]).unwrap(),
+        geometry: base.geometry().clone(),
+        terrain: Some(terrain),
+        effects: base.effects().cloned(),
+    })
+    .unwrap()
+}
+
+#[test]
+fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
+    let source = terrain_source();
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let viewport = Viewport {
+        width: 64,
+        height: 64,
+    };
+    let options = crate::tests::options();
+    let view = crate::OrbitCamera::new(options.pose, options.orbit)
+        .unwrap()
+        .view(options.camera, viewport)
+        .unwrap();
+    let expected =
+        worldrunner_render_scene::offscreen::capture_scene(&context, &source, &view).unwrap();
+    for shadows in [None, Some(shadow_settings())] {
+        let options = crate::ViewerOptions {
+            shadows,
+            ..crate::tests::options()
+        };
+        crate::validate(&source, &options).unwrap();
+        let mut resident = Resident::new(&context, &source, shadows).unwrap();
+        let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
+        assert_eq!(frame(&mut resident, &context, &mut target), expected);
+        let handle = resident.scene_mut().instance_handles().next().unwrap();
+        resident
+            .scene_mut()
+            .set_instance_visible(handle, false)
+            .unwrap();
+        let terrain_only = frame(&mut resident, &context, &mut target);
+        assert_ne!(terrain_only, expected);
+        assert!(
+            terrain_only
+                .pixels
+                .chunks_exact(4)
+                .any(|pixel| pixel[..3] != [0, 0, 0])
+        );
+        resident
+            .scene_mut()
+            .set_instance_visible(handle, true)
+            .unwrap();
+        assert_eq!(frame(&mut resident, &context, &mut target), expected);
+    }
+}
+
 fn source() -> RenderScene {
     let texture = SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,

@@ -1,4 +1,4 @@
-//! Optional desktop presentation for a caller-owned, terrain-free scene.
+//! Optional desktop presentation for a caller-owned scene.
 //!
 //! No window or GPU is started until [`run`] is called. Geometry, materials,
 //! pipelines and optional shadows remain resident across frames. The caller
@@ -38,7 +38,7 @@ pub struct ViewerOptions {
 pub enum ViewerError {
     #[error("invalid viewer options: {0}")]
     InvalidOptions(&'static str),
-    #[error("the terrain-free viewer does not support {0}")]
+    #[error("the viewer does not support {0}")]
     UnsupportedScene(&'static str),
     #[error(transparent)]
     View(#[from] worldrunner_render_scene::ViewError),
@@ -111,9 +111,6 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
         return Err(ViewerError::InvalidOptions(
             "window dimensions must be in 1..=4096",
         ));
-    }
-    if scene.terrain().is_some() {
-        return Err(ViewerError::UnsupportedScene("terrain"));
     }
     if scene
         .effects()

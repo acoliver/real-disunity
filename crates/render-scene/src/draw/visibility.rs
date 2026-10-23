@@ -219,24 +219,18 @@ impl Selection {
 pub(super) fn caster_matrix(
     instances: &Instances,
     meshes: &[MeshSelection],
+    terrain: Option<Bounds>,
     receiver: Mat4,
 ) -> Mat4 {
-    let mut near = 0.0_f32;
+    let mut near = terrain.map_or(0.0, |bounds| caster_near(bounds, receiver));
     for (&(_, mesh, _), batch) in &instances.batches {
         // Scan allocated slots, excluding removed placements from caster fitting.
         for (_, object, visible) in batch.placements().filter(|(_, _, visible)| *visible) {
             debug_assert!(visible);
-            let bounds = meshes[mesh]
-                .world_bounds(object.transform())
-                .transformed(receiver);
-            if bounds.min.x <= 1.0
-                && bounds.max.x >= -1.0
-                && bounds.min.y <= 1.0
-                && bounds.max.y >= -1.0
-                && bounds.min.z <= 1.0
-            {
-                near = near.min(bounds.min.z);
-            }
+            near = near.min(caster_near(
+                meshes[mesh].world_bounds(object.transform()),
+                receiver,
+            ));
         }
     }
     let scale = (1.0 - near).recip();
@@ -244,6 +238,42 @@ pub(super) fn caster_matrix(
     remap.z_axis.z = scale;
     remap.w_axis.z = -near * scale;
     remap * receiver
+}
+
+fn caster_near(bounds: Bounds, receiver: Mat4) -> f32 {
+    let bounds = bounds.transformed(receiver);
+    if bounds.min.x <= 1.0
+        && bounds.max.x >= -1.0
+        && bounds.min.y <= 1.0
+        && bounds.max.y >= -1.0
+        && bounds.min.z <= 1.0
+    {
+        bounds.min.z.min(0.0)
+    } else {
+        0.0
+    }
+}
+
+pub(super) fn terrain_bounds(vertices: &[u8]) -> Bounds {
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for vertex in vertices.chunks_exact(crate::geometry::VERTEX_BYTES) {
+        let point = Vec3::from_array(std::array::from_fn(|axis| {
+            f32::from_le_bytes(
+                vertex[axis * 4..axis * 4 + 4]
+                    .try_into()
+                    .expect("packed position"),
+            )
+        }));
+        min = min.min(point);
+        max = max.max(point);
+    }
+    // Enclose the uploaded vertices, including rounding at flat terrain boundaries.
+    let pad = min.abs().max(max.abs()).max(Vec3::ONE) * 0.000_01;
+    Bounds {
+        min: min - pad,
+        max: max + pad,
+    }
 }
 
 #[cfg(test)]

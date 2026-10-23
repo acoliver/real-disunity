@@ -4,6 +4,7 @@ mod geometry;
 mod retained;
 mod scheduler;
 mod subresources;
+mod terrain;
 mod validation;
 
 use glam::{Vec3, Vec4};
@@ -125,13 +126,15 @@ fn multiple_cascades_and_blending_are_explicitly_rejected() {
 
 #[test]
 fn shadowed_shader_is_valid_wgsl() {
-    let module = naga::front::wgsl::parse_str(resources::SHADOWED_WGSL).unwrap();
-    naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::empty(),
-    )
-    .validate(&module)
-    .unwrap();
+    for source in [resources::SHADOWED_WGSL, resources::SHADOWED_TERRAIN_WGSL] {
+        let module = naga::front::wgsl::parse_str(source).unwrap();
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .unwrap();
+    }
 }
 
 #[expect(
@@ -355,11 +358,6 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
     assert!(matches!(
         ShadowedScene::new(&context, &water, settings()),
         Err(ShadowError::UnsupportedFeature("water"))
-    ));
-    let terrain = fixture::terrain_scene(&source);
-    assert!(matches!(
-        capture_scene_shadowed(&context, &terrain, &view(), settings()),
-        Err(ShadowError::UnsupportedFeature("terrain"))
     ));
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     assert!(

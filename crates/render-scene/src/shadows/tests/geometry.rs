@@ -79,7 +79,7 @@ fn gpu_double_sided_backfaces_cast_opaque_and_masked_coverage() {
     }
 }
 
-fn card(policy: BillboardPolicy) -> SceneMesh {
+pub(super) fn card(policy: BillboardPolicy) -> SceneMesh {
     let horizontal = fixture::quad(300);
     let lod = &horizontal.lods()[0];
     SceneMesh::new(vec![

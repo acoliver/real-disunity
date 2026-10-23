@@ -7,9 +7,7 @@ mod tests;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use worldrunner_render_plan::{
-    BillboardPolicy, RenderScene, SceneObject, SceneTransform, SceneValidationError,
-};
+use worldrunner_render_plan::{RenderScene, SceneObject, SceneTransform, SceneValidationError};
 
 use crate::pipeline::PipelineKey;
 pub(crate) use batch::InstanceBatch;
@@ -68,7 +66,7 @@ pub(crate) struct Instances {
     scene: u64,
     slots: Vec<Slot>,
     free: BTreeSet<usize>,
-    billboards: Vec<Option<BillboardPolicy>>,
+    mesh_count: usize,
     pipelines: Vec<usize>,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
 }
@@ -85,12 +83,7 @@ impl Instances {
             scene: identity,
             slots: Vec::new(),
             free: BTreeSet::new(),
-            billboards: scene
-                .geometry()
-                .meshes()
-                .iter()
-                .map(|mesh| mesh.lods()[0].billboard())
-                .collect(),
+            mesh_count: scene.geometry().meshes().len(),
             pipelines: scene
                 .resources()
                 .materials()
@@ -116,10 +109,12 @@ impl Instances {
         let mesh = usize::try_from(object.mesh().raw()).expect("u32 table index fits usize");
         let material =
             usize::try_from(object.material().raw()).expect("u32 table index fits usize");
-        let billboard = *self.billboards.get(mesh).ok_or(InstanceError::Resource {
-            resource: "mesh",
-            index: object.mesh().raw(),
-        })?;
+        if mesh >= self.mesh_count {
+            return Err(InstanceError::Resource {
+                resource: "mesh",
+                index: object.mesh().raw(),
+            });
+        }
         let pipeline = *self
             .pipelines
             .get(material)
@@ -128,11 +123,7 @@ impl Instances {
                 index: object.material().raw(),
             })?;
         let key = (pipeline, mesh, material);
-        let position = self
-            .batches
-            .entry(key)
-            .or_default()
-            .add(object, visible, billboard);
+        let position = self.batches.entry(key).or_default().add(object, visible);
         let slot = self.free.pop_first().unwrap_or_else(|| {
             self.slots.push(Slot {
                 generation: 0,
@@ -205,7 +196,7 @@ impl Instances {
         self.batches
             .get_mut(&key)
             .expect("live batch")
-            .set_transform(position, transform, self.billboards[key.1]);
+            .set_transform(position, transform);
         Ok(())
     }
 

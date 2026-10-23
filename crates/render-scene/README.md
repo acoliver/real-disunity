@@ -14,8 +14,7 @@ Raw-texel applications can request an empty GPU feature set. DDS block-compresse
 scenes must request BC support. Invalid texture payloads return typed errors.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map directional shadows are implemented. Water, SSAO, post
-processing, anti-aliasing, distance-based mesh LOD selection, and textured-sky
-rendering are not implemented by this renderer; their presence in the shared
+processing, anti-aliasing and textured-sky rendering are not implemented by this renderer; their presence in the shared
 scene vocabulary is not a rendering guarantee. Requested SSAO, nonempty post
 stacks, and enabled FXAA/TAA return `FrameError::UnsupportedEffect` before upload
 or rendering, including requests with zero weights. Omit SSAO with `None` and
@@ -75,8 +74,54 @@ batch slots; removal leaves a hole, and insertion reuses the lowest free slot.
 Surviving placements never reorder. Visible contiguous slots share an instanced
 draw; holes split draws. This avoids shifting and rewriting unchanged placements
 at the cost of more draws for fragmented visibility. Empty batches retain their
-capacity for reuse. This API does not change resource tables or select LODs.
+capacity for reuse. This API does not change resource tables.
 
 `ShadowedScene::scene_mut()` exposes the same API and flushes before both passes.
 The desktop viewer's `run_with_updates` accepts a fallible per-frame callback
 with `&mut SceneGpu` in either rendering mode and flushes edits automatically.
+
+
+## LOD and per-view visibility
+
+Packed-layout migration: vertex stride changes from 32 to 36 bytes and instance
+stride from 68 to 64 bytes. Billboard mode moves from instance offset 64,
+shader location 7, to vertex offset 32, shader location 8. `pack_instance` now
+takes only a transform. Update custom buffer layouts and previously packed bytes
+to match.
+
+A single-level `SceneMesh::new` needs no distance policy. Multi-level meshes use
+`SceneMesh::with_distances(lods, max_distances_millimeters)`, with one positive,
+strictly increasing ceiling per level. Missing or unordered ceilings are rejected
+by scene construction. These are the same inclusive ceiling units as the authored
+`LodLevel` recipe; adapters must explicitly carry them into the owned scene.
+The first ceiling at or beyond camera-to-placement-origin distance selects the
+level. Beyond the final ceiling the last level stays selected. Instance scale
+affects bounds, not selection distance. Each selected level owns its billboard
+policy, so switching levels needs no transform upload.
+
+Every recorded object pass rebuilds contiguous visible ranges in reusable storage,
+ordered by pipeline, mesh, material and stable placement slot. Hidden placements
+are excluded from every view. Removed slots are excluded from selection and
+statistics, but traversal still scans all allocated slots, including holes.
+Moving a retained placement changes the next pass's bounds and LOD, without
+changing its handle.
+Bounds enclose all levels, transform scale and rotation, with an orientation-free
+sphere for chains containing camera-facing billboards. Camera planes use `0..=1`
+clip depth. Terrain keeps its independent draw and LOD policy.
+
+Directional shadow selection uses light-space coverage independently of camera
+visibility and shares the main camera's LOD distance and billboard orientation.
+The supported single cascade keeps its authored XY receiver square and far depth
+end; its toward-light end extends to enclose resident visible casters overlapping
+that square. Both the depth and receiver projections use the extended range, so
+upstream casters survive clipping as well as CPU selection. Bias remains in
+normalized depth units and therefore spans more world distance when extended.
+Multiple declared cascades and blend bands remain explicitly unsupported.
+
+`SceneGpu::view_stats()` and `shadow_view_stats()` expose the most recently
+recorded pass counts. `ShadowedScene` exposes the same methods. Counts include
+live placements considered, hidden/outside placements culled, and submissions per
+LOD across meshes. They exclude terrain and do not count rasterized pixels.
+Drop each returned statistics guard before recording the next draw of its view;
+holding it across that draw causes a runtime borrow panic.
+Range and counter vectors retain their capacities between frames.

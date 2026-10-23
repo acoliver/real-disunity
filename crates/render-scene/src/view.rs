@@ -90,6 +90,7 @@ pub struct SceneView {
     view: Mat4,
     projection: Mat4,
     eye_meters: Vec3,
+    eye_millimeters: [i64; 3],
     viewport: Viewport,
 }
 
@@ -148,6 +149,7 @@ impl SceneView {
             view,
             projection,
             eye_meters: eye,
+            eye_millimeters: pose.eye_millimeters,
             viewport,
         })
     }
@@ -183,6 +185,12 @@ impl SceneView {
     #[must_use]
     pub const fn eye_meters(&self) -> Vec3 {
         self.eye_meters
+    }
+
+    /// Returns the authored eye position for CPU distance selection.
+    #[must_use]
+    pub const fn eye_millimeters(&self) -> [i64; 3] {
+        self.eye_millimeters
     }
 }
 

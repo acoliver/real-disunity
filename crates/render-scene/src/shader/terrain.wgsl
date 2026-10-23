@@ -257,7 +257,6 @@ struct TerrainInstanceInput {
     @location(4) model_column_1: vec4<f32>,
     @location(5) model_column_2: vec4<f32>,
     @location(6) model_column_3: vec4<f32>,
-    @location(7) billboard_mode: u32,
 }
 
 struct TerrainVertexOutput {

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use worldrunner_render_plan::{BillboardPolicy, SceneObject, SceneTransform};
+use worldrunner_render_plan::{SceneObject, SceneTransform};
 
 use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_instance};
 
@@ -16,12 +16,7 @@ pub(crate) struct InstanceBatch {
 }
 
 impl InstanceBatch {
-    pub fn add(
-        &mut self,
-        object: SceneObject,
-        visible: bool,
-        billboard: Option<BillboardPolicy>,
-    ) -> usize {
+    pub fn add(&mut self, object: SceneObject, visible: bool) -> usize {
         let position = self.free.pop_first().unwrap_or_else(|| {
             let position = self.placements.len();
             u32::try_from(position + 1).expect("instance batch exceeds draw range");
@@ -30,7 +25,7 @@ impl InstanceBatch {
             position
         });
         self.placements[position] = Some((object, visible));
-        self.pack(position, billboard);
+        self.pack(position);
         position
     }
 
@@ -44,24 +39,19 @@ impl InstanceBatch {
         self.dirty.remove(&position);
     }
 
-    pub fn set_transform(
-        &mut self,
-        position: usize,
-        transform: SceneTransform,
-        billboard: Option<BillboardPolicy>,
-    ) {
+    pub fn set_transform(&mut self, position: usize, transform: SceneTransform) {
         let (object, visible) = self.get(position);
         self.placements[position] = Some((
             SceneObject::new(transform, object.mesh(), object.material()),
             visible,
         ));
-        self.pack(position, billboard);
+        self.pack(position);
     }
 
-    fn pack(&mut self, position: usize, billboard: Option<BillboardPolicy>) {
+    fn pack(&mut self, position: usize) {
         let object = self.get(position).0;
         self.bytes[position * STRIDE..(position + 1) * STRIDE]
-            .copy_from_slice(&pack_instance(object.transform(), billboard));
+            .copy_from_slice(&pack_instance(object.transform()));
         self.dirty.insert(position);
     }
 
@@ -69,6 +59,23 @@ impl InstanceBatch {
         self.placements[position].as_mut().expect("live instance").1 = visible;
     }
 
+    /// Scans all allocated slots, excluding removed slots from selection and
+    /// statistics while retaining their storage for reuse.
+    pub fn placements(&self) -> impl Iterator<Item = (usize, SceneObject, bool)> + '_ {
+        self.placements
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, value)| value.map(|(object, visible)| (slot, object, visible)))
+    }
+
+    pub fn has_pending(&self) -> bool {
+        self.dirty.iter().any(|position| {
+            let range = position * STRIDE..(position + 1) * STRIDE;
+            self.uploaded.get(range.clone()) != Some(&self.bytes[range])
+        })
+    }
+
+    #[cfg(test)]
     pub fn visible_ranges(&self) -> Vec<Range<u32>> {
         ranges(
             self.placements

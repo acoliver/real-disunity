@@ -8,8 +8,9 @@ pub const MAX_SHADOW_RESOLUTION: u32 = 4096;
 
 /// Explicit fit and receiver bias for a single directional shadow map.
 ///
-/// Coordinates are native Z-up scene metres. The caller must enclose both
-/// receivers and casters in the light-space box. Outside it, surfaces are lit.
+/// Coordinates are native Z-up scene metres. The caller encloses receivers
+/// in the light-space box. Rendering extends its toward-light depth end to
+/// include resident casters. XY coverage and the far depth end stay fixed.
 /// These settings, not the legacy effects cascade extent, own the map fit.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DirectionalShadowSettings {

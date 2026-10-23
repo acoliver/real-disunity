@@ -1,5 +1,6 @@
 //! Retained scene uploads, pipeline-compatible batches, and draw submission.
 use std::array;
+use std::cell::{Cell, Ref, RefCell};
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
@@ -22,8 +23,11 @@ use crate::upload::{
 };
 
 mod retained;
+mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
+pub use visibility::ViewStats;
+use visibility::{MeshSelection, Selection};
 
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
@@ -139,7 +143,11 @@ pub struct SceneGpu {
     frame_group: BindGroup,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
+    mesh_selection: Vec<MeshSelection>,
     instances: Instances,
+    frame: Cell<Option<FrameUniform>>,
+    camera_selection: RefCell<Selection>,
+    shadow_selection: RefCell<Selection>,
     terrain: Option<GpuTerrain>,
     #[expect(dead_code, reason = "owns the memory the bind groups read")]
     retained: Retained,
@@ -178,6 +186,12 @@ impl SceneGpu {
         );
         let meshes = upload_meshes(device, queue, scene)?;
         let instances = Instances::new(scene);
+        let mesh_selection = scene
+            .geometry()
+            .meshes()
+            .iter()
+            .map(MeshSelection::new)
+            .collect();
         let terrain = upload_terrain(device, queue, scene, pipelines.terrain_layout(), &sampler)?;
         let frame_buffer = upload_buffer(
             device,
@@ -186,20 +200,17 @@ impl SceneGpu {
             BufferUsages::UNIFORM,
             &[0u8; FRAME_UNIFORM_BYTES],
         );
-        let frame_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("frame"),
-            layout: pipelines.frame_layout(),
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: frame_buffer.as_entire_binding(),
-            }],
-        });
+        let frame_group = frame_group(device, pipelines.frame_layout(), &frame_buffer);
         let mut gpu = Self {
             frame_buffer,
             frame_group,
             materials,
             meshes,
+            mesh_selection,
             instances,
+            frame: Cell::new(None),
+            camera_selection: RefCell::default(),
+            shadow_selection: RefCell::default(),
             terrain,
             retained: Retained {
                 textures,
@@ -214,6 +225,7 @@ impl SceneGpu {
 
     /// Writes the per-frame uniform the next draw will read.
     pub fn set_frame(&self, queue: &Queue, frame: FrameUniform) {
+        self.frame.set(Some(frame));
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
     }
 
@@ -232,7 +244,7 @@ impl SceneGpu {
     /// anyway. Terrain draws last so that this reasoning is needed in one
     /// direction only.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
-        self.draw_objects(pass, &self.frame_group, pipelines.object_pipelines());
+        self.draw_objects(pass, &self.frame_group, pipelines.object_pipelines(), None);
         if let Some(terrain) = &self.terrain {
             pass.set_pipeline(pipelines.terrain());
             pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
@@ -248,21 +260,32 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         frame_group: &BindGroup,
         pipelines: &[wgpu::RenderPipeline; 4],
+        shadow_matrix: Option<glam::Mat4>,
     ) {
         assert!(
             self.instances
                 .batches
                 .values()
-                .all(|batch| batch.pending_ranges().is_empty()),
+                .all(|batch| !batch.has_pending()),
             "flush instance updates before drawing"
         );
+        let frame = self.frame.get().expect("set a frame before drawing");
+        let mut selection = if shadow_matrix.is_some() {
+            self.shadow_selection.borrow_mut()
+        } else {
+            self.camera_selection.borrow_mut()
+        };
+        selection.rebuild(
+            &self.instances,
+            &self.mesh_selection,
+            shadow_matrix.unwrap_or(frame.view_projection),
+            frame.camera_position_millimeters,
+        );
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
-        for (&(pipeline, mesh, material), batch) in &self.instances.batches {
-            let ranges = batch.visible_ranges();
-            if ranges.is_empty() {
-                continue;
-            }
-            let lod = &self.meshes[mesh].lods[0];
+        for range in &selection.ranges {
+            let (pipeline, mesh, material) = range.key;
+            let batch = &self.instances.batches[&range.key];
+            let lod = &self.meshes[mesh].lods[range.lod];
             pass.set_pipeline(&pipelines[pipeline]);
             pass.set_bind_group(MATERIAL_GROUP, &self.materials[material], &[]);
             pass.set_vertex_buffer(0, lod.vertices.slice(..));
@@ -275,10 +298,26 @@ impl SceneGpu {
                     .slice(..),
             );
             pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
-            for range in ranges {
-                pass.draw_indexed(0..lod.index_count, 0, range);
-            }
+            pass.draw_indexed(0..lod.index_count, 0, range.slots.clone());
         }
+    }
+
+    /// Counts from the most recently recorded main-camera pass.
+    /// Drop the returned guard before recording the next main-camera draw;
+    /// holding it across that draw causes a runtime borrow panic.
+    pub fn view_stats(&self) -> Ref<'_, ViewStats> {
+        Ref::map(self.camera_selection.borrow(), |selection| &selection.stats)
+    }
+
+    /// Counts from the most recently recorded directional shadow pass.
+    /// Drop the returned guard before recording the next shadow draw;
+    /// holding it across that draw causes a runtime borrow panic.
+    pub fn shadow_view_stats(&self) -> Ref<'_, ViewStats> {
+        Ref::map(self.shadow_selection.borrow(), |selection| &selection.stats)
+    }
+
+    pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
+        visibility::caster_matrix(&self.instances, &self.mesh_selection, receiver)
     }
 
     /// Returns live mesh/material batch counts per pipeline variant.
@@ -293,6 +332,17 @@ impl SceneGpu {
                 .count()
         })
     }
+}
+
+fn frame_group(device: &Device, layout: &BindGroupLayout, buffer: &Buffer) -> BindGroup {
+    device.create_bind_group(&BindGroupDescriptor {
+        label: Some("frame"),
+        layout,
+        entries: &[BindGroupEntry {
+            binding: 0,
+            resource: buffer.as_entire_binding(),
+        }],
+    })
 }
 
 /// Resolves one validated handle to its table index.
@@ -492,7 +542,7 @@ fn upload_terrain(
             queue,
             "terrain instance",
             BufferUsages::VERTEX,
-            &pack_instance(&TERRAIN_PLACEMENT, None),
+            &pack_instance(&TERRAIN_PLACEMENT),
         ),
         bind_group,
         retained,

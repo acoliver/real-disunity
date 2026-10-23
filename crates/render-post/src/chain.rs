@@ -515,13 +515,14 @@ impl<F: StageFactory> PostChain<F> {
             .collect();
         crate::validate_frame(passes, &declarations, requested)?;
         crate::frame::validate_views(passes, views)?;
+        let raster = crate::contracts::stock::compile(device, passes, views, &declarations)?;
         self.prepare_features(device, encoder, borrowed, views)?;
-        for declaration in passes {
+        for (index, declaration) in passes.iter().enumerate() {
             let context = crate::DrawContext {
                 slot: declaration.slot,
             };
             let stamp = self.stamp(crate::PassId::Geometry(declaration.slot));
-            crate::frame::encode_pass(encoder, declaration, views, stamp.as_ref(), |pass| {
+            raster.encode_stock_pass(index, encoder, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature
                         .declaration

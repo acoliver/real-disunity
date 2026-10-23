@@ -119,8 +119,10 @@ pub enum FrameError {
     FixedExposureMismatch,
     #[error("invalid or unsupported SSAO setting: {0}")]
     SsaoSettings(&'static str),
-    #[error("frame slots must be unique and in execution order")]
+    #[error("frame slots must be unique; execution follows authored order")]
     SlotOrder,
+    #[error(transparent)]
+    ResourceContract(#[from] crate::contracts::ContractError),
     #[error("feature requests an undeclared slot {0:?}")]
     MissingSlot(PassSlot),
     #[error("resource has no preceding producer: {0:?}")]
@@ -144,7 +146,11 @@ pub fn validate_frame(
     requested: &[&'static str],
 ) -> Result<(), FrameError> {
     validate_transparency(features)?;
-    if passes.windows(2).any(|pair| pair[0].slot >= pair[1].slot) {
+    if passes.iter().enumerate().any(|(index, pass)| {
+        passes[..index]
+            .iter()
+            .any(|previous| previous.slot == pass.slot)
+    }) {
         return Err(FrameError::SlotOrder);
     }
     for effect in requested {
@@ -503,66 +509,6 @@ pub(crate) fn validate_views(
         }
     }
     Ok(())
-}
-
-pub(crate) fn encode_pass(
-    encoder: &mut wgpu::CommandEncoder,
-    declaration: &PassDeclaration,
-    views: &[AttachmentView],
-    stamp: Option<&crate::timing::Stamp>,
-    mut draw: impl FnMut(&mut wgpu::RenderPass<'_>),
-) {
-    let view = |resource| {
-        &views
-            .iter()
-            .find(|view| view.resource == resource)
-            .expect("validated attachment view")
-            .view
-    };
-    let color = declaration
-        .color
-        .as_ref()
-        .map(|a| wgpu::RenderPassColorAttachment {
-            view: view(a.resource),
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: match a.load {
-                    AttachmentLoad::ClearColor(color) => wgpu::LoadOp::Clear(color),
-                    AttachmentLoad::Load => wgpu::LoadOp::Load,
-                    AttachmentLoad::ClearDepth(_) => unreachable!("validated color"),
-                },
-                store: a.store,
-            },
-        });
-    let depth = declaration
-        .depth
-        .as_ref()
-        .map(|a| wgpu::RenderPassDepthStencilAttachment {
-            view: view(a.resource),
-            stencil_ops: None,
-            depth_ops: Some(wgpu::Operations {
-                load: match a.load {
-                    AttachmentLoad::ClearDepth(depth) => wgpu::LoadOp::Clear(depth),
-                    AttachmentLoad::Load => wgpu::LoadOp::Load,
-                    AttachmentLoad::ClearColor(_) => unreachable!("validated depth"),
-                },
-                store: a.store,
-            }),
-        });
-    let colors = [color];
-    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("frame slot"),
-        timestamp_writes: stamp.map(crate::timing::Stamp::render),
-        color_attachments: if declaration.color.is_some() {
-            &colors
-        } else {
-            &[]
-        },
-        depth_stencil_attachment: depth,
-        ..Default::default()
-    });
-    draw(&mut pass);
 }
 
 /// Complete borrowed geometry contract, validated before feature preparation.

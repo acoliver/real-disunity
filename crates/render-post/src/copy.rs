@@ -114,7 +114,7 @@ impl StageFactory for CopyOutput {
         });
         Ok(StageSet {
             stages: vec![Stage::fullscreen(
-                "post copy output",
+                crate::StageId::new("post copy output", 0),
                 &resources.pipeline,
                 &[&group],
                 StageTarget::Output,

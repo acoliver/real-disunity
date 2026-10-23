@@ -165,6 +165,7 @@ impl HdrPost {
         if let Some(a) = self.settings.adaptive {
             self.meter(device, targets, slot, a, &mut set);
             set.stages.push(Stage {
+                id: crate::StageId::new("publish frame exposure", 0),
                 label: "publish frame exposure",
                 enabled: true,
                 operation: crate::Operation::CopyBuffer {
@@ -205,6 +206,7 @@ impl HdrPost {
         });
         let constants = exposure_constants(a);
         set.stages.push(Stage {
+            id: crate::StageId::new("clear luminance histogram", 0),
             label: "clear luminance histogram",
             enabled: true,
             operation: crate::Operation::Clear(bins.clone()),
@@ -238,6 +240,7 @@ impl HdrPost {
                 entries: &entries,
             });
             set.stages.push(Stage {
+                id: crate::StageId::new(entry, 0),
                 label: entry,
                 enabled: true,
                 operation: crate::Operation::Compute {

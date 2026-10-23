@@ -2,6 +2,10 @@
 
 A Rust 2024 workspace for reusable CPU, graphics, and application components. 
 
+## Consumer migration and extensions
+
+See the [frame executor migration guide](docs/frame-migration.md) for render contract v4, material payload v2, current GPU strides, encoder-only capture adapters, asynchronous timing and external feature registration. The headless `frame-feature` example builds and runs through public facade APIs.
+
 ## Prerequisites
 
 - Rust 1.97.0 (`rust-toolchain.toml` installs rustfmt and Clippy); the declared MSRV is 1.95.

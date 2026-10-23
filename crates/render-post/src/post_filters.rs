@@ -7,6 +7,7 @@ pub(crate) struct Filters<'a> {
 }
 struct FilterPass<'a> {
     entry: &'static str,
+    level: u32,
     source: &'a wgpu::TextureView,
     lower: Option<&'a wgpu::TextureView>,
     exposure: Option<&'a wgpu::Buffer>,
@@ -57,6 +58,7 @@ impl<'a> Filters<'a> {
         });
         self.pass(FilterPass {
             entry: "tone",
+            level: 0,
             source: targets.resolved(),
             lower: Some(&bloom),
             exposure: Some(exposure),
@@ -73,6 +75,7 @@ impl<'a> Filters<'a> {
         if let Some(weight) = fxaa {
             self.pass(FilterPass {
                 entry: "fxaa",
+                level: 0,
                 source: ldr.as_ref().unwrap(),
                 lower: None,
                 exposure: None,
@@ -87,40 +90,53 @@ impl<'a> Filters<'a> {
         let mut size = targets.config().size;
         let first = self.texture(size);
         self.filter(
-            "prefilter",
+            ("prefilter", 0),
             targets.resolved(),
             None,
             &[("THRESHOLD", b.threshold.into()), ("KNEE", b.knee.into())],
             &first,
         );
         levels.push(first);
-        for _ in 1..b.levels {
+        for level in 1..b.levels {
             if size == [1, 1] {
                 break;
             }
             size = [size[0].div_ceil(2), size[1].div_ceil(2)];
             let next = self.texture(size);
-            self.filter("downsample", levels.last().unwrap(), None, &[], &next);
+            self.filter(
+                ("downsample", level),
+                levels.last().unwrap(),
+                None,
+                &[],
+                &next,
+            );
             levels.push(next);
         }
         let mut bloom = levels.pop().unwrap();
-        for high in levels.iter().rev() {
+        for (level, high) in levels.iter().enumerate().rev() {
             let next = self.texture([high.texture().width(), high.texture().height()]);
-            self.filter("upsample", high, Some(&bloom), &[], &next);
+            self.filter(
+                ("upsample", u32::try_from(level).unwrap()),
+                high,
+                Some(&bloom),
+                &[],
+                &next,
+            );
             bloom = next;
         }
         bloom
     }
     fn filter(
         &mut self,
-        entry: &'static str,
+        id: (&'static str, u32),
         source: &wgpu::TextureView,
         lower: Option<&wgpu::TextureView>,
         constants: &[(&str, f64)],
         target: &wgpu::TextureView,
     ) {
         self.pass(FilterPass {
-            entry,
+            entry: id.0,
+            level: id.1,
             source,
             lower,
             exposure: None,
@@ -188,8 +204,11 @@ impl<'a> Filters<'a> {
             layout: &pipeline.get_bind_group_layout(0),
             entries: &entries,
         });
-        self.set
-            .stages
-            .push(Stage::fullscreen(p.entry, &pipeline, &[&group], p.target));
+        self.set.stages.push(Stage::fullscreen(
+            crate::StageId::new(p.entry, p.level),
+            &pipeline,
+            &[&group],
+            p.target,
+        ));
     }
 }

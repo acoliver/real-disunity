@@ -67,6 +67,7 @@ pub(crate) struct Geometry {
     pub pipelines: ScenePipelines,
     pub group: wgpu::BindGroup,
     pub ambient: wgpu::BindGroup,
+    pub reflection: Option<ScenePipelines>,
 }
 
 #[derive(Debug)]
@@ -77,7 +78,7 @@ pub(crate) struct Ssao {
     pub depth: wgpu::Texture,
     pub geometry: Geometry,
     pub passes: passes::ScreenPasses,
-    uniform: wgpu::Buffer,
+    pub(crate) uniform: wgpu::Buffer,
 }
 
 impl Ssao {
@@ -139,6 +140,7 @@ impl Ssao {
                 pipelines,
                 group,
                 ambient,
+                reflection: None,
             },
             passes,
             uniform,

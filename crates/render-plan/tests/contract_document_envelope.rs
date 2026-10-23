@@ -235,3 +235,40 @@ fn current_contract_requires_each_water_field() {
         );
     }
 }
+
+#[test]
+fn optional_ssr_keeps_v4_identity_and_requires_its_complete_policy() {
+    let policy = json!({"enabled":true,"max_steps":64,"thickness_millimeters":100,"roughness_cutoff_micro":600_000,"resolution_scale_micro":500_000});
+    let mut contract = valid_contract();
+    assert!(
+        ContractDocument::from_json_bytes(&contract_bytes(&contract))
+            .unwrap()
+            .effects()
+            .ssr()
+            .is_none()
+    );
+    contract["effects"]["ssr"] = policy.clone();
+    let document = ContractDocument::from_json_bytes(&contract_bytes(&contract)).unwrap();
+    assert_eq!(document.header().schema_version, 4);
+    assert_eq!(document.effects().ssr().unwrap().max_steps, 64);
+    assert_eq!(
+        ContractDocument::from_json_bytes(&document.to_json_bytes().unwrap()).unwrap(),
+        document
+    );
+    for field in [
+        "enabled",
+        "max_steps",
+        "thickness_millimeters",
+        "roughness_cutoff_micro",
+        "resolution_scale_micro",
+    ] {
+        let mut missing = contract.clone();
+        missing["effects"]["ssr"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(ContractDocument::from_json_bytes(&contract_bytes(&missing)).is_err());
+    }
+    contract["effects"]["ssr"]["resolution_scale_micro"] = json!(750_000);
+    assert!(ContractDocument::from_json_bytes(&contract_bytes(&contract)).is_err());
+}

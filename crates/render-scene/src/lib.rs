@@ -18,6 +18,7 @@ pub mod renderer;
 pub mod shader;
 pub mod shadows;
 mod ssao;
+mod ssr;
 pub mod terrain;
 pub mod terrain_uniform;
 pub mod texture;

@@ -19,6 +19,9 @@ pub struct FrameRenderer {
     frame_slot: usize,
     elapsed_seconds: f32,
     pub(crate) ssao: Option<crate::ssao::Ssao>,
+    pub(crate) ssr: Option<crate::ssr::Ssr>,
+    ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
+    ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -47,6 +50,9 @@ impl FrameRenderer {
     ) -> Result<Self, worldrunner_render_post::PostError> {
         Ok(Self {
             ssao: None,
+            ssr: None,
+            ssao_requested: None,
+            ssr_requested: None,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -80,13 +86,21 @@ impl FrameRenderer {
             crate::frame::validate_stock_effects(effects)
                 .map_err(|_| PostError::UnsupportedProfile("scene effects"))?;
         }
+        if let Some(settings) = effects.and_then(|effects| effects.ssr()) {
+            crate::ssr::validate_settings(settings)?;
+        }
         let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
         config.validate_adapter(context.adapter())?;
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?;
+        let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
+        let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
         let mut renderer = Self {
+            ssao_requested,
+            ssr_requested,
+            ssr: None,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -104,10 +118,31 @@ impl FrameRenderer {
                 FrameOutput::Hdr(factory),
             )?,
         };
+        renderer.install_reflections(context.device(), size)?;
         if let Some(settings) = effects.and_then(|effects| effects.water()) {
             renderer.install_water(context.device(), *settings)?;
         }
         Ok(renderer)
+    }
+
+    fn install_reflections(
+        &mut self,
+        device: &wgpu::Device,
+        size: [u32; 2],
+    ) -> Result<(), FrameError> {
+        if let Some(settings) = self.ssr_requested.filter(|settings| settings.enabled) {
+            if self.ssao.is_none() {
+                self.ssao = Some(crate::ssao::Ssao::new(
+                    device,
+                    size,
+                    crate::ssr::neutral_ao(),
+                )?);
+            }
+            let config = self.targets().config();
+            let screen = self.ssao.as_mut().expect("reflection prepass");
+            self.ssr = Some(crate::ssr::Ssr::new(device, config, settings, screen)?);
+        }
+        Ok(())
     }
 
     pub(crate) fn install_water(
@@ -149,12 +184,12 @@ impl FrameRenderer {
         pipelines: &crate::renderer::ScenePipelines,
         requested: Option<&worldrunner_render_plan::SceneSsao>,
     ) -> Result<(), FrameError> {
-        if pipelines.ssao != self.ssao.is_some() {
+        if pipelines.ssao != self.ssao_requested.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO pipeline/profile mismatch",
             ));
         }
-        if self.ssao.as_ref().map(|ssao| &ssao.settings) != requested {
+        if self.ssao_requested.as_ref() != requested {
             return Err(FrameError::SsaoSettings(
                 "SSAO resident/profile settings mismatch",
             ));
@@ -162,6 +197,17 @@ impl FrameRenderer {
         Ok(())
     }
 
+    pub(crate) fn validate_ssr(
+        &self,
+        requested: Option<&worldrunner_render_plan::SceneSsr>,
+    ) -> Result<(), FrameError> {
+        if self.ssr_requested.as_ref() != requested {
+            return Err(FrameError::SsrSettings(
+                "resident/profile settings mismatch",
+            ));
+        }
+        Ok(())
+    }
     /// Supplies animation time for the next prepared frame, in seconds.
     pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
         if !seconds.is_finite() || seconds < 0.0 {
@@ -232,7 +278,7 @@ impl FrameRenderer {
             self.targets().config().samples,
         )
         .validate(&device.limits())?;
-        let replacement = self
+        let mut replacement = self
             .ssao
             .as_ref()
             .filter(|ssao| ssao.size != size)
@@ -253,7 +299,24 @@ impl FrameRenderer {
                 )
             })
             .transpose()?;
+        let reflection =
+            if let (Some(screen), Some(ssr)) = (replacement.as_mut(), self.ssr.as_ref()) {
+                Some(crate::ssr::Ssr::new(
+                    device,
+                    FrameConfig {
+                        size,
+                        ..self.targets().config()
+                    },
+                    ssr.settings,
+                    screen,
+                )?)
+            } else {
+                None
+            };
         let changed = self.chain.resize(device, size)?;
+        if let Some(reflection) = reflection {
+            self.ssr = Some(reflection);
+        }
         if let Some(water) = water {
             self.snapshots = Some(water.snapshots.clone());
             self.water = Some(water);
@@ -307,18 +370,13 @@ impl FrameRenderer {
         features: &mut [BorrowedFeature<'_>],
         input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
     ) -> Result<(), FrameError> {
+        let config = self.targets().config();
         let (frame, shadow) = input;
         let (passes, views) = plan;
         let mut passes = passes.to_vec();
         let mut views = views.to_vec();
         self.set_water_input(device, frame, shadow);
-        let mut combined: Vec<_> = features
-            .iter_mut()
-            .map(|feature| BorrowedFeature {
-                declaration: feature.declaration.clone(),
-                prepared: &mut *feature.prepared,
-            })
-            .collect();
+        let mut combined = reborrow_features(features);
         let mut screen = self
             .ssao
             .as_ref()
@@ -330,23 +388,25 @@ impl FrameRenderer {
                 prepared: screen,
             });
         }
+        let mut reflection = self
+            .ssr
+            .as_ref()
+            .map(|ssr| ssr.feature(device, frame, &passes, &views, self.targets().config()))
+            .transpose()?;
+        if let Some(reflection) = &mut reflection {
+            let declaration = reflection.schedule(&mut passes, &mut views)?;
+            combined.push(BorrowedFeature {
+                declaration,
+                prepared: reflection,
+            });
+        }
         let retained = self.chain.plan_features(&mut passes, &mut views)?;
-        let reads: Vec<_> = combined
-            .iter()
-            .map(|feature| &feature.declaration)
-            .chain(retained.iter())
-            .flat_map(|feature| &feature.passes)
-            .flat_map(|pass| &pass.reads)
-            .copied()
-            .collect();
-        let config = self.targets().config();
-        let (request, mut snapshot_feature) = crate::water::planning::snapshot_feature(
+        let (request, mut snapshot_feature) = Self::plan_snapshots(
             device,
             &mut self.snapshots,
-            (config, frame, self.frame_slot),
+            &(config, frame, self.frame_slot, self.water.is_some()),
             (&mut passes, &mut views),
-            &reads,
-            self.water.is_some(),
+            (&combined, &retained),
         )?;
         if let Some((declaration, feature)) = &mut snapshot_feature {
             combined.push(BorrowedFeature {
@@ -368,6 +428,39 @@ impl FrameRenderer {
         self.snapshot_ready[self.frame_slot] = request;
         Ok(())
     }
+    fn plan_snapshots(
+        device: &wgpu::Device,
+        snapshots: &mut Option<[crate::water::snapshots::Snapshots; 3]>,
+        input: &(FrameConfig, crate::frame::FrameUniform, usize, bool),
+        plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
+        features: (&[BorrowedFeature<'_>], &[FeatureDeclaration]),
+    ) -> Result<
+        (
+            crate::water::planning::SnapshotRequest,
+            Option<(FeatureDeclaration, crate::water::snapshots::SnapshotFeature)>,
+        ),
+        FrameError,
+    > {
+        let reads: Vec<_> = features
+            .0
+            .iter()
+            .map(|feature| &feature.declaration)
+            .chain(features.1.iter())
+            .flat_map(|feature| &feature.passes)
+            .flat_map(|pass| &pass.reads)
+            .copied()
+            .collect();
+        let (config, frame, slot, water) = *input;
+        let result = crate::water::planning::snapshot_feature(
+            device,
+            snapshots,
+            (config, frame, slot),
+            plan,
+            &reads,
+            water,
+        )?;
+        Ok(result)
+    }
     pub fn encode(
         &mut self,
         device: &wgpu::Device,
@@ -377,7 +470,7 @@ impl FrameRenderer {
         features: &mut [BorrowedFeature<'_>],
     ) -> Result<(), FrameError> {
         self.snapshot_ready[self.frame_slot] = crate::water::planning::SnapshotRequest::default();
-        if self.ssao.is_some() || self.water.is_some() {
+        if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
             ));
@@ -393,6 +486,16 @@ impl FrameRenderer {
             features,
         )
     }
+}
+
+fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
+    features
+        .iter_mut()
+        .map(|feature| BorrowedFeature {
+            declaration: feature.declaration.clone(),
+            prepared: &mut *feature.prepared,
+        })
+        .collect()
 }
 
 pub(crate) fn attachment_resource(
@@ -458,6 +561,14 @@ impl PreparedFeature for SceneFeature<'_> {
         pass: &mut wgpu::RenderPass<'_>,
     ) {
         if let Some(screen) = &self.screen {
+            if context.slot == PassSlot::ReflectionMaterial {
+                self.gpu.draw_prepass(
+                    pass,
+                    screen.reflection.as_ref().expect("reflection metadata"),
+                    &screen.group,
+                );
+                return;
+            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.gpu
                     .draw_prepass(pass, &screen.pipelines, &screen.group);
@@ -483,6 +594,7 @@ pub fn encode_scene(
     let (gpu, pipelines) = scene;
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(gpu.water.as_ref())?;
+    renderer.validate_ssr(gpu.ssr.as_ref())?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     let color_id = attachment_resource("scene color", color);
@@ -493,6 +605,9 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if renderer.ssao.is_some() {
         crate::ssao::passes::geometry_declaration(&mut declaration);
+        if renderer.ssr.is_some() {
+            crate::ssr::geometry_declaration(&mut declaration);
+        }
     }
     let mut feature = SceneFeature {
         screen: renderer.ssao.as_ref().map(|ssao| ssao.geometry.clone()),

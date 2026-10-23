@@ -141,6 +141,7 @@ struct Retained {
 #[derive(Debug)]
 pub struct SceneGpu {
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
+    pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
     pub(crate) water: Option<worldrunner_render_plan::SceneWaterPlane>,
     frame_buffer: Buffer,
     frame_group: BindGroup,
@@ -198,6 +199,7 @@ impl SceneGpu {
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
+            ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             water: scene.effects().and_then(|effects| effects.water()).copied(),
             frame_slots,
@@ -747,6 +749,11 @@ mod tests;
 fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(), DrawError> {
     if let Some(effects) = scene.effects() {
         crate::frame::validate_stock_effects(effects)?;
+        if effects.ssr().is_some_and(|settings| settings.enabled)
+            && pipelines.color_format != wgpu::TextureFormat::Rgba16Float
+        {
+            return Err(crate::frame::FrameError::UnsupportedEffect("SSR requires HDR").into());
+        }
         if effects.water().is_some() && pipelines.color_format != wgpu::TextureFormat::Rgba16Float {
             return Err(crate::frame::FrameError::UnsupportedEffect("water requires HDR").into());
         }

@@ -467,6 +467,8 @@ pub struct EffectsRecipeParts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectsRecipe {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ssr: Option<crate::SceneSsr>,
     water: Option<WaterPlaneRecipe>,
     sky: SkyRecipe,
     sun: DirectionalLightMicro,
@@ -477,6 +479,17 @@ pub struct EffectsRecipe {
 }
 
 impl EffectsRecipe {
+    /// Adopts the optional authored reflection policy after validating its quantities.
+    pub fn with_ssr(mut self, settings: crate::SceneSsr) -> Result<Self, ContractDocumentError> {
+        self.ssr = Some(settings);
+        self.validate()?;
+        Ok(self)
+    }
+    /// Returns optional screen-space reflection settings.
+    pub const fn ssr(&self) -> Option<&crate::SceneSsr> {
+        self.ssr.as_ref()
+    }
+
     /// Validates and adopts every authored effect part.
     ///
     /// # Errors
@@ -484,6 +497,7 @@ impl EffectsRecipe {
     /// Returns [`ContractDocumentError`] on the first violated invariant.
     pub fn new(parts: EffectsRecipeParts) -> Result<Self, ContractDocumentError> {
         let effects = Self {
+            ssr: None,
             water: parts.water,
             sky: parts.sky,
             sun: parts.sun,
@@ -546,6 +560,13 @@ impl EffectsRecipe {
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
         if let Some(water) = &self.water {
             water.validate()?;
+        }
+        if let Some(ssr) = self.ssr {
+            ssr.validate()
+                .map_err(|_| ContractDocumentError::ViolatedInvariant {
+                    field: "ssr",
+                    reason: "unsupported reflection settings",
+                })?;
         }
         self.sky.validate()?;
         self.sun.validate()?;

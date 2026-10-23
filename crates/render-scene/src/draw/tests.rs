@@ -36,6 +36,7 @@ mod lod;
 mod material_factors;
 mod retained;
 mod ssao;
+mod ssr;
 mod terrain_blend;
 
 /// The colour format every test renders into.

@@ -1,0 +1,111 @@
+use std::fmt::Write;
+pub(super) fn scalar(value: u32) -> f32 {
+    f32::from(u16::try_from(value >> 16).expect("upper half")) * 65536.0
+        + f32::from(u16::try_from(value & 65535).expect("lower half"))
+}
+pub(super) fn pipeline(
+    device: &wgpu::Device,
+    shader: &str,
+    samples: u32,
+    additive: bool,
+) -> wgpu::RenderPipeline {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("SSR"),
+        source: wgpu::ShaderSource::Wgsl(
+            format!("{}\n{shader}", include_str!("../ssao/fullscreen.wgsl")).into(),
+        ),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("SSR"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vs_fullscreen"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("fs_screen"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba16Float,
+                blend: additive.then_some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::One,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent::REPLACE,
+                }),
+                write_mask: if additive {
+                    wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE
+                } else {
+                    wgpu::ColorWrites::ALL
+                },
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
+        multiview_mask: None,
+        cache: None,
+    })
+}
+pub(super) fn group(
+    device: &wgpu::Device,
+    pipeline: &wgpu::RenderPipeline,
+    uniform: Option<&wgpu::Buffer>,
+    views: &[wgpu::TextureView],
+) -> wgpu::BindGroup {
+    let mut entries = Vec::new();
+    if let Some(uniform) = uniform {
+        entries.push(wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform.as_entire_binding(),
+        });
+    }
+    entries.extend(
+        views
+            .iter()
+            .enumerate()
+            .map(|(index, view)| wgpu::BindGroupEntry {
+                binding: u32::try_from(index + 1).expect("bounded SSR inputs"),
+                resource: wgpu::BindingResource::TextureView(view),
+            }),
+    );
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("SSR inputs"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &entries,
+    })
+}
+pub(super) fn resolve_source(levels: usize) -> String {
+    let mut source = include_str!("resolve.wgsl").to_owned();
+    for index in 0..levels {
+        write!(
+            source,
+            "\n@group(0) @binding({}) var reflection_{index}: texture_2d<f32>;",
+            index + 5
+        )
+        .expect("writing shader source");
+    }
+    source.push_str("\nfn reflected(level: u32, uv: vec2<f32>) -> vec4<f32> { switch level {");
+    for index in 0..levels {
+        write!(source, "case {index}u: {{
+            let size = vec2<i32>(textureDimensions(reflection_{index}));
+            let coordinates = reflection_coordinates(uv, size, exp2({index}.0));
+            let a = vec2<i32>(coordinates[0]);
+            let b = vec2<i32>(coordinates[1]);
+            let weight = coordinates[2];
+            return mix(
+                mix(textureLoad(reflection_{index}, a, 0), textureLoad(reflection_{index}, vec2<i32>(b.x, a.y), 0), weight.x),
+                mix(textureLoad(reflection_{index}, vec2<i32>(a.x, b.y), 0), textureLoad(reflection_{index}, b, 0), weight.x), weight.y);
+        }}").expect("writing shader source");
+    }
+    source.push_str("default: { return vec4<f32>(0.0); } } }\n");
+    source.replace("REFLECTION_LEVELS", &(levels - 1).to_string())
+}

@@ -15,6 +15,9 @@ impl ShadowSchedule {
     pub fn screen_space(&mut self, scheduler: &crate::compositor::FrameRenderer) {
         if scheduler.ssao.is_some() {
             crate::ssao::passes::geometry_declaration(&mut self.declaration);
+            if scheduler.ssr.is_some() {
+                crate::ssr::geometry_declaration(&mut self.declaration);
+            }
         }
     }
     pub fn new(

@@ -37,3 +37,28 @@ Disunity. The package name is retained for application API compatibility.
 There is no built-in content adapter registry, inventory interpreter, source
 terrain/clutter table, proprietary decoder, or bundled content. Producers must
 supply canonical artifacts or construct scenes through the validated public API.
+
+## Screen-space reflections
+
+The optional `ssr` effects recipe carries `enabled`, `max_steps`,
+`thickness_millimeters`, `roughness_cutoff_micro` and `resolution_scale_micro`.
+All quantities are required within a present recipe. Existing v4 documents may
+omit the whole recipe, so the document identity remains v4. `SceneEffects::with_ssr`
+installs the corresponding validated runtime policy; factories explicitly copy
+`EffectsRecipe::ssr()` when composing runtime effects.
+
+The HDR compositor traces the immutable after-opaque colour snapshot against
+single-sample prepass depth and shading normals. A separate matching geometry
+pass records material F0 and roughness, including metallic-roughness textures
+and terrain blends. Reflections contribute only environment specular. The
+forward model currently contains no environment-specular term, so there is no
+existing contribution to subtract. Direct specular and diffuse ambient remain
+unchanged. Reflection textures carry premultiplied confidence and use up to six
+ceil-divided blur levels. No temporal history is retained.
+
+Water does not receive SSR in this profile. The final-depth snapshot masks
+opaque receivers covered by water; water's authored roughness and animated
+normal remain local to its shading feature and are not exported as reflection
+metadata. Water is absent from the opaque reflected source, which contains no
+transparent surfaces. This is a screen-space approximation with a
+100-metre maximum ray length and no offscreen reflection data.

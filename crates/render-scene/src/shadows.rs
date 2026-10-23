@@ -248,6 +248,12 @@ impl ShadowedScene {
             )
             .into());
         }
+        if self.effects.ssr() != effects.ssr() {
+            return Err(worldrunner_render_post::FrameError::SsrSettings(
+                "settings are immutable; rebuild the profile and resident",
+            )
+            .into());
+        }
         self.effects = effects.clone();
         Ok(())
     }
@@ -302,6 +308,7 @@ impl ShadowedScene {
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         scheduler.validate_ssao(&self.pipelines, self.effects.ssao())?;
         scheduler.validate_water(self.effects.water())?;
+        scheduler.validate_ssr(self.effects.ssr())?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         let cascades = cascades::CascadeViews::new(
             &self.gpu,
@@ -430,7 +437,14 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
-        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+        if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
+            let screen = self.screen.as_ref().expect("declared metadata");
+            self.gpu.draw_prepass(
+                pass,
+                screen.reflection.as_ref().expect("reflection pipelines"),
+                &screen.group,
+            );
+        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             let screen = self.screen.as_ref().expect("declared prepass");
             self.gpu
                 .draw_prepass(pass, &screen.pipelines, &screen.group);

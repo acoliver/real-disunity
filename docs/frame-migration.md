@@ -138,6 +138,8 @@ The legacy profile retains exposed sRGB output. The HDR profile writes unexposed
 
 ## External features
 
+Consumers needing texture generations, subresource access declarations, MRT or a different authored pass order can use the [shared resource and raster contracts](resource-contracts.md). Stock geometry uses the same raster executor and retains its existing outputs and timing identities.
+
 Run the headless public example:
 
 ```sh

@@ -1,3 +1,17 @@
+#[test]
+fn stock_slots_accept_both_authored_shadow_prepass_orders() {
+    let mut shadow = PassDeclaration::new(PassSlot::ShadowCasters(0));
+    shadow.color = Some(attachment(
+        AttachmentLoad::ClearColor(wgpu::Color::BLACK),
+        wgpu::StoreOp::Store,
+    ));
+    let mut prepass = shadow.clone();
+    prepass.slot = PassSlot::DepthNormalPrepass;
+    prepass.color.as_mut().unwrap().resource = ResourceRef::new("prepass color");
+    assert!(validate_frame(&[shadow.clone(), prepass.clone()], &[], &[]).is_ok());
+    assert!(validate_frame(&[prepass, shadow], &[], &[]).is_ok());
+}
+
 use crate::*;
 
 fn attachment(load: AttachmentLoad, store: wgpu::StoreOp) -> AttachmentDeclaration {
@@ -53,7 +67,7 @@ fn active_attachment_sampling_and_unsupported_effects_fail_before_execution() {
 fn slot_order_is_explicit_and_never_silently_reordered() {
     let passes = [
         PassDeclaration::new(PassSlot::Opaque),
-        PassDeclaration::new(PassSlot::ShadowCasters(0)),
+        PassDeclaration::new(PassSlot::Opaque),
     ];
     assert_eq!(
         validate_frame(&passes, &[], &[]),

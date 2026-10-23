@@ -9,6 +9,19 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
         })
         .unwrap();
     let generation = renderer.execution.presenter.configuration_generation();
+    assert_lost_and_outdated_recovery(renderer, &device);
+    assert_eq!(
+        renderer.execution.presenter.configuration_generation(),
+        generation + 2
+    );
+    assert_suboptimal_presentation(renderer, &device);
+    assert_eq!(
+        renderer.execution.presenter.configuration_generation(),
+        generation + 2
+    );
+}
+
+fn assert_lost_and_outdated_recovery(renderer: &mut Renderer, device: &wgpu::Device) {
     for outcome in [
         wgpu::CurrentSurfaceTexture::Outdated,
         wgpu::CurrentSurfaceTexture::Lost,
@@ -16,7 +29,7 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
         renderer
             .execution
             .presenter
-            .handle_acquired(&device, outcome)
+            .handle_acquired(device, outcome)
             .unwrap();
         renderer.resize([700, 500]).unwrap();
         let previous_view = view(renderer);
@@ -40,19 +53,18 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
             })
             .unwrap();
     }
-    assert_eq!(
-        renderer.execution.presenter.configuration_generation(),
-        generation + 2
-    );
+}
+
+fn assert_suboptimal_presentation(renderer: &mut Renderer, device: &wgpu::Device) {
     for _ in 0..8 {
-        let frame = match renderer.execution.presenter.acquire(&device).unwrap() {
+        let frame = match renderer.execution.presenter.acquire(device).unwrap() {
             AcquiredFrame::Frame(frame) => frame,
             other => panic!("{other:?}"),
         };
         let frame = match renderer
             .execution
             .presenter
-            .handle_acquired(&device, wgpu::CurrentSurfaceTexture::Suboptimal(frame))
+            .handle_acquired(device, wgpu::CurrentSurfaceTexture::Suboptimal(frame))
             .unwrap()
         {
             AcquiredFrame::Frame(frame) => frame,
@@ -63,8 +75,4 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
         renderer.context.queue().present(frame);
         present(renderer);
     }
-    assert_eq!(
-        renderer.execution.presenter.configuration_generation(),
-        generation + 2
-    );
 }

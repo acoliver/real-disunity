@@ -80,7 +80,7 @@ fn surface_lighting(
     // world as though the horizon ran vertically.
     let ambient = rd_hemisphere(normal, vec3<f32>(0.0, 0.0, 1.0), frame.ambient_ground.rgb, frame.ambient_sky.rgb)
         * diffuse_colour
-        * ambient_occlusion;
+        * ambient_occlusion /* SCREEN_AMBIENT_FACTOR */;
 
     return direct * sunlight_visibility(world_position, normal) + ambient;
 }

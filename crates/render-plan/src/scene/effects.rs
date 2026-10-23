@@ -198,6 +198,10 @@ impl SceneShadowCascades {
 /// Screen-space ambient occlusion parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSsao {
+    /// Number of deterministic hemisphere samples, within 1..=64.
+    pub sample_count: u32,
+    /// Surface self-occlusion bias in millimetres.
+    pub bias_millimeters: u32,
     /// Occlusion sample radius in millimeters; strictly positive.
     pub radius_millimeters: u64,
     /// Occlusion strength in micro-units within `0..=2_000_000`.
@@ -213,6 +217,7 @@ impl SceneSsao {
     ///
     /// Returns [`SceneValidationError`] on the first out-of-bounds field.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        require_range("ssao sample_count", u64::from(self.sample_count), 1, 64)?;
         require_range(
             "ssao radius_millimeters",
             self.radius_millimeters,
@@ -691,6 +696,8 @@ mod tests {
             shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
                 .expect("synthetic cascades validate"),
             ssao: Some(SceneSsao {
+                sample_count: 16,
+                bias_millimeters: 10,
                 radius_millimeters: 1_200,
                 intensity_micro: 1_000_000,
                 horizon_angle_millidegrees: 90_000,

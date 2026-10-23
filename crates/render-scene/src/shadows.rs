@@ -45,7 +45,7 @@ use crate::frame::{FrameError, FrameUniform};
 use crate::offscreen::{OffscreenError, OffscreenTarget, RgbaImage};
 use crate::renderer::ScenePipelines;
 use crate::view::SceneView;
-use resources::{SHADOWED_WGSL, ShadowMap};
+use resources::ShadowMap;
 
 /// An opt-in shadow request could not be prepared.
 #[derive(Debug, thiserror::Error)]
@@ -141,13 +141,8 @@ impl ShadowedScene {
             "shadows require an environmental profile",
         ))?)?;
         let shadow_layout = resources::layout(context.device());
-        let pipelines = ScenePipelines::with_environment(
-            context.device(),
-            (format, samples),
-            SHADOWED_WGSL,
-            resources::SHADOWED_TERRAIN_WGSL,
-            Some(&shadow_layout),
-        );
+        let pipelines =
+            resources::receiver_pipelines(context, scene, (format, samples), &shadow_layout)?;
         let (depth_pipelines, terrain_depth_pipeline) =
             resources::depth_pipelines(context.device(), &pipelines, settings);
         let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
@@ -233,7 +228,16 @@ impl ShadowedScene {
     /// Changed layer counts are allocated at the next encode.
     pub fn set_effects(&mut self, effects: &SceneEffects) -> Result<(), ShadowError> {
         settings::validate_effects(effects)?;
+        if effects.ssao().is_some() != self.pipelines.ssao {
+            return Err(FrameError::UnsupportedEffect("SSAO").into());
+        }
         self.settings.validate_light(effects)?;
+        if self.effects.ssao() != effects.ssao() {
+            return Err(worldrunner_render_post::FrameError::SsaoSettings(
+                "SSAO settings are immutable; rebuild the frame profile and resident scene",
+            )
+            .into());
+        }
         self.effects = effects.clone();
         Ok(())
     }
@@ -286,6 +290,7 @@ impl ShadowedScene {
     ) -> Result<(), ShadowError> {
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
+        scheduler.validate_ssao(&self.pipelines, self.effects.ssao())?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         let cascades = cascades::CascadeViews::new(
             &self.gpu,
@@ -307,8 +312,11 @@ impl ShadowedScene {
         };
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
-        let schedule = schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
+        let mut schedule =
+            schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
+        schedule.screen_space(scheduler);
         let mut feature = ShadowFeature {
+            screen: scheduler.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
             gpu: &mut self.gpu,
             pipelines: &self.pipelines,
             depth_pipelines: &self.depth_pipelines,
@@ -320,15 +328,15 @@ impl ShadowedScene {
             shadow_uniform: &map.uniform,
             settings: self.settings,
         };
-        scheduler.encode(
+        scheduler.encode_frame(
             context.device(),
             encoder,
-            &schedule.passes,
-            &schedule.views,
+            (&schedule.passes, &schedule.views),
             &mut [BorrowedFeature {
                 declaration: schedule.declaration,
                 prepared: &mut feature,
             }],
+            frame,
         )?;
         if let Some(map) = replacement {
             self.map = map;
@@ -370,6 +378,7 @@ pub fn capture_scene_shadowed(
 }
 
 struct ShadowFeature<'a> {
+    screen: Option<crate::ssao::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
     depth_pipelines: &'a [wgpu::RenderPipeline; 4],
@@ -410,7 +419,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
-        if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
+        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+            let screen = self.screen.as_ref().expect("declared prepass");
+            self.gpu
+                .draw_prepass(pass, &screen.pipelines, &screen.group);
+        } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             let matrix = self.cascades.matrices[index as usize];
             let group = &self.depth_frames[index as usize].1;
             self.gpu
@@ -418,6 +431,9 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
             self.gpu
                 .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
         } else {
+            if let Some(screen) = &self.screen {
+                pass.set_bind_group(3, &screen.ambient, &[]);
+            }
             pass.set_bind_group(2, self.shadow_group, &[]);
             self.gpu
                 .draw_shadowed(pass, self.pipelines, self.shadow_group);

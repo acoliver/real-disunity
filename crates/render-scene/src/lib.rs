@@ -17,6 +17,7 @@ pub mod pipeline;
 pub mod renderer;
 pub mod shader;
 pub mod shadows;
+mod ssao;
 pub mod terrain;
 pub mod terrain_uniform;
 pub mod texture;

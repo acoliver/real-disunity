@@ -12,6 +12,7 @@ use worldrunner_render_post::{
 /// A successful encoder must not be abandoned: its uploads have been committed.
 pub struct FrameRenderer {
     chain: PostChain<FrameOutput>,
+    pub(crate) ssao: Option<crate::ssao::Ssao>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,6 +38,7 @@ impl FrameRenderer {
         output_format: wgpu::TextureFormat,
     ) -> Result<Self, worldrunner_render_post::PostError> {
         Ok(Self {
+            ssao: None,
             chain: PostChain::new(
                 device,
                 config,
@@ -58,6 +60,9 @@ impl FrameRenderer {
             return Err(PostError::SampleCount(samples));
         }
         if let Some(effects) = effects {
+            if let Some(settings) = effects.ssao() {
+                crate::ssao::validate_settings(settings)?;
+            }
             crate::frame::validate_stock_effects(effects)
                 .map_err(|_| PostError::UnsupportedProfile("scene effects"))?;
         }
@@ -68,6 +73,10 @@ impl FrameRenderer {
         });
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?;
         Ok(Self {
+            ssao: effects
+                .and_then(|effects| effects.ssao())
+                .map(|settings| crate::ssao::Ssao::new(context.device(), size, *settings))
+                .transpose()?,
             chain: PostChain::new(
                 context.device(),
                 config,
@@ -92,6 +101,24 @@ impl FrameRenderer {
         Ok(frame)
     }
 
+    pub(crate) fn validate_ssao(
+        &self,
+        pipelines: &crate::renderer::ScenePipelines,
+        requested: Option<&worldrunner_render_plan::SceneSsao>,
+    ) -> Result<(), FrameError> {
+        if pipelines.ssao != self.ssao.is_some() {
+            return Err(FrameError::UnsupportedEffect(
+                "SSAO pipeline/profile mismatch",
+            ));
+        }
+        if self.ssao.as_ref().map(|ssao| &ssao.settings) != requested {
+            return Err(FrameError::SsaoSettings(
+                "SSAO resident/profile settings mismatch",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn targets(&self) -> &worldrunner_render_post::FrameTargets {
         self.chain.targets()
     }
@@ -100,7 +127,23 @@ impl FrameRenderer {
         device: &wgpu::Device,
         size: [u32; 2],
     ) -> Result<bool, worldrunner_render_post::PostError> {
-        self.chain.resize(device, size)
+        FrameConfig::new(
+            size,
+            self.targets().config().format,
+            self.targets().config().samples,
+        )
+        .validate(&device.limits())?;
+        let replacement = self
+            .ssao
+            .as_ref()
+            .filter(|ssao| ssao.size != size)
+            .map(|ssao| crate::ssao::Ssao::new(device, size, ssao.settings))
+            .transpose()?;
+        let changed = self.chain.resize(device, size)?;
+        if let Some(replacement) = replacement {
+            self.ssao = Some(replacement);
+        }
+        Ok(changed)
     }
     pub fn encode_output(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         self.chain.targets().encode_resolve(encoder);
@@ -113,6 +156,61 @@ impl FrameRenderer {
     ) -> Result<worldrunner_render_post::FeatureId, FrameError> {
         self.chain.register(device, feature)
     }
+    pub(crate) fn encode_frame(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: (&[PassDeclaration], &[AttachmentView]),
+        features: &mut [BorrowedFeature<'_>],
+        frame: crate::frame::FrameUniform,
+    ) -> Result<(), FrameError> {
+        let (passes, views) = plan;
+        let Some(ssao) = &self.ssao else {
+            return self.encode(device, encoder, passes, views, features);
+        };
+        if passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.color.as_ref())
+            .is_none_or(|color| color.size != ssao.size)
+        {
+            return Err(FrameError::SsaoSettings(
+                "prepass and opaque render extents must match",
+            ));
+        }
+        let mut passes = passes.to_vec();
+        let mut views = views.to_vec();
+        let mut screen_passes = Vec::new();
+        crate::ssao::passes::prepass(ssao, &mut screen_passes, &mut views)?;
+        let declaration = ssao.passes.schedule(&mut screen_passes, &mut views)?;
+        let insertion = passes
+            .iter()
+            .position(|pass| pass.slot >= PassSlot::DepthNormalPrepass)
+            .unwrap_or(passes.len());
+        passes.splice(insertion..insertion, screen_passes);
+        let mut screen = crate::ssao::passes::ScreenFeature { ssao, frame };
+        let mut combined: Vec<_> = features
+            .iter_mut()
+            .map(|feature| BorrowedFeature {
+                declaration: feature.declaration.clone(),
+                prepared: &mut *feature.prepared,
+            })
+            .collect();
+        combined.push(BorrowedFeature {
+            declaration,
+            prepared: &mut screen,
+        });
+        self.chain.encode_geometry(
+            device,
+            encoder,
+            &worldrunner_render_post::FramePlan {
+                passes: &passes,
+                views: &views,
+                requested: &["SSAO"],
+            },
+            &mut combined,
+        )
+    }
     pub fn encode(
         &mut self,
         device: &wgpu::Device,
@@ -121,6 +219,11 @@ impl FrameRenderer {
         views: &[AttachmentView],
         features: &mut [BorrowedFeature<'_>],
     ) -> Result<(), FrameError> {
+        if self.ssao.is_some() {
+            return Err(FrameError::UnsupportedEffect(
+                "SSAO requires stock geometry composition",
+            ));
+        }
         self.chain.encode_geometry(
             device,
             encoder,
@@ -169,6 +272,7 @@ pub(crate) struct SceneFeature<'a> {
     pub gpu: &'a mut crate::draw::SceneGpu,
     pub pipelines: &'a crate::renderer::ScenePipelines,
     pub frame: crate::frame::FrameUniform,
+    pub screen: Option<crate::ssao::Geometry>,
 }
 impl SceneFeature<'_> {
     pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
@@ -190,7 +294,19 @@ impl PreparedFeature for SceneFeature<'_> {
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
     }
-    fn draw(&self, _: &worldrunner_render_post::DrawContext, pass: &mut wgpu::RenderPass<'_>) {
+    fn draw(
+        &self,
+        context: &worldrunner_render_post::DrawContext,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        if let Some(screen) = &self.screen {
+            if context.slot == PassSlot::DepthNormalPrepass {
+                self.gpu
+                    .draw_prepass(pass, &screen.pipelines, &screen.group);
+                return;
+            }
+            pass.set_bind_group(3, &screen.ambient, &[]);
+        }
         self.gpu.draw(pass, self.pipelines);
     }
 }
@@ -207,6 +323,7 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     let color_id = attachment_resource("scene color", color);
@@ -214,23 +331,31 @@ pub fn encode_scene(
     let mut opaque = PassDeclaration::new(PassSlot::Opaque);
     opaque.color = Some(attachment(color_id, color, false));
     opaque.depth = Some(attachment(depth_id, depth, true));
+    let mut declaration = SceneFeature::declaration(pipelines);
+    if renderer.ssao.is_some() {
+        crate::ssao::passes::geometry_declaration(&mut declaration);
+    }
     let mut feature = SceneFeature {
+        screen: renderer.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
         gpu,
         pipelines,
         frame,
     };
-    renderer.encode(
+    renderer.encode_frame(
         device,
         encoder,
-        &[opaque],
-        &[
-            color.with_resource(color_id)?,
-            depth.with_resource(depth_id)?,
-        ],
+        (
+            &[opaque],
+            &[
+                color.with_resource(color_id)?,
+                depth.with_resource(depth_id)?,
+            ],
+        ),
         &mut [BorrowedFeature {
-            declaration: SceneFeature::declaration(pipelines),
+            declaration,
             prepared: &mut feature,
         }],
+        frame,
     )
 }
 

@@ -7,13 +7,55 @@ use serde_json::json;
 use worldrunner_render_plan::{
     ContractDocument, ContractDocumentError, RENDER_CONTRACT_SCHEMA, RENDER_CONTRACT_SCHEMA_VERSION,
 };
+
+#[test]
+fn previous_contract_is_rejected_at_the_identity_boundary() {
+    let bytes = include_bytes!("fixtures/render-contract-v2.json");
+    assert!(matches!(
+        ContractDocument::from_json_bytes(bytes),
+        Err(ContractDocumentError::SchemaTagMismatch { expected, observed })
+            if expected == RENDER_CONTRACT_SCHEMA && observed == "real-disunity.render-contract.v2"
+    ));
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    value["schema"] = json!(RENDER_CONTRACT_SCHEMA);
+    assert!(matches!(
+        ContractDocument::from_json_bytes(&contract_bytes(&value)),
+        Err(ContractDocumentError::UnsupportedSchemaVersion {
+            expected: 3,
+            observed: 2
+        })
+    ));
+}
+
+#[test]
+fn current_contract_matches_the_golden_bytes() {
+    let document = ContractDocument::from_json_bytes(&contract_bytes(&valid_contract())).unwrap();
+    let golden = include_bytes!("fixtures/render-contract-v3.json");
+    assert_eq!(document.to_json_bytes().unwrap(), golden);
+    assert_eq!(ContractDocument::from_json_bytes(golden).unwrap(), document);
+}
+
+#[test]
+fn current_contract_requires_each_new_ssao_field() {
+    for field in ["sample_count", "bias_millimeters"] {
+        let mut value = valid_contract();
+        value["effects"]["ssao"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(matches!(
+            ContractDocument::from_json_bytes(&contract_bytes(&value)),
+            Err(ContractDocumentError::Json(error)) if error.to_string().contains(field)
+        ));
+    }
+}
 #[test]
 fn contract_identity_has_an_independent_version_boundary() {
-    assert_eq!(RENDER_CONTRACT_SCHEMA, "real-disunity.render-contract.v2");
-    assert_eq!(RENDER_CONTRACT_SCHEMA_VERSION, 2);
+    assert_eq!(RENDER_CONTRACT_SCHEMA, "real-disunity.render-contract.v3");
+    assert_eq!(RENDER_CONTRACT_SCHEMA_VERSION, 3);
     assert_eq!(
         worldrunner_render_plan::RENDER_CONTRACT_CAPABILITY_URI,
-        "urn:real-disunity:capability:render-contract:v2"
+        "urn:real-disunity:capability:render-contract:v3"
     );
     let mut contract = valid_contract();
     contract["schema"] = json!("legacy.render-contract.v1");

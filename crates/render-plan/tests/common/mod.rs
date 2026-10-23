@@ -101,6 +101,8 @@ fn effects() -> Value {
             "blend_band_micro": 10_000,
         },
         "ssao": {
+            "sample_count": 16,
+            "bias_millimeters": 10,
             "radius_millimeters": 750,
             "intensity_micro": 1_000_000,
             "horizon_angle_millidegrees": 90_000,
@@ -189,8 +191,8 @@ fn assets() -> Value {
 /// One minimal fully valid authored render contract.
 pub fn valid_contract() -> Value {
     json!({
-        "schema": "real-disunity.render-contract.v2",
-        "schema_version": 2,
+        "schema": "real-disunity.render-contract.v3",
+        "schema_version": 3,
         "contract_id": "synthetic-contract-alpha",
         "basis": basis(),
         "scene": { "meshes": [

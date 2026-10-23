@@ -12,6 +12,11 @@ pub(super) struct ShadowSchedule {
 }
 
 impl ShadowSchedule {
+    pub fn screen_space(&mut self, scheduler: &crate::compositor::FrameRenderer) {
+        if scheduler.ssao.is_some() {
+            crate::ssao::passes::geometry_declaration(&mut self.declaration);
+        }
+    }
     pub fn new(
         map: &DepthMap,
         color: &AttachmentView,

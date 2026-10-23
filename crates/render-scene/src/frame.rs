@@ -82,6 +82,8 @@ pub enum FrameError {
 pub struct FrameUniform {
     /// Clip-from-scene transform; the only field that leaves scene space.
     pub view_projection: Mat4,
+    /// World-to-view rotation/translation for screen-space geometry. Not part of the legacy ABI.
+    pub view: Mat4,
     /// Eye position in scene space, metres, Z-up.
     pub camera_position: Vec3,
     /// Authored eye position for CPU selection; not encoded in the GPU block.
@@ -136,6 +138,7 @@ impl FrameUniform {
         .prepare()?;
         Ok(Self {
             view_projection: view.view_projection_matrix(),
+            view: view.view_matrix(),
             camera_position: view.eye_meters(),
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: environment.toward_light,
@@ -150,6 +153,7 @@ impl FrameUniform {
     fn unlit(view: &SceneView) -> Self {
         Self {
             view_projection: view.view_projection_matrix(),
+            view: view.view_matrix(),
             camera_position: view.eye_meters(),
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: Vec3::ZERO,
@@ -200,8 +204,9 @@ pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), Frame
     {
         return Err(FrameError::UnsupportedEffect("color grading"));
     }
-    if effects.ssao().is_some() {
-        return Err(FrameError::UnsupportedEffect("SSAO"));
+    if let Some(settings) = effects.ssao() {
+        crate::ssao::validate_settings(settings)
+            .map_err(|_| FrameError::UnsupportedEffect("SSAO settings"))?;
     }
     if !effects.post().is_empty() {
         return Err(FrameError::UnsupportedEffect("post-processing"));

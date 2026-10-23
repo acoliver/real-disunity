@@ -69,10 +69,11 @@ use crate::view::Viewport;
 pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
 /// The complete, closed set of pipelines a governed scene can require.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ScenePipelines {
     pub(crate) color_format: TextureFormat,
     pub(crate) samples: u32,
+    pub(crate) ssao: bool,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
@@ -114,6 +115,29 @@ impl ScenePipelines {
         ))
     }
 
+    pub fn with_ssao(
+        device: &Device,
+        format: TextureFormat,
+        samples: u32,
+    ) -> Result<Self, worldrunner_render_post::PostError> {
+        if format != TextureFormat::Rgba16Float {
+            return Err(worldrunner_render_post::PostError::UnsupportedProfile(
+                "SSAO requires HDR",
+            ));
+        }
+        worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
+            .validate(&device.limits())?;
+        let layout = crate::ssao::ambient_layout(device);
+        Ok(Self::with_screen_space(
+            device,
+            (format, samples),
+            &crate::ssao::ambient_source(ENVIRONMENT_WGSL),
+            &crate::ssao::ambient_source(TERRAIN_WGSL),
+            None,
+            Some(&layout),
+        ))
+    }
+
     pub(crate) fn with_environment(
         device: &Device,
         target: (TextureFormat, u32),
@@ -121,15 +145,28 @@ impl ScenePipelines {
         terrain_source: &str,
         shadow_layout: Option<&BindGroupLayout>,
     ) -> Self {
+        Self::with_screen_space(device, target, source, terrain_source, shadow_layout, None)
+    }
+
+    pub(crate) fn with_screen_space(
+        device: &Device,
+        target: (TextureFormat, u32),
+        source: &str,
+        terrain_source: &str,
+        shadow_layout: Option<&BindGroupLayout>,
+        screen_layout: Option<&BindGroupLayout>,
+    ) -> Self {
         let (color_format, samples) = target;
         let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
         let terrain_layout = terrain_bind_group_layout(device);
-        let mut groups = vec![Some(&frame_layout), Some(&material_layout)];
-        if let Some(shadow_layout) = shadow_layout {
-            groups.push(Some(shadow_layout));
-        }
+        let mut groups = pipeline_groups(
+            &frame_layout,
+            &material_layout,
+            shadow_layout,
+            screen_layout,
+        );
         let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("environment"),
             bind_group_layouts: &groups,
@@ -139,11 +176,7 @@ impl ScenePipelines {
         let vertex_attributes = vertex_attributes();
         let instance_attributes = instance_attributes();
         let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
-        let targets = [Some(ColorTargetState {
-            format: color_format,
-            blend: None,
-            write_mask: ColorWrites::ALL,
-        })];
+        let targets = color_targets(color_format);
 
         let pipelines = PipelineKey::ALL.map(|key| {
             build(
@@ -178,6 +211,7 @@ impl ScenePipelines {
         Self {
             color_format,
             samples,
+            ssao: screen_layout.is_some(),
             frame_layout,
             material_layout,
             terrain_layout,
@@ -386,4 +420,29 @@ fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModul
         label: Some(label),
         source: ShaderSource::Wgsl(Cow::Borrowed(source)),
     })
+}
+
+fn pipeline_groups<'a>(
+    frame: &'a BindGroupLayout,
+    material: &'a BindGroupLayout,
+    shadow: Option<&'a BindGroupLayout>,
+    screen: Option<&'a BindGroupLayout>,
+) -> Vec<Option<&'a BindGroupLayout>> {
+    let mut groups = vec![Some(frame), Some(material)];
+    if let Some(shadow) = shadow {
+        groups.push(Some(shadow));
+    }
+    if let Some(screen) = screen {
+        groups.resize(3, None);
+        groups.push(Some(screen));
+    }
+    groups
+}
+
+fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
+    [Some(ColorTargetState {
+        format,
+        blend: None,
+        write_mask: ColorWrites::ALL,
+    })]
 }

@@ -7,6 +7,9 @@ use crate::FrameTargets;
 pub enum PassSlot {
     ShadowCasters(u32),
     DepthNormalPrepass,
+    DepthPyramid(u32),
+    Ssao,
+    SsaoBlur,
     Opaque,
     AfterOpaqueSnapshot,
     TransparentWater,
@@ -102,6 +105,8 @@ impl FeatureDeclaration {
 pub enum FrameError {
     #[error("scene exposure differs from the compiled fixed-exposure profile")]
     FixedExposureMismatch,
+    #[error("invalid or unsupported SSAO setting: {0}")]
+    SsaoSettings(&'static str),
     #[error("frame slots must be unique and in execution order")]
     SlotOrder,
     #[error("feature requests an undeclared slot {0:?}")]

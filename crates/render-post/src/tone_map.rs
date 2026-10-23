@@ -3,7 +3,7 @@ use crate::{
     StageTarget, fullscreen_pipeline,
 };
 
-/// Explicit display curve. Adaptive exposure and authored filmic curves are not installed.
+/// Explicit display curve. Authored filmic curves are not installed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToneMap {
     Reinhard,
@@ -18,6 +18,7 @@ pub enum ToneMap {
 pub struct ToneMapOutput {
     format: wgpu::TextureFormat,
     exposure: f64,
+    post: Option<Box<crate::hdr_post::HdrPost>>,
 }
 impl ToneMapOutput {
     pub fn new(
@@ -37,9 +38,46 @@ impl ToneMapOutput {
         if !exposure.is_finite() || !(0.0..=4.0).contains(&exposure) {
             return Err(PostError::UnsupportedProfile("fixed exposure"));
         }
-        Ok(Self { format, exposure })
+        Ok(Self {
+            format,
+            exposure,
+            post: None,
+        })
     }
 
+    pub fn with_effects(
+        mut self,
+        device: &wgpu::Device,
+        settings: crate::HdrPostSettings,
+    ) -> Result<Self, PostError> {
+        settings.validate()?;
+        self.post = if settings.enabled() {
+            Some(Box::new(crate::hdr_post::HdrPost::new(device, settings)?))
+        } else {
+            None
+        };
+        Ok(self)
+    }
+    /// Validate the effective delta (finite, 0..=10 seconds) before any upload.
+    /// A fixed capture delta overrides host timing, including invalid host values.
+    pub fn prepare_effects(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        delta: f32,
+        reset: bool,
+    ) -> Result<(), PostError> {
+        if let Some(post) = &self.post {
+            post.prepare(encoder, slot, delta, reset, 1.0)?;
+        } else {
+            crate::hdr_post::validate_delta(delta)?;
+        }
+        Ok(())
+    }
+    /// Published exposure result for an admitted slot, suitable for asynchronous capture readback.
+    pub fn exposure_buffer(&self, slot: usize) -> Option<&wgpu::Buffer> {
+        self.post.as_ref().map(|post| &post.exposure[slot])
+    }
     /// Check a scene's f32 uniform against the compiled fixed multiplier.
     pub fn matches_exposure(&self, exposure: f32) -> bool {
         (f64::from(exposure) - self.exposure).abs()
@@ -62,6 +100,25 @@ impl ToneMapOutput {
     }
 }
 impl StageFactory for ToneMapOutput {
+    fn frame_slots(&self) -> usize {
+        if self.post.is_some() { 3 } else { 1 }
+    }
+    fn build_for_slot(
+        &self,
+        device: &wgpu::Device,
+        targets: &FrameTargets,
+        persistent: &Resources,
+        slot: usize,
+    ) -> Result<StageSet, PostError> {
+        if targets.config().format != wgpu::TextureFormat::Rgba16Float {
+            return Err(PostError::CopySourceFormat(targets.config().format));
+        }
+        if let Some(post) = &self.post {
+            Ok(post.build(device, targets, slot, self.format, self.exposure))
+        } else {
+            self.build(device, targets, persistent)
+        }
+    }
     fn build(
         &self,
         device: &wgpu::Device,
@@ -70,6 +127,9 @@ impl StageFactory for ToneMapOutput {
     ) -> Result<StageSet, PostError> {
         if targets.config().format != wgpu::TextureFormat::Rgba16Float {
             return Err(PostError::CopySourceFormat(targets.config().format));
+        }
+        if let Some(post) = &self.post {
+            return Ok(post.build(device, targets, 0, self.format, self.exposure));
         }
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fixed exposure and Reinhard output"),

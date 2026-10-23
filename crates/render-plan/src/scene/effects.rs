@@ -512,6 +512,7 @@ pub struct SceneEffectsParts {
 /// and SSAO may be absent within a profile; the other fields are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffects {
+    hdr_post: Option<super::SceneHdrPost>,
     ssr: Option<super::SceneSsr>,
     water: Option<SceneWaterPlane>,
     sky: SceneSky,
@@ -526,6 +527,19 @@ pub struct SceneEffects {
 }
 
 impl SceneEffects {
+    /// Installs a complete optional HDR post policy.
+    pub fn with_hdr_post(
+        mut self,
+        settings: super::SceneHdrPost,
+    ) -> Result<Self, SceneValidationError> {
+        settings.validate()?;
+        self.hdr_post = Some(settings);
+        Ok(self)
+    }
+    pub const fn hdr_post(&self) -> Option<&super::SceneHdrPost> {
+        self.hdr_post.as_ref()
+    }
+
     /// Installs explicitly validated screen-space reflection settings.
     pub fn with_ssr(mut self, settings: super::SceneSsr) -> Result<Self, SceneValidationError> {
         settings.validate()?;
@@ -544,6 +558,7 @@ impl SceneEffects {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn new(parts: SceneEffectsParts) -> Result<Self, SceneValidationError> {
         let effects = Self {
+            hdr_post: None,
             ssr: None,
             water: parts.water,
             sky: parts.sky,
@@ -628,6 +643,9 @@ impl SceneEffects {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         if let Some(water) = self.water {
             water.validate()?;
+        }
+        if let Some(post) = self.hdr_post {
+            post.validate()?;
         }
         if let Some(ssr) = self.ssr {
             ssr.validate()?;

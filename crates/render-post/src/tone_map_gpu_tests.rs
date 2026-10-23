@@ -11,7 +11,7 @@ fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Text
     .unwrap()
 }
 
-fn half(bytes: &[u8]) -> f64 {
+pub(crate) fn half(bytes: &[u8]) -> f64 {
     let bits = u16::from_le_bytes([bytes[0], bytes[1]]);
     let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
     let exponent = (bits >> 10) & 31;

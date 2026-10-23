@@ -309,6 +309,10 @@ impl ShadowedScene {
         scheduler.validate_ssao(&self.pipelines, self.effects.ssao())?;
         scheduler.validate_water(self.effects.water())?;
         scheduler.validate_ssr(self.effects.ssr())?;
+        scheduler.validate_post(
+            crate::post::settings(&self.effects)
+                .map_err(|_| FrameError::UnsupportedEffect("post settings"))?,
+        )?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         let cascades = cascades::CascadeViews::new(
             &self.gpu,

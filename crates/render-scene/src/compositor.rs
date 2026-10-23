@@ -17,7 +17,11 @@ pub struct FrameRenderer {
     pub(crate) snapshots: Option<[crate::water::snapshots::Snapshots; 3]>,
     snapshot_ready: [crate::water::planning::SnapshotRequest; 3],
     frame_slot: usize,
+    post_requested: worldrunner_render_post::HdrPostSettings,
     elapsed_seconds: f32,
+    frame_delta: f32,
+    post_time: std::cell::Cell<f32>,
+    exposure_reset: std::cell::Cell<bool>,
     pub(crate) ssao: Option<crate::ssao::Ssao>,
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
@@ -58,7 +62,11 @@ impl FrameRenderer {
             snapshots: None,
             snapshot_ready: Default::default(),
             frame_slot: 0,
+            post_requested: worldrunner_render_post::HdrPostSettings::default(),
             elapsed_seconds: 0.0,
+            frame_delta: 0.0,
+            post_time: std::cell::Cell::new(0.0),
+            exposure_reset: std::cell::Cell::new(false),
             chain: PostChain::new(
                 device,
                 config,
@@ -94,7 +102,12 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        let factory = ToneMapOutput::new(output_format, exposure, tone_map)?;
+        let post = effects
+            .map(crate::post::settings)
+            .transpose()?
+            .unwrap_or_default();
+        let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
+            .with_effects(context.device(), post)?;
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
         let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
         let mut renderer = Self {
@@ -106,7 +119,11 @@ impl FrameRenderer {
             snapshots: None,
             snapshot_ready: Default::default(),
             frame_slot: 0,
+            post_requested: post,
             elapsed_seconds: 0.0,
+            frame_delta: 0.0,
+            post_time: std::cell::Cell::new(0.0),
+            exposure_reset: std::cell::Cell::new(false),
             ssao: effects
                 .and_then(|effects| effects.ssao())
                 .map(|settings| crate::ssao::Ssao::new(context.device(), size, *settings))
@@ -197,6 +214,17 @@ impl FrameRenderer {
         Ok(())
     }
 
+    pub(crate) fn validate_post(
+        &self,
+        requested: worldrunner_render_post::HdrPostSettings,
+    ) -> Result<(), FrameError> {
+        if self.post_requested != requested {
+            return Err(FrameError::UnsupportedEffect(
+                "post resident/profile settings mismatch",
+            ));
+        }
+        Ok(())
+    }
     pub(crate) fn validate_ssr(
         &self,
         requested: Option<&worldrunner_render_plan::SceneSsr>,
@@ -209,14 +237,28 @@ impl FrameRenderer {
         Ok(())
     }
     /// Supplies animation time for the next prepared frame, in seconds.
+    /// Adaptation uses time since the last encoded output, capped at ten seconds.
     pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
         if !seconds.is_finite() || seconds < 0.0 {
             return Err(FrameError::WaterSettings(
                 "frame time must be finite and nonnegative",
             ));
         }
+        self.frame_delta = (seconds - self.post_time.get()).clamp(0.0, 10.0);
         self.elapsed_seconds = seconds;
         Ok(())
+    }
+    /// Explicit simulation delta in seconds. Fixed capture steps in the scene override it.
+    pub fn set_frame_delta(&mut self, delta: f32) -> Result<(), PostError> {
+        if !delta.is_finite() || !(0.0..=10.0).contains(&delta) {
+            return Err(PostError::FrameDelta);
+        }
+        self.frame_delta = delta;
+        Ok(())
+    }
+    /// Reset the ordered history at the next output, for camera cuts or capture restart.
+    pub fn reset_exposure(&self) {
+        self.exposure_reset.set(true);
     }
     pub(crate) fn validate_water(
         &self,
@@ -333,9 +375,24 @@ impl FrameRenderer {
         }
         Ok(changed)
     }
-    pub fn encode_output(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
+    pub fn encode_output(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        output: &wgpu::TextureView,
+    ) -> Result<(), PostError> {
+        if let FrameOutput::Hdr(factory) = self.chain.factory() {
+            factory.prepare_effects(
+                encoder,
+                self.frame_slot,
+                self.frame_delta,
+                self.exposure_reset.get(),
+            )?;
+            self.exposure_reset.set(false);
+        }
         self.chain.targets().encode_resolve(encoder);
         self.chain.encode(encoder, output);
+        self.post_time.set(self.elapsed_seconds);
+        Ok(())
     }
     pub fn register(
         &mut self,
@@ -595,6 +652,7 @@ pub fn encode_scene(
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(gpu.water.as_ref())?;
     renderer.validate_ssr(gpu.ssr.as_ref())?;
+    renderer.validate_post(gpu.post)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     let color_id = attachment_resource("scene color", color);
@@ -638,6 +696,24 @@ enum FrameOutput {
     Hdr(ToneMapOutput),
 }
 impl StageFactory for FrameOutput {
+    fn frame_slots(&self) -> usize {
+        match self {
+            Self::Copy(_) => 1,
+            Self::Hdr(f) => f.frame_slots(),
+        }
+    }
+    fn build_for_slot(
+        &self,
+        device: &wgpu::Device,
+        targets: &FrameTargets,
+        persistent: &Resources,
+        slot: usize,
+    ) -> Result<StageSet, PostError> {
+        match self {
+            Self::Copy(f) => f.build_for_slot(device, targets, persistent, slot),
+            Self::Hdr(f) => f.build_for_slot(device, targets, persistent, slot),
+        }
+    }
     fn build(
         &self,
         device: &wgpu::Device,
@@ -669,3 +745,7 @@ impl FrameProfile {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "compositor_post_tests.rs"]
+mod post_tests;

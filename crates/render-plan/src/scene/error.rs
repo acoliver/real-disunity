@@ -11,6 +11,8 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SceneValidationError {
+    #[error("invalid HDR post quantity: {part}")]
+    PostSettings { part: &'static str },
     /// Mesh ceilings must be present per level, positive and strictly increasing.
     #[error("mesh LOD distances require one positive, strictly increasing ceiling per level")]
     LodDistances,

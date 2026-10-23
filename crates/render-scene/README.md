@@ -13,21 +13,16 @@ from scene inputs; no content-specific blur table is embedded.
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
-explicit single-map and cascaded directional shadows are implemented. Water, SSAO, post
-processing, anti-aliasing and textured-sky rendering are not implemented by this renderer; their presence in the shared
-scene vocabulary is not a rendering guarantee. Requested SSAO, nonempty post
-stacks, and enabled FXAA/TAA return `FrameError::UnsupportedEffect` before upload
-or rendering, including requests with zero weights. Omit SSAO with `None` and
-select `SceneAntiAlias::Disabled` when no such operation is wanted. These checks
-are limited to SSAO, post stages, and anti-aliasing. Contrast and saturation
-grading are not applied or rejected; only exposure is implemented. The plain
-renderer neither renders nor rejects water requests. The shadow path and desktop
-viewer reject water separately, so rejection is not uniform across stock paths.
+explicit single-map and cascaded directional shadows are implemented. The HDR
+profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through
+validated scene settings. The legacy profile rejects post requests before upload.
+Textured-sky rendering, vignette, TAA, nonneutral contrast and saturation remain
+unsupported. Zero-weight unsupported requests still fail.
 
 A scene without an environmental profile renders unlit albedo plus emission,
 without lighting or grading. Directional shadows require an environmental
 profile. The desktop viewer takes camera intrinsics explicitly in `ViewerOptions`
-and additionally rejects water before startup.
+and validates the selected frame profile before startup.
 
 The tests construct procedural geometry and textures. GPU tests require a real
 hardware or software adapter and fail if one cannot be acquired. For a software
@@ -184,8 +179,13 @@ The final sRGB attachment performs the only output transfer conversion. No gamma
 power is applied in WGSL.
 The fixed profile survives resize unchanged. Rebuild the profile when authored
 exposure changes; mismatched frame exposure returns `FixedExposureMismatch`
-before preparation. Adaptive exposure, filmic curves, nonneutral grading, FXAA
-and TAA remain rejected, including requests with zero weights.
+before preparation. Optional `SceneHdrPost` settings install adaptive metering,
+bloom and FXAA. `set_frame_time` derives the step since the preceding encoded output,
+capped at ten seconds after long pauses;
+`set_frame_delta` supplies an explicit simulation step. Fixed capture policies
+override wall-clock timing. `reset_exposure` resets the ordered history once at the next output.
+The shared temporal carry and slot-local published results survive resize. Filmic curves, nonneutral grading and TAA remain
+rejected, including requests with zero weights. MSAA and FXAA may run together.
 
 `FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.

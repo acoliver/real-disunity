@@ -84,3 +84,5 @@ pub use document::{
     StreamLimits, TerrainMaterialSlot, TerrainRecipe, TransformMillimeters, UniformScaleMillionths,
     WaterPlaneRecipe, WindRecipe,
 };
+
+pub use scene::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};

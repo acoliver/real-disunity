@@ -62,3 +62,23 @@ normal remain local to its shading feature and are not exported as reflection
 metadata. Water is absent from the opaque reflected source, which contains no
 transparent surfaces. This is a screen-space approximation with a
 100-metre maximum ray length and no offscreen reflection data.
+
+## HDR post processing
+
+The optional `hdr_post` recipe keeps document version 4: existing documents may
+omit the whole recipe. A present recipe requires `adaptive_exposure`, `bloom`
+and `fxaa_subpixel_micro`, with explicit null for disabled options. Factories
+adopt it with `SceneEffects::with_hdr_post`. All nested quantities are required.
+Adaptive exposure defines a 256-bin log2 luminance range in milli-stops, a
+retained low/high percentile interval, middle-grey key, exposure bounds and
+separate exponential approach rates per second. Rates use milli-units; exposure,
+percentiles and key use millionths. Capture policies select fixed delta in
+microseconds or an absolute fixed exposure. Fixed exposure bypasses adaptation.
+
+Bloom defines linear threshold, fractional soft knee, intensity and one to eight
+pyramid levels. Existing runtime `ScenePostStage::Bloom` selects knee 0.5 and five
+levels. Only one bloom is accepted; duplicate controls, vignette and TAA fail
+with typed errors. FXAA may be requested through the recipe or runtime AA choice,
+but not both. The supported order is exposure, bloom, Reinhard, FXAA. MSAA and
+FXAA are allowed together: MSAA resolves HDR coverage before metering and FXAA
+filters the display-linear result. Contrast and saturation remain unsupported.

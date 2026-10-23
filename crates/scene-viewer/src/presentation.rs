@@ -68,8 +68,13 @@ impl Presentation {
         }
     }
 
-    pub fn present(&self, encoder: &mut wgpu::CommandEncoder, surface: &wgpu::TextureView) {
-        self.scheduler.encode_output(encoder, surface);
+    pub fn present(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        surface: &wgpu::TextureView,
+    ) -> Result<(), ViewerError> {
+        self.scheduler.encode_output(encoder, surface)?;
+        Ok(())
     }
 }
 

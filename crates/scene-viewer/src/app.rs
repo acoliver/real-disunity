@@ -36,12 +36,16 @@ pub(super) fn run(
     };
     let result = event_loop.run_app(&mut app);
     // Drop the surface/window/GPU before returning, including on callback failure.
-    app.renderer = None;
+    cleanup(&mut app.renderer);
     if let Some(error) = app.failure {
         return Err(error);
     }
     result?;
     Ok(())
+}
+
+pub(super) fn cleanup(renderer: &mut Option<Renderer>) {
+    *renderer = None;
 }
 
 struct App {
@@ -73,6 +77,14 @@ impl App {
         }
     }
 
+    fn set_occluded(&mut self, value: bool) {
+        self.occluded = value;
+        if !value && let Some(renderer) = &self.renderer {
+            renderer.window.request_redraw();
+        }
+        self.clear_drag();
+    }
+
     fn clear_drag(&mut self) {
         self.dragging = false;
         self.cursor = None;
@@ -87,8 +99,7 @@ impl App {
         }
         if let Some(viewport) = renderer.viewport {
             let view = self.camera.view(self.options.camera, viewport)?;
-            (self.update)(renderer.scene_mut())?;
-            renderer.render(&view)?;
+            renderer.render(&view, &mut self.update)?;
         }
         self.next_frame = Instant::now() + Duration::from_millis(16);
         Ok(())
@@ -124,6 +135,7 @@ impl ApplicationHandler for App {
                     &self.scene,
                     self.options.shadows,
                     self.options.frame_profile,
+                    self.options.frames_in_flight,
                 ))
             });
         match result {
@@ -161,10 +173,7 @@ impl ApplicationHandler for App {
                 }
                 self.clear_drag();
             }
-            WindowEvent::Occluded(value) => {
-                self.occluded = value;
-                self.clear_drag();
-            }
+            WindowEvent::Occluded(value) => self.set_occluded(value),
             WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. } => self.clear_drag(),
             WindowEvent::MouseInput {
                 state,
@@ -211,7 +220,7 @@ impl ApplicationHandler for App {
         let Some(renderer) = &self.renderer else {
             return;
         };
-        if let Err(error) = renderer.check_errors() {
+        if let Err(error) = renderer.poll() {
             self.fail(event_loop, error);
             return;
         }

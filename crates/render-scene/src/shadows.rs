@@ -98,6 +98,8 @@ pub struct ShadowedScene {
     depth_pipelines: [wgpu::RenderPipeline; 4],
     terrain_depth_pipeline: wgpu::RenderPipeline,
     depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    depth_slots: Vec<Vec<(wgpu::Buffer, wgpu::BindGroup)>>,
+    frame_slot: usize,
     shadow_layout: wgpu::BindGroupLayout,
     map: ShadowMap,
     settings: DirectionalShadowSettings,
@@ -106,6 +108,14 @@ pub struct ShadowedScene {
 }
 
 impl ShadowedScene {
+    /// Select a live admission's slot; reuse only after that submission completes.
+    pub fn select_frame_slot(&mut self, slot: usize) {
+        self.frame_slot = slot;
+        self.scheduler.select_frame_slot(slot);
+        self.gpu.select_frame_slot(slot);
+        self.depth_frames = self.depth_slots[slot].clone();
+        self.map.select_frame_slot(slot);
+    }
     /// Validates the opt-in contract before allocating or uploading scene resources.
     pub fn new(
         context: &GpuContext,
@@ -152,13 +162,20 @@ impl ShadowedScene {
         )
         .expect("four cascades");
         let map = ShadowMap::new(context, settings, &shadow_layout, layers)?;
+        let depth_slots = vec![
+            depth_frames.clone(),
+            resources::depth_frames(context, pipelines.frame_layout()),
+            resources::depth_frames(context, pipelines.frame_layout()),
+        ];
         Ok(Self {
             scheduler: crate::compositor::FrameRenderer::new(context.device()),
             gpu,
             pipelines,
             depth_pipelines,
             terrain_depth_pipeline,
+            depth_slots,
             depth_frames,
+            frame_slot: 0,
             shadow_layout,
             map,
             settings,
@@ -278,7 +295,7 @@ impl ShadowedScene {
             frame.sun_direction,
         )?;
         let count = u32::try_from(cascades.matrices.len()).expect("four cascades");
-        let replacement = if self.map.depth.layers() == count {
+        let mut replacement = if self.map.depth.layers() == count {
             None
         } else {
             Some(ShadowMap::new(
@@ -288,7 +305,8 @@ impl ShadowedScene {
                 count,
             )?)
         };
-        let map = replacement.as_ref().unwrap_or(&self.map);
+        let map = replacement.as_mut().unwrap_or(&mut self.map);
+        map.select_frame_slot(self.frame_slot);
         let schedule = schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
         let mut feature = ShadowFeature {
             gpu: &mut self.gpu,

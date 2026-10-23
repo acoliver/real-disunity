@@ -294,11 +294,14 @@ impl<'a> PrepareContext<'a> {
             .push((staging, 0, destination.clone(), offset, bytes.len() as u64));
     }
     /// Publishes staged copies only after all fallible preparations succeed.
-    pub fn finish(self) {
+    pub fn finish(self) -> Vec<wgpu::Buffer> {
+        let mut retained = Vec::with_capacity(self.copies.len());
         for (source, source_offset, destination, offset, bytes) in self.copies {
             self.encoder
                 .copy_buffer_to_buffer(&source, source_offset, &destination, offset, bytes);
+            retained.push(source);
         }
+        retained
     }
 }
 /// Later geometry slices will add view identifiers/bindings and validated

@@ -38,3 +38,31 @@ cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --ter
 ```
 
 Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. The retained frame scheduler renders four directional shadow cascades into independent depth-array layers. Scene extents specify light-space coverage half-widths about the caller-supplied focus; overlapping terrain and mesh casters extend each cascade toward the light. Optional blend bands cross-fade to the next cascade near coverage edges. Water remains unsupported and returns a typed error. Omit `--terrain` to retain the original mesh-only example.
+
+## Frame admission and surface lifecycle
+
+The viewer selects two frames in flight in its example. `ViewerOptions::frames_in_flight`
+accepts one through three. Admission reserves a slot before surface acquisition; a full
+queue returns without acquiring another image. Surface creation, configuration, acquisition
+and presentation stay on the event-loop thread. Nonblocking device polls dispatch completion
+callbacks on the frame timer; no completion callback calls the window or waits for the event loop.
+Shutdown drops the surface before the window without joining a worker. Input callbacks never
+wait for GPU completion. Resize requests coalesce to the newest physical extent.
+Surface loss remains pending across zero-size suspension until replacement succeeds.
+Occlusion and zero-size windows pause redraw scheduling, and resize or visibility events
+resume it.
+
+Admission and completion progress never block the event thread. Backend drawable
+acquisition can wait for a presentable image through Metal `nextDrawable`, Vulkan
+`acquire_next_image`, or the DX12 frame-latency wait. Present mode and frames-in-flight
+settings bound that wait according to the backend's presentation policy.
+
+Encoder-only hosts can use `worldrunner_render_gpu::flight::FrameAdmission` and select the reserved
+slot on their scene and frame renderer. Submit successful encoders in preparation order.
+All submissions to that queue, including unrelated work, must use the same admission authority
+so submission and callback registration remain serialized.
+Uniform ranges are separate per slot; immutable staging allocations belong to that slot
+until reuse after completion. Shared GPU attachments and instance destinations remain
+queue ordered. Offscreen capture exposes three independent readback slots and rejects
+an unread slot overwrite. Read each capture with the submission index containing its copy;
+that read does not request a queue-wide wait.

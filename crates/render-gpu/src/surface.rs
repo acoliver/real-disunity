@@ -2,7 +2,9 @@
 use thiserror::Error;
 
 mod presenter;
+mod transition;
 pub use presenter::Presenter;
+pub use transition::{SurfaceAction, SurfaceTransition};
 
 #[derive(Debug, Error)]
 pub enum SurfaceError {

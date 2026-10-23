@@ -153,9 +153,14 @@ pub(super) struct ShadowMap {
     pub depth: DepthMap,
     pub uniform: wgpu::Buffer,
     pub group: wgpu::BindGroup,
+    slots: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
 }
 
 impl ShadowMap {
+    pub fn select_frame_slot(&mut self, slot: usize) {
+        self.uniform = self.slots[slot].0.clone();
+        self.group = self.slots[slot].1.clone();
+    }
     pub fn new(
         context: &crate::device::GpuContext,
         settings: DirectionalShadowSettings,
@@ -181,35 +186,41 @@ impl ShadowMap {
             },
         )?;
         let sampler = settings.configuration().comparison_sampler(device);
-        let uniform = upload_buffer(
-            device,
-            context.queue(),
-            "shadow uniform",
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_SRC,
-            &[0; SHADOW_UNIFORM_BYTES],
-        );
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("directional shadow"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(depth.receiver_view()),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
+        let slots: Vec<_> = (0..3)
+            .map(|_| {
+                let uniform = upload_buffer(
+                    device,
+                    context.queue(),
+                    "shadow uniform",
+                    wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_SRC,
+                    &[0; SHADOW_UNIFORM_BYTES],
+                );
+                let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("directional shadow"),
+                    layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: uniform.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(depth.receiver_view()),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
+                });
+                (uniform, group)
+            })
+            .collect();
         Ok(Self {
             depth,
-            uniform,
-            group,
+            uniform: slots[0].0.clone(),
+            group: slots[0].1.clone(),
+            slots,
         })
     }
 }

@@ -4,6 +4,8 @@ use crate::{FrameConfig, PostError, targets::extent};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReadbackError {
+    #[error("readback slot already contains an unread capture")]
+    Busy,
     #[error(transparent)]
     Config(#[from] PostError),
     #[error("unsupported readback format {0:?}")]
@@ -33,6 +35,7 @@ pub struct Readback {
     format: wgpu::TextureFormat,
     pitch: u32,
     row: usize,
+    pending: bool,
 }
 
 impl Readback {
@@ -71,6 +74,7 @@ impl Readback {
             format: config.format,
             pitch: u32::try_from(pitch).map_err(|_| ReadbackError::Limit)?,
             row: usize::try_from(row).map_err(|_| ReadbackError::Limit)?,
+            pending: false,
         })
     }
 
@@ -96,6 +100,9 @@ impl Readback {
         encoder: &mut wgpu::CommandEncoder,
         source: &wgpu::Texture,
     ) -> Result<(), ReadbackError> {
+        if self.pending {
+            return Err(ReadbackError::Busy);
+        }
         if source.width() != self.size[0]
             || source.height() != self.size[1]
             || source.format() != self.format
@@ -118,6 +125,7 @@ impl Readback {
             },
             extent(self.size),
         );
+        self.pending = true;
         Ok(())
     }
 
@@ -138,7 +146,9 @@ impl Readback {
         device: &wgpu::Device,
         submission: Option<wgpu::SubmissionIndex>,
     ) -> Result<Vec<u8>, ReadbackError> {
-        read_buffer(device, &self.buffer, submission)
+        let bytes = read_buffer(device, &self.buffer, submission)?;
+        self.pending = false;
+        Ok(bytes)
     }
 
     pub const fn padded_bytes_per_row(&self) -> u32 {

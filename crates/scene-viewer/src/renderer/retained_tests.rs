@@ -71,6 +71,7 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
     for shadows in [None, Some(shadow_settings())] {
         let options = crate::ViewerOptions {
             frame_profile: crate::FrameProfile::Legacy,
+            frames_in_flight: 2,
             shadows,
             ..crate::tests::options()
         };

@@ -5,11 +5,8 @@ fn uniforms(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<u8>> {
     let mut encoder = context
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    let buffers = [
-        renderer.gpu.frame_buffer(),
-        &renderer.depth_frame,
-        &renderer.map.uniform,
-    ];
+    let mut buffers = vec![renderer.gpu.frame_buffer(), &renderer.map.uniform];
+    buffers.extend(renderer.depth_frames.iter().map(|(buffer, _)| buffer));
     let mut captures: Vec<_> = buffers
         .iter()
         .map(|buffer| {
@@ -93,4 +90,45 @@ fn stock_water_and_non_neutral_grading_are_explicit_errors() {
             })
         ));
     }
+}
+
+#[test]
+fn rejected_cascade_reconfiguration_keeps_the_old_array_and_uniforms() {
+    let context = context();
+    let source = scene(&[], 600_000, None);
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let effects = with_cascades(
+        source.effects().unwrap(),
+        vec![1_000, 2_000, 3_000, 4_000],
+        100_000,
+    );
+    renderer.set_effects(&effects).unwrap();
+    let before = uniforms(&context, &renderer);
+    let wrong = worldrunner_render_post::color_texture(
+        context.device(),
+        "wrong",
+        [257, 241],
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+    let color = AttachmentView::new(ResourceRef::new("scene color"), &wrong).unwrap();
+    let mut encoder = context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    assert!(
+        renderer
+            .encode(
+                &context,
+                &view(),
+                &color,
+                &target.depth_attachment(),
+                &mut encoder
+            )
+            .is_err()
+    );
+    context.queue().submit([encoder.finish()]);
+    assert_eq!(renderer.map.depth.layers(), 1);
+    assert_eq!(uniforms(&context, &renderer), before);
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(renderer.map.depth.layers(), 4);
 }

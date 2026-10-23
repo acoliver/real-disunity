@@ -13,7 +13,7 @@ from scene inputs; no content-specific blur table is embedded.
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
-explicit single-map directional shadows are implemented. Water, SSAO, post
+explicit single-map and cascaded directional shadows are implemented. Water, SSAO, post
 processing, anti-aliasing and textured-sky rendering are not implemented by this renderer; their presence in the shared
 scene vocabulary is not a rendering guarantee. Requested SSAO, nonempty post
 stacks, and enabled FXAA/TAA return `FrameError::UnsupportedEffect` before upload
@@ -27,7 +27,7 @@ viewer reject water separately, so rejection is not uniform across stock paths.
 A scene without an environmental profile renders unlit albedo plus emission,
 without lighting or grading. Directional shadows require an environmental
 profile. The desktop viewer takes camera intrinsics explicitly in `ViewerOptions`
-and additionally rejects terrain and water before startup.
+and additionally rejects water before startup.
 
 The tests construct procedural geometry and textures. GPU tests require a real
 hardware or software adapter and fail if one cannot be acquired. For a software
@@ -111,12 +111,13 @@ clip depth. Terrain keeps its independent draw and LOD policy.
 
 Directional shadow selection uses light-space coverage independently of camera
 visibility and shares the main camera's LOD distance and billboard orientation.
-The supported single cascade keeps its authored XY receiver square and far depth
-end; its toward-light end extends to enclose resident visible casters overlapping
-that square. Both the depth and receiver projections use the extended range, so
-upstream casters survive clipping as well as CPU selection. Bias remains in
-normalized depth units and therefore spans more world distance when extended.
-Multiple declared cascades and blend bands remain explicitly unsupported.
+Each cascade keeps its fitted XY receiver square and far depth end; its
+toward-light end extends to enclose resident visible casters overlapping that
+square. Both the depth and receiver projections use the extended range, so
+upstream casters survive clipping as well as CPU selection. A single coverage
+box retains the existing normalized depth bias, which spans more world distance
+when extended. Multiple coverage boxes and camera splits use the texel-relative
+bias described below.
 
 `SceneGpu::view_stats()` and `shadow_view_stats()` expose the most recently
 recorded pass counts. `ShadowedScene` exposes the same methods. Counts include
@@ -125,3 +126,37 @@ LOD across meshes. They exclude terrain and do not count rasterized pixels.
 Drop each returned statistics guard before recording the next draw of its view;
 holding it across that draw causes a runtime borrow panic.
 Range and counter vectors retain their capacities between frames.
+
+## Cascade coverage
+
+The shadow adapter supports one to four layers at the chosen resolution.
+`SceneShadowCascades::new` declares light-space XY half-widths in millimetres,
+centred on `DirectionalShadowSettings::focus_meters`. Selection uses the smallest
+containing box and blends over the final authored fraction of its half-width.
+Fixed coverage boxes remain independent of camera motion and share the exact focus,
+so strictly increasing extents remain nested. One declared coverage box retains the
+explicit settings fit for existing callers.
+
+`SceneShadowCascades::camera_splits` instead declares each slice's far distance
+in camera-view millimetres. Distances must increase strictly, exceed camera near
+and not exceed camera far. Invalid policies fail before upload or effect updates.
+The optional `render-shadow::practical_splits` utility mixes uniform and logarithmic
+distances using an explicit fraction; applications convert these to authored units.
+Camera slices use a bounding sphere with quantized radius and texel-snapped light
+coordinates. The next slice includes the preceding blend band. LOD and billboard
+orientation always use the main camera, while visibility and statistics are separate
+for each cascade. All receivers share the same receiver-plane-corrected PCF kernel.
+The blend fraction is in millionths; zero disables blending. Array layer count
+changes take effect at the next encode without replacing resident scene handles.
+Coverage values exceeding the adapter's u32 millimetre range are rejected during fit.
+
+`depth_bias` is authored against the unextended explicit settings box: its world
+reference offset is `depth_bias * 2 * depth_half_extent_meters`, and its reference
+texel width is `2 * half_extent_meters / resolution`. For multiple coverage boxes
+and all camera-split policies, the ratio of these values defines a bias in texels.
+Each cascade converts that bias to world distance with its own XY texel width,
+then to normalized depth with its final caster-extended world-to-depth scale.
+Depth extension therefore cannot increase the world-space bias. The sampled
+layer supplies its own value, including both samples within a blend band. A single
+coverage box continues to subtract `depth_bias` directly without this conversion;
+its existing output remains unchanged. Normal bias remains in world metres.

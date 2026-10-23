@@ -37,4 +37,4 @@ Run the procedural viewer with a heightfield ridge and an elevated mesh:
 cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --terrain --shadows
 ```
 
-Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. Both passes use the retained frame scheduler and one directional shadow map. The caller supplies receiver coverage; overlapping terrain and mesh casters extend its toward-light depth. Water and multiple cascades remain unsupported and return typed errors. Omit `--terrain` to retain the original mesh-only example.
+Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. The retained frame scheduler renders four directional shadow cascades into independent depth-array layers. Scene extents specify light-space coverage half-widths about the caller-supplied focus; overlapping terrain and mesh casters extend each cascade toward the light. Optional blend bands cross-fade to the next cascade near coverage edges. Water remains unsupported and returns a typed error. Omit `--terrain` to retain the original mesh-only example.

@@ -1,27 +1,55 @@
 struct DirectionalShadow {
-    clip_from_world: mat4x4<f32>,
-    // x: normalized depth bias, y: world-space normal bias in metres.
+    clip_from_world: array<mat4x4<f32>, 4>,
+    // y: world-space normal bias in metres, z: PCF radius.
     bias: vec4<f32>,
+    // count, blend fraction, camera split policy, camera near distance.
+    policy: vec4<f32>,
+    splits: vec4<f32>,
+    view_depth: vec4<f32>,
+    depth_bias: vec4<f32>,
 }
 @group(2) @binding(0) var<uniform> shadow: DirectionalShadow;
-@group(2) @binding(1) var shadow_depth: texture_depth_2d;
+@group(2) @binding(1) var shadow_depth: texture_depth_2d_array;
 @group(2) @binding(2) var shadow_sampler: sampler_comparison;
 
-fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
-    let clip = shadow.clip_from_world * vec4<f32>(position + normal * shadow.bias.y, 1.0);
-    let ndc = clip.xyz / clip.w;
+fn cascade_visibility(ndc: vec3<f32>, gradient: vec2<f32>, layer: i32) -> f32 {
     let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-    // Correct each PCF reference for the receiver plane's depth slope. Without
-    // this, neighboring taps compare different points on a sloped receiver
-    // against the center depth and produce acne even with no caster present.
-    let uv_dx = dpdx(uv);
-    let uv_dy = dpdy(uv);
-    let depth_dx = dpdx(ndc.z);
-    let depth_dy = dpdy(ndc.z);
-    let depth_gradient = rd_shadow_plane_gradient(uv_dx, uv_dy, depth_dx, depth_dy);
     if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z < 0.0 || ndc.z > 1.0 {
         return 1.0;
     }
-    return rd_shadow_2d_grid(shadow_depth, shadow_sampler, uv, ndc.z - shadow.bias.x,
-        depth_gradient, i32(shadow.bias.z), true);
+    return rd_shadow_array_grid(shadow_depth, shadow_sampler, uv, layer, ndc.z - shadow.depth_bias[layer],
+        gradient, i32(shadow.bias.z), true);
+}
+
+fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+    var coordinates: array<vec3<f32>, 4>;
+    var gradients: array<vec2<f32>, 4>;
+    // Derivatives must precede divergent coverage and cascade selection.
+    for (var i = 0; i < 4; i += 1) {
+        let clip = shadow.clip_from_world[i] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
+        let ndc = clip.xyz / clip.w;
+        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+        coordinates[i] = ndc;
+        gradients[i] = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+    }
+    let count = i32(shadow.policy.x);
+    let distance = dot(shadow.view_depth, vec4<f32>(position, 1.0));
+    var selected = count;
+    for (var i = 0; i < count; i += 1) {
+        var contains = max(abs(coordinates[i].x), abs(coordinates[i].y)) <= 1.0;
+        if shadow.policy.z > 0.5 { contains = distance <= shadow.splits[i]; }
+        if contains { selected = i; break; }
+    }
+    if selected == count { return 1.0; }
+    let current = cascade_visibility(coordinates[selected], gradients[selected], selected);
+    if selected + 1 == count || shadow.policy.y == 0.0 { return current; }
+    var progress = max(abs(coordinates[selected].x), abs(coordinates[selected].y));
+    if shadow.policy.z > 0.5 {
+        var start = shadow.policy.w;
+        if selected > 0 { start = shadow.splits[selected - 1]; }
+        progress = (distance - start) / (shadow.splits[selected] - start);
+    }
+    let weight = clamp((progress - (1.0 - shadow.policy.y)) / shadow.policy.y, 0.0, 1.0);
+    let next = cascade_visibility(coordinates[selected + 1], gradients[selected + 1], selected + 1);
+    return mix(current, next, weight);
 }

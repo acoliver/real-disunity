@@ -52,7 +52,8 @@ fn effects(terrain: bool) -> SceneEffects {
             sky_irradiance_micro: if terrain { 100_000 } else { 1_000_000 },
             ground_irradiance_micro: if terrain { 100_000 } else { 1_000_000 },
         },
-        shadows: SceneShadowCascades::new(vec![10_000], 0).expect("one unblended cascade is valid"),
+        shadows: SceneShadowCascades::new(vec![2_000, 4_000, 8_000, 16_000], 100_000)
+            .expect("four coverage cascades are valid"),
         ssao: None,
         camera: camera(),
         grading: SceneColorGrading {

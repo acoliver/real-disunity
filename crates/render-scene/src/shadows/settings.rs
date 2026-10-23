@@ -6,12 +6,13 @@ use super::ShadowError;
 /// Hard allocation ceiling: one 4096-square depth map occupies 64 MiB.
 pub const MAX_SHADOW_RESOLUTION: u32 = 4096;
 
-/// Explicit fit and receiver bias for a single directional shadow map.
+/// Coverage focus, fallback single-map fit, resolution and receiver bias.
 ///
 /// Coordinates are native Z-up scene metres. The caller encloses receivers
 /// in the light-space box. Rendering extends its toward-light depth end to
 /// include resident casters. XY coverage and the far depth end stay fixed.
-/// These settings, not the legacy effects cascade extent, own the map fit.
+/// A single coverage box uses this explicit fit. Multiple boxes use scene
+/// extents as XY half-widths about this focus; camera splits fit the view instead.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DirectionalShadowSettings {
     /// Centre of the light-space coverage box, in native scene metres.
@@ -22,21 +23,25 @@ pub struct DirectionalShadowSettings {
     pub depth_half_extent_meters: f32,
     /// Width and height of the depth texture, in texels.
     pub resolution: u32,
-    /// Offset subtracted from comparison depth, in normalized depth units [0, 1).
+    /// Authored comparison offset in normalized depth units [0, 1) of the
+    /// unextended settings box. Cascades preserve its texel-relative world offset:
+    /// `depth_bias * depth_half_extent_meters * resolution / half_extent_meters`
+    /// texels, converted using each final caster-extended projection. A single
+    /// coverage box instead subtracts this value directly, including after extension.
     pub depth_bias: f32,
     /// Offset along the receiver shading normal, in scene metres; nonnegative.
     pub normal_bias_meters: f32,
 }
 
 impl DirectionalShadowSettings {
-    /// Canonical receiver/caster policy for this scene adapter; fitting remains scene-owned.
+    /// Single-layer receiver/caster policy; scene effects supply the cascade topology.
     pub fn configuration(self) -> worldrunner_render_shadow::DirectionalShadowConfig {
         use worldrunner_render_shadow::{
             DirectionalCoverage, DirectionalShadowConfig, ReceiverDimension, ShadowFilter,
         };
         DirectionalShadowConfig {
             coverage: DirectionalCoverage::Single,
-            dimension: ReceiverDimension::D2,
+            dimension: ReceiverDimension::D2Array,
             resolution: self.resolution,
             caster_compare: wgpu::CompareFunction::Less,
             receiver_compare: wgpu::CompareFunction::LessEqual,
@@ -82,7 +87,18 @@ impl DirectionalShadowSettings {
     }
 
     pub(super) fn validate_light(self, effects: &SceneEffects) -> Result<(), ShadowError> {
-        self.matrix(crate::frame::sun_direction(effects.sun()))?;
+        let sun = crate::frame::sun_direction(effects.sun());
+        self.matrix(sun)?;
+        let cascades = effects.shadows();
+        if cascades.split_distances_millimeters().is_some() {
+            if self.resolution < 4 {
+                return Err(ShadowError::InvalidSettings);
+            }
+        } else if cascades.extents_millimeters().len() > 1 {
+            for &extent in cascades.extents_millimeters() {
+                super::cascades::coverage_matrix(self, sun, super::cascades::meters(extent)?)?;
+            }
+        }
         Ok(())
     }
 
@@ -109,8 +125,23 @@ pub(super) fn validate_effects(effects: &SceneEffects) -> Result<(), ShadowError
     }
     crate::frame::validate_stock_effects(effects)?;
     let cascades = effects.shadows();
-    if cascades.extents_millimeters().len() != 1 || cascades.blend_band_micro() != 0 {
+    if cascades.extents_millimeters().len() > 4 {
         return Err(ShadowError::UnsupportedCascades);
+    }
+    let mut previous = 0.0;
+    for &extent in cascades.extents_millimeters() {
+        let extent = super::cascades::meters(extent)?;
+        if extent <= previous {
+            return Err(ShadowError::InvalidSettings);
+        }
+        previous = extent;
+    }
+    if let Some(splits) = cascades.split_distances_millimeters() {
+        let near = u64::from(effects.camera().near_plane_millimeters);
+        let far = u64::from(effects.camera().far_plane_millimeters);
+        if splits.iter().any(|&split| split <= near || split > far) {
+            return Err(ShadowError::InvalidSettings);
+        }
     }
     Ok(())
 }

@@ -14,10 +14,15 @@ use worldrunner_render_plan::RenderScene;
 
 use crate::{OrbitCamera, ViewerError, ViewerOptions, renderer::Renderer};
 
-pub(super) fn run(scene: RenderScene, options: ViewerOptions) -> Result<(), ViewerError> {
+pub(super) fn run(
+    scene: RenderScene,
+    options: ViewerOptions,
+    update: crate::SceneUpdate,
+) -> Result<(), ViewerError> {
     let camera = OrbitCamera::new(options.pose, options.orbit)?;
     let event_loop = EventLoop::new()?;
     let mut app = App {
+        update,
         scene,
         options,
         camera,
@@ -40,6 +45,7 @@ pub(super) fn run(scene: RenderScene, options: ViewerOptions) -> Result<(), View
 }
 
 struct App {
+    update: crate::SceneUpdate,
     scene: RenderScene,
     options: ViewerOptions,
     camera: OrbitCamera,
@@ -81,6 +87,7 @@ impl App {
         }
         if let Some(viewport) = renderer.viewport {
             let view = self.camera.view(self.options.camera, viewport)?;
+            (self.update)(renderer.scene_mut())?;
             renderer.render(&view)?;
         }
         self.next_frame = Instant::now() + Duration::from_millis(16);

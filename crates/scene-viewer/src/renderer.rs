@@ -95,6 +95,10 @@ impl Renderer {
         Ok(renderer)
     }
 
+    pub fn scene_mut(&mut self) -> &mut SceneGpu {
+        self.resident.scene_mut()
+    }
+
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
         let extents = Extents::new(
             size,
@@ -242,6 +246,13 @@ fn surface_policy(
 }
 
 impl Resident {
+    fn scene_mut(&mut self) -> &mut SceneGpu {
+        match self {
+            Self::Plain(plain) => &mut plain.gpu,
+            Self::Shadowed(shadowed) => shadowed.scene_mut(),
+        }
+    }
+
     fn new(
         context: &GpuContext,
         scene: &RenderScene,
@@ -275,7 +286,8 @@ impl Resident {
                     gpu,
                     pipelines,
                     effects,
-                } = plain.as_ref();
+                } = plain.as_mut();
+                gpu.flush_instances(context.device(), context.queue());
                 gpu.set_frame(context.queue(), FrameUniform::new(view, effects.as_ref())?);
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("viewer scene"),
@@ -307,3 +319,6 @@ impl Resident {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests;
+
+#[cfg(test)]
+mod retained_tests;

@@ -52,7 +52,7 @@ const MICRO_SCALE: f64 = 1_000_000.0;
 pub(crate) const VERTEX_BYTES: usize = 32;
 
 /// Bytes occupied by one packed instance, as a buffer length.
-const INSTANCE_BYTES: usize = 68;
+pub(crate) const INSTANCE_BYTES: usize = 68;
 
 /// Bytes occupied by one packed vertex: position, normal, texture coordinate.
 pub const VERTEX_STRIDE: u64 = VERTEX_BYTES as u64;

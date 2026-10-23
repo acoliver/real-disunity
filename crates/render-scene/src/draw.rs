@@ -1,6 +1,5 @@
 //! Retained scene uploads, pipeline-compatible batches, and draw submission.
 use std::array;
-use std::collections::BTreeMap;
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
@@ -12,7 +11,7 @@ use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
 
 use crate::frame::{FRAME_UNIFORM_BYTES, FrameUniform};
 use crate::geometry::{GeometryError, pack_indices, pack_instance, pack_vertices};
-use crate::pipeline::{MaterialUniform, PipelineKey};
+use crate::pipeline::MaterialUniform;
 use crate::renderer::ScenePipelines;
 use crate::terrain::{TERRAIN_PLACEMENT, TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
@@ -22,8 +21,9 @@ use crate::upload::{
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
-/// The mesh level this renderer draws until selection by distance exists.
-const NEAREST_LEVEL: usize = 0;
+mod retained;
+use crate::instances::Instances;
+pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
@@ -114,16 +114,6 @@ struct GpuTerrain {
     retained: Vec<Texture>,
 }
 
-/// Every object sharing one mesh level and one material.
-#[derive(Debug)]
-struct Batch {
-    mesh: usize,
-    level: usize,
-    material: usize,
-    instances: Buffer,
-    instance_count: u32,
-}
-
 /// Resources the bind groups reference.
 ///
 /// wgpu reference-counts these internally, so dropping them here would not
@@ -149,7 +139,7 @@ pub struct SceneGpu {
     frame_group: BindGroup,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
-    batches: [Vec<Batch>; 4],
+    instances: Instances,
     terrain: Option<GpuTerrain>,
     #[expect(dead_code, reason = "owns the memory the bind groups read")]
     retained: Retained,
@@ -187,7 +177,7 @@ impl SceneGpu {
             },
         );
         let meshes = upload_meshes(device, queue, scene)?;
-        let batches = build_batches(device, queue, scene);
+        let instances = Instances::new(scene);
         let terrain = upload_terrain(device, queue, scene, pipelines.terrain_layout(), &sampler)?;
         let frame_buffer = upload_buffer(
             device,
@@ -204,12 +194,12 @@ impl SceneGpu {
                 resource: frame_buffer.as_entire_binding(),
             }],
         });
-        Ok(Self {
+        let mut gpu = Self {
             frame_buffer,
             frame_group,
             materials,
             meshes,
-            batches,
+            instances,
             terrain,
             retained: Retained {
                 textures,
@@ -217,7 +207,9 @@ impl SceneGpu {
                 sampler,
                 material_uniforms,
             },
-        })
+        };
+        gpu.flush_instances(device, queue);
+        Ok(gpu)
     }
 
     /// Writes the per-frame uniform the next draw will read.
@@ -257,28 +249,49 @@ impl SceneGpu {
         frame_group: &BindGroup,
         pipelines: &[wgpu::RenderPipeline; 4],
     ) {
+        assert!(
+            self.instances
+                .batches
+                .values()
+                .all(|batch| batch.pending_ranges().is_empty()),
+            "flush instance updates before drawing"
+        );
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
-        for key in PipelineKey::ALL {
-            let batches = &self.batches[key.index()];
-            if batches.is_empty() {
+        for (&(pipeline, mesh, material), batch) in &self.instances.batches {
+            let ranges = batch.visible_ranges();
+            if ranges.is_empty() {
                 continue;
             }
-            pass.set_pipeline(&pipelines[key.index()]);
-            for batch in batches {
-                let lod = &self.meshes[batch.mesh].lods[batch.level];
-                pass.set_bind_group(MATERIAL_GROUP, &self.materials[batch.material], &[]);
-                pass.set_vertex_buffer(0, lod.vertices.slice(..));
-                pass.set_vertex_buffer(1, batch.instances.slice(..));
-                pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
-                pass.draw_indexed(0..lod.index_count, 0, 0..batch.instance_count);
+            let lod = &self.meshes[mesh].lods[0];
+            pass.set_pipeline(&pipelines[pipeline]);
+            pass.set_bind_group(MATERIAL_GROUP, &self.materials[material], &[]);
+            pass.set_vertex_buffer(0, lod.vertices.slice(..));
+            pass.set_vertex_buffer(
+                1,
+                batch
+                    .buffer
+                    .as_ref()
+                    .expect("flushed instance buffer")
+                    .slice(..),
+            );
+            pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
+            for range in ranges {
+                pass.draw_indexed(0..lod.index_count, 0, range);
             }
         }
     }
 
-    /// Returns how many instanced draws each pipeline variant will issue.
+    /// Returns live mesh/material batch counts per pipeline variant.
+    /// Visibility holes can split a batch into several instanced draws.
     #[must_use]
     pub fn batch_counts(&self) -> [usize; 4] {
-        array::from_fn(|index| self.batches[index].len())
+        array::from_fn(|index| {
+            self.instances
+                .batches
+                .iter()
+                .filter(|(key, batch)| key.0 == index && batch.has_instances())
+                .count()
+        })
     }
 }
 
@@ -401,49 +414,6 @@ fn upload_meshes(
         meshes.push(GpuMesh { lods });
     }
     Ok(meshes)
-}
-
-/// Collects objects sharing a mesh and material into instanced draws.
-fn build_batches(device: &Device, queue: &Queue, scene: &RenderScene) -> [Vec<Batch>; 4] {
-    let meshes = scene.geometry().meshes();
-    let mut grouped: BTreeMap<(u32, u32), (Vec<u8>, u32)> = BTreeMap::new();
-    for object in scene.geometry().objects() {
-        // The billboard policy belongs to the level being drawn, not to the
-        // object, so it is read from the same LOD the draw will reach for. A
-        // level 0 authored as a card therefore turns to face the camera today,
-        // without waiting for distance-based selection to exist.
-        let mesh =
-            usize::try_from(object.mesh().raw()).expect("a validated handle indexes its table");
-        let billboard = meshes[mesh].lods()[NEAREST_LEVEL].billboard();
-        let entry = grouped
-            .entry((object.mesh().raw(), object.material().raw()))
-            .or_default();
-        entry
-            .0
-            .extend_from_slice(&pack_instance(object.transform(), billboard));
-        entry.1 += 1;
-    }
-    let materials = scene.resources().materials();
-    let mut batches: [Vec<Batch>; 4] = array::from_fn(|_| Vec::new());
-    for ((mesh, material), (bytes, instance_count)) in grouped {
-        let mesh = usize::try_from(mesh).expect("a validated handle indexes its table");
-        let material = usize::try_from(material).expect("a validated handle indexes its table");
-        let key = PipelineKey::from_material(&materials[material]);
-        batches[key.index()].push(Batch {
-            mesh,
-            level: NEAREST_LEVEL,
-            material,
-            instances: upload_buffer(
-                device,
-                queue,
-                "placement instances",
-                BufferUsages::VERTEX,
-                &bytes,
-            ),
-            instance_count,
-        });
-    }
-    batches
 }
 
 /// Builds the single terrain draw: its mesh, its uniform and its bind group.

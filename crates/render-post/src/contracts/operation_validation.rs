@@ -68,6 +68,28 @@ impl ResourceRegistry {
             group.validate(self, &binding_pass)?;
             group.validate_buffers(self, &buffer_uses)?;
         }
+        if let TypedWork::Draws { pass, draws } = &operation.work {
+            if !pass.bindings.is_empty() {
+                return Err(ContractError::Pipeline);
+            }
+            for draw in draws {
+                draw.validate(self, pass, &buffer_uses)?;
+            }
+        }
+        if let TypedWork::Resolve {
+            source,
+            destination,
+        } = &operation.work
+        {
+            let pass = RasterPass {
+                id: operation.id,
+                colors: Vec::new(),
+                depth: None,
+                uses: Vec::new(),
+                bindings: Vec::new(),
+            };
+            super::validation::validate_resolve(self, device, source, destination, &pass)?;
+        }
         super::buffer_scopes::validate(operation)?;
         Ok((texture_uses, buffer_uses))
     }
@@ -117,7 +139,7 @@ fn validate_buffers(
     Ok(())
 }
 fn accesses(operation: &TypedOperation) -> Result<Accesses, ContractError> {
-    let mut textures = Vec::new();
+    let mut textures = resolve_accesses(operation);
     let mut buffers = buffer_accesses(operation)?;
     match &operation.work {
         TypedWork::CopyTexture {
@@ -178,6 +200,18 @@ fn accesses(operation: &TypedOperation) -> Result<Accesses, ContractError> {
     }
     Ok((textures, buffers))
 }
+fn resolve_accesses(operation: &TypedOperation) -> Vec<ResourceUse> {
+    match &operation.work {
+        TypedWork::Resolve {
+            source,
+            destination,
+        } => vec![
+            ResourceUse::read(source.clone(), super::UseKind::Attachment),
+            ResourceUse::write(destination.clone(), super::UseKind::Attachment),
+        ],
+        _ => Vec::new(),
+    }
+}
 fn buffer_accesses(operation: &TypedOperation) -> Result<Vec<BufferUse>, ContractError> {
     let mut buffers = Vec::new();
     match &operation.work {
@@ -202,9 +236,6 @@ fn buffer_accesses(operation: &TypedOperation) -> Result<Vec<BufferUse>, Contrac
     Ok(buffers)
 }
 fn validate_work(device: &wgpu::Device, operation: &TypedOperation) -> Result<(), ContractError> {
-    if operation.bindings().len() > device.limits().max_bind_groups as usize {
-        return Err(ContractError::Pipeline);
-    }
     match &operation.work {
         TypedWork::Compute { workgroups, .. }
             if workgroups.iter().any(|&count| {
@@ -231,35 +262,14 @@ fn validate_dynamic_limits(
     device: &wgpu::Device,
     operation: &TypedOperation,
 ) -> Result<(), ContractError> {
-    let dynamic_uniforms = operation
-        .bindings()
-        .iter()
-        .flat_map(|group| &group.buffers)
-        .filter(|entry| {
-            entry.dynamic_offset.is_some() && entry.kind == super::BufferBindingKind::Uniform
-        })
-        .count();
-    let dynamic_storage = operation
-        .bindings()
-        .iter()
-        .flat_map(|group| &group.buffers)
-        .filter(|entry| {
-            entry.dynamic_offset.is_some()
-                && matches!(entry.kind, super::BufferBindingKind::Storage(_))
-        })
-        .count();
-    if dynamic_uniforms
-        > device
-            .limits()
-            .max_dynamic_uniform_buffers_per_pipeline_layout as usize
-        || dynamic_storage
-            > device
-                .limits()
-                .max_dynamic_storage_buffers_per_pipeline_layout as usize
-    {
-        return Err(ContractError::Pipeline);
+    if let TypedWork::Draws { draws, .. } = &operation.work {
+        for draw in draws {
+            let groups: Vec<_> = draw.bindings.iter().collect();
+            super::layout_limits::validate(device, &groups)?;
+        }
+        return Ok(());
     }
-    Ok(())
+    super::layout_limits::validate(device, &operation.bindings())
 }
 
 fn validate_upload(destination: &super::BufferView, bytes: &[u8]) -> Result<(), ContractError> {

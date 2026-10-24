@@ -1,8 +1,16 @@
 //! Shared physical resources and authored pass access contracts.
+mod geometry;
+pub use geometry::{DrawGeometry, IndexBinding};
+mod draws;
+mod layout_limits;
+mod leases;
+pub use draws::CheckedDraw;
 mod capture;
 pub use capture::CompiledCapture;
 mod async_readback;
 mod bindings;
+mod samplers;
+pub use samplers::{CheckedSampler, SamplerBinding};
 mod buffer_bindings;
 mod buffer_scopes;
 mod buffers;
@@ -99,6 +107,7 @@ pub struct CheckedView {
     version: u32,
     view: wgpu::TextureView,
     dimension: wgpu::TextureViewDimension,
+    lease: Option<worldrunner_render_gpu::submission::FrameLease>,
 }
 impl CheckedView {
     pub const fn allocation(&self) -> AllocationKey {
@@ -173,9 +182,13 @@ impl ResourceUse {
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ContractError {
     #[error(transparent)]
+    Lease(worldrunner_render_gpu::submission::LeaseError),
+    #[error(transparent)]
     CaptureWrite(worldrunner_render_gpu::submission::capture::WriteError),
     #[error(transparent)]
     Transaction(worldrunner_render_gpu::submission::TransactionError),
+    #[error("unsupported stock copy source or output contract: {0:?}")]
+    CopyOutput(AllocationKey),
     #[error("invalid copy alignment or pitch: {0:?}")]
     CopyAlignment(AllocationKey),
     #[error("invalid copy extent or layout: {0:?}")]

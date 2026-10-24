@@ -1,5 +1,7 @@
 //! Queue-wide preparation exclusion and the only command submission boundary.
 pub mod capture;
+mod lease;
+pub use lease::{FrameLease, FrameOwner, LeaseError};
 use std::{
     cell::{Cell, RefCell},
     hash::{Hash, Hasher},
@@ -22,6 +24,8 @@ pub enum PrepareError<E> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SubmitError {
+    #[error(transparent)]
+    Lease(#[from] LeaseError),
     #[error(transparent)]
     Transaction(#[from] TransactionError),
     #[error("an unsubmitted frame is already prepared")]
@@ -59,6 +63,8 @@ pub struct Publications {
     status: Rc<Cell<TransactionStatus>>,
     encoder: Rc<Cell<u64>>,
     scope: Option<Rc<capture::WriteScope>>,
+    leases: Rc<RefCell<Vec<lease::LeaseUse>>>,
+    authority: Option<SubmissionAuthority>,
 }
 impl std::fmt::Debug for Publications {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -80,6 +86,22 @@ impl<E> PrepareError<E> {
     }
 }
 impl Publications {
+    pub fn retain_lease(
+        encoder: &wgpu::CommandEncoder,
+        lease: &FrameLease,
+    ) -> Result<(), SubmitError> {
+        let current = Self::for_encoder(encoder)?;
+        if !current
+            .leases
+            .borrow()
+            .iter()
+            .any(|usage| usage.same_owner(lease))
+        {
+            let usage = lease.acquire(current.authority.as_ref().expect("recording authority"))?;
+            current.leases.borrow_mut().push(usage);
+        }
+        Ok(())
+    }
     pub fn stage(&mut self, publish: impl FnOnce() + 'static) {
         if let Some(scope) = &self.scope {
             scope.reject(capture::WriteError::Unkeyed);
@@ -239,9 +261,10 @@ impl SubmissionAuthority {
     fn record(
         &self,
         device: &wgpu::Device,
-        publications: Publications,
+        mut publications: Publications,
         reserved: bool,
     ) -> RecordingFrame {
+        publications.authority = Some(self.clone());
         let frame = PreparedFrame {
             authority: self.clone(),
             commands: None,
@@ -269,7 +292,9 @@ impl SubmissionAuthority {
         let mut recording = self.begin(device).map_err(|error| match error {
             SubmitError::Busy => PrepareError::Busy,
             SubmitError::DeviceLost(message) => PrepareError::DeviceLost(message),
-            SubmitError::Transaction(_) => unreachable!("begin does not accept an encoder"),
+            SubmitError::Transaction(_) | SubmitError::Lease(_) => {
+                unreachable!("begin does not accept an encoder or lease")
+            }
         })?;
         let mut publications = recording.frame.as_ref().unwrap().publications.clone();
         prepare(&mut recording, &mut publications).map_err(PrepareError::Preparation)?;
@@ -285,13 +310,17 @@ impl SubmissionAuthority {
         if state.preparing || state.configuring {
             return Err(SubmitError::Busy);
         }
-        self.enqueue(&mut state, commands)
+        self.enqueue(&mut state, commands, Vec::new())
     }
     fn enqueue(
         &self,
         _state: &mut State,
         commands: impl IntoIterator<Item = wgpu::CommandBuffer>,
+        leases: Vec<lease::LeaseUse>,
     ) -> Result<wgpu::SubmissionIndex, SubmitError> {
+        for usage in &leases {
+            usage.check()?;
+        }
         if let Some(lost) = &*self.0.lost.lock().unwrap() {
             return Err(SubmitError::DeviceLost(lost.clone()));
         }
@@ -299,9 +328,13 @@ impl SubmissionAuthority {
         let submission = queue.submit(commands);
         self.0.in_flight.fetch_add(1, Ordering::Release);
         let serial = self.0.submitted.fetch_add(1, Ordering::AcqRel) + 1;
+        for usage in &leases {
+            usage.submitted(serial);
+        }
         // Native enqueue may dispatch earlier callbacks synchronously. Never take the submission lock here.
         let inner = Arc::downgrade(&self.0);
         queue.on_submitted_work_done(move || {
+            let _retained = leases;
             if let Some(inner) = inner.upgrade() {
                 inner.completed.fetch_max(serial, Ordering::AcqRel);
                 inner.in_flight.fetch_sub(1, Ordering::AcqRel);
@@ -347,7 +380,11 @@ impl PreparedFrame {
             return Err(TransactionError::ForeignEncoder.into());
         }
         let mut state = self.authority.0.state.lock().unwrap();
-        let submission = self.authority.enqueue(&mut state, self.commands.take())?;
+        let submission = self.authority.enqueue(
+            &mut state,
+            self.commands.take(),
+            self.publications.leases.take(),
+        )?;
         drop(state);
         Ok(submission)
     }
@@ -362,6 +399,7 @@ impl Drop for PreparedFrame {
             self.publications.status.set(TransactionStatus::Cancelled);
         }
         self.publications.edits.borrow_mut().clear();
+        self.publications.leases.borrow_mut().clear();
         if self.reserved {
             self.authority
                 .0

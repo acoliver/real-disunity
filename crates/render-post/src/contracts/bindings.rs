@@ -26,6 +26,8 @@ pub struct CheckedBindings {
     pub(super) entries: Vec<TextureBinding>,
     pub(super) buffers: Vec<super::BufferBinding>,
     pub(super) offsets: Vec<u32>,
+    pub(super) samplers: Vec<super::SamplerBinding>,
+    pub(super) layout_entries: Vec<wgpu::BindGroupLayoutEntry>,
 }
 impl CheckedBindings {
     pub fn build(
@@ -34,6 +36,9 @@ impl CheckedBindings {
         entries: &[TextureBinding],
     ) -> Result<Self, ContractError> {
         Self::build_with_buffers(device, registry, entries, &[])
+    }
+    pub fn samplers(&self) -> &[super::SamplerBinding] {
+        &self.samplers
     }
     pub fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.layout

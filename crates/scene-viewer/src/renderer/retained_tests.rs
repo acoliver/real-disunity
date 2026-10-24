@@ -174,7 +174,7 @@ fn frame(resident: &mut Resident, context: &GpuContext, target: &mut OffscreenTa
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut scheduler = worldrunner_render_scene::compositor::FrameRenderer::new(context.device());
     resident
-        .render(context, &view, &targets, &mut encoder, &mut scheduler)
+        .render(context, &view, &targets, &mut encoder, scheduler.encoding())
         .unwrap();
     target.encode_readback(&mut encoder).unwrap();
     let submission = encoder.finish().submit().unwrap();
@@ -271,7 +271,7 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
         crate::FrameProfile::Legacy,
     )
     .unwrap();
-    let mut presentation = crate::presentation::Presentation::new(context.device(), COLOR, size);
+    let mut presentation = crate::presentation::Presentation::new(&context, COLOR, size);
     let mut output = OffscreenTarget::new(context.device(), size).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     resident
@@ -280,7 +280,7 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
             &view,
             &presentation.targets,
             &mut encoder,
-            &mut presentation.scheduler,
+            presentation.scheduler.encoding(),
         )
         .unwrap();
     assert_fourth_cascade(&resident, 0);

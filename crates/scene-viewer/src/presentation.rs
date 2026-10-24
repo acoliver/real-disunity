@@ -1,13 +1,14 @@
 use crate::ViewerError;
+use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::FrameConfig;
 use worldrunner_render_scene::Viewport;
-use worldrunner_render_scene::compositor::FrameRenderer;
+use worldrunner_render_scene::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 
 /// Keep the scene renderer's sRGB contract; copy output adds no new display look.
 pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 pub(super) struct Presentation {
-    pub scheduler: FrameRenderer,
+    pub scheduler: ConfiguredFrameRenderer,
     pub targets: Targets,
 }
 
@@ -18,18 +19,12 @@ pub(super) struct Targets {
 
 impl Presentation {
     #[cfg(test)]
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: Viewport) -> Self {
-        let chain = FrameRenderer::with_output(
-            device,
-            FrameConfig::new([size.width, size.height], COLOR, 1),
-            format,
-        )
-        .expect("validated viewer extent");
-        let targets = Targets::new(device, &chain, size);
-        Self {
-            scheduler: chain,
-            targets,
-        }
+    pub fn new(
+        context: &worldrunner_render_scene::device::GpuContext,
+        format: wgpu::TextureFormat,
+        size: Viewport,
+    ) -> Self {
+        Self::with_profile(context, format, size, crate::FrameProfile::Legacy, None).unwrap()
     }
 
     pub fn with_profile(
@@ -39,33 +34,48 @@ impl Presentation {
         profile: crate::FrameProfile,
         effects: Option<&worldrunner_render_plan::SceneEffects>,
     ) -> Result<Self, ViewerError> {
-        let scheduler = match profile {
-            crate::FrameProfile::Legacy => FrameRenderer::with_output(
-                context.device(),
-                FrameConfig::new([size.width, size.height], COLOR, 1),
-                format,
-            )?,
-            crate::FrameProfile::Hdr { samples, tone_map } => FrameRenderer::hdr(
-                context,
+        let mut settings = RendererConfiguration::legacy([size.width, size.height], format);
+        settings.frame.format = COLOR;
+        if let crate::FrameProfile::Hdr { samples, tone_map } = profile {
+            settings.frame = FrameConfig::new(
                 [size.width, size.height],
-                format,
+                wgpu::TextureFormat::Rgba16Float,
                 samples,
-                tone_map,
-                effects,
-            )?,
-        };
+            );
+            let exposure = effects.map_or(1.0, |effects| {
+                f64::from(effects.grading().exposure_micro) / 1_000_000.0
+            });
+            settings.hdr = Some((exposure, tone_map));
+            settings.post = effects
+                .map(worldrunner_render_scene::post_settings)
+                .transpose()?
+                .unwrap_or_default();
+            settings.ssao = effects.and_then(|effects| effects.ssao()).copied();
+            settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
+            settings.water = effects.and_then(|effects| effects.water()).copied();
+        }
+        let scheduler =
+            ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1024 * 1024 * 1024))
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         let targets = Targets::new(context.device(), &scheduler, size);
         Ok(Self { scheduler, targets })
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, size: Viewport) {
-        if self
-            .scheduler
-            .resize(device, [size.width, size.height])
-            .expect("validated viewer extent")
-        {
-            self.targets = Targets::new(device, &self.scheduler, size);
+    pub fn resize(
+        &mut self,
+        context: &worldrunner_render_scene::device::GpuContext,
+        size: Viewport,
+    ) -> Result<(), ViewerError> {
+        self.scheduler.collect();
+        if self.scheduler.configuration().frame.size != [size.width, size.height] {
+            let mut settings = self.scheduler.configuration().clone();
+            settings.frame.size = [size.width, size.height];
+            self.scheduler
+                .reconfigure(context, settings)
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            self.targets = Targets::new(context.device(), &self.scheduler, size);
         }
+        Ok(())
     }
 
     pub fn present(
@@ -79,7 +89,7 @@ impl Presentation {
 }
 
 impl Targets {
-    fn new(_device: &wgpu::Device, chain: &FrameRenderer, _size: Viewport) -> Self {
+    fn new(_device: &wgpu::Device, chain: &ConfiguredFrameRenderer, _size: Viewport) -> Self {
         Self {
             color: chain.targets().scene().clone(),
             depth: chain.targets().depth().clone(),

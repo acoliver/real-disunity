@@ -7,6 +7,7 @@
 //! [`RenderScene`]: worldrunner_render_plan::RenderScene
 
 pub mod compositor;
+pub use post::settings as post_settings;
 pub mod device;
 pub mod draw;
 pub mod frame;

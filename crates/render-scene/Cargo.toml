@@ -21,12 +21,12 @@ worldrunner-render-plan = { path = "../render-plan" }
 thiserror.workspace = true
 worldrunner-render-shadow = { path = "../render-shadow" }
 wgpu.workspace = true
+pollster.workspace = true
 
 # Only for tests: naga is the shader front end wgpu itself uses, so validating
 # the WGSL here fails a build rather than a frame on a machine with a GPU.
 [dev-dependencies]
 naga = { version = "30.0.0", features = ["wgsl-in"] }
-pollster.workspace = true
 
 [lints]
 workspace = true

@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -123,6 +123,8 @@ struct Inner {
     state: Mutex<State>,
     in_flight: AtomicUsize,
     lost: Mutex<Option<String>>,
+    submitted: AtomicU64,
+    completed: AtomicU64,
 }
 
 /// Owns a queue and shares preparation and submission exclusion through clones.
@@ -135,7 +137,12 @@ impl SubmissionAuthority {
             state: Mutex::new(State::default()),
             in_flight: AtomicUsize::new(0),
             lost: Mutex::new(None),
+            submitted: AtomicU64::new(0),
+            completed: AtomicU64::new(0),
         }))
+    }
+    pub fn same_authority(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
     /// Queue access is for initialization uploads and completion/presentation only.
     pub fn queue(&self) -> &wgpu::Queue {
@@ -143,6 +150,12 @@ impl SubmissionAuthority {
     }
     pub fn report_device_loss(&self, message: String) {
         *self.0.lost.lock().unwrap() = Some(message);
+    }
+    pub fn check_device(&self) -> Result<(), SubmitError> {
+        if let Some(lost) = &*self.0.lost.lock().unwrap() {
+            return Err(SubmitError::DeviceLost(lost.clone()));
+        }
+        Ok(())
     }
     pub fn is_idle(&self) -> bool {
         let state = self.0.state.lock().unwrap();
@@ -156,6 +169,24 @@ impl SubmissionAuthority {
         }
         state.configuring = true;
         Ok(ConfigurationGuard(self.clone()))
+    }
+    /// Replacements exclude unsubmitted work but permit older generations in flight.
+    pub fn try_replacement(&self) -> Result<ConfigurationGuard, SubmitError> {
+        let mut state = self.0.state.lock().unwrap();
+        if let Some(lost) = &*self.0.lost.lock().unwrap() {
+            return Err(SubmitError::DeviceLost(lost.clone()));
+        }
+        if state.preparing || state.configuring {
+            return Err(SubmitError::Busy);
+        }
+        state.configuring = true;
+        Ok(ConfigurationGuard(self.clone()))
+    }
+    pub fn submitted_serial(&self) -> u64 {
+        self.0.submitted.load(Ordering::Acquire)
+    }
+    pub fn completed_serial(&self) -> u64 {
+        self.0.completed.load(Ordering::Acquire)
     }
     pub fn begin(&self, device: &wgpu::Device) -> Result<RecordingFrame, SubmitError> {
         {
@@ -223,10 +254,12 @@ impl SubmissionAuthority {
         let queue = &self.0.queue;
         let submission = queue.submit(commands);
         self.0.in_flight.fetch_add(1, Ordering::Release);
+        let serial = self.0.submitted.fetch_add(1, Ordering::AcqRel) + 1;
         // Native enqueue may dispatch earlier callbacks synchronously. Never take the submission lock here.
         let inner = Arc::downgrade(&self.0);
         queue.on_submitted_work_done(move || {
             if let Some(inner) = inner.upgrade() {
+                inner.completed.fetch_max(serial, Ordering::AcqRel);
                 inner.in_flight.fetch_sub(1, Ordering::AcqRel);
             }
         });

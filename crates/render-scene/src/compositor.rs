@@ -1,6 +1,8 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
+mod configuration;
 pub use adapters::encode_resident;
+pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, CopyOutput,
@@ -765,6 +767,7 @@ pub fn encode_scene(
     )
 }
 
+#[derive(Clone)]
 enum FrameOutput {
     Copy(CopyOutput),
     Hdr(ToneMapOutput),

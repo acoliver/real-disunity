@@ -1,5 +1,6 @@
 //! Configured linear post/output chains with canonical targets, history ownership and scheduling.
 //! Shader policy, adaptation rules and LUT data remain caller-authored.
+pub mod allocation;
 pub mod contracts;
 #[cfg(test)]
 mod contracts_tests;
@@ -48,6 +49,7 @@ mod shader;
 mod targets;
 pub use chain::{
     BufferSpec, Operation, PostChain, Resources, Stage, StageFactory, StageSet, StageTarget,
+    TimingState,
 };
 pub use copy::CopyOutput;
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
@@ -55,6 +57,10 @@ pub use targets::{FrameConfig, FrameTargets, color_texture};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PostError {
+    #[error("GPU allocation failed: {0}")]
+    Allocation(String),
+    #[error(transparent)]
+    DriverAllocation(#[from] worldrunner_render_gpu::configuration::DriverAllocationError),
     #[error("unsupported frame profile: {0}")]
     UnsupportedProfile(&'static str),
     #[error("frame delta must be finite and within 0..=10 seconds")]

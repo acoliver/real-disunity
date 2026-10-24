@@ -154,8 +154,7 @@ impl Renderer {
             self.context.device().limits().max_texture_dimension_2d,
         )?
         .expect("acquired nonzero extent");
-        self.presentation
-            .resize(self.context.device(), extents.render);
+        self.presentation.resize(&self.context, extents.render)?;
         self.resident.select_frame_slot(ready.admission.slot());
         self.presentation
             .scheduler
@@ -176,7 +175,7 @@ impl Renderer {
                     view,
                     &self.presentation.targets,
                     encoder,
-                    &mut self.presentation.scheduler,
+                    self.presentation.scheduler.encoding(),
                 )?;
                 self.presentation.present(encoder, &output)
             })
@@ -297,7 +296,7 @@ impl Resident {
         view: &SceneView,
         targets: &crate::presentation::Targets,
         encoder: &mut wgpu::CommandEncoder,
-        scheduler: &mut worldrunner_render_scene::compositor::FrameRenderer,
+        mut scheduler: worldrunner_render_scene::compositor::FrameEncoding<'_>,
     ) -> Result<(), ViewerError> {
         let color = worldrunner_render_post::AttachmentView::new(
             worldrunner_render_post::ResourceRef::new("scene color"),
@@ -311,11 +310,10 @@ impl Resident {
         .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
         match self {
             Resident::Shadowed(renderer) => {
-                renderer.encode_with(context, view, (&color, &depth), encoder, Some(scheduler))?;
+                scheduler.encode_shadowed(context, view, (&color, &depth), encoder, renderer)?;
             }
             Resident::Plain(plain) => {
-                worldrunner_render_scene::compositor::encode_scene(
-                    scheduler,
+                scheduler.encode_scene(
                     context.device(),
                     encoder,
                     (&mut plain.gpu, &plain.pipelines),

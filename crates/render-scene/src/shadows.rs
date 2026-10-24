@@ -54,6 +54,8 @@ use resources::ShadowMap;
 /// An opt-in shadow request could not be prepared.
 #[derive(Debug, thiserror::Error)]
 pub enum ShadowError {
+    #[error(transparent)]
+    Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// Settings must describe a finite, representable coverage box and biases.
     #[error("invalid directional shadow fit or bias settings")]
     InvalidSettings,
@@ -149,7 +151,7 @@ impl ShadowedScene {
             resources::receiver_pipelines(context, scene, (format, samples), &shadow_layout)?;
         let (depth_pipelines, terrain_depth_pipeline) =
             resources::depth_pipelines(context.device(), &pipelines, settings);
-        let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
+        let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
         let depth_frames = resources::depth_frames(context, pipelines.frame_layout());
         let layers = u32::try_from(
             scene
@@ -187,18 +189,18 @@ impl ShadowedScene {
         })
     }
 
-    /// Counts from the most recently recorded main-camera pass.
-    pub fn view_stats(&self) -> std::cell::Ref<'_, crate::draw::ViewStats> {
+    /// Owned counts from the most recently submitted main-camera pass.
+    pub fn view_stats(&self) -> crate::draw::ViewStats {
         self.gpu.view_stats()
     }
 
-    /// Counts from the most recently recorded shadow cascade (index zero).
-    pub fn shadow_view_stats(&self) -> std::cell::Ref<'_, crate::draw::ViewStats> {
+    /// Owned counts from the most recently submitted shadow cascade zero.
+    pub fn shadow_view_stats(&self) -> crate::draw::ViewStats {
         self.gpu.shadow_view_stats()
     }
 
-    /// Counts for a particular cascade. Drop the guard before drawing that view again.
-    pub fn cascade_view_stats(&self, index: usize) -> std::cell::Ref<'_, crate::draw::ViewStats> {
+    /// Owned counts for a particular submitted cascade.
+    pub fn cascade_view_stats(&self, index: usize) -> crate::draw::ViewStats {
         self.gpu.cascade_view_stats(index)
     }
 
@@ -268,20 +270,19 @@ impl ShadowedScene {
         color: &AttachmentView,
         depth: &AttachmentView,
     ) -> Result<(), ShadowError> {
-        let mut encoder =
-            context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("shadowed scene"),
-                });
-        self.encode(context, view, color, depth, &mut encoder)?;
-        context.queue().submit([encoder.finish()]);
+        let prepared = context
+            .submission()
+            .prepare(context.device(), |encoder, _| {
+                self.encode(context, view, color, depth, encoder)
+            })
+            .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+        prepared.submit()?;
         Ok(())
     }
 
     /// Encodes all uploads and passes without submitting, for composition with output.
-    /// Submit before preparing another frame. Errors leave resident state and the
-    /// encoder unchanged; a successful encoder must be submitted, not abandoned.
+    /// Requires the active transaction encoder. Resident publication happens on
+    /// submission; dropping the prepared frame discards its publications.
     /// Checked attachments retain their selected mip and array layer.
     pub fn encode(
         &mut self,
@@ -292,6 +293,21 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), ShadowError> {
         self.encode_with(context, view, (color, depth), encoder, None)
+    }
+
+    fn validate_scheduler(
+        scheduler: &crate::compositor::FrameRenderer,
+        pipelines: &ScenePipelines,
+        effects: &SceneEffects,
+    ) -> Result<(), ShadowError> {
+        scheduler.validate_ssao(pipelines, effects.ssao())?;
+        scheduler.validate_water(effects.water())?;
+        scheduler.validate_ssr(effects.ssr())?;
+        scheduler.validate_post(
+            crate::post::settings(effects)
+                .map_err(|_| FrameError::UnsupportedEffect("post settings"))?,
+        )?;
+        Ok(())
     }
 
     /// Uses a host's retained scheduler for both scene and output composition.
@@ -306,13 +322,7 @@ impl ShadowedScene {
     ) -> Result<(), ShadowError> {
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
-        scheduler.validate_ssao(&self.pipelines, self.effects.ssao())?;
-        scheduler.validate_water(self.effects.water())?;
-        scheduler.validate_ssr(self.effects.ssr())?;
-        scheduler.validate_post(
-            crate::post::settings(&self.effects)
-                .map_err(|_| FrameError::UnsupportedEffect("post settings"))?,
-        )?;
+        Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         let cascades = cascades::CascadeViews::new(
             &self.gpu,
@@ -338,6 +348,7 @@ impl ShadowedScene {
             schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
         schedule.screen_space(scheduler);
         let mut feature = ShadowFeature {
+            publications: crate::draw::DrawPublications::default(),
             screen: scheduler.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
             gpu: &mut self.gpu,
             pipelines: &self.pipelines,
@@ -382,24 +393,26 @@ pub fn capture_scene_shadowed(
     ))?)?;
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let mut renderer = ShadowedScene::new(context, scene, settings)?;
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("shadowed capture"),
-        });
-    renderer.encode(
-        context,
-        view,
-        &target.color_attachment(),
-        &target.depth_attachment(),
-        &mut encoder,
-    )?;
-    target.encode_readback(&mut encoder)?;
-    let submission = context.queue().submit([encoder.finish()]);
+    let prepared = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.encode(
+                context,
+                view,
+                &target.color_attachment(),
+                &target.depth_attachment(),
+                encoder,
+            )?;
+            target.encode_readback(encoder)?;
+            Ok::<_, ShadowError>(())
+        })
+        .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+    let submission = prepared.submit()?;
     Ok(target.read_encoded(context, submission)?)
 }
 
 struct ShadowFeature<'a> {
+    publications: crate::draw::DrawPublications,
     screen: Option<crate::ssao::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
@@ -436,6 +449,9 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
             &resources::uniform_bytes(&self.cascades, self.settings),
         );
     }
+    fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
+        self.publications.publish(context);
+    }
     fn draw(
         &self,
         context: &worldrunner_render_post::DrawContext,
@@ -443,20 +459,26 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
     ) {
         if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
             let screen = self.screen.as_ref().expect("declared metadata");
-            self.gpu.draw_prepass(
+            self.publications.record(self.gpu.draw_prepass(
                 pass,
                 screen.reflection.as_ref().expect("reflection pipelines"),
                 &screen.group,
-            );
+            ));
         } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.gpu
-                .draw_prepass(pass, &screen.pipelines, &screen.group);
+            self.publications.record(
+                self.gpu
+                    .draw_prepass(pass, &screen.pipelines, &screen.group),
+            );
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             let matrix = self.cascades.matrices[index as usize];
             let group = &self.depth_frames[index as usize].1;
-            self.gpu
-                .draw_objects(pass, group, self.depth_pipelines, Some((index, matrix)));
+            self.publications.record(self.gpu.draw_objects(
+                pass,
+                group,
+                self.depth_pipelines,
+                Some((index, matrix)),
+            ));
             self.gpu
                 .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
         } else {
@@ -464,8 +486,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 pass.set_bind_group(3, &screen.ambient, &[]);
             }
             pass.set_bind_group(2, self.shadow_group, &[]);
-            self.gpu
-                .draw_shadowed(pass, self.pipelines, self.shadow_group);
+            self.publications.record(self.gpu.draw_shadowed(
+                pass,
+                self.pipelines,
+                self.shadow_group,
+            ));
         }
     }
 }

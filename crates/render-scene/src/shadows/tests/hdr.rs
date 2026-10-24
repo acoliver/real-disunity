@@ -41,9 +41,7 @@ fn hdr_capture(
     )
     .unwrap();
     let mut output = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
         .encode_with(
             context,
@@ -57,16 +55,9 @@ fn hdr_capture(
         .encode_output(&mut encoder, output.color_view())
         .unwrap();
     output.encode_readback(&mut encoder).unwrap();
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     let image = output.read_encoded(context, submission).unwrap();
-    let raw = Readback::new(
-        context.device(),
-        FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1),
-        2_000_000,
-    )
-    .unwrap()
-    .read(context.device(), context.queue(), frame.targets().texture())
-    .unwrap();
+    let raw = read_hdr(context, &frame, size);
     (raw, image)
 }
 fn exposed(source: &RenderScene, exposure: u32) -> RenderScene {
@@ -283,4 +274,19 @@ fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
         let (_, repeated) = hdr_capture(&context, &filtered, samples, 0.001);
         assert_eq!(image.pixels, repeated.pixels);
     }
+}
+
+fn read_hdr(context: &GpuContext, frame: &FrameRenderer, size: [u32; 2]) -> Vec<u8> {
+    Readback::new(
+        context.device(),
+        FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1),
+        2_000_000,
+    )
+    .unwrap()
+    .read(
+        context.device(),
+        context.submission(),
+        frame.targets().texture(),
+    )
+    .unwrap()
 }

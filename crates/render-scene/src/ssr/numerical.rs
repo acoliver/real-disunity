@@ -36,10 +36,8 @@ pub(super) fn resolve_capture(
         color,
         groups: Vec::new(),
     };
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    let mut prepare = PrepareContext::new(context.device(), &mut encoder);
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
     feature.commit(&mut prepare);
     prepare.finish();
     let inputs = resolve_inputs(&ssr, &final_depth);
@@ -59,7 +57,7 @@ pub(super) fn resolve_capture(
         &ssr.resolve,
         &[&group],
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     read(context, &target)
 }
 #[test]

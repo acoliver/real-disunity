@@ -8,23 +8,21 @@ use worldrunner_render_post::{
     PostChain, PostError, PreparedFeature, Resources, StageFactory, StageSet, ToneMapOutput,
 };
 
-/// Retained executor for encoder-only composition. Submission belongs to the host.
-/// Select a distinct admitted slot before preparing each overlapping frame, then submit
-/// successful encoders in preparation order before reusing their slots after completion.
-/// On error, no uploads or draws are appended and resident state is unchanged.
-/// A successful encoder must not be abandoned: its uploads have been committed.
+/// Retained executor for transaction-bound composition. Submission belongs to the host.
+/// Select an admitted slot before preparation and reuse it only after completion.
+/// Encoding requires the authority-owned encoder. Cancellation discards publication.
 pub struct FrameRenderer {
     chain: PostChain<FrameOutput>,
     pub(crate) water: Option<crate::water::Water>,
     water_state: std::rc::Rc<std::cell::RefCell<crate::water::WaterState>>,
     pub(crate) snapshots: Option<[crate::water::snapshots::Snapshots; 3]>,
-    snapshot_ready: [crate::water::planning::SnapshotRequest; 3],
+    snapshot_ready: std::rc::Rc<std::cell::RefCell<[crate::water::planning::SnapshotRequest; 3]>>,
     frame_slot: usize,
     post_requested: worldrunner_render_post::HdrPostSettings,
     elapsed_seconds: f32,
     frame_delta: f32,
-    post_time: std::cell::Cell<f32>,
-    exposure_reset: std::cell::Cell<bool>,
+    post_time: std::rc::Rc<std::cell::Cell<f32>>,
+    exposure_reset: std::rc::Rc<std::cell::Cell<bool>>,
     pub(crate) ssao: Option<crate::ssao::Ssao>,
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
@@ -40,7 +38,7 @@ impl FrameRenderer {
     pub fn select_frame_slot(&mut self, slot: usize) {
         self.chain.select_frame_slot(slot);
         self.frame_slot = slot;
-        self.snapshot_ready[slot] = crate::water::planning::SnapshotRequest::default();
+        self.snapshot_ready.borrow_mut()[slot] = crate::water::planning::SnapshotRequest::default();
     }
     pub fn new(device: &wgpu::Device) -> Self {
         Self::with_output(
@@ -63,13 +61,13 @@ impl FrameRenderer {
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
-            snapshot_ready: Default::default(),
+            snapshot_ready: std::rc::Rc::default(),
             frame_slot: 0,
             post_requested: worldrunner_render_post::HdrPostSettings::default(),
             elapsed_seconds: 0.0,
             frame_delta: 0.0,
-            post_time: std::cell::Cell::new(0.0),
-            exposure_reset: std::cell::Cell::new(false),
+            post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
+            exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
             chain: PostChain::new(
                 device,
                 config,
@@ -120,13 +118,13 @@ impl FrameRenderer {
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
-            snapshot_ready: Default::default(),
+            snapshot_ready: std::rc::Rc::default(),
             frame_slot: 0,
             post_requested: post,
             elapsed_seconds: 0.0,
             frame_delta: 0.0,
-            post_time: std::cell::Cell::new(0.0),
-            exposure_reset: std::cell::Cell::new(false),
+            post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
+            exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
             ssao: effects
                 .and_then(|effects| effects.ssao())
                 .map(|settings| crate::ssao::Ssao::new(context.device(), size, *settings))
@@ -171,7 +169,7 @@ impl FrameRenderer {
         settings: worldrunner_render_plan::SceneWaterPlane,
     ) -> Result<(), FrameError> {
         let water = crate::water::Water::new(device, self.targets().config(), settings)?;
-        self.snapshot_ready = Default::default();
+        *self.snapshot_ready.borrow_mut() = Default::default();
         self.snapshots = Some(water.snapshots.clone());
         self.chain.register(
             device,
@@ -282,8 +280,8 @@ impl FrameRenderer {
         self.snapshots
             .as_ref()
             .filter(|_| {
-                self.snapshot_ready[self.frame_slot].color
-                    && self.snapshot_ready[self.frame_slot].depth
+                self.snapshot_ready.borrow()[self.frame_slot].color
+                    && self.snapshot_ready.borrow()[self.frame_slot].depth
             })
             .map(|snapshots| {
                 let snapshot = &snapshots[self.frame_slot];
@@ -302,7 +300,7 @@ impl FrameRenderer {
     pub fn post_water_depth(&self) -> Option<wgpu::TextureView> {
         self.snapshots
             .as_ref()
-            .filter(|_| self.snapshot_ready[self.frame_slot].final_depth)
+            .filter(|_| self.snapshot_ready.borrow()[self.frame_slot].final_depth)
             .map(|snapshots| {
                 snapshots[self.frame_slot]
                     .final_depth
@@ -371,7 +369,7 @@ impl FrameRenderer {
             }));
         }
         if changed {
-            self.snapshot_ready = Default::default();
+            *self.snapshot_ready.borrow_mut() = Default::default();
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
@@ -383,6 +381,8 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
         output: &wgpu::TextureView,
     ) -> Result<(), PostError> {
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)
+            .map_err(FrameError::from)?;
         if let FrameOutput::Hdr(factory) = self.chain.factory() {
             factory.prepare_effects(
                 encoder,
@@ -390,12 +390,23 @@ impl FrameRenderer {
                 self.frame_delta,
                 self.exposure_reset.get(),
             )?;
-            self.exposure_reset.set(false);
+            let reset = self.exposure_reset.clone();
+            worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+                reset.set(false);
+            })
+            .map_err(FrameError::from)?;
         }
         self.chain.encode_resolve(encoder);
         self.chain.encode(encoder, output);
-        self.chain.finish_timing(encoder);
-        self.post_time.set(self.elapsed_seconds);
+        self.chain
+            .finish_timing(encoder)
+            .map_err(FrameError::from)?;
+        let time = self.post_time.clone();
+        let seconds = self.elapsed_seconds;
+        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+            time.set(seconds);
+        })
+        .map_err(FrameError::from)?;
         Ok(())
     }
     /// Timing is explicitly begun before geometry and resolved after output.
@@ -407,8 +418,11 @@ impl FrameRenderer {
     ) -> Result<worldrunner_render_post::TimingSupport, worldrunner_render_post::TimingError> {
         self.chain.configure_timing(device, queue, mode)
     }
-    pub fn begin_timing(&self, frame_id: u64) {
-        self.chain.begin_timing(frame_id);
+    pub fn begin_timing(
+        &self,
+        frame_id: u64,
+    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
+        self.chain.begin_timing(frame_id)
     }
     pub fn take_timings(
         &self,
@@ -423,8 +437,11 @@ impl FrameRenderer {
         self.chain.dropped_timing_frames()
     }
     /// Geometry-only custom hosts finish explicitly; output composition does this automatically.
-    pub fn finish_timing(&self, encoder: &mut wgpu::CommandEncoder) {
-        self.chain.finish_timing(encoder);
+    pub fn finish_timing(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
+        self.chain.finish_timing(encoder)
     }
 
     pub fn register(
@@ -439,8 +456,9 @@ impl FrameRenderer {
         device: &wgpu::Device,
         frame: crate::frame::FrameUniform,
         shadow: Option<&wgpu::BindGroup>,
+        encoder: &wgpu::CommandEncoder,
     ) {
-        self.snapshot_ready[self.frame_slot] = crate::water::planning::SnapshotRequest::default();
+        self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         self.water_state.borrow_mut().feature = self.water.as_ref().map(|water| {
             water.feature(
                 device,
@@ -465,7 +483,8 @@ impl FrameRenderer {
         let (passes, views) = plan;
         let mut passes = passes.to_vec();
         let mut views = views.to_vec();
-        self.set_water_input(device, frame, shadow);
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        self.set_water_input(device, frame, shadow, encoder);
         let mut combined = reborrow_features(features);
         let mut screen = self
             .ssao
@@ -515,8 +534,20 @@ impl FrameRenderer {
             },
             &mut combined,
         )?;
-        self.snapshot_ready[self.frame_slot] = request;
+        self.publish_snapshots(encoder, request);
         Ok(())
+    }
+    fn publish_snapshots(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+        request: crate::water::planning::SnapshotRequest,
+    ) {
+        let ready = self.snapshot_ready.clone();
+        let slot = self.frame_slot;
+        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+            ready.borrow_mut()[slot] = request;
+        })
+        .expect("checked transaction encoder");
     }
     fn plan_snapshots(
         device: &wgpu::Device,
@@ -559,7 +590,8 @@ impl FrameRenderer {
         views: &[AttachmentView],
         features: &mut [BorrowedFeature<'_>],
     ) -> Result<(), FrameError> {
-        self.snapshot_ready[self.frame_slot] = crate::water::planning::SnapshotRequest::default();
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
@@ -620,6 +652,7 @@ pub(crate) fn attachment(
 }
 
 pub(crate) struct SceneFeature<'a> {
+    publications: crate::draw::DrawPublications,
     pub gpu: &'a mut crate::draw::SceneGpu,
     pub pipelines: &'a crate::renderer::ScenePipelines,
     pub frame: crate::frame::FrameUniform,
@@ -645,6 +678,9 @@ impl PreparedFeature for SceneFeature<'_> {
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
     }
+    fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
+        self.publications.publish(context);
+    }
     fn draw(
         &self,
         context: &worldrunner_render_post::DrawContext,
@@ -652,21 +688,25 @@ impl PreparedFeature for SceneFeature<'_> {
     ) {
         if let Some(screen) = &self.screen {
             if context.slot == PassSlot::ReflectionMaterial {
-                self.gpu.draw_prepass(
+                self.publications.record(self.gpu.draw_prepass(
                     pass,
                     screen.reflection.as_ref().expect("reflection metadata"),
                     &screen.group,
-                );
+                ));
                 return;
             }
             if context.slot == PassSlot::DepthNormalPrepass {
-                self.gpu
-                    .draw_prepass(pass, &screen.pipelines, &screen.group);
+                self.publications.record(self.gpu.draw_prepass(
+                    pass,
+                    &screen.pipelines,
+                    &screen.group,
+                ));
                 return;
             }
             pass.set_bind_group(3, &screen.ambient, &[]);
         }
-        self.gpu.draw(pass, self.pipelines);
+        self.publications
+            .record(self.gpu.draw_color(pass, self.pipelines, None));
     }
 }
 
@@ -701,6 +741,7 @@ pub fn encode_scene(
         }
     }
     let mut feature = SceneFeature {
+        publications: crate::draw::DrawPublications::default(),
         screen: renderer.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
         gpu,
         pipelines,

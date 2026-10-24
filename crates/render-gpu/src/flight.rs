@@ -115,12 +115,12 @@ impl FrameAdmission {
     pub fn submit(
         &self,
         admission: Admission,
-        queue: &wgpu::Queue,
+        authority: &crate::submission::SubmissionAuthority,
         commands: impl IntoIterator<Item = wgpu::CommandBuffer>,
         wake: impl FnOnce() + Send + 'static,
     ) -> CompletionTicket {
-        self.submit_with_completion(admission, queue, commands, |complete| {
-            queue.on_submitted_work_done(move || {
+        self.submit_with_completion(admission, authority, commands, |complete| {
+            authority.queue().on_submitted_work_done(move || {
                 complete();
                 wake();
             });
@@ -132,7 +132,7 @@ impl FrameAdmission {
     pub fn submit_with_completion(
         &self,
         mut admission: Admission,
-        queue: &wgpu::Queue,
+        authority: &crate::submission::SubmissionAuthority,
         commands: impl IntoIterator<Item = wgpu::CommandBuffer>,
         register: impl FnOnce(Box<dyn FnOnce() + Send>),
     ) -> CompletionTicket {
@@ -142,11 +142,42 @@ impl FrameAdmission {
         );
         // Separate from retirement state: a completion wake may inspect or retire slots.
         let _submission = self.submission.lock().unwrap();
-        let submission = queue.submit(commands);
+        let submission = authority
+            .submit_commands(commands)
+            .expect("submission admission");
         let ticket = self.track(&mut admission, submission);
         let completed = ticket.clone();
         register(Box::new(move || completed.complete(|| {})));
         ticket
+    }
+
+    /// Associates a consuming prepared frame with this admitted flight slot.
+    /// Completion registration always uses the authority owned by the frame.
+    /// An independent completion authority cannot be supplied:
+    /// ```compile_fail
+    /// use worldrunner_render_gpu::{flight::{FrameAdmission, Admission}, submission::{PreparedFrame, SubmissionAuthority}};
+    /// fn submit(flights: &FrameAdmission, admission: Admission, frame: PreparedFrame, other: &SubmissionAuthority) {
+    ///     flights.submit_prepared(admission, frame, other);
+    /// }
+    /// ```
+    pub fn submit_prepared(
+        &self,
+        mut admission: Admission,
+        prepared: crate::submission::PreparedFrame,
+    ) -> Result<CompletionTicket, crate::submission::SubmitError> {
+        assert!(
+            Arc::ptr_eq(&self.state, &admission.owner.state),
+            "foreign admission"
+        );
+        let _submission = self.submission.lock().unwrap();
+        let authority = prepared.authority();
+        let submission = prepared.submit()?;
+        let ticket = self.track(&mut admission, submission);
+        let completed = ticket.clone();
+        authority
+            .queue()
+            .on_submitted_work_done(move || completed.complete(|| {}));
+        Ok(ticket)
     }
 
     fn track(
@@ -241,20 +272,23 @@ mod tests {
                 .unwrap();
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let authority = crate::submission::SubmissionAuthority::new(queue.clone());
         let flight = FrameAdmission::new(2).unwrap();
         let mut first = flight.try_acquire().unwrap();
         let mut second = flight.try_acquire().unwrap();
         let first_slot = first.slot();
         let (send_a, done_a) = std::sync::mpsc::channel();
         let (send_b, done_b) = std::sync::mpsc::channel();
-        let a = flight.track(&mut first, queue.submit([]));
+        let prepared = authority.prepare(&device, |_, _| Ok::<_, ()>(())).unwrap();
+        let a = flight.track(&mut first, prepared.submit().unwrap());
         let completion_a = a.clone();
-        queue.on_submitted_work_done(move || {
+        authority.queue().on_submitted_work_done(move || {
             send_a.send(completion_a).unwrap();
         });
-        let b = flight.track(&mut second, queue.submit([]));
+        let prepared = authority.prepare(&device, |_, _| Ok::<_, ()>(())).unwrap();
+        let b = flight.track(&mut second, prepared.submit().unwrap());
         let completion_b = b.clone();
-        queue.on_submitted_work_done(move || {
+        authority.queue().on_submitted_work_done(move || {
             send_b.send(completion_b).unwrap();
         });
         // Explicitly dispatch real queue callbacks, independent of GPU speed or implicit polling.

@@ -134,7 +134,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frame = gpu::frame::FrameUniform::new(&view, None)?;
     let (passes, views) = frame_plan(&renderer)?;
     let mut target = gpu::offscreen::OffscreenTarget::new(device, view.viewport())?;
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(device)?;
     renderer.encode_frame(
         device,
         &mut encoder,
@@ -144,7 +144,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     renderer.encode_output(&mut encoder, target.color_view())?;
     target.encode_readback(&mut encoder)?;
-    let submitted = context.queue().submit([encoder.finish()]);
+    let submitted = encoder.finish().submit()?;
     let image = target.read_encoded(&context, submitted)?;
     assert!(
         image
@@ -160,7 +160,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba16Float, 1),
         4096,
     )?
-    .read(device, context.queue(), snapshot.texture())?;
+    .read(device, context.submission(), snapshot.texture())?;
     assert!(
         bytes
             .chunks_exact(8)

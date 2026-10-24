@@ -3,8 +3,7 @@ use worldrunner_render_gpu::flight::{Admission, FrameAdmission};
 use worldrunner_render_post::BufferReadback;
 
 struct Encoded {
-    admission: Admission,
-    commands: wgpu::CommandBuffer,
+    ticket: worldrunner_render_gpu::flight::CompletionTicket,
     instances: BufferReadback,
     uniform: BufferReadback,
     expected: Vec<u8>,
@@ -17,7 +16,8 @@ fn overlapping_frames_keep_uniform_uploads_instances_and_captures_separate() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -39,25 +39,19 @@ fn overlapping_frames_keep_uniform_uploads_instances_and_captures_separate() {
                 &mut renderer,
                 &mut target,
                 index,
-                admission,
+                (admission, &flight),
             )
         })
         .collect();
     assert_ne!(frames[0].uniform_buffer, frames[1].uniform_buffer);
-    verify_frames(&context, &mut target, &flight, frames);
+    verify_frames(&context, &mut target, frames);
 }
 
-fn verify_frames(
-    context: &GpuContext,
-    target: &mut OffscreenTarget,
-    flight: &FrameAdmission,
-    frames: Vec<Encoded>,
-) {
-    // Encode both before submitting either, then snapshot each frame in queue order.
+fn verify_frames(context: &GpuContext, target: &mut OffscreenTarget, frames: Vec<Encoded>) {
     let tickets: Vec<_> = frames
         .into_iter()
         .map(|frame| {
-            let ticket = flight.submit(frame.admission, context.queue(), [frame.commands], || {});
+            let ticket = frame.ticket;
             (
                 ticket,
                 frame.instances,
@@ -99,8 +93,9 @@ fn encode_frame(
     renderer: &mut crate::compositor::FrameRenderer,
     target: &mut OffscreenTarget,
     index: usize,
-    admission: Admission,
+    admission: (Admission, &FrameAdmission),
 ) -> Encoded {
+    let (admission, flight) = admission;
     let (gpu, pipelines) = scene;
     let slot = admission.slot();
     gpu.select_frame_slot(slot);
@@ -116,9 +111,7 @@ fn encode_frame(
     }
     let mut frame = frame_from(pose());
     frame.exposure = if index == 0 { 1.0 } else { 2.0 };
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     crate::compositor::encode_scene(
         renderer,
         context.device(),
@@ -139,8 +132,7 @@ fn encode_frame(
     target.encode_readback_slot(slot, &mut encoder).unwrap();
     assert!(target.encode_readback_slot(slot, &mut encoder).is_err());
     Encoded {
-        admission,
-        commands: encoder.finish(),
+        ticket: flight.submit_prepared(admission, encoder.finish()).unwrap(),
         instances,
         uniform,
         expected,

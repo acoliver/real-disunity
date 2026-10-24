@@ -222,3 +222,8 @@ mod readback_gpu_tests;
 
 #[cfg(test)]
 mod tone_map_gpu_tests;
+
+#[cfg(test)]
+fn test_authority(queue: &wgpu::Queue) -> worldrunner_render_gpu::submission::SubmissionAuthority {
+    worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+}

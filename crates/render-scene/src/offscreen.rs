@@ -21,6 +21,8 @@ pub const DEFAULT_MAX_READBACK_BYTES: u64 = 256 * 1024 * 1024;
 /// A capture could not be allocated, rendered or read back.
 #[derive(Debug, Error)]
 pub enum OffscreenError {
+    #[error(transparent)]
+    Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// Empty images cannot be GPU attachments.
     #[error("offscreen viewport {0:?} has a zero dimension")]
     EmptyViewport(Viewport),
@@ -251,27 +253,27 @@ impl OffscreenTarget {
         scene: &SceneGpu,
         pipelines: &ScenePipelines,
     ) -> Result<RgbaImage, OffscreenError> {
-        let mut encoder =
-            context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("offscreen scene"),
-                });
-        let color = self.color_attachment();
-        let depth = self.depth_attachment();
-        let renderer = self
-            .scheduler
-            .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()));
-        crate::compositor::encode_resident(
-            renderer,
-            context.device(),
-            &mut encoder,
-            (scene, pipelines),
-            (&color, &depth),
-        )
-        .map_err(worldrunner_render_post::PostError::from)?;
-        self.encode_readback(&mut encoder)?;
-        let submission = context.queue().submit([encoder.finish()]);
+        let prepared = context
+            .submission()
+            .prepare(context.device(), |encoder, _| {
+                let color = self.color_attachment();
+                let depth = self.depth_attachment();
+                let renderer = self
+                    .scheduler
+                    .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()));
+                crate::compositor::encode_resident(
+                    renderer,
+                    context.device(),
+                    encoder,
+                    (scene, pipelines),
+                    (&color, &depth),
+                )
+                .map_err(worldrunner_render_post::PostError::from)?;
+                self.encode_readback(encoder)?;
+                Ok::<_, OffscreenError>(())
+            })
+            .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+        let submission = prepared.submit()?;
         self.read_encoded(context, submission)
     }
 
@@ -328,7 +330,7 @@ impl OffscreenTarget {
     /// All resources and the supplied context must belong to the same device.
     pub fn read_rgba8(&mut self, context: &GpuContext) -> Result<RgbaImage, OffscreenError> {
         let pixels = self.readback[0]
-            .read(context.device(), context.queue(), &self.color)
+            .read(context.device(), context.submission(), &self.color)
             .map_err(output_error)?;
         Ok(RgbaImage {
             viewport: self.viewport(),
@@ -371,7 +373,7 @@ pub fn capture_scene(
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let frame = FrameUniform::new(view, scene.effects())?;
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
+    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
     gpu.set_frame(context.queue(), frame);
     target.render(context, &gpu, &pipelines)
 }

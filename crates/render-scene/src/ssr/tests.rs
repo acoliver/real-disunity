@@ -41,7 +41,7 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
         1_000_000,
     )
     .unwrap()
-    .read(context.device(), context.queue(), texture)
+    .read(context.device(), context.submission(), texture)
     .unwrap()
 }
 fn half(value: f32) -> u16 {
@@ -186,10 +186,8 @@ fn draw_trace(
         color: output,
         groups: Vec::new(),
     };
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    let mut prepare = PrepareContext::new(context.device(), &mut encoder);
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
     feature.commit(&mut prepare);
     prepare.finish();
     let mut inputs = vec![
@@ -220,7 +218,7 @@ fn draw_trace(
         &ssr.trace,
         &[&group],
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     read(context, &ssr.reflections[0])
 }
 fn mirror_data(
@@ -415,9 +413,7 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
             b: 0.0625,
             a: 1.0,
         });
-        let mut encoder = context
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder = context.submission().begin(context.device()).unwrap();
         renderer
             .encode_frame(
                 context.device(),
@@ -427,7 +423,7 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
                 (frame(), None),
             )
             .unwrap();
-        context.queue().submit([encoder.finish()]);
+        encoder.finish().submit().unwrap();
     }
     context
         .device()
@@ -447,9 +443,7 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
         &read(&context, &snapshots[1].color)[..2],
         &half(0.5).to_le_bytes()
     );
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     opaque.depth = None;
     assert!(matches!(
         renderer.encode_frame(
@@ -461,5 +455,5 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
         ),
         Err(FrameError::AttachmentContract(PassSlot::Opaque))
     ));
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
 }

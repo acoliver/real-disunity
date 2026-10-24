@@ -6,7 +6,7 @@ fn gpu_capture_adapters_and_copy_output_match_direct_capture_bytes() {
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(65, 47));
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.queue(), &scene, &pipelines).unwrap();
+    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform::new(&view, scene.effects()).unwrap(),
@@ -27,9 +27,7 @@ fn direct_capture(
     viewport: Viewport,
 ) -> RgbaImage {
     let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("offscreen scene"),
@@ -55,7 +53,7 @@ fn direct_capture(
         scene.draw(&mut pass, pipelines);
     }
     target.encode_readback(&mut encoder).unwrap();
-    let submitted = context.queue().submit([encoder.finish()]);
+    let submitted = encoder.finish().submit().unwrap();
     target.read_encoded(context, submitted).unwrap()
 }
 fn composed_capture(
@@ -86,9 +84,7 @@ fn composed_capture(
     )
     .unwrap();
     let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     crate::compositor::encode_resident(
         &mut renderer,
         context.device(),
@@ -101,6 +97,6 @@ fn composed_capture(
         .encode_output(&mut encoder, target.color_view())
         .unwrap();
     target.encode_readback(&mut encoder).unwrap();
-    let submitted = context.queue().submit([encoder.finish()]);
+    let submitted = encoder.finish().submit().unwrap();
     target.read_encoded(context, submitted).unwrap()
 }

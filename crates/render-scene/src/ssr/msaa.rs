@@ -97,16 +97,14 @@ fn gpu_sloped_receivers_keep_reflections_at_1x_and_4x_and_water_masks_partial_co
         let water = depth_pipeline(&context, samples, true, u32::MAX);
         let partial = depth_pipeline(&context, samples, true, 1);
         for water_pipeline in [None, Some(&water), Some(&partial)] {
-            let mut encoder = context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            let mut encoder = context.submission().begin(context.device()).unwrap();
             let mut feature = SnapshotFeature {
                 snapshots: snapshots.clone(),
                 frame: frame(),
                 color_source: None,
                 depth_source: None,
             };
-            let mut prepare = PrepareContext::new(context.device(), &mut encoder);
+            let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
             feature.commit(&mut prepare);
             prepare.finish();
             draw_depth(&mut encoder, &depth, &slope, true);
@@ -125,7 +123,7 @@ fn gpu_sloped_receivers_keep_reflections_at_1x_and_4x_and_water_masks_partial_co
                 &snapshots.depth_pipeline,
                 &group,
             );
-            context.queue().submit([encoder.finish()]);
+            encoder.finish().submit().unwrap();
             let result = super::regressions::resolve(
                 &context,
                 &ssr,

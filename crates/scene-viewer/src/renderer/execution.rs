@@ -39,6 +39,20 @@ impl SurfaceExecution {
         })
     }
 
+    pub fn submit_prepared(
+        &self,
+        ready: ReadyFrame,
+        prepared: worldrunner_render_gpu::submission::PreparedFrame,
+        context: &GpuContext,
+    ) -> Result<(), ViewerError> {
+        self.flight
+            .submit_prepared(ready.admission, prepared)
+            .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+        self.window.pre_present_notify();
+        context.queue().present(ready.frame);
+        Ok(())
+    }
+
     pub fn resize(&mut self, device: &wgpu::Device, size: [u32; 2]) -> Result<(), ViewerError> {
         self.presenter.resize(device, size).map_err(surface_error)?;
         Ok(())
@@ -49,6 +63,15 @@ impl SurfaceExecution {
         context: &GpuContext,
         update: impl FnOnce() -> Result<(), ViewerError>,
     ) -> Result<Option<ReadyFrame>, ViewerError> {
+        let _configuration = if self.presenter.has_pending_transition() {
+            match context.submission().try_configuration() {
+                Ok(guard) => Some(guard),
+                Err(worldrunner_render_gpu::submission::SubmitError::Busy) => return Ok(None),
+                Err(error) => return Err(ViewerError::Gpu(error.to_string())),
+            }
+        } else {
+            None
+        };
         let flight = self.flight.clone();
         let mut surface = NativeSurface {
             execution: self,
@@ -58,12 +81,14 @@ impl SurfaceExecution {
             .map(|ready| ready.map(|(admission, frame)| ReadyFrame { admission, frame }))
     }
 
+    #[cfg(all(test, target_os = "linux"))]
     pub fn submit(&self, ready: ReadyFrame, commands: wgpu::CommandBuffer, context: &GpuContext) {
         self.submit_with_completion(ready, commands, context, |complete| {
             context.queue().on_submitted_work_done(complete);
         });
     }
 
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn submit_with_completion(
         &self,
         ready: ReadyFrame,
@@ -73,7 +98,7 @@ impl SurfaceExecution {
     ) -> worldrunner_render_gpu::flight::CompletionTicket {
         let ticket = self.flight.submit_with_completion(
             ready.admission,
-            context.queue(),
+            context.submission(),
             [commands],
             register,
         );

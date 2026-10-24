@@ -53,7 +53,7 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
         100_000,
     )
     .unwrap()
-    .read(context.device(), context.queue(), texture)
+    .read(context.device(), context.submission(), texture)
     .unwrap()
 }
 #[test]
@@ -91,7 +91,7 @@ fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_1x_and_4x() {
                 .set_frame_time(if slot == 0 { 0.0 } else { 2.0 })
                 .unwrap();
             let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, red);
-            submissions.push(context.queue().submit([encoder.finish()]));
+            submissions.push(encoder.finish().submit().unwrap());
         }
         context
             .device()
@@ -118,7 +118,7 @@ fn encode_fixture(
     attachments: (&AttachmentView, &AttachmentView),
     frame: FrameUniform,
     red: f64,
-) -> wgpu::CommandEncoder {
+) -> worldrunner_render_gpu::submission::RecordingFrame {
     let (color, depth) = attachments;
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     let mut attachment = crate::compositor::attachment(color.resource(), color, false);
@@ -130,9 +130,7 @@ fn encode_fixture(
     });
     pass.color = Some(attachment);
     pass.depth = Some(crate::compositor::attachment(depth.resource(), depth, true));
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
         .encode_frame(
             context.device(),
@@ -181,9 +179,7 @@ fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::Fram
     let texture =
         crate::ssao::passes::texture(context.device(), [32, 32], wgpu::TextureFormat::R32Float);
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     worldrunner_render_post::fullscreen_pass(
         &mut encoder,
         Some("post-water depth probe"),
@@ -199,7 +195,7 @@ fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::Fram
         &snapshot.depth_pipeline,
         &[&group],
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     context
         .device()
         .poll(wgpu::PollType::wait_indefinitely())
@@ -300,9 +296,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
         (2.0, slot),
         None,
     );
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("water refraction probe"),
@@ -333,7 +327,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
         );
     }
     renderer.targets().encode_resolve(&mut encoder);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     context
         .device()
         .poll(wgpu::PollType::wait_indefinitely())

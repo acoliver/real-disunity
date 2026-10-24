@@ -171,15 +171,13 @@ fn frame(resident: &mut Resident, context: &GpuContext, target: &mut OffscreenTa
         color: target.color_view().clone(),
         depth: target.depth_view().clone(),
     };
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut scheduler = worldrunner_render_scene::compositor::FrameRenderer::new(context.device());
     resident
         .render(context, &view, &targets, &mut encoder, &mut scheduler)
         .unwrap();
     target.encode_readback(&mut encoder).unwrap();
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     target.read_encoded(context, submission).unwrap()
 }
 
@@ -246,7 +244,8 @@ fn viewer_callback_edits_flush_in_plain_and_shadowed_residents() {
         assert!(
             resident
                 .scene_mut()
-                .flush_instances(context.device(), context.queue())
+                .flush_instances(context.device(), context.submission())
+                .unwrap()
                 .is_empty()
         );
     }
@@ -274,9 +273,7 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
     .unwrap();
     let mut presentation = crate::presentation::Presentation::new(context.device(), COLOR, size);
     let mut output = OffscreenTarget::new(context.device(), size).unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     resident
         .render(
             &context,
@@ -286,14 +283,13 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
             &mut presentation.scheduler,
         )
         .unwrap();
-    if let Resident::Shadowed(renderer) = &resident {
-        assert_eq!(renderer.cascade_view_stats(3).considered, 1);
-    }
+    assert_fourth_cascade(&resident, 0);
     presentation
         .present(&mut encoder, output.color_view())
         .unwrap();
     output.encode_readback(&mut encoder).unwrap();
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
+    assert_fourth_cascade(&resident, 1);
     let image = output.read_encoded(&context, submission).unwrap();
     let expected = worldrunner_render_scene::shadows::capture_scene_shadowed(
         &context,
@@ -312,4 +308,11 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
             .chunks_exact(4)
             .any(|pixel| pixel[..3] != [0, 0, 0])
     );
+}
+
+fn assert_fourth_cascade(resident: &Resident, expected: usize) {
+    let Resident::Shadowed(renderer) = resident else {
+        panic!("expected shadowed resident")
+    };
+    assert_eq!(renderer.cascade_view_stats(3).considered, expected);
 }

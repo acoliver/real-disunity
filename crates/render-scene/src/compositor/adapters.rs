@@ -8,6 +8,7 @@ use super::FrameRenderer;
 use crate::{draw::SceneGpu, renderer::ScenePipelines};
 
 struct Resident<'a> {
+    publications: crate::draw::DrawPublications,
     scene: &'a SceneGpu,
     pipelines: &'a ScenePipelines,
 }
@@ -15,8 +16,12 @@ impl PreparedFeature for Resident<'_> {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         Ok(())
     }
+    fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
+        self.publications.publish(context);
+    }
     fn draw(&self, _: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
-        self.scene.draw(pass, self.pipelines);
+        self.publications
+            .record(self.scene.draw_color(pass, self.pipelines, None));
     }
 }
 
@@ -36,7 +41,11 @@ pub fn encode_resident(
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(super::attachment(color.resource(), color, false));
     pass.depth = Some(super::attachment(depth.resource(), depth, true));
-    let mut feature = Resident { scene, pipelines };
+    let mut feature = Resident {
+        scene,
+        pipelines,
+        publications: crate::draw::DrawPublications::default(),
+    };
     renderer.encode(
         device,
         encoder,

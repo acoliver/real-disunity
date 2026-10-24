@@ -36,13 +36,14 @@ fn concurrent_public_submissions_serialize_ticket_registration_and_retirement() 
     let (observed, locked) = mpsc::channel();
     let (wakes, completed) = mpsc::channel();
     let a_flight = flight.clone();
-    let a_queue = queue.clone();
+    let authority = crate::submission::SubmissionAuthority::new(queue.clone());
+    let a_authority = authority.clone();
     let a_wakes = wakes.clone();
     let a = std::thread::spawn(move || {
         let wake_flight = a_flight.clone();
         a_flight.submit(
             first,
-            &a_queue,
+            &a_authority,
             PausedCommands {
                 entered,
                 resume: paused,
@@ -60,7 +61,7 @@ fn concurrent_public_submissions_serialize_ticket_registration_and_retirement() 
         observed
             .send(b_flight.submission.try_lock().is_err())
             .unwrap();
-        b_flight.submit(second, &queue, [], move || {
+        b_flight.submit(second, &authority, [], move || {
             wakes.send(1).unwrap();
         })
     });

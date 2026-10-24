@@ -34,13 +34,11 @@ impl PreparedFeature for FailingFeature {
     fn draw(&self, _: &DrawContext, _: &mut wgpu::RenderPass<'_>) {}
 }
 
-fn buffer_bytes(context: &GpuContext, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+pub(super) fn buffer_bytes(context: &GpuContext, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut readback = BufferReadback::new(context.device(), bytes, 4096).unwrap();
     readback.encode(&mut encoder, buffer).unwrap();
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     readback
         .read_encoded(context.device(), Some(submission))
         .unwrap()
@@ -51,7 +49,8 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -79,9 +78,7 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
         gpu.add_instance(source.geometry().objects()[0], true)
             .unwrap();
     }
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let frame = frame_from(pose());
     assert_eq!(
         crate::compositor::encode_scene(
@@ -99,7 +96,7 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
     assert_eq!(batch.pending_ranges(), [0..1, 2..10]);
     assert_eq!(gpu.frame.get(), None);
     // Submitting the failed encoder proves that even staged uploads were not appended.
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     assert_eq!(buffer_bytes(&context, &sentinel, 4), [0; 4]);
     assert_eq!(
         buffer_bytes(&context, &old_buffer, old_buffer.size()),
@@ -115,7 +112,8 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -139,9 +137,7 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
     gpu.set_instance_transform(handle, moved(1234)).unwrap();
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let before = buffer_bytes(&context, &gpu.frame_buffer, gpu.frame_buffer.size());
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     assert!(matches!(
         crate::compositor::encode_scene(
             &mut renderer,
@@ -154,7 +150,7 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
         Err(FrameError::AttachmentContract(PassSlot::Opaque))
     ));
     assert_eq!(gpu.frame.get(), None);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     assert_eq!(
         buffer_bytes(&context, &gpu.frame_buffer, gpu.frame_buffer.size()),
         before
@@ -169,9 +165,7 @@ fn assert_retry(
     renderer: &mut crate::compositor::FrameRenderer,
     target: &OffscreenTarget,
 ) {
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     crate::compositor::encode_scene(
         renderer,
         context.device(),
@@ -181,7 +175,7 @@ fn assert_retry(
         frame_from(pose()),
     )
     .unwrap();
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     let batch = gpu.instances.batches.values().next().unwrap();
     assert!(batch.pending_ranges().is_empty());
     assert_eq!(
@@ -224,9 +218,7 @@ fn discard_failed_frame(
     renderer: &mut crate::compositor::FrameRenderer,
     target: &OffscreenTarget,
 ) {
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     assert_eq!(
         crate::compositor::encode_scene(
             renderer,

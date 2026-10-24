@@ -13,14 +13,16 @@ fn gpu_overfull_pass_lists_drop_whole_samples_and_release_timing_admission() {
         assert!(timer.stamp(PassId::Geometry(PassSlot::Opaque)).is_some());
     }
     assert!(timer.stamp(PassId::Resolve).is_none());
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+        .begin(&device)
+        .unwrap();
     timer.finish_frame(&mut encoder);
     assert_eq!(timer.dropped_frames(), 1);
     assert!(timer.take_ready().unwrap().is_empty());
     timer.begin_frame(8);
     assert!(timer.active.is_some());
     timer.finish_frame(&mut encoder);
-    queue.submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     device.poll(wgpu::PollType::Poll).unwrap();
 }
 
@@ -139,7 +141,7 @@ fn gpu_timing_covers_executor_order_and_unread_ring_never_blocks_rendering() {
         4096,
     )
     .unwrap()
-    .read(&device, &queue, &output)
+    .read(&device, &crate::test_authority(&queue), &output)
     .unwrap();
     assert!(bytes.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]));
 }
@@ -217,8 +219,11 @@ fn render_frames(
 ) {
     let mut submission = None;
     for frame_id in 10..18 {
-        chain.begin_timing(frame_id);
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder =
+            worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+                .begin(device)
+                .unwrap();
+        chain.begin_timing(frame_id).unwrap();
         chain
             .encode_geometry(
                 device,
@@ -233,8 +238,8 @@ fn render_frames(
             .unwrap();
         chain.encode_resolve(&mut encoder);
         chain.encode(&mut encoder, output_view);
-        chain.finish_timing(&mut encoder);
-        submission = Some(queue.submit([encoder.finish()]));
+        chain.finish_timing(&mut encoder).unwrap();
+        submission = Some(encoder.finish().submit().unwrap());
         device.poll(wgpu::PollType::Poll).unwrap();
     }
     device
@@ -291,11 +296,14 @@ fn assert_results(
             );
         }
         assert!(chain.take_timings().unwrap().is_empty());
-        chain.begin_timing(99);
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder =
+            worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+                .begin(device)
+                .unwrap();
+        chain.begin_timing(99).unwrap();
         chain.encode(&mut encoder, output_view);
-        chain.finish_timing(&mut encoder);
-        let submitted = queue.submit([encoder.finish()]);
+        chain.finish_timing(&mut encoder).unwrap();
+        let submitted = encoder.finish().submit().unwrap();
         device
             .poll(wgpu::PollType::Wait {
                 submission_index: Some(submitted),

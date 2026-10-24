@@ -103,7 +103,7 @@ fn gpu_upload_rejects_requested_ssao_before_uploading_resources() {
     .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     assert!(matches!(
-        SceneGpu::upload(context.device(), context.queue(), &source, &pipelines),
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines),
         Err(DrawError::Frame(FrameError::UnsupportedEffect("SSAO")))
     ));
 }

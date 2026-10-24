@@ -117,9 +117,7 @@ fn checked_mips_layers_and_versions_reach_all_snapshot_producers() {
         );
         let mut probe = Probe(0);
         let frame = FrameUniform::new(&fixture_view(), None).unwrap();
-        let mut encoder = context
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder = context.submission().begin(context.device()).unwrap();
         renderer
             .encode_frame(
                 context.device(),
@@ -132,7 +130,7 @@ fn checked_mips_layers_and_versions_reach_all_snapshot_producers() {
                 (frame, None),
             )
             .unwrap();
-        context.queue().submit([encoder.finish()]);
+        encoder.finish().submit().unwrap();
         assert_eq!(probe.0, 1);
         assert_checked_snapshot(&context, &mut renderer, frame);
     }
@@ -193,9 +191,7 @@ fn independent_readers_omit_unused_attachments_and_producers() {
             let mut views = vec![view];
             let frame = FrameUniform::new(&fixture_view(), None).unwrap();
             let mut probe = Probe(0);
-            let mut encoder = context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            let mut encoder = context.submission().begin(context.device()).unwrap();
             renderer
                 .encode_frame(
                     context.device(),
@@ -208,7 +204,7 @@ fn independent_readers_omit_unused_attachments_and_producers() {
                     (frame, None),
                 )
                 .unwrap();
-            context.queue().submit([encoder.finish()]);
+            encoder.finish().submit().unwrap();
             assert_eq!(probe.0, 1);
             assert_only_producer(
                 &context,
@@ -275,7 +271,7 @@ fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
     .unwrap();
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
     let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     draw_water_slot(&context, &renderer, 0);
     let before = read(&context, renderer.targets().texture());
     let cases = invalid_plans(&color, &depth);
@@ -285,9 +281,7 @@ fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
     invalid_frame.sun_irradiance = glam::Vec3::splat(10.0);
     for (passes, expected) in cases {
         let mut probe = Probe(0);
-        let mut encoder = context
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder = context.submission().begin(context.device()).unwrap();
         let result = renderer.encode_frame(
             context.device(),
             &mut encoder,
@@ -300,7 +294,7 @@ fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
         );
         assert_eq!(result, Err(expected));
         assert_eq!(probe.0, 0);
-        context.queue().submit([encoder.finish()]);
+        encoder.finish().submit().unwrap();
         assert_eq!(read(&context, renderer.targets().texture()), before);
         assert!(renderer.opaque_snapshot().is_none());
         assert!(renderer.post_water_depth().is_none());

@@ -184,22 +184,18 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let handles: Vec<_> = gpu.instance_handles().collect();
-    let mut target = OffscreenTarget::new(
-        context.device(),
-        Viewport {
-            width: TARGET,
-            height: TARGET,
-        },
-    )
-    .unwrap();
+    let mut target = retained_target(&context);
     let initial = target.render(&context, &gpu, &pipelines).unwrap();
     assert!(lit_pixels(&initial.pixels) > 0);
     gpu.set_instance_transform(handles[0], moved(100_000))
         .unwrap();
-    let writes = gpu.flush_instances(context.device(), context.queue());
+    let writes = gpu
+        .flush_instances(context.device(), context.submission())
+        .unwrap();
     assert_eq!(
         writes
             .iter()
@@ -210,7 +206,8 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
     assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
     gpu.set_instance_visible(handles[1], false).unwrap();
     assert!(
-        gpu.flush_instances(context.device(), context.queue())
+        gpu.flush_instances(context.device(), context.submission())
+            .unwrap()
             .is_empty()
     );
     assert_eq!(
@@ -218,7 +215,8 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
         0
     );
     gpu.set_instance_transform(handles[0], identity()).unwrap();
-    gpu.flush_instances(context.device(), context.queue());
+    gpu.flush_instances(context.device(), context.submission())
+        .unwrap();
     assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
     assert_gpu_growth(
         &context,
@@ -230,7 +228,8 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
     );
     gpu.remove_instance(handles[0]).unwrap();
     assert!(
-        gpu.flush_instances(context.device(), context.queue())
+        gpu.flush_instances(context.device(), context.submission())
+            .unwrap()
             .is_empty()
     );
     assert_eq!(
@@ -261,7 +260,9 @@ fn assert_gpu_growth(
             .unwrap(),
         );
     }
-    let writes = gpu.flush_instances(context.device(), context.queue());
+    let writes = gpu
+        .flush_instances(context.device(), context.submission())
+        .unwrap();
     assert_eq!(
         writes
             .iter()
@@ -271,7 +272,8 @@ fn assert_gpu_growth(
     );
     assert_eq!(&target.render(context, gpu, pipelines).unwrap(), initial);
     assert!(
-        gpu.flush_instances(context.device(), context.queue())
+        gpu.flush_instances(context.device(), context.submission())
+            .unwrap()
             .is_empty()
     );
     for handle in additions {
@@ -285,7 +287,8 @@ fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     let old_size = gpu
         .instances
@@ -302,10 +305,10 @@ fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
         gpu.add_instance(source.geometry().objects()[0], true)
             .unwrap();
     }
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    let writes = gpu.flush_instances_encoded(context.device(), &mut encoder);
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let writes = gpu
+        .flush_instances_encoded(context.device(), &mut encoder)
+        .unwrap();
     assert_eq!(
         writes
             .iter()
@@ -319,7 +322,7 @@ fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
     let mut readback =
         BufferReadback::new(context.device(), batch.bytes.len() as u64, 4096).unwrap();
     readback.encode(&mut encoder, buffer).unwrap();
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     let bytes = readback
         .read_encoded(context.device(), Some(submission))
         .unwrap();
@@ -332,3 +335,16 @@ fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
 mod scheduler;
 
 mod flight;
+
+fn retained_target(context: &GpuContext) -> OffscreenTarget {
+    OffscreenTarget::new(
+        context.device(),
+        Viewport {
+            width: TARGET,
+            height: TARGET,
+        },
+    )
+    .unwrap()
+}
+
+mod transactions;

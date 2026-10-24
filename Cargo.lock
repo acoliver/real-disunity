@@ -3962,6 +3962,7 @@ dependencies = [
  "pollster",
  "thiserror 2.0.21",
  "wgpu",
+ "worldrunner-render-gpu",
 ]
 
 [[package]]

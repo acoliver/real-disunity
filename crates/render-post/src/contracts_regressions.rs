@@ -611,7 +611,7 @@ fn execute_read_only_draw(device: &wgpu::Device, queue: &wgpu::Queue, storage: b
     .unwrap();
     assert!(
         bytes
-            .read(device, queue, &output)
+            .read(device, &crate::test_authority(queue), &output)
             .unwrap()
             .chunks_exact(4)
             .all(|pixel| pixel == [0, 255, 0, 255])

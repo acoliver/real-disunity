@@ -35,20 +35,14 @@ fn native_float_readback_preserves_every_bit_and_rejects_wrong_format() {
         );
         let mut readback = Readback::new(&device, config, 4096).unwrap();
         for _ in 0..2 {
-            assert_eq!(readback.read(&device, &queue, &source).unwrap(), bytes);
+            assert_eq!(
+                readback
+                    .read(&device, &crate::test_authority(&queue), &source)
+                    .unwrap(),
+                bytes
+            );
         }
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        readback.encode(&mut encoder, &source).unwrap();
-        let submission = queue.submit([encoder.finish()]);
-        let padded = readback
-            .read_encoded_padded(&device, Some(submission))
-            .unwrap();
-        let pitch = readback.padded_bytes_per_row();
-        assert!(pitch.is_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));
-        assert_eq!(
-            unpad_rows(pitch, 17 * pixel.len(), 3, &padded).unwrap(),
-            bytes
-        );
+        assert_padded(&device, &queue, &mut readback, &source, &pixel, &bytes);
         let wrong = color_texture(
             &device,
             "wrong format",
@@ -56,10 +50,15 @@ fn native_float_readback_preserves_every_bit_and_rejects_wrong_format() {
             wgpu::TextureFormat::Rgba8Unorm,
         );
         assert!(matches!(
-            readback.read(&device, &queue, &wrong),
+            readback.read(&device, &crate::test_authority(&queue), &wrong),
             Err(ReadbackError::Config(PostError::ReadbackSource))
         ));
-        assert_eq!(readback.read(&device, &queue, &source).unwrap(), bytes);
+        assert_eq!(
+            readback
+                .read(&device, &crate::test_authority(&queue), &source)
+                .unwrap(),
+            bytes
+        );
     }
 }
 
@@ -78,7 +77,10 @@ fn ordered_capture_observes_copy_point_and_preserves_opaque_diagnostic_bytes() {
     });
     for bits in [0x7fc0_1234_u32, 0x8000_0000] {
         queue.write_buffer(&buffer, 0, &bits.to_le_bytes());
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder =
+            worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+                .begin(&device)
+                .unwrap();
         clear_capture(
             &mut encoder,
             &source,
@@ -92,7 +94,7 @@ fn ordered_capture_observes_copy_point_and_preserves_opaque_diagnostic_bytes() {
         readback.encode(&mut encoder, &source).unwrap();
         diagnostic.encode(&mut encoder, &buffer).unwrap();
         clear_capture(&mut encoder, &source, wgpu::Color::BLACK);
-        let submission = queue.submit([encoder.finish()]);
+        let submission = encoder.finish().submit().unwrap();
         assert_eq!(
             readback.read_encoded(&device, Some(submission)).unwrap(),
             [128, 0, 255, 255].repeat(51)
@@ -146,4 +148,28 @@ fn clear_capture(encoder: &mut wgpu::CommandEncoder, source: &wgpu::Texture, col
         })],
         ..Default::default()
     });
+}
+
+fn assert_padded(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    readback: &mut Readback,
+    source: &wgpu::Texture,
+    pixel: &[u8],
+    bytes: &[u8],
+) {
+    let mut encoder = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+        .begin(device)
+        .unwrap();
+    readback.encode(&mut encoder, source).unwrap();
+    let submission = encoder.finish().submit().unwrap();
+    let padded = readback
+        .read_encoded_padded(device, Some(submission))
+        .unwrap();
+    let pitch = readback.padded_bytes_per_row();
+    assert!(pitch.is_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));
+    assert_eq!(
+        unpad_rows(pitch, 17 * pixel.len(), 3, &padded).unwrap(),
+        bytes
+    );
 }

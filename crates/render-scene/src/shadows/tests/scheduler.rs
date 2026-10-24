@@ -2,9 +2,7 @@ use super::*;
 use worldrunner_render_post::{BufferReadback, FrameError as ScheduleError};
 
 fn uniforms(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<u8>> {
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut buffers = vec![renderer.gpu.frame_buffer(), &renderer.map.uniform];
     buffers.extend(renderer.depth_frames.iter().map(|(buffer, _)| buffer));
     let mut captures: Vec<_> = buffers
@@ -15,7 +13,7 @@ fn uniforms(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<u8>> {
             capture
         })
         .collect();
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     captures
         .iter_mut()
         .map(|capture| {
@@ -41,9 +39,7 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
         wgpu::TextureFormat::Rgba8Unorm,
     );
     let color = AttachmentView::new(ResourceRef::new("scene color"), &wrong).unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     assert!(matches!(
         renderer.encode_with(
             &context,
@@ -57,7 +53,7 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
         )))
     ));
     assert_eq!(renderer.gpu.current_frame(), None);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     assert_eq!(uniforms(&context, &renderer), before);
 }
 
@@ -113,9 +109,7 @@ fn rejected_cascade_reconfiguration_keeps_the_old_array_and_uniforms() {
         wgpu::TextureFormat::Rgba8Unorm,
     );
     let color = AttachmentView::new(ResourceRef::new("scene color"), &wrong).unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     assert!(
         renderer
             .encode(
@@ -127,7 +121,7 @@ fn rejected_cascade_reconfiguration_keeps_the_old_array_and_uniforms() {
             )
             .is_err()
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     assert_eq!(renderer.map.depth.layers(), 1);
     assert_eq!(uniforms(&context, &renderer), before);
     render_target(&mut renderer, &context, &view(), &target).unwrap();

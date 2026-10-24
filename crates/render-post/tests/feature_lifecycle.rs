@@ -38,7 +38,7 @@ fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
-    let (device, _queue) =
+    let (device, queue) =
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1);
     let mut chain = PostChain::new(
@@ -73,7 +73,7 @@ fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
             load: AttachmentLoad::ClearColor(wgpu::Color::BLACK),
             store: wgpu::StoreOp::Store,
         });
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder = begin(&device, &queue);
         assert_eq!(
             chain.encode_geometry(
                 &device,
@@ -137,7 +137,7 @@ fn checked_nonzero_subresources_are_valid_in_generic_executor() {
         load: AttachmentLoad::ClearColor(wgpu::Color::GREEN),
         store: wgpu::StoreOp::Store,
     });
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = begin(&device, &queue);
     chain
         .encode_geometry(
             &device,
@@ -150,6 +150,15 @@ fn checked_nonzero_subresources_are_valid_in_generic_executor() {
             &mut [],
         )
         .unwrap();
-    queue.submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     assert!(pollster::block_on(scope.pop()).is_none());
+}
+
+fn begin(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> worldrunner_render_gpu::submission::RecordingFrame {
+    worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+        .begin(device)
+        .unwrap()
 }

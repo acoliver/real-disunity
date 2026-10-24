@@ -58,6 +58,28 @@ impl ToneMapOutput {
         };
         Ok(self)
     }
+    /// Rebind settings while retaining queue-ordered exposure and slot history.
+    pub fn with_retained_effects(
+        mut self,
+        device: &wgpu::Device,
+        settings: crate::HdrPostSettings,
+        previous: Option<&Self>,
+    ) -> Result<Self, PostError> {
+        settings.validate()?;
+        self.post = if let Some(post) = previous.and_then(|previous| previous.post.as_ref()) {
+            let mut retained = post.clone();
+            retained.settings = settings;
+            Some(retained)
+        } else if settings.enabled() {
+            Some(Box::new(crate::hdr_post::HdrPost::new(device, settings)?))
+        } else {
+            None
+        };
+        Ok(self)
+    }
+    pub fn has_effect_history(&self) -> bool {
+        self.post.is_some()
+    }
     /// Validate the effective delta (finite, 0..=10 seconds) before any upload.
     /// A fixed capture delta overrides host timing, including invalid host values.
     pub fn prepare_effects(

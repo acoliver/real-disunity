@@ -250,6 +250,10 @@ pub trait StageFactory {
     ) -> Result<StageSet, PostError>;
 }
 
+/// Retained query storage and unread results, shared only across replacements.
+#[derive(Clone)]
+pub struct TimingState(std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>);
+
 /// Owns scene/MSAA resolve, fixed history, sized resources and stage execution order.
 pub struct PostChain<F> {
     targets: FrameTargets,
@@ -259,7 +263,7 @@ pub struct PostChain<F> {
     features: Vec<crate::frame::RegisteredFeature>,
     upload_slots: [Vec<wgpu::Buffer>; 3],
     frame_slot: usize,
-    timing: std::cell::RefCell<Option<crate::PassTimer>>,
+    timing: std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>,
 }
 
 impl<F: StageFactory> PostChain<F> {
@@ -279,7 +283,7 @@ impl<F: StageFactory> PostChain<F> {
             features: Vec::new(),
             upload_slots: std::array::from_fn(|_| Vec::new()),
             frame_slot: 0,
-            timing: std::cell::RefCell::new(None),
+            timing: std::rc::Rc::new(std::cell::RefCell::new(None)),
         })
     }
 
@@ -324,6 +328,14 @@ impl<F: StageFactory> PostChain<F> {
             };
             stage.encode(encoder, output, stamp.as_ref());
         }
+    }
+
+    /// Retain unread query results when only attachment configuration changes.
+    pub fn timing_state(&self) -> TimingState {
+        TimingState(self.timing.clone())
+    }
+    pub fn restore_timing(&mut self, state: TimingState) {
+        self.timing = state.0;
     }
 
     /// Enables timing only after device capability negotiation.
@@ -412,6 +424,10 @@ impl<F: StageFactory> PostChain<F> {
 }
 
 impl<F: StageFactory> PostChain<F> {
+    pub fn registered_feature_count(&self) -> usize {
+        self.features.len()
+    }
+
     /// Registration retains declarations without building resources.
     /// Registration order breaks ties within each named slot.
     pub fn register(

@@ -21,6 +21,18 @@ impl CopyOutput {
             resources: validate_output(device, format).map(|()| Arc::new(OnceLock::new())),
         }
     }
+    /// Validate source and destination without creating targets or pipeline storage.
+    pub fn validate_config(
+        &self,
+        device: &wgpu::Device,
+        config: crate::FrameConfig,
+    ) -> Result<(), PostError> {
+        self.resources.as_ref().map_err(Clone::clone)?;
+        if !is_float(config.format, device.features()) {
+            return Err(PostError::CopySourceFormat(config.format));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]

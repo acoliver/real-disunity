@@ -2,7 +2,7 @@
 use worldrunner_render_plan::{SceneAntiAlias, SceneEffects, ScenePostStage};
 use worldrunner_render_post::{AdaptiveExposure, Bloom, HdrPostSettings, PostError};
 
-pub(crate) fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
+pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
     let mut out = HdrPostSettings::default();
     if let Some(post) = effects.hdr_post() {
         post.validate()

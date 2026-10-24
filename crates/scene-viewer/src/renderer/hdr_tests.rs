@@ -35,7 +35,7 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
                     height: 29,
                 },
             ] {
-                presentation.resize(context.device(), size);
+                presentation.resize(&context, size).unwrap();
                 let options = crate::tests::options();
                 let view = crate::OrbitCamera::new(options.pose, options.orbit)
                     .unwrap()
@@ -49,7 +49,7 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
                         &view,
                         &presentation.targets,
                         &mut encoder,
-                        &mut presentation.scheduler,
+                        presentation.scheduler.encoding(),
                     )
                     .unwrap();
                 presentation

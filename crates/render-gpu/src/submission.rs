@@ -1,4 +1,5 @@
 //! Queue-wide preparation exclusion and the only command submission boundary.
+pub mod capture;
 use std::{
     cell::{Cell, RefCell},
     hash::{Hash, Hasher},
@@ -57,6 +58,7 @@ pub struct Publications {
     edits: PublicationList,
     status: Rc<Cell<TransactionStatus>>,
     encoder: Rc<Cell<u64>>,
+    scope: Option<Rc<capture::WriteScope>>,
 }
 impl std::fmt::Debug for Publications {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -79,7 +81,30 @@ impl<E> PrepareError<E> {
 }
 impl Publications {
     pub fn stage(&mut self, publish: impl FnOnce() + 'static) {
+        if let Some(scope) = &self.scope {
+            scope.reject(capture::WriteError::Unkeyed);
+            return;
+        }
         self.edits.borrow_mut().push(Box::new(publish));
+    }
+    /// Records a declared CPU publication or resource write in a capture segment.
+    pub fn write(&self, key: capture::WriteKey) -> Result<(), capture::WriteError> {
+        if let Some(scope) = &self.scope {
+            if self.status() != TransactionStatus::Preparing {
+                return Err(scope.reject(capture::WriteError::Closed));
+            }
+            scope.check(key)?;
+        }
+        Ok(())
+    }
+    pub fn stage_write(
+        &mut self,
+        key: capture::WriteKey,
+        publish: impl FnOnce() + 'static,
+    ) -> Result<(), capture::WriteError> {
+        self.write(key)?;
+        self.edits.borrow_mut().push(Box::new(publish));
+        Ok(())
     }
     /// The dynamically scoped write set lets encoder-only adapters stage publication.
     pub fn current() -> Option<Self> {
@@ -94,6 +119,10 @@ impl Publications {
     }
     pub fn status(&self) -> TransactionStatus {
         self.status.get()
+    }
+    /// Submitted capture slots may be reused only after the lease's final ticket retires.
+    pub fn capture_retired(&self) -> bool {
+        self.scope.as_ref().is_some_and(|scope| scope.retired())
     }
     pub fn publish(
         encoder: &wgpu::CommandEncoder,
@@ -116,6 +145,7 @@ impl Publications {
 struct State {
     preparing: bool,
     configuring: bool,
+    capture_cleanup: Option<capture::Cleanup>,
 }
 #[derive(Debug)]
 struct Inner {
@@ -158,11 +188,14 @@ impl SubmissionAuthority {
         Ok(())
     }
     pub fn is_idle(&self) -> bool {
+        self.retire_capture();
         let state = self.0.state.lock().unwrap();
         !state.preparing && !state.configuring && self.0.in_flight.load(Ordering::Acquire) == 0
     }
     /// Reserves queue-wide idle exclusion until the guard is dropped.
     pub fn try_configuration(&self) -> Result<ConfigurationGuard, SubmitError> {
+        self.retire_capture();
+        self.check_device()?;
         let mut state = self.0.state.lock().unwrap();
         if state.preparing || state.configuring || self.0.in_flight.load(Ordering::Acquire) != 0 {
             return Err(SubmitError::Busy);
@@ -172,6 +205,7 @@ impl SubmissionAuthority {
     }
     /// Replacements exclude unsubmitted work but permit older generations in flight.
     pub fn try_replacement(&self) -> Result<ConfigurationGuard, SubmitError> {
+        self.retire_capture();
         let mut state = self.0.state.lock().unwrap();
         if let Some(lost) = &*self.0.lost.lock().unwrap() {
             return Err(SubmitError::DeviceLost(lost.clone()));
@@ -189,6 +223,7 @@ impl SubmissionAuthority {
         self.0.completed.load(Ordering::Acquire)
     }
     pub fn begin(&self, device: &wgpu::Device) -> Result<RecordingFrame, SubmitError> {
+        self.retire_capture();
         {
             let mut state = self.0.state.lock().unwrap();
             if let Some(lost) = &*self.0.lost.lock().unwrap() {
@@ -199,11 +234,19 @@ impl SubmissionAuthority {
             }
             state.preparing = true;
         }
+        Ok(self.record(device, Publications::default(), true))
+    }
+    fn record(
+        &self,
+        device: &wgpu::Device,
+        publications: Publications,
+        reserved: bool,
+    ) -> RecordingFrame {
         let frame = PreparedFrame {
             authority: self.clone(),
             commands: None,
-            publications: Publications::default(),
-            reserved: true,
+            publications,
+            reserved,
             valid_encoder: true,
         };
         let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -212,11 +255,11 @@ impl SubmissionAuthority {
         frame.publications.encoder.set(encoder_identity(&encoder));
         let previous =
             PREPARATION.with(|current| current.replace(Some(frame.publications.clone())));
-        Ok(RecordingFrame {
+        RecordingFrame {
             frame: Some(frame),
             encoder: Some(encoder),
             previous,
-        })
+        }
     }
     pub fn prepare<E>(
         &self,
@@ -237,6 +280,7 @@ impl SubmissionAuthority {
         &self,
         commands: impl IntoIterator<Item = wgpu::CommandBuffer>,
     ) -> Result<wgpu::SubmissionIndex, SubmitError> {
+        self.retire_capture();
         let mut state = self.0.state.lock().unwrap();
         if state.preparing || state.configuring {
             return Err(SubmitError::Busy);
@@ -288,22 +332,33 @@ impl PreparedFrame {
         self.authority.clone()
     }
     pub fn submit(mut self) -> Result<wgpu::SubmissionIndex, SubmitError> {
+        let submission = self.submit_retained()?;
+        self.authority.0.state.lock().unwrap().preparing = false;
+        self.reserved = false;
+        Ok(submission)
+    }
+    fn submit_retained(&mut self) -> Result<wgpu::SubmissionIndex, SubmitError> {
+        let submission = self.enqueue_commands()?;
+        self.commit();
+        Ok(submission)
+    }
+    fn enqueue_commands(&mut self) -> Result<wgpu::SubmissionIndex, SubmitError> {
         if !self.valid_encoder {
             return Err(TransactionError::ForeignEncoder.into());
         }
         let mut state = self.authority.0.state.lock().unwrap();
         let submission = self.authority.enqueue(&mut state, self.commands.take())?;
         drop(state);
+        Ok(submission)
+    }
+    fn commit(&mut self) {
         self.publications.status.set(TransactionStatus::Submitted);
         std::mem::take(&mut self.publications).commit();
-        self.authority.0.state.lock().unwrap().preparing = false;
-        self.reserved = false;
-        Ok(submission)
     }
 }
 impl Drop for PreparedFrame {
     fn drop(&mut self) {
-        if self.reserved {
+        if self.publications.status() == TransactionStatus::Preparing {
             self.publications.status.set(TransactionStatus::Cancelled);
         }
         self.publications.edits.borrow_mut().clear();

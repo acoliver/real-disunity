@@ -1,4 +1,6 @@
 //! Shared physical resources and authored pass access contracts.
+mod capture;
+pub use capture::CompiledCapture;
 mod async_readback;
 mod bindings;
 mod buffer_bindings;
@@ -170,6 +172,10 @@ impl ResourceUse {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ContractError {
+    #[error(transparent)]
+    CaptureWrite(worldrunner_render_gpu::submission::capture::WriteError),
+    #[error(transparent)]
+    Transaction(worldrunner_render_gpu::submission::TransactionError),
     #[error("invalid copy alignment or pitch: {0:?}")]
     CopyAlignment(AllocationKey),
     #[error("invalid copy extent or layout: {0:?}")]

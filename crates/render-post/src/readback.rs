@@ -5,6 +5,8 @@ use crate::{FrameConfig, PostError, targets::extent};
 #[derive(Debug, thiserror::Error)]
 pub enum ReadbackError {
     #[error(transparent)]
+    Write(#[from] worldrunner_render_gpu::submission::capture::WriteError),
+    #[error(transparent)]
     Transaction(#[from] worldrunner_render_gpu::submission::TransactionError),
     #[error(transparent)]
     Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
@@ -106,7 +108,11 @@ impl Readback {
         source: &wgpu::Texture,
     ) -> Result<(), ReadbackError> {
         let current = Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
-        if self.pending.get()
+        let retired = self
+            .encoded_transaction
+            .as_ref()
+            .is_some_and(worldrunner_render_gpu::submission::Publications::capture_retired);
+        if (self.pending.get() && !retired)
             || current.as_ref().is_some_and(|current| {
                 self.encoded_transaction
                     .as_ref()
@@ -138,9 +144,12 @@ impl Readback {
             extent(self.size),
         );
         let pending = self.pending.clone();
-        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
-            pending.set(true);
-        })?;
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?
+            .stage_write(self.write_key(), move || pending.set(true))?;
+        if retired {
+            // Retire the old unread copy before replacing its transaction provenance.
+            self.pending.set(false);
+        }
         self.encoded_transaction = current;
         Ok(())
     }
@@ -162,11 +171,18 @@ impl Readback {
         device: &wgpu::Device,
         submission: Option<wgpu::SubmissionIndex>,
     ) -> Result<Vec<u8>, ReadbackError> {
-        let bytes = read_buffer(device, &self.buffer, submission)?;
+        let bytes = read_buffer(device, &self.buffer, submission);
         self.pending.set(false);
-        Ok(bytes)
+        bytes
     }
 
+    /// Include this retained slot's pending-state key in its capture segment write set.
+    pub fn write_key(&self) -> worldrunner_render_gpu::submission::capture::WriteKey {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        self.buffer.hash(&mut hash);
+        worldrunner_render_gpu::submission::capture::WriteKey::Readback(hash.finish())
+    }
     pub const fn padded_bytes_per_row(&self) -> u32 {
         self.pitch
     }

@@ -1,6 +1,8 @@
 //! Configured linear post/output chains with canonical targets, history ownership and scheduling.
 //! Shader policy, adaptation rules and LUT data remain caller-authored.
 pub mod allocation;
+#[cfg(test)]
+mod capture_tests;
 pub mod contracts;
 #[cfg(test)]
 mod contracts_tests;
@@ -18,6 +20,8 @@ mod operations_padding_tests;
 mod operations_tests;
 #[cfg(test)]
 mod operations_transfer_tests;
+#[cfg(test)]
+mod raster_capture_tests;
 mod timing;
 pub use timing::{
     FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,

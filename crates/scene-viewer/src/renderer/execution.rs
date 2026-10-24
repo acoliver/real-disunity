@@ -82,13 +82,6 @@ impl SurfaceExecution {
     }
 
     #[cfg(all(test, target_os = "linux"))]
-    pub fn submit(&self, ready: ReadyFrame, commands: wgpu::CommandBuffer, context: &GpuContext) {
-        self.submit_with_completion(ready, commands, context, |complete| {
-            context.queue().on_submitted_work_done(complete);
-        });
-    }
-
-    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn submit_with_completion(
         &self,
         ready: ReadyFrame,

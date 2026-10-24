@@ -109,10 +109,11 @@ visibility and shares the main camera's LOD distance and billboard orientation.
 Each cascade keeps its fitted XY receiver square and far depth end; its
 toward-light end extends to enclose resident visible casters overlapping that
 square. Both the depth and receiver projections use the extended range, so
-upstream casters survive clipping as well as CPU selection. A single coverage
-box retains the existing normalized depth bias, which spans more world distance
-when extended. Multiple coverage boxes and camera splits use the texel-relative
-bias described below.
+upstream casters survive clipping as well as CPU selection. Every layer converts
+its authored bias using the final projection. Depth extension preserves the
+world-space offset for fixed XY coverage, including a single explicit box.
+Multiple coverage boxes and camera splits use the texel-relative bias described
+below.
 
 `SceneGpu::view_stats()` and `shadow_view_stats()` expose the most recently
 recorded pass counts. `ShadowedScene` exposes the same methods. Counts include
@@ -147,14 +148,17 @@ Coverage values exceeding the adapter's u32 millimetre range are rejected during
 
 `depth_bias` is authored against the unextended explicit settings box: its world
 reference offset is `depth_bias * 2 * depth_half_extent_meters`, and its reference
-texel width is `2 * half_extent_meters / resolution`. For multiple coverage boxes
-and all camera-split policies, the ratio of these values defines a bias in texels.
-Each cascade converts that bias to world distance with its own XY texel width,
-then to normalized depth with its final caster-extended world-to-depth scale.
-Depth extension therefore cannot increase the world-space bias. The sampled
-layer supplies its own value, including both samples within a blend band. A single
-coverage box continues to subtract `depth_bias` directly without this conversion;
-its existing output remains unchanged. Normal bias remains in world metres.
+texel width is `2 * half_extent_meters / resolution`. The ratio of these values
+defines a bias in texels. Every cascade converts that bias to world distance with
+its own XY texel width, then to normalized depth with its final caster-extended
+world-to-depth scale. For a single explicit box, the XY texel width equals the
+reference width, so its world offset stays `depth_bias * 2 * depth_half_extent_meters`.
+Multiple coverage boxes and camera splits retain their texel-relative offsets.
+Depth extension alone cannot increase these world-space offsets; changing XY
+coverage can. The sampled layer supplies its own value, including both samples
+within a blend band. Single-box output can change when caster fitting extends
+depth, and projection changes do not promise byte-identical rendering. Normal
+bias remains in world metres.
 
 ## Explicit HDR frame profile
 

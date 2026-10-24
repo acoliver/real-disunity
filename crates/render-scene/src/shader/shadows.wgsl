@@ -21,7 +21,18 @@ fn cascade_visibility(ndc: vec3<f32>, gradient: vec2<f32>, layer: i32) -> f32 {
         gradient, i32(shadow.bias.z), true);
 }
 
+fn single_shadow_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+    // Keep the single-map projection scalar through sampling to preserve its rounding.
+    let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
+    let ndc = clip.xyz / clip.w;
+    let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+    let gradient = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+    return cascade_visibility(ndc, gradient, 0);
+}
+
 fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+    // The layer count is draw-uniform, so both derivative paths remain uniform.
+    if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 { return single_shadow_visibility(position, normal); }
     var coordinates: array<vec3<f32>, 4>;
     var gradients: array<vec2<f32>, 4>;
     // Derivatives must precede divergent coverage and cascade selection.

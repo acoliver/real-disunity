@@ -1,6 +1,21 @@
 use super::*;
 use crate::shadows::cascades::CascadeViews;
 
+#[test]
+fn single_box_bias_preserves_authored_world_offset_after_caster_extension() {
+    let context = context();
+    let base = scene(&[], 600_000, None);
+    let extended = scene(&[[600_000, 0, 800_500]], 600_000, None);
+    let before = fits(&context, &base);
+    let after = fits(&context, &extended);
+    assert!(depth_scale(after.matrices[0]) < depth_scale(before.matrices[0]) / 100.0);
+    let expected = settings().depth_bias * 2.0 * settings().depth_half_extent_meters;
+    for fit in [&before, &after] {
+        let world = fit.depth_bias[0] / depth_scale(fit.matrices[0]);
+        assert!((world - expected).abs() < 1e-6, "{world} != {expected}");
+    }
+}
+
 fn fits(context: &GpuContext, source: &RenderScene) -> CascadeViews {
     let renderer = ShadowedScene::new(context, source, settings()).unwrap();
     CascadeViews::new(

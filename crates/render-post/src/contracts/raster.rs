@@ -116,7 +116,7 @@ impl RasterPass {
             pass.set_bind_group(
                 u32::try_from(index).expect("validated bind group count"),
                 bindings.group(),
-                &[],
+                bindings.dynamic_offsets(),
             );
         }
         draw(&mut pass);

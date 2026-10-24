@@ -4,6 +4,13 @@ use super::{AllocationKey, CheckedView, ContractError, ResourceLifetime, Semanti
 
 static NEXT_ALLOCATION: AtomicU64 = AtomicU64::new(1);
 
+pub(super) fn next_key() -> AllocationKey {
+    AllocationKey {
+        id: NEXT_ALLOCATION.fetch_add(1, Ordering::Relaxed),
+        generation: 0,
+    }
+}
+
 pub(super) struct Allocation {
     pub key: AllocationKey,
     pub texture: wgpu::Texture,
@@ -16,6 +23,8 @@ pub(super) struct Allocation {
 #[derive(Default)]
 pub struct ResourceRegistry {
     pub(super) allocations: Vec<Allocation>,
+    pub(super) buffers: Vec<super::buffers::BufferAllocation>,
+    pub(super) retired_buffers: Vec<(AllocationKey, wgpu::Buffer)>,
     retired: Vec<(AllocationKey, wgpu::Texture)>,
 }
 impl ResourceRegistry {
@@ -41,10 +50,7 @@ impl ResourceRegistry {
             }
             return Ok(existing.key);
         }
-        let key = AllocationKey {
-            id: NEXT_ALLOCATION.fetch_add(1, Ordering::Relaxed),
-            generation: 0,
-        };
+        let key = next_key();
         self.allocations.push(Allocation {
             key,
             texture: texture.clone(),
@@ -112,6 +118,37 @@ impl ResourceRegistry {
         } else {
             wgpu::TextureViewDimension::D2Array
         };
+        self.view_dimension(key, range, version, dimension)
+    }
+    pub fn view_dimension(
+        &self,
+        key: AllocationKey,
+        range: TextureRange,
+        version: u32,
+        dimension: wgpu::TextureViewDimension,
+    ) -> Result<CheckedView, ContractError> {
+        let entry = self.allocation(key)?;
+        validate_range(entry, &range)?;
+        let layers = range.layers.end - range.layers.start;
+        let width = entry.texture.width();
+        let height = entry.texture.height();
+        let valid = match dimension {
+            wgpu::TextureViewDimension::D2 => layers == 1,
+            wgpu::TextureViewDimension::D2Array => true,
+            wgpu::TextureViewDimension::Cube => {
+                layers == 6 && width == height && entry.texture.sample_count() == 1
+            }
+            wgpu::TextureViewDimension::CubeArray => {
+                layers.is_multiple_of(6) && width == height && entry.texture.sample_count() == 1
+            }
+            _ => false,
+        };
+        if !valid
+            || (entry.texture.sample_count() > 1
+                && (dimension != wgpu::TextureViewDimension::D2 || range.mips.len() != 1))
+        {
+            return Err(ContractError::Range(key));
+        }
         let view = entry.texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(dimension),
             aspect: range.aspect,
@@ -126,6 +163,7 @@ impl ResourceRegistry {
             range,
             version,
             view,
+            dimension,
         })
     }
 }

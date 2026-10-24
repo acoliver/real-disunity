@@ -34,6 +34,7 @@ pub enum PassId {
     Geometry(PassSlot),
     Resolve,
     Stage(StageId),
+    Operation(crate::contracts::RasterId),
 }
 /// Provider-declared identity, independent of schedule position or target size.
 /// Repeated operations use their logical level, not their execution index.

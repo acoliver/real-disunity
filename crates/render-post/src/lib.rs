@@ -3,6 +3,20 @@
 pub mod contracts;
 #[cfg(test)]
 mod contracts_tests;
+#[cfg(test)]
+mod operations_buffer_scope_tests;
+#[cfg(test)]
+mod operations_compute_tests;
+#[cfg(test)]
+mod operations_copy_rules_tests;
+#[cfg(test)]
+mod operations_draw_tests;
+#[cfg(test)]
+mod operations_padding_tests;
+#[cfg(test)]
+mod operations_tests;
+#[cfg(test)]
+mod operations_transfer_tests;
 mod timing;
 pub use timing::{
     FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,

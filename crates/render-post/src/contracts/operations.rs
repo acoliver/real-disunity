@@ -99,6 +99,7 @@ impl CompiledOperations {
         mut timer: Option<&mut crate::PassTimer>,
         mut draw: impl FnMut(RasterId, &mut wgpu::RenderPass<'_>),
     ) -> Result<(), ContractError> {
+        super::capture::validate_writes(encoder, self.write_keys())?;
         for (textures, buffers) in &self.accesses {
             for usage in textures {
                 registry.check_view(&usage.view)?;

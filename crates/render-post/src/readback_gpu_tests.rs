@@ -1,6 +1,121 @@
 use super::*;
 
 #[test]
+fn abandoned_capture_readback_reuse_survives_cancel_and_preparation_failure() {
+    use worldrunner_render_gpu::submission::{PrepareError, capture::CaptureWrites};
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let config = FrameConfig::new([17, 3], wgpu::TextureFormat::R32Float, 1);
+    let source = diagnostic_texture(&device, config.format);
+    let mut readback = Readback::new(&device, config, 4096).unwrap();
+    for fail_preparation in [false, true] {
+        let bytes = if fail_preparation { 456u32 } else { 123u32 }
+            .to_le_bytes()
+            .repeat(51);
+        queue.write_texture(
+            source.as_image_copy(),
+            &bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(68),
+                rows_per_image: Some(3),
+            },
+            source.size(),
+        );
+        let prefix = authority
+            .begin_capture(
+                &device,
+                CaptureWrites::new([readback.write_key()], [], []).unwrap(),
+                (),
+                |encoder, _, ()| readback.encode(encoder, &source),
+            )
+            .unwrap();
+        drop(prefix.submit().unwrap());
+        authority.drain_captures(&device).unwrap();
+        let serial = authority.submitted_serial();
+        let reuse = authority.prepare(&device, |encoder, _| {
+            readback.encode(encoder, &source)?;
+            if fail_preparation {
+                Err(ReadbackError::Callback)
+            } else {
+                Ok(())
+            }
+        });
+        if fail_preparation {
+            assert!(matches!(
+                reuse,
+                Err(PrepareError::Preparation(ReadbackError::Callback))
+            ));
+        } else {
+            reuse.unwrap().cancel();
+        }
+        assert_eq!(authority.submitted_serial(), serial);
+        assert_eq!(readback.read(&device, &authority, &source).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn abandoned_capture_readback_slot_is_reusable_only_after_drain() {
+    use worldrunner_render_gpu::submission::capture::CaptureWrites;
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let config = FrameConfig::new([17, 3], wgpu::TextureFormat::R32Float, 1);
+    let source = diagnostic_texture(&device, config.format);
+    let mut readback = Readback::new(&device, config, 4096).unwrap();
+    let writes = CaptureWrites::new([readback.write_key()], [], []).unwrap();
+    let prefix = authority
+        .begin_capture(&device, writes, 42u64, |encoder, _, _| {
+            readback.encode(encoder, &source)
+        })
+        .unwrap();
+    drop(prefix.submit().unwrap());
+    authority.drain_captures(&device).unwrap();
+    assert!(readback.read(&device, &authority, &source).is_ok());
+}
+
+#[test]
+fn retained_texture_readback_declares_capture_slot_and_reuses_it_after_failure() {
+    use worldrunner_render_gpu::submission::capture::{CaptureError, CaptureWrites};
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let config = FrameConfig::new([17, 3], wgpu::TextureFormat::R32Float, 1);
+    let source = diagnostic_texture(&device, config.format);
+    let bytes = 123u32.to_le_bytes().repeat(51);
+    queue.write_texture(
+        source.as_image_copy(),
+        &bytes,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(68),
+            rows_per_image: Some(3),
+        },
+        source.size(),
+    );
+    let mut readback = Readback::new(&device, config, 4096).unwrap();
+    let writes = CaptureWrites::new([readback.write_key()], [], []).unwrap();
+    let prefix = authority
+        .begin_capture(&device, writes, 42u64, |encoder, _, _| {
+            readback.encode(encoder, &source)
+        })
+        .unwrap();
+    let result = prefix.submit().unwrap().resume(
+        &device,
+        |device, submission| readback.read_encoded(device, Some(submission)),
+        |_, _, frame, read| {
+            assert_eq!(*frame, 42);
+            assert_eq!(*read, bytes);
+            Err(ReadbackError::Callback)
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(CaptureError::Preparation(ReadbackError::Callback))
+    ));
+    authority.drain_captures(&device).unwrap();
+    assert_eq!(readback.read(&device, &authority, &source).unwrap(), bytes);
+}
+
+#[test]
 fn native_float_readback_preserves_every_bit_and_rejects_wrong_format() {
     let (device, queue) = crate::gpu_tests::gpu();
     for (format, pixel) in [

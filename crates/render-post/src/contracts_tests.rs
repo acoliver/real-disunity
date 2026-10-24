@@ -132,8 +132,12 @@ fn encode_stock_fixture(
     second.color.as_mut().unwrap().load = AttachmentLoad::Load;
     let views = [crate::AttachmentView::new(resource, targets.scene().texture()).unwrap()];
     let compiled = crate::contracts::stock::compile(device, &[first, second], &views, &[]).unwrap();
-    compiled.encode_stock_pass(0, encoder, None, |_| {});
-    compiled.encode_stock_pass(1, encoder, None, |_| {});
+    compiled
+        .encode_stock_pass(0, encoder, None, |_| {})
+        .unwrap();
+    compiled
+        .encode_stock_pass(1, encoder, None, |_| {})
+        .unwrap();
 }
 
 #[test]

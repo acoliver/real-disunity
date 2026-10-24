@@ -1,5 +1,9 @@
 //! Low-level GPU services independent of scenes, content containers and window systems.
 pub mod attachment;
+#[cfg(test)]
+mod capture_configuration_tests;
+#[cfg(test)]
+mod capture_tests;
 pub mod configuration;
 #[cfg(test)]
 mod configuration_tests;

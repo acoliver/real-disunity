@@ -93,6 +93,15 @@ impl RasterPass {
         }
         uses
     }
+    fn validate_writes(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ContractError> {
+        super::capture::validate_writes(
+            encoder,
+            self.accesses()
+                .into_iter()
+                .filter(|usage| usage.access != AccessMode::Read)
+                .map(|usage| super::capture::write_key(usage.view.allocation())),
+        )
+    }
     pub(super) fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -152,8 +161,10 @@ impl CompiledRaster {
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
-    ) {
+    ) -> Result<(), ContractError> {
+        self.passes[index].validate_writes(encoder)?;
         self.passes[index].encode(encoder, stamp, draw);
+        Ok(())
     }
     pub fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
         self.passes.iter().map(|pass| pass.id)
@@ -165,6 +176,7 @@ impl CompiledRaster {
         mut draw: impl FnMut(RasterId, &mut wgpu::RenderPass<'_>),
     ) -> Result<(), ContractError> {
         for pass in &self.passes {
+            pass.validate_writes(encoder)?;
             for usage in pass.accesses() {
                 registry.check_view(&usage.view)?;
             }

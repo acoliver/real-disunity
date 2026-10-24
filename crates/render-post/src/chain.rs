@@ -572,7 +572,7 @@ impl<F: StageFactory> PostChain<F> {
                         .expect("validated feature build")
                         .draw(&context, pass);
                 }
-            });
+            })?;
         }
         self.finish_feature_draws(device, encoder, borrowed)
     }

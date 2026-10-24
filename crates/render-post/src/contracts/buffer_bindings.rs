@@ -59,6 +59,15 @@ impl CheckedBindings {
         textures: &[TextureBinding],
         buffers: &[BufferBinding],
     ) -> Result<Self, ContractError> {
+        Self::build_with_resources(device, registry, textures, buffers, &[])
+    }
+    pub fn build_with_resources(
+        device: &wgpu::Device,
+        registry: &ResourceRegistry,
+        textures: &[TextureBinding],
+        buffers: &[BufferBinding],
+        samplers: &[super::SamplerBinding],
+    ) -> Result<Self, ContractError> {
         let mut layout_entries = texture_layouts(device, registry, textures)?;
         let mut sorted = buffers.to_vec();
         sorted.sort_by_key(|entry| entry.binding);
@@ -78,25 +87,12 @@ impl CheckedBindings {
             });
         }
         check_buffer_limits(device, &sorted)?;
+        super::samplers::append_layouts(device, &mut layout_entries, samplers)?;
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("checked resource layout"),
             entries: &layout_entries,
         });
-        let mut entries: Vec<_> = textures
-            .iter()
-            .map(|entry| wgpu::BindGroupEntry {
-                binding: entry.binding,
-                resource: wgpu::BindingResource::TextureView(entry.view.view()),
-            })
-            .collect();
-        entries.extend(sorted.iter().map(|entry| wgpu::BindGroupEntry {
-            binding: entry.binding,
-            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                buffer: &entry.view.buffer,
-                offset: entry.view.range.start,
-                size: std::num::NonZeroU64::new(entry.view.range.end - entry.view.range.start),
-            }),
-        }));
+        let entries = binding_entries(textures, &sorted, samplers);
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("checked resources"),
             layout: &layout,
@@ -112,6 +108,8 @@ impl CheckedBindings {
             entries: textures.to_vec(),
             buffers: sorted,
             offsets,
+            samplers: samplers.to_vec(),
+            layout_entries,
         })
     }
     pub fn dynamic_offsets(&self) -> &[u32] {
@@ -263,4 +261,31 @@ fn check_buffer_limits(
         return Err(ContractError::BindingLayout(entries[0].view.allocation));
     }
     Ok(())
+}
+
+fn binding_entries<'a>(
+    textures: &'a [TextureBinding],
+    sorted: &'a [BufferBinding],
+    samplers: &'a [super::SamplerBinding],
+) -> Vec<wgpu::BindGroupEntry<'a>> {
+    let mut entries: Vec<_> = textures
+        .iter()
+        .map(|entry| wgpu::BindGroupEntry {
+            binding: entry.binding,
+            resource: wgpu::BindingResource::TextureView(entry.view.view()),
+        })
+        .collect();
+    entries.extend(sorted.iter().map(|entry| wgpu::BindGroupEntry {
+        binding: entry.binding,
+        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+            buffer: &entry.view.buffer,
+            offset: entry.view.range.start,
+            size: std::num::NonZeroU64::new(entry.view.range.end - entry.view.range.start),
+        }),
+    }));
+    entries.extend(samplers.iter().map(|entry| wgpu::BindGroupEntry {
+        binding: entry.binding,
+        resource: wgpu::BindingResource::Sampler(&entry.sampler.sampler),
+    }));
+    entries
 }

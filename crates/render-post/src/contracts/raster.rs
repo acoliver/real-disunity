@@ -94,6 +94,9 @@ impl RasterPass {
         uses
     }
     fn validate_writes(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ContractError> {
+        for usage in self.accesses() {
+            usage.view.retain_lease(encoder)?;
+        }
         super::capture::validate_writes(
             encoder,
             self.accesses()

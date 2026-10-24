@@ -17,6 +17,7 @@ pub(super) struct Allocation {
     pub lifetime: ResourceLifetime,
     pub semantic: Semantic,
     pub initial: Option<u32>,
+    pub lease: Option<worldrunner_render_gpu::submission::FrameLease>,
 }
 
 /// Physical identity is shared across cloned imports. Replacements invalidate old views.
@@ -48,6 +49,9 @@ impl ResourceRegistry {
             {
                 return Err(ContractError::Identity(existing.key));
             }
+            if let Some(lease) = &existing.lease {
+                lease.check().map_err(ContractError::Lease)?;
+            }
             return Ok(existing.key);
         }
         let key = next_key();
@@ -57,7 +61,36 @@ impl ResourceRegistry {
             lifetime,
             semantic,
             initial,
+            lease: None,
         });
+        Ok(key)
+    }
+    /// Imports a texture owned by an external frame capability.
+    pub fn import_leased(
+        &mut self,
+        texture: &wgpu::Texture,
+        lease: &worldrunner_render_gpu::submission::FrameLease,
+        semantic: Semantic,
+        initial: Option<u32>,
+    ) -> Result<AllocationKey, ContractError> {
+        lease.check().map_err(ContractError::Lease)?;
+        if let Some(entry) = self
+            .allocations
+            .iter()
+            .find(|entry| entry.texture == *texture)
+            && !entry
+                .lease
+                .as_ref()
+                .is_some_and(|old| old.same_owner(lease))
+        {
+            return Err(ContractError::Identity(entry.key));
+        }
+        let key = self.import(texture, ResourceLifetime::FrameLocal, semantic, initial)?;
+        self.allocations
+            .iter_mut()
+            .find(|entry| entry.key == key)
+            .unwrap()
+            .lease = Some(lease.clone());
         Ok(key)
     }
     /// New backing storage has no declared initialized contents. Read-only imports
@@ -67,6 +100,9 @@ impl ResourceRegistry {
         key: AllocationKey,
         texture: &wgpu::Texture,
     ) -> Result<AllocationKey, ContractError> {
+        if self.allocation(key)?.lease.is_some() {
+            return Err(ContractError::Identity(key));
+        }
         if self.allocation(key)?.lifetime == ResourceLifetime::ImportedReadOnly {
             return Err(ContractError::ReadOnlyReplacement(key));
         }
@@ -93,13 +129,28 @@ impl ResourceRegistry {
         Ok(entry.key)
     }
     pub(super) fn allocation(&self, key: AllocationKey) -> Result<&Allocation, ContractError> {
-        self.allocations
+        let entry = self
+            .allocations
             .iter()
             .find(|entry| entry.key == key)
-            .ok_or(ContractError::StaleAllocation(key))
+            .ok_or(ContractError::StaleAllocation(key))?;
+        if let Some(lease) = &entry.lease {
+            lease.check().map_err(ContractError::Lease)?;
+        }
+        Ok(entry)
     }
     pub fn check_view(&self, view: &CheckedView) -> Result<(), ContractError> {
         let entry = self.allocation(view.allocation)?;
+        if let Some(lease) = &view.lease {
+            lease.check().map_err(ContractError::Lease)?;
+            if !entry
+                .lease
+                .as_ref()
+                .is_some_and(|owner| owner.same_owner(lease))
+            {
+                return Err(ContractError::Identity(view.allocation));
+            }
+        }
         if entry.texture != *view.view.texture() {
             return Err(ContractError::Identity(view.allocation));
         }
@@ -164,6 +215,7 @@ impl ResourceRegistry {
             version,
             view,
             dimension,
+            lease: entry.lease.clone(),
         })
     }
 }

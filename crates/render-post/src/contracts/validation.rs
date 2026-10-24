@@ -269,7 +269,7 @@ fn attachment_shape(
         texture.sample_count(),
     ))
 }
-fn validate_resolve(
+pub(super) fn validate_resolve(
     registry: &ResourceRegistry,
     device: &wgpu::Device,
     source: &CheckedView,

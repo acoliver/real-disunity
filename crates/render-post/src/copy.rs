@@ -1,3 +1,4 @@
+mod checked;
 use std::sync::{Arc, OnceLock};
 
 use crate::{

@@ -9,6 +9,16 @@ use super::{
 #[derive(Clone, Debug)]
 pub enum TypedWork {
     Raster(RasterPass),
+    /// Checked provider packets share exactly one open render pass, in list order.
+    Draws {
+        pass: RasterPass,
+        draws: Vec<super::CheckedDraw>,
+    },
+    /// A separately authored MSAA resolve boundary. The source remains valid.
+    Resolve {
+        source: super::CheckedView,
+        destination: super::CheckedView,
+    },
     Fullscreen {
         pass: RasterPass,
         pipeline: wgpu::RenderPipeline,
@@ -71,15 +81,23 @@ impl TypedOperation {
     }
     pub(super) fn raster(&self) -> Option<&RasterPass> {
         match &self.work {
-            TypedWork::Raster(pass) | TypedWork::Fullscreen { pass, .. } => Some(pass),
+            TypedWork::Raster(pass)
+            | TypedWork::Draws { pass, .. }
+            | TypedWork::Fullscreen { pass, .. } => Some(pass),
             _ => None,
         }
     }
-    pub(super) fn bindings(&self) -> &[CheckedBindings] {
-        match &self.work {
-            TypedWork::Compute { bindings, .. } => bindings,
-            _ => self.raster().map_or(&[], |pass| &pass.bindings),
+    pub(super) fn bindings(&self) -> Vec<&CheckedBindings> {
+        let mut result: Vec<_> = match &self.work {
+            TypedWork::Compute { bindings, .. } => bindings.iter().collect(),
+            _ => self
+                .raster()
+                .map_or_else(Vec::new, |pass| pass.bindings.iter().collect()),
+        };
+        if let TypedWork::Draws { draws, .. } = &self.work {
+            result.extend(draws.iter().flat_map(|draw| &draw.bindings));
         }
+        result
     }
 }
 /// Immutable compiled bytes and resource handles. Revalidation precedes every encoding.
@@ -89,6 +107,23 @@ pub struct CompiledOperations {
     pub(super) staging: Vec<Option<wgpu::Buffer>>,
 }
 impl CompiledOperations {
+    /// Restricted adapter entry point. Raw raster callbacks must use the legacy entry point.
+    pub fn encode_checked(
+        &self,
+        registry: &ResourceRegistry,
+        encoder: &mut wgpu::CommandEncoder,
+        timer: Option<&mut crate::PassTimer>,
+    ) -> Result<(), ContractError> {
+        if self
+            .operations
+            .iter()
+            .any(|operation| matches!(operation.work, TypedWork::Raster(_)))
+        {
+            return Err(ContractError::Pipeline);
+        }
+        self.encode(registry, encoder, timer, |_, _| {})
+    }
+
     pub fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
         self.operations.iter().map(|op| op.id)
     }
@@ -103,6 +138,7 @@ impl CompiledOperations {
         for (textures, buffers) in &self.accesses {
             for usage in textures {
                 registry.check_view(&usage.view)?;
+                usage.view.retain_lease(encoder)?;
             }
             for usage in buffers {
                 registry.check_buffer(&usage.view)?;
@@ -131,6 +167,30 @@ impl TypedOperation {
         draw: &mut impl FnMut(RasterId, &mut wgpu::RenderPass<'_>),
     ) {
         match &self.work {
+            TypedWork::Draws { pass, draws } => pass.encode(encoder, stamp, |render| {
+                for draw in draws {
+                    draw.encode(render);
+                }
+            }),
+            TypedWork::Resolve {
+                source,
+                destination,
+            } => {
+                let pass = RasterPass {
+                    id: self.id,
+                    colors: vec![Some(super::ColorAttachment {
+                        view: source.clone(),
+                        before: Some(source.version()),
+                        load: crate::AttachmentLoad::Load,
+                        store: wgpu::StoreOp::Store,
+                        resolve: Some(destination.clone()),
+                    })],
+                    depth: None,
+                    uses: Vec::new(),
+                    bindings: Vec::new(),
+                };
+                pass.encode(encoder, stamp, |_| {});
+            }
             TypedWork::Raster(pass) => pass.encode(encoder, stamp, |render| draw(self.id, render)),
             TypedWork::Fullscreen { pass, pipeline } => pass.encode(encoder, stamp, |render| {
                 render.set_pipeline(pipeline);

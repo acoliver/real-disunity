@@ -109,7 +109,7 @@ fn independent_snapshot_reader_and_post_water_depth_at_one_and_four_samples() {
         )
         .unwrap();
         let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.25);
-        context.queue().submit([encoder.finish()]);
+        encoder.finish().submit().unwrap();
         assert!(
             renderer.opaque_snapshot().is_none(),
             "no reader means no snapshot passes"
@@ -126,7 +126,7 @@ fn independent_snapshot_reader_and_post_water_depth_at_one_and_four_samples() {
             )
             .unwrap();
         let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.25);
-        context.queue().submit([encoder.finish()]);
+        encoder.finish().submit().unwrap();
         assert!(renderer.opaque_snapshot().is_none());
         let snapshot = renderer.snapshots.as_ref().unwrap()[0]
             .color
@@ -164,7 +164,7 @@ fn assert_water_metadata(
         .install_water(context.device(), settings())
         .unwrap();
     let encoder = encode_fixture(context, renderer, attachments, frame, 0.5);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     let final_depth = renderer.post_water_depth().unwrap();
     let bytes = read(context, final_depth.texture());
     let offset = (16 * 32 + 16) * 4;
@@ -231,9 +231,7 @@ fn missing_snapshot_version_fails_before_retained_preparation() {
         &depth,
         true,
     ));
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let result = renderer.encode_frame(
         context.device(),
         &mut encoder,

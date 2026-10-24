@@ -67,7 +67,8 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
     let pipelines =
         ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
             .unwrap();
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -78,9 +79,7 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
         renderer.targets().depth().texture(),
     )
     .unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     encode_scene(
         &mut renderer,
         context.device(),
@@ -91,7 +90,7 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
     )
     .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     Readback::new(
         context.device(),
         FrameConfig::new([65, 49], wgpu::TextureFormat::Rgba16Float, 1),
@@ -100,7 +99,7 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
     .unwrap()
     .read(
         context.device(),
-        context.queue(),
+        context.submission(),
         renderer.targets().texture(),
     )
     .unwrap()

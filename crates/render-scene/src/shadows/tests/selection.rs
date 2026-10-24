@@ -158,9 +158,7 @@ fn render_probe(context: &GpuContext, renderer: &ShadowedScene) -> RgbaImage {
         },
     )
     .unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     clear_layers(renderer, &mut encoder);
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -180,6 +178,6 @@ fn render_probe(context: &GpuContext, renderer: &ShadowedScene) -> RgbaImage {
         pass.draw(0..3, 0..1);
     }
     target.encode_readback(&mut encoder).unwrap();
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     target.read_encoded(context, submission).unwrap()
 }

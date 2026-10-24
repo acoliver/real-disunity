@@ -7,7 +7,7 @@ fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Text
         8192,
     )
     .unwrap()
-    .read(device, queue, texture)
+    .read(device, &crate::test_authority(queue), texture)
     .unwrap()
 }
 
@@ -348,7 +348,7 @@ fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
     queue.submit([encoder.finish()]);
     let pixels = Readback::new(&device, FrameConfig::new([7, 9], output.format(), 1), 8192)
         .unwrap()
-        .read(&device, &queue, &output)
+        .read(&device, &crate::test_authority(&queue), &output)
         .unwrap();
     let expected = encoded_byte(radiance, 1.0);
     assert!(

@@ -138,14 +138,14 @@ impl Frustum {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct SelectedRange {
     pub key: BatchKey,
     pub lod: usize,
     pub slots: Range<u32>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Selection {
     pub ranges: Vec<SelectedRange>,
     pub stats: ViewStats,

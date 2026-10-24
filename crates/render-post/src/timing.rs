@@ -73,6 +73,7 @@ struct Slot {
     queries: wgpu::QuerySet,
     resolve: wgpu::Buffer,
     readback: wgpu::Buffer,
+    transaction: Option<worldrunner_render_gpu::submission::Publications>,
     pending: Option<mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>,
     frame_id: u64,
     sequence: u64,
@@ -102,6 +103,7 @@ impl Slot {
                 "timestamp readback",
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             ),
+            transaction: None,
             pending: None,
             frame_id: 0,
             sequence: 0,
@@ -186,7 +188,25 @@ impl PassTimer {
     pub const fn unavailable_passes(&self) -> u64 {
         self.unavailable
     }
+    fn discard_cancelled(&mut self) {
+        use worldrunner_render_gpu::submission::TransactionStatus;
+        for (index, slot) in self.slots.iter_mut().enumerate() {
+            if slot
+                .transaction
+                .as_ref()
+                .is_some_and(|owner| owner.status() == TransactionStatus::Cancelled)
+            {
+                slot.pending = None;
+                slot.passes.clear();
+                slot.transaction = None;
+                if self.active == Some(index) {
+                    self.active = None;
+                }
+            }
+        }
+    }
     pub fn begin_frame(&mut self, frame_id: u64) {
+        self.discard_cancelled();
         assert!(
             self.active.is_none(),
             "finish timing before beginning another frame"
@@ -198,6 +218,7 @@ impl PassTimer {
         self.overflow = false;
         if let Some(index) = self.active {
             let slot = &mut self.slots[index];
+            slot.transaction = worldrunner_render_gpu::submission::Publications::current();
             slot.frame_id = frame_id;
             slot.sequence = self.sequence;
             slot.passes.clear();
@@ -249,10 +270,17 @@ impl PassTimer {
     /// Nonblocking. The host drives progress with its normal device polling.
     /// Results preserve encoding order, including when callbacks finish out of order.
     pub fn take_ready(&mut self) -> Result<Vec<FrameTiming>, TimingError> {
+        self.discard_cancelled();
         let mut ordered: Vec<_> = self
             .slots
             .iter_mut()
-            .filter(|slot| slot.pending.is_some())
+            .filter(|slot| {
+                slot.pending.is_some()
+                    && slot.transaction.as_ref().is_none_or(|owner| {
+                        owner.status()
+                            == worldrunner_render_gpu::submission::TransactionStatus::Submitted
+                    })
+            })
             .collect();
         ordered.sort_by_key(|slot| slot.sequence);
         let mut results = Vec::new();

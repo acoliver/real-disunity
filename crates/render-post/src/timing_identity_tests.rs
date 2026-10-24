@@ -9,8 +9,10 @@ fn submit(
     frame: u64,
 ) {
     let target = output(device, chain.targets().config().size);
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    chain.begin_timing(frame);
+    let mut encoder = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+        .begin(device)
+        .unwrap();
+    chain.begin_timing(frame).unwrap();
     paint(
         device,
         &mut encoder,
@@ -25,8 +27,8 @@ fn submit(
         &mut encoder,
         &target.create_view(&wgpu::TextureViewDescriptor::default()),
     );
-    chain.finish_timing(&mut encoder);
-    let submitted = queue.submit([encoder.finish()]);
+    chain.finish_timing(&mut encoder).unwrap();
+    let submitted = encoder.finish().submit().unwrap();
     device
         .poll(wgpu::PollType::Wait {
             submission_index: Some(submitted),

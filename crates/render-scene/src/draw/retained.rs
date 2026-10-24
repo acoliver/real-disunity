@@ -56,37 +56,38 @@ impl SceneGpu {
     }
 
     /// Writes only changed contiguous instance ranges before recording a frame.
-    /// Returns the exact queue-write ranges; an unchanged scene returns no ranges.
-    /// Growing a batch copies its existing GPU buffer instead of reuploading it.
+    /// Returns sparse edit ranges independently of any required recovery uploads.
+    /// Cancelled replacement buffers are fully initialized before later draws.
     /// Use the same device and queue as upload. Drawing with pending bytes panics.
     pub fn flush_instances(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> Vec<InstanceWrite> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("instance uploads"),
-        });
-        let writes = self.flush_instances_encoded(device, &mut encoder);
-        if !writes.is_empty() {
-            queue.submit([encoder.finish()]);
-        }
-        writes
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+    ) -> Result<Vec<InstanceWrite>, worldrunner_render_gpu::submission::SubmitError> {
+        let mut writes = Vec::new();
+        let prepared = authority
+            .prepare(device, |encoder, _| {
+                writes = self.flush_instances_encoded(device, encoder)?;
+                Ok::<_, worldrunner_render_gpu::submission::SubmitError>(())
+            })
+            .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+        prepared.submit()?;
+        Ok(writes)
     }
 }
 
 impl SceneGpu {
     /// Encodes growth copies followed by changed ranges before this frame's draws.
-    /// The caller must submit this encoder before encoding another frame.
+    /// Requires the active transaction encoder; cancellation discards publication.
     pub fn flush_instances_encoded(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-    ) -> Vec<InstanceWrite> {
-        let mut context = worldrunner_render_post::PrepareContext::new(device, encoder);
+    ) -> Result<Vec<InstanceWrite>, worldrunner_render_gpu::submission::TransactionError> {
+        let mut context = worldrunner_render_post::PrepareContext::new(device, encoder)?;
         let writes = self.prepare_instances(&mut context);
         context.finish();
-        writes
+        Ok(writes)
     }
 
     /// Commits sparse edits using the restricted upload context.
@@ -127,7 +128,14 @@ impl SceneGpu {
         context: &mut worldrunner_render_post::PrepareContext<'_>,
         frame: crate::frame::FrameUniform,
     ) {
-        self.frame.set(Some(frame));
+        *self.drawing_frame.borrow_mut() = Some((context.publications(), frame));
+        let published = self.frame.clone();
+        let committed_group = self.committed_frame_group.clone();
+        let group = self.frame_group.clone();
+        context.publish(move || {
+            published.set(Some(frame));
+            *committed_group.borrow_mut() = group;
+        });
         context.upload_buffer(&self.frame_buffer, 0, &frame.to_bytes());
     }
 }

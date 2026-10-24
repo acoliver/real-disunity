@@ -111,13 +111,15 @@ fn external_features_draw_in_registration_order_in_one_frame_submission() {
     assert_ne!(first, second);
     let output = color_texture(&device, "external output", config.size, config.format);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+        .begin(&device)
+        .unwrap();
     assert_view_contracts(&device, &mut chain, &mut encoder);
     encode_geometry(&device, &mut chain, &mut encoder, &events);
     chain.encode(&mut encoder, &output_view);
     let mut readback = Readback::new(&device, config, 4096).unwrap();
     readback.encode(&mut encoder, &output).unwrap();
-    let submission = queue.submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     assert_eq!(*events.borrow(), [20, 21, 19, 10, 11, 9, 0, 1]);
     let pixels = readback.read_encoded(&device, Some(submission)).unwrap();
     assert!(

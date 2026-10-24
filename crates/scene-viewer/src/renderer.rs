@@ -64,7 +64,7 @@ impl Renderer {
             .await?;
         let features = required_features(scene);
         let context = GpuContext::from_adapter_with_features(adapter, features).await?;
-        let errors = device_errors(context.device());
+        let errors = device_errors(context.device(), context.submission().clone());
         let size = window.inner_size();
         let extents = Extents::new(
             [size.width, size.height],
@@ -160,29 +160,29 @@ impl Renderer {
         self.presentation
             .scheduler
             .select_frame_slot(ready.admission.slot());
-        let mut encoder =
-            self.context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("viewer frame"),
-                });
         self.presentation
             .scheduler
             .set_frame_time(self.animation_start.elapsed().as_secs_f32())?;
-        self.resident.render(
-            &self.context,
-            view,
-            &self.presentation.targets,
-            &mut encoder,
-            &mut self.presentation.scheduler,
-        )?;
         let output = ready
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        self.presentation.present(&mut encoder, &output)?;
+        let prepared = self
+            .context
+            .submission()
+            .prepare(self.context.device(), |encoder, _| {
+                self.resident.render(
+                    &self.context,
+                    view,
+                    &self.presentation.targets,
+                    encoder,
+                    &mut self.presentation.scheduler,
+                )?;
+                self.presentation.present(encoder, &output)
+            })
+            .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         self.execution
-            .submit(ready, encoder.finish(), &self.context);
+            .submit_prepared(ready, prepared, &self.context)?;
         self.check_errors()?;
         Ok(true)
     }
@@ -201,13 +201,17 @@ fn required_features(scene: &RenderScene) -> wgpu::Features {
     }
 }
 
-fn device_errors(device: &wgpu::Device) -> mpsc::Receiver<String> {
+fn device_errors(
+    device: &wgpu::Device,
+    authority: worldrunner_render_gpu::submission::SubmissionAuthority,
+) -> mpsc::Receiver<String> {
     let (send, errors) = mpsc::channel();
     let lost_send = send.clone();
     device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
         let _ = send.send(error.to_string());
     }));
     device.set_device_lost_callback(move |reason, message| {
+        authority.report_device_loss(format!("{reason:?}: {message}"));
         let _ = lost_send.send(format!("device lost ({reason:?}): {message}"));
     });
     errors
@@ -279,7 +283,7 @@ impl Resident {
                 ScenePipelines::with_samples
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
-            let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
+            let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
             Self::Plain(Box::new(PlainScene {
                 gpu,
                 pipelines,

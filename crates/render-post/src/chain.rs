@@ -338,15 +338,26 @@ impl<F: StageFactory> PostChain<F> {
         *self.timing.borrow_mut() = Some(timer);
         Ok(support)
     }
-    pub fn begin_timing(&self, frame_id: u64) {
+    pub fn begin_timing(
+        &self,
+        frame_id: u64,
+    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
+        worldrunner_render_gpu::submission::Publications::current()
+            .ok_or(worldrunner_render_gpu::submission::TransactionError::Missing)?;
         if let Some(timer) = self.timing.borrow_mut().as_mut() {
             timer.begin_frame(frame_id);
         }
+        Ok(())
     }
-    pub fn finish_timing(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub fn finish_timing(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         if let Some(timer) = self.timing.borrow_mut().as_mut() {
             timer.finish_frame(encoder);
         }
+        Ok(())
     }
     pub fn take_timings(&self) -> Result<Vec<crate::FrameTiming>, crate::TimingError> {
         self.timing
@@ -464,7 +475,7 @@ impl<F: StageFactory> PostChain<F> {
                 feature.prepared = Some(prepared);
             }
         }
-        let mut context = crate::PrepareContext::new(device, encoder);
+        let mut context = crate::PrepareContext::new(device, encoder)?;
         context.set_views(views);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
@@ -547,6 +558,27 @@ impl<F: StageFactory> PostChain<F> {
                 }
             });
         }
+        self.finish_feature_draws(device, encoder, borrowed)
+    }
+
+    fn finish_feature_draws(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+    ) -> Result<(), crate::FrameError> {
+        let mut context = crate::PrepareContext::new(device, encoder)?;
+        for feature in borrowed {
+            feature.prepared.finish_draws(&mut context);
+        }
+        for feature in &mut self.features {
+            feature
+                .prepared
+                .as_mut()
+                .expect("validated feature build")
+                .finish_draws(&mut context);
+        }
+        self.upload_slots[self.frame_slot].extend(context.finish());
         Ok(())
     }
 }

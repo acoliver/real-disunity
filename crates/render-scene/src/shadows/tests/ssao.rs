@@ -36,9 +36,7 @@ fn encode(
         frame.targets().depth().texture(),
     )
     .unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let result = resident.encode_with(
         context,
         &view(),
@@ -46,7 +44,7 @@ fn encode(
         &mut encoder,
         Some(frame),
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     context
         .device()
         .poll(wgpu::PollType::wait_indefinitely())
@@ -88,7 +86,7 @@ fn shadowed_ssao_requires_exact_profile_settings_before_preparation() {
                 "SSAO resident/profile settings mismatch"
             )))
         ));
-        assert_eq!(*resident.gpu.view_stats(), before);
+        assert_eq!(resident.gpu.view_stats(), before);
         assert_eq!(resident.effects.ssao(), Some(original));
     }
     let mut matching = FrameRenderer::hdr(
@@ -101,7 +99,7 @@ fn shadowed_ssao_requires_exact_profile_settings_before_preparation() {
     )
     .unwrap();
     encode(&context, &mut resident, &mut matching).unwrap();
-    assert_ne!(*resident.gpu.view_stats(), before);
+    assert_ne!(resident.gpu.view_stats(), before);
 }
 
 #[test]

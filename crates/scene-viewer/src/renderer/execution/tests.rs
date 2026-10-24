@@ -57,7 +57,7 @@ fn close_drops_surface_with_a_real_submission_pending_without_joining() {
     let (admission, _) = acquire_frame(&mut surface, &flight, || Ok(()))
         .unwrap()
         .unwrap();
-    let ticket = flight.submit(admission, context.queue(), [], || {});
+    let ticket = flight.submit(admission, context.submission(), [], || {});
     assert!(!ticket.is_complete());
     drop(surface);
     assert!(dropped.get());
@@ -252,7 +252,7 @@ fn delayed_submission_completion_defers_lifecycle_without_waiting() {
     let (send, done) = std::sync::mpsc::channel();
     let ticket = flight.submit(
         flight.try_acquire().unwrap(),
-        context.queue(),
+        context.submission(),
         [],
         move || {
             send.send(()).unwrap();

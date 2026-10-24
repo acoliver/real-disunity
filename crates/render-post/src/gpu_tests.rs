@@ -63,7 +63,7 @@ fn render<F: StageFactory>(
     queue.submit([encoder.finish()]);
     Readback::new(device, config, 1024 * 1024)
         .unwrap()
-        .read(device, queue, &output)
+        .read(device, &crate::test_authority(queue), &output)
         .unwrap()
 }
 

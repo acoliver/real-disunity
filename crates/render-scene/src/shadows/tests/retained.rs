@@ -48,7 +48,8 @@ fn resident_edits_reach_both_shadow_and_color_passes() {
     assert!(
         renderer
             .scene_mut()
-            .flush_instances(context.device(), context.queue())
+            .flush_instances(context.device(), context.submission())
+            .unwrap()
             .is_empty()
     );
 }

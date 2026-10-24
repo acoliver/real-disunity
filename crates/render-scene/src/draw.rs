@@ -1,6 +1,6 @@
 //! Retained scene uploads, pipeline-compatible batches, and draw submission.
 use std::array;
-use std::cell::{Cell, Ref, RefCell};
+use std::cell::{Cell, RefCell};
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
@@ -22,7 +22,9 @@ use crate::upload::{
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
+mod publication;
 mod retained;
+pub(crate) use publication::{DrawPublications, SelectionPublication};
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
@@ -32,6 +34,8 @@ use visibility::{MeshSelection, Selection};
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
 pub enum DrawError {
+    #[error(transparent)]
+    Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// The environmental profile requests an unsupported stock effect.
     #[error(transparent)]
     Frame(#[from] crate::frame::FrameError),
@@ -147,13 +151,20 @@ pub struct SceneGpu {
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
+    committed_frame_group: std::rc::Rc<RefCell<BindGroup>>,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
     instances: Instances,
-    frame: Cell<Option<FrameUniform>>,
-    camera_selection: RefCell<Selection>,
-    shadow_selection: [RefCell<Selection>; 4],
+    frame: std::rc::Rc<Cell<Option<FrameUniform>>>,
+    drawing_frame: RefCell<
+        Option<(
+            worldrunner_render_gpu::submission::Publications,
+            FrameUniform,
+        )>,
+    >,
+    camera_selection: std::rc::Rc<RefCell<Selection>>,
+    shadow_selection: [std::rc::Rc<RefCell<Selection>>; 4],
     terrain: Option<GpuTerrain>,
     #[expect(dead_code, reason = "owns the memory the bind groups read")]
     retained: Retained,
@@ -168,10 +179,11 @@ impl SceneGpu {
     /// upload or a mesh level cannot be packed.
     pub fn upload(
         device: &Device,
-        queue: &Queue,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
         scene: &RenderScene,
         pipelines: &ScenePipelines,
     ) -> Result<Self, DrawError> {
+        let queue = authority.queue();
         validate_profile(scene, pipelines)?;
         let (textures, views) = upload_textures(device, queue, scene)?;
         let placeholder = placeholder_texture(device, queue);
@@ -209,6 +221,7 @@ impl SceneGpu {
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             water: scene.effects().and_then(|effects| effects.water()).copied(),
+            committed_frame_group: std::rc::Rc::new(RefCell::new(frame_group.clone())),
             frame_slots,
             frame_buffer,
             frame_group,
@@ -216,9 +229,10 @@ impl SceneGpu {
             meshes,
             mesh_selection,
             instances,
-            frame: Cell::new(None),
-            camera_selection: RefCell::default(),
-            shadow_selection: std::array::from_fn(|_| RefCell::default()),
+            frame: std::rc::Rc::new(Cell::new(None)),
+            drawing_frame: RefCell::new(None),
+            camera_selection: std::rc::Rc::default(),
+            shadow_selection: std::array::from_fn(|_| std::rc::Rc::default()),
             terrain,
             retained: Retained {
                 textures,
@@ -227,17 +241,20 @@ impl SceneGpu {
                 material_uniforms,
             },
         };
-        gpu.flush_instances(device, queue);
+        gpu.flush_instances(device, authority)?;
         Ok(gpu)
     }
 
     /// Writes the per-frame uniform the next draw will read.
     pub fn set_frame(&self, queue: &Queue, frame: FrameUniform) {
         self.frame.set(Some(frame));
+        *self.committed_frame_group.borrow_mut() = self.frame_group.clone();
+        *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
     }
 
     /// Records every draw of the scene into one render pass.
+    /// Raw rendering does not publish selection or statistics; use composition for that.
     ///
     /// The frame group is bound once for the whole pass rather than per draw,
     /// which is sound only because all four object pipelines were built from
@@ -260,9 +277,9 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         group: &BindGroup,
-    ) {
+    ) -> SelectionPublication {
         pass.set_bind_group(3, group, &[]);
-        self.draw_color(pass, pipelines, None);
+        self.draw_color(pass, pipelines, None)
     }
 
     pub(crate) fn draw_shadowed(
@@ -270,17 +287,30 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         shadow: &BindGroup,
-    ) {
-        self.draw_color(pass, pipelines, Some(shadow));
+    ) -> SelectionPublication {
+        self.draw_color(pass, pipelines, Some(shadow))
     }
 
-    fn draw_color(
+    pub(crate) fn draw_color(
         &self,
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
-    ) {
-        self.draw_objects(pass, &self.frame_group, pipelines.object_pipelines(), None);
+    ) -> SelectionPublication {
+        let transaction_frame = self
+            .drawing_frame
+            .borrow()
+            .as_ref()
+            .is_some_and(|(owner, _)| {
+                worldrunner_render_gpu::submission::Publications::current()
+                    .is_some_and(|current| current.same_transaction(owner))
+            });
+        let frame_group = if transaction_frame {
+            self.frame_group.clone()
+        } else {
+            self.committed_frame_group.borrow().clone()
+        };
+        let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
         if let Some(terrain) = &self.terrain {
             pass.set_pipeline(pipelines.terrain());
             pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
@@ -289,6 +319,7 @@ impl SceneGpu {
             }
             Self::draw_terrain_geometry(pass, terrain);
         }
+        selection
     }
 
     pub(crate) fn draw_terrain_depth(
@@ -320,7 +351,7 @@ impl SceneGpu {
         frame_group: &BindGroup,
         pipelines: &[wgpu::RenderPipeline; 4],
         shadow_matrix: Option<(u32, glam::Mat4)>,
-    ) {
+    ) -> SelectionPublication {
         assert!(
             self.instances
                 .batches
@@ -328,12 +359,23 @@ impl SceneGpu {
                 .all(|batch| !batch.has_pending()),
             "flush instance updates before drawing"
         );
-        let frame = self.frame.get().expect("set a frame before drawing");
-        let mut selection = if let Some((index, _)) = shadow_matrix {
-            self.shadow_selection[index as usize].borrow_mut()
+        let frame = self
+            .drawing_frame
+            .borrow()
+            .as_ref()
+            .and_then(|(owner, frame)| {
+                worldrunner_render_gpu::submission::Publications::current()
+                    .filter(|current| current.same_transaction(owner))
+                    .map(|_| *frame)
+            })
+            .or_else(|| self.frame.get())
+            .expect("set a frame before drawing");
+        let published = if let Some((index, _)) = shadow_matrix {
+            self.shadow_selection[index as usize].clone()
         } else {
-            self.camera_selection.borrow_mut()
+            self.camera_selection.clone()
         };
+        let mut selection = published.borrow().clone();
         selection.rebuild(
             &self.instances,
             &self.mesh_selection,
@@ -359,27 +401,25 @@ impl SceneGpu {
             pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
             pass.draw_indexed(0..lod.index_count, 0, range.slots.clone());
         }
+        SelectionPublication {
+            destination: published,
+            selection,
+        }
     }
 
-    /// Counts from the most recently recorded main-camera pass.
-    /// Drop the returned guard before recording the next main-camera draw;
-    /// holding it across that draw causes a runtime borrow panic.
-    pub fn view_stats(&self) -> Ref<'_, ViewStats> {
-        Ref::map(self.camera_selection.borrow(), |selection| &selection.stats)
+    /// Owned statistics from the most recently submitted main-camera pass.
+    pub fn view_stats(&self) -> ViewStats {
+        self.camera_selection.borrow().stats.clone()
     }
 
-    /// Counts from the most recently recorded directional shadow cascade zero.
-    /// Drop the returned guard before recording the next shadow draw;
-    /// holding it across that draw causes a runtime borrow panic.
-    pub fn shadow_view_stats(&self) -> Ref<'_, ViewStats> {
+    /// Owned statistics from the most recently submitted shadow cascade zero.
+    pub fn shadow_view_stats(&self) -> ViewStats {
         self.cascade_view_stats(0)
     }
 
-    /// Counts for one of the four supported shadow view indices.
-    pub fn cascade_view_stats(&self, index: usize) -> Ref<'_, ViewStats> {
-        Ref::map(self.shadow_selection[index].borrow(), |selection| {
-            &selection.stats
-        })
+    /// Owned statistics for one of the four supported shadow view indices.
+    pub fn cascade_view_stats(&self, index: usize) -> ViewStats {
+        self.shadow_selection[index].borrow().stats.clone()
     }
 
     pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {

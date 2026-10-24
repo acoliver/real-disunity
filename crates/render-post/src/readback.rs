@@ -4,6 +4,10 @@ use crate::{FrameConfig, PostError, targets::extent};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReadbackError {
+    #[error(transparent)]
+    Transaction(#[from] worldrunner_render_gpu::submission::TransactionError),
+    #[error(transparent)]
+    Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     #[error("readback slot already contains an unread capture")]
     Busy,
     #[error(transparent)]
@@ -35,7 +39,8 @@ pub struct Readback {
     format: wgpu::TextureFormat,
     pitch: u32,
     row: usize,
-    pending: bool,
+    pending: std::rc::Rc<std::cell::Cell<bool>>,
+    encoded_transaction: Option<worldrunner_render_gpu::submission::Publications>,
 }
 
 impl Readback {
@@ -74,7 +79,8 @@ impl Readback {
             format: config.format,
             pitch: u32::try_from(pitch).map_err(|_| ReadbackError::Limit)?,
             row: usize::try_from(row).map_err(|_| ReadbackError::Limit)?,
-            pending: false,
+            pending: std::rc::Rc::default(),
+            encoded_transaction: None,
         })
     }
 
@@ -83,14 +89,13 @@ impl Readback {
     pub fn read(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
         source: &wgpu::Texture,
     ) -> Result<Vec<u8>, ReadbackError> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("post readback"),
-        });
-        self.encode(&mut encoder, source)?;
-        let submission = queue.submit([encoder.finish()]);
+        let prepared = authority
+            .prepare(device, |encoder, _| self.encode(encoder, source))
+            .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+        let submission = prepared.submit()?;
         self.read_encoded(device, Some(submission))
     }
 
@@ -100,7 +105,14 @@ impl Readback {
         encoder: &mut wgpu::CommandEncoder,
         source: &wgpu::Texture,
     ) -> Result<(), ReadbackError> {
-        if self.pending {
+        let current = Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
+        if self.pending.get()
+            || current.as_ref().is_some_and(|current| {
+                self.encoded_transaction
+                    .as_ref()
+                    .is_some_and(|previous| previous.same_transaction(current))
+            })
+        {
             return Err(ReadbackError::Busy);
         }
         if source.width() != self.size[0]
@@ -125,7 +137,11 @@ impl Readback {
             },
             extent(self.size),
         );
-        self.pending = true;
+        let pending = self.pending.clone();
+        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+            pending.set(true);
+        })?;
+        self.encoded_transaction = current;
         Ok(())
     }
 
@@ -147,7 +163,7 @@ impl Readback {
         submission: Option<wgpu::SubmissionIndex>,
     ) -> Result<Vec<u8>, ReadbackError> {
         let bytes = read_buffer(device, &self.buffer, submission)?;
-        self.pending = false;
+        self.pending.set(false);
         Ok(bytes)
     }
 

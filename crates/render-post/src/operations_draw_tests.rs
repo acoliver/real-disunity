@@ -179,7 +179,9 @@ fn compute_to_fullscreen_requires_declared_producer_and_preserves_bytes() {
     )
     .unwrap();
     assert_eq!(
-        readback.read(&device, &queue, &output).unwrap(),
+        readback
+            .read(&device, &crate::test_authority(&queue), &output)
+            .unwrap(),
         [0, 255, 0, 255].repeat(4)
     );
 }

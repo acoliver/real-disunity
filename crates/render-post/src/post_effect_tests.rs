@@ -96,7 +96,7 @@ pub(super) fn pixels(
         1_000_000,
     )
     .unwrap()
-    .read(device, queue, texture)
+    .read(device, &crate::test_authority(queue), texture)
     .unwrap()
 }
 pub(super) fn buffer(device: &wgpu::Device, queue: &wgpu::Queue, source: &wgpu::Buffer) -> Vec<u8> {
@@ -273,7 +273,7 @@ fn gpu_bloom_spreads_energy_and_excludes_nonfinite_fireflies() {
         65536,
     )
     .unwrap()
-    .read(&device, &queue, bloom)
+    .read(&device, &crate::test_authority(&queue), bloom)
     .unwrap();
     let values: Vec<_> = raw
         .chunks_exact(8)
@@ -296,7 +296,7 @@ fn gpu_bloom_spreads_energy_and_excludes_nonfinite_fireflies() {
         65536,
     )
     .unwrap()
-    .read(&device, &queue, bloom)
+    .read(&device, &crate::test_authority(&queue), bloom)
     .unwrap();
     assert!(raw.chunks_exact(8).all(|p| p[..6] == [0; 6]));
 }
@@ -394,7 +394,7 @@ fn gpu_nonfinite_inputs_cannot_poison_histogram_or_bloom() {
         let bloom = c.configured[0].resources.textures.last().unwrap();
         let raw = Readback::new(&device, FrameConfig::new([9, 7], bloom.format(), 1), 4096)
             .unwrap()
-            .read(&device, &queue, bloom)
+            .read(&device, &crate::test_authority(&queue), bloom)
             .unwrap();
         assert!(raw.chunks_exact(8).all(|p| p[..6] == [0; 6]));
     }
@@ -427,7 +427,7 @@ fn gpu_bloom_threshold_and_quadratic_knee_match_exact_reference() {
     let bloom = &c.configured[0].resources.textures[0];
     let raw = Readback::new(&device, FrameConfig::new([4, 1], bloom.format(), 1), 4096)
         .unwrap()
-        .read(&device, &queue, bloom)
+        .read(&device, &crate::test_authority(&queue), bloom)
         .unwrap();
     for (pixel, expected) in raw.chunks_exact(8).zip([0_u16, 0x2800, 0x3000, 0x3c00]) {
         for channel in pixel[..6].chunks_exact(2) {

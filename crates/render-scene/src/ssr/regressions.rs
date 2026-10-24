@@ -70,16 +70,14 @@ pub(super) fn resolve(
     samples: u32,
 ) -> Vec<u8> {
     let (output, target) = targets(context, ssr, samples);
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut feature = ReflectionFeature {
         ssr,
         frame: frame(),
         color: AttachmentView::new(ResourceRef::new("scene color"), &target).unwrap(),
         groups: Vec::new(),
     };
-    let mut prepare = PrepareContext::new(context.device(), &mut encoder);
+    let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
     feature.commit(&mut prepare);
     prepare.finish();
     if reduce {
@@ -120,7 +118,7 @@ pub(super) fn resolve(
         &ssr.resolve,
         &[&group],
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     read(context, &output)
 }
 

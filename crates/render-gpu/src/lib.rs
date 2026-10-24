@@ -3,6 +3,9 @@ pub mod attachment;
 pub mod device;
 pub mod flight;
 pub mod resource;
+pub mod submission;
+#[cfg(test)]
+mod submission_tests;
 pub mod surface;
 pub mod texture;
 

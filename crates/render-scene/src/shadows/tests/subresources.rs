@@ -28,9 +28,7 @@ fn resource(mip: u32, layer: u32) -> ResourceRef {
 }
 
 fn initialize(context: &GpuContext, color: &wgpu::Texture, depth: &wgpu::Texture) {
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     for mip in 0..2 {
         for layer in 0..2 {
             let descriptor = wgpu::TextureViewDescriptor {
@@ -70,7 +68,7 @@ fn initialize(context: &GpuContext, color: &wgpu::Texture, depth: &wgpu::Texture
             });
         }
     }
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
 }
 
 fn texture_copy(texture: &wgpu::Texture, mip: u32, layer: u32) -> wgpu::TexelCopyTextureInfo<'_> {
@@ -91,9 +89,7 @@ fn texture_copy(texture: &wgpu::Texture, mip: u32, layer: u32) -> wgpu::TexelCop
 }
 
 fn read_all(context: &GpuContext, texture: &wgpu::Texture) -> Vec<Vec<u8>> {
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut captures = Vec::new();
     for mip in 0..2 {
         let width = texture.width() >> mip;
@@ -128,7 +124,7 @@ fn read_all(context: &GpuContext, texture: &wgpu::Texture) -> Vec<Vec<u8>> {
             captures.push((capture, pitch, width, height));
         }
     }
-    let submission = context.queue().submit([encoder.finish()]);
+    let submission = encoder.finish().submit().unwrap();
     captures
         .iter_mut()
         .map(|(capture, pitch, width, height)| {
@@ -182,7 +178,8 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     for shadows in [false, true] {
         for (mip, layer) in [(0, 1), (1, 0), (1, 1)] {
@@ -200,9 +197,7 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
                     .render(&context, &view(), &color_view, &depth_view)
                     .unwrap();
             } else {
-                let mut encoder = context
-                    .device()
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                let mut encoder = context.submission().begin(context.device()).unwrap();
                 crate::compositor::encode_scene(
                     &mut scheduler,
                     context.device(),
@@ -212,7 +207,7 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
                     FrameUniform::new(&view(), source.effects()).unwrap(),
                 )
                 .unwrap();
-                context.queue().submit([encoder.finish()]);
+                encoder.finish().submit().unwrap();
             }
             let after = [read_all(&context, &color), read_all(&context, &depth)];
             let selected = usize::try_from(mip * 2 + layer).unwrap();

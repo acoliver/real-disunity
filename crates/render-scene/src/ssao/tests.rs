@@ -113,7 +113,7 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<f32> {
     )
     .unwrap();
     readback
-        .read(context.device(), context.queue(), texture)
+        .read(context.device(), context.submission(), texture)
         .unwrap()
         .chunks_exact(4)
         .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
@@ -125,9 +125,7 @@ fn draw(
     group: &wgpu::BindGroup,
     output: &wgpu::Texture,
 ) {
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     worldrunner_render_post::fullscreen_pass(
         &mut encoder,
         Some("test screen pass"),
@@ -143,7 +141,7 @@ fn draw(
         pipeline,
         &[group],
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
 }
 #[test]
 fn gpu_odd_extent_pyramid_includes_last_row_and_column() {
@@ -181,13 +179,11 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
         exposure: 1.0,
         unlit: false,
     };
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    let mut prepare = PrepareContext::new(context.device(), &mut encoder);
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
     ssao.upload(&mut prepare, frame);
     let _uploads = prepare.finish();
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     let depth = upload(&context, [6, 1], &[1.0, 1.0, 1.0, 3.0, 3.0, 3.0]);
     let ao = upload(&context, [6, 1], &[0.2, 0.2, 0.2, 1.0, 1.0, 1.0]);
     let output = passes::texture(context.device(), [6, 1], wgpu::TextureFormat::R32Float);

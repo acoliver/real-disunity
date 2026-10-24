@@ -97,8 +97,12 @@ fn stock_lowering_preserves_exact_clear_load_and_resolve_bytes() {
             4096,
         )
         .unwrap();
-        let expected = readback.read(&device, &queue, direct.texture()).unwrap();
-        let actual = readback.read(&device, &queue, lowered.texture()).unwrap();
+        let expected = readback
+            .read(&device, &crate::test_authority(&queue), direct.texture())
+            .unwrap();
+        let actual = readback
+            .read(&device, &crate::test_authority(&queue), lowered.texture())
+            .unwrap();
         assert_eq!(actual, expected);
         assert!(
             actual
@@ -552,7 +556,9 @@ fn assert_mrt_outputs(device: &wgpu::Device, queue: &wgpu::Queue, outputs: Vec<w
             4096,
         )
         .unwrap();
-        let data = bytes.read(device, queue, &output).unwrap();
+        let data = bytes
+            .read(device, &crate::test_authority(queue), &output)
+            .unwrap();
         let expected = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]][index];
         assert!(data.chunks_exact(4).all(|pixel| pixel == expected));
     }

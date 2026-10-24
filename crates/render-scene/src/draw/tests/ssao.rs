@@ -38,9 +38,7 @@ fn encode_profile(
         renderer.targets().depth().texture(),
     )
     .unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     let result = encode_scene(
         &mut renderer,
         context.device(),
@@ -49,7 +47,7 @@ fn encode_profile(
         (&color, &depth),
         FrameUniform::new(&view, source.effects()).unwrap(),
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     context
         .device()
         .poll(wgpu::PollType::wait_indefinitely())
@@ -64,7 +62,8 @@ fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
     let source = source(1_000_000, true, 255);
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let original = *source.effects().unwrap().ssao().unwrap();
     let before = gpu.frame.get();
     for changed in crate::ssao::tests::differing_settings(original) {
@@ -165,7 +164,8 @@ fn capture(
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
             .unwrap();
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), source, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -176,9 +176,7 @@ fn capture(
         renderer.targets().depth().texture(),
     )
     .unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     encode_scene(
         &mut renderer,
         context.device(),
@@ -189,7 +187,7 @@ fn capture(
     )
     .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     let read = |texture: &wgpu::Texture| read_texture(context, size, texture);
     let ssao = renderer.ssao.as_ref().unwrap();
     let normals = read(&ssao.normals);
@@ -259,6 +257,6 @@ fn read_texture(context: &GpuContext, size: [u32; 2], texture: &wgpu::Texture) -
         1_000_000,
     )
     .unwrap()
-    .read(context.device(), context.queue(), texture)
+    .read(context.device(), context.submission(), texture)
     .unwrap()
 }

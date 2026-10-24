@@ -109,6 +109,8 @@ impl FeatureDeclaration {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
+    #[error(transparent)]
+    Transaction(#[from] worldrunner_render_gpu::submission::TransactionError),
     #[error("invalid or unsupported SSR setting: {0}")]
     SsrSettings(&'static str),
     #[error("invalid or unsupported water setting: {0}")]
@@ -314,17 +316,30 @@ pub struct BuildContext<'a> {
 pub struct PrepareContext<'a> {
     device: &'a wgpu::Device,
     encoder: &'a mut wgpu::CommandEncoder,
+    publications: worldrunner_render_gpu::submission::Publications,
     copies: Vec<(wgpu::Buffer, u64, wgpu::Buffer, u64, u64)>,
     views: Vec<AttachmentView>,
 }
 impl<'a> PrepareContext<'a> {
-    pub fn new(device: &'a wgpu::Device, encoder: &'a mut wgpu::CommandEncoder) -> Self {
-        Self {
+    pub fn new(
+        device: &'a wgpu::Device,
+        encoder: &'a mut wgpu::CommandEncoder,
+    ) -> Result<Self, worldrunner_render_gpu::submission::TransactionError> {
+        let publications = worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        Ok(Self {
             device,
             encoder,
+            publications,
             copies: Vec::new(),
             views: Vec::new(),
-        }
+        })
+    }
+    pub fn publications(&self) -> worldrunner_render_gpu::submission::Publications {
+        self.publications.clone()
+    }
+    /// Stages an infallible resident edit in the active prepared frame.
+    pub fn publish(&mut self, publish: impl FnOnce() + 'static) {
+        self.publications.stage(publish);
     }
     pub(crate) fn set_views(&mut self, views: &[AttachmentView]) {
         self.views = views.to_vec();
@@ -387,10 +402,13 @@ pub trait FrameFeature {
     fn build(&self, context: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError>;
 }
 /// Preparation may stage uploads, but must not publish resident state.
-/// Publish state in `commit`, which runs only after every preparation succeeds.
+/// Stage publication in `commit`, after every preparation succeeds. The enclosing
+/// frame publishes those edits only after submission.
 pub trait PreparedFeature {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError>;
     fn commit(&mut self, _context: &mut PrepareContext<'_>) {}
+    /// Stages completed draw results after the scheduler's checked encoder closes its passes.
+    fn finish_draws(&mut self, _context: &mut PrepareContext<'_>) {}
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>);
 }
 

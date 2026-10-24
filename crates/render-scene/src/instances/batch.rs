@@ -11,7 +11,9 @@ pub(crate) struct InstanceBatch {
     free: BTreeSet<usize>,
     dirty: BTreeSet<usize>,
     pub bytes: Vec<u8>,
-    uploaded: Vec<u8>,
+    uploaded: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+    buffer_valid: std::rc::Rc<std::cell::Cell<bool>>,
+    encoded: Option<worldrunner_render_gpu::submission::Publications>,
     pub buffer: Option<wgpu::Buffer>,
 }
 
@@ -69,10 +71,18 @@ impl InstanceBatch {
     }
 
     pub fn has_pending(&self) -> bool {
-        self.dirty.iter().any(|position| {
-            let range = position * STRIDE..(position + 1) * STRIDE;
-            self.uploaded.get(range.clone()) != Some(&self.bytes[range])
-        })
+        if worldrunner_render_gpu::submission::Publications::current().is_some_and(|current| {
+            self.encoded
+                .as_ref()
+                .is_some_and(|encoded| encoded.same_transaction(&current))
+        }) {
+            return false;
+        }
+        !self.buffer_valid.get()
+            || self.dirty.iter().any(|position| {
+                let range = position * STRIDE..(position + 1) * STRIDE;
+                self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
+            })
     }
 
     #[cfg(test)]
@@ -93,17 +103,20 @@ impl InstanceBatch {
     pub fn pending_ranges(&self) -> Vec<Range<u32>> {
         ranges(self.dirty.iter().copied().filter(|position| {
             let range = position * STRIDE..(position + 1) * STRIDE;
-            self.uploaded.get(range.clone()) != Some(&self.bytes[range])
+            self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
         }))
     }
 
+    #[cfg(test)]
     pub fn commit(&mut self, ranges: &[Range<u32>]) {
-        self.uploaded.resize(self.bytes.len(), 0);
+        let mut uploaded = self.uploaded.borrow_mut();
+        uploaded.resize(self.bytes.len(), 0);
         for range in ranges {
             let bytes = byte_range(range);
-            self.uploaded[bytes.clone()].copy_from_slice(&self.bytes[bytes]);
+            uploaded[bytes.clone()].copy_from_slice(&self.bytes[bytes]);
         }
         self.dirty.clear();
+        self.buffer_valid.set(true);
     }
 }
 
@@ -129,19 +142,34 @@ pub(crate) fn flush_prepared(
     batch: &mut InstanceBatch,
     context: &mut worldrunner_render_post::PrepareContext<'_>,
 ) -> Vec<Range<u32>> {
-    let ranges = batch.pending_ranges();
-    if ranges.is_empty() {
-        batch.commit(&ranges);
+    let writes = batch.pending_ranges();
+    let mut ranges = writes.clone();
+    if batch.bytes.is_empty() {
         return ranges;
     }
     grow(batch, context);
+    if !batch.buffer_valid.get() {
+        ranges =
+            std::iter::once(0..u32::try_from(batch.bytes.len() / STRIDE).expect("instance count"))
+                .collect();
+    }
+    if ranges.is_empty() {
+        return ranges;
+    }
     let buffer = batch.buffer.as_ref().expect("allocated instance buffer");
     for range in &ranges {
         let bytes = byte_range(range);
         context.upload_buffer(buffer, bytes.start as u64, &batch.bytes[bytes]);
     }
-    batch.commit(&ranges);
-    ranges
+    let uploaded = batch.uploaded.clone();
+    let valid = batch.buffer_valid.clone();
+    let bytes = batch.bytes.clone();
+    context.publish(move || {
+        *uploaded.borrow_mut() = bytes;
+        valid.set(true);
+    });
+    batch.encoded = worldrunner_render_gpu::submission::Publications::current();
+    writes
 }
 
 fn grow(batch: &mut InstanceBatch, context: &mut worldrunner_render_post::PrepareContext<'_>) {
@@ -173,4 +201,5 @@ fn grow(batch: &mut InstanceBatch, context: &mut worldrunner_render_post::Prepar
         context.copy_buffer(old, &buffer, old.size());
     }
     batch.buffer = Some(buffer);
+    batch.buffer_valid.set(false);
 }

@@ -56,7 +56,7 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
                     .present(&mut encoder, output.color_view())
                     .unwrap();
                 output.encode_readback(&mut encoder).unwrap();
-                let submission = context.queue().submit([encoder.finish()]);
+                let submission = encoder.finish().submit().unwrap();
                 let image = output.read_encoded(&context, submission).unwrap();
                 assert!(image.pixels.chunks_exact(4).any(|pixel| pixel[0] > 100));
                 assert_eq!(presentation.targets.depth.texture().sample_count(), samples);
@@ -65,8 +65,6 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
     }
 }
 
-fn hdr_encoder(context: &GpuContext) -> wgpu::CommandEncoder {
-    context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default())
+fn hdr_encoder(context: &GpuContext) -> worldrunner_render_gpu::submission::RecordingFrame {
+    context.submission().begin(context.device()).unwrap()
 }

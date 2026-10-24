@@ -101,9 +101,7 @@ fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
     geometry_declaration.passes[0].color_format = Some(wgpu::TextureFormat::Rgba16Float);
     geometry_declaration.passes[0].depth_format = Some(wgpu::TextureFormat::Depth32Float);
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
         .encode_frame(
             context.device(),
@@ -122,7 +120,7 @@ fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
             (frame, None),
         )
         .unwrap();
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     assert_sample_reduction(&context, &renderer, frame);
 }
 fn assert_sample_reduction(
@@ -180,7 +178,7 @@ fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_sam
         frame.ambient_sky = glam::Vec3::new(0.5, 0.25, 0.125);
         frame.sun_irradiance = glam::Vec3::ZERO;
         let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5);
-        context.queue().submit([encoder.finish()]);
+        encoder.finish().submit().unwrap();
         let center = 16 * 32 + 16;
         let surface = read(&context, renderer.post_water_depth().unwrap().texture());
         let surface_depth =
@@ -248,7 +246,7 @@ fn animation_changes_refraction_with_identical_scene_and_frame_slot() {
             renderer.select_frame_slot(0);
             renderer.set_frame_time(time).unwrap();
             let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5);
-            context.queue().submit([encoder.finish()]);
+            encoder.finish().submit().unwrap();
             let snapshot = &renderer.snapshots.as_ref().unwrap()[0];
             upload_snapshot(&context, &snapshot.color, &colors, 8);
             upload_snapshot(&context, &snapshot.depth, &depths, 4);

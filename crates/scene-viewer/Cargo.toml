@@ -18,5 +18,12 @@ worldrunner-render-scene = { path = "../render-scene" }
 wgpu.workspace = true
 winit.workspace = true
 
+[dev-dependencies]
+png.workspace = true
+
+[[test]]
+name = "live_window"
+harness = false
+
 [lints]
 workspace = true

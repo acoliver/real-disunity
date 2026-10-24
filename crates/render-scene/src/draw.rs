@@ -148,11 +148,77 @@ pub struct SceneGpu {
     meshes: Vec<GpuMesh>,
     batches: [Vec<Batch>; 4],
     terrain: Option<GpuTerrain>,
-    #[expect(dead_code, reason = "owns the memory the bind groups read")]
+    dynamic: crate::dynamic::DynamicGpu,
     retained: Retained,
 }
 
 impl SceneGpu {
+    /// Creates a resident scene with no static content.
+    pub fn empty(device: &Device, queue: &Queue, pipelines: &ScenePipelines) -> Self {
+        let frame_buffer = upload_buffer(
+            device,
+            queue,
+            "frame uniform",
+            BufferUsages::UNIFORM,
+            &[0u8; FRAME_UNIFORM_BYTES],
+        );
+        let frame_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("frame"),
+            layout: pipelines.frame_layout(),
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: frame_buffer.as_entire_binding(),
+            }],
+        });
+        Self {
+            frame_buffer,
+            frame_group,
+            materials: vec![],
+            meshes: vec![],
+            batches: array::from_fn(|_| vec![]),
+            terrain: None,
+            dynamic: crate::dynamic::DynamicGpu::default(),
+            retained: Retained {
+                textures: vec![],
+                placeholder: placeholder_texture(device, queue),
+                sampler: material_sampler(device),
+                material_uniforms: vec![],
+            },
+        }
+    }
+
+    /// Atomically replaces the runtime quad contribution.
+    pub fn set_dynamic_quads(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        pipelines: &ScenePipelines,
+        quads: &[crate::dynamic::DynamicQuad],
+    ) -> Result<(), crate::dynamic::DynamicError> {
+        self.dynamic.set_quads(
+            device,
+            queue,
+            crate::dynamic::DynamicBindings {
+                pipelines,
+                placeholder: &self.retained.placeholder,
+                sampler: &self.retained.sampler,
+            },
+            quads,
+        )
+    }
+
+    /// Replaces runtime textures and clears runtime geometry on success.
+    pub fn set_dynamic_textures(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        pipelines: &ScenePipelines,
+        textures: &[worldrunner_render_plan::SceneTexture],
+    ) -> Result<(), crate::dynamic::DynamicError> {
+        let _ = pipelines;
+        self.dynamic.set_textures(device, queue, textures)
+    }
+
     /// Uploads every texture, material, mesh and placement of one scene.
     ///
     /// # Errors
@@ -205,6 +271,7 @@ impl SceneGpu {
             meshes,
             batches,
             terrain,
+            dynamic: crate::dynamic::DynamicGpu::default(),
             retained: Retained {
                 textures,
                 placeholder,
@@ -243,6 +310,7 @@ impl SceneGpu {
             pass.set_index_buffer(terrain.lod.indices.slice(..), IndexFormat::Uint32);
             pass.draw_indexed(0..terrain.lod.index_count, 0, 0..1);
         }
+        self.dynamic.draw(pass, &self.frame_group, pipelines);
     }
 
     pub(crate) fn draw_objects(

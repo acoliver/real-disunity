@@ -1,0 +1,187 @@
+{
+  "schema": "real-disunity.tck-fixture",
+  "schemaVersion": 1,
+  "designOnly": true,
+  "fixtureId": "snake-modern-original-content",
+  "revision": 1,
+  "description": "Non-executable design specimen. Actual source hashes; original sprite and complete content lock remain unresolved. All launch, driver, selector and assertion implementations are planned.",
+  "source": {
+    "gameId": "eguldali--Optimized-Snake-Game",
+    "localRootBinding": "SNAKE_SOURCE_ROOT",
+    "inspectedLocalRoot": "/tmp/real-disunity-modern-games/eguldali--Optimized-Snake-Game",
+    "pin": "0ab43c53e834db714439be71c4151d953d241847",
+    "savedEditorVersion": "6000.3.7f1",
+    "readOnly": true,
+    "sourcePolicy": "compile-original-bytes-no-source-or-IL-rewriting",
+    "hashAlgorithm": "sha256",
+    "scripts": [
+      {"path": "Assets/Scripts/FoodSpawner.cs", "sha256": "e4f0d72779f914aafd4b1a90789ed102b3c7363da462a1fbcd7bfbe7ab50ffe3", "bytes": 707},
+      {"path": "Assets/Scripts/GameConfig.cs", "sha256": "9c81f1015c95d6fc75987e7ddd3c4dc63bd969be44cc5c5ead188757e8632050", "bytes": 356},
+      {"path": "Assets/Scripts/GameLoop.cs", "sha256": "ee7e77bff1787c15f089a635307bb143ce1893bf9b8aab2a8a20f68af04c6e9a", "bytes": 1552},
+      {"path": "Assets/Scripts/GridSystem.cs", "sha256": "eed2e7d9e492ca99e85761396cc6e1273eee2bbef6e3bd77ab881b98d5ecfff1", "bytes": 996},
+      {"path": "Assets/Scripts/InputBuffer.cs", "sha256": "024c157d3a5c301dde8be0d12c0666e0385d589f0d025ab380fc921be5e28dbd", "bytes": 266},
+      {"path": "Assets/Scripts/PlayerInputReader.cs", "sha256": "ce3b6b920b40afd222ba356a1aff4e9fa04eb59e5b01d62ee213438f82a42094", "bytes": 422},
+      {"path": "Assets/Scripts/SnakeModel.cs", "sha256": "47d156eae61d8b8ca66a07891dfb5557bbbcbbb0fd33549aec47972d9f3befda", "bytes": 1833},
+      {"path": "Assets/Scripts/SnakeView.cs", "sha256": "dde43a55bed814595df956a2f33715cf7dd862a5eeecbc81c99f3a8510cd9ee0", "bytes": 980}
+    ],
+    "selectedContent": [
+      {"path": "Assets/Scenes/GameScene.unity", "sha256": "117e3e4dc56f3e443f984631e63d9da0f9274afdb8a0fc868dafaf12ea62caad"},
+      {"path": "Assets/GameConfigs/GameConfig.asset", "sha256": "4af8c14c37b7437446edf1b865d300994c2dc83a6651ee828b1fd34d02b27823"},
+      {"path": "Assets/Visuals/FoodVisual.prefab", "sha256": "af0953122bf500f53b48e2d40a7ccf8479e6ed7eb263e19136956f6ccb4956cc"},
+      {"path": "Assets/Visuals/SneakSegment.prefab", "sha256": "13938f2bebcfa968a3b6ac84a00b0cd12dda8c1e787bfe9095e70ec54a559c72"},
+      {"path": "ProjectSettings/ProjectVersion.txt", "sha256": "50f1bf3fb4196ce6ddf6dbd0eb2ef8c2227a18b5ff762c90e1cb4feab8a06b4a"},
+      {"path": "Packages/manifest.json", "sha256": "00a83deb6445f3f3a5740741a6fea4b97ec8c0e05bd23b5a36777bf46bc52fb9"},
+      {"path": "Packages/packages-lock.json", "sha256": "d49f8d20afbfbf5891a241dd6334baac84135a978ef8c5f9b644ae3573ac8d44"}
+    ],
+    "completeInputLock": {
+      "state": "required-not-generated",
+      "mustInclude": ["all referenced .meta files", "scene/prefab/config reference closure", "selected ProjectSettings", "built-in resource mappings", "overlay and imported resource bytes", "compiler-visible inputs and assembly graph"],
+      "recheckAfterRun": true
+    }
+  },
+  "profiles": {
+    "engineRevision": null,
+    "nativeAbi": "planned-append-only-extension-of-disunity-v1",
+    "bridgeProtocol": "planned-phase-dispatch-v1",
+    "sourceApi": "unity-6000.3-source-v1",
+    "importer": "unity-text-scene-prefab-scriptableobject-selected-v1",
+    "rendering": "canonical-built-in-unlit-sprite-subset-v1",
+    "legacyInput": "both-enabled-legacy-gameplay-v1",
+    "packageMetadata": [
+      {"id": "com.unity.inputsystem", "version": "1.18.0", "use": "installed-not-called-by-selected-gameplay"},
+      {"id": "com.unity.feature.2d", "version": "2.0.2", "use": "editor-tooling-metadata"},
+      {"id": "com.unity.test-framework", "version": "1.6.0", "use": "not-required-by-selected-gameplay"}
+    ],
+    "shippingUnityImplementationPackages": false,
+    "nativePlugins": []
+  },
+  "compilation": {
+    "targetFramework": "net8.0",
+    "sdkLock": null,
+    "languageVersionLock": null,
+    "symbolsLock": null,
+    "assemblyGraphLock": null,
+    "outputAssembly": "GameScripts.dll",
+    "sourceInputs": "source.scripts",
+    "sourceStaging": "read-only-original-or-byte-identical-stage",
+    "facadeReferencePlan": ["independently implemented UnityEngine core, math, scene and sprite public surface"],
+    "excludeEditorAndTestAssembliesByExplicitGraphRules": true,
+    "generatedBuildFilesRoot": "overlay/build"
+  },
+  "entryScene": "Assets/Scenes/GameScene.unity",
+  "expectedImportedConfig": {
+    "source": "Assets/GameConfigs/GameConfig.asset",
+    "gridSize": [40, 20],
+    "ticksPerSecond": 8,
+    "wrapAround": true,
+    "cellSize": 1,
+    "speedIncreasePerFood": 0.3,
+    "maxTicksPerSecond": 20,
+    "cameraOrthographicHalfHeight": 11
+  },
+  "inputBindings": [
+    {"action": "turn-up", "device": "keyboard-0", "physicalControl": "KeyW", "publicView": "Input.GetKeyDown(KeyCode.W)"},
+    {"action": "turn-left", "device": "keyboard-0", "physicalControl": "KeyA", "publicView": "Input.GetKeyDown(KeyCode.A)"},
+    {"action": "turn-down", "device": "keyboard-0", "physicalControl": "KeyS", "publicView": "Input.GetKeyDown(KeyCode.S)"},
+    {"action": "turn-right", "device": "keyboard-0", "physicalControl": "KeyD", "publicView": "Input.GetKeyDown(KeyCode.D)"}
+  ],
+  "prerequisites": [
+    {"id": "runtime.public-managed-components", "kind": "capability", "state": "planned", "scope": "semantic-and-game"},
+    {"id": "runtime.legacy-frame-input", "kind": "capability", "state": "planned", "scope": "semantic-and-game"},
+    {"id": "content.native-graph-import", "kind": "capability", "state": "planned", "scope": "content-and-game"},
+    {"id": "render.orthographic-sorted-sprites", "kind": "capability", "state": "planned", "scope": "visual-and-game"},
+    {"id": "content.snake.sprite", "kind": "content", "state": "missing", "guid": "311925a002f4447b3a28927169b83ea6", "fileId": "7482667652216324306", "scope": "original-content-visual-and-playable", "onUnavailable": "blocked"},
+    {"id": "toolchain.dotnet8", "kind": "tool", "state": "check-at-run", "scope": "managed"},
+    {"id": "platform.isolated-linux-x11-vulkan", "kind": "platform", "state": "check-at-run", "scope": "desktop-replay"}
+  ],
+  "overlay": {
+    "root": "overlay",
+    "contentVariant": "original-content-unresolved",
+    "sourceEditsAllowed": false,
+    "operations": [],
+    "optionalSubstituteVariant": {
+      "fixtureId": "snake-modern-explicit-visual-substitute",
+      "enabled": false,
+      "requiresSeparateAssetHashAndPreconditionedSidecar": true,
+      "doesNotSatisfyOriginalContentFidelity": true
+    }
+  },
+  "materialRemaps": [
+    {"source": {"guid": "0000000000000000f000000000000000", "fileId": "10754"}, "targetCapability": "render.canonical.unlit-sprite", "state": "mapping-needs-implementation-and-validation", "fidelity": "selected-sprite-material-translation-not-full-built-in-shader-support"}
+  ],
+  "timeline": {
+    "dynamicStep": {"numerator": 1, "denominator": 60, "unit": "seconds"},
+    "fixedStep": {"numerator": 1, "denominator": 50, "unit": "seconds"},
+    "seed": 1701,
+    "maxFrames": 3600,
+    "maxSimulatedSeconds": 60,
+    "ingress": "same-normalized-device-pipeline-as-winit",
+    "steeringInputExample": [
+      {"sequence": 1, "time": {"numerator": 1, "denominator": 4}, "deviceId": "keyboard-0", "kind": "key-down", "control": "KeyW", "value": 1, "origin": "synthetic"},
+      {"sequence": 2, "time": {"numerator": 3, "denominator": 10}, "deviceId": "keyboard-0", "kind": "key-up", "control": "KeyW", "value": 0, "origin": "synthetic"},
+      {"sequence": 3, "time": {"numerator": 3, "denominator": 4}, "deviceId": "keyboard-0", "kind": "key-down", "control": "KeyA", "value": 1, "origin": "synthetic"},
+      {"sequence": 4, "time": {"numerator": 4, "denominator": 5}, "deviceId": "keyboard-0", "kind": "key-up", "control": "KeyA", "value": 0, "origin": "synthetic"}
+    ],
+    "inputExamplePurpose": "Steering only; not a promise to reach food. Desktop OS-delivery task uses the admitted platform driver instead of relabelling synthetic events."
+  },
+  "resources": {
+    "mode": "desktop-replay",
+    "viewportPixels": [1280, 720],
+    "dpiScale": 1,
+    "backend": "vulkan",
+    "adapterPolicy": "explicitly-admitted-recorded-adapter",
+    "maxWallSeconds": 120,
+    "maxResidentBytes": 1073741824,
+    "maxLogBytes": 10485760,
+    "maxCaptures": 16,
+    "maxReadbackBytes": 268435456,
+    "maxArtifactBytes": 536870912,
+    "compileJobs": 2
+  },
+  "tasks": [
+    {"id": "launch", "driver": "generic.scene-load", "completion": "scene-ready-and-presented-frame", "deadlineFrames": 120},
+    {"id": "os-input", "driver": "generic.desktop-keyboard", "completion": "OS-key-observed-at-shared-ingress-and-public-input", "deadlineFrames": 120},
+    {"id": "steer", "driver": "generic.timeline", "plan": "timeline.steeringInputExample", "completion": "visible-head-turn", "deadlineFrames": 120},
+    {"id": "eat-and-grow", "driver": "test.grid-food-route-v1", "state": "planned-test-driver-not-game-code", "observations": ["food-position", "visible-segment-positions", "active-segment-count"], "completion": "food-reached-and-growth-manifests", "maxFrames": 2400, "privateGameStateAllowed": false},
+    {"id": "self-contact", "driver": "test.grid-self-contact-v1", "state": "scenario-needs-source-characterization", "completion": "expected-game-over-log-and-state", "maxFrames": 600, "privateGameStateAllowed": false},
+    {"id": "reset", "driver": "generic.scene-reload-or-fresh-worker", "completion": "initial-scene-then-movement", "deadlineFrames": 180},
+    {"id": "explore", "driver": "generic.interactive-recording", "state": "separate-exploratory-artifact-required", "maxWallSeconds": 120}
+  ],
+  "observations": [
+    {"id": "food-position", "boundary": "public-managed-property", "selector": {"type": "FoodSpawner", "cardinality": "exactly-one"}, "member": "CurrentFoodPos", "samplePhase": "after-update"},
+    {"id": "visible-segment-positions", "boundary": "public-component-properties", "selector": {"descendantsOfSceneObject": "SnakeView", "type": "UnityEngine.SpriteRenderer", "activeOnly": true}, "members": ["transform.position", "enabled"], "samplePhase": "after-update", "selectorStatus": "validate-against-imported-clone-graph"},
+    {"id": "active-segment-count", "boundary": "public-component-query", "derive": "count active canonical sprite components under admitted SnakeView clone parent", "samplePhase": "after-update", "selectorStatus": "validate-against-imported-clone-graph"},
+    {"id": "game-over", "boundary": "public-Debug.Log-event", "expectedText": "Game Over"}
+  ],
+  "assertions": [
+    {"assertionId": "UCK-GAME-001/source", "expected": "all-eight-original-script-hashes-match-before-and-after"},
+    {"assertionId": "UCK-GAME-001/visible", "expected": "recognizable-food-and-snake-in-actual-presented-frame", "requires": ["content.snake.sprite"]},
+    {"assertionId": "UCK-GAME-001/control", "expected": "keyboard-turn-correlates-with-public-transform-and-screen-change"},
+    {"assertionId": "UCK-GAME-001/growth", "expected": "reaching-food-leads-to-later-active-segment-growth-and-food-relocation", "deadline": "bounded-driver-task"},
+    {"assertionId": "UCK-GAME-001/reset", "expected": "engine-reload-restores-initial-scene-and-keyboard-control", "notClaimed": "in-game-restart-key"},
+    {"assertionId": "UCK-GAME-001/exploratory", "expected": "linked-recording-and-bounded-observer-note-from-same-profile"}
+  ],
+  "screenshots": [
+    {"id": "initial", "when": "first-admitted-presented-scene", "origin": "render-target-of-presented-snapshot", "purpose": "recognizable-initial-state"},
+    {"id": "turned", "when": "control-assertion-observation", "origin": "OS-window-capture-and-render-target", "purpose": "keyboard-to-visible-turn"},
+    {"id": "grown", "when": "growth-assertion-observation", "origin": "render-target-of-presented-snapshot", "purpose": "food-and-segment-change"},
+    {"id": "reset", "when": "post-reload-movement", "origin": "render-target-of-presented-snapshot", "purpose": "continued-control-after-reset"}
+  ],
+  "artifacts": {
+    "outputPolicy": "new-run-directory-no-overwrite",
+    "formats": ["authoritative-run.json", "case-results.json", "junit.xml", "events.ndjson", "inputs.ndjson", "logs.ndjson", "observations.ndjson", "captures/*.png", "artifact-index.json", "exploratory-recording-and-note"],
+    "captureMetadata": ["session", "frame", "fixedTick", "phase", "simulatedTime", "wallTime", "viewport", "dpi", "backend", "adapter", "driver", "colorSpace", "orientation", "sha256"]
+  },
+  "teardown": {
+    "drainManagedRootTokens": true,
+    "drainNativeWorlds": true,
+    "cancelOrFinishReadbacks": true,
+    "recheckOriginalBytes": true,
+    "closeOwnedWindowOnly": true,
+    "killOwnedProcessGroupOnDeadline": true
+  },
+  "admission": {
+    "runnable": false,
+    "reasons": ["designOnly specimen", "engine/facade/importer/driver implementation required", "original sprite missing", "complete input lock missing", "compiler/profile/selector decisions not locked"]
+  }
+}

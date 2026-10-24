@@ -1,0 +1,50 @@
+{
+  "field_overrides": [],
+  "reference_substitutions": [
+    {
+      "guid": "311925a002f4447b3a28927169b83ea6",
+      "file_id": 7482667652216324306,
+      "replacement": {
+        "$builtin": "fixture.authored-snake-unit-square"
+      },
+      "reason": "Selected originals omit this sprite. Use the explicitly authored solid white unit-square definition in fallback_sprites; no original art is changed."
+    }
+  ],
+  "fallback_sprites": [
+    {
+      "name": "fixture.authored-snake-unit-square",
+      "texture_size": [
+        8,
+        8
+      ],
+      "rgba": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "sprite": {
+        "file_id": 7482667652216324306,
+        "name": "authored-unit-square",
+        "rect": [
+          0,
+          0,
+          8,
+          8
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "pixels_per_unit": 8,
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "reason": "User-authorized, separately authored eight-pixel solid white square, one source world unit wide; source SpriteRenderer tint remains authoritative."
+    }
+  ]
+}

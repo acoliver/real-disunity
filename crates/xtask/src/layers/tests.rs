@@ -221,6 +221,21 @@ fn ci_profiles_select_disjoint_managed_and_gpu_requirements() {
 }
 
 #[test]
+fn process_harness_has_cpu_coverage_while_player_requires_graphics() {
+    use crate::commands::{Profile, selection};
+    let dir = workspace();
+    package(&dir, "crates/harness", "compat-kit", "");
+    package(&dir, "crates/player", "compat-player", "");
+    let data = graph(&dir);
+    let cpu = selection(&data, Profile::Cpu).unwrap();
+    assert!(cpu.contains(&"compat-kit".into()));
+    assert!(!cpu.contains(&"compat-player".into()));
+    let gpu = selection(&data, Profile::Gpu).unwrap();
+    assert!(gpu.contains(&"compat-kit".into()));
+    assert!(gpu.contains(&"compat-player".into()));
+}
+
+#[test]
 fn shared_shadow_backend_is_graphics_and_rejected_from_cpu_graphs() {
     let dir = workspace();
     package(&dir, "crates/shadow", "worldrunner-render-shadow", "");

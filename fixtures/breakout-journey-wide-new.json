@@ -1,0 +1,3427 @@
+{
+  "schema_version": 1,
+  "name": "BreakoutJourney-wide-new",
+  "source_root": ".work/games/breakout",
+  "profiles": [
+    "compat-2017.1",
+    "compat-6000.3"
+  ],
+  "default_profile": "compat-6000.3",
+  "evidence_label": "original-source/unlit-material-translation/sprite-bounds-collision",
+  "worker": {
+    "program": "{root}/.work/target/debug/compat-player",
+    "args": []
+  },
+  "seed": 20,
+  "limits": {
+    "deadline_ms": 120000,
+    "log_bytes": 1048576,
+    "artifact_bytes": 268435456,
+    "capture_count": 32
+  },
+  "metadata": {
+    "upstream": "https://github.com/admtrv/Breakout",
+    "source_editor_observed": "6000.3.5f2",
+    "scene": "Assets/Scenes/SampleScene.unity",
+    "source_scripts": "original",
+    "visual_assets": "original sprites with declared material/font translations",
+    "visual_sidecars": [
+      "crates/compat-content/overlays/breakout.json"
+    ],
+    "compatibility_sidecar": {
+      "field_overrides": [],
+      "reference_substitutions": [
+        {
+          "guid": "a97c105638bdf8b4a8650670310a4cd3",
+          "file_id": 2100000,
+          "replacement": {
+            "$builtin": "host.sprite-unlit"
+          },
+          "reason": "Original 2D renderer material is absent. Explicitly select the host unlit sprite material while retaining all original texture texels, tint and subasset identity."
+        }
+      ],
+      "tile_collider_fallbacks": [
+        {
+          "guid": "8c9cfa26abfee488c85f1582747f6a02",
+          "file_id": 2096728906,
+          "geometry": "sprite_bounds",
+          "reason": "Original wall sprite physicsShape is empty. Explicit rect/pixels_per_unit/pivot bounds preserve all 48 source wall cells; geometry fidelity is sprite_bounds, without alpha tracing or inferred authored collision."
+        }
+      ]
+    },
+    "evidence_label": "original-source/unlit-material-translation/sprite-bounds-collision",
+    "script_count": 7,
+    "import_profile": {
+      "name": "original-breakout-source-migrations",
+      "builtin_replacements": {
+        "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+        "0000000000000000e000000000000000:10102": "host.builtin-font",
+        "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+      },
+      "field_aliases": {
+        "496b9770dcb4e9ecab5379f35c859b35": {
+          "startSpeed": "speed"
+        }
+      },
+      "script_types": {
+        "0000000000000000e000000000000000:13312": "UnityEngine.Tilemaps.Tile"
+      },
+      "field_exclusions": {
+        "57fc46ce82be2cd0284f27309fe6c2a6": {
+          "powerUpChance": "Original Brick.cs no longer declares powerUpChance; exclude stale serialized value from managed binding and retain original source fields. PowerUp.cs owns current power-up policy.",
+          "widePlatformDuration": "Original Brick.cs no longer declares widePlatformDuration; exclude stale serialized value from managed binding and retain original source fields. PowerUp.cs owns current power-up duration."
+        }
+      }
+    },
+    "admission_policy": {
+      "ignored_components": {
+        "AudioListener": "Audio is outside this native 2D admission profile.",
+        "Grid": "Authored grid metadata is folded into the native Tilemap component.",
+        "TilemapRenderer": "Authored sorting/material metadata is folded into native Tilemap; host owns render extraction."
+      },
+      "ignored_scripts": {
+        "a79441f348de89743a2939f4d699eac1:11500000": "Unavailable original render-pipeline camera extension. Host uses the native orthographic camera and unlit 2D rendering; original record and diagnostics are retained.",
+        "073797afb82c5a1438f328866b10b3f0:11500000": "Unavailable original 2D light extension. Explicit unlit render admission retains original record and diagnostics."
+      }
+    },
+    "coverage": {
+      "status": "partial",
+      "checkpoints": [
+        "initial",
+        "contact-52",
+        "contact-92",
+        "contact-122"
+      ],
+      "complete_journey": false
+    },
+    "managed_profile": {
+      "unknown_fields": "reject"
+    },
+    "ignored_stale_serialized_fields": {
+      "Brick.powerUpChance": "Source-selected importer exclusion with diagnostic; current original Brick.cs lacks this field.",
+      "Brick.widePlatformDuration": "Source-selected importer exclusion with diagnostic; current original Brick.cs lacks this field."
+    },
+    "collision_fidelity": "sprite_bounds from original sprite rect, pixels-per-unit and pivot; original physicsShape is empty. No alpha tracing or authored polygon fidelity claim.",
+    "source_sha256": {
+      "Assets/Scripts/Ball.cs": "48a403fffa720347492e21fa9a3639dce49b6a0c9b115cc44107dcae76fcdaa0",
+      "Assets/Scripts/BallSpawner.cs": "8bab08852b7ba05f41185de8ef584f7edf1acfa31a7112d51ddea11b05215185",
+      "Assets/Scripts/Brick.cs": "15b442a0adcbb4cca47c9174f76f211360892b260074be73dfeb369e64c2c6b1",
+      "Assets/Scripts/BrickSpawner.cs": "3700df2409b2becb0b36bacfe51e5e4bc70e34b78c04a8946a642ac5c6b70a30",
+      "Assets/Scripts/DeathZone.cs": "517e70adeb8679ec642b3e8731d879a117028123fd226011afb0b6d1972e5bf2",
+      "Assets/Scripts/Platform.cs": "e2e61e25dacbabc32246854a7c53dff61714de6063f39f37ec48a67594ecd771",
+      "Assets/Scripts/PowerUp.cs": "5dc383e7950797c5ac4a7bd121133a48ba8c96b5e76cde327eeca775a07358b5"
+    }
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "phase": "load",
+      "action": "load"
+    },
+    {
+      "frame": 1,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 1,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 1,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 2,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 2,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 2,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 3,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 3,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 3,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 4,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 4,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 4,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 5,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 5,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 5,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 6,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 6,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 6,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 7,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 7,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 7,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 8,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 8,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 8,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 9,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 9,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 9,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 10,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 10,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 10,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 11,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 11,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 11,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 12,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 12,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 12,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 13,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 13,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 13,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 14,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 14,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 14,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 15,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 15,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 15,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 16,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 16,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 16,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 17,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 17,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 17,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 18,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 18,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 18,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 19,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 19,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 19,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 20,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 20,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 20,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 21,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 21,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 21,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 22,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 22,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 22,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 23,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 23,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 23,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 24,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 24,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 24,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 25,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 25,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 25,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 26,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 26,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 26,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 27,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 27,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 27,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 28,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 28,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 28,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 29,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 29,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 29,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 30,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 30,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 30,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 31,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 31,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 31,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 32,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 32,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 32,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 33,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 33,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 33,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 34,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 34,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 34,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 35,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 35,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 35,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 36,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 36,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 36,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 37,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 37,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 37,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 38,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 38,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 38,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 39,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 39,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 39,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 40,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 40,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 40,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 40,
+      "phase": "initial",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 40,
+      "phase": "initial",
+      "action": "observe",
+      "selector": "events"
+    },
+    {
+      "frame": 40,
+      "phase": "render",
+      "action": "capture",
+      "path": "captures/initial.png"
+    },
+    {
+      "frame": 41,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 41,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 41,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 42,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 42,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 42,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 43,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 43,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 43,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 44,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 44,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 44,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 45,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 45,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 45,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 46,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 46,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 46,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 47,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 47,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 47,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 48,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 48,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 48,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 49,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 49,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 49,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 50,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 50,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 50,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 51,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 51,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 51,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 52,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 52,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 52,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 52,
+      "phase": "contact-52",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 52,
+      "phase": "contact-52",
+      "action": "observe",
+      "selector": "events"
+    },
+    {
+      "frame": 53,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 53,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 53,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 54,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 54,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 54,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 55,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 55,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 55,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 56,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 56,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 56,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 57,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 57,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 57,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 58,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 58,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 58,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 59,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 59,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 59,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 60,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 60,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 60,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 61,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 61,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 61,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 62,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 62,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 62,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 63,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 63,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 63,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 64,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 64,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 64,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 65,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 65,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 65,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 66,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 66,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 66,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 67,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 67,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 67,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 68,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 68,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 68,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 69,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 69,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 69,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 70,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 70,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 70,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 71,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 71,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 71,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 72,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 72,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 72,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 73,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 73,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 73,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 74,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 74,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 74,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 75,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 75,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 75,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 76,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 76,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 76,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 77,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 77,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 77,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 78,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 78,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 78,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 79,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 79,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 79,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 80,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 80,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 80,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 81,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 81,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 81,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 82,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 82,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 82,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 83,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 83,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 83,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 84,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 84,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 84,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 85,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 85,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 85,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 86,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 86,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 86,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 87,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 87,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 87,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 88,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 88,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 88,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 89,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 89,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 89,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 90,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 90,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 90,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 91,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 91,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 91,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 92,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 92,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 92,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 92,
+      "phase": "contact-92",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 92,
+      "phase": "contact-92",
+      "action": "observe",
+      "selector": "events"
+    },
+    {
+      "frame": 93,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 93,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 93,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 94,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 94,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 94,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 95,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 95,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 95,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 96,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 96,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 96,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 97,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 97,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 97,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 98,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 98,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 98,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 99,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 99,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 99,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 100,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 100,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 100,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 101,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 101,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 101,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 102,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 102,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 102,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 103,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 103,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 103,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 104,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 104,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 104,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 105,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 105,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 105,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 106,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 106,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 106,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 107,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 107,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 107,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 108,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 108,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 108,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 109,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 109,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 109,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 110,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 110,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 110,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 111,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 111,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 111,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 112,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 112,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 112,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 113,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 113,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 113,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 114,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 114,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 114,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 115,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 115,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 115,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 116,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 116,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 116,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 117,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 117,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 117,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 118,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 118,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 118,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 119,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 119,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 119,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 120,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 120,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 120,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 121,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 121,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 121,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 122,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 122,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 122,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 122,
+      "phase": "contact-122",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 122,
+      "phase": "contact-122",
+      "action": "observe",
+      "selector": "events"
+    },
+    {
+      "frame": 123,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 123,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 123,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 124,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 124,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 124,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 125,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 125,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 125,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 126,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 126,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 126,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 127,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 127,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 127,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 128,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 128,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 128,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 129,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 129,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 129,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 130,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 130,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 130,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 131,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 131,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 131,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 132,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 132,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 132,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 133,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 133,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 133,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 134,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 134,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 134,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 135,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 135,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 135,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 136,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 136,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 136,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 137,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 137,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 137,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 138,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 138,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 138,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 139,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 139,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 139,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 140,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 140,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 140,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 141,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 141,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 141,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 142,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 142,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 142,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 143,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 143,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 143,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 144,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 144,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 144,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 145,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 145,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 145,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 146,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 146,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 146,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 147,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 147,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 147,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 148,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 148,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 148,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 149,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 149,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 149,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 150,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 150,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 150,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 151,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 151,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 151,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 152,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "A"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 152,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 152,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 153,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 153,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 153,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 154,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 154,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 154,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 155,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 155,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 155,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 156,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 156,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 156,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 157,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 157,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 157,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 158,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 158,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 158,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 159,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 159,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 159,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 160,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "D"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 160,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 160,
+      "phase": "update",
+      "action": "advance",
+      "dt": 0.01
+    },
+    {
+      "frame": 160,
+      "phase": "unload",
+      "action": "unload"
+    }
+  ],
+  "assertions": [],
+  "refresh": null
+}

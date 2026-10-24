@@ -7,6 +7,44 @@
 
 pub mod abi;
 
+mod body;
+mod clock;
+mod components;
+mod destruction;
+mod encoding;
+mod geometry;
+mod input;
+mod integrity;
+mod ledger;
+mod physics;
+mod protocol;
+mod ratio;
+mod readiness;
+pub mod response;
+mod snapshots;
+mod strict;
+mod tiles;
+mod transform;
+mod transport;
+mod ui;
+mod world;
+
+/// Executes a typed protocol operation against the canonical native world.
+pub fn request_value(
+    world: u64,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, &'static str> {
+    let bytes = serde_json::to_vec(&request).map_err(|_| "invalid request")?;
+    if bytes.len() > response::MAX_REQUEST_BYTES {
+        return Err("request budget exceeded");
+    }
+    let response = integrity::execute(world, request, &bytes).map_err(|code| match code {
+        result_code::BUDGET => "request retention budget exceeded",
+        _ => "world handle does not address a live world",
+    })?;
+    serde_json::from_slice(&response).map_err(|_| "invalid response")
+}
+
 pub use abi::{DISUNITY_ABI_VERSION, DisunityResult, result_code};
 
 use std::sync::Mutex;
@@ -44,6 +82,9 @@ pub struct DisunityObject {
     pub position: [f32; 3],
     pub rotation_y_radians: f32,
     pub material_slot: u32,
+    pub scale: [f32; 3],
+    pub rotation_x_radians: f32,
+    pub rotation_z_radians: f32,
 }
 
 impl Default for DisunityObject {
@@ -52,6 +93,9 @@ impl Default for DisunityObject {
             position: [0.0; 3],
             rotation_y_radians: 0.0,
             material_slot: 0,
+            scale: [1.0; 3],
+            rotation_x_radians: 0.0,
+            rotation_z_radians: 0.0,
         }
     }
 }
@@ -82,12 +126,15 @@ pub fn export_object_states(
         for (slot, entry) in world.objects.iter().enumerate() {
             let Some(object) = entry else { continue };
             if let Some(destination) = out.get_mut(*written as usize) {
+                let (position, rotation, _) = world
+                    .world_trs(make_handle(slot, world.object_generations[slot]))
+                    .map_err(|_| "invalid hierarchy")?;
                 *destination = DisunityObjectState {
                     object: make_handle(slot, world.object_generations[slot]),
-                    x: object.position[0],
-                    y: object.position[1],
-                    z: object.position[2],
-                    rotation_y_radians: object.rotation_y_radians,
+                    x: position.x,
+                    y: position.y,
+                    z: position.z,
+                    rotation_y_radians: rotation.to_euler(glam::EulerRot::XYZ).1,
                     material_slot: object.material_slot,
                 };
             }
@@ -98,8 +145,20 @@ pub fn export_object_states(
 }
 
 /// A world: its object table, the command log, and the last error.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct DisunityWorld {
+    pub(crate) strict: Option<strict::Authority>,
+    pub(crate) snapshots: snapshots::Receipts,
+    pub(crate) content_revision: u64,
+    pub(crate) readiness: readiness::NativeReadinessState,
+    pub(crate) input: input::Input,
+    pub(crate) destruction: destruction::PendingDestruction,
+    pub(crate) clock: clock::Clock,
+    pub(crate) random: input::Random,
+    pub(crate) physics: physics::Physics,
+    pub(crate) ui: ui::Ui,
+    pub(crate) metadata: std::collections::BTreeMap<u64, world::ObjectMetadata>,
+    pub(crate) components: Vec<Option<components::Component>>,
     /// Objects in slot order; `None` slots are free for reuse.
     pub objects: Vec<Option<DisunityObject>>,
     /// Generation for each object slot; a handle is stale when its generation
@@ -115,21 +174,41 @@ pub struct DisunityWorld {
 }
 
 impl DisunityWorld {
+    pub(crate) fn advance_content(&mut self) -> Result<(), &'static str> {
+        self.content_revision = self
+            .content_revision
+            .checked_add(1)
+            .ok_or("content revision overflow")?;
+        Ok(())
+    }
+
     /// Applies a submitted command to object state, recording it in the log.
     fn apply_command(&mut self, command: DisunityCommand) -> Result<(), &'static str> {
+        if ![command.x, command.y, command.z]
+            .iter()
+            .all(|v| v.is_finite())
+        {
+            return Err("command operands must be finite");
+        }
         let (index, generation) = split_handle(command.object)?;
-        let object = self
-            .objects
-            .get_mut(index)
-            .and_then(|slot| slot.as_mut())
-            .ok_or("object handle does not address a live object")?;
-        if self.object_generations.get(index).copied() != Some(generation) {
+        if self.object_generations.get(index).copied() != Some(generation)
+            || self.objects.get(index).and_then(Option::as_ref).is_none()
+        {
             return Err("object handle generation is stale");
         }
+        if command.kind == command_kind::SET_POSITION {
+            return self
+                .set_trs(
+                    command.object,
+                    Some([command.x, command.y, command.z]),
+                    None,
+                    None,
+                    "world",
+                )
+                .map_err(|_| "invalid world transform");
+        }
+        let object = self.objects[index].as_mut().unwrap();
         match command.kind {
-            command_kind::SET_POSITION => {
-                object.position = [command.x, command.y, command.z];
-            }
             command_kind::SET_ROTATION_Y => {
                 object.rotation_y_radians = command.x;
             }
@@ -158,7 +237,7 @@ fn make_handle(index: usize, generation: u32) -> u64 {
 }
 
 struct Store {
-    worlds: Vec<Option<DisunityWorld>>,
+    worlds: Vec<Option<integrity::Session>>,
     world_generations: Vec<u32>,
 }
 
@@ -184,15 +263,16 @@ pub(crate) fn create_world(store: &mut Store) -> u64 {
     let slot = store.worlds.iter().position(Option::is_none);
     match slot {
         Some(index) => {
-            store.world_generations[index] += 1;
-            store.worlds[index] = Some(DisunityWorld::default());
+            store.world_generations[index] = next_generation();
+            store.worlds[index] = Some(integrity::Session::default());
             make_handle(index, store.world_generations[index])
         }
         None => {
             let index = store.worlds.len();
-            store.worlds.push(Some(DisunityWorld::default()));
-            store.world_generations.push(1);
-            make_handle(index, 1)
+            store.worlds.push(Some(integrity::Session::default()));
+            let generation = next_generation();
+            store.world_generations.push(generation);
+            make_handle(index, generation)
         }
     }
 }
@@ -205,6 +285,7 @@ pub(crate) fn destroy_world(store: &mut Store, handle: u64) -> Result<(), &'stat
     {
         return Err("world handle does not address a live world");
     }
+    store.worlds[index].as_ref().unwrap().require_owner()?;
     store.worlds[index] = None;
     Ok(())
 }
@@ -213,20 +294,8 @@ pub(crate) fn destroy_world(store: &mut Store, handle: u64) -> Result<(), &'stat
 pub(crate) fn create_object(store: &mut Store, world: u64) -> Result<u64, &'static str> {
     let (world_index, world_generation) = split_handle(world)?;
     let world = live_world_mut(store, world_index, world_generation)?;
-    let slot = world.objects.iter().position(Option::is_none);
-    match slot {
-        Some(index) => {
-            world.object_generations[index] += 1;
-            world.objects[index] = Some(DisunityObject::default());
-            Ok(make_handle(index, world.object_generations[index]))
-        }
-        None => {
-            let index = world.objects.len();
-            world.objects.push(Some(DisunityObject::default()));
-            world.object_generations.push(1);
-            Ok(make_handle(index, 1))
-        }
-    }
+    world.advance_content()?;
+    Ok(world.allocate_object())
 }
 
 /// Removes an object; the generation bump invalidates outstanding handles.
@@ -237,21 +306,22 @@ pub(crate) fn destroy_object(
 ) -> Result<(), &'static str> {
     let (world_index, world_generation) = split_handle(world)?;
     let world = live_world_mut(store, world_index, world_generation)?;
-    let (index, generation) = split_handle(object)?;
-    if world.object_generations.get(index).copied() != Some(generation)
-        || world.objects.get(index).map(Option::is_none) != Some(false)
-    {
-        return Err("object handle does not address a live object");
-    }
-    world.objects[index] = None;
+    world
+        .object_index(object)
+        .map_err(|_| "object handle does not address a live object")?;
+    world.advance_content()?;
+    world
+        .remove_object(object)
+        .map_err(|_| "object handle does not address a live object")?;
+    readiness::observe(world);
     Ok(())
 }
 
-fn live_world_mut(
+fn live_session_mut(
     store: &mut Store,
-    index: usize,
-    generation: u32,
-) -> Result<&mut DisunityWorld, &'static str> {
+    handle: u64,
+) -> Result<&mut integrity::Session, &'static str> {
+    let (index, generation) = split_handle(handle)?;
     if store.world_generations.get(index).copied() != Some(generation) {
         return Err("world handle generation is stale");
     }
@@ -260,6 +330,16 @@ fn live_world_mut(
         .get_mut(index)
         .and_then(Option::as_mut)
         .ok_or("world handle does not address a live world")
+}
+fn live_world_mut(
+    store: &mut Store,
+    index: usize,
+    generation: u32,
+) -> Result<&mut DisunityWorld, &'static str> {
+    let session = live_session_mut(store, make_handle(index, generation))?;
+    session.require_owner()?;
+    strict::allow_mutation(&session.world).map_err(|_| "strict phase does not permit mutation")?;
+    Ok(&mut session.world)
 }
 
 /// Runs `f` against a live world's state; used by the Rust-side bridge, never
@@ -275,7 +355,7 @@ pub fn with_world<U>(handle: u64, f: impl FnOnce(&DisunityWorld) -> U) -> Result
         .get(index)
         .and_then(Option::as_ref)
         .ok_or("world handle does not address a live world")?;
-    Ok(f(world))
+    Ok(f(&world.world))
 }
 
 /// Records a submitted command batch as pending, bounded by
@@ -287,21 +367,23 @@ pub(crate) fn submit_commands(
 ) -> Result<(), &'static str> {
     let (world_index, world_generation) = split_handle(world)?;
     let world = live_world_mut(store, world_index, world_generation)?;
+    world.advance_content()?;
     world.pending_commands.extend_from_slice(commands);
     Ok(())
 }
 
 /// Applies pending commands during a step; a bad command records the error and
 /// stops the step so the host can fetch the message.
-pub(crate) fn step_world(
-    store: &mut Store,
-    world: u64,
-    _dt: f32,
-    _frame: u64,
-) -> Result<(), String> {
+pub(crate) fn step_world(store: &mut Store, world: u64, dt: f32, frame: u64) -> Result<(), String> {
     let (world_index, world_generation) = split_handle(world)?;
     let world = live_world_mut(store, world_index, world_generation)
         .map_err(std::string::ToString::to_string)?;
+    if world.strict.is_some() {
+        return Err("strict session requires authenticated native advancement".into());
+    }
+    world.clock.require_legacy()?;
+    input::validate_dt(dt)?;
+    world.advance_content()?;
     let pending = std::mem::take(&mut world.pending_commands);
     for command in pending {
         if let Err(reason) = world.apply_command(command) {
@@ -310,6 +392,9 @@ pub(crate) fn step_world(
         }
         world.applied_commands.push(command);
     }
+    world.clock.begin_legacy(dt)?;
+    world.clock.frame = frame;
+    world.physics_step(dt * world.clock.time_scale)?;
     Ok(())
 }
 
@@ -325,8 +410,9 @@ pub(crate) fn record_error(store: &mut Store, world: Option<u64>, message: &str)
         .get_mut(index)
         .and_then(Option::as_mut)
         .filter(|_| store.world_generations.get(index).copied() == Some(generation))
+        && world.require_owner().is_ok()
     {
-        world.last_error = Some(message.to_string());
+        world.world.last_error = Some(message.to_string());
     }
 }
 
@@ -335,4 +421,15 @@ pub fn store_statistics() -> (usize, usize) {
     let store = lock_store();
     let live = store.worlds.iter().flatten().count();
     (live, store.worlds.len())
+}
+
+// Process-wide generations prevent handles from aliasing across world and resource owners.
+fn next_generation() -> u32 {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    NEXT.try_update(
+        std::sync::atomic::Ordering::Relaxed,
+        std::sync::atomic::Ordering::Relaxed,
+        |n| n.checked_add(1),
+    )
+    .expect("handle generation space exhausted")
 }

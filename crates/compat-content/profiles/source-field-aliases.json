@@ -1,0 +1,7 @@
+{
+  "name": "observed-original-source-field-aliases",
+  "field_aliases": {
+    "496b9770dcb4e9ecab5379f35c859b35": {"startSpeed": "speed"},
+    "fec2b0e28e0bb6e4f930b2db3fb4f7c9": {"team": "scoresTo"}
+  }
+}

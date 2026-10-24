@@ -1,0 +1,27 @@
+[package]
+name = "compat-player"
+description = "Canonical live runtime worker for compatibility fixtures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+compat-kit = { path = "../compat-kit" }
+worldrunner = { path = "../worldrunner", default-features = false, features = ["managed", "compat-content", "scene", "scene-viewer"] }
+serde.workspace = true
+serde_json.workspace = true
+png.workspace = true
+pollster.workspace = true
+glam.workspace = true
+base64 = "0.23.1"
+jpeg-decoder = { version = "0.3.2", default-features = false }
+rustix = { workspace = true, features = ["fs"] }
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,5 +1,5 @@
 {
-  "abi_version": 1,
+  "abi_version": 2,
   "description": "Disunity C ABI surface; append-only. Never change a listed signature: add an export and bump abi_version.",
   "functions": [
     {
@@ -60,6 +60,21 @@
     {
       "name": "disunity_world_export_objects",
       "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_request",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_response_copy",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_response_free",
+      "since": "2.0.0",
       "rets": "DisunityResult"
     }
   ]

@@ -172,12 +172,15 @@ pub fn model_matrix(transform: &SceneTransform) -> Mat4 {
 /// The matrix is column-major; the mode follows it as a single `u32`.
 #[must_use]
 pub fn pack_instance(transform: &SceneTransform, billboard: Option<BillboardPolicy>) -> Vec<u8> {
-    let matrix = model_matrix(transform);
+    pack_model_instance(model_matrix(transform), billboard_mode(billboard))
+}
+
+pub(crate) fn pack_model_instance(matrix: Mat4, mode: u32) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(INSTANCE_BYTES);
     for column in matrix.to_cols_array() {
         push_f32(&mut bytes, column);
     }
-    bytes.extend_from_slice(&billboard_mode(billboard).to_le_bytes());
+    bytes.extend_from_slice(&mode.to_le_bytes());
     bytes
 }
 

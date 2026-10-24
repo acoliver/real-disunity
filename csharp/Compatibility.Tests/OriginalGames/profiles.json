@@ -1,0 +1,36 @@
+{
+  "compiler_runtime": "net8.0",
+  "scope": "facade-backed original-source API compatibility; no Unity editor/compiler or full engine certification",
+  "profiles": {
+    "source-6000.3": { "api_target": "6000.3", "unknown_fields": "diagnose" },
+    "compat-6000.3": { "api_target": "6000.3", "unknown_fields": "diagnose" },
+    "compat-2017.1": { "api_target": "2017.1", "unknown_fields": "diagnose" }
+  },
+  "sources": {
+    "Snake": {
+      "observed_editor_version": "6000.3.7f1",
+      "default_profile": "compat-6000.3",
+      "field_aliases": {}
+    },
+    "Breakout": {
+      "observed_editor_version": "6000.3.5f2",
+      "default_profile": "compat-6000.3",
+      "field_aliases": { "Ball.startSpeed": "speed" }
+    },
+    "Pong": {
+      "observed_editor_version": "2017.1.0f3",
+      "default_profile": "compat-2017.1",
+      "field_aliases": { "Goal.team": "scoresTo" }
+    }
+  },
+  "api_adapters": {
+    "Rigidbody2D.velocity": "native velocity",
+    "Rigidbody2D.linearVelocity": "native velocity",
+    "Input.GetAxisRaw": "native raw configured axes",
+    "Input.GetAxis": "native raw configured axes; smoothing unestablished",
+    "UnityEngine.UI.Text.text": "native Text text",
+    "UnityEngine.InputSystem.Keyboard": "native keyboard key state",
+    "Object.FindObjectsByType": "native object/component discovery",
+    "Object.FindObjectOfType": "native object/component discovery"
+  }
+}

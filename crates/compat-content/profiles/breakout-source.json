@@ -1,0 +1,22 @@
+{
+  "name": "original-breakout-source-migrations",
+  "builtin_replacements": {
+    "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+    "0000000000000000e000000000000000:10102": "host.builtin-font",
+    "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+  },
+  "field_aliases": {
+    "496b9770dcb4e9ecab5379f35c859b35": {
+      "startSpeed": "speed"
+    }
+  },
+  "script_types": {
+    "0000000000000000e000000000000000:13312": "UnityEngine.Tilemaps.Tile"
+  },
+  "field_exclusions": {
+    "57fc46ce82be2cd0284f27309fe6c2a6": {
+      "powerUpChance": "Original Brick.cs no longer declares powerUpChance; exclude stale serialized value from managed binding and retain original source fields. PowerUp.cs owns current power-up policy.",
+      "widePlatformDuration": "Original Brick.cs no longer declares widePlatformDuration; exclude stale serialized value from managed binding and retain original source fields. PowerUp.cs owns current power-up duration."
+    }
+  }
+}

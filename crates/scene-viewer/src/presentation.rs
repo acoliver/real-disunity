@@ -1,12 +1,13 @@
 use crate::ViewerError;
-use worldrunner_render_post::{CopyOutput, FrameConfig, PostChain, Resources};
-use worldrunner_render_scene::{Viewport, renderer::depth_texture};
+use worldrunner_render_post::{CopyOutput, FrameConfig, PostChain, Readback, Resources};
+use worldrunner_render_scene::{Viewport, offscreen::RgbaImage, renderer::depth_texture};
 
 /// Keep the scene renderer's sRGB contract; copy output adds no new display look.
 pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 pub(super) struct Presentation {
     chain: PostChain<CopyOutput>,
+    readback: Option<Readback>,
     pub targets: Targets,
 }
 
@@ -25,7 +26,11 @@ impl Presentation {
         )
         .expect("validated viewer extent");
         let targets = Targets::new(device, &chain, size);
-        Self { chain, targets }
+        Self {
+            chain,
+            readback: None,
+            targets,
+        }
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, size: Viewport) {
@@ -35,7 +40,48 @@ impl Presentation {
             .expect("validated viewer extent")
         {
             self.targets = Targets::new(device, &self.chain, size);
+            self.readback = None;
         }
+    }
+
+    pub fn encode_capture(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), ViewerError> {
+        let texture = self.targets.color.texture();
+        if self.readback.is_none() {
+            self.readback = Some(Readback::new(
+                device,
+                FrameConfig::new([texture.width(), texture.height()], COLOR, 1),
+                device.limits().max_buffer_size,
+            )?);
+        }
+        self.readback
+            .as_mut()
+            .expect("capture storage")
+            .encode(encoder, texture)?;
+        Ok(())
+    }
+
+    pub fn read_capture(
+        &mut self,
+        device: &wgpu::Device,
+        submission: wgpu::SubmissionIndex,
+    ) -> Result<RgbaImage, ViewerError> {
+        let pixels = self
+            .readback
+            .as_mut()
+            .expect("encoded capture")
+            .read_encoded(device, Some(submission))?;
+        let texture = self.targets.color.texture();
+        Ok(RgbaImage {
+            viewport: Viewport {
+                width: texture.width(),
+                height: texture.height(),
+            },
+            pixels,
+        })
     }
 
     pub fn present(&self, encoder: &mut wgpu::CommandEncoder, surface: &wgpu::TextureView) {

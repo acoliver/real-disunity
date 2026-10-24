@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "name": "breakout-interactive",
+  "source_root": ".work/games/breakout",
+  "profiles": [
+    "source-6000.3",
+    "compat-6000.3",
+    "compat-2017.1"
+  ],
+  "default_profile": "source-6000.3",
+  "evidence_label": "original-source/unlit-material-translation/sprite-bounds-collision",
+  "worker": {
+    "program": "{root}/.work/target/debug/compat-player",
+    "args": []
+  },
+  "seed": 17,
+  "limits": {
+    "deadline_ms": 120000,
+    "log_bytes": 1048576,
+    "artifact_bytes": 268435456,
+    "capture_count": 8
+  },
+  "metadata": {
+    "upstream": "https://github.com/admtrv/Breakout",
+    "source_editor_observed": "6000.3.5f2",
+    "scene": "Assets/Scenes/SampleScene.unity",
+    "source_scripts": "original",
+    "visual_assets": "original sprites with declared material/font translations",
+    "visual_sidecars": [
+      "crates/compat-content/overlays/breakout.json"
+    ],
+    "compatibility_sidecar": {
+      "field_overrides": [],
+      "reference_substitutions": [
+        {
+          "guid": "a97c105638bdf8b4a8650670310a4cd3",
+          "file_id": 2100000,
+          "replacement": {
+            "$builtin": "host.sprite-unlit"
+          },
+          "reason": "Original 2D renderer material is absent. Explicitly select the host unlit sprite material while retaining all original texture texels, tint and subasset identity."
+        }
+      ],
+      "tile_collider_fallbacks": [
+        {
+          "guid": "8c9cfa26abfee488c85f1582747f6a02",
+          "file_id": 2096728906,
+          "geometry": "sprite_bounds",
+          "reason": "Original wall sprite physicsShape is empty. Explicit rect/pixels_per_unit/pivot bounds preserve all 48 source wall cells; geometry fidelity is sprite_bounds, without alpha tracing or inferred authored collision."
+        }
+      ]
+    },
+    "evidence_label": "original-source/unlit-material-translation/sprite-bounds-collision",
+    "script_count": 7,
+    "import_profile": {
+      "name": "original-breakout-source-migrations",
+      "builtin_replacements": {
+        "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+        "0000000000000000e000000000000000:10102": "host.builtin-font",
+        "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+      },
+      "field_aliases": {
+        "496b9770dcb4e9ecab5379f35c859b35": {
+          "startSpeed": "speed"
+        }
+      },
+      "script_types": {
+        "0000000000000000e000000000000000:13312": "UnityEngine.Tilemaps.Tile"
+      },
+      "field_exclusions": {
+        "57fc46ce82be2cd0284f27309fe6c2a6": {
+          "powerUpChance": "Original Brick.cs no longer declares powerUpChance; exclude stale serialized value from managed binding and retain original source fields. PowerUp.cs owns current power-up policy.",
+          "widePlatformDuration": "Original Brick.cs no longer declares widePlatformDuration; exclude stale serialized value from managed binding and retain original source fields. PowerUp.cs owns current power-up duration."
+        }
+      }
+    },
+    "admission_policy": {
+      "ignored_components": {
+        "AudioListener": "Audio is outside this native 2D admission profile.",
+        "Grid": "Authored grid metadata is folded into the native Tilemap component.",
+        "TilemapRenderer": "Authored sorting/material metadata is folded into native Tilemap; host owns render extraction."
+      },
+      "ignored_scripts": {
+        "a79441f348de89743a2939f4d699eac1:11500000": "Unavailable original render-pipeline camera extension. Host uses the native orthographic camera and unlit 2D rendering; original record and diagnostics are retained.",
+        "073797afb82c5a1438f328866b10b3f0:11500000": "Unavailable original 2D light extension. Explicit unlit render admission retains original record and diagnostics."
+      }
+    },
+    "coverage": "Bounded continuous desktop exploration with real keyboard input. This fixture does not assert complete game qualification.",
+    "managed_profile": {
+      "unknown_fields": "reject"
+    },
+    "ignored_stale_serialized_fields": {
+      "Brick.powerUpChance": "Source-selected importer exclusion with diagnostic; current original Brick.cs lacks this field.",
+      "Brick.widePlatformDuration": "Source-selected importer exclusion with diagnostic; current original Brick.cs lacks this field."
+    },
+    "collision_fidelity": "sprite_bounds from original sprite rect, pixels-per-unit and pivot; original physicsShape is empty. No alpha tracing or authored polygon fidelity claim.",
+    "interactive": {
+      "duration_ms": 30000,
+      "max_frames": 3600,
+      "max_captures": 8
+    }
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "phase": "load",
+      "action": "load"
+    }
+  ],
+  "assertions": [
+    {
+      "op": "capture",
+      "frame": 0,
+      "phase": "render",
+      "origin": "original-source/unlit-material-translation/sprite-bounds-collision"
+    }
+  ],
+  "refresh": {
+    "remote": "origin",
+    "branch": "main",
+    "gates": [
+      {
+        "program": "python3",
+        "args": [
+          "{root}/fixtures/gates/qualify.py",
+          "breakout",
+          "compile"
+        ]
+      },
+      {
+        "program": "python3",
+        "args": [
+          "{root}/fixtures/gates/qualify.py",
+          "breakout",
+          "test"
+        ]
+      }
+    ]
+  }
+}

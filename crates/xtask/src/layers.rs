@@ -69,6 +69,9 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-scene-viewer", Layer::Host),
     ("worldrunner-disunity-runtime", Layer::Managed),
     ("worldrunner-content-tool", Layer::Tool),
+    ("worldrunner-compat-content", Layer::World),
+    ("compat-kit", Layer::Tool),
+    ("compat-player", Layer::Tool),
     ("xtask", Layer::Tool),
     ("worldrunner", Layer::Facade),
 ];

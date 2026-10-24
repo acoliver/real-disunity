@@ -15,6 +15,8 @@ publish.workspace = true
 glam.workspace = true
 worldrunner-asset-id = { path = "../asset-id" }
 worldrunner-core-types = { path = "../core-types" }
+worldrunner-disunity-runtime = { path = "../disunity-runtime", optional = true }
+worldrunner-compat-content = { path = "../compat-content", optional = true }
 worldrunner-camera = { path = "../camera", optional = true }
 worldrunner-catalog = { path = "../catalog", optional = true }
 worldrunner-import-schema = { path = "../import-schema", optional = true }
@@ -22,6 +24,8 @@ worldrunner-material = { path = "../material", optional = true }
 worldrunner-mesh = { path = "../mesh", optional = true }
 worldrunner-package = { path = "../package", optional = true }
 worldrunner-render-plan = { path = "../render-plan", optional = true }
+worldrunner-render-post = { path = "../render-post", optional = true }
+worldrunner-render-gpu = { path = "../render-gpu", optional = true }
 worldrunner-render-scene = { path = "../render-scene", optional = true }
 worldrunner-scene-viewer = { path = "../scene-viewer", optional = true }
 worldrunner-save = { path = "../save", optional = true }
@@ -32,7 +36,15 @@ worldrunner-world-model = { path = "../world-model", optional = true }
 worldrunner-world-runtime = { path = "../world-runtime", optional = true }
 worldrunner-world-schema = { path = "../world-schema", optional = true }
 
+[dev-dependencies]
+pollster.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
 [features]
+managed = ["dep:worldrunner-disunity-runtime"]
+compat-content = ["dep:worldrunner-compat-content"]
 default = ["assets", "gfx", "world"]
 assets = [
     "dep:worldrunner-catalog",
@@ -44,7 +56,13 @@ assets = [
 ]
 gfx = ["dep:worldrunner-camera", "dep:worldrunner-render-scene"]
 scene-viewer = ["scene", "dep:worldrunner-scene-viewer"]
-scene = ["dep:worldrunner-render-plan", "dep:worldrunner-render-scene"]
+scene = [
+    "dep:worldrunner-camera",
+    "dep:worldrunner-render-plan",
+    "dep:worldrunner-render-post",
+    "dep:worldrunner-render-gpu",
+    "dep:worldrunner-render-scene",
+]
 script = ["dep:worldrunner-script"]
 world = [
     "dep:worldrunner-render-plan",

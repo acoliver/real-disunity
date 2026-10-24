@@ -1,0 +1,11 @@
+{
+  "ignored_components": {
+    "AudioListener": "Audio is outside this native 2D admission profile.",
+    "Grid": "Authored grid metadata is folded into the native Tilemap component.",
+    "TilemapRenderer": "Authored sorting/material metadata is folded into native Tilemap; host owns render extraction."
+  },
+  "ignored_scripts": {
+    "a79441f348de89743a2939f4d699eac1:11500000": "Unavailable original render-pipeline camera extension. Host uses the native orthographic camera and unlit 2D rendering; original record and diagnostics are retained.",
+    "073797afb82c5a1438f328866b10b3f0:11500000": "Unavailable original 2D light extension. Explicit unlit render admission retains original record and diagnostics."
+  }
+}

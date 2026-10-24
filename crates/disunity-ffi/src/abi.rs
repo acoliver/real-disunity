@@ -66,13 +66,21 @@ impl DisunityResult {
 }
 
 /// The ABI version of this library; see `disunity_interface.json`.
-pub const DISUNITY_ABI_VERSION: u32 = 1;
+pub const DISUNITY_ABI_VERSION: u32 = 2;
 
 fn translate_error(world: Option<u64>, reason: &str) -> DisunityResult {
     let detail = 1;
     let mut store = crate::lock_store();
     crate::record_error(&mut store, world, reason);
     DisunityResult::error(detail)
+}
+
+fn mutation_error(reason: &str) -> DisunityResult {
+    if reason == crate::integrity::WRONG_THREAD {
+        DisunityResult::invalid_argument()
+    } else {
+        DisunityResult::invalid_handle()
+    }
 }
 
 /// Writes the ABI version this library implements into `out_version`.
@@ -112,7 +120,7 @@ pub unsafe extern "C" fn disunity_world_destroy(world: u64) -> DisunityResult {
     let mut store = crate::lock_store();
     match crate::destroy_world(&mut store, world) {
         Ok(()) => DisunityResult::ok(),
-        Err(_) => DisunityResult::invalid_handle(),
+        Err(reason) => mutation_error(reason),
     }
 }
 
@@ -134,7 +142,7 @@ pub unsafe extern "C" fn disunity_gameobject_create(
             unsafe { *out_object = handle };
             DisunityResult::ok()
         }
-        Err(_) => DisunityResult::invalid_handle(),
+        Err(reason) => mutation_error(reason),
     }
 }
 
@@ -147,7 +155,7 @@ pub unsafe extern "C" fn disunity_gameobject_destroy(world: u64, object: u64) ->
     let mut store = crate::lock_store();
     match crate::destroy_object(&mut store, world, object) {
         Ok(()) => DisunityResult::ok(),
-        Err(_) => DisunityResult::invalid_handle(),
+        Err(reason) => mutation_error(reason),
     }
 }
 
@@ -236,7 +244,7 @@ pub unsafe extern "C" fn disunity_command_buffer_submit(
     let mut store = crate::lock_store();
     match crate::submit_commands(&mut store, world, slice) {
         Ok(()) => DisunityResult::ok(),
-        Err(_) => DisunityResult::invalid_handle(),
+        Err(reason) => mutation_error(reason),
     }
 }
 /// Advances the world one tick, draining any submitted command buffer.
@@ -253,6 +261,9 @@ pub unsafe extern "C" fn disunity_world_step(world: u64, dt: f32, frame: u64) ->
     };
     match outcome {
         Ok(()) => DisunityResult::ok(),
+        Err(reason) if reason == crate::integrity::WRONG_THREAD => {
+            DisunityResult::invalid_argument()
+        }
         Err(reason) => translate_error(Some(world), &reason),
     }
 }
@@ -343,5 +354,88 @@ pub unsafe extern "C" fn disunity_world_export_objects(
             |reason| translate_error(Some(world), reason),
             |()| DisunityResult::ok(),
         )
+    }
+}
+
+/// Executes one UTF-8 JSON request and returns an independently owned response.
+///
+/// # Safety
+/// `request` must address `len` readable bytes and `response` one writable u64.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_world_request(
+    world: u64,
+    request: *const u8,
+    len: usize,
+    response: *mut u64,
+) -> DisunityResult {
+    if response.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    unsafe {
+        *response = 0;
+    }
+    if len > crate::response::MAX_REQUEST_BYTES {
+        return DisunityResult::budget();
+    }
+    if request.is_null() || len == 0 {
+        return DisunityResult::invalid_argument();
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(request, len) };
+    match crate::response::request_bytes(world, bytes) {
+        Ok(handle) => {
+            unsafe {
+                *response = handle;
+            }
+            DisunityResult::ok()
+        }
+        Err(code) => DisunityResult { code, detail: 0 },
+    }
+}
+
+/// Copies an owned response; zero-capacity null buffer is a length probe.
+///
+/// # Safety
+/// `len` must be writable. A nonnull `buffer` must address `cap` writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_response_copy(
+    response: u64,
+    buffer: *mut u8,
+    cap: usize,
+    len: *mut usize,
+) -> DisunityResult {
+    if len.is_null() || (buffer.is_null() && cap != 0) {
+        return DisunityResult::invalid_argument();
+    }
+    unsafe {
+        *len = 0;
+    }
+    match crate::response::response_bytes(response) {
+        Err(code) => DisunityResult { code, detail: 0 },
+        Ok(bytes) => {
+            unsafe {
+                *len = bytes.len();
+            }
+            if cap < bytes.len() {
+                return DisunityResult::budget();
+            }
+            if !bytes.is_empty() {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, bytes.len());
+                }
+            }
+            DisunityResult::ok()
+        }
+    }
+}
+
+/// Frees an owned response, invalidating its generation-checked handle.
+///
+/// # Safety
+/// No caller pointers are retained or dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_response_free(response: u64) -> DisunityResult {
+    match crate::response::response_free(response) {
+        Ok(()) => DisunityResult::ok(),
+        Err(code) => DisunityResult { code, detail: 0 },
     }
 }

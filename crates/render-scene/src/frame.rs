@@ -111,6 +111,19 @@ pub struct FrameUniform {
 }
 
 impl FrameUniform {
+    /// A view-only frame for unlit runtime geometry, with no lighting authority required.
+    pub fn unlit(view: &SceneView) -> Self {
+        Self {
+            view_projection: view.view_projection_matrix(),
+            camera_position: view.eye_meters(),
+            sun_direction: Vec3::Z,
+            sun_irradiance: Vec3::ZERO,
+            ambient_sky: Vec3::ZERO,
+            ambient_ground: Vec3::ZERO,
+            exposure: 1.0,
+        }
+    }
+
     /// Builds the frame uniform from a view and the governed effects.
     ///
     /// # Errors

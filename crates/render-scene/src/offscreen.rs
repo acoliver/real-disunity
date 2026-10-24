@@ -224,6 +224,17 @@ impl OffscreenTarget {
         scene: &SceneGpu,
         pipelines: &ScenePipelines,
     ) -> Result<RgbaImage, OffscreenError> {
+        self.render_with_clear_color(context, scene, pipelines, wgpu::Color::BLACK)
+    }
+
+    /// Draws the same resident scene with an explicit linear RGBA clear color.
+    pub fn render_with_clear_color(
+        &mut self,
+        context: &GpuContext,
+        scene: &SceneGpu,
+        pipelines: &ScenePipelines,
+        clear: wgpu::Color,
+    ) -> Result<RgbaImage, OffscreenError> {
         let mut encoder =
             context
                 .device()
@@ -238,7 +249,7 @@ impl OffscreenTarget {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(clear),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

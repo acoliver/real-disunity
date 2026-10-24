@@ -76,6 +76,7 @@ pub struct ScenePipelines {
     terrain_layout: BindGroupLayout,
     pipelines: [RenderPipeline; 4],
     terrain: RenderPipeline,
+    unlit_alpha: RenderPipeline,
 }
 
 impl ScenePipelines {
@@ -147,6 +148,7 @@ impl ScenePipelines {
                 },
             )
         });
+        let unlit_alpha = build_unlit_alpha(device, color_format, &layout, &buffers, &module);
         let terrain = build_terrain(device, &frame_layout, &terrain_layout, &buffers, &targets);
 
         Self {
@@ -155,7 +157,12 @@ impl ScenePipelines {
             terrain_layout,
             pipelines,
             terrain,
+            unlit_alpha,
         }
+    }
+
+    pub(crate) const fn unlit_alpha(&self) -> &RenderPipeline {
+        &self.unlit_alpha
     }
 
     pub(crate) const fn object_pipelines(&self) -> &[RenderPipeline; 4] {
@@ -193,6 +200,60 @@ impl ScenePipelines {
     }
 }
 
+fn build_unlit_alpha(
+    device: &Device,
+    color_format: TextureFormat,
+    layout: &PipelineLayout,
+    buffers: &[Option<VertexBufferLayout<'_>>; 2],
+    module: &wgpu::ShaderModule,
+) -> RenderPipeline {
+    let alpha_targets = [Some(ColorTargetState {
+        format: color_format,
+        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+        write_mask: ColorWrites::ALL,
+    })];
+    let tint_attributes = [wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x4,
+        offset: 0,
+        shader_location: 8,
+    }];
+    let alpha_buffers = [
+        buffers[0].clone(),
+        buffers[1].clone(),
+        Some(VertexBufferLayout {
+            array_stride: 16,
+            step_mode: VertexStepMode::Instance,
+            attributes: &tint_attributes,
+        }),
+    ];
+    build_variant(
+        device,
+        layout,
+        &alpha_buffers,
+        FragmentState {
+            module,
+            entry_point: Some("fs_unlit"),
+            compilation_options: PipelineCompilationOptions::default(),
+            targets: &alpha_targets,
+        },
+        ObjectState {
+            key: PipelineKey {
+                masked: false,
+                double_sided: true,
+            },
+            depth_write: false,
+            vertex_entry: "vs_unlit",
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+struct ObjectState {
+    key: PipelineKey,
+    depth_write: bool,
+    vertex_entry: &'static str,
+}
+
 /// Builds the one pipeline a single material state requires.
 ///
 /// Only `cull_mode` and the fragment entry point vary with the key. Everything
@@ -206,12 +267,32 @@ pub(crate) fn build(
     buffers: &[Option<VertexBufferLayout<'_>>],
     fragment: FragmentState<'_>,
 ) -> RenderPipeline {
+    build_variant(
+        device,
+        layout,
+        buffers,
+        fragment,
+        ObjectState {
+            key,
+            depth_write: true,
+            vertex_entry: shader::VERTEX_ENTRY_POINT,
+        },
+    )
+}
+
+fn build_variant(
+    device: &Device,
+    layout: &PipelineLayout,
+    buffers: &[Option<VertexBufferLayout<'_>>],
+    fragment: FragmentState<'_>,
+    state: ObjectState,
+) -> RenderPipeline {
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("environment"),
         layout: Some(layout),
         vertex: VertexState {
             module: fragment.module,
-            entry_point: Some(shader::VERTEX_ENTRY_POINT),
+            entry_point: Some(state.vertex_entry),
             compilation_options: PipelineCompilationOptions::default(),
             buffers,
         },
@@ -219,15 +300,19 @@ pub(crate) fn build(
             topology: PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: FrontFace::Ccw,
-            cull_mode: key.cull_mode(),
+            cull_mode: state.key.cull_mode(),
             unclipped_depth: false,
             polygon_mode: PolygonMode::Fill,
             conservative: false,
         },
         depth_stencil: Some(DepthStencilState {
             format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(CompareFunction::Less),
+            depth_write_enabled: Some(state.depth_write),
+            depth_compare: Some(if state.depth_write {
+                CompareFunction::Less
+            } else {
+                CompareFunction::LessEqual
+            }),
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         }),

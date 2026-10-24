@@ -1,0 +1,26 @@
+[package]
+name = "compat-kit"
+description = "Process-isolated compatibility harness and fixture qualification tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "compat-kit-protocol-test-worker"
+path = "tests/support/worker.rs"
+test = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+png.workspace = true
+rustix = { workspace = true, features = ["process"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

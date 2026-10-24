@@ -1,0 +1,8 @@
+{
+  "name": "original-snake-explicit-host-art",
+  "builtin_replacements": {
+    "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+    "0000000000000000e000000000000000:10102": "host.builtin-font",
+    "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+  }
+}

@@ -10,6 +10,8 @@ use winit::{
 
 use super::*;
 
+mod live;
+
 #[derive(Default)]
 struct Harness {
     renderer: Option<Renderer>,
@@ -69,6 +71,9 @@ fn actual_resize_and_consecutive_suboptimal_frames_are_presented() {
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
     renderer.check_errors().unwrap();
+    let window = renderer.window.clone();
+    harness.renderer = None;
+    live::pending_survives_resize_and_surface_recovery(&mut event_loop, window);
 }
 
 fn view(renderer: &Renderer) -> SceneView {

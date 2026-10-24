@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ExpectedSourceCount>8</ExpectedSourceCount>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../UnityCompat/UnityCompat.csproj" />
+    <OriginalSource Include="../../../.work/games/snake/Assets/Scripts/**/*.cs" Exclude="**/Tests/**;**/Editor/**" />
+    <Compile Include="@(OriginalSource)" />
+  </ItemGroup>
+  <Target Name="QualifyOriginalSources" BeforeTargets="CoreCompile">
+    <Error Condition="'@(OriginalSource->Count())' != '$(ExpectedSourceCount)'" Text="Snake: expected $(ExpectedSourceCount) original sources, found @(OriginalSource->Count()). Empty or changed source census is forbidden." />
+    <WriteLinesToFile File="$(IntermediateOutputPath)original-sources.txt" Lines="@(OriginalSource->'%(FullPath)')" Overwrite="true" />
+  </Target>
+</Project>

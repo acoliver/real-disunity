@@ -13,6 +13,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use libloading::Library;
 mod bridge;
+mod compatibility;
+#[cfg(target_os = "linux")]
+pub use compatibility::NativeImageLease;
+pub use compatibility::{
+    AdvanceReport, CapturedSnapshot, CompatibilityHost, HostIdleMutationError, SnapshotStamp,
+};
 
 use bridge::ManagedBridge;
 
@@ -48,6 +54,12 @@ pub enum HostError {
     Abi(i32),
     #[error("no slice world is loaded")]
     NoWorld,
+    #[error("managed compatibility dispatch failed: {0}")]
+    Compatibility(String),
+    #[error("native compatibility request failed: {0}")]
+    Request(String),
+    #[error("compatibility response exceeded its {0}-byte limit")]
+    ResponseBudget(usize),
 }
 
 static CLAIMED: AtomicBool = AtomicBool::new(false);
@@ -106,9 +118,43 @@ impl ManagedHostConfig {
         }
         Ok(())
     }
+
+    #[cfg(target_os = "linux")]
+    fn validate_managed(&self) -> Result<(), HostError> {
+        for path in [&self.runtime_config, &self.assembly] {
+            if !path.is_file() {
+                return Err(HostError::ManagedArtifactsMissing(path.clone()));
+            }
+        }
+        if self.bridge_type.trim().is_empty() {
+            return Err(HostError::Hostfxr(
+                "bridge type must be explicit and nonempty".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn load_ffi_image(config: &ManagedHostConfig) -> Result<Library, HostError> {
+    // Native Rust pthread-key destructors can run after host drop or a boot error.
+    // Linux keeps this selected image mapped through thread exit; worlds and managed
+    // roots still require their ordinary cleanup. Other platforms retain their policy.
+    #[cfg(target_os = "linux")]
+    {
+        use libloading::os::unix::{Library as UnixLibrary, RTLD_LAZY, RTLD_LOCAL};
+        // Linux dlfcn.h extension, not exported by libloading 0.8.
+        const RTLD_NODELETE: std::os::raw::c_int = 0x1000;
+        // SAFETY: the caller explicitly selects a trusted native engine library.
+        unsafe {
+            UnixLibrary::open(
+                Some(&config.ffi_library),
+                RTLD_LAZY | RTLD_LOCAL | RTLD_NODELETE,
+            )
+        }
+        .map(Library::from)
+        .map_err(|error| HostError::FfiNotFound(error.to_string()))
+    }
+    #[cfg(not(target_os = "linux"))]
     // SAFETY: the caller explicitly selects a trusted native engine library.
     unsafe {
         Library::new(&config.ffi_library).map_err(|error| HostError::FfiNotFound(error.to_string()))
@@ -278,5 +324,57 @@ mod tests {
         assert_eq!(offset_of!(DisunityObjectState, z), 16);
         assert_eq!(offset_of!(DisunityObjectState, rotation_y_radians), 20);
         assert_eq!(offset_of!(DisunityObjectState, material_slot), 24);
+    }
+
+    #[cfg(target_os = "linux")]
+    fn managed_config() -> super::ManagedHostConfig {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        super::ManagedHostConfig {
+            ffi_library: manifest.join("missing-native-image-validation-fixture"),
+            runtime_config: manifest.join("Cargo.toml"),
+            assembly: manifest.join("Cargo.toml"),
+            bridge_type: "Explicit.TestBridge, TestAssembly".into(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn managed_only_validation_leaves_native_selection_to_the_owned_lease() {
+        let config = managed_config();
+        assert!(config.validate_managed().is_ok());
+        assert!(matches!(
+            config.validate(),
+            Err(super::HostError::FfiNotFound(_))
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn legacy_validation_preserves_native_error_before_empty_bridge() {
+        let mut config = managed_config();
+        config.bridge_type = " 	".into();
+        assert!(matches!(
+            config.validate(),
+            Err(super::HostError::FfiNotFound(_))
+        ));
+        assert!(matches!(
+            config.validate_managed(),
+            Err(super::HostError::Hostfxr(_))
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn both_validation_routes_reject_missing_managed_artifacts_first() {
+        let mut config = managed_config();
+        config.runtime_config = config.ffi_library.clone();
+        assert!(matches!(
+            config.validate(),
+            Err(super::HostError::ManagedArtifactsMissing(path)) if path == config.runtime_config
+        ));
+        assert!(matches!(
+            config.validate_managed(),
+            Err(super::HostError::ManagedArtifactsMissing(path)) if path == config.runtime_config
+        ));
     }
 }

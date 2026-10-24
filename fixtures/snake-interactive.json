@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "name": "snake-interactive",
+  "source_root": ".work/games/snake",
+  "profiles": [
+    "source-6000.3",
+    "compat-6000.3",
+    "compat-2017.1"
+  ],
+  "default_profile": "source-6000.3",
+  "evidence_label": "original-source/authored-missing-sprite",
+  "worker": {
+    "program": "{root}/.work/target/debug/compat-player",
+    "args": []
+  },
+  "seed": 17,
+  "limits": {
+    "deadline_ms": 120000,
+    "log_bytes": 1048576,
+    "artifact_bytes": 268435456,
+    "capture_count": 8
+  },
+  "metadata": {
+    "upstream": "https://github.com/eguldali/Optimized-Snake-Game",
+    "source_editor_observed": "6000.3.7f1",
+    "scene": "Assets/Scenes/GameScene.unity",
+    "source_scripts": "original",
+    "visual_assets": "original scene plus explicitly authored missing-sprite replacement",
+    "visual_sidecars": [
+      "crates/compat-content/overlays/snake.json"
+    ],
+    "compatibility_sidecar": {
+      "field_overrides": [],
+      "reference_substitutions": [
+        {
+          "guid": "311925a002f4447b3a28927169b83ea6",
+          "file_id": 7482667652216324306,
+          "replacement": {
+            "$builtin": "fixture.authored-snake-unit-square"
+          },
+          "reason": "Selected originals omit this sprite. Use the explicitly authored solid white unit-square definition in fallback_sprites; no original art is changed."
+        }
+      ],
+      "fallback_sprites": [
+        {
+          "name": "fixture.authored-snake-unit-square",
+          "texture_size": [
+            8,
+            8
+          ],
+          "rgba": [
+            255,
+            255,
+            255,
+            255
+          ],
+          "sprite": {
+            "file_id": 7482667652216324306,
+            "name": "authored-unit-square",
+            "rect": [
+              0,
+              0,
+              8,
+              8
+            ],
+            "pivot": [
+              0.5,
+              0.5
+            ],
+            "pixels_per_unit": 8,
+            "border": [
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "reason": "User-authorized, separately authored eight-pixel solid white square, one source world unit wide; source SpriteRenderer tint remains authoritative."
+        }
+      ]
+    },
+    "observation_contract": "world.snapshot is native JSON snapshot data; selector uses unchanged authored object names",
+    "evidence_label": "original-source/authored-missing-sprite",
+    "script_count": 8,
+    "import_profile": {
+      "name": "original-snake-explicit-host-art",
+      "builtin_replacements": {
+        "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+        "0000000000000000e000000000000000:10102": "host.builtin-font",
+        "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+      }
+    },
+    "admission_policy": {
+      "ignored_components": {
+        "AudioListener": "Audio is outside this native 2D admission profile."
+      }
+    },
+    "coverage": "Bounded continuous desktop exploration with real keyboard input. This fixture does not assert complete game qualification.",
+    "viewport": [
+      1280,
+      640
+    ],
+    "interactive": {
+      "duration_ms": 30000,
+      "max_frames": 3600,
+      "max_captures": 8
+    }
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "phase": "load",
+      "action": "load"
+    }
+  ],
+  "assertions": [
+    {
+      "op": "capture",
+      "frame": 0,
+      "phase": "render",
+      "origin": "original-source/authored-missing-sprite"
+    }
+  ],
+  "refresh": {
+    "remote": "origin",
+    "branch": "main",
+    "gates": [
+      {
+        "program": "python3",
+        "args": [
+          "{root}/fixtures/gates/qualify.py",
+          "snake",
+          "compile"
+        ]
+      },
+      {
+        "program": "python3",
+        "args": [
+          "{root}/fixtures/gates/qualify.py",
+          "snake",
+          "test"
+        ]
+      }
+    ]
+  }
+}

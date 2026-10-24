@@ -58,11 +58,14 @@ CheckImport("disunity_world_step", u64, f32, u64);
 CheckImport("disunity_error_message", u64, typeof(byte).MakePointerType(), u32, u32.MakePointerType());
 CheckImport("disunity_store_statistics", u64.MakePointerType(), u64.MakePointerType());
 CheckImport("disunity_world_export_objects", u64, state.MakePointerType(), u32, u32.MakePointerType());
-Require(bindings.GetMethods(Imports).Length == 12, "unexpected native import count");
+CheckImport("disunity_world_request", u64, typeof(byte).MakePointerType(), typeof(nuint), u64.MakePointerType());
+CheckImport("disunity_response_copy", u64, typeof(byte).MakePointerType(), typeof(nuint), typeof(nuint).MakePointerType());
+CheckImport("disunity_response_free", u64);
+Require(bindings.GetMethods(Imports).Length == 15, "unexpected native import count");
 
 CheckLayout(result, 16, ("code", typeof(int), 0), ("detail", u64, 8));
 CheckLayout(command, 24, ("object", u64, 0), ("kind", u32, 8),
     ("x", f32, 12), ("y", f32, 16), ("z", f32, 20));
 CheckLayout(state, 32, ("object", u64, 0), ("x", f32, 8), ("y", f32, 12),
     ("z", f32, 16), ("rotation_y_radians", f32, 20), ("material_slot", u32, 24));
-Console.WriteLine("PASS: all 12 native import signatures/calling conventions and all 3 ABI struct layouts");
+Console.WriteLine("PASS: all 15 native import signatures/calling conventions and all 3 ABI struct layouts");

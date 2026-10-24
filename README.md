@@ -28,3 +28,9 @@ cargo xtask ci-managed   # explicit .NET 8 fixture and native host verification
 ```
 
 `cargo xtask ci` requires a current lockfile and runs formatting, policy, strict lint and complexity gates, then locked check/build/test/doctests. CPU, software-Vulkan, and managed CI jobs use separate explicit profiles; missing prerequisites fail rather than skip tests. Compilation subprocesses use two jobs. See [quality gates](docs/quality.md) for the layer graph, exact initial registry/literal scope, behavioral fixtures, and limitations; the environment lookup scan alone is not an explicit-policy guarantee.
+
+## Compatibility runtime and harness
+
+The [compatibility player](crates/compat-player/README.md) connects the canonical native world, independently authored C# source facade and shared renderer. The [process harness](crates/compat-kit/README.md) provides fixture refresh gates, input timelines, evaluated results and the local dashboard. Original-source game fixtures additionally require .NET 8 and their declared source projects. Full gameplay journeys retain actual observations, renderer captures, source qualification and measured teardown; smoke tests are separately identified.
+
+The [independent acceptance assessment](project-plans/unity-tck/acceptance.md) identifies verified journeys, actual evidence and remaining specification, fidelity, platform and confinement gaps. Compatibility-profile names describe the selected API facade on .NET 8; they do not certify a historical Unity editor or compiler.

@@ -1,0 +1,26 @@
+{
+  "name": "unity-2017-native-2d-explicit-host-bindings",
+  "prefab_source_fields": [
+    "m_ParentPrefab"
+  ],
+  "correspondence_fields": [
+    "m_PrefabParentObject"
+  ],
+  "instance_fields": [
+    "m_PrefabInternal"
+  ],
+  "field_aliases": {
+    "fec2b0e28e0bb6e4f930b2db3fb4f7c9": {
+      "team": "scoresTo"
+    }
+  },
+  "script_types": {
+    "f70555f144d8491a825f0804e09c671c:708705254": "UnityEngine.UI.Text",
+    "f70555f144d8491a825f0804e09c671c:1980459831": "UnityEngine.UI.CanvasScaler"
+  },
+  "builtin_replacements": {
+    "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+    "0000000000000000e000000000000000:10102": "host.builtin-font",
+    "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+  }
+}

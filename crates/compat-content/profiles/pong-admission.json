@@ -1,0 +1,12 @@
+{
+  "ignored_components": {
+    "AudioListener": "Audio is outside this native 2D admission profile.",
+    "Behaviour": "Legacy camera Behaviour records have no supported native mapping. Retained as explicit unsupported records.",
+    "CanvasRenderer": "Text/Canvas metadata is admitted; host-owned generic UI extraction must qualify layout and glyph output separately."
+  },
+  "ignored_scripts": {
+    "f70555f144d8491a825f0804e09c671c:1077351063": "Legacy UI navigation input module does not participate in the selected keyboard paddle callbacks. UI navigation remains unsupported.",
+    "f70555f144d8491a825f0804e09c671c:-619905303": "Legacy UI event system remains unsupported. Paddle input and script-bound score Text use their explicit native adapters.",
+    "f70555f144d8491a825f0804e09c671c:1301386320": "Legacy UI graphic raycasting remains unsupported; no pointer-driven interaction is admitted."
+  }
+}

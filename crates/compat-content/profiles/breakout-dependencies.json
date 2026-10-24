@@ -1,0 +1,952 @@
+{
+  "schema_version": 1,
+  "profile_id": "reviewed-translated-unlit-keyboard-subset-v1",
+  "fidelity": "translated_unlit_keyboard_subset",
+  "required_capabilities": [
+    {
+      "id": "canonical_unlit_quads",
+      "contract_version": 1,
+      "resource_kind": "render_settings"
+    }
+  ],
+  "rules": [
+    {
+      "id": "breakout-01",
+      "locator": {
+        "source_path": "Assets/InputSystem_Actions.inputactions.meta",
+        "owner": {
+          "container": "asset_metadata",
+          "asset_guid": "2bcd2660ca9b64942af0de543d8d7100",
+          "importer_kind": "ScriptedImporter"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "ScriptedImporter"
+          },
+          {
+            "segment": "key",
+            "value": "script"
+          }
+        ]
+      },
+      "source_sha256": "e2df3de96691137dc24b37bd9009e7be17040f3e5cd6d5401b2cd9d8ae2c9c1d",
+      "expected_reference": {
+        "guid": "8404be70184654265930450def6a9037",
+        "file_id": 11500000,
+        "reference_type": 3
+      },
+      "resource_kind": "importer_script",
+      "disposition": {
+        "classification": "import_tool_not_executed",
+        "capability": {
+          "id": "canonical_keyboard_snapshot",
+          "contract_version": 1,
+          "resource_kind": "input"
+        }
+      },
+      "evidence": [
+        {
+          "path": ".work/games/breakout/ProjectSettings/EditorBuildSettings.asset",
+          "sha256": "58bcbfb23da7aab5acd696e7d83e9d75a86442ed39a582159d2493049361ba28",
+          "line": 12,
+          "confidence": "inferred"
+        },
+        {
+          "path": ".work/games/breakout/Packages/manifest.json",
+          "sha256": "fd8bf58f141d64967386186c872200806d32dece11de64d1f5173f460dd5f2cb",
+          "line": 14,
+          "confidence": "inferred"
+        },
+        {
+          "path": ".work/games/breakout/Assets/InputSystem_Actions.inputactions.meta",
+          "sha256": "e2df3de96691137dc24b37bd9009e7be17040f3e5cd6d5401b2cd9d8ae2c9c1d",
+          "line": 11,
+          "confidence": "inferred"
+        },
+        {
+          "path": ".work/games/breakout/Assets/Scripts/Platform.cs",
+          "sha256": "e2e61e25dacbabc32246854a7c53dff61714de6063f39f37ec48a67594ecd771",
+          "line": 5,
+          "confidence": "inferred"
+        },
+        {
+          "path": "csharp/UnityCompat/Presentation.cs",
+          "sha256": "6e7bf17843249f12df276d429c879d85d9e305ca63e9cf5488c961778391c485",
+          "line": 40,
+          "confidence": "inferred"
+        }
+      ],
+      "reason": "The reference is ScriptedImporter.script with generateWrapperCode=0. EditorBuildSettings registers the action asset. No importer implementation is supplied. InputActions asset import/evaluation is unsupported. Selected original gameplay uses the separately observed keyboard facade surface."
+    },
+    {
+      "id": "breakout-02",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_AlwaysIncludedShaders"
+          },
+          {
+            "segment": "index",
+            "value": 0
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 7,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-03",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_AlwaysIncludedShaders"
+          },
+          {
+            "segment": "index",
+            "value": 1
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 15104,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-04",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_AlwaysIncludedShaders"
+          },
+          {
+            "segment": "index",
+            "value": 2
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 15105,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-05",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_AlwaysIncludedShaders"
+          },
+          {
+            "segment": "index",
+            "value": 3
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 15106,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-06",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_AlwaysIncludedShaders"
+          },
+          {
+            "segment": "index",
+            "value": 4
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 10753,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-07",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_AlwaysIncludedShaders"
+          },
+          {
+            "segment": "index",
+            "value": 5
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 10770,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-08",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_AlwaysIncludedShaders"
+          },
+          {
+            "segment": "index",
+            "value": 6
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 10783,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-09",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_Deferred"
+          },
+          {
+            "segment": "key",
+            "value": "m_Shader"
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 69,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-10",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_DeferredReflections"
+          },
+          {
+            "segment": "key",
+            "value": "m_Shader"
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 74,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-11",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_DepthNormals"
+          },
+          {
+            "segment": "key",
+            "value": "m_Shader"
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 62,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-12",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_LensFlare"
+          },
+          {
+            "segment": "key",
+            "value": "m_Shader"
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 102,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-13",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_LightHalo"
+          },
+          {
+            "segment": "key",
+            "value": "m_Shader"
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 105,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-14",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_MotionVectors"
+          },
+          {
+            "segment": "key",
+            "value": "m_Shader"
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 75,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-15",
+      "locator": {
+        "source_path": "ProjectSettings/GraphicsSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 30,
+          "file_id": 1,
+          "kind": "GraphicsSettings"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_ScreenSpaceShadows"
+          },
+          {
+            "segment": "key",
+            "value": "m_Shader"
+          }
+        ]
+      },
+      "source_sha256": "bcdb6ee570b5edc137b79e48f860495035136e494030e214fe39c151d16fe993",
+      "expected_reference": {
+        "guid": "0000000000000000f000000000000000",
+        "file_id": 64,
+        "reference_type": 0
+      },
+      "resource_kind": "shader",
+      "disposition": {
+        "classification": "render_settings_translated",
+        "capability": {
+          "id": "canonical_unlit_quads",
+          "contract_version": 1,
+          "resource_kind": "render_settings"
+        }
+      },
+      "evidence": [
+        {
+          "path": "crates/compat-player/src/graphics.rs",
+          "sha256": "452331c0a4e1d9b62ff4423eb5d3d2e4f903df9235cf662403ca9a11a94ae015",
+          "line": 66,
+          "confidence": "direct"
+        },
+        {
+          "path": "crates/render-scene/src/dynamic/gpu.rs",
+          "sha256": "511bb4ecf08fe3cc1f8a57ae9f3836ca728016ac6d3ac70d3c5a16561e3a39c1",
+          "line": 143,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The source stores a shader slot or always-included entry with builtin-shaped GUID. No shader bytes or shader provider are present for this identity. The active host extracts unlit quads. A reviewed settings translation can retain this unresolved original edge as inactive for that profile; an ID-to-host.sprite-unlit mapping would incorrectly claim shader resolution."
+    },
+    {
+      "id": "breakout-16",
+      "locator": {
+        "source_path": "ProjectSettings/PackageManagerSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 114,
+          "file_id": 1,
+          "kind": "MonoBehaviour"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_Script"
+          }
+        ]
+      },
+      "source_sha256": "ac9e80f330154c62caf293f87dcbcfa5df8ed2adef2e18552b0b34c1eda7e48c",
+      "expected_reference": {
+        "guid": "0000000000000000e000000000000000",
+        "file_id": 13964,
+        "reference_type": 0
+      },
+      "resource_kind": "script",
+      "disposition": {
+        "classification": "editor_configuration"
+      },
+      "evidence": [
+        {
+          "path": ".work/games/breakout/ProjectSettings/PackageManagerSettings.asset",
+          "sha256": "ac9e80f330154c62caf293f87dcbcfa5df8ed2adef2e18552b0b34c1eda7e48c",
+          "line": 12,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "Package registry and UI configuration has no selected runtime object. Breakout explicitly names UnityEditor.PackageManager.UI.Internal.PackageManagerProjectSettings. Snake has an empty class identifier and the same reference with registry settings. Preserve both complete original records and hashes."
+    },
+    {
+      "id": "breakout-17",
+      "locator": {
+        "source_path": "ProjectSettings/Packages/com.unity.dedicated-server/MultiplayerRolesSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 114,
+          "file_id": 1,
+          "kind": "MonoBehaviour"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_Script"
+          }
+        ]
+      },
+      "source_sha256": "66f5310616983159b47ac6b1dfa249b1ea29385b1cecf077e5d596132fc5f0d8",
+      "expected_reference": {
+        "guid": "0000000000000000e000000000000000",
+        "file_id": 15023,
+        "reference_type": 0
+      },
+      "resource_kind": "script",
+      "disposition": {
+        "classification": "editor_configuration"
+      },
+      "evidence": [
+        {
+          "path": ".work/games/breakout/ProjectSettings/Packages/com.unity.dedicated-server/MultiplayerRolesSettings.asset",
+          "sha256": "66f5310616983159b47ac6b1dfa249b1ea29385b1cecf077e5d596132fc5f0d8",
+          "line": 14,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "The record names UnityEditor.Multiplayer.Internal.MultiplayerRolesSettings and has empty role keys. The selected fixture is local keyboard 2D gameplay, with no dedicated-server provider claim."
+    },
+    {
+      "id": "breakout-18",
+      "locator": {
+        "source_path": "ProjectSettings/URPProjectSettings.asset",
+        "owner": {
+          "container": "settings_document",
+          "document_index": 0,
+          "class_id": 114,
+          "file_id": 1,
+          "kind": "MonoBehaviour"
+        },
+        "field": [
+          {
+            "segment": "key",
+            "value": "m_Script"
+          }
+        ]
+      },
+      "source_sha256": "c317fe22b9488785c0611f0642429922e5d324430d929bffb41648130f30c218",
+      "expected_reference": {
+        "guid": "247994e1f5a72c2419c26a37e9334c01",
+        "file_id": 11500000,
+        "reference_type": 3
+      },
+      "resource_kind": "script",
+      "disposition": {
+        "classification": "blocked",
+        "code": "unknown_urp_project_settings_identity"
+      },
+      "evidence": [
+        {
+          "path": ".work/games/breakout/ProjectSettings/URPProjectSettings.asset",
+          "sha256": "c317fe22b9488785c0611f0642429922e5d324430d929bffb41648130f30c218",
+          "line": 14,
+          "confidence": "direct"
+        },
+        {
+          "path": ".work/games/breakout/Packages/manifest.json",
+          "sha256": "fd8bf58f141d64967386186c872200806d32dece11de64d1f5173f460dd5f2cb",
+          "line": 16,
+          "confidence": "direct"
+        },
+        {
+          "path": ".work/games/breakout/ProjectSettings/QualitySettings.asset",
+          "sha256": "e7dc185b977703ec43789f2e73cf2f44f31a73bb42bd594f69d5a799d65b2883",
+          "line": 7,
+          "confidence": "direct"
+        }
+      ],
+      "reason": "URPProjectSettings has an empty m_EditorClassIdentifier; material-version/folder fields suggest tooling but do not prove the absent script contract. Quality settings select the original URP asset in every tier. Keep this edge blocked pending independently reviewed semantics or a separately specified exact opaque-record projection."
+    }
+  ]
+}

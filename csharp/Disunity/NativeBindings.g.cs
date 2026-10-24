@@ -139,6 +139,33 @@ namespace Disunity
         [DllImport(__DllName, EntryPoint = "disunity_world_export_objects", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_world_export_objects(ulong world, DisunityObjectState* states, uint capacity, uint* written);
 
+        /// <summary>
+        ///  Executes one UTF-8 JSON request and returns an independently owned response.
+        ///
+        ///  # Safety
+        ///  `request` must address `len` readable bytes and `response` one writable u64.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_world_request", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_world_request(ulong world, byte* request, nuint len, ulong* response);
+
+        /// <summary>
+        ///  Copies an owned response; zero-capacity null buffer is a length probe.
+        ///
+        ///  # Safety
+        ///  `len` must be writable. A nonnull `buffer` must address `cap` writable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_response_copy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_response_copy(ulong response, byte* buffer, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Frees an owned response, invalidating its generation-checked handle.
+        ///
+        ///  # Safety
+        ///  No caller pointers are retained or dereferenced.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_response_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_response_free(ulong response);
+
 
     }
 

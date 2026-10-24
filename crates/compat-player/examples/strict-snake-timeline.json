@@ -1,0 +1,12 @@
+[
+  {"frame":0,"phase":"load","action":"load"},
+  {"frame":0,"phase":"input","action":"input_events","events":[
+    {"event_id":1,"timestamp":{"num":0,"den":1},"source":"replay","kind":"key","key":"W","pressed":true},
+    {"event_id":2,"timestamp":{"num":1,"den":100},"source":"replay","kind":"key","key":"W","pressed":false}
+  ]},
+  {"frame":1,"phase":"update","action":"advance_rational","dt":{"num":1,"den":60}},
+  {"frame":1,"phase":"observe","action":"observe","selector":"world.snapshot"},
+  {"frame":2,"phase":"update","action":"advance_rational","dt":{"num":1,"den":60}},
+  {"frame":2,"phase":"observe","action":"observe","selector":"managed.snapshot"},
+  {"frame":3,"phase":"unload","action":"unload"}
+]

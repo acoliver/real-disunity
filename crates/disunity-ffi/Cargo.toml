@@ -10,6 +10,11 @@ description = "Disunity C ABI: versioned, append-only exports over engine-owned 
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+glam.workspace = true
+ab_glyph = "0.2.32"
+base64 = "0.23.1"
 
 [build-dependencies]
 csbindgen = "1.9.8"

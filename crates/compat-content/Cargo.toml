@@ -1,0 +1,25 @@
+[package]
+name = "worldrunner-compat-content"
+description = "Bounded native Unity text scene, prefab and serialized asset admission"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml = "0.9.34"
+png.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+worldrunner-asset-id = { path = "../asset-id" }
+worldrunner-package = { path = "../package" }
+
+[dev-dependencies]
+tempfile.workspace = true
+worldrunner-catalog = { path = "../catalog" }
+
+[lints]
+workspace = true

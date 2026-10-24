@@ -1,0 +1,46 @@
+[
+  {
+    "id": "canonical.unlit.material.white.v1",
+    "resource_kind": "material",
+    "provider_id": "host.resource-unlit-material.v1",
+    "capability": {
+      "id": "canonical_unlit_material",
+      "contract_version": 1,
+      "resource_kind": "material"
+    },
+    "bytes_sha256": "ceb58dcc4a0fdc53038b7e3f8591003075a0c44e091455b0c981d562f3068579"
+  },
+  {
+    "id": "canonical.unlit.material.green-half.v1",
+    "resource_kind": "material",
+    "provider_id": "host.resource-unlit-material.v1",
+    "capability": {
+      "id": "canonical_unlit_material",
+      "contract_version": 1,
+      "resource_kind": "material"
+    },
+    "bytes_sha256": "91efae84b7d22c31953a6652988b413db0456e8bee3bcecc9ea703edff778c41"
+  },
+  {
+    "id": "canonical.unlit.shader.v1",
+    "resource_kind": "shader",
+    "provider_id": "host.resource-unlit-shader.v1",
+    "capability": {
+      "id": "canonical_unlit_shader",
+      "contract_version": 1,
+      "resource_kind": "shader"
+    },
+    "bytes_sha256": "2dc0859dbc8d8195d35935a92744a376fb785da730f36a787eb3b664b5f6cc96"
+  },
+  {
+    "id": "fixture.authored-snake-unit-square",
+    "resource_kind": "texture",
+    "provider_id": "host.resource-authored-snake.v1",
+    "capability": {
+      "id": "authored_sprite",
+      "contract_version": 1,
+      "resource_kind": "texture"
+    },
+    "bytes_sha256": "b797dcd9563a6d71b65000718f130ea0a793ccecf185ae5ca79497c1a90c10f2"
+  }
+]

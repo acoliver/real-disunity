@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "name": "pong",
+  "source_root": ".work/games/pong",
+  "profiles": [
+    "source-2017.1",
+    "compat-6000.3",
+    "compat-2017.1"
+  ],
+  "default_profile": "source-2017.1",
+  "evidence_label": "original-source/legacy-mappings-dejavu-font",
+  "worker": {
+    "program": "{root}/.work/target/debug/compat-player",
+    "args": []
+  },
+  "seed": 17,
+  "limits": {
+    "deadline_ms": 120000,
+    "log_bytes": 1048576,
+    "artifact_bytes": 268435456,
+    "capture_count": 32
+  },
+  "metadata": {
+    "upstream": "https://github.com/mcrvaz/pong-tdd",
+    "source_editor_observed": "2017.1.0f3",
+    "scene": "Assets/Scenes/Main.unity",
+    "source_scripts": "original",
+    "visual_assets": "original sprites with declared material/font translations",
+    "visual_sidecars": [
+      "crates/compat-content/overlays/pong.json"
+    ],
+    "compatibility_sidecar": {
+      "field_overrides": [
+        {
+          "guid": "2f4cefa539f44df40a7fe27b9fab654a",
+          "file_id": 1901759440,
+          "property_path": "m_LocalScale.x",
+          "value": 1,
+          "reason": "Original camera-space Canvas root serializes zero local scale before engine-driven UI layout. Native RectTransform layout owns the derived rectangle and requires invertible TRS; explicitly admit unit Canvas scale without modifying original YAML.",
+          "precondition": {
+            "schema_version": 1,
+            "class_id": 224,
+            "expected_value": 0
+          }
+        },
+        {
+          "guid": "2f4cefa539f44df40a7fe27b9fab654a",
+          "file_id": 1901759440,
+          "property_path": "m_LocalScale.y",
+          "value": 1,
+          "reason": "Original camera-space Canvas root serializes zero local scale before engine-driven UI layout. Native RectTransform layout owns the derived rectangle and requires invertible TRS; explicitly admit unit Canvas scale without modifying original YAML.",
+          "precondition": {
+            "schema_version": 1,
+            "class_id": 224,
+            "expected_value": 0
+          }
+        },
+        {
+          "guid": "2f4cefa539f44df40a7fe27b9fab654a",
+          "file_id": 1901759440,
+          "property_path": "m_LocalScale.z",
+          "value": 1,
+          "reason": "Original camera-space Canvas root serializes zero local scale before engine-driven UI layout. Native RectTransform layout owns the derived rectangle and requires invertible TRS; explicitly admit unit Canvas scale without modifying original YAML.",
+          "precondition": {
+            "schema_version": 1,
+            "class_id": 224,
+            "expected_value": 0
+          }
+        }
+      ],
+      "reference_substitutions": []
+    },
+    "evidence_label": "original-source/legacy-mappings-dejavu-font",
+    "script_count": 20,
+    "import_profile": {
+      "name": "unity-2017-native-2d-explicit-host-bindings",
+      "prefab_source_fields": [
+        "m_ParentPrefab"
+      ],
+      "correspondence_fields": [
+        "m_PrefabParentObject"
+      ],
+      "instance_fields": [
+        "m_PrefabInternal"
+      ],
+      "field_aliases": {
+        "fec2b0e28e0bb6e4f930b2db3fb4f7c9": {
+          "team": "scoresTo"
+        }
+      },
+      "script_types": {
+        "f70555f144d8491a825f0804e09c671c:708705254": "UnityEngine.UI.Text",
+        "f70555f144d8491a825f0804e09c671c:1980459831": "UnityEngine.UI.CanvasScaler"
+      },
+      "builtin_replacements": {
+        "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+        "0000000000000000e000000000000000:10102": "host.builtin-font",
+        "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+      }
+    },
+    "admission_policy": {
+      "ignored_components": {
+        "AudioListener": "Audio is outside this native 2D admission profile.",
+        "Behaviour": "Legacy camera Behaviour records have no supported native mapping. Retained as explicit unsupported records.",
+        "CanvasRenderer": "Text/Canvas metadata is admitted; host-owned generic UI extraction must qualify layout and glyph output separately."
+      },
+      "ignored_scripts": {
+        "f70555f144d8491a825f0804e09c671c:1077351063": "Legacy UI navigation input module does not participate in the selected keyboard paddle callbacks. UI navigation remains unsupported.",
+        "f70555f144d8491a825f0804e09c671c:-619905303": "Legacy UI event system remains unsupported. Paddle input and script-bound score Text use their explicit native adapters.",
+        "f70555f144d8491a825f0804e09c671c:1301386320": "Legacy UI graphic raycasting remains unsupported; no pointer-driven interaction is admitted."
+      }
+    },
+    "coverage": "Movement/capture/reload smoke only. Complete gameplay journey assertions are separate.",
+    "fonts": {
+      "host.builtin-font": ".work/fonts/DejaVuSans.ttf"
+    },
+    "font_license": ".work/fonts/DejaVu-LICENSE.txt"
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "phase": "load",
+      "action": "load"
+    },
+    {
+      "frame": 0,
+      "phase": "observe",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 1,
+      "phase": "input",
+      "action": "input",
+      "keys": [
+        "W",
+        "DownArrow"
+      ],
+      "axes": {}
+    },
+    {
+      "frame": 1,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.02
+    },
+    {
+      "frame": 2,
+      "phase": "input",
+      "action": "input",
+      "keys": [],
+      "axes": {}
+    },
+    {
+      "frame": 2,
+      "phase": "fixed_update",
+      "action": "advance",
+      "dt": 0.02
+    },
+    {
+      "frame": 2,
+      "phase": "observe",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 2,
+      "phase": "render",
+      "action": "capture",
+      "path": "captures/pong.png"
+    },
+    {
+      "frame": 3,
+      "phase": "reload",
+      "action": "reload"
+    },
+    {
+      "frame": 3,
+      "phase": "observe",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 3,
+      "phase": "unload",
+      "action": "unload"
+    }
+  ],
+  "assertions": [
+    {
+      "op": "changed",
+      "selector": "world.snapshot",
+      "pointer": "/objects",
+      "before": 0,
+      "after": 2
+    },
+    {
+      "op": "capture",
+      "frame": 2,
+      "phase": "render",
+      "origin": "original-source/legacy-mappings-dejavu-font"
+    }
+  ],
+  "refresh": {
+    "remote": "origin",
+    "branch": "master",
+    "gates": [
+      {
+        "program": "python3",
+        "args": [
+          "{root}/fixtures/gates/qualify.py",
+          "pong",
+          "compile"
+        ]
+      },
+      {
+        "program": "python3",
+        "args": [
+          "{root}/fixtures/gates/qualify.py",
+          "pong",
+          "test"
+        ]
+      }
+    ]
+  }
+}

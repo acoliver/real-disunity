@@ -1,0 +1,41 @@
+{
+  "field_overrides": [
+    {
+      "guid": "2f4cefa539f44df40a7fe27b9fab654a",
+      "file_id": 1901759440,
+      "property_path": "m_LocalScale.x",
+      "value": 1,
+      "reason": "Original camera-space Canvas root serializes zero local scale before engine-driven UI layout. Native RectTransform layout owns the derived rectangle and requires invertible TRS; explicitly admit unit Canvas scale without modifying original YAML.",
+      "precondition": {
+        "schema_version": 1,
+        "class_id": 224,
+        "expected_value": 0
+      }
+    },
+    {
+      "guid": "2f4cefa539f44df40a7fe27b9fab654a",
+      "file_id": 1901759440,
+      "property_path": "m_LocalScale.y",
+      "value": 1,
+      "reason": "Original camera-space Canvas root serializes zero local scale before engine-driven UI layout. Native RectTransform layout owns the derived rectangle and requires invertible TRS; explicitly admit unit Canvas scale without modifying original YAML.",
+      "precondition": {
+        "schema_version": 1,
+        "class_id": 224,
+        "expected_value": 0
+      }
+    },
+    {
+      "guid": "2f4cefa539f44df40a7fe27b9fab654a",
+      "file_id": 1901759440,
+      "property_path": "m_LocalScale.z",
+      "value": 1,
+      "reason": "Original camera-space Canvas root serializes zero local scale before engine-driven UI layout. Native RectTransform layout owns the derived rectangle and requires invertible TRS; explicitly admit unit Canvas scale without modifying original YAML.",
+      "precondition": {
+        "schema_version": 1,
+        "class_id": 224,
+        "expected_value": 0
+      }
+    }
+  ],
+  "reference_substitutions": []
+}

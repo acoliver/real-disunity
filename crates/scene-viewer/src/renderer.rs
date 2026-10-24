@@ -1,20 +1,17 @@
+use crate::cpu_profile::CpuProfile;
 use std::sync::{Arc, mpsc};
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{AcquiredFrame, Presenter, SurfaceError, SurfacePolicy};
-use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
+use worldrunner_render_plan::{RenderScene, SceneTexture};
 use worldrunner_render_scene::{
-    SceneView, Viewport,
-    device::GpuContext,
-    draw::SceneGpu,
-    frame::FrameUniform,
-    renderer::ScenePipelines,
-    shadows::{DirectionalShadowSettings, ShadowedScene},
+    SceneView, Viewport, device::GpuContext, offscreen::RgbaImage,
+    shadows::DirectionalShadowSettings,
 };
 
 use crate::{
-    ViewerError,
-    presentation::{COLOR, Extents, Presentation},
+    LiveFrame, ViewerError,
+    presentation::{Extents, Presentation},
 };
 
 pub(super) struct Renderer {
@@ -27,24 +24,41 @@ pub(super) struct Renderer {
     resident: Resident,
     pub viewport: Option<Viewport>,
     errors: mpsc::Receiver<String>,
+    #[cfg(test)]
+    acquisitions: std::collections::VecDeque<wgpu::CurrentSurfaceTexture>,
 }
 
-enum Resident {
-    Plain(Box<PlainScene>),
-    Shadowed(Box<ShadowedScene>),
+mod resident;
+use resident::Resident;
+
+#[derive(Clone, Copy)]
+pub(super) enum SceneSource<'a> {
+    Static {
+        scene: &'a RenderScene,
+        shadows: Option<DirectionalShadowSettings>,
+    },
+    Live,
 }
-struct PlainScene {
-    gpu: SceneGpu,
-    pipelines: ScenePipelines,
-    effects: SceneEffects,
+
+pub(super) struct RenderedFrame {
+    pub capture: Option<RgbaImage>,
 }
 
 impl Renderer {
+    #[cfg(test)]
     pub async fn new(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
         scene: &RenderScene,
         shadows: Option<DirectionalShadowSettings>,
+    ) -> Result<Self, ViewerError> {
+        Self::from_source(display, window, SceneSource::Static { scene, shadows }).await
+    }
+
+    pub async fn from_source(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        source: SceneSource<'_>,
     ) -> Result<Self, ViewerError> {
         let instance = wgpu::Instance::new(
             wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display)),
@@ -56,8 +70,22 @@ impl Renderer {
                 ..Default::default()
             })
             .await?;
-        let features = required_features(scene);
+        CpuProfile::detail("adapter", || format!("{:?}", adapter.get_info()));
+        let features = match source {
+            SceneSource::Static { scene, .. } => required_features(scene),
+            SceneSource::Live => wgpu::Features::empty(),
+        };
         let context = GpuContext::from_adapter_with_features(adapter, features).await?;
+        Self::attach(instance, surface, window, context, source)
+    }
+
+    fn attach(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        window: Arc<Window>,
+        context: GpuContext,
+        source: SceneSource<'_>,
+    ) -> Result<Self, ViewerError> {
         let errors = device_errors(context.device());
         let size = window.inner_size();
         let extents = Extents::new(
@@ -80,7 +108,7 @@ impl Renderer {
         let presenter = Presenter::new(surface, &capabilities, context.device(), policy)
             .map_err(surface_error)?;
         let presentation = Presentation::new(context.device(), policy.format, initial.render);
-        let resident = Resident::new(&context, scene, shadows)?;
+        let resident = Resident::new(&context, source)?;
         let renderer = Self {
             presenter,
             instance,
@@ -90,6 +118,8 @@ impl Renderer {
             resident,
             viewport,
             errors,
+            #[cfg(test)]
+            acquisitions: std::collections::VecDeque::new(),
         };
         renderer.check_errors()?;
         Ok(renderer)
@@ -121,17 +151,87 @@ impl Renderer {
         Ok(())
     }
 
-    /// Returns whether a frame was actually presented (not merely requested).
+    /// Block until every submitted command buffer completes, then surface device errors.
+    /// Bounded by the same 30-second deadline as synchronous readback.
+    pub fn wait_idle(&self) -> Result<(), ViewerError> {
+        self.context
+            .device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(30)),
+            })
+            .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+        self.check_errors()
+    }
+
+    pub fn render_viewport(&self) -> Viewport {
+        let size = self.viewport.expect("drawable surface");
+        Extents::new(
+            [size.width, size.height],
+            self.context.device().limits().max_texture_dimension_2d,
+        )
+        .expect("configured surface extent")
+        .expect("drawable surface")
+        .render
+    }
+
+    pub fn prepare_live(&mut self, frame: &LiveFrame) -> Result<(), ViewerError> {
+        let _span = CpuProfile::span("viewer_prepare_live");
+        CpuProfile::detail("viewer_frame", || {
+            format!(
+                "viewport={:?} quads={} textures={} texture_bytes={} capture={}",
+                frame.view.viewport(),
+                frame.quads.len(),
+                frame.textures.as_ref().map_or(0, Vec::len),
+                frame.textures.as_ref().map_or(0, |textures| textures
+                    .iter()
+                    .map(|texture| match texture {
+                        SceneTexture::Texels { bytes, .. }
+                        | SceneTexture::Encoded { bytes, .. } => bytes.len(),
+                    })
+                    .sum::<usize>()),
+                frame.capture.is_some()
+            )
+        });
+        self.resident.prepare_live(&self.context, frame)
+    }
+
+    /// Returns whether a frame was actually presented.
     pub fn render(&mut self, view: &SceneView) -> Result<bool, ViewerError> {
+        Ok(self.render_capture(view, false)?.is_some())
+    }
+
+    pub fn render_capture(
+        &mut self,
+        view: &SceneView,
+        capture: bool,
+    ) -> Result<Option<RenderedFrame>, ViewerError> {
+        let _span = CpuProfile::span("viewer_render_capture");
         self.check_errors()?;
         if self.viewport.is_none() {
-            return Ok(false);
+            return Ok(None);
         }
-        let acquired = self
-            .presenter
+        if self.resident.is_live() {
+            self.presentation
+                .resize(self.context.device(), view.viewport());
+        }
+        let span = CpuProfile::span("viewer_acquire");
+        let acquired = self.acquire()?;
+        drop(span);
+        self.render_frame(view, acquired, capture)
+    }
+
+    fn acquire(&mut self) -> Result<AcquiredFrame, ViewerError> {
+        #[cfg(test)]
+        if let Some(acquired) = self.acquisitions.pop_front() {
+            return self
+                .presenter
+                .handle_acquired(self.context.device(), acquired)
+                .map_err(surface_error);
+        }
+        self.presenter
             .acquire(self.context.device())
-            .map_err(surface_error)?;
-        self.render_frame(view, acquired)
+            .map_err(surface_error)
     }
 
     #[cfg(test)]
@@ -144,26 +244,28 @@ impl Renderer {
             .presenter
             .handle_acquired(self.context.device(), acquired)
             .map_err(surface_error)?;
-        self.render_frame(view, acquired)
+        Ok(self.render_frame(view, acquired, false)?.is_some())
     }
 
     fn render_frame(
         &mut self,
         view: &SceneView,
         acquired: AcquiredFrame,
-    ) -> Result<bool, ViewerError> {
+        capture: bool,
+    ) -> Result<Option<RenderedFrame>, ViewerError> {
         let frame = match acquired {
             AcquiredFrame::Frame(frame) => frame,
-            AcquiredFrame::Skip | AcquiredFrame::Reconfigure => return Ok(false),
+            AcquiredFrame::Skip | AcquiredFrame::Reconfigure => return Ok(None),
             AcquiredFrame::Recreate => {
                 let surface = self.instance.create_surface(self.window.clone())?;
                 let capabilities = surface.get_capabilities(self.context.adapter());
                 self.presenter
                     .replace_surface(surface, &capabilities, self.context.device())
                     .map_err(surface_error)?;
-                return Ok(false);
+                return Ok(None);
             }
         };
+        let encode = CpuProfile::span("viewer_encode");
         let targets = &self.presentation.targets;
         let mut encoder =
             self.context
@@ -176,12 +278,29 @@ impl Renderer {
         let output = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        if capture {
+            self.presentation
+                .encode_capture(self.context.device(), &mut encoder)?;
+        }
         self.presentation.present(&mut encoder, &output);
-        self.context.queue().submit([encoder.finish()]);
+        let commands = encoder.finish();
+        drop(encode);
+        let submit = CpuProfile::span("viewer_submit_present");
+        let submission = self.context.queue().submit([commands]);
         self.check_errors()?;
         self.window.pre_present_notify();
         self.context.queue().present(frame);
-        Ok(true)
+        drop(submit);
+        let capture = if capture {
+            let _span = CpuProfile::span("viewer_readback");
+            Some(
+                self.presentation
+                    .read_capture(self.context.device(), submission)?,
+            )
+        } else {
+            None
+        };
+        Ok(Some(RenderedFrame { capture }))
     }
 }
 
@@ -239,70 +358,6 @@ fn surface_policy(
         desired_maximum_frame_latency: 2,
         alpha_mode,
     })
-}
-
-impl Resident {
-    fn new(
-        context: &GpuContext,
-        scene: &RenderScene,
-        shadows: Option<DirectionalShadowSettings>,
-    ) -> Result<Self, ViewerError> {
-        Ok(if let Some(settings) = shadows {
-            Self::Shadowed(Box::new(ShadowedScene::new(context, scene, settings)?))
-        } else {
-            let pipelines = ScenePipelines::new(context.device(), COLOR);
-            let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
-            Self::Plain(Box::new(PlainScene {
-                gpu,
-                pipelines,
-                effects: scene.effects().clone(),
-            }))
-        })
-    }
-    fn render(
-        &mut self,
-        context: &GpuContext,
-        view: &SceneView,
-        targets: &crate::presentation::Targets,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<(), ViewerError> {
-        match self {
-            Resident::Shadowed(renderer) => {
-                renderer.render(context, view, &targets.color, &targets.depth)?;
-            }
-            Resident::Plain(plain) => {
-                let PlainScene {
-                    gpu,
-                    pipelines,
-                    effects,
-                } = plain.as_ref();
-                gpu.set_frame(context.queue(), FrameUniform::new(view, effects)?);
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("viewer scene"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &targets.color,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &targets.depth,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    ..Default::default()
-                });
-                gpu.draw(&mut pass, pipelines);
-            }
-        }
-        Ok(())
-    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

@@ -1,18 +1,26 @@
 //! Optional desktop presentation for a caller-owned, terrain-free scene.
 //!
-//! No window or GPU is started until [`run`] is called. Geometry, materials,
-//! pipelines and optional shadows remain resident across frames. The caller
-//! owns scene construction, camera framing and shadow fit; this host adds no
-//! asset lookup, terrain policy, command-line parsing or readback.
+//! No window or GPU is started until [`run`] or [`run_live`] is called. Geometry,
+//! materials, pipelines and optional shadows remain resident across frames. The
+//! caller owns scene construction, camera framing and shadow fit. Live drivers
+//! also own simulation, extraction and capture publication. The host reads the
+//! presented scene attachment on request and performs no asset lookup or encoding.
 //!
-//! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
+//! Static controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
+//! Live input is delivered to the caller-owned driver.
 
 mod app;
 mod camera;
+pub mod cpu_profile;
+mod live;
 mod presentation;
 mod renderer;
 
 pub use camera::{OrbitCamera, OrbitLimits};
+pub use live::{
+    IngressOrigin, LiveCapture, LiveClock, LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample,
+    LiveOptions, LiveReceipt, LiveTick, ScheduledInput,
+};
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 
@@ -34,6 +42,12 @@ pub struct ViewerOptions {
 /// Startup, presentation or scene rendering failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ViewerError {
+    #[error("live driver failed: {0}")]
+    Driver(String),
+    #[error(transparent)]
+    Dynamic(#[from] worldrunner_render_scene::dynamic::DynamicError),
+    #[error(transparent)]
+    Readback(#[from] worldrunner_render_post::ReadbackError),
     #[error("invalid viewer options: {0}")]
     InvalidOptions(&'static str),
     #[error("the terrain-free viewer does not support {0}")]
@@ -77,6 +91,32 @@ pub enum ViewerError {
 pub fn run(scene: RenderScene, options: ViewerOptions) -> Result<(), ViewerError> {
     validate(&scene, &options)?;
     app::run(scene, options)
+}
+
+/// Runs a caller-owned live simulation through the shared desktop viewer.
+/// Call once on the main thread. The driver retains its state after this returns.
+pub fn run_live<D: LiveDriver>(driver: &mut D, options: LiveOptions) -> Result<(), ViewerError> {
+    if options.size.iter().any(|&side| side == 0 || side > 4096) {
+        return Err(ViewerError::InvalidOptions(
+            "window dimensions must be in 1..=4096",
+        ));
+    }
+    if options.frame_interval.is_zero()
+        || options.frame_interval > std::time::Duration::from_secs(1)
+    {
+        return Err(ViewerError::InvalidOptions(
+            "frame interval must be positive and at most one second",
+        ));
+    }
+    if options.max_frames == Some(0) {
+        return Err(ViewerError::InvalidOptions("frame limit must be positive"));
+    }
+    if driver.clock().real_time() && options.fixed_dt.is_some() {
+        return Err(ViewerError::InvalidOptions(
+            "acquisition clock cannot use a fixed replay delta",
+        ));
+    }
+    app::run_live(driver, options)
 }
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {

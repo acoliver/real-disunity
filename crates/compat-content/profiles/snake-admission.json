@@ -1,0 +1,5 @@
+{
+  "ignored_components": {
+    "AudioListener": "Audio is outside this native 2D admission profile."
+  }
+}

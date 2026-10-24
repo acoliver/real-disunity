@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "name": "snake-journey-provider",
+  "source_root": ".work/games/snake",
+  "profiles": [
+    "source-6000.3",
+    "compat-6000.3",
+    "compat-2017.1"
+  ],
+  "default_profile": "source-6000.3",
+  "evidence_label": "original-source/authored-missing-sprite",
+  "worker": {
+    "program": "{root}/.work/target/debug/compat-player",
+    "args": []
+  },
+  "seed": 17,
+  "limits": {
+    "deadline_ms": 180000,
+    "log_bytes": 1048576,
+    "artifact_bytes": 536870912,
+    "capture_count": 4
+  },
+  "metadata": {
+    "scene": "Assets/Scenes/GameScene.unity",
+    "script_count": 8,
+    "import_profile": {
+      "name": "original-snake-explicit-host-art",
+      "builtin_replacements": {
+        "0000000000000000f000000000000000:10754": "host.sprite-unlit",
+        "0000000000000000e000000000000000:10102": "host.builtin-font",
+        "0000000000000000e000000000000000:10001": "host.editor-spot-cookie"
+      }
+    },
+    "admission_policy": {
+      "ignored_components": {
+        "AudioListener": "Audio is outside this native 2D admission profile."
+      }
+    },
+    "compatibility_sidecar": {
+      "field_overrides": [],
+      "reference_substitutions": [
+        {
+          "guid": "311925a002f4447b3a28927169b83ea6",
+          "file_id": 7482667652216324306,
+          "replacement": {
+            "$builtin": "fixture.authored-snake-unit-square"
+          },
+          "reason": "Selected originals omit this sprite. Use the explicitly authored solid white unit-square definition in fallback_sprites; no original art is changed."
+        }
+      ],
+      "fallback_sprites": [
+        {
+          "name": "fixture.authored-snake-unit-square",
+          "texture_size": [
+            8,
+            8
+          ],
+          "rgba": [
+            255,
+            255,
+            255,
+            255
+          ],
+          "sprite": {
+            "file_id": 7482667652216324306,
+            "name": "authored-unit-square",
+            "rect": [
+              0,
+              0,
+              8,
+              8
+            ],
+            "pivot": [
+              0.5,
+              0.5
+            ],
+            "pixels_per_unit": 8,
+            "border": [
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "reason": "User-authorized, separately authored eight-pixel solid white square, one source world unit wide; source SpriteRenderer tint remains authoritative."
+        }
+      ]
+    },
+    "viewport": [
+      960,
+      720
+    ],
+    "evidence_label": "original-source/authored-missing-sprite",
+    "source_scripts": "original, eight unchanged Assets/Scripts C# files",
+    "visual_variant": "authored-missing-sprite",
+    "reset_mechanism": "fixture-reload",
+    "qualification": "Provider smoke test only. Does not establish complete Snake gameplay acceptance or desktop execution."
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "phase": "load",
+      "action": "load"
+    },
+    {
+      "frame": 0,
+      "phase": "observe",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 1,
+      "phase": "advance",
+      "action": "advance",
+      "dt": 0.125001
+    },
+    {
+      "frame": 1,
+      "phase": "observe",
+      "action": "observe",
+      "selector": "world.snapshot"
+    },
+    {
+      "frame": 1,
+      "phase": "observe",
+      "action": "observe",
+      "selector": "managed:FoodSpawner:CurrentFoodPos"
+    },
+    {
+      "frame": 1,
+      "phase": "observe",
+      "action": "observe",
+      "selector": "managed.snapshot"
+    },
+    {
+      "frame": 1,
+      "phase": "render",
+      "action": "capture",
+      "path": "captures/provider.png"
+    },
+    {
+      "frame": 2,
+      "phase": "unload",
+      "action": "unload"
+    }
+  ],
+  "assertions": [
+    {
+      "op": "changed",
+      "selector": "world.snapshot",
+      "pointer": "/objects",
+      "before": 0,
+      "after": 1
+    },
+    {
+      "op": "capture",
+      "frame": 1,
+      "phase": "render",
+      "origin": "original-source/authored-missing-sprite"
+    }
+  ]
+}

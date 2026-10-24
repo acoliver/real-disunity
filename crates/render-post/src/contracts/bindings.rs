@@ -21,9 +21,11 @@ pub struct TextureBinding {
 /// Owns the actual layout, bind group and entries used to create them.
 #[derive(Clone, Debug)]
 pub struct CheckedBindings {
-    layout: wgpu::BindGroupLayout,
-    group: wgpu::BindGroup,
-    entries: Vec<TextureBinding>,
+    pub(super) layout: wgpu::BindGroupLayout,
+    pub(super) group: wgpu::BindGroup,
+    pub(super) entries: Vec<TextureBinding>,
+    pub(super) buffers: Vec<super::BufferBinding>,
+    pub(super) offsets: Vec<u32>,
 }
 impl CheckedBindings {
     pub fn build(
@@ -31,38 +33,7 @@ impl CheckedBindings {
         registry: &ResourceRegistry,
         entries: &[TextureBinding],
     ) -> Result<Self, ContractError> {
-        let mut layout_entries = Vec::new();
-        for (index, entry) in entries.iter().enumerate() {
-            check_entry(device, registry, entry)?;
-            check_layout(device, entries, index)?;
-            layout_entries.push(wgpu::BindGroupLayoutEntry {
-                binding: entry.binding,
-                visibility: entry.visibility,
-                ty: binding_type(entry, registry)?,
-                count: None,
-            });
-        }
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("checked texture layout"),
-            entries: &layout_entries,
-        });
-        let gpu_entries: Vec<_> = entries
-            .iter()
-            .map(|entry| wgpu::BindGroupEntry {
-                binding: entry.binding,
-                resource: wgpu::BindingResource::TextureView(&entry.view.view),
-            })
-            .collect();
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("checked texture bindings"),
-            layout: &layout,
-            entries: &gpu_entries,
-        });
-        Ok(Self {
-            layout,
-            group,
-            entries: entries.to_vec(),
-        })
+        Self::build_with_buffers(device, registry, entries, &[])
     }
     pub fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.layout
@@ -101,7 +72,7 @@ impl CheckedBindings {
     }
 }
 
-fn check_layout(
+pub(super) fn check_layout(
     device: &wgpu::Device,
     entries: &[TextureBinding],
     index: usize,
@@ -140,7 +111,7 @@ fn check_layout(
     Ok(())
 }
 
-fn check_entry(
+pub(super) fn check_entry(
     device: &wgpu::Device,
     registry: &ResourceRegistry,
     entry: &TextureBinding,
@@ -214,7 +185,10 @@ fn check_storage(
         Access::Atomic => Flags::STORAGE_ATOMIC,
     };
     let features = device.features();
-    if entry.samples != 1
+    if matches!(
+        entry.view.dimension,
+        wgpu::TextureViewDimension::Cube | wgpu::TextureViewDimension::CubeArray
+    ) || entry.samples != 1
         || entry.view.range.mips.len() != 1
         || !texture
             .format()
@@ -239,15 +213,11 @@ fn check_storage(
     Ok(())
 }
 
-fn binding_type(
+pub(super) fn binding_type(
     entry: &TextureBinding,
     registry: &ResourceRegistry,
 ) -> Result<wgpu::BindingType, ContractError> {
-    let view_dimension = if entry.view.range.layers.len() == 1 {
-        wgpu::TextureViewDimension::D2
-    } else {
-        wgpu::TextureViewDimension::D2Array
-    };
+    let view_dimension = entry.view.dimension;
     Ok(match entry.kind {
         TextureBindingKind::Sampled(sample_type) => wgpu::BindingType::Texture {
             sample_type,

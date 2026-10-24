@@ -8,7 +8,7 @@ use crate::AttachmentLoad;
 
 type Cell = (AllocationKey, u32, u32, u8);
 #[derive(Default)]
-struct Versions(BTreeMap<Cell, (Option<u32>, Option<u32>)>);
+pub(super) struct Versions(BTreeMap<Cell, (Option<u32>, Option<u32>)>);
 
 impl ResourceRegistry {
     /// Checks all declarations before uploads or command encoding. Never sorts or culls.
@@ -22,6 +22,9 @@ impl ResourceRegistry {
             if passes[..index].iter().any(|other| other.id == pass.id) {
                 return Err(ContractError::Raster(pass.id));
             }
+            for binding in &pass.bindings {
+                binding.validate_buffers(self, &[])?;
+            }
             self.validate_pass(device, pass, &mut versions)
                 .map_err(|source| ContractError::Pass {
                     pass: pass.id,
@@ -32,7 +35,7 @@ impl ResourceRegistry {
             passes: passes.to_vec(),
         })
     }
-    fn validate_pass(
+    pub(super) fn validate_pass(
         &self,
         device: &wgpu::Device,
         pass: &RasterPass,
@@ -66,7 +69,7 @@ impl ResourceRegistry {
     }
 }
 
-fn validate_overlap(
+pub(super) fn validate_overlap(
     device: &wgpu::Device,
     previous: &ResourceUse,
     usage: &ResourceUse,
@@ -85,7 +88,10 @@ fn validate_overlap(
     Ok(())
 }
 
-fn validate_usage(registry: &ResourceRegistry, usage: &ResourceUse) -> Result<(), ContractError> {
+pub(super) fn validate_usage(
+    registry: &ResourceRegistry,
+    usage: &ResourceUse,
+) -> Result<(), ContractError> {
     let allocation = registry.allocation(usage.view.allocation)?;
     let writes = usage.access != AccessMode::Read;
     if writes && allocation.lifetime == ResourceLifetime::ImportedReadOnly {
@@ -96,7 +102,7 @@ fn validate_usage(registry: &ResourceRegistry, usage: &ResourceUse) -> Result<()
         (UseKind::Sampled, AccessMode::Read) => wgpu::TextureUsages::TEXTURE_BINDING,
         (UseKind::Storage, _) => wgpu::TextureUsages::STORAGE_BINDING,
         (UseKind::Copy, AccessMode::Read) => wgpu::TextureUsages::COPY_SRC,
-        (UseKind::Copy, AccessMode::Write) => wgpu::TextureUsages::COPY_DST,
+        (UseKind::Copy, AccessMode::Write | AccessMode::ReadWrite) => wgpu::TextureUsages::COPY_DST,
         _ => return Err(ContractError::Binding(allocation.key)),
     };
     if !allocation.texture.usage().contains(required)
@@ -108,7 +114,7 @@ fn validate_usage(registry: &ResourceRegistry, usage: &ResourceUse) -> Result<()
     Ok(())
 }
 
-fn validate_versions(
+pub(super) fn validate_versions(
     registry: &ResourceRegistry,
     usage: &ResourceUse,
     versions: &mut Versions,

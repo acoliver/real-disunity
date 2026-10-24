@@ -1,15 +1,27 @@
 //! Shared physical resources and authored pass access contracts.
+mod async_readback;
 mod bindings;
+mod buffer_bindings;
+mod buffer_scopes;
+mod buffers;
+mod operation_validation;
+mod operations;
 mod raster;
 mod registry;
 pub(crate) mod stock;
+mod transfers;
 mod validation;
 
 use std::ops::Range;
 
+pub use async_readback::AsyncReadback;
 pub use bindings::{CheckedBindings, TextureBinding, TextureBindingKind};
+pub use buffer_bindings::{BufferBinding, BufferBindingKind};
+pub use buffers::{BufferUse, BufferUseKind, BufferView};
+pub use operations::{CompiledOperations, TypedOperation, TypedWork};
 pub use raster::{ColorAttachment, CompiledRaster, DepthAttachment, RasterId, RasterPass};
 pub use registry::ResourceRegistry;
+pub use transfers::TextureCopy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AllocationKey {
@@ -84,6 +96,7 @@ pub struct CheckedView {
     range: TextureRange,
     version: u32,
     view: wgpu::TextureView,
+    dimension: wgpu::TextureViewDimension,
 }
 impl CheckedView {
     pub const fn allocation(&self) -> AllocationKey {
@@ -94,6 +107,9 @@ impl CheckedView {
     }
     pub const fn version(&self) -> u32 {
         self.version
+    }
+    pub const fn dimension(&self) -> wgpu::TextureViewDimension {
+        self.dimension
     }
     pub fn view(&self) -> &wgpu::TextureView {
         &self.view
@@ -154,6 +170,23 @@ impl ResourceUse {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ContractError {
+    #[error("invalid copy alignment or pitch: {0:?}")]
+    CopyAlignment(AllocationKey),
+    #[error("invalid copy extent or layout: {0:?}")]
+    CopyExtent(AllocationKey),
+    #[error("texture buffer copy direction is forbidden (read={read}): {allocation:?}")]
+    CopyDirection {
+        allocation: AllocationKey,
+        read: bool,
+    },
+    #[error("incompatible whole-buffer usage scope: {0:?}")]
+    BufferUsage(AllocationKey),
+    #[error("invalid dynamic offset or binding range: {0:?}")]
+    DynamicOffset(AllocationKey),
+    #[error("invalid compute dispatch: {0:?}")]
+    Dispatch([u32; 3]),
+    #[error("pipeline or binding layout mismatch")]
+    Pipeline,
     #[error("unknown or stale allocation {0:?}")]
     StaleAllocation(AllocationKey),
     #[error("invalid subresource range for {0:?}")]

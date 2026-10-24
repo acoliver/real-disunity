@@ -2,6 +2,8 @@
 #[cfg(test)]
 #[path = "bridge/checks.rs"]
 mod checks;
+#[path = "bridge/reference.rs"]
+mod reference;
 
 use std::sync::{
     Arc,
@@ -16,6 +18,22 @@ use worldrunner_render_post::{
         TypedOperation, TypedWork, UseKind,
     },
 };
+
+fn expected_color(reverse: bool) -> [u8; 4] {
+    let destination = [0_u16, 255, 0, 255];
+    let source = [255_u16, 0, 0, 255];
+    // Source alpha is 1/4; the destination alpha remains opaque.
+    reference::quantize(
+        std::array::from_fn(|channel| {
+            if reverse || channel == 3 {
+                destination[channel] * 4
+            } else {
+                source[channel] + destination[channel] * 3
+            }
+        }),
+        4,
+    )
+}
 
 fn id(name: &'static str) -> RasterId {
     RasterId::new(StageId::new(name, 0), 0)
@@ -71,7 +89,7 @@ fn pass(name: &'static str, target: CheckedView, resolve: Option<CheckedView>) -
 fn consumer(device: &wgpu::Device) -> CheckedDraw {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("consumer procedural shader"),
-        source: wgpu::ShaderSource::Wgsl("@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { let p = array(vec2<f32>(-1., -1.), vec2<f32>(3., -1.), vec2<f32>(-1., 3.)); return vec4<f32>(p[i], 0., 1.); } @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1., 0., 0., 0.5); }".into()),
+        source: wgpu::ShaderSource::Wgsl("@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { let p = array(vec2<f32>(-1., -1.), vec2<f32>(3., -1.), vec2<f32>(-1., 3.)); return vec4<f32>(p[i], 0., 1.); } @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1., 0., 0., 0.25); }".into()),
     });
     CheckedDraw::new(
         device,
@@ -222,12 +240,7 @@ pub fn run_order(cancel: bool, reverse: bool) {
         .finish(&device, |_, _| Ok::<_, ()>(()))
         .unwrap();
     assert_eq!(authority.submitted_serial(), before + 2);
-    let expected = if reverse {
-        [0, 255, 0, 255]
-    } else {
-        [128, 128, 0, 255]
-    }
-    .repeat(4);
+    let expected = expected_color(reverse).repeat(4);
     assert_eq!(read(&device, &authority, &output), expected);
     if let TypedWork::Draws { pass, .. } = &prefix[1].work {
         let resolved = pass.colors[0].as_ref().unwrap().resolve.as_ref().unwrap();

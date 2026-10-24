@@ -1,6 +1,9 @@
 use crate::bridge_support::*;
 use worldrunner_render_post::{AttachmentLoad, CopyOutput, contracts::*};
 
+#[path = "../../examples/bridge/reference.rs"]
+mod reference;
+
 fn provider(device: &wgpu::Device, samples: u32, second: bool) -> CheckedDraw {
     let values = if second {
         "let z = 0.125 + f32(s) * 0.125; return Out(vec4<f32>(0., 1., 0., 1.), vec4<f32>(1., 0., 0., 1.), vec4<f32>(0., 0., 1., 1.), z);"
@@ -236,35 +239,41 @@ fn boundary_pass(
 }
 
 fn expectations(samples: u32) -> ([[u8; 4]; 4], [[u8; 4]; 4]) {
-    let expected_first = if samples == 1 {
+    let red = [255_u16, 0, 0, 255];
+    let green = [0, 255, 0, 255];
+    let blue = [0, 0, 255, 255];
+    let mut first = [[0_u16; 4]; 3];
+    let mut second = first;
+    let mut first_min = 8;
+    let mut second_min = 8;
+    let count = u16::try_from(samples).unwrap();
+    for sample in 0..count {
+        // Depths are exact eighths, matching the sample-index shader.
+        let before = [6, 4, 2, 5][usize::from(sample)];
+        let after = 1 + sample;
+        first_min = first_min.min(before);
+        second_min = second_min.min(before.min(after));
+        let initial = [if sample == 0 { red } else { blue }, [255; 4], red];
+        let loaded = if after < before {
+            [green, red, blue]
+        } else {
+            initial
+        };
+        for target in 0..3 {
+            for channel in 0..4 {
+                first[target][channel] += initial[target][channel];
+                second[target][channel] += loaded[target][channel];
+            }
+        }
+    }
+    let snapshot = |colors: [[u16; 4]; 3], depth| {
+        let colors = colors.map(|sum| reference::quantize(sum, count));
         [
-            [255, 0, 0, 255],
-            [255; 4],
-            [255, 0, 0, 255],
-            [191, 0, 0, 255],
-        ]
-    } else {
-        [
-            [64, 0, 191, 255],
-            [255; 4],
-            [255, 0, 0, 255],
-            [64, 0, 0, 255],
+            colors[0],
+            colors[1],
+            colors[2],
+            reference::quantize([depth * 255, 0, 0, 8 * 255], 8),
         ]
     };
-    let expected_second = if samples == 1 {
-        [
-            [0, 255, 0, 255],
-            [255, 0, 0, 255],
-            [0, 0, 255, 255],
-            [32, 0, 0, 255],
-        ]
-    } else {
-        [
-            [0, 191, 64, 255],
-            [255, 64, 64, 255],
-            [64, 0, 191, 255],
-            [32, 0, 0, 255],
-        ]
-    };
-    (expected_first, expected_second)
+    (snapshot(first, first_min), snapshot(second, second_min))
 }

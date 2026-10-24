@@ -27,7 +27,7 @@ pub struct DirectionalShadowSettings {
     /// unextended settings box. Cascades preserve its texel-relative world offset:
     /// `depth_bias * depth_half_extent_meters * resolution / half_extent_meters`
     /// texels, converted using each final caster-extended projection. A single
-    /// coverage box instead subtracts this value directly, including after extension.
+    /// coverage box preserves the authored world offset when its depth range extends.
     pub depth_bias: f32,
     /// Offset along the receiver shading normal, in scene metres; nonnegative.
     pub normal_bias_meters: f32,

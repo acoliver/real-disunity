@@ -51,11 +51,7 @@ impl CascadeViews {
             {
                 return Err(ShadowError::InvalidSettings);
             }
-            value.depth_bias[index] = if count == 1 && !value.camera_splits {
-                settings.depth_bias
-            } else {
-                normalized_depth_bias(settings, matrix)?
-            };
+            value.depth_bias[index] = normalized_depth_bias(settings, matrix)?;
             value.matrices.push(matrix);
         }
         Ok(value)

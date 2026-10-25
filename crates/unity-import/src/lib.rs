@@ -1,0 +1,13 @@
+//! Offline import of Unity projects into engine content.
+//!
+//! The importer reads a Unity project's text-serialized scenes, prefabs, assets and `.meta`
+//! files without modifying them. This crate is a content tool: it has no runtime, simulation or
+//! renderer dependency.
+
+pub mod guid;
+pub mod project;
+pub mod yaml;
+
+pub use guid::{Guid, ObjectRef, ReferenceError};
+pub use project::{Asset, ImportError, Project};
+pub use yaml::{Document, Limits, Mapping, Node, Scalar, ScalarStyle, YamlError};

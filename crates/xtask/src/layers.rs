@@ -70,6 +70,7 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-scene-viewer", Layer::Host),
     ("worldrunner-disunity-runtime", Layer::Managed),
     ("worldrunner-content-tool", Layer::Tool),
+    ("worldrunner-unity-import", Layer::Tool),
     ("xtask", Layer::Tool),
     ("worldrunner", Layer::Facade),
 ];

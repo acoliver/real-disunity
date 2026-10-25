@@ -26,7 +26,7 @@ Matrices multiply glam column vectors. Depth is non-reversed zero-to-one: near m
 | `reconstruction_projection_matrix` | Projection paired with that right-handed reconstruction view. The left-handed raster convention mirrors clip X. |
 | `eye_meters`, `viewport`, `convention`, `depth_convention` | The camera's world-space eye and resolved presentation metadata. |
 
-Use both reconstruction matrices from the same `ResolvedView`. Combining a left-handed raster projection with its right-handed reconstruction view gives incorrect depth. The pre-existing `ViewHandedness::reconstruction_projection` helper remains available for callers of the old API.
+Use both reconstruction matrices from the same `ResolvedView`. Combining a left-handed raster projection with its right-handed reconstruction view gives incorrect depth. `ViewHandedness::reconstruction_projection` builds the reconstruction projection from a right-handed projection; `ResolvedView` uses it, and callers holding their own matrices can use it directly.
 
 Camera construction uses f64 inputs and intermediate view/projection arithmetic, followed by f32 GPU matrices. VP is narrowed after multiplication; multiplying its separately narrowed view/projection matrices can differ by floating-point rounding. The inverse is computed from the exposed raster VP, so queries invert the matrix actually submitted for rasterization. Resolution rejects nonfinite matrices, singular inverses and clip volumes whose near/far corners become infinite at GPU precision.
 
@@ -38,7 +38,7 @@ Camera construction uses f64 inputs and intermediate view/projection arithmetic,
 
 ## Compatible adapters
 
-`FreeFlyCamera::camera_view` and `RtsCamera::camera_view` retain their signatures, existing aspect/clip/FOV normalization and `CameraView` output. Their matrix construction now invokes the common resolver. Inputs that cannot describe a finite invertible camera produce a NaN VP in this legacy non-Result interface; `resolved_view(viewport, near, far)` exposes diagnostics. Controller movement and tuning are unchanged.
+`FreeFlyCamera::camera_view` and `RtsCamera::camera_view` retain their signatures, existing aspect/clip/FOV normalization and `CameraView` output. Their matrix construction now invokes the common resolver. Inputs that cannot describe a finite invertible camera produce a NaN VP through this non-Result interface; `resolved_view(viewport, near, far)` returns the resolution error instead. Controller movement and tuning are unchanged.
 
 `SceneView::new`, `orthographic`, `orthographic_with_up`, and all existing accessors retain their signatures. SceneView stores one `ResolvedView`; `resolved_view()` borrows it, and `from_resolved` adapts a previously resolved camera without recalculation. Its existing direction/roll/viewport/orthographic error variants remain; `ViewError::Resolution` carries additional shared resolution diagnostics. Adding an enum variant requires downstream exhaustive matches to include it.
 

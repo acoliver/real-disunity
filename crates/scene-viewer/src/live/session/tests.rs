@@ -52,7 +52,7 @@ fn options() -> LiveOptions {
 }
 
 #[test]
-fn preinitialize_transitions_are_observed_before_update_without_changing_legacy_input() {
+fn preinitialize_transitions_are_observed_before_update_without_changing_tick_input() {
     let mut driver = Driver::default();
     let mut session = Session::new(&mut driver, options());
     session.event(&WindowEvent::Focused(false), None);
@@ -69,7 +69,7 @@ fn preinitialize_transitions_are_observed_before_update_without_changing_legacy_
 }
 
 #[test]
-fn replay_is_logical_and_channel_is_explicit_delivery_time_in_legacy_order() {
+fn replay_is_logical_and_channel_is_explicit_delivery_time_in_arrival_order() {
     let mut options = options();
     options.fixed_dt = Some(Duration::from_millis(20));
     options.scheduled_input = vec![ScheduledInput {
@@ -184,7 +184,7 @@ fn acquisition_intervals_conserve_exact_nanoseconds_and_match_os_cutoffs() {
 }
 
 #[test]
-fn default_legacy_clock_keeps_the_first_zero_delta() {
+fn default_frame_delta_clock_keeps_the_first_zero_delta() {
     let mut driver = Driver::default();
     let mut session = Session::new(&mut driver, options());
     let origin = Instant::now();

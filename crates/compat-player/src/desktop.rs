@@ -189,7 +189,7 @@ impl LiveDriver for Desktop<'_> {
         } else if self.strict.is_some() {
             worldrunner::scene::viewer::LiveClock::Acquisition
         } else {
-            worldrunner::scene::viewer::LiveClock::Legacy
+            worldrunner::scene::viewer::LiveClock::FrameDelta
         }
     }
 

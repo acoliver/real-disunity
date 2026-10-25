@@ -58,9 +58,10 @@ pub struct LiveInputSample {
 /// Simulation delta origin selected independently from input provenance.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LiveClock {
-    /// Preserve the historical zero first delta and optional fixed replay delta.
+    /// Measure each delta between consecutive updates. The first update has a zero
+    /// delta, and `LiveOptions::fixed_dt` replaces measured deltas for replays.
     #[default]
-    Legacy,
+    FrameDelta,
     /// Start real-time deltas at the exact OS acquisition origin after initialize.
     /// Fixed replay deltas are incompatible with this clock.
     Acquisition,
@@ -149,9 +150,9 @@ pub struct LiveReceipt {
 /// Application-owned simulation, extraction, and evidence publication.
 /// The same callbacks may be called directly by a headless replay host.
 pub trait LiveDriver {
-    /// Pure timing preference queried before initialization. The default preserves legacy timing.
+    /// Pure timing preference queried before initialization.
     fn clock(&self) -> LiveClock {
-        LiveClock::Legacy
+        LiveClock::FrameDelta
     }
 
     /// Called once before the first update, with the actual render viewport.
@@ -160,7 +161,7 @@ pub trait LiveDriver {
     }
 
     /// Observes each ordered transition before update, including host controls.
-    /// The default preserves legacy consumers. An error aborts the live host before
+    /// The default ignores them. An error aborts the live host before
     /// update/presentation; earlier observations are not rolled back. Consumers
     /// requiring atomic native batches must stage observations themselves.
     fn ingress(&mut self, _sample: &LiveInputSample) -> Result<(), String> {

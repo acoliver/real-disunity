@@ -116,7 +116,7 @@ fn common_acquisition_clock_is_explicitly_selected_only_for_strict_desktop() {
         let expected = if strict {
             LiveClock::Acquisition
         } else {
-            LiveClock::Legacy
+            LiveClock::FrameDelta
         };
         assert_eq!(driver.clock(), expected);
         assert!(driver.playback.session.is_none());

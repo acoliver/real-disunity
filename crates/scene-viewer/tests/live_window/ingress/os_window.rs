@@ -64,7 +64,7 @@ pub(super) fn verify(driver: &Driver) {
     assert!(all.windows(2).all(|p| p[0].timestamp <= p[1].timestamp));
     verify_transitions(driver);
     verify_provenance(&all);
-    if driver.clock == super::LiveClock::Legacy {
+    if driver.clock == super::LiveClock::FrameDelta {
         assert!(driver.ticks[0].dt.is_zero());
     } else {
         assert!(!driver.ticks[0].dt.is_zero());

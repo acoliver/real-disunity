@@ -40,9 +40,9 @@ fn invalid_live_timing_and_frame_limit_fail_before_startup() {
 }
 
 #[test]
-fn legacy_struct_literals_and_default_ingress_remain_source_compatible() {
+fn struct_literals_and_default_ingress_need_no_optional_fields() {
     let options = LiveOptions {
-        title: "legacy".into(),
+        title: "defaults".into(),
         size: [64, 64],
         frame_interval: Duration::from_millis(16),
         fixed_dt: None,
@@ -119,5 +119,5 @@ fn ready_prewarmed_and_fixed_replay_clocks_reject_before_driver_initialization()
     ));
     assert!(LiveClock::ReadyPrewarmed.real_time());
     assert!(LiveClock::Acquisition.real_time());
-    assert!(!LiveClock::Legacy.real_time());
+    assert!(!LiveClock::FrameDelta.real_time());
 }

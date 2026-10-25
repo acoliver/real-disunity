@@ -14,7 +14,7 @@ fn presentation_startup_is_explicit_strict_interactive_and_exact() {
     let installation = crate::test_support::installation();
     let artifacts = crate::test_support::scratch("desktop-");
     let cases = [
-        (false, None, Ok(LiveClock::Legacy)),
+        (false, None, Ok(LiveClock::FrameDelta)),
         (true, None, Ok(LiveClock::Acquisition)),
         (
             true,

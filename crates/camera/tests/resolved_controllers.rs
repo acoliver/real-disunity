@@ -33,13 +33,13 @@ fn free_fly_and_rts_resolved_views_preserve_raster_and_reconstruct_landmarks() {
                 rts.look_at().as_vec3(),
             ),
         ];
-        for (legacy, resolved, landmark) in pairs {
+        for (camera_view, resolved, landmark) in pairs {
             assert!(
-                legacy
+                camera_view
                     .view_projection
                     .abs_diff_eq(resolved.view_projection_matrix(), 0.00001)
             );
-            assert_eq!(legacy.position, resolved.eye_meters());
+            assert_eq!(camera_view.position, resolved.eye_meters());
             let pixel = resolved.world_to_screen(landmark + Vec3::Y).unwrap();
             assert!(
                 resolved

@@ -113,7 +113,7 @@ impl LiveDriver for Driver {
 }
 
 pub(super) fn run() {
-    run_clock(LiveClock::Legacy);
+    run_clock(LiveClock::FrameDelta);
 }
 
 pub(super) fn acquisition() {
@@ -151,6 +151,6 @@ fn run_clock(clock: LiveClock) {
     assert_eq!(driver.receipts, 10);
     os_window::verify(&driver);
     println!(
-        "timestamped ingress: real OS between-frame short tap, held/release, focus loss/regain, reserved controls, channel repeat/provenance and unchanged legacy input passed"
+        "timestamped ingress: real OS between-frame short tap, held/release, focus loss/regain, reserved controls, channel repeat/provenance and frame-delta input passed"
     );
 }

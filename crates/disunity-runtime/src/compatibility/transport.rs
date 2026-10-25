@@ -177,7 +177,8 @@ fn validate_response(request: &Value, value: Value) -> Result<Value, HostError> 
 #[cfg(test)]
 mod idle_mutation_tests;
 
-#[cfg(test)]
+// Fault-injection hooks for the Linux-only idle cleanup tests.
+#[cfg(all(test, target_os = "linux"))]
 impl NativeTransport {
     pub(super) fn copy_for_cleanup_test(&self) -> CopyResponse {
         self.copy
@@ -198,8 +199,8 @@ impl NativeTransport {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(super) type CleanupFree = FreeResponse;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(super) type CleanupCopy = CopyResponse;

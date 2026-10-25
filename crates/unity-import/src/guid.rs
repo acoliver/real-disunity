@@ -5,11 +5,23 @@ use std::{fmt, str::FromStr};
 use crate::yaml::{Node, Scalar};
 
 /// A 128-bit Unity asset GUID, written as 32 lowercase hexadecimal digits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Guid(u128);
+
+impl fmt::Debug for Guid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Guid({self})")
+    }
+}
 
 impl Guid {
     pub const ZERO: Self = Self(0);
+
+    /// Unity's built-in resources (`0000000000000000e000000000000000`) and default resources
+    /// (`0000000000000000f000000000000000`), which have no file in the project.
+    pub fn is_builtin(self) -> bool {
+        matches!(self.0, 0xe000_0000_0000_0000 | 0xf000_0000_0000_0000)
+    }
 }
 
 impl FromStr for Guid {

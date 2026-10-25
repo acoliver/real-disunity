@@ -2,10 +2,11 @@
 
 use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
-use worldrunner_unity_import::Project;
+use worldrunner_unity_import::{Guid, ObjectId, Origin, Project, Scene, import_scene};
 
-const USAGE: &str =
-    "usage: unity-import catalog <project>\n       unity-import documents <project> <asset path>";
+const USAGE: &str = "usage: unity-import catalog <project>
+       unity-import documents <project> <asset path>
+       unity-import scene <project> <scene path>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,6 +24,9 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         [command, project] if command == "catalog" => catalog(Path::new(project)),
         [command, project, asset] if command == "documents" => {
             documents(Path::new(project), Path::new(asset))
+        }
+        [command, project, path] if command == "scene" => {
+            scene(Path::new(project), Path::new(path))
         }
         _ => Err(USAGE.into()),
     }
@@ -64,4 +68,62 @@ fn documents(root: &Path, asset: &Path) -> Result<(), Box<dyn Error>> {
         println!("  {class_id:>6} {name}: {count} ({stripped} stripped)");
     }
     Ok(())
+}
+
+fn scene(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
+    let project = Project::open(root)?;
+    let scene = import_scene(&project, path)?;
+    for root in scene.roots() {
+        print_tree(&scene, *root, 0);
+    }
+    let mut origins = BTreeMap::<String, usize>::new();
+    for (_, object) in scene.objects() {
+        let origin = match object.origin {
+            Origin::Scene => "scene".to_owned(),
+            Origin::Template(guid) => format!("template {}", asset_name(&project, guid)),
+            Origin::Asset(guid) => format!("asset {}", asset_name(&project, guid)),
+        };
+        *origins.entry(origin).or_default() += 1;
+    }
+    for (origin, count) in origins {
+        println!("{origin}: {count} objects");
+    }
+    let missing = scene.missing_references();
+    println!("missing references: {}", missing.len());
+    for (id, reference) in missing {
+        let object = scene.object(id).map_or("?", |o| o.type_name.as_str());
+        println!("  {object} {}: {reference:?}", id.index());
+    }
+    Ok(())
+}
+
+fn asset_name(project: &Project, guid: Guid) -> String {
+    project.asset(guid).map_or_else(
+        || guid.to_string(),
+        |asset| asset.path.display().to_string(),
+    )
+}
+
+fn print_tree(scene: &Scene, transform: ObjectId, depth: usize) {
+    let Some(view) = scene.transform(transform) else {
+        return;
+    };
+    let object = view.game_object.and_then(|id| scene.game_object(id));
+    let name = object.as_ref().map_or("?", |o| o.name.as_str());
+    let components: Vec<_> = object
+        .iter()
+        .flat_map(|o| &o.components)
+        .filter_map(|id| scene.object(*id))
+        .map(|o| o.type_name.as_str())
+        .collect();
+    let [x, y, z] = view.local_position;
+    println!(
+        "{:indent$}{name} [{}] at ({x}, {y}, {z})",
+        "",
+        components.join(", "),
+        indent = depth * 2
+    );
+    for child in view.children {
+        print_tree(scene, child, depth + 1);
+    }
 }

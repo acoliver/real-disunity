@@ -50,6 +50,7 @@ fn unread_post_ids_survive_resize_and_reconfiguration() {
     .unwrap();
     let settings = HdrPostSettings {
         bloom: Some(Bloom {
+            policies: crate::BloomPolicies::default(),
             threshold: 1.0,
             knee: 0.5,
             intensity: 0.25,
@@ -57,7 +58,7 @@ fn unread_post_ids_survive_resize_and_reconfiguration() {
         }),
         ..Default::default()
     };
-    let mut chain = chain(&device, settings, [4, 4]);
+    let mut chain = chain(&device, &settings, [4, 4]);
     let support = chain
         .configure_timing(&device, &queue, TimingMode::Optional)
         .unwrap();

@@ -33,8 +33,15 @@ pub use timing::{
     FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,
     TimingSupport,
 };
+mod bloom_builder;
+pub use bloom_builder::BloomPyramid;
+mod bloom_policy;
 mod chain;
 mod copy;
+pub use bloom_policy::{
+    BloomLevelSelection, BloomPolicies, BloomReduction, BloomTintPass, BrightCurve,
+    BrightExtraction, GaussianKernelRule, ToneCurveBright,
+};
 mod gaussian;
 mod gaussian_gpu;
 mod hdr_post;
@@ -269,3 +276,6 @@ mod upscale_tests;
 
 #[cfg(test)]
 mod upscale_hdr_tests;
+
+#[cfg(test)]
+mod bloom_policy_tests;

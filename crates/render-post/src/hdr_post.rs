@@ -14,6 +14,7 @@ pub struct AdaptiveExposure {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bloom {
+    pub policies: crate::BloomPolicies,
     pub threshold: f32,
     pub knee: f32,
     pub intensity: f32,
@@ -93,14 +94,26 @@ impl HdrPostSettings {
         }) {
             return Err(PostError::UnsupportedProfile("bloom settings"));
         }
-        if let Some(bloom) = self.bloom {
-            self.bloom_kernel.validate(bloom.levels)?;
-        }
+        self.validate_bloom_policies()?;
         if self
             .fxaa
             .is_some_and(|v| !v.is_finite() || !(0.0..=1.0).contains(&v))
         {
             return Err(PostError::UnsupportedProfile("FXAA settings"));
+        }
+        Ok(())
+    }
+    fn validate_bloom_policies(self) -> Result<(), PostError> {
+        if let Some(bloom) = self.bloom {
+            bloom.policies.validate(bloom.levels)?;
+            self.bloom_kernel.validate(bloom.levels)?;
+            if self.bloom_kernel == crate::BloomKernel::Tent
+                && bloom.policies != crate::BloomPolicies::default()
+            {
+                return Err(PostError::UnsupportedProfile(
+                    "bloom policies require separable pyramid",
+                ));
+            }
         }
         Ok(())
     }
@@ -121,10 +134,10 @@ pub(crate) struct HdrPost {
     frame: [wgpu::Buffer; 3],
 }
 impl HdrPost {
-    pub fn new(device: &wgpu::Device, settings: HdrPostSettings) -> Result<Self, PostError> {
+    pub fn new(device: &wgpu::Device, settings: &HdrPostSettings) -> Result<Self, PostError> {
         settings.validate()?;
         Ok(Self {
-            settings,
+            settings: *settings,
             device: device.clone(),
             carry: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("queue-ordered exposure carry"),
@@ -205,7 +218,7 @@ impl HdrPost {
         }
         crate::post_filters::Filters::new(device, &mut set).build(
             targets,
-            self.settings,
+            &self.settings,
             exposure,
             (format, initial),
         );

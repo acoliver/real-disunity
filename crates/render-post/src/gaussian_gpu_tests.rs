@@ -2,11 +2,12 @@ use super::post_effect_tests::{chain, pixels, step};
 use super::*;
 use crate::{Bloom, BloomKernel, GaussianLevel, HdrPostSettings};
 #[path = "gaussian_reference.rs"]
-mod reference;
+pub(super) mod reference;
 
 pub(super) fn settings(radius: u32, count: u32) -> HdrPostSettings {
     HdrPostSettings {
         bloom: Some(Bloom {
+            policies: crate::BloomPolicies::default(),
             threshold: 0.0,
             knee: 0.0,
             intensity: 1.0,
@@ -54,7 +55,7 @@ fn gpu_gaussian_impulses_match_discrete_cpu_at_every_odd_level() {
     let (device, queue) = crate::gpu_tests::gpu();
     for radius in [0, 1, 4, 44, 64] {
         let policy = settings(radius, 6);
-        let c = chain(&device, policy, [37, 23]);
+        let c = chain(&device, &policy, [37, 23]);
         for [x, y] in [[18, 11], [36, 22]] {
             step(
                 &device,
@@ -92,7 +93,7 @@ fn gpu_gaussian_constant_knee_tint_and_weight_match_cpu() {
         unreachable!()
     };
     levels[2].tint = [0.5, 1.5, 2.0];
-    let c = chain(&device, policy, [37, 23]);
+    let c = chain(&device, &policy, [37, 23]);
     for value in [0.25, 0.75, 1.0, 3.25] {
         step(
             &device,
@@ -118,7 +119,7 @@ fn gpu_gaussian_constant_knee_tint_and_weight_match_cpu() {
 #[test]
 fn gpu_gaussian_replacement_validates_before_retiring_targets() {
     let (device, queue) = crate::gpu_tests::gpu();
-    let mut c = chain(&device, settings(44, 6), [37, 23]);
+    let mut c = chain(&device, &settings(44, 6), [37, 23]);
     let old = c.configured[0].resources.textures[0].clone();
     let before = c.targets().resolved().clone();
     assert!(c.resize(&device, [4, 4]).is_err());
@@ -147,7 +148,7 @@ fn gpu_gaussian_replacement_validates_before_retiring_targets() {
 fn gpu_gaussian_cancelled_encoder_publishes_no_pixels_or_timings() {
     let (device, queue) =
         crate::gpu_tests::gpu_with_optional_features(wgpu::Features::TIMESTAMP_QUERY);
-    let c = chain(&device, settings(4, 6), [37, 23]);
+    let c = chain(&device, &settings(4, 6), [37, 23]);
     c.configure_timing(&device, &queue, crate::TimingMode::Optional)
         .unwrap();
     let out = step(
@@ -182,7 +183,7 @@ fn gpu_gaussian_cancelled_encoder_publishes_no_pixels_or_timings() {
 fn gpu_gaussian_normalized_levels_preserve_constant_energy() {
     let (device, queue) = crate::gpu_tests::gpu();
     let policy = settings(44, 6);
-    let c = chain(&device, policy, [37, 23]);
+    let c = chain(&device, &policy, [37, 23]);
     step(
         &device,
         &queue,
@@ -212,7 +213,7 @@ fn gpu_gaussian_final_intensity_resampling_and_alpha_match_reference() {
     for intensity in [0.0, 0.5, 1.0] {
         let mut policy = settings(4, 6);
         policy.bloom.as_mut().unwrap().intensity = intensity;
-        let c = chain(&device, policy, [37, 23]);
+        let c = chain(&device, &policy, [37, 23]);
         let out = step(
             &device,
             &queue,
@@ -256,7 +257,7 @@ fn gpu_gaussian_kernel_without_bloom_schedules_only_output() {
         bloom: None,
         ..settings(44, 6)
     };
-    let c = chain(&device, disabled, [37, 23]);
+    let c = chain(&device, &disabled, [37, 23]);
     assert_eq!(c.configured[0].stages.len(), 1);
     assert!(c.configured[0].resources.textures.is_empty());
 }
@@ -271,7 +272,7 @@ fn gpu_disabled_gaussian_kernel_preserves_other_effects_output() {
             fxaa: Some(0.0),
             ..HdrPostSettings::default()
         };
-        let c = chain(&device, policy, [9, 7]);
+        let c = chain(&device, &policy, [9, 7]);
         let out = step(
             &device,
             &queue,

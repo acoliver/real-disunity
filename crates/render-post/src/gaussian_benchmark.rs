@@ -22,14 +22,16 @@ impl StageFactory for BenchmarkFactory {
             weight: 0.2,
         });
         gaussian.build(
-            targets,
+            targets.resolved(),
             Bloom {
+                policies: crate::BloomPolicies::default(),
                 threshold: 1.0,
                 knee: 0.5,
                 intensity: 1.0,
                 levels: 5,
             },
             &levels,
+            None,
         );
         set.stages.push(output);
         Ok(set)

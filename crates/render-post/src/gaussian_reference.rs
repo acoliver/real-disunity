@@ -2,7 +2,7 @@
 use crate::{Bloom, GaussianLevel};
 
 #[derive(Clone)]
-pub(super) struct Image {
+pub(crate) struct Image {
     pub size: [u16; 2],
     pub pixels: Vec<[f64; 3]>,
 }

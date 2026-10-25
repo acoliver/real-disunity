@@ -76,3 +76,36 @@ fn gaussian_policy_rejects_nonfinite_and_out_of_range_levels() {
         );
     }
 }
+
+#[test]
+fn axis_kernel_support_sigma_and_clamping_follow_authored_rule() {
+    for (extent, support, sigma) in [(1, 2, 2.5 / 3.0), (3, 4, 4.5 / 3.0), (80, 44, 44.5 / 3.0)] {
+        let rule = crate::GaussianKernelRule::AxisClampedPairs;
+        let (actual_support, actual_sigma) = rule.parameters(44, extent).unwrap();
+        assert_eq!(actual_support, support);
+        assert!((actual_sigma - sigma).abs() < 1e-6);
+        let weights = rule.weights(44, extent).unwrap();
+        assert_eq!(weights.taps.len(), usize::try_from(support / 2).unwrap());
+        let sum = weights.center + 2.0 * weights.taps.iter().map(|tap| tap.weight).sum::<f32>();
+        assert!((sum - 1.0).abs() < 1e-6);
+        let ratio = (-0.5 / (sigma * sigma)).exp();
+        let discrete_sum = 1.0
+            + 2.0
+                * (1..=support)
+                    .map(|i| {
+                        let x = f32::from(u16::try_from(i).unwrap()) / sigma;
+                        (-0.5 * x * x).exp()
+                    })
+                    .sum::<f32>();
+        assert!((weights.center - 1.0 / discrete_sum).abs() < 1e-6);
+        assert!(
+            (weights.taps[0].weight - (ratio + (-2.0 / (sigma * sigma)).exp()) / discrete_sum)
+                .abs()
+                < 1e-6
+        );
+    }
+    let rule = crate::GaussianKernelRule::AxisClampedPairs;
+    assert_eq!(rule.parameters(0, 0).unwrap(), (0, 0.0));
+    assert_eq!(rule.parameters(3, 0).unwrap().0, 2);
+    assert!(rule.parameters(65, 100).is_err());
+}

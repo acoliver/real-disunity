@@ -17,6 +17,7 @@ pub(super) struct Allocation {
     pub lifetime: ResourceLifetime,
     pub semantic: Semantic,
     pub initial: Option<u32>,
+    pub view_formats: Vec<wgpu::TextureFormat>,
     pub lease: Option<worldrunner_render_gpu::submission::FrameLease>,
 }
 
@@ -36,6 +37,16 @@ impl ResourceRegistry {
         semantic: Semantic,
         initial: Option<u32>,
     ) -> Result<AllocationKey, ContractError> {
+        self.import_with_view_formats(texture, lifetime, semantic, initial, &[])
+    }
+    pub(super) fn import_with_view_formats(
+        &mut self,
+        texture: &wgpu::Texture,
+        lifetime: ResourceLifetime,
+        semantic: Semantic,
+        initial: Option<u32>,
+        view_formats: &[wgpu::TextureFormat],
+    ) -> Result<AllocationKey, ContractError> {
         if let Some((key, _)) = self.retired.iter().find(|(_, retired)| retired == texture) {
             return Err(ContractError::StaleAllocation(*key));
         }
@@ -46,6 +57,7 @@ impl ResourceRegistry {
         {
             if (existing.lifetime, existing.semantic, existing.initial)
                 != (lifetime, semantic, initial)
+                || existing.view_formats != view_formats
             {
                 return Err(ContractError::Identity(existing.key));
             }
@@ -61,6 +73,7 @@ impl ResourceRegistry {
             lifetime,
             semantic,
             initial,
+            view_formats: view_formats.to_vec(),
             lease: None,
         });
         Ok(key)
@@ -126,6 +139,7 @@ impl ResourceRegistry {
         self.retired.push((key, entry.texture.clone()));
         entry.texture = texture.clone();
         entry.initial = None;
+        entry.view_formats.clear();
         Ok(entry.key)
     }
     pub(super) fn allocation(&self, key: AllocationKey) -> Result<&Allocation, ContractError> {
@@ -178,6 +192,23 @@ impl ResourceRegistry {
         version: u32,
         dimension: wgpu::TextureViewDimension,
     ) -> Result<CheckedView, ContractError> {
+        let format = self.allocation(key)?.texture.format();
+        self.view_format(key, range, version, dimension, format)
+    }
+    /// Selects the allocation format or one of its creation-time view formats.
+    ///
+    /// For example, an anti-aliasing pass can target `Rgba8UnormSrgb` while the
+    /// texture uses `Rgba8Unorm` storage. Import its creation-time declaration
+    /// with [`Self::create`] or [`super::DeclaredTexture`] before selecting the sRGB view.
+    /// [`Self::view`] and [`Self::view_dimension`] keep the allocation format.
+    pub fn view_format(
+        &self,
+        key: AllocationKey,
+        range: TextureRange,
+        version: u32,
+        dimension: wgpu::TextureViewDimension,
+        format: wgpu::TextureFormat,
+    ) -> Result<CheckedView, ContractError> {
         let entry = self.allocation(key)?;
         validate_range(entry, &range)?;
         let layers = range.layers.end - range.layers.start;
@@ -200,7 +231,16 @@ impl ResourceRegistry {
         {
             return Err(ContractError::Range(key));
         }
+        if format != entry.texture.format() && !entry.view_formats.contains(&format) {
+            return Err(ContractError::ViewFormat {
+                allocation: key,
+                format,
+            });
+        }
+        let usage = super::declared_texture::view_usage(&entry.texture, format);
         let view = entry.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: (format != entry.texture.format()).then_some(format),
+            usage: Some(usage),
             dimension: Some(dimension),
             aspect: range.aspect,
             base_mip_level: range.mips.start,
@@ -215,6 +255,8 @@ impl ResourceRegistry {
             version,
             view,
             dimension,
+            format,
+            usage,
             lease: entry.lease.clone(),
         })
     }

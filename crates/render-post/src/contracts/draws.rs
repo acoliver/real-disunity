@@ -97,7 +97,7 @@ impl CheckedDraw {
             match (target, attachment) {
                 (Some(target), Some(attachment)) => {
                     let allocation = registry.allocation(attachment.view.allocation())?;
-                    if target.format != allocation.texture.format()
+                    if target.format != attachment.view.format()
                         || self.samples != allocation.texture.sample_count()
                     {
                         return Err(ContractError::Pipeline);
@@ -110,7 +110,7 @@ impl CheckedDraw {
         match (&self.depth, &pass.depth) {
             (Some(state), Some(attachment)) => {
                 let texture = &registry.allocation(attachment.view.allocation())?.texture;
-                if state.format != texture.format()
+                if state.format != attachment.view.format()
                     || self.samples != texture.sample_count()
                     || (attachment.read_only && state.depth_write_enabled == Some(true))
                 {

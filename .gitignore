@@ -10,3 +10,12 @@ __pycache__/
 *.py[cod]
 /csharp/**/bin/
 /csharp/**/obj/
+
+# Local tool caches and agent scratch.
+/.work/
+/.cache/
+/.dotnet/
+# Agent configuration: only the shared memory file and skills are tracked.
+/.llxprt/*
+!/.llxprt/skills/
+!/.llxprt/LLXPRT.md

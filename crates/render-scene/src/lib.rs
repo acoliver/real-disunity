@@ -40,3 +40,4 @@ pub use view::{CameraPose, OrthographicLens, SceneView, ViewError, Viewport};
 mod post;
 
 pub mod simulation;
+pub mod sky;

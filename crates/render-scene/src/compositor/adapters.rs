@@ -19,7 +19,11 @@ impl PreparedFeature for Resident<'_> {
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
         self.publications.publish(context);
     }
-    fn draw(&self, _: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
+    fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
+        if context.slot == PassSlot::Celestial {
+            self.scene.draw_celestial(pass);
+            return;
+        }
         self.publications
             .record(self.scene.draw_color(pass, self.pipelines, None));
     }
@@ -44,6 +48,16 @@ pub fn encode_resident(
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(renderer.color_attachment(color.resource(), color));
     pass.depth = Some(super::attachment(depth.resource(), depth, true));
+    let mut passes = vec![pass];
+    let mut views = vec![color.clone(), depth.clone()];
+    let mut declaration = super::SceneFeature::declaration(pipelines);
+    scene.plan_celestial(
+        device,
+        color.size(),
+        &mut passes,
+        &mut views,
+        &mut declaration,
+    );
     let mut feature = Resident {
         scene,
         pipelines,
@@ -52,10 +66,10 @@ pub fn encode_resident(
     renderer.encode(
         device,
         encoder,
-        &[pass],
-        &[color.clone(), depth.clone()],
+        &passes,
+        &views,
         &mut [BorrowedFeature {
-            declaration: super::SceneFeature::declaration(pipelines),
+            declaration,
             prepared: &mut feature,
         }],
     )

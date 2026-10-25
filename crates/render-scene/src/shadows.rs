@@ -411,6 +411,7 @@ impl ShadowedScene {
         let mut schedule =
             schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
         schedule.screen_space(scheduler);
+        schedule.celestial(&self.gpu, context.device(), color.size());
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),
             screen: scheduler.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
@@ -521,6 +522,10 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        if context.slot == worldrunner_render_post::PassSlot::Celestial {
+            self.gpu.draw_celestial(pass);
+            return;
+        }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {

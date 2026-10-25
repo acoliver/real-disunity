@@ -44,7 +44,8 @@ pub(crate) fn pipelines(
     } else {
         "vec4<f32>(normalize((screen.view * vec4<f32>(normal, 0.0)).xyz), 1.0)"
     };
-    let marker = "return vec4<f32>(apply_exposure(colour), 1.0);";
+    let marker =
+        "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);";
     assert_eq!(crate::shader::TERRAIN_WGSL.matches(marker).count(), 1);
     let terrain = format!(
         "{}\n{camera}",

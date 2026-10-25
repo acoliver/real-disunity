@@ -46,5 +46,21 @@ fn rd_irradiance_polynomial(direction: vec3<f32>, c: array<vec3<f32>, 9>) -> vec
     return c[0] + c[1]*x + c[2]*y + c[3]*z + c[4]*(x*y)
         + c[5]*(x*z) + c[6]*(y*z) + c[7]*(x*x-y*y) + c[8]*(z*z);
 }
+// Exponential extinction along a segment, with the horizontal-ray analytic limit.
+// log_density_at_eye is logarithmic extinction per metre; all distances are metres.
+fn rd_height_fog_transmittance(log_density_at_eye:f32,falloff:f32,start_distance:f32,offset:vec3<f32>,up:vec3<f32>)->f32 {
+    let length=length(offset);
+    if length<=start_distance { return 1.0; }
+    let ray=offset/length;
+    let distance=length-start_distance;
+    let x=falloff*dot(ray,up)*distance;
+    var log_integral=log(1.0-x*0.5+x*x/6.0-x*x*x/24.0);
+    if x < -50.0 { log_integral=-x+log(1.0-exp(x))-log(-x); }
+    else if abs(x)>=0.001 { log_integral=log((1.0-exp(-x))/x); }
+    let log_depth=log_density_at_eye-falloff*dot(ray,up)*start_distance+log(distance)+log_integral;
+    if log_depth>=5.0 { return 0.0; }
+    return exp(-exp(log_depth));
+}
+
 " };
 }

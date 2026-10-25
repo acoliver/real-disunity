@@ -505,3 +505,44 @@ fn build_objects(
         )
     })
 }
+
+pub(crate) fn celestial_pipelines(device: &Device, scene: &ScenePipelines) -> [RenderPipeline; 4] {
+    let source = ENVIRONMENT_WGSL.replace(
+        "@location(0) world_position: vec3<f32>,",
+        "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
+    );
+    let source = format!("{source}\n{}", crate::sky::meshes::VERTEX);
+    let module = scene_shader(device, "celestial mesh lighting", &source);
+    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: Some("celestial meshes"),
+        bind_group_layouts: &[Some(scene.frame_layout()), Some(scene.material_layout())],
+        immediate_size: 0,
+    });
+    let vertices = vertex_attributes();
+    let instances = instance_attributes();
+    let buffers = vertex_buffers(&vertices, &instances);
+    let targets = color_targets(wgpu::TextureFormat::Rgba16Float);
+    PipelineKey::ALL.map(|key| {
+        build_variant(
+            device,
+            &layout,
+            &buffers,
+            FragmentState {
+                module: &module,
+                entry_point: Some(if key.masked {
+                    "fs_celestial_masked"
+                } else {
+                    "fs_celestial_opaque"
+                }),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets: &targets,
+            },
+            ObjectState {
+                key,
+                samples: scene.samples,
+                depth_write: true,
+                vertex_entry: "vs_celestial",
+            },
+        )
+    })
+}

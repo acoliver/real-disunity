@@ -153,8 +153,7 @@ fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutpu
     return out;
 }
 
-@vertex
-fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
+fn material_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     var out = transform_vertex(vertex, instance);
     let displacement = scene_wind_offset(material.wind_direction_amplitude, material.wind_clock.xy,
         bitcast<u32>(frame.grading.z));
@@ -278,4 +277,8 @@ fn scene_geometry_covered(input: VertexOutput) -> bool {
 
 fn scene_apply_coverage(input: VertexOutput) {
     if !scene_geometry_covered(input) { discard; }
+}
+
+@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
+    return material_vertex(vertex,instance);
 }

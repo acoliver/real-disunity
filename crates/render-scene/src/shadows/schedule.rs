@@ -12,6 +12,21 @@ pub(super) struct ShadowSchedule {
 }
 
 impl ShadowSchedule {
+    pub fn celestial(
+        &mut self,
+        gpu: &crate::draw::SceneGpu,
+        device: &wgpu::Device,
+        size: [u32; 2],
+    ) {
+        gpu.plan_celestial(
+            device,
+            size,
+            &mut self.passes,
+            &mut self.views,
+            &mut self.declaration,
+        );
+    }
+
     pub fn screen_space(&mut self, scheduler: &crate::compositor::FrameRenderer) {
         if scheduler.ssao.is_some() {
             crate::ssao::passes::geometry_declaration(&mut self.declaration);

@@ -7,6 +7,8 @@
 //! publication. Every constructor validates its own closure, so an invalid
 //! scene cannot exist.
 
+mod atmosphere;
+pub use atmosphere::{SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, SceneHeightFog};
 mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
 mod composition;
@@ -187,6 +189,13 @@ impl RenderScene {
         self.geometry.validate()?;
         if let Some(effects) = &self.effects {
             effects.validate()?;
+        }
+        if let Some(atmosphere) = self.effects.as_ref().and_then(SceneEffects::atmosphere) {
+            atmosphere.validate_handles(
+                table_limit(self.resources.textures().len(), "textures")?,
+                table_limit(self.geometry.meshes().len(), "meshes")?,
+                table_limit(self.resources.materials().len(), "materials")?,
+            )?;
         }
         let material_limit = table_limit(self.resources.materials().len(), "materials")?;
         let mesh_limit = table_limit(self.geometry.meshes().len(), "meshes")?;

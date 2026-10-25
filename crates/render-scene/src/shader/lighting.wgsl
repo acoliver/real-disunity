@@ -110,3 +110,13 @@ fn cotangent_frame(normal: vec3<f32>, position: vec3<f32>, uv: vec2<f32>) -> mat
     let scale = inverseSqrt(max(dot(tangent, tangent), dot(bitangent, bitangent)));
     return mat3x3<f32>(tangent * scale, bitangent * scale, normal);
 }
+
+fn apply_height_fog(radiance: vec3<f32>, position: vec3<f32>) -> vec3<f32> {
+    if frame.sun_direction.w >= 0.0 { return radiance; }
+    let origin = scene_ray_origin(position);
+    let falloff = -frame.sun_direction.w - 1.0;
+    let log_density = frame.camera_position.w - falloff * (origin.z - frame.camera_position.z);
+    let transmittance = rd_height_fog_transmittance(log_density, falloff,
+        frame.sun_irradiance.w, position - origin, vec3(0.0, 0.0, 1.0));
+    return mix(vec3(frame.ambient_sky.w, frame.ambient_ground.w, frame.grading.w), radiance, transmittance);
+}

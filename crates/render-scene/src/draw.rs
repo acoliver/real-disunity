@@ -22,6 +22,7 @@ use crate::upload::{
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
+mod celestial;
 mod contact;
 mod descriptors;
 mod dynamic;
@@ -162,6 +163,8 @@ struct Retained {
 /// One scene resident on the GPU, ready to draw.
 #[derive(Debug)]
 pub struct SceneGpu {
+    sky: Option<crate::sky::Sky>,
+    celestial: Option<crate::sky::meshes::Meshes>,
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
@@ -231,6 +234,8 @@ impl SceneGpu {
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
+            celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
+            sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view),
             post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
@@ -284,7 +289,16 @@ impl SceneGpu {
     /// and only group one is invalidated — which both paths set themselves
     /// anyway. Terrain draws last so that this reasoning is needed in one
     /// direction only.
+    /// Scenes with celestial meshes require [`crate::compositor::encode_scene`] or
+    /// [`crate::compositor::encode_resident`] to schedule their internal visibility pass.
+    ///
+    /// # Panics
+    /// Panics when celestial meshes are present, before recording any draws.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
+        assert!(
+            self.celestial.is_none(),
+            "celestial meshes require compositor::encode_scene or encode_resident"
+        );
         self.draw_color(pass, pipelines, None);
     }
 
@@ -316,13 +330,7 @@ impl SceneGpu {
         self.draw_color_pass(pass, pipelines, shadow, true)
     }
 
-    fn draw_color_pass(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-        shadow: Option<&BindGroup>,
-        dynamic: bool,
-    ) -> SelectionPublication {
+    fn drawing_frame_group(&self) -> BindGroup {
         let transaction_frame = self
             .drawing_frame
             .borrow()
@@ -331,11 +339,21 @@ impl SceneGpu {
                 worldrunner_render_gpu::submission::Publications::current()
                     .is_some_and(|current| current.same_transaction(owner))
             });
-        let frame_group = if transaction_frame {
+        if transaction_frame {
             self.frame_group.clone()
         } else {
             self.committed_frame_group.borrow().clone()
-        };
+        }
+    }
+
+    fn draw_color_pass(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        shadow: Option<&BindGroup>,
+        dynamic: bool,
+    ) -> SelectionPublication {
+        let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
         if let Some(terrain) = &self.terrain {
             let cached_group = terrain
@@ -357,6 +375,12 @@ impl SceneGpu {
             }
         }
         if dynamic {
+            if let Some(sky) = &self.sky {
+                sky.draw(pass, &frame_group);
+            }
+            if let Some(meshes) = &self.celestial {
+                meshes.draw(pass);
+            }
             self.dynamic.draw(pass, &frame_group, pipelines);
         }
         selection
@@ -504,6 +528,16 @@ fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(
     descriptors::validate(scene)?;
     if let Some(effects) = scene.effects() {
         crate::frame::validate_stock_effects(effects)?;
+        if matches!(
+            effects.sky(),
+            worldrunner_render_plan::SceneSky::DomeTexture { .. }
+        ) && effects.atmosphere().is_none()
+        {
+            return Err(crate::frame::FrameError::UnsupportedEffect(
+                "dome sky requires atmosphere",
+            )
+            .into());
+        }
         if crate::post::requested(effects)
             && pipelines.color_format != wgpu::TextureFormat::Rgba16Float
         {
@@ -511,6 +545,11 @@ fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(
                 "post-processing requires HDR",
             )
             .into());
+        }
+        if effects.atmosphere().is_some()
+            && pipelines.color_format != wgpu::TextureFormat::Rgba16Float
+        {
+            return Err(crate::frame::FrameError::UnsupportedEffect("sky requires HDR").into());
         }
         if effects.ssr().is_some_and(|settings| settings.enabled)
             && pipelines.color_format != wgpu::TextureFormat::Rgba16Float

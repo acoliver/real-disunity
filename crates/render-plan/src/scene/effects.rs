@@ -486,6 +486,7 @@ pub struct SceneEffectsParts {
 /// and SSAO may be absent within a profile; the other fields are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffects {
+    atmosphere: Option<super::SceneAtmosphere>,
     water_settings: Option<super::SceneWaterSettings>,
     hdr_post: Option<super::SceneHdrPost>,
     ssr: Option<super::SceneSsr>,
@@ -502,6 +503,19 @@ pub struct SceneEffects {
 }
 
 impl SceneEffects {
+    /// Opts into atmospheric background rendering without changing existing scenes.
+    pub fn with_atmosphere(
+        mut self,
+        settings: super::SceneAtmosphere,
+    ) -> Result<Self, SceneValidationError> {
+        settings.validate()?;
+        self.atmosphere = Some(settings);
+        Ok(self)
+    }
+    pub const fn atmosphere(&self) -> Option<&super::SceneAtmosphere> {
+        self.atmosphere.as_ref()
+    }
+
     pub fn with_water_settings(
         mut self,
         settings: super::SceneWaterSettings,
@@ -549,6 +563,7 @@ impl SceneEffects {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn new(parts: SceneEffectsParts) -> Result<Self, SceneValidationError> {
         let effects = Self {
+            atmosphere: None,
             water_settings: None,
             hdr_post: None,
             ssr: None,
@@ -633,6 +648,9 @@ impl SceneEffects {
     ///
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        if let Some(atmosphere) = &self.atmosphere {
+            atmosphere.validate()?;
+        }
         if let Some(water) = self.water {
             water.validate()?;
         }

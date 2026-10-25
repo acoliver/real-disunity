@@ -93,12 +93,18 @@ pub(crate) fn append(
     factory: &SpatialUpscale,
 ) {
     let sharpness = factory.settings.sharpness;
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("FSR 1 spatial reconstruction"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("upscale.wgsl").into()),
+    });
+    // Display-referred input needs no more than half precision between the two passes, and
+    // the narrower intermediate halves this stage's memory traffic.
     let intermediate = sharpness.map(|_| {
         let texture = crate::color_texture(
             device,
             "RCAS input",
             output,
-            wgpu::TextureFormat::Rgba32Float,
+            wgpu::TextureFormat::Rgba16Float,
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         set.resources.textures.push(texture);
@@ -110,6 +116,7 @@ pub(crate) fn append(
     };
     pass(
         device,
+        &module,
         set,
         source,
         Pass {
@@ -117,18 +124,19 @@ pub(crate) fn append(
             output,
             format: intermediate
                 .as_ref()
-                .map_or(factory.output_format, |_| wgpu::TextureFormat::Rgba32Float),
+                .map_or(factory.output_format, |_| wgpu::TextureFormat::Rgba16Float),
             target: intermediate
                 .as_ref()
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
             sharpness: 0.0,
         },
     );
-    if let Some(stops) = sharpness {
+    if let (Some(stops), Some(view)) = (sharpness, intermediate.as_ref()) {
         pass(
             device,
+            &module,
             set,
-            intermediate.as_ref().unwrap(),
+            view,
             Pass {
                 entry: "rcas",
                 output,
@@ -146,11 +154,13 @@ struct Pass {
     target: StageTarget,
     sharpness: f32,
 }
-fn pass(device: &wgpu::Device, set: &mut StageSet, source: &wgpu::TextureView, p: Pass) {
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("FSR 1 spatial reconstruction"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("upscale.wgsl").into()),
-    });
+fn pass(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    set: &mut StageSet,
+    source: &wgpu::TextureView,
+    p: Pass,
+) {
     let layout = source_layout(device, p.entry);
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(p.entry),
@@ -162,7 +172,7 @@ fn pass(device: &wgpu::Device, set: &mut StageSet, source: &wgpu::TextureView, p
         crate::FullscreenDescriptor {
             label: Some(p.entry),
             layout: &pipeline_layout,
-            module: &module,
+            module,
             vertex_entry: "vertex",
             fragment_entry: p.entry,
             format: p.format,

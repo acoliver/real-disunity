@@ -91,7 +91,11 @@ Its `extent` method rounds to nearest, with halfway values rounded up.
 `SpatialUpscale` is a retained `StageFactory` for display-referred inputs.
 Select `UpscaleMode::Bilinear` or `UpscaleMode::Easu`. Set `sharpness` to
 `Some(stops)` for RCAS, from zero (maximum sharpening) through two stops.
-`None` is the exact off value and omits the RCAS pass. The WGSL port uses full
+`None` is the exact off value and omits the RCAS pass. With RCAS enabled, the
+reconstruction pass writes an Rgba16Float intermediate: its display-referred
+values need no more precision, and on an integrated GPU at 1600x900 output it
+measured about half the reconstruction and RCAS time of an Rgba32Float
+intermediate. The WGSL port uses full
 precision reciprocals and square roots, with clamped border loads. EASU clamps
 each reconstructed RGB channel to the nearest four source samples. Alpha uses
 bilinear interpolation and passes unchanged through RCAS.
@@ -116,7 +120,10 @@ notice is preserved in the shader file.
 ### Numerical checks and informational timing
 
 The scalar f64 reference and f32 GPU kernels are compared with an absolute
-per-channel tolerance of 0.0001. HDR composition allows one 8-bit code step
+per-channel tolerance of 0.0001. Reconstruction is compared without RCAS. RCAS is
+compared against the half-float reconstruction it reads, captured by rendering
+the same reconstruction into an Rgba16Float target, so the check does not depend
+on the driver's rounding for that store. HDR composition allows one 8-bit code step
 for attachment transfer and quantization. Fixtures cover constant fields,
 vertical and 45-degree edges, a steeper rasterized edge, full-range and
 mid-range checkerboards, single-pixel inputs, and odd extents. The EASU

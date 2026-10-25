@@ -106,12 +106,8 @@ fn render(
     chain: &PostChain<SpatialUpscale>,
 ) -> Vec<[f64; 4]> {
     let size = chain.targets().config().output_extent();
-    let output = color_texture(
-        device,
-        "upscale numerical output",
-        size,
-        wgpu::TextureFormat::Rgba32Float,
-    );
+    let format = chain.factory().output_format;
+    let output = color_texture(device, "upscale numerical output", size, format);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     chain.encode(
         &mut encoder,
@@ -126,6 +122,14 @@ fn render(
     .unwrap()
     .read(device, &crate::test_authority(queue), &output)
     .unwrap();
+    if format == wgpu::TextureFormat::Rgba16Float {
+        return raw
+            .chunks_exact(8)
+            .map(|p| {
+                std::array::from_fn(|c| half_to_f64(u16::from_le_bytes([p[2 * c], p[2 * c + 1]])))
+            })
+            .collect();
+    }
     raw.chunks_exact(16)
         .map(|p| {
             std::array::from_fn(|c| {
@@ -133,6 +137,53 @@ fn render(
             })
         })
         .collect()
+}
+/// Decodes a finite binary16 value exactly.
+fn half_to_f64(bits: u16) -> f64 {
+    let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+    let exponent = i32::from((bits >> 10) & 0x1f);
+    let fraction = f64::from(bits & 0x3ff);
+    assert!(exponent != 0x1f, "test images are finite");
+    if exponent == 0 {
+        sign * fraction * 2.0_f64.powi(-24)
+    } else {
+        sign * (1.0 + fraction / 1024.0) * 2.0_f64.powi(exponent - 15)
+    }
+}
+/// Upscales without RCAS into a half-float target. It holds exactly what RCAS reads from
+/// its half-float intermediate, whatever rounding the driver uses for that store.
+fn stored_intermediate(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &Image,
+    output: [i32; 2],
+    mode: UpscaleMode,
+    pattern: u32,
+) -> Image {
+    let settings = UpscaleSettings {
+        mode,
+        sharpness: None,
+    };
+    let chain = PostChain::new(
+        device,
+        FrameConfig::new(
+            output.map(|v| u32::try_from(v).unwrap()),
+            wgpu::TextureFormat::Rgba32Float,
+            1,
+        )
+        .with_render_extent(image.size.map(|v| u32::try_from(v).unwrap())),
+        Resources::default(),
+        SpatialUpscale {
+            settings,
+            output_format: wgpu::TextureFormat::Rgba16Float,
+        },
+    )
+    .unwrap();
+    paint(device, queue, chain.targets().texture(), pattern);
+    Image {
+        size: output,
+        pixels: render(device, queue, &chain),
+    }
 }
 fn chain(
     device: &wgpu::Device,
@@ -216,9 +267,15 @@ fn gpu_resize_rebinds_both_extents_and_rejects_invalid_replacement() {
     paint(&device, &queue, chain.targets().texture(), 1);
     compare(
         &render(&device, &queue, &chain),
-        &fixture([33, 17], 1)
-            .reconstruct([50, 26], false)
-            .sharpen(0.0),
+        &stored_intermediate(
+            &device,
+            &queue,
+            &fixture([33, 17], 1),
+            [50, 26],
+            UpscaleMode::Bilinear,
+            1,
+        )
+        .sharpen(0.0),
     );
 }
 #[test]
@@ -265,8 +322,15 @@ fn verify_reconstruction(
             UpscaleSettings { mode, sharpness },
         );
         paint(device, queue, chain.targets().texture(), pattern);
-        let reference =
-            sharpness.map_or_else(|| expected.clone(), |s| expected.sharpen(f64::from(s)));
+        // Reconstruction is checked against the scalar reference without RCAS. RCAS is
+        // checked against the half-float intermediate it actually reads.
+        let reference = sharpness.map_or_else(
+            || expected.clone(),
+            |s| {
+                stored_intermediate(device, queue, image, output, mode, pattern)
+                    .sharpen(f64::from(s))
+            },
+        );
         eprintln!(
             "reference input={:?} pattern={pattern} mode={mode:?} sharpness={sharpness:?}",
             image.size

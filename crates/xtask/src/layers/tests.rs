@@ -224,6 +224,8 @@ fn ci_profiles_select_disjoint_managed_and_gpu_requirements() {
 fn process_harness_has_cpu_coverage_while_player_requires_graphics() {
     use crate::commands::{Profile, selection};
     let dir = workspace();
+    // A CPU package keeps the CPU profile non-empty on hosts where the harness is excluded.
+    package(&dir, "crates/asset", "worldrunner-asset-id", "");
     package(&dir, "crates/harness", "compat-kit", "");
     package(&dir, "crates/player", "compat-player", "");
     let data = graph(&dir);

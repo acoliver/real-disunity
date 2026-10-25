@@ -67,3 +67,32 @@ fn normalized_and_hdr_frame_targets_keep_supported_resolves() {
         }
     }
 }
+
+#[test]
+fn explicit_render_extent_is_bounded_by_presentation() {
+    let limits = wgpu::Limits::default();
+    let native = FrameConfig::new([50, 26], wgpu::TextureFormat::Rgba16Float, 1);
+    assert_eq!(native.output_extent(), native.size);
+    let reduced = native.with_render_extent([33, 17]);
+    assert_eq!(reduced.size, [33, 17]);
+    assert_eq!(reduced.output_extent(), [50, 26]);
+    assert_eq!(reduced.validate(&limits), Ok(()));
+    for size in [[51, 17], [33, 27]] {
+        assert_eq!(
+            native.with_render_extent(size).validate(&limits),
+            Err(PostError::RenderExtent)
+        );
+    }
+    for size in [[0, 17], [33, 0]] {
+        assert_eq!(
+            native.with_render_extent(size).validate(&limits),
+            Err(PostError::EmptyExtent)
+        );
+    }
+    let excessive = FrameConfig::new([limits.max_texture_dimension_2d + 1, 26], native.format, 1)
+        .with_render_extent([33, 17]);
+    assert!(matches!(
+        excessive.validate(&limits),
+        Err(PostError::TextureLimit { .. })
+    ));
+}

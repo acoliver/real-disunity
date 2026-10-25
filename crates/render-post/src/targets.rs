@@ -4,6 +4,8 @@ use crate::PostError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameConfig {
     pub size: [u32; 2],
+    /// Presentation extent; `None` uses the scene extent.
+    pub output_size: Option<[u32; 2]>,
     pub format: wgpu::TextureFormat,
     pub samples: u32,
 }
@@ -12,8 +14,23 @@ impl FrameConfig {
     pub const fn new(size: [u32; 2], format: wgpu::TextureFormat, samples: u32) -> Self {
         Self {
             size,
+            output_size: None,
             format,
             samples,
+        }
+    }
+
+    /// Set an explicit internal extent while retaining the original output extent.
+    pub fn with_render_extent(mut self, size: [u32; 2]) -> Self {
+        self.output_size = Some(self.output_extent());
+        self.size = size;
+        self
+    }
+
+    pub const fn output_extent(self) -> [u32; 2] {
+        match self.output_size {
+            Some(size) => size,
+            None => self.size,
         }
     }
 
@@ -44,16 +61,23 @@ impl FrameConfig {
     }
 
     pub fn validate(self, limits: &wgpu::Limits) -> Result<(), PostError> {
-        if self.size.contains(&0) {
+        let output = self.output_extent();
+        if self.size.contains(&0) || output.contains(&0) {
             return Err(PostError::EmptyExtent);
         }
-        if self
-            .size
+        if output
+            .iter()
+            .zip(self.size)
+            .any(|(&out, render)| out < render)
+        {
+            return Err(PostError::RenderExtent);
+        }
+        if output
             .iter()
             .any(|&side| side > limits.max_texture_dimension_2d)
         {
             return Err(PostError::TextureLimit {
-                size: self.size,
+                size: output,
                 limit: limits.max_texture_dimension_2d,
             });
         }

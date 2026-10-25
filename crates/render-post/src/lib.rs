@@ -85,6 +85,8 @@ pub enum PostError {
     Frame(#[from] FrameError),
     #[error("post target extent is empty")]
     EmptyExtent,
+    #[error("output extent must contain the render extent")]
+    RenderExtent,
     #[error("post extent {size:?} exceeds texture limit {limit}")]
     TextureLimit { size: [u32; 2], limit: u32 },
     #[error("invalid post sample count {0}")]

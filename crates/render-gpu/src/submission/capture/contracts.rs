@@ -70,6 +70,10 @@ impl WriteScope {
             active,
         }
     }
+    pub(in crate::submission) fn same_capture(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.active, &other.active) && !self.retired()
+    }
+
     pub(in crate::submission) fn retired(&self) -> bool {
         !self.active.load(std::sync::atomic::Ordering::Acquire)
     }

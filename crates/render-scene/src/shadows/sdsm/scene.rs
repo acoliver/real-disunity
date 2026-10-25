@@ -15,7 +15,7 @@ use worldrunner_render_post::AttachmentView;
 #[derive(Debug)]
 pub(crate) struct SceneDepthFitting {
     settings: SdsmSettings,
-    metadata: Option<crate::ssao::Ssao>,
+    metadata: Option<crate::scene_metadata::SceneMetadata>,
     fitting: Option<DepthFitting>,
     pending: Vec<PendingReduction>,
     current: Option<AdoptedFit>,
@@ -145,8 +145,8 @@ impl ShadowedScene {
             &input.metadata.depth,
             input.metadata.passes.depth_levels()[0],
         ])?;
-        prefix.extend(metadata.clone());
-        suffix.extend(metadata);
+        suffix.retain(|key| !metadata.contains(key));
+        prefix.extend(metadata);
         prefix.push(key);
         Ok(CaptureWrites::new(prefix, suffix.clone(), suffix).map_err(SdsmError::from)?)
     }
@@ -279,7 +279,7 @@ struct RenderInput<'a> {
     attachments: (&'a AttachmentView, &'a AttachmentView),
     source_frame: u64,
     frame: FrameUniform,
-    metadata: crate::ssao::Ssao,
+    metadata: crate::scene_metadata::SceneMetadata,
 }
 impl SceneDepthFitting {
     fn bind(
@@ -287,14 +287,14 @@ impl SceneDepthFitting {
         context: &GpuContext,
         scheduler: &crate::compositor::FrameRenderer,
         size: [u32; 2],
-    ) -> Result<crate::ssao::Ssao, ShadowError> {
+    ) -> Result<crate::scene_metadata::SceneMetadata, ShadowError> {
         if scheduler.ssao.is_none()
             && self
                 .metadata
                 .as_ref()
                 .is_none_or(|source| source.size != size)
         {
-            self.metadata = Some(crate::ssao::Ssao::new(
+            self.metadata = Some(crate::scene_metadata::SceneMetadata::new(
                 context.device(),
                 size,
                 crate::ssr::neutral_ao(),

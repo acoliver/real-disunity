@@ -161,7 +161,7 @@ fn gpu_odd_extent_filtered_bins_preserve_interior_and_partial_edges() {
     let context = context();
     let size = [65, 65];
     for scale in [1_000_000, 500_000] {
-        let mut screen = Ssao::new(context.device(), size, neutral_ao()).unwrap();
+        let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
         let ssr = Ssr::new(
             context.device(),
             FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1),

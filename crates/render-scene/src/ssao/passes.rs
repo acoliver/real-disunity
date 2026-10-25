@@ -1,4 +1,6 @@
 use crate::frame::metadata::FrameProduct;
+#[path = "kernels.rs"]
+mod kernels;
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, FeaturePass, FrameError, PassDeclaration, PassSlot,
     PreparedFeature, ResourceRef,
@@ -29,6 +31,14 @@ pub(crate) fn texture(
 }
 
 pub(super) fn pipeline(device: &wgpu::Device, shader: &str) -> wgpu::RenderPipeline {
+    pipeline_format(device, shader, wgpu::TextureFormat::R32Float)
+}
+
+pub(super) fn pipeline_format(
+    device: &wgpu::Device,
+    shader: &str,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
     let source = format!("{}\n{shader}", include_str!("fullscreen.wgsl"));
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("screen space"),
@@ -48,7 +58,7 @@ pub(super) fn pipeline(device: &wgpu::Device, shader: &str) -> wgpu::RenderPipel
             entry_point: Some("fs_screen"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::R32Float,
+                format,
                 blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -125,7 +135,7 @@ impl ScreenPasses {
         passes.push(pass);
         views.push(view);
         let mut feature = FeaturePass::new(stage.slot);
-        feature.color_format = Some(wgpu::TextureFormat::R32Float);
+        feature.color_format = Some(stage.target.format());
         feature.reads.clone_from(&stage.reads);
         Ok(FeatureDeclaration {
             passes: vec![feature],
@@ -147,6 +157,7 @@ impl ScreenPasses {
         uniform: &wgpu::Buffer,
         depth: &wgpu::Texture,
         normals: &wgpu::Texture,
+        settings: worldrunner_render_plan::SceneSsao,
     ) -> Self {
         let mut stages: Vec<ScreenPass> = Vec::new();
         let mut extent = size;
@@ -183,31 +194,16 @@ impl ScreenPasses {
             extent = [extent[0].div_ceil(2), extent[1].div_ceil(2)];
             index += 1;
         }
-        let raw = texture(device, size, wgpu::TextureFormat::R32Float);
-        let ao = pipeline(device, include_str!("occlusion.wgsl"));
-        let ao_group = group(device, &ao, Some(uniform), &[&stages[0].target, normals]);
-        let filtered = texture(device, size, wgpu::TextureFormat::R32Float);
-        let blur = pipeline(device, include_str!("blur.wgsl"));
-        let blur_group = group(device, &blur, Some(uniform), &[&stages[0].target, &raw]);
-        stages.push(ScreenPass {
-            slot: PassSlot::Ssao,
-            pipeline: ao,
-            group: ao_group,
-            target: raw,
-            reads: vec![level(0), FrameProduct::normals().resource()],
-        });
-        stages.push(ScreenPass {
-            slot: PassSlot::SsaoBlur,
-            pipeline: blur,
-            group: blur_group,
-            target: filtered.clone(),
-            reads: vec![level(0), ResourceRef::new("raw ambient occlusion")],
-        });
+        let filtered = kernels::append(device, size, uniform, normals, settings, &mut stages);
         Self { stages, filtered }
     }
     fn resource(slot: PassSlot) -> ResourceRef {
         match slot {
             PassSlot::DepthPyramid(index) => level(index),
+            PassSlot::OcclusionMetadata(index) => {
+                FrameProduct::occlusion_metadata(index).resource()
+            }
+            PassSlot::SsaoBlurHorizontal => ResourceRef::new("horizontal ambient occlusion"),
             PassSlot::Ssao => ResourceRef::new("raw ambient occlusion"),
             PassSlot::SsaoBlur => ResourceRef::new("ambient occlusion"),
             _ => unreachable!("screen slot"),
@@ -230,7 +226,7 @@ impl ScreenPasses {
             passes.push(pass);
             views.push(view);
             let mut feature = FeaturePass::new(stage.slot);
-            feature.color_format = Some(wgpu::TextureFormat::R32Float);
+            feature.color_format = Some(stage.target.format());
             feature.reads.clone_from(&stage.reads);
             declaration.passes.push(feature);
         }
@@ -239,7 +235,7 @@ impl ScreenPasses {
 }
 
 pub(crate) struct ScreenFeature<'a> {
-    pub ssao: &'a super::Ssao,
+    pub ssao: &'a crate::scene_metadata::SceneMetadata,
     pub frame: crate::frame::FrameUniform,
 }
 impl PreparedFeature for ScreenFeature<'_> {
@@ -257,6 +253,8 @@ impl PreparedFeature for ScreenFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        #[cfg(test)]
+        crate::scene_metadata::record_pass(context.slot);
         let stage = self
             .ssao
             .passes
@@ -271,7 +269,7 @@ impl PreparedFeature for ScreenFeature<'_> {
 }
 
 pub(crate) fn prepass(
-    ssao: &super::Ssao,
+    ssao: &crate::scene_metadata::SceneMetadata,
     passes: &mut Vec<PassDeclaration>,
     views: &mut Vec<AttachmentView>,
 ) -> Result<(), FrameError> {
@@ -340,19 +338,10 @@ impl ScreenFeature<'_> {
     }
 }
 
-pub(super) fn source_textures(
-    device: &wgpu::Device,
-    size: [u32; 2],
-) -> Result<(wgpu::Texture, wgpu::Texture), FrameError> {
-    let normals = texture(device, size, wgpu::TextureFormat::Rgba16Float);
-    let depth = texture(device, size, wgpu::TextureFormat::Depth32Float);
-    crate::frame::metadata::validate_inputs(
-        &depth,
-        &normals,
-        None,
-        None,
-        crate::frame::metadata::MetadataSampling::PixelCenter,
-    )
-    .map_err(|_| FrameError::SsaoSettings("source metadata contract"))?;
-    Ok((normals, depth))
-}
+#[cfg(test)]
+#[path = "reference_tests.rs"]
+mod reference_tests;
+
+#[cfg(test)]
+#[path = "coarse_reference_tests.rs"]
+mod coarse_reference_tests;

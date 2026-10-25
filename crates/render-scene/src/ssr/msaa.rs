@@ -195,7 +195,7 @@ fn snapshot(
 fn setup(context: &GpuContext, config: FrameConfig) -> (Ssr, wgpu::Texture) {
     let size = config.size;
     let samples = config.samples;
-    let mut screen = Ssao::new(context.device(), size, neutral_ao()).unwrap();
+    let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
     let ssr = Ssr::new(context.device(), config, settings(), &mut screen).unwrap();
     upload(context, &ssr.normals, &[0.0, 0.0, 1.0, 1.0].repeat(81));
     upload(context, &ssr.material, &[0.5, 0.5, 0.5, 0.0].repeat(81));

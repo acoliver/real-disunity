@@ -18,6 +18,7 @@ mod instances;
 pub mod offscreen;
 pub mod pipeline;
 pub mod renderer;
+mod scene_metadata;
 pub mod shader;
 pub mod shadows;
 mod ssao;

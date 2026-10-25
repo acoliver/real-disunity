@@ -156,6 +156,15 @@ impl Publications {
     pub fn same_transaction(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.edits, &other.edits)
     }
+    /// A live preparation or two segments of the same owned capture frame.
+    pub fn same_frame(&self, other: &Self) -> bool {
+        (self.same_transaction(other) && self.status() == TransactionStatus::Preparing)
+            || matches!(
+                (&self.scope, &other.scope),
+                (Some(left), Some(right)) if left.same_capture(right)
+            )
+    }
+
     fn commit(self) {
         for publish in self.edits.take() {
             publish();

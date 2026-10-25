@@ -128,6 +128,15 @@ impl FrameProduct {
         product.resource.version = level;
         product
     }
+    pub fn occlusion_metadata(level: u32) -> Self {
+        let mut product = Self::stock(
+            "averaged occlusion depth normal",
+            MetadataMeaning::AverageDepthNormalMeters,
+            TextureFormat::Rgba16Float,
+        );
+        product.resource.version = level;
+        product
+    }
     pub fn opaque_depth(source_samples: u32) -> Self {
         Self::resolved_depth("opaque snapshot depth", source_samples)
     }

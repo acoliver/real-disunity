@@ -101,7 +101,7 @@ fn resolve_inputs(ssr: &Ssr, final_depth: &wgpu::Texture) -> Vec<wgpu::TextureVi
 }
 
 fn resolve_ssr(context: &GpuContext, size: [u32; 2]) -> Ssr {
-    let mut screen = Ssao::new(context.device(), size, neutral_ao()).unwrap();
+    let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
     Ssr::new(
         context.device(),
         FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1),

@@ -31,7 +31,7 @@ pub struct FrameRenderer {
     frame_delta: f32,
     post_time: std::rc::Rc<std::cell::Cell<f32>>,
     exposure_reset: std::rc::Rc<std::cell::Cell<bool>>,
-    pub(crate) ssao: Option<crate::ssao::Ssao>,
+    pub(crate) ssao: Option<crate::scene_metadata::SceneMetadata>,
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
@@ -151,7 +151,9 @@ impl FrameRenderer {
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
             ssao: effects
                 .and_then(|effects| effects.ssao())
-                .map(|settings| crate::ssao::Ssao::new(context.device(), size, *settings))
+                .map(|settings| {
+                    crate::scene_metadata::SceneMetadata::new(context.device(), size, *settings)
+                })
                 .transpose()?,
             chain: PostChain::new(
                 context.device(),
@@ -174,7 +176,7 @@ impl FrameRenderer {
     ) -> Result<(), FrameError> {
         if let Some(settings) = self.ssr_requested.filter(|settings| settings.enabled) {
             if self.ssao.is_none() {
-                self.ssao = Some(crate::ssao::Ssao::new(
+                self.ssao = Some(crate::scene_metadata::SceneMetadata::new(
                     device,
                     size,
                     crate::ssr::neutral_ao(),
@@ -369,7 +371,7 @@ impl FrameRenderer {
             .ssao
             .as_ref()
             .filter(|ssao| ssao.size != size)
-            .map(|ssao| crate::ssao::Ssao::new(device, size, ssao.settings))
+            .map(|ssao| crate::scene_metadata::SceneMetadata::new(device, size, ssao.settings))
             .transpose()?;
         let water = self
             .water

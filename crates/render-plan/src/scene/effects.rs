@@ -196,10 +196,34 @@ impl SceneShadowCascades {
     }
 }
 
+/// Deterministic ambient occlusion sampling policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneSsaoKernel {
+    /// Project samples from a view-normal oriented hemisphere.
+    Hemisphere,
+    /// Sample a screen-space spiral using averaged depth/normal footprints.
+    Spiral,
+}
+
+/// Depth-aware ambient occlusion reconstruction policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneSsaoFilter {
+    /// Full-resolution five-by-five depth-aware tent.
+    DepthAwareBox,
+    /// Horizontal then vertical nine-tap Gaussian, spaced two pixels apart.
+    /// Depth differences at least one metre are excluded; accepted weights use
+    /// an exponential sharpness of seven per metre.
+    SeparableBilateral,
+}
+
 /// Screen-space ambient occlusion parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSsao {
-    /// Number of deterministic hemisphere samples, within 1..=64.
+    /// Sampling algorithm and its metadata reduction contract.
+    pub kernel: SceneSsaoKernel,
+    /// Reconstruction filter, independent of sampling.
+    pub filter: SceneSsaoFilter,
+    /// Number of deterministic samples, within 1..=64.
     pub sample_count: u32,
     /// Surface self-occlusion bias in millimetres.
     pub bias_millimeters: u32,

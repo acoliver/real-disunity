@@ -10,6 +10,8 @@ fn gpu_unsupported_effect_update_preserves_the_active_profile() {
     let before = retained_image(&context, &mut renderer, &mut target);
     let mut parts = fixture::effects_parts(600_000);
     parts.ssao = Some(worldrunner_render_plan::SceneSsao {
+        kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         sample_count: 16,
         bias_millimeters: 10,
         radius_millimeters: 500,

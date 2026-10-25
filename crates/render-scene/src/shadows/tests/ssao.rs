@@ -6,6 +6,8 @@ fn source() -> RenderScene {
     let base = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
     parts.ssao = Some(SceneSsao {
+        kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         radius_millimeters: 2000,
         intensity_micro: 1_000_000,
         sample_count: 32,

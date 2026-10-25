@@ -162,26 +162,51 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
             [w, h, 1],
             wgpu::TextureFormat::R32Float,
             [1, 1],
-            2,
+            if settings.ssao.is_some_and(|ao| {
+                ao.filter == worldrunner_render_plan::SceneSsaoFilter::SeparableBilateral
+            }) {
+                3
+            } else {
+                2
+            },
         );
-        let mut size = [w, h];
-        loop {
-            set.texture(
-                "depth hierarchy",
-                [size[0], size[1], 1],
-                wgpu::TextureFormat::R32Float,
-                [1, 1],
-                1,
-            );
-            if size.contains(&0) || size == [1, 1] {
-                break;
-            }
-            size = size.map(|side| side.div_ceil(2));
-        }
+        screen_hierarchy_allocations(settings, set);
         set.buffer("screen uniform", 224, 1);
         set.buffer("screen staging", 224, 3);
     }
     reflection_allocations(settings, set);
+}
+fn screen_hierarchy_allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
+    let [w, h] = settings.frame.size;
+    let mut size = [w, h];
+    let mut level = 0;
+    loop {
+        set.texture(
+            "depth hierarchy",
+            [size[0], size[1], 1],
+            wgpu::TextureFormat::R32Float,
+            [1, 1],
+            1,
+        );
+        if level <= 6
+            && settings
+                .ssao
+                .is_some_and(|ao| ao.kernel == worldrunner_render_plan::SceneSsaoKernel::Spiral)
+        {
+            set.texture(
+                "averaged AO metadata",
+                [size[0], size[1], 1],
+                wgpu::TextureFormat::Rgba16Float,
+                [1, 1],
+                1,
+            );
+        }
+        if size.contains(&0) || size == [1, 1] {
+            break;
+        }
+        size = size.map(|side| side.div_ceil(2));
+        level += 1;
+    }
 }
 fn reflection_allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
     let [w, h] = settings.frame.size;
@@ -439,7 +464,9 @@ fn build(
         exposure_reset: std::rc::Rc::default(),
         ssao: settings
             .ssao
-            .map(|ssao| crate::ssao::Ssao::new(device, settings.frame.size, ssao))
+            .map(|ssao| {
+                crate::scene_metadata::SceneMetadata::new(device, settings.frame.size, ssao)
+            })
             .transpose()?,
         ssr: None,
         ssao_requested: settings.ssao,

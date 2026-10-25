@@ -266,8 +266,11 @@ fn environment(context: &GpuContext) -> crate::sky::preparation::PreparedEnviron
 }
 fn channel(context: &GpuContext, texture: &Texture, sample: u32, component: u32) -> Vec<f32> {
     let source = channel_source(texture, sample, component);
-    let pipeline = crate::ssao::passes::pipeline(context.device(), &source);
     let view = texture.create_view(&TextureViewDescriptor::default());
+    channel_view(context, &view, &source)
+}
+fn channel_view(context: &GpuContext, view: &wgpu::TextureView, source: &str) -> Vec<f32> {
+    let pipeline = crate::ssao::passes::pipeline(context.device(), source);
     let group = context
         .device()
         .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -275,7 +278,7 @@ fn channel(context: &GpuContext, texture: &Texture, sample: u32, component: u32)
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
+                resource: wgpu::BindingResource::TextureView(view),
             }],
         });
     let output = crate::ssao::passes::texture(context.device(), [32, 32], TextureFormat::R32Float);
@@ -373,6 +376,7 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
     let context = context();
     let maps = environment(&context);
     let reference_factor = prepared_cpu_factor(&context, &maps);
+    let reference_radiance = prepared_cpu_radiance(&context, &maps);
     for samples in [1, 4] {
         let source = source(false, false);
         let renderer = render_with_environment(
@@ -398,7 +402,7 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
                     component,
                 );
                 let factor = channel(&context, ssr.textures()[3], sample, component);
-                let radiance = [0.5, 0.25, 0.125][usize::try_from(component).unwrap()];
+                let radiance = reference_radiance[usize::try_from(component).unwrap()];
                 let mut covered = 0;
                 for i in 0..32 * 32 {
                     if factor[i] > 0.0 {
@@ -445,6 +449,36 @@ fn texel_center_frame(source: &RenderScene) -> FrameUniform {
     )
     .unwrap();
     FrameUniform::new(&view, source.effects()).unwrap()
+}
+
+fn prepared_cpu_radiance(
+    context: &GpuContext,
+    maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+) -> [f32; 3] {
+    let (cube, _) = maps.views().unwrap();
+    // texel_center_frame selects +Y face texel (0, 1), mip 1. Read the stored
+    // prefilter result, whose f32 integration and half conversion vary by backend.
+    let view = cube.texture().create_view(&TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2),
+        base_mip_level: 1,
+        mip_level_count: Some(1),
+        base_array_layer: 2,
+        array_layer_count: Some(1),
+        ..Default::default()
+    });
+    [0, 1, 2].map(|component| {
+        let source = format!(
+            "@group(0) @binding(0) var image: texture_2d<f32>;\n@fragment fn fs_screen() -> @location(0) f32 {{ return textureLoad(image, vec2<i32>(0, 1), 0)[{component}]; }}"
+        );
+        let value = channel_view(context, &view, &source)[0];
+        let expected = [0.5, 0.25, 0.125][component];
+        let ulp = 2.0f32.powf(value.log2().floor() - 10.0);
+        assert!(
+            (value - expected).abs() <= ulp,
+            "prepared radiance {value} != constant environment {expected}"
+        );
+        value
+    })
 }
 
 fn prepared_cpu_factor(

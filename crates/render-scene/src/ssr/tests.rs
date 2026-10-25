@@ -32,6 +32,7 @@ fn frame() -> FrameUniform {
         ambient_ground: glam::Vec3::ZERO,
         exposure: 1.0,
         unlit: false,
+        animation_time_milliseconds: 0,
     }
 }
 fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {

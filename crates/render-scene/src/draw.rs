@@ -22,6 +22,7 @@ use crate::upload::{
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
+mod contact;
 mod descriptors;
 mod dynamic;
 mod pages;
@@ -37,6 +38,17 @@ use visibility::{MeshSelection, Selection};
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
 pub enum DrawError {
+    /// The selected terrain contact samples cannot be sized in GPU address space.
+    #[error("terrain contact height buffer byte size overflow")]
+    ContactHeightSizeOverflow,
+    /// Contact samples exceed the device buffer or storage binding limit.
+    #[error("terrain contact needs {required} bytes, device limit is {limit}")]
+    ContactHeightLimit {
+        /// Bytes required by the selected terrain geometry.
+        required: u64,
+        /// Smaller of the buffer and storage binding limits.
+        limit: u64,
+    },
     #[error(transparent)]
     Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// The environmental profile requests an unsupported stock effect.
@@ -96,6 +108,7 @@ pub enum DrawError {
 /// One mesh level held as the buffer pair a draw needs.
 #[derive(Debug)]
 struct GpuLod {
+    transition: Option<Buffer>,
     vertices: Buffer,
     indices: Buffer,
     index_count: u32,
@@ -139,6 +152,7 @@ struct GpuTerrain {
     reason = "held solely to own the memory the bind groups read"
 )]
 struct Retained {
+    contact_heights: Buffer,
     textures: Vec<Texture>,
     placeholder: Texture,
     sampler: Sampler,
@@ -189,6 +203,7 @@ impl SceneGpu {
     ) -> Result<Self, DrawError> {
         let queue = authority.queue();
         validate_profile(scene, pipelines)?;
+        let contact_heights = contact::height_buffer(device, queue, scene)?;
         let (textures, views) = upload_textures(device, queue, scene)?;
         let placeholder = placeholder_texture(device, queue);
         let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());
@@ -202,6 +217,7 @@ impl SceneGpu {
                 views: &views,
                 placeholder: &placeholder_view,
                 sampler: &sampler,
+                heights: &contact_heights,
             },
         );
         let meshes = upload_meshes(device, queue, scene)?;
@@ -215,12 +231,7 @@ impl SceneGpu {
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
-            post: scene
-                .effects()
-                .map(crate::post::settings)
-                .transpose()
-                .map_err(|_| crate::frame::FrameError::UnsupportedEffect("post settings"))?
-                .unwrap_or_default(),
+            post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             water: scene.effects().and_then(|effects| effects.water()).copied(),
@@ -239,6 +250,7 @@ impl SceneGpu {
             terrain,
             dynamic: crate::dynamic::DynamicGpu::default(),
             retained: Retained {
+                contact_heights,
                 textures,
                 placeholder,
                 sampler,
@@ -428,6 +440,12 @@ impl SceneGpu {
             );
             pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
             pass.draw_indexed(0..lod.index_count, 0, range.slots.clone());
+            if let Some(vertices) = &lod.transition {
+                let previous = &self.meshes[mesh].lods[range.lod - 1];
+                pass.set_vertex_buffer(0, vertices.slice(..));
+                pass.set_index_buffer(previous.indices.slice(..), IndexFormat::Uint32);
+                pass.draw_indexed(0..previous.index_count, 0, range.slots.clone());
+            }
         }
         SelectionPublication {
             destination: published,

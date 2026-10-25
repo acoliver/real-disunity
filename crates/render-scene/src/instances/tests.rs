@@ -58,11 +58,10 @@ fn runtime_instance_edits_cannot_silently_ignore_tint() {
         MaterialHandle::from_raw(0),
     )
     .with_tint(worldrunner_render_plan::SceneTint::new([0; 3]).unwrap());
-    assert!(matches!(
-        instances.add(object, true),
-        Err(InstanceError::UnsupportedTint)
-    ));
-    assert_eq!(instances.handles().count(), 0);
+    instances.mesh_count = 1;
+    instances.pipelines.push(0);
+    let handle = instances.add(object, true).unwrap();
+    assert_eq!(instances.get(handle).unwrap().0.tint(), object.tint());
     let mut batch = batch::InstanceBatch::default();
     let slot = batch.add(object, true);
     batch.set_transform(

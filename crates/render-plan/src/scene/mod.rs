@@ -25,7 +25,7 @@ mod material_features;
 mod resource;
 pub use material_features::{
     SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,
-    SceneTint, SceneWind,
+    SceneTerrainContact, SceneTint, SceneWind,
 };
 mod terrain;
 mod terrain_pages;

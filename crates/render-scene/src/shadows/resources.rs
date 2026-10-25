@@ -18,6 +18,7 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     worldrunner_render_post::post_wgsl!(),
     include_str!("../shader/lighting.wgsl"),
     include_str!("../shader/shadows.wgsl"),
+    include_str!("../shader/geometry.wgsl"),
     include_str!("../shader/environment.wgsl")
 );
 
@@ -122,7 +123,7 @@ fn terrain_depth_pipeline(
             layout: &terrain_layout,
             vertex: wgpu::VertexState {
                 module,
-                entry_point: Some(crate::shader::VERTEX_ENTRY_POINT),
+                entry_point: Some("vs_terrain_depth"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers,
             },

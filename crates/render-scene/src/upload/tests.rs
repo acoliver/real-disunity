@@ -132,13 +132,7 @@ fn a_material_bind_group_with_every_texture_present_satisfies_its_layout() {
     let queue = context.queue();
     let layout = material_bind_group_layout(device);
     let sampler = material_sampler(device);
-    let uniform = upload_buffer(
-        device,
-        queue,
-        "material",
-        BufferUsages::UNIFORM,
-        &[0u8; MATERIAL_UNIFORM_BYTES],
-    );
+    let uniform = material_uniform(&context);
     let albedo_source = encoded(72, 8, 16, 16, 5);
     let normal_source = encoded(83, 16, 16, 16, 5);
     let rough_source = encoded(71, 8, 16, 16, 5);
@@ -170,6 +164,17 @@ fn a_material_bind_group_with_every_texture_present_satisfies_its_layout() {
             binding: 6,
             resource: BindingResource::Sampler(&sampler),
         });
+        let heights = upload_buffer(
+            device,
+            queue,
+            "contact heights",
+            BufferUsages::STORAGE,
+            &[0u8; 48],
+        );
+        entries.push(BindGroupEntry {
+            binding: 7,
+            resource: heights.as_entire_binding(),
+        });
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("material"),
             layout: &layout,
@@ -186,13 +191,7 @@ fn the_placeholder_stands_in_for_all_four_optional_textures_at_once() {
     let queue = context.queue();
     let layout = material_bind_group_layout(device);
     let sampler = material_sampler(device);
-    let uniform = upload_buffer(
-        device,
-        queue,
-        "material",
-        BufferUsages::UNIFORM,
-        &[0u8; MATERIAL_UNIFORM_BYTES],
-    );
+    let uniform = material_uniform(&context);
     let albedo_source = encoded(72, 8, 16, 16, 5);
     let albedo = prepare_texture(&albedo_source).expect("albedo parses");
     let albedo_texture = upload_texture(device, queue, &albedo).unwrap();
@@ -219,6 +218,17 @@ fn the_placeholder_stands_in_for_all_four_optional_textures_at_once() {
         entries.push(BindGroupEntry {
             binding: 6,
             resource: BindingResource::Sampler(&sampler),
+        });
+        let heights = upload_buffer(
+            device,
+            queue,
+            "contact heights",
+            BufferUsages::STORAGE,
+            &[0u8; 48],
+        );
+        entries.push(BindGroupEntry {
+            binding: 7,
+            resource: heights.as_entire_binding(),
         });
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("material"),
@@ -331,4 +341,14 @@ fn raw_npot_mip_chain_uploads_on_a_real_adapter() {
         upload_texture(context.device(), context.queue(), &prepared).unwrap()
     });
     assert_eq!(error, None, "the GPU rejected the raw NPOT mip chain");
+}
+
+fn material_uniform(context: &GpuContext) -> wgpu::Buffer {
+    upload_buffer(
+        context.device(),
+        context.queue(),
+        "material",
+        BufferUsages::UNIFORM,
+        &[0u8; MATERIAL_UNIFORM_BYTES],
+    )
 }

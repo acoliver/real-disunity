@@ -184,21 +184,7 @@ impl QuadDraw {
         let albedo = quad
             .texture
             .map_or(bindings.placeholder, |index| &bindings.views[index]);
-        let mut bound = [bindings.placeholder; 5];
-        bound[0] = albedo;
-        let material = worldrunner_render_gpu::resource::PreparedMaterial::new(
-            device,
-            queue,
-            worldrunner_render_gpu::resource::MaterialDescriptor {
-                label: "dynamic material",
-                layout: bindings.layout,
-                bindings: None,
-                uniform_bytes: &[0u8; MATERIAL_UNIFORM_BYTES],
-                textures: &bound,
-                sampler: bindings.sampler,
-            },
-        )
-        .bind_group;
+        let material = quad_material(device, queue, bindings, albedo);
         Self {
             vertices: upload_buffer(
                 device,
@@ -236,6 +222,39 @@ fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
         push_f32(&mut bytes, u);
         push_f32(&mut bytes, v);
         bytes.extend_from_slice(&BILLBOARD_FIXED.to_le_bytes());
+        push_f32(&mut bytes, 1.0);
     }
     bytes
+}
+
+fn quad_material(
+    device: &Device,
+    queue: &Queue,
+    bindings: &QuadBindings<'_>,
+    albedo: &TextureView,
+) -> wgpu::BindGroup {
+    let mut bound = [bindings.placeholder; 5];
+    bound[0] = albedo;
+    let uniform = upload_buffer(
+        device,
+        queue,
+        "dynamic material",
+        BufferUsages::UNIFORM,
+        &[0u8; MATERIAL_UNIFORM_BYTES],
+    );
+    let heights = upload_buffer(
+        device,
+        queue,
+        "dynamic contact heights",
+        BufferUsages::STORAGE,
+        &[0u8; 48],
+    );
+    crate::upload::material_group(
+        device,
+        bindings.layout,
+        &uniform,
+        &bound,
+        bindings.sampler,
+        &heights,
+    )
 }

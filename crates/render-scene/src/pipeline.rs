@@ -8,7 +8,7 @@ use crate::shader;
 const MICRO_SCALE: f32 = 1_000_000.0;
 
 /// Size in bytes of the shader's `Material` uniform block.
-pub const MATERIAL_UNIFORM_BYTES: usize = 16;
+pub const MATERIAL_UNIFORM_BYTES: usize = 112;
 
 /// The fixed-function and shader-program state one material requires.
 ///
@@ -94,6 +94,8 @@ impl PipelineKey {
 /// The per-material numbers the shader reads, as distinct from pipeline state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialUniform {
+    pub translucency_micro: u32,
+    pub terrain_contact: Option<worldrunner_render_plan::SceneTerrainContact>,
     /// Alpha below which a masked fragment is discarded, in micro units.
     ///
     /// Zero for unmasked materials, where the shader never performs the test.
@@ -109,6 +111,8 @@ pub struct MaterialUniform {
     /// the surface to nothing rather than leave it unoccluded. So presence is
     /// stated here instead of inferred there.
     pub texture_flags: u32,
+    /// Optional scene material inputs encoded after the stock uniform prefix.
+    pub features: Option<worldrunner_render_plan::SceneMaterialFeatures>,
 }
 
 impl MaterialUniform {
@@ -133,10 +137,13 @@ impl MaterialUniform {
             texture_flags |= shader::FLAG_SELF_ILLUMINATION;
         }
         Self {
+            translucency_micro: material.translucency_micro(),
+            terrain_contact: material.terrain_contact(),
             alpha_cutoff_micro,
             roughness_micro: material.roughness_micro(),
             metalness_micro: material.metalness_micro(),
             texture_flags,
+            features: material.features().copied(),
         }
     }
 
@@ -159,9 +166,13 @@ impl MaterialUniform {
         bytes[4..8].copy_from_slice(&roughness.to_le_bytes());
         bytes[8..12].copy_from_slice(&metalness.to_le_bytes());
         bytes[12..16].copy_from_slice(&self.texture_flags.to_le_bytes());
+        features::encode(&mut bytes, self.features);
+        features::encode_surface(&mut bytes, self.translucency_micro, self.terrain_contact);
         bytes
     }
 }
+
+pub(crate) mod features;
 
 #[cfg(test)]
 mod tests;

@@ -125,15 +125,15 @@ fn the_declared_stride_matches_the_bytes_actually_written() {
 #[test]
 fn instance_attributes_tile_the_declared_instance_stride() {
     let attributes = instance_attributes();
-    assert_eq!(attributes.len(), 4, "a mat4 arrives as four vec4 slots");
+    assert_eq!(attributes.len(), 5, "model matrix and instance tint");
     for (slot, attribute) in attributes.iter().take(4).enumerate() {
         assert_eq!(attribute.offset, slot as u64 * 16);
     }
     // A stride that outran its attributes would leave the tail unread, so the
     // last attribute must finish exactly where one instance ends.
-    let last = attributes[3];
-    assert_eq!(last.shader_location, 6);
-    assert_eq!(last.offset, 48);
+    let last = attributes[4];
+    assert_eq!(last.shader_location, 10);
+    assert_eq!(last.offset, 64);
     assert_eq!(last.offset + last.format.size(), INSTANCE_STRIDE);
 }
 
@@ -227,8 +227,11 @@ fn the_billboard_mode_belongs_to_the_selected_mesh_level() {
     let attributes = vertex_attributes();
     assert_eq!(attributes[3].shader_location, 8);
     assert_eq!(attributes[3].offset, 32);
+    assert_eq!(attributes[3].offset + attributes[3].format.size(), 36);
+    assert_eq!(attributes[4].shader_location, 7);
+    assert_eq!(attributes[4].offset, 36);
     assert_eq!(
-        attributes[3].offset + attributes[3].format.size(),
+        attributes[4].offset + attributes[4].format.size(),
         VERTEX_STRIDE
     );
     for (policy, expected) in [
@@ -246,7 +249,7 @@ fn the_billboard_mode_belongs_to_the_selected_mesh_level() {
         )
         .unwrap();
         let bytes = pack_vertices(&level).unwrap();
-        for vertex in bytes.chunks_exact(36) {
+        for vertex in bytes.chunks_exact(crate::geometry::VERTEX_BYTES) {
             assert_eq!(
                 u32::from_le_bytes(vertex[32..36].try_into().unwrap()),
                 expected
@@ -275,5 +278,75 @@ fn a_rotation_within_quantization_tolerance_is_renormalized() {
     assert!(
         matrix.determinant() > 0.0,
         "a rotation must not mirror the mesh"
+    );
+}
+
+#[test]
+fn crossed_card_dimensions_preserve_both_authored_planes() {
+    use worldrunner_render_plan::SceneCard;
+    let positions = [
+        [-1000, 0, 0],
+        [1000, 0, 2000],
+        [0, -1000, 0],
+        [0, 1000, 2000],
+    ];
+    let vertices = positions.map(|position| SceneVertex {
+        position_millimeters: position,
+        normal_micro: [0, -1_000_000, 0],
+        texcoord_micro: [0; 2],
+    });
+    let lod = SceneMeshLod::new(
+        0,
+        vertices.to_vec(),
+        vec![0, 1, 2, 1, 2, 3],
+        Some(BillboardPolicy::CrossQuads),
+    )
+    .unwrap()
+    .with_card(SceneCard::new(BillboardPolicy::CrossQuads, [4000, 6000], 500_000).unwrap())
+    .unwrap();
+    let bytes = pack_vertices(&lod).unwrap();
+    let actual: Vec<[f32; 3]> = bytes
+        .chunks_exact(super::VERTEX_BYTES)
+        .map(|vertex| {
+            std::array::from_fn(|axis| {
+                f32::from_le_bytes(vertex[axis * 4..axis * 4 + 4].try_into().unwrap())
+            })
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        [
+            [-2.0, 0.0, 0.0],
+            [2.0, 0.0, 6.0],
+            [0.0, -2.0, 0.0],
+            [0.0, 2.0, 6.0]
+        ]
+    );
+}
+
+#[test]
+fn card_fitting_inverse_transposes_nonuniform_authored_normals() {
+    use worldrunner_render_plan::SceneCard;
+    let vertices = [[-1000, 0, 0], [1000, 0, 0], [1000, 0, 2000]].map(|position| SceneVertex {
+        position_millimeters: position,
+        normal_micro: [0, -1_000_000, 1_000_000],
+        texcoord_micro: [0; 2],
+    });
+    let lod = SceneMeshLod::new(
+        0,
+        vertices.to_vec(),
+        vec![0, 1, 2],
+        Some(BillboardPolicy::CrossQuads),
+    )
+    .unwrap()
+    .with_card(SceneCard::new(BillboardPolicy::CrossQuads, [2000, 6000], 1_000_000).unwrap())
+    .unwrap();
+    let bytes = pack_vertices(&lod).unwrap();
+    let normal = Vec3::from_array(std::array::from_fn(|axis| {
+        f32::from_le_bytes(bytes[12 + axis * 4..16 + axis * 4].try_into().unwrap())
+    }));
+    assert!(
+        (normal - Vec3::new(0.0, -1.0, 1.0 / 3.0).normalize()).length() < 1e-7,
+        "{normal:?}"
     );
 }

@@ -53,7 +53,7 @@ pub fn material_bind_group_layout(device: &Device) -> BindGroupLayout {
     let mut entries = Vec::with_capacity(7);
     entries.push(BindGroupLayoutEntry {
         binding: 0,
-        visibility: ShaderStages::FRAGMENT,
+        visibility: ShaderStages::VERTEX_FRAGMENT,
         ty: BindingType::Buffer {
             ty: wgpu::BufferBindingType::Uniform,
             has_dynamic_offset: false,
@@ -77,6 +77,16 @@ pub fn material_bind_group_layout(device: &Device) -> BindGroupLayout {
         binding: 6,
         visibility: ShaderStages::FRAGMENT,
         ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    });
+    entries.push(BindGroupLayoutEntry {
+        binding: 7,
+        visibility: ShaderStages::FRAGMENT,
+        ty: BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
         count: None,
     });
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -286,4 +296,38 @@ fn cached_terrain_entries() -> Vec<BindGroupLayoutEntry> {
             count: None,
         },
     ]
+}
+
+/// Builds the shared material bindings, including the scene contact heightfield.
+pub(crate) fn material_group(
+    device: &Device,
+    layout: &BindGroupLayout,
+    uniform: &wgpu::Buffer,
+    textures: &[&wgpu::TextureView; 5],
+    sampler: &Sampler,
+    heights: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    let mut entries = vec![wgpu::BindGroupEntry {
+        binding: 0,
+        resource: uniform.as_entire_binding(),
+    }];
+    for (index, view) in textures.iter().enumerate() {
+        entries.push(wgpu::BindGroupEntry {
+            binding: u32::try_from(index + 1).expect("five textures"),
+            resource: wgpu::BindingResource::TextureView(view),
+        });
+    }
+    entries.push(wgpu::BindGroupEntry {
+        binding: 6,
+        resource: wgpu::BindingResource::Sampler(sampler),
+    });
+    entries.push(wgpu::BindGroupEntry {
+        binding: 7,
+        resource: heights.as_entire_binding(),
+    });
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("material"),
+        layout,
+        entries: &entries,
+    })
 }

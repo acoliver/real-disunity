@@ -74,6 +74,7 @@ pub(super) struct MaterialBindings<'a> {
     pub(super) views: &'a [TextureView],
     pub(super) placeholder: &'a TextureView,
     pub(super) sampler: &'a Sampler,
+    pub(super) heights: &'a Buffer,
 }
 
 /// Builds one bind group per material, filling absent maps with the placeholder.
@@ -88,6 +89,7 @@ pub(super) fn upload_materials(
         views,
         placeholder,
         sampler,
+        heights,
     } = *bindings;
     let mut groups = Vec::new();
     let mut uniforms = Vec::new();
@@ -102,20 +104,17 @@ pub(super) fn upload_materials(
             optional(material.ambient_occlusion()),
             optional(material.self_illumination()),
         ];
-        let prepared = worldrunner_render_gpu::resource::PreparedMaterial::new(
+        let uniform = upload_buffer(
             device,
             queue,
-            worldrunner_render_gpu::resource::MaterialDescriptor {
-                label: "material",
-                layout,
-                bindings: None,
-                uniform_bytes: &MaterialUniform::from_material(material).to_bytes(),
-                textures: &bound,
-                sampler,
-            },
+            "material",
+            BufferUsages::UNIFORM,
+            &MaterialUniform::from_material(material).to_bytes(),
         );
-        groups.push(prepared.bind_group);
-        uniforms.push(prepared.uniform);
+        groups.push(crate::upload::material_group(
+            device, layout, &uniform, &bound, sampler, heights,
+        ));
+        uniforms.push(uniform);
     }
     (groups, uniforms)
 }
@@ -136,7 +135,16 @@ pub(super) fn upload_meshes(
                 source,
             })?;
             let indices = pack_indices(lod);
+            let transition =
+                transition_vertices(device, queue, source, level).map_err(|source| {
+                    DrawError::Geometry {
+                        mesh,
+                        level,
+                        source,
+                    }
+                })?;
             lods.push(GpuLod {
+                transition,
                 vertices: upload_buffer(
                     device,
                     queue,
@@ -218,6 +226,7 @@ pub(super) fn upload_terrain(
         pages: None,
         bounds: visibility::terrain_bounds(&mesh.vertices),
         lod: GpuLod {
+            transition: None,
             vertices: upload_buffer(
                 device,
                 queue,
@@ -396,4 +405,34 @@ fn page_elevation(terrain: &worldrunner_render_plan::SceneTerrain) -> [f32; 2] {
         *heights.iter().max().expect("terrain heights"),
     ]
     .map(|height| crate::geometry::millimeter_to_meter(i64::from(height)))
+}
+
+fn transition_vertices(
+    device: &Device,
+    queue: &Queue,
+    mesh: &worldrunner_render_plan::SceneMesh,
+    level: usize,
+) -> Result<Option<Buffer>, crate::geometry::GeometryError> {
+    let Some(card) = mesh.lods()[level].card().filter(|_| level > 0) else {
+        return Ok(None);
+    };
+    let bytes = crate::geometry::pack_transition(&mesh.lods()[level - 1], card.coverage_micro())?;
+    Ok(Some(upload_buffer(
+        device,
+        queue,
+        "mesh card complement",
+        BufferUsages::VERTEX,
+        &bytes,
+    )))
+}
+
+pub(super) fn post_settings(
+    scene: &RenderScene,
+) -> Result<worldrunner_render_post::HdrPostSettings, crate::frame::FrameError> {
+    scene
+        .effects()
+        .map(crate::post::settings)
+        .transpose()
+        .map_err(|_| crate::frame::FrameError::UnsupportedEffect("post settings"))
+        .map(Option::unwrap_or_default)
 }

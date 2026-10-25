@@ -19,6 +19,7 @@ pub const ENVIRONMENT_WGSL: &str = concat!(
     worldrunner_render_post::post_wgsl!(),
     include_str!("shader/lighting.wgsl"),
     include_str!("shader/unshadowed.wgsl"),
+    include_str!("shader/geometry.wgsl"),
     include_str!("shader/environment.wgsl")
 );
 

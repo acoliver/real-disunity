@@ -1,3 +1,58 @@
+#[test]
+fn foliage_wind_fixed_time_and_integer_period_are_deterministic() {
+    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
+    for (time, phase, expected) in [
+        (0, 0, 0.0),
+        (250, 0, 0.5),
+        (1250, 0, 0.5),
+        (0, 250_000, 0.5),
+        (750, 0, -0.5),
+    ] {
+        let entry = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    result[0] = vec4<f32>(scene_wind_offset(vec4<f32>(1.0,0.0,0.0,0.5), vec2<u32>(1000u,{phase}u), {time}u), 1.0);
+}}"
+        );
+        let result = evaluate(&context, &entry, None);
+        assert!((result[0] - expected).abs() < 1e-6);
+        assert_eq!(&result[1..], &[0.0, 0.0, 1.0]);
+    }
+}
+
+#[test]
+fn foliage_normals_follow_inverse_transpose_under_mirrored_nonuniform_scale() {
+    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
+    for scale in [
+        glam::Vec3::new(-2.0, 3.0, 0.5),
+        glam::Vec3::new(2.0, 3.0, 0.5),
+        glam::Vec3::splat(-2.0),
+    ] {
+        let normal = glam::Vec3::new(1.0, 2.0, 3.0).normalize();
+        let expected = (normal / scale).normalize();
+        let entry = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    let linear = mat3x3<f32>(vec3<f32>({},0.0,0.0), vec3<f32>(0.0,{},0.0), vec3<f32>(0.0,0.0,{}));
+    result[0] = vec4<f32>(scene_normal(linear, normalize(vec3<f32>(1.0,2.0,3.0))), 1.0);
+}}",
+            scale.x, scale.y, scale.z
+        );
+        let result = evaluate(&context, &entry, None);
+        for (actual, expected) in result.iter().zip(expected.to_array()) {
+            assert!((actual - expected).abs() < 1e-6, "{scale:?}: {result:?}");
+        }
+    }
+}
+
 use super::ENVIRONMENT_WGSL;
 use crate::device::GpuContext;
 use worldrunner_render_lighting::ExposureOwnership;
@@ -92,6 +147,7 @@ fn configured_frame(
     .unwrap();
     crate::frame::FrameUniform {
         unlit: false,
+        animation_time_milliseconds: 0,
         view: glam::Mat4::IDENTITY,
         view_projection: Mat4::IDENTITY,
         camera_position: Vec3::Z,
@@ -202,4 +258,40 @@ fn read_values(device: &wgpu::Device, readback: &wgpu::Buffer) -> Vec<f32> {
     drop(mapped);
     readback.unmap();
     values
+}
+
+#[test]
+fn foliage_translucency_and_contact_endpoints_are_exact() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let result = evaluate(
+        &context,
+        r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    result[0] = vec4<f32>(scene_transmission(0.0, 1.0), scene_transmission(1.0, 1.0),
+        scene_contact_weight(0.0, 2.0), scene_contact_weight(2.0, 2.0));
+}",
+        None,
+    );
+    assert_eq!(result, vec![0.0, 1.0, 1.0, 0.0]);
+}
+
+#[test]
+fn foliage_coverage_endpoints_and_complement_are_exact() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let result = evaluate(
+        &context,
+        r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    let uv = vec2<f32>(0.25, 0.75);
+    result[0] = vec4<f32>(f32(scene_card_covered(uv, 0.0)), f32(scene_card_covered(uv, 1.0)),
+        f32(scene_card_covered(uv, 0.5)), f32(!scene_card_covered(uv, 0.5)));
+}",
+        None,
+    );
+    assert_eq!(&result[..2], &[0.0, 1.0]);
+    assert_eq!((result[2] + result[3]).to_bits(), 1.0_f32.to_bits());
 }

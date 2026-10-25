@@ -10,7 +10,11 @@ SceneWaterBody replaces the rectangular plane name. It retains elevation, rectan
 
 ## Rendering support
 
-This change establishes typed inputs for subsequent pipeline work. Stock rendering accepts absent descriptors and neutral material features. Nonneutral tint/AO, wind, layers, card dimensions/transitions and non-stock water settings return explicit unsupported-input errors before scene uploads. Runtime placement insertion also rejects unsupported tint. No shader approximation is selected silently.
+Stock rendering supports material and instance tint, baked and optional vertex AO, rigid periodic wind translation, thin-surface transmission, card dimensions and mesh/card transitions. The frame owns `animation_time_milliseconds`; all geometry passes consume the same clock. Card fitting inverse-transposes authored normals before the placement transform.
+
+Transition draws compare one coverage fraction against a shared integer hash of fragment pixel coordinates. Mesh and card acceptance is exclusive and complete wherever their rasterized silhouettes overlap, independently of their UV interpolation. Outside that overlap each representation retains its own silhouette and alpha cutouts. Every pass uses the same function; shadow pixels belong to the shadow view's raster grid.
+
+Terrain contact blends toward authored constant linear albedo, roughness and metalness using the selected terrain geometry's triangle heights, including shortened final cells. It does not sample the terrain material pages. Contact retains only selected height samples and validates buffer and storage binding limits before allocation. Scenes with no contact material bind a shared inactive 48-byte scene buffer. Arbitrary layers, geometry features on terrain palette materials and non-stock water settings remain explicitly rejected before upload.
 
 The existing mesh and billboard vertex transform is reused by forward, shadow and metadata passes. Their masked fragments call one alpha-coverage predicate. Terrain remains opaque. Water writes surface depth but does not yet produce normal/material reflection receivers. Dynamic transparent quads remain outside the opaque metadata prepass. Adding a producer requires matching its deformation, coverage and numerical products, rather than substituting metadata from a different geometry path.
 

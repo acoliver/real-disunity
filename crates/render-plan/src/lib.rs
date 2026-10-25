@@ -90,7 +90,7 @@ pub use scene::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
 
 pub use scene::{
     SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,
-    SceneTint, SceneWind,
+    SceneTerrainContact, SceneTint, SceneWind,
 };
 
 pub use scene::{SceneWaterGeometry, SceneWaterSettings};

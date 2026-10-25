@@ -7,7 +7,7 @@ struct Frame {
     ambient_sky: vec4<f32>,
     ambient_ground: vec4<f32>,
     // x is exposure; y selects unlit rendering when no environment is authored.
-    // z and w are reserved and zero.
+    // z holds the animation clock as u32 bits; w is reserved and zero.
     grading: vec4<f32>,
 }
 

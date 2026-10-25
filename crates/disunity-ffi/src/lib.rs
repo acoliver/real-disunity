@@ -3,19 +3,34 @@
 pub mod abi;
 #[cfg(test)]
 mod allocation;
+pub mod assets;
+pub mod buffers;
+#[cfg(test)]
+mod callback_tests;
+pub mod callbacks;
+pub mod cloning;
+#[cfg(test)]
+mod cloning_tests;
 mod commands;
+pub mod errors;
+pub mod hierarchy;
+pub mod input;
+pub mod object_api;
+pub mod physics;
 #[cfg(test)]
 mod physics_tests;
+pub mod scheduling;
 mod store;
 #[cfg(test)]
 mod time_input_tests;
+pub mod ui;
 mod views;
 
 pub use abi::{DISUNITY_ABI_VERSION, DisunityResult, result_code};
 pub use store::{store_statistics, with_native_world};
 pub use views::{DisunityObject, DisunityWorld, export_object_states, with_world};
 
-use commands::{step_world, submit_commands};
+use commands::submit_commands;
 use store::{create_object, create_world, destroy_object, destroy_world, lock_store, record_error};
 
 /// Maximum commands accepted by a single foreign submission.
@@ -52,4 +67,9 @@ pub struct DisunityObjectState {
     pub z: f32,
     pub rotation_y_radians: f32,
     pub material_slot: u32,
+}
+
+#[cfg(test)]
+mod generated_layouts {
+    include!(concat!(env!("OUT_DIR"), "/NativeLayouts.g.rs"));
 }

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using Disunity;
+using UnityEngine;
+using Disunity.Hosting;
 
 internal static class CommandDestructionTests
 {
@@ -39,17 +40,17 @@ internal static class CommandDestructionTests
         public Action? OnLateUpdate { get; init; }
         public Action? OnDestruction { get; init; }
 
-        protected override void Start() => OnStart?.Invoke();
-        protected override void Update() => OnUpdate?.Invoke();
-        protected override void LateUpdate() => OnLateUpdate?.Invoke();
-        protected override void OnDestroy() => OnDestruction?.Invoke();
+        private void Start() => OnStart?.Invoke();
+        private void Update() => OnUpdate?.Invoke();
+        private void LateUpdate() => OnLateUpdate?.Invoke();
+        private void OnDestroy() => OnDestruction?.Invoke();
     }
 
     private static void Destruction(Export export, nint buffer, string phase, bool self)
     {
-        WorldRunner.LoadWorld();
+        DisunityHost.LoadWorld();
         Probe? survivor = null;
-        survivor = WorldRunner.AddComponent(new Probe
+        survivor = DisunityHost.AddComponent(new Probe
         {
             OnStart = () =>
             {
@@ -69,7 +70,7 @@ internal static class CommandDestructionTests
                 victim.gameObject.Destroy();
             }
         }
-        victim = WorldRunner.AddComponent(new Probe
+        victim = DisunityHost.AddComponent(new Probe
         {
             OnStart = phase == "Start" ? WriteVictim : null,
             OnUpdate = phase == "Update" ? WriteVictim : null,
@@ -77,14 +78,14 @@ internal static class CommandDestructionTests
         });
         if (!self)
         {
-            WorldRunner.AddComponent(new Probe
+            DisunityHost.AddComponent(new Probe
             {
                 OnStart = phase == "Start" ? () => victim.gameObject.Destroy() : null,
                 OnUpdate = phase == "Update" ? () => victim.gameObject.Destroy() : null,
             });
         }
-        WorldRunner.Step(0.125f);
-        var result = export(WorldRunner.WorldHandle, buffer, 2, out var count);
+        DisunityHost.Step(0.125f);
+        var result = export(DisunityHost.WorldHandle, buffer, 2, out var count);
         var state = Marshal.PtrToStructure<ObjectState>(buffer);
         if (result.Code != 0 || count != (self ? 1u : 2u) || state.X != 5 || state.Y != 6
             || state.Z != 7 || state.Rotation != 0.25f || state.Material != 4)
@@ -92,18 +93,18 @@ internal static class CommandDestructionTests
             throw new InvalidOperationException(
                 $"{phase} destruction must preserve ordered survivor commands in the same step");
         }
-        WorldRunner.UnloadWorld();
+        DisunityHost.UnloadWorld();
         Console.WriteLine($"PASS: {(self ? "self" : "earlier writer")} destruction after {phase} writes preserves survivor commands");
     }
 
     private static void InvalidNativeCommand(Export export, Submit submit, nint buffer, bool stale)
     {
-        WorldRunner.LoadWorld();
+        DisunityHost.LoadWorld();
         var handle = ulong.MaxValue;
         if (stale)
         {
-            var victim = WorldRunner.CreateGameObject();
-            var exported = export(WorldRunner.WorldHandle, buffer, 1, out var count);
+            var victim = DisunityHost.CreateGameObject();
+            var exported = export(DisunityHost.WorldHandle, buffer, 1, out var count);
             if (exported.Code != 0 || count != 1)
             {
                 throw new InvalidOperationException("expected one live object before destruction");
@@ -112,18 +113,18 @@ internal static class CommandDestructionTests
             victim.Destroy();
         }
         var command = new Command { Object = handle, Kind = 0, X = 1, Y = 2, Z = 3 };
-        var result = submit(WorldRunner.WorldHandle, ref command, 1);
+        var result = submit(DisunityHost.WorldHandle, ref command, 1);
         if (result.Code != 0)
         {
             throw new InvalidOperationException("native command submission must accept a well-formed batch");
         }
         try
         {
-            WorldRunner.Step(0.125f);
+            DisunityHost.Step(0.125f);
         }
         catch (DisunityException exception) when (exception.Message.Contains("object handle", StringComparison.Ordinal))
         {
-            WorldRunner.UnloadWorld();
+            DisunityHost.UnloadWorld();
             Console.WriteLine($"PASS: native step rejects a {(stale ? "destroyed" : "never-valid")} object handle");
             return;
         }
@@ -132,7 +133,7 @@ internal static class CommandDestructionTests
 
     public static void Run(nint image)
     {
-        WorldRunner.UnloadWorld();
+        DisunityHost.UnloadWorld();
         var export = Marshal.GetDelegateForFunctionPointer<Export>(
             System.Runtime.InteropServices.NativeLibrary.GetExport(image, "disunity_world_export_objects"));
         var submit = Marshal.GetDelegateForFunctionPointer<Submit>(
@@ -150,7 +151,7 @@ internal static class CommandDestructionTests
         }
         finally
         {
-            WorldRunner.UnloadWorld();
+            DisunityHost.UnloadWorld();
             Marshal.FreeHGlobal(buffer);
         }
     }

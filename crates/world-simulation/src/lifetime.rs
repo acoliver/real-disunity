@@ -89,6 +89,13 @@ impl World {
     }
 
     fn queue_script_cleanup(&mut self, script: ComponentHandle) {
+        if self
+            .components
+            .get(script.0)
+            .is_some_and(|component| self.is_unpublished(component.object))
+        {
+            return;
+        }
         if let Some(state) = self.lifecycle.scripts.get_mut(&script) {
             self.coroutines.cancel_script(script);
             if state.active {
@@ -124,6 +131,7 @@ impl World {
     pub(crate) fn retire_component(&mut self, component: ComponentHandle) {
         self.lifetime.components.remove(&component);
         self.lifecycle.scripts.remove(&component);
+        self.physics.targets.remove(&component);
         self.components.remove(component.0);
     }
 

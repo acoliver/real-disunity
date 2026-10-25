@@ -20,7 +20,7 @@ fn abi_and_rust_observe_one_store_and_identical_results() {
         result_code::OK
     );
     assert_eq!(
-        unsafe { disunity_world_step(handle, 0.0, 1) }.code,
+        unsafe { advance_frame(handle, 0.0, 1) }.code,
         result_code::OK
     );
     let snapshot = with_native_world(handle, |world| world.snapshot()).unwrap();
@@ -69,7 +69,7 @@ fn compare_renderer(
         result_code::OK
     );
     assert_eq!(
-        unsafe { disunity_world_step(handle, 0.0, 2) }.code,
+        unsafe { advance_frame(handle, 0.0, 2) }.code,
         result_code::OK
     );
     let mut states = [worldrunner_disunity_ffi::DisunityObjectState {
@@ -144,12 +144,31 @@ fn failed_command_batch_does_not_apply_its_valid_prefix() {
             },
         ];
         disunity_command_buffer_submit(world, commands.as_ptr(), 2);
-        assert_eq!(disunity_world_step(world, 0.0, 1).code, result_code::ERROR);
+        assert_eq!(advance_frame(world, 0.0, 1).code, result_code::ERROR);
         let snapshot = with_native_world(world, |w| w.snapshot()).unwrap();
         assert_eq!(
             snapshot.objects[0].local_transform,
             LocalTransform::default()
         );
         disunity_world_destroy(world);
+    }
+}
+
+unsafe fn advance_frame(
+    world: u64,
+    delta: f32,
+    _frame: u64,
+) -> worldrunner_disunity_ffi::DisunityResult {
+    let mut work = worldrunner_disunity_ffi::scheduling::DisunityAdvance::default();
+    let elapsed = std::time::Duration::try_from_secs_f32(delta)
+        .ok()
+        .and_then(|d| u64::try_from(d.as_nanos()).ok());
+    unsafe {
+        worldrunner_disunity_ffi::scheduling::disunity_world_advance(
+            world,
+            elapsed.unwrap_or(0),
+            if elapsed.is_some() { 1_000_000_000 } else { 0 },
+            &mut work,
+        )
     }
 }

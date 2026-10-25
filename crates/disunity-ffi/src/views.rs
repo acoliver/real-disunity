@@ -2,7 +2,7 @@ use glam::EulerRot;
 use worldrunner_world_simulation::{ComponentDesc, ObjectHandle};
 
 use crate::{
-    DisunityCommand, DisunityObjectState,
+    DisunityObjectState,
     store::{Session, lock_store},
 };
 
@@ -15,41 +15,51 @@ pub struct DisunityObject {
 }
 
 /// A detached read-only observation, never live storage or a mutation target.
-/// Existing command-log inspection remains available during API replacement.
 pub struct DisunityWorld {
     /// Compact live observations; vector positions are not object identities.
     pub objects: Vec<Option<DisunityObject>>,
-    pub applied_commands: Vec<DisunityCommand>,
-    pub pending_commands: Vec<DisunityCommand>,
     pub last_error: Option<String>,
 }
 
-fn observe(session: &Session, object: ObjectHandle) -> DisunityObject {
-    let transform = session.native.local_transform(object).expect("live object");
-    let material_slot = session
+pub(crate) fn observe(
+    session: &Session,
+    object: ObjectHandle,
+) -> Result<DisunityObject, crate::errors::AbiError> {
+    let transform = session
+        .native
+        .local_transform(object)
+        .map_err(crate::errors::AbiError::from)?;
+    let material_slot = match session
         .native
         .renderer(object)
-        .expect("live snapshot object")
-        .map_or(0, |handle| {
-            let ComponentDesc::Renderer { material_slot } = session
-                .native
-                .component(handle)
-                .expect("live renderer")
-                .desc
-            else {
-                unreachable!("renderer component kind")
-            };
-            material_slot
-        });
-    DisunityObject {
-        position: transform.translation.to_array(),
-        // The ABI projects orientation to principal Euler yaw, without turn counts.
+        .map_err(crate::errors::AbiError::from)?
+    {
+        None => 0,
+        Some(handle) => match session
+            .native
+            .component(handle)
+            .map_err(crate::errors::AbiError::from)?
+            .desc
+        {
+            ComponentDesc::Renderer { material_slot } => material_slot,
+            _ => return Err("renderer component kind mismatch".into()),
+        },
+    };
+    Ok(DisunityObject {
+        position: session
+            .native
+            .world_position(object)
+            .map_err(crate::errors::AbiError::from)?
+            .to_array(),
         rotation_y_radians: transform.rotation.to_euler(EulerRot::YXZ).0,
         material_slot,
-    }
+    })
 }
 
-pub fn with_world<T>(handle: u64, f: impl FnOnce(&DisunityWorld) -> T) -> Result<T, String> {
+pub fn with_world<T>(
+    handle: u64,
+    f: impl FnOnce(&DisunityWorld) -> T,
+) -> Result<T, crate::errors::AbiError> {
     let store = lock_store();
     let session = store.session(handle)?;
     let snapshot = session.native.snapshot();
@@ -57,10 +67,8 @@ pub fn with_world<T>(handle: u64, f: impl FnOnce(&DisunityWorld) -> T) -> Result
         objects: snapshot
             .objects
             .iter()
-            .map(|object| Some(observe(session, object.handle)))
-            .collect(),
-        applied_commands: session.applied_commands.clone(),
-        pending_commands: session.pending_commands.clone(),
+            .map(|object| observe(session, object.handle).map(Some))
+            .collect::<Result<_, _>>()?,
         last_error: session.last_error.clone(),
     };
     Ok(f(&view))
@@ -70,13 +78,13 @@ pub fn export_object_states(
     handle: u64,
     out: &mut [DisunityObjectState],
     written: &mut u32,
-) -> Result<(), String> {
+) -> Result<(), crate::errors::AbiError> {
     *written = 0;
     let store = lock_store();
     let session = store.session(handle)?;
     *written = u32::try_from(session.objects.len()).map_err(|_| "object count overflow")?;
     for ((&encoded, &object), destination) in session.objects.iter().zip(out.iter_mut()) {
-        let value = observe(session, object);
+        let value = observe(session, object)?;
         *destination = DisunityObjectState {
             object: encoded,
             x: value.position[0],

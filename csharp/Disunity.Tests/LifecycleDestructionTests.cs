@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using Disunity;
+using UnityEngine;
+using Disunity.Hosting;
 
 internal static class LifecycleDestructionTests
 {
@@ -19,23 +20,23 @@ internal static class LifecycleDestructionTests
         public Action? OnUpdate { get; init; }
         public Action? OnDestruction { get; init; }
 
-        protected override void Awake() => calls.Add("Awake");
+        private void Awake() => calls.Add("Awake");
 
-        protected override void Start()
+        private void Start()
         {
             calls.Add("Start");
             OnStart?.Invoke();
         }
 
-        protected override void Update()
+        private void Update()
         {
             calls.Add("Update");
             OnUpdate?.Invoke();
         }
 
-        protected override void LateUpdate() => calls.Add("LateUpdate");
+        private void LateUpdate() => calls.Add("LateUpdate");
 
-        protected override void OnDestroy()
+        private void OnDestroy()
         {
             calls.Add("OnDestroy");
             OnDestruction?.Invoke();
@@ -59,21 +60,21 @@ internal static class LifecycleDestructionTests
 
     private static void EqualInstances()
     {
-        WorldRunner.LoadWorld();
+        DisunityHost.LoadWorld();
         var firstCalls = new List<string>();
         var secondCalls = new List<string>();
-        var first = WorldRunner.AddComponent(new EqualProbe(firstCalls));
-        var second = WorldRunner.AddComponent(new EqualProbe(secondCalls));
+        var first = DisunityHost.AddComponent(new EqualProbe(firstCalls));
+        var second = DisunityHost.AddComponent(new EqualProbe(secondCalls));
         if (ReferenceEquals(first, second) || !first.Equals(second))
         {
             throw new InvalidOperationException("regression requires distinct behaviours with equal values");
         }
-        WorldRunner.Step(0.125f);
+        DisunityHost.Step(0.125f);
         second.gameObject.Destroy();
-        WorldRunner.Step(0.125f);
+        DisunityHost.Step(0.125f);
         RequireCalls(firstCalls, "Awake", "Start", "Update", "LateUpdate", "Update", "LateUpdate");
         RequireCalls(secondCalls, "Awake", "Start", "Update", "LateUpdate", "OnDestroy");
-        WorldRunner.UnloadWorld();
+        DisunityHost.UnloadWorld();
         RequireCalls(firstCalls, "Awake", "Start", "Update", "LateUpdate", "Update", "LateUpdate", "OnDestroy");
         RequireCalls(secondCalls, "Awake", "Start", "Update", "LateUpdate", "OnDestroy");
         Console.WriteLine("PASS: equal-valued behaviours unregister by instance and receive destruction once");
@@ -81,7 +82,7 @@ internal static class LifecycleDestructionTests
 
     private static void UnloadAdditions(nint image)
     {
-        WorldRunner.LoadWorld();
+        DisunityHost.LoadWorld();
         var parentCalls = new List<string>();
         var victimCalls = new List<string>();
         var childCalls = new List<string>();
@@ -89,19 +90,19 @@ internal static class LifecycleDestructionTests
         Probe? victim = null;
         Probe? child = null;
         Probe? grandchild = null;
-        WorldRunner.AddComponent(new Probe(parentCalls)
+        DisunityHost.AddComponent(new Probe(parentCalls)
         {
             OnDestruction = () =>
             {
                 victim!.gameObject.Destroy();
-                child = WorldRunner.AddComponent(new Probe(childCalls)
+                child = DisunityHost.AddComponent(new Probe(childCalls)
                 {
-                    OnDestruction = () => grandchild = WorldRunner.AddComponent(new Probe(grandchildCalls)),
+                    OnDestruction = () => grandchild = DisunityHost.AddComponent(new Probe(grandchildCalls)),
                 });
             },
         });
-        victim = WorldRunner.AddComponent(new Probe(victimCalls));
-        WorldRunner.UnloadWorld();
+        victim = DisunityHost.AddComponent(new Probe(victimCalls));
+        DisunityHost.UnloadWorld();
         RequireCalls(parentCalls, "Awake", "OnDestroy");
         RequireCalls(victimCalls, "Awake", "OnDestroy");
         RequireCalls(childCalls, "Awake", "OnDestroy");
@@ -121,7 +122,7 @@ internal static class LifecycleDestructionTests
         var statistics = Marshal.GetDelegateForFunctionPointer<Statistics>(
             System.Runtime.InteropServices.NativeLibrary.GetExport(image, "disunity_store_statistics"));
         var result = statistics(out var liveWorlds, out _);
-        if (result.Code != 0 || liveWorlds != 0 || WorldRunner.IsLoaded || WorldRunner.WorldHandle != 0)
+        if (result.Code != 0 || liveWorlds != 0 || DisunityHost.IsLoaded || DisunityHost.WorldHandle != 0)
         {
             throw new InvalidOperationException("unload must release the native world and its objects");
         }
@@ -132,18 +133,18 @@ internal static class LifecycleDestructionTests
     {
         foreach (var phase in new[] { "Start", "Update" })
         {
-            WorldRunner.LoadWorld();
+            DisunityHost.LoadWorld();
             var calls = new List<string>();
             Probe? behaviour = null;
             void DestroySelf() => behaviour!.gameObject.Destroy();
-            behaviour = WorldRunner.AddComponent(new Probe(calls)
+            behaviour = DisunityHost.AddComponent(new Probe(calls)
             {
                 OnStart = phase == "Start" ? DestroySelf : null,
                 OnUpdate = phase == "Update" ? DestroySelf : null,
             });
-            WorldRunner.Step(0.125f);
-            WorldRunner.Step(0.125f);
-            WorldRunner.UnloadWorld();
+            DisunityHost.Step(0.125f);
+            DisunityHost.Step(0.125f);
+            DisunityHost.UnloadWorld();
             if (phase == "Start")
             {
                 RequireCalls(calls, "Awake", "Start", "OnDestroy");
@@ -158,7 +159,7 @@ internal static class LifecycleDestructionTests
 
     public static void Run(nint image)
     {
-        WorldRunner.UnloadWorld();
+        DisunityHost.UnloadWorld();
         EqualInstances();
         UnloadAdditions(image);
         SelfDestruction();

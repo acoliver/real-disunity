@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MutationId {
     world: u64,
-    sequence: usize,
+    pub(crate) sequence: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,10 +68,18 @@ pub(crate) struct Lifecycle {
     pub scripts: BTreeMap<ComponentHandle, ScriptState>,
     pub(crate) mutations: BTreeMap<usize, Vec<LifecycleWork>>,
     next_sequence: usize,
+    pub(crate) unpublished: BTreeMap<usize, Vec<ObjectHandle>>,
     pub cleanup: Vec<LifecycleWork>,
 }
 
 impl World {
+    pub(crate) fn is_unpublished(&self, object: ObjectHandle) -> bool {
+        self.lifecycle
+            .unpublished
+            .values()
+            .any(|nodes| nodes.contains(&object))
+    }
+
     /// Immediate native ordering data. E4 invokes managed work before returning a clone.
     pub fn lifecycle_work(&self, mutation: MutationId) -> Result<&[LifecycleWork], WorldError> {
         if mutation.world != self.identity {
@@ -116,7 +124,18 @@ impl World {
             .scripts
             .get(&script)
             .ok_or(WorldError::NotScript)?;
-        Ok(state.awake && state.active)
+        Ok(state.awake
+            && state.active
+            && self.active_in_hierarchy(self.component(script)?.object)?)
+    }
+
+    pub fn script_enabled(&self, script: ComponentHandle) -> Result<bool, WorldError> {
+        self.component(script)?;
+        self.lifecycle
+            .scripts
+            .get(&script)
+            .map(|state| state.enabled)
+            .ok_or(WorldError::NotScript)
     }
 
     pub fn set_script_enabled(
@@ -146,6 +165,9 @@ impl World {
         let mut awake = Vec::new();
         let mut transitions = Vec::new();
         for &object in nodes {
+            if self.is_unpublished(object) {
+                continue;
+            }
             let active = self.active_in_hierarchy(object).expect("live hierarchy");
             let scripts: Vec<_> = self
                 .lifecycle

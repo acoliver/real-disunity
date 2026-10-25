@@ -45,11 +45,7 @@ impl World {
                 .settings
                 .plane
                 .project(self.world_matrix(c.object)?.w_axis.truncate());
-            let velocity = if b.body_type == BodyType::Dynamic {
-                b.velocity + self.physics.settings.gravity * b.gravity_scale * dt
-            } else {
-                b.velocity
-            };
+            let velocity = self.body_velocity(c.handle, b, start, dt);
             let (area, moment) = colliders
                 .iter()
                 .filter(|a| a.owner == c.object && !a.trigger)
@@ -61,7 +57,7 @@ impl World {
                 b.mass
             };
             let dynamic = b.body_type == BodyType::Dynamic;
-            let angular = if b.freeze_rotation {
+            let angular = if b.freeze_rotation || b.sleeping {
                 0.0
             } else {
                 b.angular_velocity
@@ -73,6 +69,7 @@ impl World {
                 c.object,
                 Motion {
                     component: c.handle,
+                    sleeping: b.sleeping,
                     start,
                     position: start,
                     angle: 0.0,
@@ -89,7 +86,7 @@ impl World {
         }
         Ok(motions)
     }
-    pub(super) fn commit_motions(&mut self, motions: &Motions) -> Result<(), WorldError> {
+    pub(super) fn commit_motions(&mut self, motions: &Motions, dt: f32) -> Result<(), WorldError> {
         let mut locals = BTreeMap::new();
         let mut matrices = BTreeMap::new();
         for &object in motions.keys() {
@@ -107,9 +104,13 @@ impl World {
             let ComponentDesc::Body2d(mut body) = self.component(m.component)?.desc.clone() else {
                 unreachable!()
             };
+            body.sleeping = m.sleeping;
             body.velocity = m.velocity;
             body.angular_velocity = m.angular;
             self.set_component(m.component, ComponentDesc::Body2d(body))?;
+            if dt > 0.0 {
+                self.physics.targets.remove(&m.component);
+            }
         }
         Ok(())
     }
@@ -177,6 +178,9 @@ impl World {
 }
 pub(super) fn advance(motions: &mut Motions, dt: f32) -> Result<(), WorldError> {
     for m in motions.values_mut() {
+        if m.sleeping {
+            continue;
+        }
         m.position += m.velocity * dt;
         m.angle += m.angular * dt;
         if !m.position.length_squared().is_finite() || !m.angle.is_finite() {

@@ -4,9 +4,9 @@
 use worldrunner_disunity_ffi::abi::{
     DisunityCommand, disunity_command_buffer_submit, disunity_gameobject_create,
     disunity_gameobject_destroy, disunity_store_statistics, disunity_world_create,
-    disunity_world_destroy, disunity_world_step,
+    disunity_world_destroy,
 };
-use worldrunner_disunity_ffi::{DisunityObject, DisunityWorld, command_kind, result_code};
+use worldrunner_disunity_ffi::{DisunityObject, command_kind, result_code};
 
 /// The native store is a process global, so the tests here run one at a time;
 /// otherwise a soak's drain assertion races with another test's live world.
@@ -58,14 +58,14 @@ fn destroyed_object_handles_are_invalid() {
         result_code::OK
     );
     assert_eq!(
-        unsafe { disunity_world_step(world, 1.0 / 60.0, 1) }.code,
+        unsafe { advance_frame(world, 1.0 / 60.0, 1) }.code,
         result_code::ERROR
     );
     unsafe { disunity_world_destroy(world) };
 }
 
 #[test]
-fn command_replay_is_deterministic() {
+fn repeated_edit_batches_are_deterministic() {
     let _guard = serialized();
     let world = make_world();
     let mut objects = [0_u64; 4];
@@ -103,18 +103,15 @@ fn command_replay_is_deterministic() {
         result_code::OK
     );
     assert_eq!(
-        unsafe { disunity_world_step(world, 1.0 / 60.0, 1) }.code,
+        unsafe { advance_frame(world, 1.0 / 60.0, 1) }.code,
         result_code::OK
     );
-    assert_replay_matches(world);
+    assert_replay_matches(world, &commands);
     unsafe { disunity_world_destroy(world) };
 }
 
-fn assert_replay_matches(world: u64) {
-    // Replay: rebuild the same final state from a fresh world and the log.
-    let log =
-        worldrunner_disunity_ffi::with_world(world, |w: &DisunityWorld| w.applied_commands.clone())
-            .unwrap();
+fn assert_replay_matches(world: u64, log: &[DisunityCommand]) {
+    // Repeat caller-owned edits against newly allocated identities.
     let replay_world = make_world();
     let mut replay_objects = [0_u64; 4];
     for handle in &mut replay_objects {
@@ -134,7 +131,7 @@ fn assert_replay_matches(world: u64) {
     unsafe {
         disunity_command_buffer_submit(replay_world, remapped.as_ptr(), remapped.len() as u32)
     };
-    unsafe { disunity_world_step(replay_world, 1.0 / 60.0, 1) };
+    unsafe { advance_frame(replay_world, 1.0 / 60.0, 1) };
     let expected: Vec<DisunityObject> = worldrunner_disunity_ffi::with_world(world, |w| {
         w.objects.iter().flatten().copied().collect::<Vec<_>>()
     })
@@ -174,7 +171,7 @@ fn error_message_round_trips_after_a_failed_step() {
     };
     unsafe { disunity_command_buffer_submit(world, &bad, 1) };
     assert_eq!(
-        unsafe { disunity_world_step(world, 1.0 / 60.0, 1) }.code,
+        unsafe { advance_frame(world, 1.0 / 60.0, 1) }.code,
         result_code::ERROR
     );
     let mut buffer = [0_u8; 256];
@@ -222,4 +219,23 @@ fn load_unload_soak_drains_the_table() {
     // Slots are reused, so allocated must not grow by 100 either.
     assert!(allocated <= allocated_before + 100);
     assert!(allocated < 100 + allocated_before);
+}
+
+unsafe fn advance_frame(
+    world: u64,
+    delta: f32,
+    _frame: u64,
+) -> worldrunner_disunity_ffi::DisunityResult {
+    let mut work = worldrunner_disunity_ffi::scheduling::DisunityAdvance::default();
+    let elapsed = std::time::Duration::try_from_secs_f32(delta)
+        .ok()
+        .and_then(|d| u64::try_from(d.as_nanos()).ok());
+    unsafe {
+        worldrunner_disunity_ffi::scheduling::disunity_world_advance(
+            world,
+            elapsed.unwrap_or(0),
+            if elapsed.is_some() { 1_000_000_000 } else { 0 },
+            &mut work,
+        )
+    }
 }

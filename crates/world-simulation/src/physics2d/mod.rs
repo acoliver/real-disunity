@@ -8,7 +8,9 @@ mod geometry;
 mod motion;
 mod queries;
 mod shapes;
+mod sleep;
 mod solver;
+mod targets;
 mod tiles;
 
 pub use body::{Body2d, BodyType, PhysicsPlane, PhysicsSettings};
@@ -52,6 +54,7 @@ type Contacts = BTreeMap<Pair, ContactEvent>;
 pub(crate) struct Physics {
     settings: PhysicsSettings,
     contacts: Contacts,
+    pub(crate) targets: BTreeMap<ComponentHandle, Vec2>,
     events: Vec<ContactEvent>,
     cursor: usize,
     masks: Option<[u32; 32]>,
@@ -72,6 +75,7 @@ struct Collider {
 #[derive(Clone)]
 struct Motion {
     component: ComponentHandle,
+    sleeping: bool,
     start: Vec2,
     position: Vec2,
     angle: f32,
@@ -153,7 +157,7 @@ impl World {
                 }
             }
         }
-        self.commit_motions(&motions)?;
+        self.commit_motions(&motions, dt)?;
         self.finish_contacts(&touched, contacts);
         Ok(())
     }

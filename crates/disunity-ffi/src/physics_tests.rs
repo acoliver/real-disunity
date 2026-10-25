@@ -18,17 +18,14 @@ fn abi_step_advances_the_same_native_physics_and_destroys_body_identity() {
     }
     let (native_object, body, collider) = attach_physics(world, object);
     unsafe {
-        assert_eq!(disunity_world_step(world, 0.25, 1).code, result_code::OK);
+        assert_eq!(advance_frame(world, 0.25, 1).code, result_code::OK);
     }
     with_native_world(world, |native| {
-        assert!((native.local_transform(native_object).unwrap().translation.x - 0.25).abs() < 1e-6);
+        assert!((native.local_transform(native_object).unwrap().translation.x - 0.24).abs() < 1e-6);
     })
     .unwrap();
     unsafe {
-        assert_eq!(
-            disunity_world_step(world, f32::NAN, 2).code,
-            result_code::ERROR
-        );
+        assert_eq!(advance_frame(world, f32::NAN, 2).code, result_code::ERROR);
         assert_eq!(
             disunity_gameobject_destroy(world, object).code,
             result_code::OK
@@ -46,7 +43,7 @@ fn abi_step_advances_the_same_native_physics_and_destroys_body_identity() {
     })
     .unwrap();
     unsafe {
-        assert_eq!(disunity_world_step(world, 0.0, 3).code, result_code::OK);
+        assert_eq!(advance_frame(world, 0.0, 3).code, result_code::OK);
         assert_eq!(disunity_world_destroy(world).code, result_code::OK);
     }
 }
@@ -86,12 +83,12 @@ fn attach_physics(
 }
 
 #[test]
-fn iteration_failure_preserves_abi_edits_and_history() {
+fn iteration_failure_faults_the_admitted_frame() {
     assert_failed_step_atomic(false);
 }
 
 #[test]
-fn geometry_failure_preserves_abi_edits_and_history() {
+fn geometry_failure_faults_the_admitted_frame() {
     assert_failed_step_atomic(true);
 }
 
@@ -172,61 +169,49 @@ fn assert_failed_step_atomic(invalid_geometry: bool) {
         );
     }
     let before = prepare_failed_step(world, object, invalid_geometry);
-    let pending = lock_store()
-        .session(world)
-        .unwrap()
-        .pending_commands
-        .clone();
     unsafe {
-        assert_eq!(disunity_world_step(world, 0.1, 1).code, result_code::ERROR);
+        assert_eq!(advance_frame(world, 0.1, 1).code, result_code::ERROR);
     }
-    let (after, queued, applied, contacts) = {
+    let (after, queued, contacts) = {
         let store = lock_store();
         let session = store.session(world).unwrap();
         (
             session.native.snapshot(),
             session.pending_commands.clone(),
-            session.applied_commands.clone(),
             session.native.contacts().to_vec(),
         )
     };
-    assert_eq!(after, before);
-    assert_eq!(queued, pending);
-    assert!(applied.is_empty());
+    assert_eq!(after.objects.len(), before.objects.len());
+    assert_eq!(after.components.len(), before.components.len() + 1);
+    assert_eq!(after.objects[0].local_transform.translation.x, 10.0);
+    assert!(
+        after
+            .components
+            .iter()
+            .any(|c| c.desc == ComponentDesc::Renderer { material_slot: 7 })
+    );
+    assert!(queued.is_empty());
+
     assert!(contacts.is_empty());
-    complete_retained_step(world, invalid_geometry);
+    unsafe {
+        assert_eq!(advance_frame(world, 0.1, 2).code, result_code::ERROR);
+    }
     unsafe {
         assert_eq!(disunity_world_destroy(world).code, result_code::OK);
     }
 }
 
-fn complete_retained_step(world: u64, invalid_geometry: bool) {
-    {
-        let mut store = lock_store();
-        let session = store.session_mut(world).unwrap();
-        if invalid_geometry {
-            session.pending_commands.pop();
-        }
-        session
-            .native
-            .set_physics_settings(
-                worldrunner_world_simulation::physics2d::PhysicsSettings::default(),
-            )
-            .unwrap();
-    }
+unsafe fn advance_frame(world: u64, delta: f32, _frame: u64) -> crate::DisunityResult {
+    let mut work = crate::scheduling::DisunityAdvance::default();
+    let elapsed = std::time::Duration::try_from_secs_f32(delta)
+        .ok()
+        .and_then(|d| u64::try_from(d.as_nanos()).ok());
     unsafe {
-        assert_eq!(disunity_world_step(world, 0.1, 2).code, result_code::OK);
+        crate::scheduling::disunity_world_advance(
+            world,
+            elapsed.unwrap_or(0),
+            if elapsed.is_some() { 1_000_000_000 } else { 0 },
+            &mut work,
+        )
     }
-    let store = lock_store();
-    let session = store.session(world).unwrap();
-    assert!(session.pending_commands.is_empty());
-    assert_eq!(session.applied_commands.len(), 2);
-    assert!(
-        session
-            .native
-            .snapshot()
-            .components
-            .iter()
-            .any(|c| c.desc == ComponentDesc::Renderer { material_slot: 7 })
-    );
 }

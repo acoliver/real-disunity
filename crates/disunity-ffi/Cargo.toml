@@ -10,7 +10,7 @@ description = "Disunity C ABI: versioned, append-only exports over engine-owned 
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-worldrunner-world-simulation = { path = "../world-simulation" }
+worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"] }
 glam.workspace = true
 
 [build-dependencies]

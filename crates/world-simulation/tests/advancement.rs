@@ -27,6 +27,7 @@ fn drain(world: &mut World, mut work: Advance) -> Vec<ScriptMessage> {
                     .unwrap();
             }
             Advance::Complete(_) => return messages,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!("unexpected child scope"),
         }
     }
@@ -104,6 +105,7 @@ fn input_cutoffs_ties_focus_and_independent_edges() {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -138,6 +140,7 @@ fn pause_scale_waits_and_completion() {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -174,6 +177,7 @@ fn mutation_and_nested_clone_scopes_block_parent_resume() {
             Advance::Callback(c) => {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => break,
             Advance::Complete(_) => panic!(),
         }

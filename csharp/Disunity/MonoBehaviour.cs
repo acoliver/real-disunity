@@ -1,24 +1,26 @@
-namespace Disunity;
+namespace UnityEngine;
 
-/// <summary>
-/// Script lifecycle over the native world. The host drives the phases:
-/// Awake on load/create, Start before the first Update, Update on each
-/// simulation tick, LateUpdate after Update before commands are applied,
-/// OnDestroy when its object is destroyed or the world unloads.
-/// </summary>
-public abstract class MonoBehaviour
+/// <summary>Script methods are bound by name; native state owns message eligibility.</summary>
+public abstract class MonoBehaviour : Component
 {
-    protected MonoBehaviour()
+    public unsafe bool enabled
     {
+        get
+        {
+            uint value;
+            Disunity.Hosting.DisunityHost.ThrowIfError(Disunity.Native.NativeBindings.disunity_script_enabled(Disunity.Hosting.DisunityHost.WorldHandle,
+                Disunity.Hosting.DisunityHost.ScriptIdentity(this), &value));
+            return value == 1;
+        }
+        set
+        {
+            Disunity.Native.DisunityAdvance work;
+            Disunity.Hosting.DisunityHost.ThrowIfError(Disunity.Native.NativeBindings.disunity_script_set_enabled(Disunity.Hosting.DisunityHost.WorldHandle,
+                Disunity.Hosting.DisunityHost.ScriptIdentity(this), value ? 1u : 0u, &work));
+            Disunity.Hosting.DisunityHost.Drain(work);
+        }
     }
-
-    public GameObject gameObject { get; internal set; } = null!;
-
-    internal bool HasStarted { get; set; }
-
-    protected internal virtual void Awake() { }
-    protected internal virtual void Start() { }
-    protected internal virtual void Update() { }
-    protected internal virtual void LateUpdate() { }
-    protected internal virtual void OnDestroy() { }
+    public Coroutine StartCoroutine(System.Collections.IEnumerator iterator) => Disunity.Hosting.DisunityHost.StartCoroutine(this, iterator);
+    public void StopCoroutine(Coroutine routine) => Disunity.Hosting.DisunityHost.StopCoroutine(this, routine);
+    public void StopAllCoroutines() => Disunity.Hosting.DisunityHost.StopAllCoroutines(this);
 }

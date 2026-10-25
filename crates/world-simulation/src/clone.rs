@@ -71,6 +71,38 @@ impl World {
         })
     }
 
+    /// Reserves a clone for foreign construction without publishing lifecycle eligibility.
+    pub fn instantiate_unpublished(
+        &mut self,
+        template: ObjectHandle,
+        parent: Option<ObjectHandle>,
+    ) -> Result<Instantiation, WorldError> {
+        let clone = self.instantiate(template, parent)?;
+        self.lifecycle.unpublished.insert(
+            clone.mutation.sequence,
+            clone.objects.values().copied().collect(),
+        );
+        Ok(clone)
+    }
+
+    /// Discards an unpublished clone when managed construction or field binding fails.
+    pub fn discard_instantiation(&mut self, clone: &Instantiation) -> Result<(), WorldError> {
+        if clone.components.values().any(|script| {
+            self.lifecycle
+                .scripts
+                .get(script)
+                .is_some_and(|state| state.entered != crate::lifecycle::EnteredState::Dormant)
+        }) {
+            return Err(WorldError::NotReady);
+        }
+        self.lifecycle.unpublished.remove(&clone.mutation.sequence);
+        self.lifecycle.mutations.remove(&clone.mutation.sequence);
+        for &object in clone.objects.values() {
+            self.retire_subtree(object);
+        }
+        Ok(())
+    }
+
     fn clone_components(
         &mut self,
         source: &[crate::ComponentSnapshot],
@@ -107,5 +139,53 @@ impl World {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{ComponentDesc, DestroyWhen, ObjectDesc, ParentSpace, World, WorldSettings};
+
+    #[test]
+    fn abort_owns_invalidated_subtree_without_waiting_for_phase_cleanup() {
+        for finish_first in [false, true] {
+            let mut world = World::new(WorldSettings::default()).unwrap();
+            let template = world.create_object(ObjectDesc::default()).unwrap();
+            world
+                .add_component(
+                    template,
+                    ComponentDesc::Script {
+                        assembly: "Example".into(),
+                        type_name: "Actor".into(),
+                    },
+                )
+                .unwrap();
+            let child = world.create_object(ObjectDesc::default()).unwrap();
+            let mutation = world
+                .set_parent(child, Some(template), ParentSpace::KeepLocal)
+                .unwrap();
+            world.take_lifecycle_work(mutation).unwrap();
+            let parent = world.create_object(ObjectDesc::default()).unwrap();
+            let baseline = world.storage_counts();
+            let clone = world
+                .instantiate_unpublished(template, Some(parent))
+                .unwrap();
+            world.destroy(parent, DestroyWhen::EndOfFrame).unwrap();
+            assert!(world.take_cleanup().is_empty());
+            assert!(world.object(clone.root).is_err());
+            if finish_first {
+                world.finish_phase();
+            }
+            world.discard_instantiation(&clone).unwrap();
+            assert!(world.lifecycle.unpublished.is_empty());
+            assert!(world.lifecycle.mutations.is_empty());
+            let expected = if finish_first {
+                (baseline.0 - 1, baseline.1 - 1)
+            } else {
+                baseline
+            };
+            assert_eq!(world.storage_counts(), expected);
+            assert_eq!(world.lifecycle.scripts.len(), 1);
+        }
     }
 }

@@ -14,6 +14,7 @@ fn callback_scale_change_applies_to_next_admission_not_remaining_fixed_steps() {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -66,6 +67,7 @@ fn finish(world: &mut World, mut work: Advance) {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => return,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -87,6 +89,7 @@ fn fixed_phase_has_fixed_delta_and_dynamic_restores_frame_delta() {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }

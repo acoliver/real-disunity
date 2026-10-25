@@ -34,7 +34,10 @@ fn managed_loader(config: &ManagedHostConfig) -> Result<AssemblyDelegateLoader, 
 pub(crate) struct ManagedBridge {
     pub run_slice: unsafe extern "system" fn(*const c_char) -> i32,
     pub world_handle: unsafe extern "system" fn() -> u64,
-    pub unload: unsafe extern "system" fn(),
+    pub unload: unsafe extern "system" fn() -> i32,
+    pub dispatch: unsafe extern "system" fn(u64, u32) -> i32,
+    pub error: unsafe extern "system" fn(*mut u8, u32, *mut u32) -> i32,
+    pub read_position: unsafe extern "system" fn(u64, *mut f32) -> i32,
     pub token_alloc: unsafe extern "system" fn() -> isize,
     pub token_free: unsafe extern "system" fn(isize),
     pub token_live: unsafe extern "system" fn() -> i32,
@@ -58,7 +61,16 @@ impl ManagedBridge {
         Ok(Self {
             run_slice: bind!("Run", unsafe extern "system" fn(*const c_char) -> i32),
             world_handle: bind!("WorldHandle", unsafe extern "system" fn() -> u64),
-            unload: bind!("Unload", unsafe extern "system" fn()),
+            unload: bind!("Unload", unsafe extern "system" fn() -> i32),
+            dispatch: bind!("Dispatch", unsafe extern "system" fn(u64, u32) -> i32),
+            error: bind!(
+                "Error",
+                unsafe extern "system" fn(*mut u8, u32, *mut u32) -> i32
+            ),
+            read_position: bind!(
+                "ReadPosition",
+                unsafe extern "system" fn(u64, *mut f32) -> i32
+            ),
             token_alloc: bind!("TokenAlloc", unsafe extern "system" fn() -> isize),
             token_free: bind!("TokenFree", unsafe extern "system" fn(isize)),
             token_live: bind!("TokenLive", unsafe extern "system" fn() -> i32),
@@ -82,5 +94,15 @@ impl ManagedBridge {
             return Err(HostError::Abi(code));
         }
         Ok(())
+    }
+}
+
+impl ManagedBridge {
+    pub fn failure(&self) -> String {
+        let mut length = 0;
+        unsafe { (self.error)(std::ptr::null_mut(), 0, &mut length) };
+        let mut bytes = vec![0; length as usize];
+        unsafe { (self.error)(bytes.as_mut_ptr(), length, &mut length) };
+        String::from_utf8(bytes).expect("managed diagnostics are UTF-8")
     }
 }

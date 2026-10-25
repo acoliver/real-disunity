@@ -62,6 +62,9 @@ fn build_fixture(root: &Path) -> ManagedHostConfig {
     );
     let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
     run(Command::new(&dotnet)
+        .args(["build", "--warnaserror"])
+        .arg(root.join("csharp/UnityConsumer/UnityConsumer.csproj")));
+    run(Command::new(&dotnet)
         .args(["run", "--project"])
         .arg(root.join("csharp/Disunity.Tests/Disunity.Tests.csproj"))
         .arg("-p:TreatWarningsAsErrors=true")
@@ -157,10 +160,66 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_eq!(host.token_live(), 0);
     assert!(!host.engine_token_live());
     assert_eq!(host.store_statistics().0, 0);
+    assert_failed_runs_drain(&mut host, &root);
     assert_lifecycle_soak(&mut host, &fixture);
     host.run_slice(&fixture).unwrap();
+    assert_cross_language_writes(&mut host);
     drop(host);
     let host = DisunityHost::boot(&config).unwrap();
     assert_eq!(host.store_statistics().0, 0, "drop unloads an active world");
     assert_eq!(host.token_live(), 0, "drop frees the managed token");
+}
+
+fn assert_failed_runs_drain(host: &mut DisunityHost, root: &Path) {
+    for _ in 0..2 {
+        assert!(
+            host.run_slice(&root.join("csharp/PortableFixture/load-failure.fixture"))
+                .is_err()
+        );
+        assert_eq!(host.store_statistics().0, 0);
+        assert_eq!(host.token_live(), 0);
+        assert!(!host.engine_token_live());
+    }
+    assert_callback_failure(host, root, "callback-failure.fixture");
+    assert_callback_failure(host, root, "long-failure.fixture");
+}
+
+fn assert_callback_failure(host: &mut DisunityHost, root: &Path, fixture: &str) {
+    host.run_slice(&root.join("csharp/PortableFixture").join(fixture))
+        .unwrap();
+    let failed = host.advance(1, 100).unwrap_err();
+    assert!(
+        matches!(&failed, HostError::Managed(message) if message.contains("managed callback failure λ")),
+        "{failed:?}"
+    );
+    assert!(
+        host.export_objects().unwrap().is_empty(),
+        "failure teardown retires ABI object bindings"
+    );
+    let faulted = host.advance(0, 1).unwrap_err();
+    assert!(matches!(
+        faulted,
+        HostError::Native {
+            reason: worldrunner_disunity_runtime::DisunityErrorReason::Faulted,
+            ..
+        }
+    ));
+    host.unload_slice().unwrap();
+    assert_eq!(host.store_statistics().0, 0);
+    assert_eq!(host.token_live(), 0);
+}
+
+fn assert_cross_language_writes(host: &mut DisunityHost) {
+    let object = host.export_objects().unwrap()[0].object;
+    host.set_position(object, [17.0, 23.0, 31.0]).unwrap();
+    assert_eq!(host.managed_position(object).unwrap(), [17.0, 23.0, 31.0]);
+    host.advance(1, 100).unwrap();
+    assert_eq!(host.managed_position(object).unwrap(), [17.0, 23.0, 31.0]);
+    let native = host
+        .export_objects()
+        .unwrap()
+        .into_iter()
+        .find(|row| row.object == object)
+        .unwrap();
+    assert_eq!([native.x, native.y, native.z], [17.0, 23.0, 31.0]);
 }

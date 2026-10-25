@@ -11,4 +11,7 @@
     <ProjectReference Include="../Disunity/Disunity.Engine.csproj" />
     <ProjectReference Include="../PortableFixture/PortableFixture.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../UnityConsumer/UnityConsumer.csproj" />
+  </ItemGroup>
 </Project>

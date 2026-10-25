@@ -10,7 +10,7 @@ pub(crate) fn submit_commands(
     store: &mut Store,
     world: u64,
     commands: &[DisunityCommand],
-) -> Result<(), String> {
+) -> Result<(), crate::errors::AbiError> {
     store
         .session_mut(world)?
         .pending_commands
@@ -18,12 +18,18 @@ pub(crate) fn submit_commands(
     Ok(())
 }
 
-fn decode(session: &Session, command: DisunityCommand) -> Result<ObjectEdit, String> {
+fn decode(
+    session: &Session,
+    command: DisunityCommand,
+) -> Result<ObjectEdit, crate::errors::AbiError> {
     let object = session.object(command.object)?;
     match command.kind {
         command_kind::SET_POSITION => Ok(ObjectEdit::Translation(
             object,
-            Vec3::new(command.x, command.y, command.z),
+            session
+                .native
+                .local_position_from_world(object, Vec3::new(command.x, command.y, command.z))
+                .map_err(crate::errors::AbiError::from)?,
         )),
         command_kind::SET_ROTATION_Y => {
             if !command.x.is_finite() {
@@ -48,16 +54,7 @@ fn decode(session: &Session, command: DisunityCommand) -> Result<ObjectEdit, Str
     }
 }
 
-pub(crate) fn step_world(
-    store: &mut Store,
-    world: u64,
-    dt: f32,
-    _frame: u64,
-) -> Result<(), String> {
-    let session = store.session_mut(world)?;
-    if !dt.is_finite() || dt < 0.0 {
-        return Err("delta must be finite and non-negative".into());
-    }
+pub(crate) fn flush(session: &mut Session) -> Result<(), crate::errors::AbiError> {
     let edits: Vec<_> = session
         .pending_commands
         .iter()
@@ -65,11 +62,21 @@ pub(crate) fn step_world(
         .collect::<Result<_, _>>()?;
     session
         .native
-        .step_with_edits(&edits, dt)
-        .map_err(|error| error.to_string())?;
-    session.native.finish_phase();
-    session
-        .applied_commands
-        .append(&mut session.pending_commands);
+        .apply_edits(&edits)
+        .map_err(crate::errors::AbiError::from)?;
+    session.pending_commands.clear();
     Ok(())
+}
+
+pub(crate) fn apply_immediate(
+    store: &mut Store,
+    world: u64,
+    command: DisunityCommand,
+) -> Result<(), crate::errors::AbiError> {
+    let session = store.session_mut(world)?;
+    let edit = decode(session, command)?;
+    session
+        .native
+        .apply_edits(&[edit])
+        .map_err(crate::errors::AbiError::from)
 }

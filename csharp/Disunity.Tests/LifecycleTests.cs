@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using Disunity;
+using UnityEngine;
+using Disunity.Hosting;
 using PortableFixture;
 
 internal static class LifecycleTests
@@ -29,27 +30,27 @@ internal static class LifecycleTests
         public Action? OnLateUpdate { get; init; }
         public Action? OnDestruction { get; init; }
 
-        protected override void Awake() => calls.Add("Awake");
+        private void Awake() => calls.Add("Awake");
 
-        protected override void Start()
+        private void Start()
         {
             calls.Add("Start");
             OnStart?.Invoke();
         }
 
-        protected override void Update()
+        private void Update()
         {
             calls.Add("Update");
             OnUpdate?.Invoke();
         }
 
-        protected override void LateUpdate()
+        private void LateUpdate()
         {
             calls.Add("LateUpdate");
             OnLateUpdate?.Invoke();
         }
 
-        protected override void OnDestroy()
+        private void OnDestroy()
         {
             calls.Add("OnDestroy");
             OnDestruction?.Invoke();
@@ -67,17 +68,17 @@ internal static class LifecycleTests
 
     private static void ReloadWorld()
     {
-        WorldRunner.UnloadWorld();
-        WorldRunner.LoadWorld();
+        DisunityHost.UnloadWorld();
+        DisunityHost.LoadWorld();
     }
 
     private static void LateAttachment(Export export, nint buffer)
     {
         ReloadWorld();
-        WorldRunner.Step(0.125f);
+        DisunityHost.Step(0.125f);
         var calls = new List<string>();
         ProbeBehaviour? behaviour = null;
-        behaviour = WorldRunner.AddComponent(new ProbeBehaviour(calls)
+        behaviour = DisunityHost.AddComponent(new ProbeBehaviour(calls)
         {
             OnStart = () => behaviour!.gameObject.Transform.position = new Vector3(4.0f, 1.25f, -6.0f),
             OnUpdate = () => behaviour!.gameObject.Transform.rotationY = 0.5f,
@@ -86,8 +87,8 @@ internal static class LifecycleTests
         RequireCalls(calls, "Awake");
         for (var tick = 0; tick < 2; tick++)
         {
-            WorldRunner.Step(0.125f);
-            var result = export(WorldRunner.WorldHandle, buffer, 1, out var count);
+            DisunityHost.Step(0.125f);
+            var result = export(DisunityHost.WorldHandle, buffer, 1, out var count);
             var state = Marshal.PtrToStructure<ObjectState>(buffer);
             if (result.Code != 0 || count != 1 || state.X != 4.0f || state.Y != 1.25f
                 || state.Z != -6.0f || state.Rotation != 0.5f || state.Material != 2)
@@ -116,81 +117,83 @@ internal static class LifecycleTests
                 if (!added)
                 {
                     added = true;
-                    WorldRunner.AddComponent(new ProbeBehaviour(childCalls));
+                    DisunityHost.AddComponent(new ProbeBehaviour(childCalls));
                 }
             }
-            WorldRunner.AddComponent(new ProbeBehaviour(parentCalls)
+            DisunityHost.AddComponent(new ProbeBehaviour(parentCalls)
             {
                 OnStart = phase == "Start" ? AddChild : null,
                 OnUpdate = phase == "Update" ? AddChild : null,
                 OnLateUpdate = phase == "LateUpdate" ? AddChild : null,
             });
-            WorldRunner.Step(0.125f);
+            DisunityHost.Step(0.125f);
             RequireCalls(parentCalls, "Awake", "Start", "Update", "LateUpdate");
-            RequireCalls(childCalls, "Awake");
-            WorldRunner.Step(0.125f);
-            RequireCalls(childCalls, "Awake", "Start", "Update", "LateUpdate");
-            WorldRunner.Step(0.125f);
-            RequireCalls(childCalls, "Awake", "Start", "Update", "LateUpdate", "Update", "LateUpdate");
+            var first = phase == "LateUpdate" ? new[] { "Awake" } : phase == "Update" ? new[] { "Awake", "Start", "LateUpdate" } : new[] { "Awake", "Start", "Update", "LateUpdate" };
+            RequireCalls(childCalls, first);
+            DisunityHost.Step(0.125f);
+            var second = first.Concat(phase == "LateUpdate" ? new[] { "Start", "Update", "LateUpdate" } : new[] { "Update", "LateUpdate" }).ToArray();
+            RequireCalls(childCalls, second);
+            DisunityHost.Step(0.125f);
+            RequireCalls(childCalls, second.Concat(new[] { "Update", "LateUpdate" }).ToArray());
         }
-        Console.WriteLine("PASS: attachment during every step callback waits until the next step");
+        Console.WriteLine("PASS: attachment follows native phase eligibility");
     }
 
     private static void RemovalBeforeStart()
     {
         ReloadWorld();
         var calls = new List<string>();
-        var behaviour = WorldRunner.AddComponent(new ProbeBehaviour(calls));
+        var behaviour = DisunityHost.AddComponent(new ProbeBehaviour(calls));
         behaviour.gameObject.Destroy();
-        WorldRunner.Step(0.125f);
-        WorldRunner.Step(0.125f);
-        WorldRunner.UnloadWorld();
+        DisunityHost.Step(0.125f);
+        DisunityHost.Step(0.125f);
+        DisunityHost.UnloadWorld();
         RequireCalls(calls, "Awake", "OnDestroy");
 
-        WorldRunner.LoadWorld();
+        DisunityHost.LoadWorld();
         var removedCalls = new List<string>();
         ProbeBehaviour? removed = null;
-        WorldRunner.AddComponent(new ProbeBehaviour(new List<string>())
+        DisunityHost.AddComponent(new ProbeBehaviour(new List<string>())
         {
             OnStart = () => removed!.gameObject.Destroy(),
         });
-        removed = WorldRunner.AddComponent(new ProbeBehaviour(removedCalls));
-        WorldRunner.Step(0.125f);
-        WorldRunner.Step(0.125f);
-        WorldRunner.UnloadWorld();
+        removed = DisunityHost.AddComponent(new ProbeBehaviour(removedCalls));
+        DisunityHost.Step(0.125f);
+        DisunityHost.Step(0.125f);
+        DisunityHost.UnloadWorld();
         RequireCalls(removedCalls, "Awake", "OnDestroy");
 
-        WorldRunner.LoadWorld();
+        DisunityHost.LoadWorld();
         var destroyCalls = new List<string>();
         ProbeBehaviour? selfDestroying = null;
-        selfDestroying = WorldRunner.AddComponent(new ProbeBehaviour(destroyCalls)
+        selfDestroying = DisunityHost.AddComponent(new ProbeBehaviour(destroyCalls)
         {
             OnDestruction = () => selfDestroying!.gameObject.Destroy(),
         });
-        WorldRunner.UnloadWorld();
+        DisunityHost.UnloadWorld();
         RequireCalls(destroyCalls, "Awake", "OnDestroy");
         Console.WriteLine("PASS: removal before startup never runs tick callbacks; destruction notifications run once");
     }
 
     public static void Run(string nativePath)
     {
-        WorldRunner.ConfigureNativeLibrary(nativePath);
+        DisunityHost.ConfigureNativeLibrary(nativePath);
         var image = System.Runtime.InteropServices.NativeLibrary.Load(nativePath);
         var buffer = Marshal.AllocHGlobal(32);
         try
         {
             var export = Marshal.GetDelegateForFunctionPointer<Export>(
                 System.Runtime.InteropServices.NativeLibrary.GetExport(image, "disunity_world_export_objects"));
-            WorldRunner.LoadWorld();
-            var behaviour = WorldRunner.AddComponent(new TriangleBehaviour(2));
+            DisunityHost.LoadWorld();
+            var behaviour = DisunityHost.AddComponent(new TriangleBehaviour(2));
             if (behaviour.GetType().Assembly == typeof(MonoBehaviour).Assembly)
             {
                 throw new InvalidOperationException("fixture must derive from a separate assembly");
             }
             for (var tick = 1; tick <= 2; tick++)
             {
-                WorldRunner.Step(0.125f);
-                var result = export(WorldRunner.WorldHandle, buffer, 1, out var count);
+                DisunityHost.Step(0.125f);
+                var result = export(DisunityHost.WorldHandle, buffer, 1, out var count);
                 var state = Marshal.PtrToStructure<ObjectState>(buffer);
                 if (result.Code != 0 || count != 1 || state.X != 4.0f || state.Y != 1.25f
                     || state.Z != -6.0f || state.Rotation != 0.5f || state.Material != 2)
@@ -210,7 +213,7 @@ internal static class LifecycleTests
         }
         finally
         {
-            WorldRunner.UnloadWorld();
+            DisunityHost.UnloadWorld();
             Marshal.FreeHGlobal(buffer);
             System.Runtime.InteropServices.NativeLibrary.Free(image);
         }

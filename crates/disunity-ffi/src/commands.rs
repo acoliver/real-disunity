@@ -67,6 +67,7 @@ pub(crate) fn step_world(
         .native
         .apply_edits(&edits)
         .map_err(|error| error.to_string())?;
+    session.native.finish_phase();
     session.applied_commands.extend(pending);
     Ok(())
 }

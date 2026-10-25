@@ -88,6 +88,16 @@ pub enum BloomTintPass {
     Horizontal,
 }
 
+/// Controls logical levels beyond the first 1x1 reduction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BloomTerminal {
+    /// Reject a level count that would repeat 1x1.
+    #[default]
+    Reject,
+    /// Keep reducing, blurring and folding each remaining level at 1x1.
+    Repeat,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BloomPolicies {
     pub extraction: BrightExtraction,
@@ -95,6 +105,7 @@ pub struct BloomPolicies {
     pub kernel: GaussianKernelRule,
     pub selection: BloomLevelSelection,
     pub tint_pass: BloomTintPass,
+    pub terminal: BloomTerminal,
 }
 impl BloomPolicies {
     pub fn validate(self, count: u32) -> Result<(), PostError> {

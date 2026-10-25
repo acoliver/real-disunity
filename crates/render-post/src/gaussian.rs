@@ -107,6 +107,15 @@ fn normalized_weights(radius: u32, sigma: f32) -> Vec<f32> {
 
 /// Ceiling-half extents beginning at half resolution, with one terminal 1x1 level.
 pub fn gaussian_extents(size: [u32; 2], count: u32) -> Result<Vec<[u32; 2]>, PostError> {
+    gaussian_extents_with_terminal(size, count, crate::BloomTerminal::Reject)
+}
+
+/// Ceiling-half extents with an explicit terminal-level policy.
+pub fn gaussian_extents_with_terminal(
+    size: [u32; 2],
+    count: u32,
+    terminal: crate::BloomTerminal,
+) -> Result<Vec<[u32; 2]>, PostError> {
     if size.contains(&0) {
         return Err(PostError::EmptyExtent);
     }
@@ -117,7 +126,7 @@ pub fn gaussian_extents(size: [u32; 2], count: u32) -> Result<Vec<[u32; 2]>, Pos
     let mut extents = Vec::new();
     for level in 0..count {
         extents.push(next);
-        if next == [1, 1] && level + 1 < count {
+        if next == [1, 1] && level + 1 < count && terminal == crate::BloomTerminal::Reject {
             return Err(PostError::UnsupportedProfile(
                 "Gaussian bloom levels exceed extent",
             ));

@@ -24,9 +24,10 @@ impl BloomPyramid {
         }
         .validate()?;
         validate_source(device, source)?;
-        crate::gaussian_extents(
+        crate::gaussian_extents_with_terminal(
             [source.texture().width(), source.texture().height()],
             self.bloom.levels,
+            self.bloom.policies.terminal,
         )?;
         if matches!(
             self.bloom.policies.extraction,

@@ -147,6 +147,7 @@ fn every_policy_combination_validates_and_tent_rejects_changes() {
                         kernel,
                         tint_pass,
                         selection: BloomLevelSelection::default(),
+                        terminal: BloomTerminal::default(),
                     };
                     assert!(policies.validate(2).is_ok());
                     let bloom = Bloom {

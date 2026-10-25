@@ -132,6 +132,24 @@ override INTENSITY: f32 = 1.0;
 }
 
 fn host(device: &wgpu::Device, bloom: Bloom, size: [u16; 2]) -> PostChain<Host> {
+    host_with_levels(
+        device,
+        bloom,
+        size,
+        [GaussianLevel {
+            radius: 3,
+            tint: [0.5, 1.0, 1.5],
+            weight: 0.3,
+        }; 8],
+    )
+}
+
+fn host_with_levels(
+    device: &wgpu::Device,
+    bloom: Bloom,
+    size: [u16; 2],
+    levels: [GaussianLevel; 8],
+) -> PostChain<Host> {
     let buffer = |usage| {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("caller exposure"),
@@ -145,11 +163,7 @@ fn host(device: &wgpu::Device, bloom: Bloom, size: [u16; 2]) -> PostChain<Host> 
         Resources::default(),
         Host {
             bloom,
-            levels: [GaussianLevel {
-                radius: 3,
-                tint: [0.5, 1.0, 1.5],
-                weight: 0.3,
-            }; 8],
+            levels,
             upload: buffer(wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST),
             exposure: buffer(wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST),
         },
@@ -190,7 +204,7 @@ fn run(
         device,
         &mut encoder,
         chain.targets().resolved(),
-        "let v=f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
+        "let v=1.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
     );
     chain.encode(
         &mut encoder,
@@ -395,12 +409,109 @@ fn gpu_bloom_stock_hdr_uses_fixed_and_adaptive_exposure_inputs() {
             &queue,
             &chain,
             0,
-            "let v=f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
+            "let v=1.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
             true,
         );
         let expected = scalar::pyramid(&scalar::fixture([17, 11]), bloom, &levels, 2.0);
         for (texture, expected) in chain.configured[0].resources.textures.iter().zip(&expected) {
             compare(&pixels(&device, &queue, texture), expected);
         }
+    }
+}
+
+fn terminal_levels() -> [GaussianLevel; 8] {
+    std::array::from_fn(|index| {
+        let i = f32::from(u16::try_from(index).unwrap());
+        GaussianLevel {
+            radius: 44,
+            tint: [0.5 + i * 0.125, 1.5 - i * 0.125, 0.75 + i * 0.25],
+            weight: 0.125 + i * 0.03125,
+        }
+    })
+}
+
+#[test]
+fn gpu_bloom_repeat_terminal_builder_matches_cpu() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    for size in [[1, 1], [17, 9], [32, 32]] {
+        for reduction in [
+            BloomReduction::BoxPerTexel,
+            BloomReduction::QuarterTexelAfterAverage,
+        ] {
+            for tint_pass in [BloomTintPass::Horizontal, BloomTintPass::Vertical] {
+                for (first_blurred, output) in [(0, 0), (1, 1), (4, 5)] {
+                    let mut bloom = bloom();
+                    bloom.levels = 6;
+                    bloom.policies.terminal = BloomTerminal::Repeat;
+                    bloom.policies.reduction = reduction;
+                    bloom.policies.tint_pass = tint_pass;
+                    bloom.policies.selection = BloomLevelSelection {
+                        first_blurred,
+                        output,
+                    };
+                    let chain = host_with_levels(&device, bloom, size, terminal_levels());
+                    run(&device, &queue, &chain, size, 1.0);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn gpu_bloom_repeat_terminal_stock_matches_cpu() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    for size in [[1, 1], [17, 9], [32, 32]] {
+        let mut bloom = bloom();
+        bloom.levels = 6;
+        bloom.policies.terminal = BloomTerminal::Repeat;
+        let levels = terminal_levels();
+        let settings = HdrPostSettings {
+            bloom: Some(bloom),
+            bloom_kernel: BloomKernel::SeparablePyramid(levels),
+            ..HdrPostSettings::default()
+        };
+        let chain = super::post_effect_tests::chain(&device, &settings, size.map(u32::from));
+        super::post_effect_tests::step(
+            &device,
+            &queue,
+            &chain,
+            0,
+            "let v=1.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
+            false,
+        );
+        let expected = scalar::pyramid(&scalar::fixture(size), bloom, &levels, 1.0);
+        for (texture, expected) in chain.configured[0].resources.textures.iter().zip(&expected) {
+            compare(&pixels(&device, &queue, texture), expected);
+        }
+    }
+}
+
+#[test]
+fn gpu_bloom_default_builder_rejects_repeated_terminal_levels() {
+    let (device, _) = crate::gpu_tests::gpu();
+    for size in [[1, 1], [17, 9], [32, 32]] {
+        let texture = color_texture(
+            &device,
+            "small scene",
+            size,
+            wgpu::TextureFormat::Rgba16Float,
+        );
+        let source = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut bloom = bloom();
+        bloom.levels = 6;
+        let mut set = StageSet::default();
+        let result = BloomPyramid {
+            bloom,
+            levels: terminal_levels(),
+        }
+        .append(&device, &mut set, &source, None);
+        assert!(matches!(
+            result,
+            Err(PostError::UnsupportedProfile(
+                "Gaussian bloom levels exceed extent"
+            ))
+        ));
+        assert!(set.stages.is_empty());
+        assert!(set.resources.textures.is_empty());
     }
 }

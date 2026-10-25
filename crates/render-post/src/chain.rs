@@ -662,3 +662,11 @@ mod post_regression_tests;
 #[cfg(test)]
 #[path = "timing_identity_tests.rs"]
 mod timing_identity_tests;
+
+#[cfg(test)]
+#[path = "gaussian_gpu_tests.rs"]
+mod gaussian_gpu_tests;
+
+#[cfg(test)]
+#[path = "gaussian_benchmark.rs"]
+mod gaussian_benchmark;

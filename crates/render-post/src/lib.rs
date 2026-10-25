@@ -35,9 +35,13 @@ pub use timing::{
 };
 mod chain;
 mod copy;
-mod hdr_post;
 mod gaussian;
-pub use gaussian::{BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS, MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_weights};
+mod gaussian_gpu;
+mod hdr_post;
+pub use gaussian::{
+    BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS,
+    MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_weights,
+};
 mod post_filters;
 mod tone_map;
 mod upscale;

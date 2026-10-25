@@ -35,7 +35,11 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     if settings.adaptive.is_some() {
         set.buffer("histograms", 1024, 3);
     }
-    if let Some(bloom) = settings.bloom {
+    gaussian_allocations(&mut set, config, settings);
+    if let Some(bloom) = settings
+        .bloom
+        .filter(|_| matches!(settings.bloom_kernel, crate::BloomKernel::Tent))
+    {
         let mut sizes = vec![config.size];
         while sizes.len() < usize::try_from(bloom.levels).unwrap()
             && *sizes.last().unwrap() != [1, 1]
@@ -86,6 +90,27 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
         );
     }
     set
+}
+fn gaussian_allocations(set: &mut AllocationSet, config: FrameConfig, settings: HdrPostSettings) {
+    if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
+        (settings.bloom, settings.bloom_kernel)
+        && let Ok(extents) = crate::gaussian_extents(config.size, bloom.levels)
+    {
+        for [w, h] in extents {
+            set.texture(
+                "Gaussian level and scratch",
+                [w, h, 1],
+                wgpu::TextureFormat::Rgba16Float,
+                [1, 1],
+                6,
+            );
+            set.buffer(
+                "Gaussian folded weights",
+                u64::try_from(crate::gaussian::GAUSSIAN_WEIGHT_BYTES).unwrap(),
+                3,
+            );
+        }
+    }
 }
 pub fn timing_allocations() -> AllocationSet {
     let mut set = AllocationSet::default();

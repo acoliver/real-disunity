@@ -4,6 +4,7 @@ struct Exposure { value: f32, initialized: u32, pad: vec2<u32> }
 @group(0) @binding(2) var<storage, read> exposure: Exposure;
 override THRESHOLD: f32 = 1.0;
 override KNEE: f32 = 0.5;
+override GAUSSIAN: bool = false;
 override INTENSITY: f32 = 0.0;
 override FIXED: f32 = 1.0;
 override ADAPTIVE: bool = false;
@@ -75,7 +76,9 @@ fn mapped(r: f32, e: f32) -> f32 {
 }
 @fragment fn tone(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
     let c = load(source,vec2<i32>(p.xy));
-    let bloom = load(lower,vec2<i32>(p.xy)).rgb * INTENSITY;
+    var bloom = load(lower,vec2<i32>(p.xy)).rgb;
+    if GAUSSIAN { bloom = linear(lower, p.xy / vec2<f32>(textureDimensions(source))).rgb; }
+    bloom *= INTENSITY;
     let e = select(FIXED, exposure.value, ADAPTIVE);
     // Classify original HDR before adding finite bloom, preserving special-value policy.
     let base = vec3<f32>(mapped(c.r,e),mapped(c.g,e),mapped(c.b,e));

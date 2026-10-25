@@ -33,10 +33,15 @@ impl<'a> Filters<'a> {
         exposure: &wgpu::Buffer,
         output: (wgpu::TextureFormat, f64),
     ) {
-        let bloom = settings
-            .bloom
-            .map_or_else(|| targets.resolved().clone(), |b| self.bloom(targets, b));
+        let bloom = self.bloom_source(targets, settings);
         let constants = [
+            (
+                "GAUSSIAN",
+                f64::from(u8::from(matches!(
+                    settings.bloom_kernel,
+                    crate::BloomKernel::SeparablePyramid(_)
+                ))),
+            ),
             ("FIXED", output.1),
             ("ADAPTIVE", f64::from(u8::from(settings.adaptive.is_some()))),
             (
@@ -115,6 +120,22 @@ impl<'a> Filters<'a> {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.set.resources.textures.push(texture);
         view
+    }
+    fn bloom_source(
+        &mut self,
+        targets: &FrameTargets,
+        settings: HdrPostSettings,
+    ) -> wgpu::TextureView {
+        settings.bloom.map_or_else(
+            || targets.resolved().clone(),
+            |b| match settings.bloom_kernel {
+                crate::BloomKernel::Tent => self.bloom(targets, b),
+                crate::BloomKernel::SeparablePyramid(levels) => {
+                    crate::gaussian_gpu::GaussianPyramid::new(self.device, self.set)
+                        .build(targets, b, &levels)
+                }
+            },
+        )
     }
     fn bloom(&mut self, targets: &FrameTargets, b: crate::Bloom) -> wgpu::TextureView {
         let mut levels = Vec::new();

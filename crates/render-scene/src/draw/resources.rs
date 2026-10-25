@@ -200,17 +200,22 @@ pub(super) fn upload_terrain(
     // The uniform buffer is built here rather than inside the bind group so
     // that helper takes only the resources it wires together, and so the
     // buffer's lifetime is visibly the caller's.
-    let uniform_buffer = upload_buffer(
+    let uniform_buffer = terrain_uniform_buffer(device, queue, &uniform);
+    let bind_group = terrain_bind_group(
         device,
-        queue,
-        "terrain uniform",
-        BufferUsages::UNIFORM,
-        uniform.bytes(),
+        layout,
+        sampler,
+        (&uniform_buffer, &grid, &palettes),
+        None,
     );
-    let bind_group = terrain_bind_group(device, layout, sampler, &uniform_buffer, &grid, &palettes);
     let mut retained = palettes;
     retained.push(grid);
     Ok(Some(GpuTerrain {
+        page_bounds: page_bounds(terrain),
+        page_elevation: page_elevation(terrain),
+        uniform: uniform_buffer,
+        sampler: sampler.clone(),
+        pages: None,
         bounds: visibility::terrain_bounds(&mesh.vertices),
         lod: GpuLod {
             vertices: upload_buffer(
@@ -255,10 +260,10 @@ pub(super) fn terrain_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     sampler: &Sampler,
-    uniform_buffer: &Buffer,
-    grid: &Texture,
-    palettes: &[Texture],
+    resources: (&Buffer, &Texture, &[Texture]),
+    pages: Option<(&TextureView, &Buffer)>,
 ) -> BindGroup {
+    let (uniform_buffer, grid, palettes) = resources;
     let grid_view = grid.create_view(&TextureViewDescriptor::default());
     // The dimension has to be stated. A one-layer array defaults to a plain 2D
     // view, so a palette that happens to hold a single surface would fail
@@ -295,6 +300,16 @@ pub(super) fn terrain_bind_group(
         binding: 5,
         resource: BindingResource::Sampler(sampler),
     });
+    if let Some((view, table)) = pages {
+        entries.push(BindGroupEntry {
+            binding: 6,
+            resource: BindingResource::TextureView(view),
+        });
+        entries.push(BindGroupEntry {
+            binding: 7,
+            resource: table.as_entire_binding(),
+        });
+    }
     device.create_bind_group(&BindGroupDescriptor {
         label: Some("terrain"),
         layout,
@@ -351,4 +366,34 @@ pub(super) fn upload_palettes(
             upload_palette_array(device, queue, label, layers).map_err(DrawError::from)
         })
         .collect()
+}
+
+fn page_bounds(terrain: &worldrunner_render_plan::SceneTerrain) -> [f32; 4] {
+    use crate::geometry::millimeter_to_meter;
+    let spacing = i64::from(terrain.sample_spacing_millimeters());
+    [
+        millimeter_to_meter(terrain.origin_east_millimeters()),
+        millimeter_to_meter(terrain.origin_north_millimeters()),
+        millimeter_to_meter(i64::from(terrain.columns() - 1) * spacing),
+        millimeter_to_meter(i64::from(terrain.rows() - 1) * spacing),
+    ]
+}
+
+fn terrain_uniform_buffer(device: &Device, queue: &Queue, uniform: &TerrainUniformState) -> Buffer {
+    upload_buffer(
+        device,
+        queue,
+        "terrain uniform",
+        BufferUsages::UNIFORM,
+        uniform.bytes(),
+    )
+}
+
+fn page_elevation(terrain: &worldrunner_render_plan::SceneTerrain) -> [f32; 2] {
+    let heights = terrain.heights_millimeters();
+    [
+        *heights.iter().min().expect("terrain heights"),
+        *heights.iter().max().expect("terrain heights"),
+    ]
+    .map(|height| crate::geometry::millimeter_to_meter(i64::from(height)))
 }

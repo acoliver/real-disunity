@@ -109,6 +109,11 @@ impl FeatureDeclaration {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
+    #[error("{feature} preparation failed: {reason}")]
+    FeaturePreparation {
+        feature: &'static str,
+        reason: String,
+    },
     #[error(transparent)]
     Transaction(#[from] worldrunner_render_gpu::submission::TransactionError),
     #[error("invalid or unsupported SSR setting: {0}")]

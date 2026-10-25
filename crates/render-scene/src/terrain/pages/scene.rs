@@ -1,0 +1,230 @@
+//! Scene-owned page preparation. Sources supply decoded linear material layers.
+mod capture;
+pub(super) mod table;
+use super::{
+    composition::{LayerSample, compose_page},
+    mip_gpu::PageWriter,
+    residency::{PageCacheError, ResidentPages},
+    selection::{PageKey, PageSelection},
+    view,
+};
+pub use capture::{TerrainResidencyError, TerrainResidencyRequest};
+use worldrunner_render_gpu::{
+    configuration::{AllocationBudget, ConfigurationError, DriverAllocationError},
+    submission::SubmissionAuthority,
+};
+use worldrunner_render_plan::TerrainPageSettings;
+use worldrunner_render_post::FrameError;
+
+pub struct TerrainPageSource {
+    pub settings: TerrainPageSettings,
+    /// Must hold the complete bounded selection tree, including its root.
+    pub slots: u32,
+    /// Combined allocation ceiling for pages, upload scratch and draw tables.
+    pub budget: AllocationBudget,
+    pub sample: Box<dyn Fn([f64; 2]) -> Vec<LayerSample>>,
+}
+
+pub(crate) struct ScenePages {
+    pub cache: ResidentPages,
+    identity: u64,
+    generation: u64,
+    writer: PageWriter,
+    sample: Box<dyn Fn([f64; 2]) -> Vec<LayerSample>>,
+    pub selection: Option<PageSelection>,
+    pub bounds: [f32; 4],
+    pub elevation: [f32; 2],
+    pub published_selection: std::rc::Rc<std::cell::RefCell<Option<PageSelection>>>,
+    pub draw_residents: Vec<super::residency::ResidentPage>,
+    draw_transaction: Option<worldrunner_render_gpu::submission::Publications>,
+    pub tables: Vec<wgpu::Buffer>,
+    pub groups: Vec<wgpu::BindGroup>,
+    pub frame_slot: usize,
+}
+impl std::fmt::Debug for ScenePages {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScenePages")
+            .field("selection", &self.selection)
+            .finish_non_exhaustive()
+    }
+}
+impl ScenePages {
+    pub fn new(
+        device: &wgpu::Device,
+        authority: &SubmissionAuthority,
+        source: TerrainPageSource,
+        bounds: [f32; 4],
+    ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
+        let TerrainPageSource {
+            settings,
+            slots,
+            budget,
+            sample,
+        } = source;
+        let leaves = 1 + (u64::from(settings.parts().maximum_selected_pages) - 1) / 3 * 3;
+        let nodes = ((leaves * 4 - 1) / 3)
+            .min(((1_u64 << (2 * (u32::from(settings.parts().maximum_depth) + 1))) - 1) / 3);
+        if u64::from(slots) < nodes {
+            return Err(ConfigurationError::Invalid(
+                "page slots must hold the bounded selection tree",
+            ));
+        }
+        let bytes = table::bytes(settings, slots);
+        let reserved = bytes.checked_mul(6).ok_or(ConfigurationError::Invalid(
+            "page table allocation overflow",
+        ))?;
+        let page_budget = budget
+            .0
+            .checked_sub(reserved)
+            .ok_or(ConfigurationError::Budget {
+                required: reserved,
+                budget: budget.0,
+            })?;
+        if bytes > device.limits().max_buffer_size
+            || bytes > device.limits().max_storage_buffer_binding_size
+        {
+            return Err(ConfigurationError::Invalid(
+                "page table exceeds device limits",
+            ));
+        }
+        let cache = ResidentPages::new(
+            device,
+            authority,
+            settings,
+            slots,
+            AllocationBudget(page_budget),
+        )?;
+        let tables = table::allocate(device, bytes).map_err(ConfigurationError::Allocation)?;
+        Ok(Self {
+            cache,
+            identity: capture::identity(),
+            generation: 1,
+            writer: PageWriter::new(device, settings),
+            sample,
+            selection: None,
+            bounds,
+            elevation: [0.0; 2],
+            published_selection: std::rc::Rc::default(),
+            draw_residents: Vec::new(),
+            draw_transaction: None,
+            tables,
+            groups: Vec::new(),
+            frame_slot: 0,
+        })
+    }
+
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        matrix: glam::Mat4,
+        viewport: [u32; 2],
+    ) -> Result<(), FrameError> {
+        self.select(matrix, viewport);
+        let selection = self.selection.as_ref().expect("selected").clone();
+        let mut required = std::collections::BTreeSet::from([PageKey::ROOT]);
+        for key in selection.leaves() {
+            for depth in 0..=key.depth() {
+                required.insert(key.ancestor(depth).expect("ancestor"));
+            }
+        }
+        let protected: Vec<_> = required.into_iter().collect();
+        for &key in &protected {
+            if self
+                .cache
+                .lookup(key, 0)
+                .is_some_and(|page| page.key() == key)
+            {
+                continue;
+            }
+            let pending = match self.cache.reserve(encoder, key) {
+                Ok(pending) => pending,
+                Err(PageCacheError::Full) => {
+                    self.cache
+                        .evict_unselected(&protected)
+                        .expect("admitted selection tree fits cache");
+                    self.cache
+                        .reserve(encoder, key)
+                        .map_err(preparation_error)?
+                }
+                Err(PageCacheError::UploadLimit | PageCacheError::ScratchFull) => break,
+                Err(error) => return Err(preparation_error(error)),
+            };
+            let image = compose_page(self.cache.settings(), key, &self.sample)
+                .map_err(preparation_error)?;
+            self.writer
+                .encode(device, encoder, &self.cache, pending, &image)
+                .map_err(preparation_error)?;
+        }
+        self.selection = Some(selection);
+        worldrunner_render_gpu::submission::Publications::retain_lease(
+            encoder,
+            &self.cache.storage().owner.lease(),
+        )
+        .map_err(preparation_error)?;
+        self.draw_residents = protected
+            .iter()
+            .filter_map(|key| self.cache.lookup(*key, 0).filter(|page| page.key() == *key))
+            .collect();
+        self.draw_transaction =
+            Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
+        table::upload(self, device, encoder)?;
+        let destination = self.published_selection.clone();
+        let selection = self.selection.clone();
+        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+            *destination.borrow_mut() = selection;
+        })?;
+        Ok(())
+    }
+
+    pub fn select(&mut self, matrix: glam::Mat4, viewport: [u32; 2]) {
+        self.selection = Some(view::select_volume(
+            self.cache.settings(),
+            self.published_selection.borrow().as_ref(),
+            &view::PageView {
+                matrix,
+                viewport,
+                origin: [self.bounds[0], self.bounds[1]],
+                extent: [self.bounds[2], self.bounds[3]],
+                elevation: self.elevation,
+            },
+        ));
+    }
+
+    pub fn draw_group(&self) -> Option<wgpu::BindGroup> {
+        assert!(
+            self.draw_transaction.as_ref().is_some_and(|owner| {
+                worldrunner_render_gpu::submission::Publications::current()
+                    .is_some_and(|current| current.same_transaction(owner))
+            }),
+            "prepare material pages in the drawing transaction"
+        );
+        assert!(
+            self.selection.is_some(),
+            "prepare material pages before drawing"
+        );
+        assert!(
+            self.draw_residents
+                .iter()
+                .all(|page| self.cache.is_current(*page)),
+            "material pages changed after draw preparation"
+        );
+        self.draw_residents
+            .iter()
+            .any(|page| page.key() == PageKey::ROOT)
+            .then(|| self.groups[self.frame_slot].clone())
+    }
+
+    pub fn ready(&self) -> bool {
+        self.selection
+            .as_ref()
+            .is_some_and(|selection| self.cache.ready(selection))
+    }
+}
+
+fn preparation_error(error: impl std::fmt::Display) -> FrameError {
+    FrameError::FeaturePreparation {
+        feature: "terrain material pages",
+        reason: error.to_string(),
+    }
+}

@@ -7,6 +7,13 @@ impl SceneGpu {
     /// until submission completion before selecting the same slot again.
     pub fn select_frame_slot(&mut self, slot: usize) {
         let (buffer, group) = &self.frame_slots[slot];
+        if let Some(pages) = self
+            .terrain
+            .as_ref()
+            .and_then(|terrain| terrain.pages.as_ref())
+        {
+            pages.borrow_mut().frame_slot = slot;
+        }
         self.frame_buffer = buffer.clone();
         self.frame_group = group.clone();
     }

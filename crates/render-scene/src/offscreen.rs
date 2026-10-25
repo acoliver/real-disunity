@@ -5,6 +5,7 @@ use std::sync::mpsc;
 #[cfg(test)]
 use std::time::{Duration, Instant};
 
+mod pages;
 use thiserror::Error;
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_post::{FrameConfig, Readback, ReadbackError, color_texture};
@@ -21,6 +22,8 @@ pub const DEFAULT_MAX_READBACK_BYTES: u64 = 256 * 1024 * 1024;
 /// A capture could not be allocated, rendered or read back.
 #[derive(Debug, Error)]
 pub enum OffscreenError {
+    #[error(transparent)]
+    TerrainResidency(#[from] crate::terrain::pages::scene::TerrainResidencyError),
     #[error(transparent)]
     Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// Empty images cannot be GPU attachments.
@@ -253,6 +256,7 @@ impl OffscreenTarget {
         scene: &SceneGpu,
         pipelines: &ScenePipelines,
     ) -> Result<RgbaImage, OffscreenError> {
+        self.wait_for_terrain_pages(context, scene)?;
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {

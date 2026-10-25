@@ -100,6 +100,14 @@ pub fn material_bind_group_layout(device: &Device) -> BindGroupLayout {
 /// need to blend. Every authored terrain texture shares one size per map kind,
 /// so the layers stack without resampling.
 pub fn terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
+    terrain_layout(device, false)
+}
+
+pub(crate) fn cached_terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
+    terrain_layout(device, true)
+}
+
+fn terrain_layout(device: &Device, cached: bool) -> BindGroupLayout {
     let mut entries = Vec::with_capacity(6);
     entries.push(BindGroupLayoutEntry {
         binding: 0,
@@ -139,6 +147,9 @@ pub fn terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
         ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
         count: None,
     });
+    if cached {
+        entries.extend(cached_terrain_entries());
+    }
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("terrain"),
         entries: &entries,
@@ -251,3 +262,28 @@ pub use worldrunner_render_gpu::resource::upload_buffer;
 
 #[cfg(test)]
 mod tests;
+
+fn cached_terrain_entries() -> Vec<BindGroupLayoutEntry> {
+    vec![
+        BindGroupLayoutEntry {
+            binding: 6,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Uint,
+                view_dimension: TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        },
+        BindGroupLayoutEntry {
+            binding: 7,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+    ]
+}

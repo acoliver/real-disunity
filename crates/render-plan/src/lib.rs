@@ -71,6 +71,7 @@ pub use scene::{
     SceneVertex, SceneWaterBody, TerrainLodPolicy, TexelFormat, TextureColorSpace, TextureEncoding,
     TextureHandle,
 };
+pub use scene::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 
 pub use document::{
     AmbientLightMicro, AssetBinding, AssetResolutionPolicy, AxisDirection, BindingElementPolicy,

@@ -237,8 +237,11 @@ and arithmetic order remain unchanged. Nondefault policies require
   ACES filmic `x*(2.51*x+0.03)/(x*(2.43*x+0.59)+0.14)` or Reinhard `x/(1+x)`.
   These curves are evaluated without an additional output clamp. Maximum and
   epsilon must be finite in `(0, 65504]`; exposure scale and contrast must be
-  finite in `[0, 64]`. Luminance coefficients must be finite in `[0, 1]` and sum
-  to one within `0.0001`. Exposure remains a caller-owned GPU value.
+  finite in `[0, 65504]`. Luminance coefficients must be finite in `[0, 1]` and sum
+  to one within `0.0001`. Exposure remains a caller-owned GPU value. The tone
+  curve maps `Bloom::threshold` into its output range, so with this extraction
+  the threshold may be any finite value in `[0, 65504]`. The soft knee compares
+  colour values directly and keeps the `[0, 64]` threshold range.
 - `BloomReduction::BoxPerTexel` is the legacy mode: extraction runs
   independently on four integer source texels before averaging. Later levels
   average four integer texels. `QuarterTexelAfterAverage` averages four bilinear

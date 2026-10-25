@@ -1,6 +1,9 @@
 //! Authored policies for the existing separable bloom pyramid.
 use crate::PostError;
 
+/// Largest finite half-float value; tone-curve scalars and thresholds may use the full range.
+pub(crate) const HALF_MAX: f32 = 65504.0;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BrightCurve {
     #[default]
@@ -23,10 +26,10 @@ impl ToneCurveBright {
         let nonnegative = [self.exposure_scale, self.contrast];
         if positive
             .iter()
-            .any(|v| !v.is_finite() || *v <= 0.0 || *v > 65504.0)
+            .any(|v| !v.is_finite() || *v <= 0.0 || *v > HALF_MAX)
             || nonnegative
                 .iter()
-                .any(|v| !v.is_finite() || !(0.0..=64.0).contains(v))
+                .any(|v| !v.is_finite() || !(0.0..=HALF_MAX).contains(v))
             || self
                 .luminance
                 .iter()
@@ -44,6 +47,16 @@ pub enum BrightExtraction {
     #[default]
     SoftKnee,
     ToneCurve(ToneCurveBright),
+}
+impl BrightExtraction {
+    /// Largest accepted `Bloom::threshold`. The soft knee compares colour values directly;
+    /// a tone curve maps its threshold into `[0, 1)`, so any half-float value is meaningful.
+    pub const fn threshold_limit(self) -> f32 {
+        match self {
+            Self::SoftKnee => 64.0,
+            Self::ToneCurve(_) => HALF_MAX,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

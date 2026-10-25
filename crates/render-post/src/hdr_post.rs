@@ -89,7 +89,7 @@ impl HdrPostSettings {
         }
         if self.bloom.is_some_and(|b| {
             !b.threshold.is_finite()
-                || !(0.0..=64.0).contains(&b.threshold)
+                || !(0.0..=b.policies.extraction.threshold_limit()).contains(&b.threshold)
                 || !b.knee.is_finite()
                 || !(0.0..=1.0).contains(&b.knee)
                 || !b.intensity.is_finite()

@@ -6,32 +6,18 @@ import {mkdtemp, mkdir, readFile, writeFile, rm} from 'node:fs/promises';
 import {createInterface} from 'node:readline';
 import path from 'node:path';
 
-const root = process.env.RD_WORKTREE;
-assert(root, 'source .session/env.sh first');
-const binaries = path.join(process.env.CARGO_TARGET_DIR || path.join(root, '.work/target'), 'debug');
-const directory = await mkdtemp(path.join(process.env.TMPDIR || path.join(root, '.work/tmp'), 'compat-browser-'));
+const root = path.resolve(import.meta.dirname, '../../..');
+const binaries = path.join(process.env.CARGO_TARGET_DIR || path.join(root, 'target'), 'debug');
+const base = path.join(root, '.work/compat-browser-tests');
+await mkdir(base, {recursive:true});
+const directory = await mkdtemp(path.join(base, 'run-'));
 await mkdir(path.join(directory, 'fixtures'));
-await mkdir(path.join(directory, '.work/source'), {recursive:true});
-const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], {encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
-const upstream = path.join(directory, '.work/upstream');
-await mkdir(path.join(upstream, 'Assets'), {recursive:true});
-git(upstream, ['init', '-b', 'main']);
-async function commit(text) {
-  await writeFile(path.join(upstream, 'Assets/Original.cs'), text);
-  git(upstream, ['add', '.']);
-  git(upstream, ['-c','user.name=Harness','-c','user.email=harness@localhost','commit','-m','fixture']);
-  return git(upstream, ['rev-parse','HEAD']);
-}
-const originalRevision = await commit('class Original {}');
-execFileSync('git', ['clone','--no-hardlinks',upstream,path.join(directory,'.work/source')], {stdio:'pipe'});
-const updatedRevision = await commit('class Updated {}');
 const fixturePath = path.join(directory, 'fixtures/harness-only.json');
 const fixture = {
-  schema_version:1, name:'harness-only', source_root:'.work/source',
+  schema_version:1, name:'harness-only', game:'snake',
   profiles:['test','unrun','compat-6000.3','compat-2017.1'], default_profile:'test', evidence_label:'harness-only',
   worker:{program:path.join(binaries,'compat-kit-protocol-test-worker'),args:['hang']},
   limits:{deadline_ms:15000,log_bytes:1024,artifact_bytes:1048576,capture_count:4},
-  refresh:{remote:'origin',branch:'main',gates:[{program:path.join(binaries,'compat-kit-protocol-test-worker'),args:['gate-pass']}]},
   metadata:{reporting:{case_id:'UCK-HAR-001',game:'harness',assertion_dimensions:{'0':'semantic'},units:{'0':'count'}}},
   timeline:[{frame:1,phase:'input',action:'input',keys:['W'],axes:{}}],
   assertions:[{op:'equal',selector:'counter',pointer:'/count',value:7}],
@@ -85,7 +71,7 @@ try {
   const first=await lines[Symbol.asyncIterator]().next();
   const {url}=JSON.parse(first.value);
   const profile=path.join(directory,'.work/chrome');
-  chrome=spawn('/usr/bin/google-chrome',['--headless','--no-sandbox','--disable-gpu',
+  chrome=spawn(process.env.COMPAT_BROWSER || '/usr/bin/google-chrome',['--headless','--no-sandbox','--disable-gpu',
     '--no-first-run','--no-default-browser-check','--disable-background-networking',
     '--disable-crash-reporter','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],
     {env:environment,detached:true,stdio:['ignore','ignore','pipe']});
@@ -110,12 +96,7 @@ try {
   await evaluate("document.querySelector('#tasks button').click()");
   const state=async()=>await (await fetch(url+'api/state')).json();
   await until(async()=>(await state()).runs.some(r=>r.status==='skipped'),'cancelled real process');
-  await until(()=>evaluate("[...document.querySelectorAll('button')].some(b=>b.textContent==='Refresh source')"),'dashboard after cancellation');
-  await evaluate("document.querySelector('#accept').checked=true; [...document.querySelectorAll('button')].find(b=>b.textContent==='Refresh source').click()");
-  await until(async()=>(await state()).tasks.some(t=>t.kind==='refresh'&&t.done&&t.result.status==='pass'&&t.result.accepted),'browser source refresh and adoption');
-  const refreshed = (await state()).tasks.find(t=>t.kind==='refresh').result;
-  assert.equal(refreshed.revision, updatedRevision);
-  assert.equal(git(path.join(directory,'.work/source'), ['rev-parse','HEAD']), originalRevision);
+  assert(!await evaluate("document.body.textContent.includes('Refresh source')"));
   fixture.worker.args=['pass'];
   await writeFile(fixturePath,JSON.stringify(fixture));
   await cdp('Page.navigate',{url});
@@ -127,7 +108,7 @@ try {
   assert(await evaluate("document.body.textContent.includes('Input timeline') && document.body.textContent.includes('observed')"));
   assert(await evaluate("['pass','fail','unsupported','not-implemented','blocked','skipped','error','flaky','inconclusive','no record'].every(status => [...document.querySelector('#status-filter').options].some(option => option.value === status))"));
   for (const status of ['pass', 'no record']) {
-    assert(await evaluate(`(()=>{const filter=document.querySelector('#status-filter');filter.value=${JSON.stringify(status)};filter.dispatchEvent(new Event('change'));const visible=[...document.querySelectorAll('tr[data-status]')].filter(row=>!row.hidden);return visible.length>0&&visible.every(row=>row.dataset.status===filter.value);})()`));
+    assert(await evaluate(`(()=>{const filter=document.querySelector('#status-filter');filter.value=${JSON.stringify(status)};filter.dispatchEvent(new Event('change'));const visible=[...document.querySelectorAll('[data-view]')].filter(row=>!row.hidden);return visible.length>0&&visible.every(row=>row.dataset.status===filter.value);})()`));
   }
   for (const [field, value] of [['case','UCK-HAR-001'],['game','harness'],['profile','test'],['platform','linux']]) {
     assert(await evaluate(`(()=>{document.querySelector('#status-filter').value=''; const filter=document.querySelector('#${field}-filter');filter.value=${JSON.stringify(value)};filter.dispatchEvent(new Event('change'));const rows=[...document.querySelectorAll('[data-view]')].filter(r=>!r.hidden);const ok=filter.value===${JSON.stringify(value)}&&rows.length>0&&rows.every(r=>r.dataset.${field}===filter.value);filter.value='';filter.dispatchEvent(new Event('change'));return ok;})()`));
@@ -144,7 +125,7 @@ try {
   assert(await evaluate("!document.querySelector('meta[name=\"compat-token\"]') && !window.reportInjected && document.body.textContent.includes('</script><img src=x')"));
   assert(await evaluate("(()=>{document.querySelector('#status-filter').value='pass';document.querySelector('#attempt-filter').value='attempt';filterResults();const rows=[...document.querySelectorAll('[data-view]')].filter(r=>!r.hidden);return rows.length===1&&rows[0].dataset.status==='pass'&&rows[0].dataset.view==='attempt';})()"));
   console.error('browser image displayed and status filter verified');
-  console.log(JSON.stringify({status:'pass',evidence_label:'harness-only',checks:['missing-token HTTP 403','meta launch token','browser Run','browser Stop','browser Refresh accepted real Git update','explicit profiles and named tasks','decoded actual image and correlated input/observations','nine outcomes plus no-record filter','case/game/profile/platform/all-attempt filters','combined no-record/profile filter','server-free inert static report'],directory}));
+  console.log(JSON.stringify({status:'pass',evidence_label:'harness-only',checks:['missing-token HTTP 403','meta launch token','browser Run','browser Stop','explicit profiles and named tasks','decoded actual image and correlated input/observations','nine outcomes plus no-record filter','case/game/profile/platform/all-attempt filters','combined no-record/profile filter','server-free inert static report'],directory}));
 } finally {
   socket?.close();
   await terminate(chrome);

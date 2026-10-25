@@ -41,6 +41,7 @@ pollster.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+worldrunner-original-games = { path = "../original-games" }
 
 [features]
 managed = ["dep:worldrunner-disunity-runtime"]
@@ -79,3 +80,7 @@ workspace = true
 [[example]]
 name = "scene-viewer"
 required-features = ["scene-viewer"]
+
+[[example]]
+name = "frame-feature"
+required-features = ["scene"]

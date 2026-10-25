@@ -1,4 +1,5 @@
-//! Bounded native-only facade qualification. No managed readiness or raw JSON codec claim.
+//! Native snapshots drive the canonical renderer: extraction identity, stale-capture rejection,
+//! resize and release.
 #![cfg(all(
     feature = "managed",
     feature = "scene",
@@ -6,14 +7,16 @@
     feature = "world"
 ))]
 
+#[path = "../../disunity-runtime/tests/support/handshake.rs"]
+pub mod artifacts;
+#[path = "native_snapshot_consumer/capture.rs"]
+mod capture;
 #[path = "native_snapshot_consumer/controls.rs"]
 mod controls;
 #[path = "native_snapshot_consumer/extraction.rs"]
 mod extraction;
 #[path = "native_snapshot_consumer/native.rs"]
 mod native;
-#[path = "native_snapshot_consumer/receipt.rs"]
-mod receipt;
 #[path = "native_snapshot_consumer/render.rs"]
 mod render;
 #[path = "native_snapshot_consumer/stage.rs"]
@@ -44,7 +47,6 @@ fn native_snapshot_drives_canonical_gpu_capture() {
         .bind_current(&fixture, &session, &original, &renderer.target)
         .unwrap();
     controls::markers(&first, &original, object);
-    first.retain("initial-65x47");
     let fresh =
         controls::stale_after_mutation(&fixture, &session, &original, &mut renderer, object);
     assert!(
@@ -63,7 +65,6 @@ fn native_snapshot_drives_canonical_gpu_capture() {
         [0, 0, 0, 255],
         "old marker position clears"
     );
-    second.retain("mutated-65x47");
     controls::retained_pixels(&context, &first);
     controls::resize(&fixture, &session, &fresh, &mut renderer, object, &second);
     controls::retained_pixels(&context, &second);

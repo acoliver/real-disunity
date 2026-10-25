@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const ROUTES: [&str; 3] = ["/api/run", "/api/stop", "/api/refresh"];
+const ROUTES: [&str; 2] = ["/api/run", "/api/stop"];
 fn mutation_body() -> Value {
     json!({"fixture":"harness-only","accept":true,"id":"not-a-job"})
 }
@@ -29,8 +29,8 @@ fn rejected_without_effects(
         .collect();
     assert_eq!(
         responses,
-        vec![status; 3],
-        "Run / Stop / Refresh must reject before admission"
+        vec![status; ROUTES.len()],
+        "Run / Stop must reject before admission"
     );
     assert_idle(server);
     assert_eq!(
@@ -261,7 +261,7 @@ fn unauthorized_stop_cannot_cancel_an_active_job() {
     );
 }
 #[test]
-fn trusted_cli_may_omit_origin_with_valid_token_for_all_three_routes() {
+fn trusted_cli_may_omit_origin_with_valid_token_for_run_and_stop() {
     let root = root("hang");
     let server = Server::launch(root.path());
     let token = server.token();
@@ -291,12 +291,12 @@ fn trusted_cli_may_omit_origin_with_valid_token_for_all_three_routes() {
         exchange(
             &server.address,
             "POST",
-            "/api/refresh",
+            "/api/removed",
             &mutation_body(),
             &headers
         )
         .status,
-        202
+        404
     );
     wait_done(&server);
 }

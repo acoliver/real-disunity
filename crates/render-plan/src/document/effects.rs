@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::error::ContractDocumentError;
 use crate::document::numeric::MICRO_SCALE;
-use crate::document::spatial::RotationQuaternion;
 use crate::document::validate::{
     checked_add_i64, checked_sub_i64, require_positive_u32, require_positive_u64, require_range,
     require_sorted_unique, require_uri,
 };
+use crate::scene::SceneDirection;
 
 const MAXIMUM_SUN_IRRADIANCE_MICRO: i64 = 10 * MICRO_SCALE;
 
@@ -25,6 +25,15 @@ const MAXIMUM_SUN_IRRADIANCE_MICRO: i64 = 10 * MICRO_SCALE;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WaterPlaneRecipe {
+    /// Surface elevation in scene millimetres.
+    pub height_millimeters: i64,
+    /// Linear scattering colour, in millionths per channel.
+    pub color_micro: [u32; 3],
+    /// Beer absorption coefficients per metre, in millionths.
+    pub absorption_micro: [u32; 3],
+    /// Surface roughness in millionths.
+    pub roughness_micro: u32,
+
     /// Structural URI of the water surface asset.
     pub asset_uri: String,
     /// Signed minimum east corner in millimeters.
@@ -67,6 +76,18 @@ impl WaterPlaneRecipe {
     /// extent is zero, or a corner computation overflows.
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
         require_uri("water plane asset_uri", &self.asset_uri)?;
+        require_range(
+            "water roughness",
+            0,
+            1_000_000,
+            i128::from(self.roughness_micro),
+        )?;
+        for color in self.color_micro {
+            require_range("water colour", 0, 1_000_000, i128::from(color))?;
+        }
+        for absorption in self.absorption_micro {
+            require_range("water absorption", 0, 10_000_000, i128::from(absorption))?;
+        }
         require_positive_u64(
             "water plane east_extent_millimeters",
             self.east_extent_millimeters,
@@ -119,16 +140,18 @@ impl SkyRecipe {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DirectionalLightMicro {
-    /// Exactly normalized direction toward the light source.
-    pub direction: RotationQuaternion,
+    /// Quantized unit direction from a surface toward the light in the document's
+    /// caller-specified coordinate basis. The composition factory must convert
+    /// these XYZ components to scene Z-up before constructing a scene sun.
+    pub direction: SceneDirection,
     /// Irradiance scale as a unit-interval micro value.
     pub irradiance_micro: u64,
 }
 
 impl DirectionalLightMicro {
-    /// Returns the exact light direction quaternion.
+    /// Returns the validated unit direction toward the light.
     #[must_use]
-    pub const fn direction(&self) -> &RotationQuaternion {
+    pub const fn direction(&self) -> &SceneDirection {
         &self.direction
     }
 
@@ -138,14 +161,12 @@ impl DirectionalLightMicro {
         self.irradiance_micro
     }
 
-    /// Validates direction normalization and irradiance bounds.
+    /// Validates irradiance bounds. The direction is valid by construction.
     ///
     /// # Errors
     ///
-    /// Returns [`ContractDocumentError`] when the quaternion is unnormalized
-    /// or the irradiance exceeds `MAXIMUM_SUN_IRRADIANCE_MICRO`.
+    /// Returns [`ContractDocumentError`] when the irradiance exceeds `MAXIMUM_SUN_IRRADIANCE_MICRO`.
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
-        self.direction.validate()?;
         require_range(
             "sun irradiance_micro",
             0,
@@ -305,6 +326,10 @@ impl ShadowCascadesRecipe {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SsaoRecipe {
+    /// Number of deterministic hemisphere samples, within 1..=64.
+    pub sample_count: u32,
+    /// Surface self-occlusion bias in millimetres.
+    pub bias_millimeters: u32,
     /// Occlusion sample radius in millimeters; strictly positive.
     pub radius_millimeters: u64,
     /// Occlusion strength micro value in `[0, 2_000_000]`.
@@ -338,6 +363,7 @@ impl SsaoRecipe {
     ///
     /// Returns [`ContractDocumentError`] on the first out-of-bounds field.
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
+        require_range("ssao sample_count", 1, 64, i128::from(self.sample_count))?;
         require_positive_u64("ssao radius_millimeters", self.radius_millimeters)?;
         require_range(
             "ssao intensity_micro",
@@ -441,6 +467,10 @@ pub struct EffectsRecipeParts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectsRecipe {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hdr_post: Option<crate::SceneHdrPost>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ssr: Option<crate::SceneSsr>,
     water: Option<WaterPlaneRecipe>,
     sky: SkyRecipe,
     sun: DirectionalLightMicro,
@@ -451,6 +481,29 @@ pub struct EffectsRecipe {
 }
 
 impl EffectsRecipe {
+    pub fn with_hdr_post(
+        mut self,
+        settings: crate::SceneHdrPost,
+    ) -> Result<Self, ContractDocumentError> {
+        self.hdr_post = Some(settings);
+        self.validate()?;
+        Ok(self)
+    }
+    pub const fn hdr_post(&self) -> Option<&crate::SceneHdrPost> {
+        self.hdr_post.as_ref()
+    }
+
+    /// Adopts the optional authored reflection policy after validating its quantities.
+    pub fn with_ssr(mut self, settings: crate::SceneSsr) -> Result<Self, ContractDocumentError> {
+        self.ssr = Some(settings);
+        self.validate()?;
+        Ok(self)
+    }
+    /// Returns optional screen-space reflection settings.
+    pub const fn ssr(&self) -> Option<&crate::SceneSsr> {
+        self.ssr.as_ref()
+    }
+
     /// Validates and adopts every authored effect part.
     ///
     /// # Errors
@@ -458,6 +511,8 @@ impl EffectsRecipe {
     /// Returns [`ContractDocumentError`] on the first violated invariant.
     pub fn new(parts: EffectsRecipeParts) -> Result<Self, ContractDocumentError> {
         let effects = Self {
+            hdr_post: None,
+            ssr: None,
             water: parts.water,
             sky: parts.sky,
             sun: parts.sun,
@@ -520,6 +575,20 @@ impl EffectsRecipe {
     pub fn validate(&self) -> Result<(), ContractDocumentError> {
         if let Some(water) = &self.water {
             water.validate()?;
+        }
+        if let Some(post) = self.hdr_post {
+            post.validate()
+                .map_err(|_| ContractDocumentError::ViolatedInvariant {
+                    field: "hdr_post",
+                    reason: "invalid HDR post policy",
+                })?;
+        }
+        if let Some(ssr) = self.ssr {
+            ssr.validate()
+                .map_err(|_| ContractDocumentError::ViolatedInvariant {
+                    field: "ssr",
+                    reason: "unsupported reflection settings",
+                })?;
         }
         self.sky.validate()?;
         self.sun.validate()?;

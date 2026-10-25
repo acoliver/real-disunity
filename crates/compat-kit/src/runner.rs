@@ -16,7 +16,7 @@ pub fn run(
     control: &RunControl,
 ) -> Result<RunRecord> {
     files::check_budget(root)?;
-    let owned = crate::storage::allocate(root, crate::storage::Kind::Run)?;
+    let owned = crate::storage::allocate(root)?;
     let run_dir = owned.path.clone();
     let run_id = run_dir
         .file_name()
@@ -25,7 +25,7 @@ pub fn run(
         .into_owned();
     let started = Instant::now();
     let mut record = RunRecord {
-        schema: Some(crate::model::TckRunSchema::V1),
+        schema: crate::model::TckRunSchema::V1,
         schema_version: 1,
         run_id,
         fixture: fixture.name.clone(),
@@ -38,8 +38,6 @@ pub fn run(
         messages: Vec::new(),
         assertions: Vec::new(),
         captures: Vec::new(),
-        source_before: None,
-        source_after: None,
         worker: None,
         reporting: crate::identity::context(fixture, desktop)?,
     };
@@ -72,15 +70,6 @@ pub fn run(
     Ok(record)
 }
 
-fn source_snapshot(
-    root: &Path,
-    fixture: &Fixture,
-) -> Result<(crate::model::SourceState, Option<std::fs::File>)> {
-    let path = fixture::source_root(root, fixture)?;
-    let lease = crate::storage::source_lease(root, &path)?;
-    Ok((fixture::inspect(&path)?, lease))
-}
-
 fn execute_run(
     root: &Path,
     fixture: &Fixture,
@@ -89,7 +78,7 @@ fn execute_run(
     control: &RunControl,
     record: &mut RunRecord,
 ) -> Result<()> {
-    let Some((source, _source_lease)) = admit(root, fixture, control, record) else {
+    let Some(source) = admit(fixture, control, record) else {
         return Ok(());
     };
     let Some(command) = &fixture.worker else {
@@ -106,8 +95,7 @@ fn execute_run(
         return Ok(());
     };
     let request = request(fixture, record, &source, run_dir, desktop);
-    let command = files::expand_command(command, root, &source.root, run_dir);
-    crate::identity::qualify(fixture, &command, root, record)?;
+    let command = files::expand_command(command, root, &source, run_dir);
     if !worker_available(root, &command, record) {
         return Ok(());
     }
@@ -128,19 +116,7 @@ fn execute_run(
         },
         "worker execution and protocol response",
     );
-    let applied = apply_report(fixture, run_dir, record, report);
-    let after = fixture::inspect(&source.root)?;
-    let drift = after.inputs != source.inputs || after.revision != source.revision;
-    record.source_after = Some(after);
-    crate::identity::finish(fixture, &command, root, record)?;
-    applied?;
-    if drift {
-        record.status = reporting::combine(record.status, Status::Fail);
-        record
-            .messages
-            .push("original source scripts or revision changed during run".into());
-    }
-    Ok(())
+    apply_report(fixture, run_dir, record, report)
 }
 fn apply_report(
     fixture: &Fixture,
@@ -212,11 +188,10 @@ fn prerequisite(record: &mut RunRecord, id: &str, status: Status, message: &str)
 }
 
 fn admit(
-    root: &Path,
     fixture: &Fixture,
     control: &RunControl,
     record: &mut RunRecord,
-) -> Option<(crate::model::SourceState, Option<std::fs::File>)> {
+) -> Option<std::path::PathBuf> {
     if control.is_cancelled() {
         record.status = Status::Skipped;
         record.reporting.failure_causes.push(FailureCause::new(
@@ -238,7 +213,7 @@ fn admit(
             .push("profile is unsupported by fixture".into());
         return None;
     }
-    let (source, source_lease) = match source_snapshot(root, fixture) {
+    let source = match fixture::source_root(fixture) {
         Ok(source) => source,
         Err(error) => {
             record.status = Status::Blocked;
@@ -252,33 +227,32 @@ fn admit(
             return None;
         }
     };
-    prerequisite(record, "source", Status::Pass, "source inputs observed");
-    record.source_before = Some(source.clone());
-    record.source_after = Some(source.clone());
-    Some((source, source_lease))
+    prerequisite(
+        record,
+        "source",
+        Status::Pass,
+        "pinned original game checkout verified",
+    );
+    Some(source)
 }
 
 fn request(
     fixture: &Fixture,
     record: &RunRecord,
-    source: &crate::model::SourceState,
+    source: &Path,
     run_dir: &Path,
     desktop: bool,
 ) -> RunRequest {
-    RunRequest {
-        schema_version: 1,
-        run_id: record.run_id.clone(),
-        fixture: fixture.name.clone(),
-        profile: record.profile.clone(),
-        desktop,
-        seed: fixture.seed,
-        timeline: fixture.timeline.clone(),
-        assertions: fixture.assertions.clone(),
-        source_root: source.root.clone(),
-        source_hashes: source.scripts.clone(),
-        artifact_root: run_dir.to_path_buf(),
-        metadata: fixture.metadata.clone(),
-    }
+    RunRequest::for_fixture(
+        fixture,
+        crate::model::RunTarget {
+            run_id: record.run_id.clone(),
+            profile: record.profile.clone(),
+            desktop,
+            source_root: source.to_path_buf(),
+            artifact_root: run_dir.to_path_buf(),
+        },
+    )
 }
 
 fn worker_available(

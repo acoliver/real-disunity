@@ -1,22 +1,30 @@
-use crate::cpu_profile::CpuProfile;
 use std::sync::{Arc, mpsc};
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
-use worldrunner_render_gpu::surface::{AcquiredFrame, Presenter, SurfaceError, SurfacePolicy};
-use worldrunner_render_plan::{RenderScene, SceneTexture};
+use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
+
+mod execution;
+mod live;
+pub(crate) use live::SceneSource;
+use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_scene::{
-    SceneView, Viewport, device::GpuContext, offscreen::RgbaImage,
-    shadows::DirectionalShadowSettings,
+    SceneView, Viewport,
+    device::GpuContext,
+    draw::SceneGpu,
+    frame::FrameUniform,
+    renderer::ScenePipelines,
+    shadows::{DirectionalShadowSettings, ShadowedScene},
 };
 
 use crate::{
-    LiveFrame, ViewerError,
+    ViewerError,
     presentation::{Extents, Presentation},
 };
 
 pub(super) struct Renderer {
     // Surface is dropped before its instance/window; it also owns an Arc<Window>.
-    presenter: Presenter<'static>,
+    execution: execution::SurfaceExecution,
+    #[cfg(all(test, target_os = "linux"))]
     instance: wgpu::Instance,
     pub window: Arc<Window>,
     context: GpuContext,
@@ -24,41 +32,30 @@ pub(super) struct Renderer {
     resident: Resident,
     pub viewport: Option<Viewport>,
     errors: mpsc::Receiver<String>,
-    #[cfg(test)]
-    acquisitions: std::collections::VecDeque<wgpu::CurrentSurfaceTexture>,
+    animation_start: std::time::Instant,
+    live_upload: Option<live::Upload>,
+    live_pending: Option<live::Pending>,
 }
 
-mod resident;
-use resident::Resident;
-
-#[derive(Clone, Copy)]
-pub(super) enum SceneSource<'a> {
-    Static {
-        scene: &'a RenderScene,
-        shadows: Option<DirectionalShadowSettings>,
-    },
-    Live,
+enum Resident {
+    Plain(Box<PlainScene>),
+    Shadowed(Box<ShadowedScene>),
 }
-
-pub(super) struct RenderedFrame {
-    pub capture: Option<RgbaImage>,
+struct PlainScene {
+    gpu: SceneGpu,
+    pipelines: ScenePipelines,
+    effects: Option<SceneEffects>,
+    clear: Option<wgpu::Color>,
 }
 
 impl Renderer {
-    #[cfg(test)]
     pub async fn new(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
         scene: &RenderScene,
         shadows: Option<DirectionalShadowSettings>,
-    ) -> Result<Self, ViewerError> {
-        Self::from_source(display, window, SceneSource::Static { scene, shadows }).await
-    }
-
-    pub async fn from_source(
-        display: OwnedDisplayHandle,
-        window: Arc<Window>,
-        source: SceneSource<'_>,
+        profile: crate::FrameProfile,
+        frames_in_flight: usize,
     ) -> Result<Self, ViewerError> {
         let instance = wgpu::Instance::new(
             wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display)),
@@ -70,56 +67,49 @@ impl Renderer {
                 ..Default::default()
             })
             .await?;
-        CpuProfile::detail("adapter", || format!("{:?}", adapter.get_info()));
-        let features = match source {
-            SceneSource::Static { scene, .. } => required_features(scene),
-            SceneSource::Live => wgpu::Features::empty(),
-        };
+        let features = required_features(scene);
         let context = GpuContext::from_adapter_with_features(adapter, features).await?;
-        Self::attach(instance, surface, window, context, source)
-    }
-
-    fn attach(
-        instance: wgpu::Instance,
-        surface: wgpu::Surface<'static>,
-        window: Arc<Window>,
-        context: GpuContext,
-        source: SceneSource<'_>,
-    ) -> Result<Self, ViewerError> {
-        let errors = device_errors(context.device());
+        let errors = device_errors(context.device(), context.submission().clone());
         let size = window.inner_size();
         let extents = Extents::new(
             [size.width, size.height],
             context.device().limits().max_texture_dimension_2d,
         )?;
-        let initial = extents.unwrap_or(Extents {
-            surface: Viewport {
-                width: 1,
-                height: 1,
-            },
-            render: Viewport {
-                width: 1,
-                height: 1,
-            },
-        });
+        let initial = extents.unwrap_or_else(Extents::placeholder);
         let viewport = extents.map(|extents| extents.surface);
         let capabilities = surface.get_capabilities(context.adapter());
         let policy = surface_policy(&capabilities, [size.width, size.height])?;
         let presenter = Presenter::new(surface, &capabilities, context.device(), policy)
             .map_err(surface_error)?;
-        let presentation = Presentation::new(context.device(), policy.format, initial.render);
-        let resident = Resident::new(&context, source)?;
-        let renderer = Self {
+        let presentation = Presentation::with_profile(
+            &context,
+            policy.format,
+            initial.render,
+            profile,
+            scene.effects(),
+        )?;
+        let resident = Resident::new(&context, scene, shadows, profile)?;
+        #[cfg(all(test, target_os = "linux"))]
+        let test_instance = instance.clone();
+        let execution = execution::SurfaceExecution::new(
             presenter,
             instance,
+            window.clone(),
+            frames_in_flight,
+        )?;
+        let renderer = Self {
+            animation_start: std::time::Instant::now(),
+            live_upload: None,
+            live_pending: None,
+            execution,
+            #[cfg(all(test, target_os = "linux"))]
+            instance: test_instance,
             window,
             context,
             presentation,
             resident,
             viewport,
             errors,
-            #[cfg(test)]
-            acquisitions: std::collections::VecDeque::new(),
         };
         renderer.check_errors()?;
         Ok(renderer)
@@ -130,17 +120,9 @@ impl Renderer {
             size,
             self.context.device().limits().max_texture_dimension_2d,
         )?;
-        self.presenter
-            .resize(self.context.device(), size)
-            .map_err(surface_error)?;
+        self.execution.resize(self.context.device(), size)?;
         self.viewport = extents.map(|extents| extents.surface);
-        if let Some(extents) = extents
-            && (self.presentation.targets.color.texture().width() != extents.render.width
-                || self.presentation.targets.color.texture().height() != extents.render.height)
-        {
-            self.presentation
-                .resize(self.context.device(), extents.render);
-        }
+        self.window.request_redraw();
         Ok(())
     }
 
@@ -151,156 +133,94 @@ impl Renderer {
         Ok(())
     }
 
-    /// Block until every submitted command buffer completes, then surface device errors.
-    /// Bounded by the same 30-second deadline as synchronous readback.
-    pub fn wait_idle(&self) -> Result<(), ViewerError> {
+    pub fn poll(&self) -> Result<(), ViewerError> {
         self.context
             .device()
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(std::time::Duration::from_secs(30)),
-            })
+            .poll(wgpu::PollType::Poll)
             .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         self.check_errors()
     }
 
-    pub fn render_viewport(&self) -> Viewport {
-        let size = self.viewport.expect("drawable surface");
-        Extents::new(
-            [size.width, size.height],
-            self.context.device().limits().max_texture_dimension_2d,
-        )
-        .expect("configured surface extent")
-        .expect("drawable surface")
-        .render
-    }
-
-    pub fn prepare_live(&mut self, frame: &LiveFrame) -> Result<(), ViewerError> {
-        let _span = CpuProfile::span("viewer_prepare_live");
-        CpuProfile::detail("viewer_frame", || {
-            format!(
-                "viewport={:?} quads={} textures={} texture_bytes={} capture={}",
-                frame.view.viewport(),
-                frame.quads.len(),
-                frame.textures.as_ref().map_or(0, Vec::len),
-                frame.textures.as_ref().map_or(0, |textures| textures
-                    .iter()
-                    .map(|texture| match texture {
-                        SceneTexture::Texels { bytes, .. }
-                        | SceneTexture::Encoded { bytes, .. } => bytes.len(),
-                    })
-                    .sum::<usize>()),
-                frame.capture.is_some()
-            )
-        });
-        self.resident.prepare_live(&self.context, frame)
-    }
-
-    /// Returns whether a frame was actually presented.
-    pub fn render(&mut self, view: &SceneView) -> Result<bool, ViewerError> {
-        Ok(self.render_capture(view, false)?.is_some())
-    }
-
-    pub fn render_capture(
+    /// Admission and completion progress never wait for GPU work on the event thread.
+    pub fn render(
         &mut self,
         view: &SceneView,
-        capture: bool,
-    ) -> Result<Option<RenderedFrame>, ViewerError> {
-        let _span = CpuProfile::span("viewer_render_capture");
-        self.check_errors()?;
-        if self.viewport.is_none() {
-            return Ok(None);
-        }
-        if self.resident.is_live() {
-            self.presentation
-                .resize(self.context.device(), view.viewport());
-        }
-        let span = CpuProfile::span("viewer_acquire");
-        let acquired = self.acquire()?;
-        drop(span);
-        self.render_frame(view, acquired, capture)
-    }
-
-    fn acquire(&mut self) -> Result<AcquiredFrame, ViewerError> {
-        #[cfg(test)]
-        if let Some(acquired) = self.acquisitions.pop_front() {
-            return self
-                .presenter
-                .handle_acquired(self.context.device(), acquired)
-                .map_err(surface_error);
-        }
-        self.presenter
-            .acquire(self.context.device())
-            .map_err(surface_error)
-    }
-
-    #[cfg(test)]
-    fn render_acquired(
-        &mut self,
-        view: &SceneView,
-        acquired: wgpu::CurrentSurfaceTexture,
+        update: &mut crate::SceneUpdate,
     ) -> Result<bool, ViewerError> {
-        let acquired = self
-            .presenter
-            .handle_acquired(self.context.device(), acquired)
-            .map_err(surface_error)?;
-        Ok(self.render_frame(view, acquired, false)?.is_some())
+        Ok(self.render_admitted(view, update, None)?.is_some())
     }
 
-    fn render_frame(
+    fn render_admitted(
         &mut self,
         view: &SceneView,
-        acquired: AcquiredFrame,
-        capture: bool,
-    ) -> Result<Option<RenderedFrame>, ViewerError> {
-        let frame = match acquired {
-            AcquiredFrame::Frame(frame) => frame,
-            AcquiredFrame::Skip | AcquiredFrame::Reconfigure => return Ok(None),
-            AcquiredFrame::Recreate => {
-                let surface = self.instance.create_surface(self.window.clone())?;
-                let capabilities = surface.get_capabilities(self.context.adapter());
-                self.presenter
-                    .replace_surface(surface, &capabilities, self.context.device())
-                    .map_err(surface_error)?;
-                return Ok(None);
+        update: &mut crate::SceneUpdate,
+        mut capture: Option<&mut live::Capture>,
+    ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
+        self.poll()?;
+        let resident = &mut self.resident;
+        let upload = &mut self.live_upload;
+        let Some(ready) = self.execution.acquire(&self.context, || {
+            if let Some(upload) = upload.take() {
+                resident.upload_live(&self.context, upload)?;
             }
+            update(resident.scene_mut()).map_err(ViewerError::from)
+        })?
+        else {
+            return Ok(None);
         };
-        let encode = CpuProfile::span("viewer_encode");
-        let targets = &self.presentation.targets;
-        let mut encoder =
-            self.context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("viewer frame"),
-                });
-        self.resident
-            .render(&self.context, view, targets, &mut encoder)?;
-        let output = frame
+        self.prepare_frame(view, ready.admission.slot())?;
+        let output = ready
+            .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        if capture {
-            self.presentation
-                .encode_capture(self.context.device(), &mut encoder)?;
-        }
-        self.presentation.present(&mut encoder, &output);
-        let commands = encoder.finish();
-        drop(encode);
-        let submit = CpuProfile::span("viewer_submit_present");
-        let submission = self.context.queue().submit([commands]);
+        let prepared = self
+            .context
+            .submission()
+            .prepare(self.context.device(), |encoder, _| {
+                self.resident.render(
+                    &self.context,
+                    view,
+                    &self.presentation.targets,
+                    encoder,
+                    self.presentation.scheduler.encoding(),
+                )?;
+                self.presentation.present(encoder, &output)?;
+                if let Some(capture) = &mut capture {
+                    capture.encode(encoder, self.presentation.targets.color.texture());
+                }
+                Ok::<_, ViewerError>(())
+            })
+            .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+        let ticket = self
+            .execution
+            .submit_prepared(ready, prepared, &self.context)?;
         self.check_errors()?;
-        self.window.pre_present_notify();
-        self.context.queue().present(frame);
-        drop(submit);
-        let capture = if capture {
-            let _span = CpuProfile::span("viewer_readback");
-            Some(
-                self.presentation
-                    .read_capture(self.context.device(), submission)?,
-            )
+        Ok(Some(ticket))
+    }
+
+    /// Sizes the presentation targets and selects the admitted slot, clear and frame time.
+    fn prepare_frame(&mut self, view: &SceneView, slot: usize) -> Result<(), ViewerError> {
+        let size = self.viewport.expect("acquired nonzero extent");
+        let extents = Extents::new(
+            [size.width, size.height],
+            self.context.device().limits().max_texture_dimension_2d,
+        )?
+        .expect("acquired nonzero extent");
+        let render_size = if self.resident.clear_color().is_some() {
+            view.viewport()
         } else {
-            None
+            extents.render
         };
-        Ok(Some(RenderedFrame { capture }))
+        self.presentation.resize(&self.context, render_size)?;
+        if let Some(clear) = self.resident.clear_color() {
+            self.presentation.scheduler.set_clear_color(clear)?;
+        }
+        self.resident.select_frame_slot(slot);
+        self.presentation.scheduler.select_frame_slot(slot);
+        self.presentation
+            .scheduler
+            .set_frame_time(self.animation_start.elapsed().as_secs_f32())?;
+        Ok(())
     }
 }
 
@@ -317,13 +237,17 @@ fn required_features(scene: &RenderScene) -> wgpu::Features {
     }
 }
 
-fn device_errors(device: &wgpu::Device) -> mpsc::Receiver<String> {
+fn device_errors(
+    device: &wgpu::Device,
+    authority: worldrunner_render_gpu::submission::SubmissionAuthority,
+) -> mpsc::Receiver<String> {
     let (send, errors) = mpsc::channel();
     let lost_send = send.clone();
     device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
         let _ = send.send(error.to_string());
     }));
     device.set_device_lost_callback(move |reason, message| {
+        authority.report_device_loss(format!("{reason:?}: {message}"));
         let _ = lost_send.send(format!("device lost ({reason:?}): {message}"));
     });
     errors
@@ -360,5 +284,91 @@ fn surface_policy(
     })
 }
 
+impl Resident {
+    fn select_frame_slot(&mut self, slot: usize) {
+        match self {
+            Self::Plain(plain) => plain.gpu.select_frame_slot(slot),
+            Self::Shadowed(shadowed) => shadowed.select_frame_slot(slot),
+        }
+    }
+    fn scene_mut(&mut self) -> &mut SceneGpu {
+        match self {
+            Self::Plain(plain) => &mut plain.gpu,
+            Self::Shadowed(shadowed) => shadowed.scene_mut(),
+        }
+    }
+
+    fn new(
+        context: &GpuContext,
+        scene: &RenderScene,
+        shadows: Option<DirectionalShadowSettings>,
+        profile: crate::FrameProfile,
+    ) -> Result<Self, ViewerError> {
+        Ok(if let Some(settings) = shadows {
+            Self::Shadowed(Box::new(ShadowedScene::with_target(
+                context,
+                scene,
+                settings,
+                profile.target().0,
+                profile.target().1,
+            )?))
+        } else {
+            let constructor = if scene.effects().and_then(|effects| effects.ssao()).is_some() {
+                ScenePipelines::with_ssao
+            } else {
+                ScenePipelines::with_samples
+            };
+            let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
+            let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
+            Self::Plain(Box::new(PlainScene {
+                gpu,
+                pipelines,
+                effects: scene.effects().cloned(),
+                clear: None,
+            }))
+        })
+    }
+    fn render(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        targets: &crate::presentation::Targets,
+        encoder: &mut wgpu::CommandEncoder,
+        mut scheduler: worldrunner_render_scene::compositor::FrameEncoding<'_>,
+    ) -> Result<(), ViewerError> {
+        let color = worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene color"),
+            targets.color.texture(),
+        )
+        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        let depth = worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene depth"),
+            targets.depth.texture(),
+        )
+        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        match self {
+            Resident::Shadowed(renderer) => {
+                scheduler.encode_shadowed(context, view, (&color, &depth), encoder, renderer)?;
+            }
+            Resident::Plain(plain) => {
+                scheduler.encode_scene(
+                    context.device(),
+                    encoder,
+                    (&mut plain.gpu, &plain.pipelines),
+                    (&color, &depth),
+                    FrameUniform::new(view, plain.effects.as_ref())?,
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod tests;
+
+#[cfg(test)]
+mod retained_tests;
+
+#[cfg(test)]
+mod hdr_tests;

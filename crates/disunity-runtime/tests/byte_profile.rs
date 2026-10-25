@@ -1,33 +1,15 @@
-#[path = "support/old_native.rs"]
-mod old_native;
-
-use std::path::PathBuf;
-use std::sync::OnceLock;
+#[path = "support/handshake.rs"]
+pub mod support;
 
 use serde_json::{Value, json};
 use worldrunner_disunity_runtime::{CompatibilityHost, ManagedHostConfig};
 
 fn config() -> ManagedHostConfig {
-    let native = PathBuf::from(
-        std::env::var_os("DISUNITY_TEST_NATIVE_LIBRARY").expect("explicit immutable native image"),
-    );
-    let root = PathBuf::from(
-        std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").expect("explicit frozen managed root"),
-    );
-    let bridge = root.join("artifacts/bin/CompatibilityBridge/debug/CompatibilityBridge.dll");
-    static IMAGE: OnceLock<libloading::Library> = OnceLock::new();
-    // SAFETY: qualification retains the trusted ABI-2 image through native TLS teardown.
-    IMAGE.get_or_init(|| unsafe { libloading::Library::new(&native).unwrap() });
-    ManagedHostConfig {
-        ffi_library: native,
-        runtime_config: bridge.with_extension("runtimeconfig.json"),
-        assembly: bridge,
-        bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-    }
+    crate::support::artifacts().config()
 }
 
 fn manifest(host: &CompatibilityHost, world: u64) -> Value {
-    let root = PathBuf::from(std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").unwrap());
+    let root = crate::support::artifacts().managed_root.clone();
     let object = host
         .request(world, &json!({"op":"object.create","name":"byte-probe"}))
         .unwrap()["handle"]
@@ -74,29 +56,6 @@ fn actual_cdecl_byte_host_matches_before_initialize_and_loads_original_pes() {
     host.unload().unwrap();
     host.destroy_world(world).unwrap();
     assert_eq!(host.store_statistics().unwrap().0, 0);
-}
-
-#[test]
-fn actual_cdecl_old_byte_host_rejects_before_native_mutation() {
-    old_native::run_in_old_native_process(
-        "actual_cdecl_old_byte_host_rejects_before_native_mutation",
-        || {
-            let mut host = CompatibilityHost::boot(&config()).unwrap();
-            let world = host.create_world().unwrap();
-            let before = host.request(world, &json!({"op":"snapshot"})).unwrap();
-            assert!(
-                host.select_byte_profile(world)
-                    .unwrap_err()
-                    .to_string()
-                    .contains("capability")
-            );
-            assert_eq!(
-                host.request(world, &json!({"op":"snapshot"})).unwrap(),
-                before
-            );
-            host.destroy_world(world).unwrap();
-        },
-    );
 }
 
 #[test]

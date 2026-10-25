@@ -1,7 +1,49 @@
 //! Configured linear post/output chains with canonical targets, history ownership and scheduling.
 //! Shader policy, adaptation rules and LUT data remain caller-authored.
+pub mod allocation;
+#[cfg(test)]
+mod capture_tests;
+pub mod contracts;
+#[cfg(test)]
+mod contracts_tests;
+#[cfg(test)]
+mod operations_buffer_scope_tests;
+#[cfg(test)]
+mod operations_compute_tests;
+#[cfg(test)]
+mod operations_copy_rules_tests;
+#[cfg(test)]
+mod operations_draw_tests;
+#[cfg(test)]
+mod operations_padding_tests;
+#[cfg(test)]
+mod operations_tests;
+#[cfg(test)]
+mod operations_transfer_tests;
+#[cfg(test)]
+mod raster_capture_tests;
+mod timing;
+pub use timing::{
+    FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,
+    TimingSupport,
+};
 mod chain;
 mod copy;
+mod hdr_post;
+mod post_filters;
+mod tone_map;
+pub use hdr_post::{
+    AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,
+};
+pub use tone_map::{ToneMap, ToneMapOutput};
+mod frame;
+#[cfg(test)]
+mod frame_tests;
+pub use frame::{
+    AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
+    DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature, FramePlan,
+    PassDeclaration, PassSlot, PrepareContext, PreparedFeature, ResourceRef, validate_frame,
+};
 #[cfg(test)]
 mod copy_gpu_tests;
 mod exact;
@@ -17,6 +59,7 @@ mod shader;
 mod targets;
 pub use chain::{
     BufferSpec, Operation, PostChain, Resources, Stage, StageFactory, StageSet, StageTarget,
+    TimingState,
 };
 pub use copy::CopyOutput;
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
@@ -24,6 +67,16 @@ pub use targets::{FrameConfig, FrameTargets, color_texture};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PostError {
+    #[error("GPU allocation failed: {0}")]
+    Allocation(String),
+    #[error(transparent)]
+    DriverAllocation(#[from] worldrunner_render_gpu::configuration::DriverAllocationError),
+    #[error("unsupported frame profile: {0}")]
+    UnsupportedProfile(&'static str),
+    #[error("frame delta must be finite and within 0..=10 seconds")]
+    FrameDelta,
+    #[error(transparent)]
+    Frame(#[from] FrameError),
     #[error("post target extent is empty")]
     EmptyExtent,
     #[error("post extent {size:?} exceeds texture limit {limit}")]
@@ -138,8 +191,20 @@ pub fn fullscreen_pass(
     pipeline: &wgpu::RenderPipeline,
     groups: &[&wgpu::BindGroup],
 ) {
+    fullscreen_pass_timed(encoder, label, attachment, pipeline, groups, None);
+}
+
+fn fullscreen_pass_timed(
+    encoder: &mut wgpu::CommandEncoder,
+    label: Option<&str>,
+    attachment: wgpu::RenderPassColorAttachment<'_>,
+    pipeline: &wgpu::RenderPipeline,
+    groups: &[&wgpu::BindGroup],
+    stamp: Option<&timing::Stamp>,
+) {
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label,
+        timestamp_writes: stamp.map(timing::Stamp::render),
         color_attachments: &[Some(attachment)],
         ..Default::default()
     });
@@ -174,3 +239,11 @@ mod tests;
 
 #[cfg(test)]
 mod readback_gpu_tests;
+
+#[cfg(test)]
+mod tone_map_gpu_tests;
+
+#[cfg(test)]
+fn test_authority(queue: &wgpu::Queue) -> worldrunner_render_gpu::submission::SubmissionAuthority {
+    worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+}

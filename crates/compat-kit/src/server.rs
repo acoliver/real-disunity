@@ -4,7 +4,7 @@ use crate::{
     files::{self, Result, io},
     fixture,
     process::RunControl,
-    refresh, runner,
+    runner,
 };
 use security::LaunchSecurity;
 use serde_json::{Value, json};
@@ -191,10 +191,10 @@ fn handle(
         task.control.cancel();
         return json_response(202, &json!({"id":id,"cancel_requested":true}));
     }
-    if req.path != "/api/run" && req.path != "/api/refresh" {
+    if req.path != "/api/run" {
         return json_response(404, &json!({"error":"unknown route"}));
     }
-    start_job(root, &req.path, &body, tasks)
+    start_job(root, &body, tasks)
 }
 fn authorize_post(req: &Request) -> Result<()> {
     if req.method != "POST" {
@@ -253,14 +253,13 @@ fn get(req: &Request, root: &Path, security: &LaunchSecurity, tasks: &Tasks) -> 
     }
     json_response(404, &json!({"error":"unknown route"}))
 }
-fn start_job(root: &Path, path: &str, body: &Value, tasks: &Tasks) -> Result<Response> {
+fn start_job(root: &Path, body: &Value, tasks: &Tasks) -> Result<Response> {
     let fixture = fixture::load(root, body["fixture"].as_str().ok_or("fixture required")?)?;
     let profile = body["profile"].as_str().map(str::to_owned);
     let desktop = body["desktop"].as_bool().unwrap_or(false);
-    let accept = body["accept"].as_bool().unwrap_or(false);
     let id = files::unique_id();
     let control = RunControl::default();
-    let kind = if path == "/api/run" { "run" } else { "refresh" };
+    let kind = "run";
     {
         let mut map = tasks.lock().map_err(io)?;
         if map.values().filter(|t| !t.done).count() >= 4 {
@@ -287,12 +286,8 @@ fn start_job(root: &Path, path: &str, body: &Value, tasks: &Tasks) -> Result<Res
     let tasks = tasks.clone();
     let root = root.to_path_buf();
     thread::spawn(move || {
-        let result = if kind == "run" {
-            runner::run(&root, &fixture, profile.as_deref(), desktop, &control)
-                .and_then(|r| serde_json::to_value(r).map_err(io))
-        } else {
-            refresh::refresh(&root, &fixture, accept, &control)
-        };
+        let result = runner::run(&root, &fixture, profile.as_deref(), desktop, &control)
+            .and_then(|r| serde_json::to_value(r).map_err(io));
         let value = result.unwrap_or_else(|e| json!({"status":"error","message":e}));
         if let Ok(mut tasks) = tasks.lock()
             && let Some(task) = tasks.get_mut(&task_id)

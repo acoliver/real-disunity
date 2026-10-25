@@ -37,8 +37,14 @@ pub(super) trait Content {
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError>;
 }
 
-pub(super) fn run(scene: RenderScene, options: ViewerOptions) -> Result<(), ViewerError> {
-    run_content(Box::new(static_scene::StaticScene::new(scene, options)?))
+pub(super) fn run(
+    scene: RenderScene,
+    options: ViewerOptions,
+    update: crate::SceneUpdate,
+) -> Result<(), ViewerError> {
+    run_content(Box::new(static_scene::StaticScene::new(
+        scene, options, update,
+    )?))
 }
 
 pub(super) fn run_live(
@@ -52,12 +58,16 @@ fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
     let event_loop = EventLoop::new()?;
     let mut app = App::new(content);
     let result = event_loop.run_app(&mut app);
-    app.renderer = None;
+    cleanup(&mut app.renderer);
     if let Some(error) = app.failure {
         return Err(error);
     }
     result?;
     Ok(())
+}
+
+pub(super) fn cleanup(renderer: &mut Option<Renderer>) {
+    *renderer = None;
 }
 
 struct App<'a> {
@@ -174,7 +184,12 @@ impl ApplicationHandler for App<'_> {
                     self.fail(event_loop, error);
                 }
             }
-            WindowEvent::Occluded(value) => self.occluded = value,
+            WindowEvent::Occluded(value) => {
+                self.occluded = value;
+                if !value {
+                    renderer.window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 if let Err(error) = self.redraw(event_loop) {
                     self.fail(event_loop, error);
@@ -188,7 +203,7 @@ impl ApplicationHandler for App<'_> {
         let Some(renderer) = &self.renderer else {
             return;
         };
-        if let Err(error) = renderer.check_errors() {
+        if let Err(error) = renderer.poll() {
             self.fail(event_loop, error);
             return;
         }

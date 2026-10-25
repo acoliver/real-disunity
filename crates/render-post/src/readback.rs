@@ -5,6 +5,14 @@ use crate::{FrameConfig, PostError, targets::extent};
 #[derive(Debug, thiserror::Error)]
 pub enum ReadbackError {
     #[error(transparent)]
+    Write(#[from] worldrunner_render_gpu::submission::capture::WriteError),
+    #[error(transparent)]
+    Transaction(#[from] worldrunner_render_gpu::submission::TransactionError),
+    #[error(transparent)]
+    Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
+    #[error("readback slot already contains an unread capture")]
+    Busy,
+    #[error(transparent)]
     Config(#[from] PostError),
     #[error("unsupported readback format {0:?}")]
     Format(wgpu::TextureFormat),
@@ -33,6 +41,8 @@ pub struct Readback {
     format: wgpu::TextureFormat,
     pitch: u32,
     row: usize,
+    pending: std::rc::Rc<std::cell::Cell<bool>>,
+    encoded_transaction: Option<worldrunner_render_gpu::submission::Publications>,
 }
 
 impl Readback {
@@ -71,6 +81,8 @@ impl Readback {
             format: config.format,
             pitch: u32::try_from(pitch).map_err(|_| ReadbackError::Limit)?,
             row: usize::try_from(row).map_err(|_| ReadbackError::Limit)?,
+            pending: std::rc::Rc::default(),
+            encoded_transaction: None,
         })
     }
 
@@ -79,14 +91,13 @@ impl Readback {
     pub fn read(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
         source: &wgpu::Texture,
     ) -> Result<Vec<u8>, ReadbackError> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("post readback"),
-        });
-        self.encode(&mut encoder, source)?;
-        let submission = queue.submit([encoder.finish()]);
+        let prepared = authority
+            .prepare(device, |encoder, _| self.encode(encoder, source))
+            .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+        let submission = prepared.submit()?;
         self.read_encoded(device, Some(submission))
     }
 
@@ -96,6 +107,20 @@ impl Readback {
         encoder: &mut wgpu::CommandEncoder,
         source: &wgpu::Texture,
     ) -> Result<(), ReadbackError> {
+        let current = Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
+        let retired = self
+            .encoded_transaction
+            .as_ref()
+            .is_some_and(worldrunner_render_gpu::submission::Publications::capture_retired);
+        if (self.pending.get() && !retired)
+            || current.as_ref().is_some_and(|current| {
+                self.encoded_transaction
+                    .as_ref()
+                    .is_some_and(|previous| previous.same_transaction(current))
+            })
+        {
+            return Err(ReadbackError::Busy);
+        }
         if source.width() != self.size[0]
             || source.height() != self.size[1]
             || source.format() != self.format
@@ -118,6 +143,14 @@ impl Readback {
             },
             extent(self.size),
         );
+        let pending = self.pending.clone();
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?
+            .stage_write(self.write_key(), move || pending.set(true))?;
+        if retired {
+            // Retire the old unread copy before replacing its transaction provenance.
+            self.pending.set(false);
+        }
+        self.encoded_transaction = current;
         Ok(())
     }
 
@@ -138,9 +171,18 @@ impl Readback {
         device: &wgpu::Device,
         submission: Option<wgpu::SubmissionIndex>,
     ) -> Result<Vec<u8>, ReadbackError> {
-        read_buffer(device, &self.buffer, submission)
+        let bytes = read_buffer(device, &self.buffer, submission);
+        self.pending.set(false);
+        bytes
     }
 
+    /// Include this retained slot's pending-state key in its capture segment write set.
+    pub fn write_key(&self) -> worldrunner_render_gpu::submission::capture::WriteKey {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        self.buffer.hash(&mut hash);
+        worldrunner_render_gpu::submission::capture::WriteKey::Readback(hash.finish())
+    }
     pub const fn padded_bytes_per_row(&self) -> u32 {
         self.pitch
     }

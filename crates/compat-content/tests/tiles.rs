@@ -1,9 +1,9 @@
-use std::path::PathBuf;
 use worldrunner_compat_content::{ImportProfile, ImportSidecar, import_project};
 
 #[test]
 fn original_tilemap_resolves_48_authored_cells_sprite_indices_and_grid_metadata() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.work/games/breakout");
+    let root =
+        worldrunner_original_games::checkout(worldrunner_original_games::Game::Breakout).unwrap();
     let graph = import_project(
         &root,
         "Assets/Scenes/SampleScene.unity".as_ref(),

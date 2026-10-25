@@ -5,11 +5,10 @@ use std::{fs, path::Path, process::Command};
 fn setup(mode: &str) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
-    fs::create_dir_all(root.path().join(".work/source")).unwrap();
-    let fixture = json!({"schema_version":1,"name":"probe","source_root":".work/source",
+    let fixture = json!({"schema_version":1,"name":"probe","game":"snake",
         "profiles":["test","unrun"],"default_profile":"test","evidence_label":"harness-only",
         "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":[mode]},
-        "metadata":{"reporting":{"provider_inputs":[],"overlay_inputs":[]}},
+        "metadata":{"reporting":{}},
         "limits":{"deadline_ms":250,"artifact_bytes":1_048_576},
         "assertions":[{"op":"equal","selector":"counter","pointer":"/count","value":7}]});
     fs::write(root.path().join("fixtures/probe.json"), fixture.to_string()).unwrap();
@@ -31,13 +30,12 @@ fn edit(root: &Path, change: impl FnOnce(&mut Value)) {
 fn saved(root: &Path, id: &str, status: &str) {
     let directory = root.join(".work/compat/runs").join(id);
     fs::create_dir_all(&directory).unwrap();
-    let record = json!({"schema_version":1,"run_id":id,"fixture":"probe","profile":"test",
+    let record = json!({"schema":"real-disunity.tck-run/1","schema_version":1,"run_id":id,"fixture":"probe","profile":"test",
         "evidence_label":"harness-only","status":status,"run_dir":format!(".work/compat/runs/{id}"),
         "started_ms":1,"elapsed_ms":2,"messages":[],"assertions":[],"captures":[],
-        "source_before":null,"source_after":null,"worker":null,
+        "worker":null,
         "reporting":{"case_id":"UCK-HAR-001","game":"harness","mode":"simulation",
         "platform":{"os":"linux","arch":"x86_64"},
-        "identities":{"source":"source-a","overlay":"overlay-a","provider":"provider-a","test":"test-a"},
         "outcomes":{"compile":"pass","semantic":status,"fidelity":null}}});
     fs::write(directory.join("run.json"), record.to_string()).unwrap();
 }
@@ -123,28 +121,6 @@ fn all_attempt_reduction_preserves_independent_dimensions_and_conflicts() {
 }
 
 #[test]
-fn provider_source_mode_and_unknown_identities_do_not_collapse() {
-    let root = setup("pass");
-    for (id, field) in [
-        ("a", "provider"),
-        ("b", "source"),
-        ("c", "overlay"),
-        ("d", "test"),
-    ] {
-        saved(root.path(), id, "pass");
-        let path = root.path().join(format!(".work/compat/runs/{id}/run.json"));
-        let mut record: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        record["reporting"]["identities"][field] = json!(id);
-        fs::write(path, record.to_string()).unwrap();
-    }
-    let state = dashboard::state(root.path()).unwrap();
-    assert_eq!(state["groups"].as_array().unwrap().len(), 4);
-    for group in state["groups"].as_array().unwrap() {
-        assert_eq!(group["status"], "pass");
-    }
-}
-
-#[test]
 fn static_exports_include_all_attempts_filters_and_inert_source_text() {
     let root = setup("pass");
     saved(root.path(), "a", "fail");
@@ -222,7 +198,7 @@ fn explicit_dimensions_use_actual_assertions_and_missing_required_fidelity_is_in
 }
 
 #[test]
-fn unknown_legacy_records_remain_separate_and_exit_precedence_is_structured() {
+fn unmeasured_attempts_remain_separate_and_exit_precedence_is_structured() {
     let root = setup("pass");
     saved(root.path(), "a", "pass");
     saved(root.path(), "b", "fail");
@@ -255,29 +231,6 @@ fn unknown_legacy_records_remain_separate_and_exit_precedence_is_structured() {
         record.reporting.failure_causes.push(cause);
         assert_eq!(compat_kit::reporting::exit_code(record), code);
     }
-}
-
-#[test]
-fn changed_non_script_inputs_and_provider_images_split_real_attempts() {
-    let root = setup("pass");
-    let provider = root.path().join(".work/provider.bin");
-    fs::write(&provider, "provider-a").unwrap();
-    edit(root.path(), |f| {
-        f["metadata"]["reporting"] =
-            json!({"provider_inputs":[".work/provider.bin"],"overlay_inputs":[]});
-    });
-    cli(root.path(), &["run", "probe"]);
-    fs::write(root.path().join(".work/source/scene.unity"), "scene-b").unwrap();
-    cli(root.path(), &["run", "probe"]);
-    fs::write(&provider, "provider-b").unwrap();
-    cli(root.path(), &["run", "probe"]);
-    assert_eq!(
-        dashboard::state(root.path()).unwrap()["groups"]
-            .as_array()
-            .unwrap()
-            .len(),
-        3
-    );
 }
 
 #[test]
@@ -361,20 +314,6 @@ fn measured_dimension_diagnostics_preserve_blockers_without_promoting_untested_f
 }
 
 #[test]
-fn undeclared_qualification_inputs_keep_real_attempts_separate() {
-    let root = setup("alternating");
-    edit(root.path(), |f| f["metadata"] = json!({}));
-    cli(root.path(), &["run", "probe"]);
-    cli(root.path(), &["run", "probe"]);
-    let state = dashboard::state(root.path()).unwrap();
-    assert_eq!(state["groups"].as_array().unwrap().len(), 2);
-    for run in state["runs"].as_array().unwrap() {
-        assert!(run["reporting"]["identities"]["provider"].is_null());
-        assert!(run["reporting"]["identities"]["overlay"].is_null());
-    }
-}
-
-#[test]
 fn case_game_mode_platform_profile_fixture_and_trust_boundaries_split_groups() {
     let root = setup("pass");
     let changes = [
@@ -426,39 +365,6 @@ fn pending_repeats_preserve_their_status_and_all_attempt_evidence() {
         assert_eq!(state["runs"].as_array().unwrap().len(), 3);
         assert_ne!(state["groups"][0]["exit_code"], 0);
     }
-}
-
-#[test]
-fn legacy_assertion_source_and_status_fields_roundtrip_without_invented_evidence() {
-    let root = setup("pass");
-    saved(root.path(), "legacy", "not_implemented");
-    let path = root.path().join(".work/compat/runs/legacy/run.json");
-    let mut record: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    record.as_object_mut().unwrap().remove("reporting");
-    record["assertions"] = json!([{"assertion":{"op":"equal","selector":"counter","value":7},
-        "passed":false,"message":"legacy assertion evidence"}]);
-    record["source_before"] =
-        json!({"root":"legacy-source","revision":null,"dirty":null,"scripts":{}});
-    fs::write(path, record.to_string()).unwrap();
-    dashboard::generate(root.path(), Path::new(".work/export")).unwrap();
-    let state: Value =
-        serde_json::from_slice(&fs::read(root.path().join(".work/export/state.json")).unwrap())
-            .unwrap();
-    let run = &state["runs"][0];
-    assert_eq!(run["status"], "not-implemented");
-    assert_eq!(run["assertions"][0]["passed"], false);
-    for field in ["expected", "actual", "unit"] {
-        assert!(run["assertions"][0][field].is_null(), "{field}");
-    }
-    assert_eq!(run["source_before"]["inputs"], json!({}));
-    assert!(
-        state["groups"][0]["outcomes"]
-            .as_object()
-            .unwrap()
-            .values()
-            .all(Value::is_null)
-    );
-    assert_eq!(state["groups"][0]["identity"]["unknown_attempt"], "legacy");
 }
 
 #[test]
@@ -577,20 +483,19 @@ fn executed_run_identifies_the_tck_run_wire_contract() {
 }
 
 #[test]
-fn legacy_run_roundtrip_retains_missing_wire_identity_and_unknown_measurements() {
+fn records_without_the_current_wire_contract_are_rejected() {
     let root = setup("pass");
-    saved(root.path(), "legacy-schema", "inconclusive");
-    let path = root.path().join(".work/compat/runs/legacy-schema/run.json");
-    let record: compat_kit::model::RunRecord =
-        serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    let value = serde_json::to_value(record).unwrap();
-    assert!(value.get("schema").is_none());
-    assert_eq!(value["status"], "inconclusive");
-    assert!(value["reporting"]["outcomes"]["fidelity"].is_null());
+    saved(root.path(), "missing-schema", "inconclusive");
+    let path = root
+        .path()
+        .join(".work/compat/runs/missing-schema/run.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    value.as_object_mut().unwrap().remove("schema");
+    assert!(serde_json::from_value::<compat_kit::model::RunRecord>(value).is_err());
 }
 
 #[test]
-fn explicit_unknown_tck_run_contract_is_not_parsed_as_a_legacy_record() {
+fn explicit_unknown_tck_run_contract_is_rejected() {
     let root = setup("pass");
     saved(root.path(), "wrong-schema", "pass");
     let path = root.path().join(".work/compat/runs/wrong-schema/run.json");

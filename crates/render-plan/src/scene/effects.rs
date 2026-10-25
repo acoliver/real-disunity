@@ -3,12 +3,13 @@
 //!
 //! Every quantity is an integer micro-unit, millimeter, or millidegree count
 //! and every renderer-semantic choice is a closed variant, so one effects
-//! value admits exactly one interpretation. Sky, sun, ambient, shadow
-//! cascades, SSAO, camera, color grading, the post stack, and
-//! anti-aliasing are mandatory; only water is authored-optional.
+//! value admits exactly one interpretation. A scene may omit this entire
+//! environmental profile for unlit rendering. Within a profile, water and
+//! SSAO are optional; sky, sun, ambient, cascades, camera, grading, the post
+//! stack, and the anti-aliasing choice are explicit.
 
+use crate::scene::direction::SceneDirection;
 use crate::scene::error::SceneValidationError;
-use crate::scene::geometry::SceneRotation;
 use crate::scene::resource::TextureHandle;
 
 /// Micro-unit scale shared by every effects ratio.
@@ -45,25 +46,24 @@ pub enum SceneSky {
     },
 }
 
-/// One directional light with an exact orientation and unit-interval scale.
+/// One directional light with a unit direction and absolute irradiance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSun {
-    /// Exactly normalized direction toward the light source.
-    pub direction: SceneRotation,
+    /// Quantized unit direction toward the light source in the scene Z-up basis.
+    pub direction: SceneDirection,
     /// Absolute irradiance scale in micro-units within
     /// `0..=MAXIMUM_SUN_IRRADIANCE_MICRO`.
     pub irradiance_micro: u64,
 }
 
 impl SceneSun {
-    /// Validates orientation and irradiance closure.
+    /// Validates irradiance bounds. The direction is valid by construction.
     ///
     /// # Errors
     ///
-    /// Returns [`SceneValidationError`] when the direction is unnormalized or
-    /// the irradiance exceeds `MAXIMUM_SUN_IRRADIANCE_MICRO`.
+    /// Returns [`SceneValidationError`] when irradiance exceeds
+    /// `MAXIMUM_SUN_IRRADIANCE_MICRO`.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        self.direction.validate()?;
         require_range(
             "sun irradiance_micro",
             self.irradiance_micro,
@@ -105,11 +105,14 @@ impl SceneAmbient {
     }
 }
 
-/// Owned shadow cascade set with a unit-fraction cross-fade band.
+/// Owned directional cascade policy with a unit-fraction cross-fade band.
+/// `new` declares light-space coverage half-widths about a renderer-supplied focus.
+/// `camera_splits` declares explicit camera-view depth boundaries instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneShadowCascades {
     extents_millimeters: Box<[u64]>,
     blend_band_micro: u64,
+    camera_splits: bool,
 }
 
 impl SceneShadowCascades {
@@ -127,12 +130,31 @@ impl SceneShadowCascades {
         let shadows = Self {
             extents_millimeters: extents_millimeters.into_boxed_slice(),
             blend_band_micro,
+            camera_splits: false,
         };
         shadows.validate()?;
         Ok(shadows)
     }
 
-    /// Returns the strictly increasing cascade extents from nearest outward.
+    /// Uses explicit positive camera-view depth splits in millimetres, rather than
+    /// light-space coverage boxes. The renderer checks these against camera planes.
+    pub fn camera_splits(
+        distances_millimeters: Vec<u64>,
+        blend_band_micro: u64,
+    ) -> Result<Self, SceneValidationError> {
+        let mut value = Self::new(distances_millimeters, blend_band_micro)?;
+        value.camera_splits = true;
+        Ok(value)
+    }
+
+    /// Explicit camera-view far distance of each slice, or `None` for coverage boxes.
+    #[must_use]
+    pub fn split_distances_millimeters(&self) -> Option<&[u64]> {
+        self.camera_splits.then_some(&self.extents_millimeters)
+    }
+
+    /// Returns strictly increasing coverage half-widths, or explicit depth splits
+    /// when constructed with [`Self::camera_splits`], in millimetres.
     #[must_use]
     pub fn extents_millimeters(&self) -> &[u64] {
         &self.extents_millimeters
@@ -176,6 +198,10 @@ impl SceneShadowCascades {
 /// Screen-space ambient occlusion parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSsao {
+    /// Number of deterministic hemisphere samples, within 1..=64.
+    pub sample_count: u32,
+    /// Surface self-occlusion bias in millimetres.
+    pub bias_millimeters: u32,
     /// Occlusion sample radius in millimeters; strictly positive.
     pub radius_millimeters: u64,
     /// Occlusion strength in micro-units within `0..=2_000_000`.
@@ -191,6 +217,7 @@ impl SceneSsao {
     ///
     /// Returns [`SceneValidationError`] on the first out-of-bounds field.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        require_range("ssao sample_count", u64::from(self.sample_count), 1, 64)?;
         require_range(
             "ssao radius_millimeters",
             self.radius_millimeters,
@@ -406,6 +433,15 @@ impl SceneAntiAlias {
 /// One axis-aligned water plane rectangle in the east/north plane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneWaterPlane {
+    /// Surface elevation in scene millimetres.
+    pub height_millimeters: i64,
+    /// Linear scattering colour, in millionths per channel.
+    pub color_micro: [u32; 3],
+    /// Beer absorption coefficients per metre, in millionths.
+    pub absorption_micro: [u32; 3],
+    /// Surface roughness in millionths.
+    pub roughness_micro: u32,
+
     /// Signed minimum east corner in millimeters.
     pub east_min_millimeters: i64,
     /// Signed minimum north corner in millimeters.
@@ -458,8 +494,8 @@ pub struct SceneEffectsParts {
     pub ambient: SceneAmbient,
     /// Mandatory shadow cascade set.
     pub shadows: SceneShadowCascades,
-    /// Mandatory screen-space ambient occlusion.
-    pub ssao: SceneSsao,
+    /// Optional screen-space ambient occlusion request.
+    pub ssao: Option<SceneSsao>,
     /// Mandatory camera projection intrinsics.
     pub camera: SceneCamera,
     /// Mandatory color grading.
@@ -472,17 +508,18 @@ pub struct SceneEffectsParts {
 
 /// Complete owned effects state of one scene.
 ///
-/// Everything but water is mandatory: a scene always states its sky, sun,
-/// ambient light, shadow cascades, SSAO, camera, color grading, post stack,
-/// and anti-aliasing explicitly.
+/// An optional scene profile with explicit lighting and grading policy. Water
+/// and SSAO may be absent within a profile; the other fields are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffects {
+    hdr_post: Option<super::SceneHdrPost>,
+    ssr: Option<super::SceneSsr>,
     water: Option<SceneWaterPlane>,
     sky: SceneSky,
     sun: SceneSun,
     ambient: SceneAmbient,
     shadows: SceneShadowCascades,
-    ssao: SceneSsao,
+    ssao: Option<SceneSsao>,
     camera: SceneCamera,
     grading: SceneColorGrading,
     post: Box<[ScenePostStage]>,
@@ -490,6 +527,30 @@ pub struct SceneEffects {
 }
 
 impl SceneEffects {
+    /// Installs a complete optional HDR post policy.
+    pub fn with_hdr_post(
+        mut self,
+        settings: super::SceneHdrPost,
+    ) -> Result<Self, SceneValidationError> {
+        settings.validate()?;
+        self.hdr_post = Some(settings);
+        Ok(self)
+    }
+    pub const fn hdr_post(&self) -> Option<&super::SceneHdrPost> {
+        self.hdr_post.as_ref()
+    }
+
+    /// Installs explicitly validated screen-space reflection settings.
+    pub fn with_ssr(mut self, settings: super::SceneSsr) -> Result<Self, SceneValidationError> {
+        settings.validate()?;
+        self.ssr = Some(settings);
+        Ok(self)
+    }
+    /// Returns the authored reflection policy, including an explicit disabled request.
+    pub const fn ssr(&self) -> Option<&super::SceneSsr> {
+        self.ssr.as_ref()
+    }
+
     /// Adopts every effects part after validating all quantity bounds.
     ///
     /// # Errors
@@ -497,6 +558,8 @@ impl SceneEffects {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn new(parts: SceneEffectsParts) -> Result<Self, SceneValidationError> {
         let effects = Self {
+            hdr_post: None,
+            ssr: None,
             water: parts.water,
             sky: parts.sky,
             sun: parts.sun,
@@ -542,10 +605,10 @@ impl SceneEffects {
         &self.shadows
     }
 
-    /// Returns the mandatory SSAO parameters.
+    /// Returns the optional SSAO request.
     #[must_use]
-    pub const fn ssao(&self) -> &SceneSsao {
-        &self.ssao
+    pub const fn ssao(&self) -> Option<&SceneSsao> {
+        self.ssao.as_ref()
     }
 
     /// Returns the mandatory camera intrinsics.
@@ -581,10 +644,18 @@ impl SceneEffects {
         if let Some(water) = self.water {
             water.validate()?;
         }
+        if let Some(post) = self.hdr_post {
+            post.validate()?;
+        }
+        if let Some(ssr) = self.ssr {
+            ssr.validate()?;
+        }
         self.sun.validate()?;
         self.ambient.validate()?;
         self.shadows.validate()?;
-        self.ssao.validate()?;
+        if let Some(ssao) = self.ssao {
+            ssao.validate()?;
+        }
         self.camera.validate()?;
         self.grading.validate()?;
         for stage in &self.post {
@@ -635,11 +706,15 @@ fn checked_corner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::geometry::SceneRotation;
+    use crate::scene::direction::SceneDirection;
 
     fn parts() -> SceneEffectsParts {
         SceneEffectsParts {
             water: Some(SceneWaterPlane {
+                height_millimeters: 0,
+                color_micro: [50_000, 200_000, 250_000],
+                absorption_micro: [300_000, 100_000, 50_000],
+                roughness_micro: 200_000,
                 east_min_millimeters: -1_000,
                 north_min_millimeters: -1_000,
                 east_extent_millimeters: 2_000,
@@ -658,7 +733,7 @@ mod tests {
                 },
             },
             sun: SceneSun {
-                direction: SceneRotation::IDENTITY,
+                direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
                 irradiance_micro: 800_000,
             },
             ambient: SceneAmbient {
@@ -667,11 +742,13 @@ mod tests {
             },
             shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
                 .expect("synthetic cascades validate"),
-            ssao: SceneSsao {
+            ssao: Some(SceneSsao {
+                sample_count: 16,
+                bias_millimeters: 10,
                 radius_millimeters: 1_200,
                 intensity_micro: 1_000_000,
                 horizon_angle_millidegrees: 90_000,
-            },
+            }),
             camera: SceneCamera {
                 vertical_fov_millidegrees: 60_000,
                 near_plane_millimeters: 100,
@@ -802,6 +879,10 @@ mod tests {
         ));
         let mut staged = parts();
         staged.water = Some(SceneWaterPlane {
+            height_millimeters: 0,
+            color_micro: [50_000, 200_000, 250_000],
+            absorption_micro: [300_000, 100_000, 50_000],
+            roughness_micro: 200_000,
             east_min_millimeters: i64::MAX,
             north_min_millimeters: 0,
             east_extent_millimeters: 2_000,
@@ -814,10 +895,16 @@ mod tests {
     }
 
     #[test]
-    fn water_is_the_only_optional_part() {
+    fn water_and_ssao_can_be_omitted_within_a_profile() {
         let mut staged = parts();
         staged.water = None;
+        staged.ssao = None;
         let effects = SceneEffects::new(staged).expect("waterless effects validate");
         assert!(effects.water().is_none());
+        assert!(effects.ssao().is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "cascade_tests.rs"]
+mod cascade_tests;

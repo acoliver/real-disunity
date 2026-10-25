@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use worldrunner_compat_content::yaml::parse_unity_yaml;
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.work/games")
+fn root(game: &str) -> PathBuf {
+    worldrunner_original_games::checkout(game.parse().unwrap()).unwrap()
 }
 
 #[test]
@@ -12,12 +12,8 @@ fn decodes_original_multidocument_scenes_and_prefab_headers() {
         ("breakout", "SampleScene", 35),
         ("pong", "Main", 35),
     ] {
-        let text = std::fs::read_to_string(
-            root()
-                .join(game)
-                .join(format!("Assets/Scenes/{scene}.unity")),
-        )
-        .unwrap();
+        let text = std::fs::read_to_string(root(game).join(format!("Assets/Scenes/{scene}.unity")))
+            .unwrap();
         let docs = parse_unity_yaml(&text, 10_000).unwrap();
         assert!(
             docs.len() >= minimum,
@@ -57,7 +53,7 @@ fn rejects_document_limits_duplicate_ids_and_nonfinite_values() {
 
 #[test]
 fn builtin_guids_are_identity_strings_even_when_yaml_sees_exponents() {
-    let text = std::fs::read_to_string(root().join("pong/Assets/Scenes/Main.unity")).unwrap();
+    let text = std::fs::read_to_string(root("pong").join("Assets/Scenes/Main.unity")).unwrap();
     let docs = parse_unity_yaml(&text, 10_000).unwrap();
     let settings = docs.iter().find(|d| d.kind == "RenderSettings").unwrap();
     assert_eq!(

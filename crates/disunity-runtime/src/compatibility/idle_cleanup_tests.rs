@@ -19,15 +19,7 @@ unsafe extern "C" fn fail_once(handle: u64) -> DisunityResult {
     }
 }
 pub(super) fn config() -> ManagedHostConfig {
-    let assembly = std::path::PathBuf::from(std::env::var_os("R1_BRIDGE").unwrap());
-    ManagedHostConfig {
-        ffi_library: std::env::var_os("DISUNITY_IDLE_NATIVE_LIBRARY")
-            .unwrap()
-            .into(),
-        runtime_config: assembly.with_extension("runtimeconfig.json"),
-        assembly,
-        bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-    }
+    crate::test_support::artifacts().config()
 }
 pub(super) fn loaded() -> (CompatibilityHost, u64, u64) {
     let mut host = boot();
@@ -39,13 +31,16 @@ pub(super) fn loaded() -> (CompatibilityHost, u64, u64) {
         .as_u64()
         .unwrap();
     let script = host.request(world, &json!({"op":"component.add","object":object,"kind":"Script","fields":{"type":"SharedProbe"}})).unwrap()["handle"].as_u64().unwrap();
-    host.load_fixture(&json!({"world":world,"assemblies":[std::path::PathBuf::from(std::env::var_os("DISUNITY_IDLE_NATIVE_LIBRARY").unwrap()).parent().unwrap().join("release/SharedProbe.dll")],"requirements":{"execution_profile":"native_phase_context_v1","host_mutation_profile":"native_host_idle_rename_v1"},"handles":{"owner":object,"script":script},"graph":{"nodes":[{"id":"owner","active":true,"template":false}],"components":[{"id":"script","object":"owner","script":{"type_name":"SharedProbe","fields":{}}}],"assets":[],"aliases":{}}})).unwrap();
+    host.load_fixture(&json!({"world":world,"assemblies":[crate::test_support::artifacts().probe()],"requirements":{"execution_profile":"native_phase_context_v1","host_mutation_profile":"native_host_idle_rename_v1"},"handles":{"owner":object,"script":script},"graph":{"nodes":[{"id":"owner","active":true,"template":false}],"components":[{"id":"script","object":"owner","script":{"type_name":"SharedProbe","fields":{}}}],"assets":[],"aliases":{}}})).unwrap();
     (host, world, object)
 }
 #[test]
-#[ignore = "requires isolated actual CLR process"]
 fn actual_host_drop_releases_failed_idle_response() {
-    assert!(std::env::var_os("COMPAT_DISPLAY_CONTAINMENT").is_some());
+    if !crate::test_support::child::isolated(
+        "compatibility::idle_cleanup_tests::actual_host_drop_releases_failed_idle_response",
+    ) {
+        return;
+    }
     let (mut host, world, object) = loaded();
     let allocated = host.store_statistics().unwrap().1;
     let real_free = host.native.free_for_cleanup_test();
@@ -84,31 +79,5 @@ fn actual_host_drop_releases_failed_idle_response() {
 }
 
 pub(super) fn boot() -> CompatibilityHost {
-    use rustix::fs::{MemfdFlags, SealFlags, fcntl_add_seals, memfd_create};
-    use std::io::Write;
-    use std::os::fd::AsRawFd;
-    static IMAGE: std::sync::OnceLock<std::fs::File> = std::sync::OnceLock::new();
-    let image = IMAGE.get_or_init(|| {
-        let fd = memfd_create(
-            "sealed-native-attachment",
-            MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
-        )
-        .unwrap();
-        let mut file = std::fs::File::from(fd);
-        file.write_all(&std::fs::read(&config().ffi_library).unwrap())
-            .unwrap();
-        fcntl_add_seals(
-            &file,
-            SealFlags::WRITE | SealFlags::GROW | SealFlags::SHRINK | SealFlags::SEAL,
-        )
-        .unwrap();
-        std::fs::File::open(format!("/proc/self/fd/{}", file.as_raw_fd())).unwrap()
-    });
-    // The host-selected digest names the image chosen by DISUNITY_IDLE_NATIVE_LIBRARY.
-    // The lease still verifies it against the sealed bytes actually loaded.
-    let selected = std::env::var("DISUNITY_IDLE_NATIVE_SHA256").unwrap_or_else(|_| {
-        "dc904f14a115b3419075481d98e2e015a6a472bc8f324a38c107c9a5f033866b".into()
-    });
-    let lease = NativeImageLease::from_file(image.try_clone().unwrap(), &selected).unwrap();
-    CompatibilityHost::boot_sealed_native(&config(), lease).unwrap()
+    CompatibilityHost::boot(&config()).unwrap()
 }

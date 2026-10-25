@@ -18,7 +18,7 @@ pub(super) enum Startup {
     Running,
 }
 
-pub(super) fn validate_frame(frame: &LiveFrame, viewport: Viewport) -> Result<(), ViewerError> {
+pub(crate) fn validate_frame(frame: &LiveFrame, viewport: Viewport) -> Result<(), ViewerError> {
     if frame.view.viewport() != viewport {
         return Err(ViewerError::InvalidOptions(
             "live frame view must match tick viewport",
@@ -71,7 +71,6 @@ impl Session<'_> {
         }
         // Skip/Reconfigure/Recreate keep the retained frame; no second initialization occurs.
         if renderer.render_capture(&frame.view, false)?.is_some() {
-            renderer.wait_idle()?;
             self.startup = Startup::Presented(viewport);
         }
         Ok(())

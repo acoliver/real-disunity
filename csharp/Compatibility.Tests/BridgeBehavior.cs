@@ -25,7 +25,7 @@ internal static unsafe class BridgeBehavior
         delegate* unmanaged[Cdecl]<int> unload = &ManagedBridge.Unload;
         BinderBehavior.Check(Call(configure, nativePath) == 0, "bridge config must select paired native image");
         var badPayload = JsonNode.Parse(payload.ToJsonString())!;
-        badPayload["assemblies"] = new JsonArray(Path.Combine(repository, ".work/managed/missing-game.dll"));
+        badPayload["assemblies"] = new JsonArray(Path.Combine(TestArtifacts.ManagedRoot, "missing-game.dll"));
         BinderBehavior.Check(Call(load, badPayload.ToJsonString()) != 0 && LastError().Contains("fixture assembly not found"), "missing game assembly fails load with exact diagnostic");
         NativeWorld.AttachNativeLibrary(nativePath, world);
         BinderBehavior.Check(Call(load, payload.ToJsonString()) == 0, "failed load cleans roots and permits real load: " + LastError());

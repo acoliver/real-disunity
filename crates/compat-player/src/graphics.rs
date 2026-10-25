@@ -24,14 +24,10 @@ impl Graphics {
             pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
                 .map_err(|error| error.to_string())?;
         let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-        let mut scene = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+        let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines)
+            .map_err(|error| error.to_string())?;
         scene
-            .set_dynamic_textures(
-                context.device(),
-                context.queue(),
-                &pipelines,
-                &assets.textures,
-            )
+            .set_dynamic_textures(context.device(), context.submission(), &assets.textures)
             .map_err(|error| error.to_string())?;
         let target =
             OffscreenTarget::new(context.device(), viewport).map_err(|error| error.to_string())?;
@@ -46,8 +42,7 @@ impl Graphics {
         self.scene
             .set_dynamic_textures(
                 self.context.device(),
-                self.context.queue(),
-                &self.pipelines,
+                self.context.submission(),
                 &assets.textures,
             )
             .map_err(|error| error.to_string())
@@ -56,7 +51,7 @@ impl Graphics {
         self.scene
             .set_dynamic_quads(
                 self.context.device(),
-                self.context.queue(),
+                self.context.submission(),
                 &self.pipelines,
                 &contribution.quads,
             )

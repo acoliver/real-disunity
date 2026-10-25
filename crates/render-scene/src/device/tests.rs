@@ -1,3 +1,80 @@
+#[test]
+fn timestamp_negotiation_reports_optional_and_rejects_required_absence() {
+    use worldrunner_render_gpu::device::{DeviceRequirements, negotiate};
+    use worldrunner_render_post::TimingMode;
+    let limits = wgpu::Limits::default();
+    for available in [Features::empty(), Features::TIMESTAMP_QUERY] {
+        let optional = negotiate(
+            available,
+            &limits,
+            &DeviceRequirements {
+                optional_features: TimingMode::Optional.features(),
+                ..DeviceRequirements::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(optional.enabled_features, available);
+        assert_eq!(
+            optional.unavailable_optional,
+            Features::TIMESTAMP_QUERY.difference(available)
+        );
+        let required = negotiate(
+            available,
+            &limits,
+            &DeviceRequirements {
+                required_features: TimingMode::Required.features(),
+                ..DeviceRequirements::default()
+            },
+        );
+        assert_eq!(
+            required.is_ok(),
+            available.contains(Features::TIMESTAMP_QUERY)
+        );
+    }
+}
+
+#[test]
+fn gpu_optional_timestamp_device_enables_only_available_capability() {
+    use worldrunner_render_post::{PassTimer, TimingMode, TimingSupport};
+    let instance = worldrunner_render_gpu::device::headless_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let available = adapter.features().contains(Features::TIMESTAMP_QUERY);
+    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+        adapter,
+        Features::empty(),
+        TimingMode::Optional,
+    ))
+    .unwrap();
+    assert_eq!(
+        context
+            .device()
+            .features()
+            .contains(Features::TIMESTAMP_QUERY),
+        available
+    );
+    assert!(
+        !context
+            .device()
+            .features()
+            .contains(Features::TIMESTAMP_QUERY_INSIDE_PASSES)
+    );
+    let timer = PassTimer::new(context.device(), context.queue(), TimingMode::Optional).unwrap();
+    assert_eq!(
+        timer.support(),
+        if available {
+            TimingSupport::Supported
+        } else {
+            TimingSupport::Unsupported
+        }
+    );
+    assert_eq!(
+        PassTimer::new(context.device(), context.queue(), TimingMode::Required).is_ok(),
+        available
+    );
+}
+
 use super::{GpuContext, REQUIRED_FEATURES};
 use wgpu::{Features, TextureFormat, TextureUsages};
 

@@ -143,13 +143,7 @@ pub fn exchange(
 pub fn root(mode: &str) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
-    fs::create_dir_all(root.path().join(".work/source")).unwrap();
-    fs::write(
-        root.path().join(".work/source/Original.cs"),
-        "class Original {}",
-    )
-    .unwrap();
-    let fixture = json!({"schema_version":1,"name":"harness-only","source_root":".work/source",
+    let fixture = json!({"schema_version":1,"name":"harness-only","game":"snake",
         "profiles":["test"],"default_profile":"test","evidence_label":"harness-only",
         "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":[mode]},
         "limits":{"deadline_ms":3000,"log_bytes":1024,"artifact_bytes":1_048_576,"capture_count":4},

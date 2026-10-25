@@ -1,7 +1,6 @@
 use compat_kit::RunRequest;
-use compat_player::run_request;
+use compat_player::{Installation, run_request};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::Path};
 
 fn request(metadata: Value, action: Value) -> RunRequest {
     RunRequest {
@@ -12,7 +11,6 @@ fn request(metadata: Value, action: Value) -> RunRequest {
         desktop: false,
         seed: 1,
         source_root: "/unavailable-originals".into(),
-        source_hashes: BTreeMap::new(),
         artifact_root: "/unavailable-artifacts".into(),
         assertions: vec![],
         metadata,
@@ -21,7 +19,7 @@ fn request(metadata: Value, action: Value) -> RunRequest {
 }
 
 fn rejects(request: &RunRequest, reason: &str) {
-    let report = run_request(Path::new("/unavailable-root"), request);
+    let report = run_request(&unavailable(), request);
     assert_eq!(report.diagnostics.len(), 1);
     assert!(
         report.diagnostics[0].message.contains(reason),
@@ -95,4 +93,9 @@ fn strict_malformed_tail_rejects_before_the_load_mutates_a_world() {
         ),
         "normalized axis",
     );
+}
+
+/// Admission must reject before touching the workspace or loading the native runtime.
+fn unavailable() -> Installation {
+    Installation::new("/unavailable-root", "/unavailable-native-library")
 }

@@ -13,6 +13,7 @@ use crate::{
 
 pub(super) struct StaticScene {
     scene: RenderScene,
+    update: crate::SceneUpdate,
     options: ViewerOptions,
     camera: OrbitCamera,
     dragging: bool,
@@ -21,10 +22,15 @@ pub(super) struct StaticScene {
 }
 
 impl StaticScene {
-    pub fn new(scene: RenderScene, options: ViewerOptions) -> Result<Self, ViewerError> {
+    pub fn new(
+        scene: RenderScene,
+        options: ViewerOptions,
+        update: crate::SceneUpdate,
+    ) -> Result<Self, ViewerError> {
         let camera = OrbitCamera::new(options.pose, options.orbit)?;
         Ok(Self {
             scene,
+            update,
             options,
             camera,
             dragging: false,
@@ -62,6 +68,8 @@ impl Content for StaticScene {
         SceneSource::Static {
             scene: &self.scene,
             shadows: self.options.shadows,
+            profile: self.options.frame_profile,
+            frames_in_flight: self.options.frames_in_flight,
         }
     }
 
@@ -109,8 +117,8 @@ impl Content for StaticScene {
 
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {
         if let Some(viewport) = renderer.viewport {
-            let view = self.camera.view(*self.scene.effects().camera(), viewport)?;
-            renderer.render(&view)?;
+            let view = self.camera.view(self.options.camera, viewport)?;
+            renderer.render(&view, &mut self.update)?;
         }
         Ok(self.exit)
     }

@@ -1,4 +1,27 @@
 use super::*;
+use worldrunner_render_plan::SceneDirection;
+
+#[test]
+fn gpu_unsupported_effect_update_preserves_the_active_profile() {
+    let context = context();
+    let source = with_effects(sun_z());
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let before = retained_image(&context, &mut renderer, &mut target);
+    let mut parts = fixture::effects_parts(600_000);
+    parts.ssao = Some(worldrunner_render_plan::SceneSsao {
+        sample_count: 16,
+        bias_millimeters: 10,
+        radius_millimeters: 500,
+        intensity_micro: 0,
+        horizon_angle_millidegrees: 30_000,
+    });
+    assert!(matches!(
+        renderer.set_effects(&SceneEffects::new(parts).unwrap()),
+        Err(ShadowError::Frame(FrameError::UnsupportedEffect("SSAO")))
+    ));
+    assert_eq!(before, retained_image(&context, &mut renderer, &mut target));
+}
 
 fn translated_fit() -> DirectionalShadowSettings {
     DirectionalShadowSettings {
@@ -9,28 +32,18 @@ fn translated_fit() -> DirectionalShadowSettings {
     }
 }
 
-fn axis_effects(direction: SceneRotation) -> SceneEffects {
+fn axis_effects(direction: SceneDirection) -> SceneEffects {
     let mut parts = fixture::effects_parts(600_000);
     parts.sun.direction = direction;
     SceneEffects::new(parts).unwrap()
 }
 
 fn sun_x() -> SceneEffects {
-    axis_effects(SceneRotation {
-        x: 1_000_000,
-        y: 0,
-        z: 0,
-        w: 0,
-    })
+    axis_effects(SceneDirection::new([1_000_000, 0, 0]).unwrap())
 }
 
 fn sun_z() -> SceneEffects {
-    axis_effects(SceneRotation {
-        x: 0,
-        y: 0,
-        z: 1_000_000,
-        w: 0,
-    })
+    axis_effects(SceneDirection::new([0, 0, 1_000_000]).unwrap())
 }
 
 fn with_effects(effects: SceneEffects) -> RenderScene {
@@ -39,7 +52,7 @@ fn with_effects(effects: SceneEffects) -> RenderScene {
         resources: source.resources().clone(),
         geometry: source.geometry().clone(),
         terrain: None,
-        effects,
+        effects: Some(effects),
     })
     .unwrap()
 }
@@ -72,11 +85,7 @@ fn gpu_construction_rejects_invalid_active_light_fit() {
         capture_scene_shadowed(&context, &source, &view(), translated_fit()),
         Err(ShadowError::InvalidSettings)
     ));
-    let unset = with_effects(axis_effects(SceneRotation::IDENTITY));
-    assert!(matches!(
-        ShadowedScene::new(&context, &unset, settings()),
-        Err(ShadowError::Frame(FrameError::SunDirectionUnset { .. }))
-    ));
+    assert!(SceneDirection::new([0; 3]).is_err());
 }
 
 fn retained_image(
@@ -84,9 +93,7 @@ fn retained_image(
     renderer: &mut ShadowedScene,
     target: &mut OffscreenTarget,
 ) -> RgbaImage {
-    renderer
-        .render(context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(renderer, context, &view(), target).unwrap();
     target.read_rgba8(context).unwrap()
 }
 
@@ -115,10 +122,6 @@ fn gpu_rejected_active_light_fit_updates_leave_rendering_unchanged() {
     assert!(matches!(
         renderer.set_effects(&sun_x()),
         Err(ShadowError::InvalidSettings)
-    ));
-    assert!(matches!(
-        renderer.set_effects(&axis_effects(SceneRotation::IDENTITY)),
-        Err(ShadowError::Frame(FrameError::SunDirectionUnset { .. }))
     ));
     assert_eq!(before, retained_image(&context, &mut renderer, &mut target));
 }

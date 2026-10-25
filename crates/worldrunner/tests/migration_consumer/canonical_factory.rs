@@ -1,3 +1,4 @@
+use super::super::resident;
 use super::{GpuContext, post, wgpu};
 use std::sync::{
     Arc,
@@ -33,7 +34,7 @@ impl post::StageFactory for Factory {
         });
         Ok(post::StageSet {
             stages: vec![post::Stage::fullscreen(
-                "consumer overlay and output",
+                post::StageId::new("consumer overlay and output", 0),
                 &pipeline,
                 &[&group],
                 post::StageTarget::Output,
@@ -103,11 +104,12 @@ impl Fixture {
         )
         .unwrap();
         let pipelines = ScenePipelines::new(context.device(), FORMAT);
-        let mut scene = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+        let mut scene =
+            SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
         scene
             .set_dynamic_quads(
                 context.device(),
-                context.queue(),
+                context.submission(),
                 &pipelines,
                 &[DynamicQuad {
                     tint: [1., 0., 0., 1.],
@@ -132,67 +134,38 @@ impl Fixture {
             size,
             worldrunner::scene::camera::ViewHandedness::RightHanded,
         );
-        let view = SceneView::from_resolved(resolved);
+        let view = SceneView::from_resolved(resolved, [0, -10_000, 0]);
         self.scene
             .set_frame(context.queue(), FrameUniform::unlit(&view));
         let depth = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
         let output =
             post::color_texture(context.device(), "consumer-owned post output", size, FORMAT);
-        let mut encoder = context
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        draw(
-            &mut encoder,
-            self.chain.targets().scene(),
-            depth.depth_view(),
-            &self.scene,
-            &self.pipelines,
-        );
-        self.chain.encode(
-            &mut encoder,
-            &output.create_view(&wgpu::TextureViewDescriptor::default()),
-        );
         let mut readback = post::Readback::new(
             context.device(),
             post::FrameConfig::new(size, FORMAT, 1),
             1_048_576,
         )
         .unwrap();
-        readback.encode(&mut encoder, &output).unwrap();
-        let submission = context.queue().submit([encoder.finish()]);
+        let prepared = context
+            .submission()
+            .prepare(context.device(), |encoder, _| {
+                resident::encode(
+                    context.device(),
+                    encoder,
+                    (&self.scene, &self.pipelines),
+                    (self.chain.targets().scene(), depth.depth_view()),
+                )
+                .unwrap();
+                self.chain.encode(
+                    encoder,
+                    &output.create_view(&wgpu::TextureViewDescriptor::default()),
+                );
+                readback.encode(encoder, &output)
+            })
+            .unwrap();
+        let submission = prepared.submit().unwrap();
         readback
             .read_encoded(context.device(), Some(submission))
             .unwrap()
     }
-}
-
-fn draw(
-    encoder: &mut wgpu::CommandEncoder,
-    color: &wgpu::TextureView,
-    depth: &wgpu::TextureView,
-    scene: &SceneGpu,
-    pipelines: &ScenePipelines,
-) {
-    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("consumer scene before post"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: color,
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            view: depth,
-            depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(1.),
-                store: wgpu::StoreOp::Store,
-            }),
-            stencil_ops: None,
-        }),
-        ..Default::default()
-    });
-    scene.draw(&mut pass, pipelines);
 }

@@ -2,6 +2,8 @@
 mod assertions;
 #[path = "contextual_cleanup_helpers/fixture.rs"]
 mod fixture;
+#[path = "support/handshake.rs"]
+pub mod support;
 
 use serde_json::json;
 use worldrunner_disunity_runtime::CompatibilityHost;

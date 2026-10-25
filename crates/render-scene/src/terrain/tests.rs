@@ -13,7 +13,7 @@ use worldrunner_render_plan::{
 use super::{TERRAIN_METERS_PER_TILE, TerrainMesh, axis_samples, build_terrain_mesh, lod_stride};
 
 /// Bytes occupied by one packed vertex, mirroring the geometry layout.
-const VERTEX_BYTES: usize = 32;
+const VERTEX_BYTES: usize = 36;
 
 /// Bytes occupied by one packed index.
 const INDEX_BYTES: usize = 4;

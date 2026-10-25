@@ -12,8 +12,8 @@ pub(super) fn elapsed_rejected(tick: &LiveTick, error: &str) -> serde_json::Valu
         "required_chunks":((dt - 1) / u128::from(crate::strict::CHUNK_NS) + 1).to_string(), "error":error})
 }
 
-pub(super) fn begin(strict: bool) -> Option<CpuProfile> {
-    if strict && std::env::var_os("COMPAT_PROFILE_PRESENTATION").is_some() {
+pub(super) fn begin(strict: bool, request: &compat_kit::RunRequest) -> Option<CpuProfile> {
+    if strict && crate::playback::profiling(request, "presentation") {
         CpuProfile::begin()
     } else {
         None

@@ -68,7 +68,7 @@ fn resolved_camera_can_enter_existing_scene_draw_contract_without_reresolving() 
         },
     })
     .unwrap();
-    let view = SceneView::from_resolved(resolved);
+    let view = SceneView::from_resolved(resolved, [0, 0, 10_000]);
     assert_eq!(*view.resolved_view(), resolved);
     assert_eq!(
         view.viewport(),

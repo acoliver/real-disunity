@@ -1,54 +1,68 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using UnityEngine;
 
-internal static unsafe class ByteCopyFault
+internal static class ByteCopyFault
 {
     internal static void Run(string path)
     {
-        var image = NativeLibrary.Load(path);
-        var create = Marshal.GetDelegateForFunctionPointer<WorldCreate>(NativeLibrary.GetExport(image, "disunity_world_create"));
-        var destroy = Marshal.GetDelegateForFunctionPointer<WorldDestroy>(NativeLibrary.GetExport(image, "disunity_world_destroy"));
-        var arm = (delegate* unmanaged[Cdecl]<int, void>)NativeLibrary.GetExport(image, "byte_fault_arm");
-        var counts = (delegate* unmanaged[Cdecl]<int*, int*, int*, void>)NativeLibrary.GetExport(image, "byte_fault_counts");
-        BinderBehavior.Check(create(out var world).code == 0, "copy-fault world");
-        try
-        {
-            NativeWorld.AttachNativeLibrary(path, world);
-            NativeWorld.Request("transport.select", ("transport_profile", "transport_byte_limits_v1")).Dispose();
-            NativeWorld.AttachNativeByteProfile(path, world);
-            NativeWorld.Request("time.get").Dispose();
-            OversizeRequest(arm, counts);
-            for (var mode = 1; mode <= 2; mode++)
-            {
-                arm(mode);
-                var allocated = GC.GetAllocatedBytesForCurrentThread();
-                Exception? failure = null;
-                try { NativeWorld.Request("time.get").Dispose(); }
-                catch (Exception error) { failure = error; }
-                allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
-                var copied = 0; var released = 0; var requested = 0;
-                counts(&copied, &released, &requested);
-                BinderBehavior.Check(failure is not null && failure.ToString().Contains("eight MiB"), "claimed oversize rejected by managed copy bound");
-                BinderBehavior.Check(copied == 0 && released == 1 && requested == 1, "no actual copy and exactly one real retained response release");
-                BinderBehavior.Check(allocated < 1 << 20, "8MiB+1 claimed response was not allocated");
-                if (mode == 2) BinderBehavior.Check(failure is AggregateException && failure.ToString().Contains("release failed"), "primary copy budget plus release failure both preserved");
-                arm(0);
-            }
-        }
-        finally { arm(0); NativeWorld.Detach(); BinderBehavior.Check(destroy(world).code == 0, "copy-fault teardown"); }
-        Console.WriteLine("PASS injected Cdecl copy shim: claimed8MiB+1 rejected before allocation/copy; actual retained handle freed once; primary+cleanup failures retained");
+        using var world = new ReadinessWorld(path, byteProfile: true, openSession: false);
+        var fault = new FaultTransport(((NativeJsonWorld)NativeWorld.Current).Transport);
+        NativeWorld.Attach(new NativeJsonWorld(world.World, byteProfile: true, transport: fault));
+        OversizeRequest(fault);
+        for (var mode = 1; mode <= 2; mode++) VerifyCopyFault(fault, mode);
+        Console.WriteLine("PASS injected copy transport: oversize rejected before allocation/copy; real retained handle freed once; primary+cleanup failures retained");
     }
 
-    private static void OversizeRequest(delegate* unmanaged[Cdecl]<int, void> arm, delegate* unmanaged[Cdecl]<int*, int*, int*, void> counts)
+    private static void VerifyCopyFault(FaultTransport fault, int mode)
     {
-        arm(0);
+        fault.Reset(mode);
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        Exception? failure = null;
+        try { NativeWorld.Request("time.get").Dispose(); }
+        catch (Exception error) { failure = error; }
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        BinderBehavior.Check(failure is not null && failure.ToString().Contains("eight MiB"), "claimed oversize rejected by managed copy bound");
+        BinderBehavior.Check(fault.Copied == 0 && fault.Released == 1 && fault.Requested == 1, "no actual copy and exactly one real retained response release");
+        BinderBehavior.Check(allocated < 1 << 20, "8MiB+1 claimed response was not allocated");
+        if (mode == 2) BinderBehavior.Check(failure is AggregateException && failure.ToString().Contains("release failed"), "primary copy budget plus release failure both preserved");
+        fault.Reset(0);
+    }
+
+    private static void OversizeRequest(FaultTransport fault)
+    {
+        fault.Reset(0);
         using var request = JsonDocument.Parse("{\"version\":1,\"op\":\"object.create\",\"name\":\"" + new string('x', 1 << 20) + "\"}");
-        var copied = 0; var released = 0; var requested = 0;
         Exception? failure = null;
         try { NativeWorld.Current.Request(request).Dispose(); }
         catch (Exception error) { failure = error; }
-        counts(&copied, &released, &requested);
-        BinderBehavior.Check(failure is InvalidDataException && requested == 0, "oversized serialized request rejects before native dispatch");
+        BinderBehavior.Check(failure is InvalidDataException && fault.Requested == 0, "oversized serialized request rejects before native dispatch");
+    }
+
+    private sealed unsafe class FaultTransport(INativeTransport native) : INativeTransport
+    {
+        private int _mode;
+        internal int Copied { get; private set; }
+        internal int Released { get; private set; }
+        internal int Requested { get; private set; }
+        internal void Reset(int mode) { _mode = mode; Copied = Released = Requested = 0; }
+        public DisunityResult Request(ulong world, byte* bytes, nuint length, ulong* response)
+        {
+            Requested++;
+            return native.Request(world, bytes, length, response);
+        }
+        public DisunityResult Copy(ulong response, byte* bytes, nuint capacity, nuint* length)
+        {
+            if (bytes != null) Copied++;
+            if (_mode == 0) return native.Copy(response, bytes, capacity, length);
+            *length = (8 << 20) + 1;
+            return new DisunityResult { code = 2 };
+        }
+        public DisunityResult Free(ulong response)
+        {
+            Released++;
+            var result = native.Free(response);
+            BinderBehavior.Check(result.code == 0, "real retained response release");
+            return _mode == 2 ? new DisunityResult { code = -77 } : result;
+        }
     }
 }

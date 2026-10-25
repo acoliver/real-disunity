@@ -23,11 +23,11 @@ const COMPLEXITY: &[&str] = &[
 ];
 
 pub fn process(root: &Path, program: &str, args: &[&str], executable: &Path) -> Command {
-    let mut target = root.join(".work/validation");
+    let mut target = root.join("target/validation");
     // A validation-built xtask must not overwrite itself either. Use a sibling,
     // not a nested directory, so repeated launches never grow the target path.
     if executable.starts_with(&target) {
-        target = root.join(".work/validation-alt");
+        target = root.join("target/validation-alt");
     }
     let mut command = Command::new(program);
     command
@@ -199,18 +199,18 @@ mod tests {
         for bootstrap in [
             "target",
             "custom-target",
-            ".work/validation",
-            ".work/validation-alt",
+            "target/validation",
+            "target/validation-alt",
         ] {
             let executable = root.join(bootstrap).join("debug/xtask.exe");
             let args = cargo_args("build", &["--package".into(), "xtask".into()], false);
             let refs: Vec<_> = args.iter().map(String::as_str).collect();
             let command = process(&root, "cargo", &refs, &executable);
             let output = target(&command);
-            let expected = if bootstrap == ".work/validation" {
-                ".work/validation-alt"
+            let expected = if bootstrap == "target/validation" {
+                "target/validation-alt"
             } else {
-                ".work/validation"
+                "target/validation"
             };
             assert_eq!(output, root.join(expected));
             assert!(output.is_absolute());
@@ -226,7 +226,7 @@ mod tests {
     fn validation_commands_share_the_target_inherited_by_ffi_builds() {
         let root = std::env::temp_dir().join("xtask-command-planning");
         let executable = root.join("target/debug/xtask.exe");
-        let expected = root.join(".work/validation");
+        let expected = root.join("target/validation");
         for action in ["lint", "complexity", "check", "build", "test", "doc"] {
             let args = cargo_args(action, &[], false);
             let refs: Vec<_> = args.iter().map(String::as_str).collect();

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::playback::Playback;
 use serde_json::json;
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 use worldrunner::scene::viewer::{IngressOrigin, LiveDriver, LiveInputEvent, LiveInputSample};
 
 fn sample(sequence: u64, pressed: bool) -> LiveInputSample {
@@ -22,17 +22,14 @@ fn sample(sequence: u64, pressed: bool) -> LiveInputSample {
 
 #[test]
 fn actual_strict_desktop_rejects_stall_without_mutation_or_losing_a_staged_tap() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let artifacts = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
-    let mut request = request(&root, artifacts.path());
+    let installation = crate::test_support::installation();
+    let artifacts = crate::test_support::scratch("desktop-");
+    let mut request = request(artifacts.path());
     request.metadata["execution_profile"] = json!(crate::strict::PROFILE);
     request.seed = 17;
     let mut report = report();
     let mut session = None;
-    let playback = Playback::new(&root, &request, &mut report, &mut session).unwrap();
+    let playback = Playback::new(&installation, &request, &mut report, &mut session).unwrap();
     let mut driver = Desktop::new(playback).unwrap();
     driver.initialize(tick(0, vec![]).viewport).unwrap();
     driver.ingress(&sample(1, true)).unwrap();
@@ -105,19 +102,16 @@ fn reject_malformed_batch(driver: &mut Desktop<'_>) {
 #[test]
 fn common_acquisition_clock_is_explicitly_selected_only_for_strict_desktop() {
     use worldrunner::scene::viewer::LiveClock;
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let artifacts = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
+    let installation = crate::test_support::installation();
+    let artifacts = crate::test_support::scratch("desktop-");
     for strict in [false, true] {
-        let mut request = request(&root, artifacts.path());
+        let mut request = request(artifacts.path());
         if strict {
             request.metadata["execution_profile"] = json!(crate::strict::PROFILE);
         }
         let mut report = report();
         let mut session = None;
-        let playback = Playback::new(&root, &request, &mut report, &mut session).unwrap();
+        let playback = Playback::new(&installation, &request, &mut report, &mut session).unwrap();
         let driver = Desktop::new(playback).unwrap();
         let expected = if strict {
             LiveClock::Acquisition
@@ -232,12 +226,9 @@ fn check_spans(profile: worldrunner::scene::viewer::cpu_profile::CpuProfile) {
 
 #[test]
 fn elapsed_rejection_precedes_pending_timeline_load_and_invalid_input_batch() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let artifacts = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
-    let mut request = request(&root, artifacts.path());
+    let installation = crate::test_support::installation();
+    let artifacts = crate::test_support::scratch("desktop-");
+    let mut request = request(artifacts.path());
     request
         .metadata
         .as_object_mut()
@@ -246,7 +237,7 @@ fn elapsed_rejection_precedes_pending_timeline_load_and_invalid_input_batch() {
     request.metadata["execution_profile"] = json!(crate::strict::PROFILE);
     let mut report = report();
     let mut session = None;
-    let playback = Playback::new(&root, &request, &mut report, &mut session).unwrap();
+    let playback = Playback::new(&installation, &request, &mut report, &mut session).unwrap();
     let mut driver = Desktop::new(playback).unwrap();
     driver.ingress(&sample(2, true)).unwrap();
     driver.ingress(&sample(1, false)).unwrap();

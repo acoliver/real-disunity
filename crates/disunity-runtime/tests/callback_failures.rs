@@ -1,5 +1,5 @@
 #[path = "support/handshake.rs"]
-mod support;
+pub mod support;
 
 use serde_json::{Value, json};
 use worldrunner_disunity_runtime::{CompatibilityHost, ManagedHostConfig};

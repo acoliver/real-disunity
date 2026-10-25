@@ -13,6 +13,6 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
-rustix = { workspace = true, features = ["fs"] }
 
 [dev-dependencies]
+worldrunner-original-games = { path = "../original-games" }

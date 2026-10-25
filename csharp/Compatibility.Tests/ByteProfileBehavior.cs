@@ -51,7 +51,7 @@ internal static unsafe class ByteProfileBehavior
         var rejected = false;
         try { NativeWorld.AttachNativeByteProfile(path, world.World); }
         catch (InvalidDataException error) { rejected = error.Message.Contains("byte transport"); }
-        BinderBehavior.Check(rejected, "facade cannot consume unsupported or unselected native transport");
+        BinderBehavior.Check(rejected, "facade cannot consume unselected native transport");
         using var after = NativeWorld.Request("snapshot");
         BinderBehavior.Check(before.RootElement.GetRawText() == after.RootElement.GetRawText(), "failed facade opt-in is a pure query with no native mutation");
         var manifest = world.Manifest([new("probe", new GameObject("byte-unselected"), nameof(ReadinessProbe), new { })]);
@@ -60,7 +60,7 @@ internal static unsafe class ByteProfileBehavior
         BinderBehavior.Check(BridgeBehavior.Call(&ManagedBridge.LoadFixture, manifest.ToJsonString()) != 0, "byte requirement cannot activate native selection");
         BinderBehavior.Check(BridgeBehavior.LastError().Contains("byte transport"), "specific byte transport mismatch diagnosis");
         AssertNoRoots();
-        Console.WriteLine("PASS byte consumer native unselected or old unsupported image rejects before Initialize/binding");
+        Console.WriteLine("PASS byte consumer native unselected image rejects before Initialize/binding");
     }
 
     internal static void RejectMissingRequirement(string path)

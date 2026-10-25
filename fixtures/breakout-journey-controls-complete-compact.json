@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "BreakoutJourney-controls-complete-compact",
-  "source_root": ".work/games/breakout",
+  "game": "breakout",
   "profiles": [
     "compat-2017.1",
     "compat-6000.3"
@@ -9,7 +9,7 @@
   "default_profile": "compat-6000.3",
   "evidence_label": "original-source/unlit-material-translation/sprite-bounds-collision",
   "worker": {
-    "program": "{root}/.work/target/debug/compat-player",
+    "program": "{root}/target/debug/compat-player",
     "args": []
   },
   "seed": 17,
@@ -11274,6 +11274,5 @@
       "phase": "render",
       "origin": "original-source/unlit-material-translation/sprite-bounds-collision"
     }
-  ],
-  "refresh": null
+  ]
 }

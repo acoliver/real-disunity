@@ -20,7 +20,7 @@ impl Fixture {
             pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
                 .expect("actual GPU required");
         let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-        let gpu = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+        let gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
         let viewport = Viewport {
             width: 128,
             height: 64,
@@ -52,7 +52,7 @@ impl Fixture {
         self.gpu
             .set_dynamic_quads(
                 self.context.device(),
-                self.context.queue(),
+                self.context.submission(),
                 &self.pipelines,
                 quads,
             )
@@ -156,7 +156,7 @@ fn gpu_runtime_quad_rotation_scale_and_rejected_update_preserve_pixels() {
         f.gpu
             .set_dynamic_quads(
                 f.context.device(),
-                f.context.queue(),
+                f.context.submission(),
                 &f.pipelines,
                 &[DynamicQuad {
                     texture: Some(7),
@@ -175,12 +175,7 @@ fn gpu_runtime_texture_uvs_tint_and_alpha_reach_existing_readback() {
     let mut f = Fixture::new();
     let texture = quadrant_texture();
     f.gpu
-        .set_dynamic_textures(
-            f.context.device(),
-            f.context.queue(),
-            &f.pipelines,
-            &[texture],
-        )
+        .set_dynamic_textures(f.context.device(), f.context.submission(), &[texture])
         .unwrap();
     let quad = DynamicQuad {
         scale: [2.0, 1.0, 2.0],
@@ -260,7 +255,7 @@ fn gpu_invalid_dynamic_inputs_leave_resident_geometry_and_textures_unchanged() {
             f.gpu
                 .set_dynamic_quads(
                     f.context.device(),
-                    f.context.queue(),
+                    f.context.submission(),
                     &f.pipelines,
                     &[quad, invalid]
                 )
@@ -276,8 +271,7 @@ fn gpu_invalid_texture_updates_preserve_resident_texture_and_pixels() {
     f.gpu
         .set_dynamic_textures(
             f.context.device(),
-            f.context.queue(),
-            &f.pipelines,
+            f.context.submission(),
             &[quadrant_texture()],
         )
         .unwrap();
@@ -296,12 +290,7 @@ fn gpu_invalid_texture_updates_preserve_resident_texture_and_pixels() {
     };
     assert!(
         f.gpu
-            .set_dynamic_textures(
-                f.context.device(),
-                f.context.queue(),
-                &f.pipelines,
-                &[malformed]
-            )
+            .set_dynamic_textures(f.context.device(), f.context.submission(), &[malformed])
             .is_err()
     );
     assert_eq!(f.image(), before);
@@ -316,12 +305,7 @@ fn gpu_invalid_texture_updates_preserve_resident_texture_and_pixels() {
     };
     assert!(
         f.gpu
-            .set_dynamic_textures(
-                f.context.device(),
-                f.context.queue(),
-                &f.pipelines,
-                &[oversized]
-            )
+            .set_dynamic_textures(f.context.device(), f.context.submission(), &[oversized])
             .is_err()
     );
     assert_eq!(f.image(), before);
@@ -422,12 +406,7 @@ fn gpu_replacing_runtime_textures_clears_quads_and_uses_new_texels() {
         bytes: vec![0, 0, 255, 255].into(),
     };
     f.gpu
-        .set_dynamic_textures(
-            f.context.device(),
-            f.context.queue(),
-            &f.pipelines,
-            &[texture],
-        )
+        .set_dynamic_textures(f.context.device(), f.context.submission(), &[texture])
         .unwrap();
     close(pixel(&f.image(), 64, 32), [0, 0, 0, 255]);
     f.set(&[DynamicQuad {

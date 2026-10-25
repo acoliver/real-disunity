@@ -33,10 +33,7 @@ impl World {
         o
     }
     fn font(&self) {
-        let path = std::env::var("DISUNITY_TEST_FONT")
-            .unwrap_or_else(|_| "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf".into());
-        let bytes = std::fs::read(path)
-            .expect("set DISUNITY_TEST_FONT to an independently licensed TrueType font");
+        let bytes = include_bytes!("fixtures/DejaVuSans.ttf");
         self.req(
             json!({"op":"font.register","name":"default","data_base64":STANDARD.encode(bytes)}),
         );

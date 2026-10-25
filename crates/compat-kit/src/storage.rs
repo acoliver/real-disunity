@@ -1,6 +1,6 @@
 use crate::{
     files::{self, Result, io},
-    fixture, lease,
+    lease,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -13,16 +13,9 @@ use std::{
 const SOFT_LIMIT: u64 = 450_000_000_000;
 const HARD_LIMIT: u64 = 500_000_000_000;
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Kind {
-    Run,
-    Candidate,
-}
 #[derive(Deserialize, Serialize)]
 struct Owner {
     schema_version: u32,
-    kind: Kind,
     path: PathBuf,
     created_ms: u128,
 }
@@ -43,18 +36,14 @@ fn marker(root: &Path, path: &Path) -> Result<PathBuf> {
             .to_string_lossy()
     )))
 }
-pub fn allocate(root: &Path, kind: Kind) -> Result<OwnedDirectory> {
-    let base = match kind {
-        Kind::Run => files::runs_root(root)?,
-        Kind::Candidate => files::work_path(root, Path::new(".work/compat/candidates"))?,
-    };
+pub fn allocate(root: &Path) -> Result<OwnedDirectory> {
+    let base = files::runs_root(root)?;
     let path = base.join(files::unique_id());
     fs::create_dir_all(&path).map_err(io)?;
     let marker = marker(root, &path)?;
     let mut file = lease::exclusive(&marker)?.ok_or("new directory lease is busy")?;
     let owner = Owner {
         schema_version: 1,
-        kind,
         path: path.clone(),
         created_ms: files::now_ms(),
     };
@@ -63,22 +52,6 @@ pub fn allocate(root: &Path, kind: Kind) -> Result<OwnedDirectory> {
     file.sync_all().map_err(io)?;
     file.lock_shared().map_err(io)?;
     Ok(OwnedDirectory { path, _lease: file })
-}
-pub fn source_lease(root: &Path, source: &Path) -> Result<Option<File>> {
-    let marker = marker(root, source)?;
-    if !marker.exists() {
-        return Ok(None);
-    }
-    let owner: Owner = files::read_json(&marker)?;
-    if owner.path != source || owner.kind != Kind::Candidate {
-        return Ok(None);
-    }
-    let file = File::open(&marker).map_err(io)?;
-    file.lock_shared().map_err(io)?;
-    if !source.is_dir() {
-        return Err("candidate removed before source lease".into());
-    }
-    Ok(Some(file))
 }
 fn usage(root: &Path) -> Result<u64> {
     retry_measurement(|| measure(root))
@@ -113,54 +86,14 @@ fn measure(root: &Path) -> Result<u64> {
         .parse()
         .map_err(io)
 }
-fn protected(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-    if root.join("fixtures").exists() {
-        for config in fixture::catalog(root)? {
-            let source = if config.source_root.is_absolute() {
-                config.source_root.clone()
-            } else {
-                root.join(&config.source_root)
-            };
-            paths.push(source);
-        }
-    }
-    let locks = files::work_path(root, Path::new(".work/compat/locks"))?;
-    if locks.exists() {
-        for entry in fs::read_dir(locks).map_err(io)? {
-            let path = entry.map_err(io)?.path();
-            if path.extension().is_some_and(|ext| ext == "json") {
-                let value: serde_json::Value = files::read_json(&path)?;
-                paths.push(PathBuf::from(
-                    value["source_root"]
-                        .as_str()
-                        .ok_or("invalid source lock during pruning")?,
-                ));
-            }
-        }
-    }
-    Ok(paths)
-}
 fn eligible(root: &Path, owner: &Owner) -> Result<bool> {
     if owner.schema_version != 1 {
         return Ok(false);
     }
     let path = files::work_path(root, &owner.path)?;
-    let base = match owner.kind {
-        Kind::Run => files::runs_root(root)?,
-        Kind::Candidate => files::work_path(root, Path::new(".work/compat/candidates"))?,
-    };
+    let base = files::runs_root(root)?;
     if path.parent() != Some(base.as_path()) || !path.is_dir() {
         return Ok(false);
-    }
-    let path = path.canonicalize().map_err(io)?;
-    for source in protected(root)? {
-        if source
-            .canonicalize()
-            .is_ok_and(|source| source.starts_with(&path))
-        {
-            return Ok(false);
-        }
     }
     // Reject the entire tree if any symlink or special file is encountered.
     files::tree_files(&path, u64::MAX, 1_000_000)?;

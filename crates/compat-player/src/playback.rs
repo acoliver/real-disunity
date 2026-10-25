@@ -12,7 +12,7 @@ use std::path::{Component, Path};
 use worldrunner::scene::gpu::{Viewport, offscreen::RgbaImage};
 
 pub(crate) struct Playback<'a> {
-    pub root: &'a Path,
+    pub installation: &'a crate::Installation,
     pub request: &'a RunRequest,
     pub report: &'a mut WorkerReport,
     pub session: &'a mut Option<Session>,
@@ -27,7 +27,7 @@ pub(crate) struct Playback<'a> {
 }
 impl<'a> Playback<'a> {
     pub fn new(
-        root: &'a Path,
+        installation: &'a crate::Installation,
         request: &'a RunRequest,
         report: &'a mut WorkerReport,
         session: &'a mut Option<Session>,
@@ -39,7 +39,7 @@ impl<'a> Playback<'a> {
                 .map_err(|error| error.to_string())?
         };
         Ok(Self {
-            root,
+            installation,
             request,
             report,
             session,
@@ -84,7 +84,7 @@ impl<'a> Playback<'a> {
                 if self.session.is_some() {
                     return Err("timeline loaded an already loaded session".into());
                 }
-                *self.session = Some(Session::prepare(self.root, self.request)?);
+                *self.session = Some(Session::prepare(self.installation, self.request)?);
                 self.active()?.load()?;
             }
             "input" => {
@@ -206,7 +206,7 @@ impl<'a> Playback<'a> {
             &self.request.artifact_root,
             [snapshot_done, layout_done, extract_done, start.elapsed()],
             contribution.quads.len(),
-            std::env::var_os("COMPAT_PROFILE_EXTRACTION").is_some(),
+            profiling(self.request, "extraction"),
         )?;
         Ok(contribution)
     }
@@ -227,6 +227,13 @@ impl<'a> Playback<'a> {
         Ok(())
     }
 }
+/// Fixture metadata `profile.<stage>: true` enables per-frame timing logs for that stage.
+pub(crate) fn profiling(request: &RunRequest, stage: &str) -> bool {
+    request.metadata["profile"][stage]
+        .as_bool()
+        .unwrap_or(false)
+}
+
 pub(crate) fn profile_extraction(
     root: &Path,
     times: [std::time::Duration; 4],

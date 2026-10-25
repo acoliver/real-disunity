@@ -1,12 +1,9 @@
-use crate::{Session, playback::Playback};
+use crate::{Installation, Session, playback::Playback};
 use compat_kit::{
     RunRequest, WorkerReport,
     model::{Diagnostic, Status, Teardown},
 };
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-};
+use std::{env, fs, path::PathBuf};
 
 pub fn run_worker() -> Result<(), String> {
     let root = variable("COMPAT_ROOT")?;
@@ -15,7 +12,7 @@ pub fn run_worker() -> Result<(), String> {
     let request: RunRequest =
         serde_json::from_slice(&fs::read(request_path).map_err(|error| error.to_string())?)
             .map_err(|error| error.to_string())?;
-    let report = run_request(&root, &request);
+    let report = run_request(&Installation::beside_executable(root)?, &request);
     fs::write(
         response_path,
         serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
@@ -28,7 +25,7 @@ fn variable(name: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("missing {name}"))
 }
 
-pub fn run_request(root: &Path, request: &RunRequest) -> WorkerReport {
+pub fn run_request(installation: &Installation, request: &RunRequest) -> WorkerReport {
     let mut report = WorkerReport {
         schema_version: 1,
         evidence_label: request.metadata["evidence_label"]
@@ -46,7 +43,7 @@ pub fn run_request(root: &Path, request: &RunRequest) -> WorkerReport {
         },
     };
     let mut session = None;
-    if let Err(error) = execute(root, request, &mut report, &mut session) {
+    if let Err(error) = execute(installation, request, &mut report, &mut session) {
         diagnostic(&mut report, error);
     }
     finish(&mut report, session);
@@ -73,7 +70,7 @@ fn teardown(session: &mut Session) -> Result<(u64, u64), String> {
     Ok((worlds, session.managed_roots()?))
 }
 fn execute(
-    root: &Path,
+    installation: &Installation,
     request: &RunRequest,
     report: &mut WorkerReport,
     session: &mut Option<Session>,
@@ -83,7 +80,7 @@ fn execute(
     }
     crate::strict::admit(request)?;
     crate::interactive::Config::admit(request)?;
-    let mut playback = Playback::new(root, request, report, session)?;
+    let mut playback = Playback::new(installation, request, report, session)?;
     if request.desktop {
         return crate::desktop::run(playback);
     }
@@ -106,27 +103,11 @@ mod callback_tests {
     #[test]
     fn actual_worker_finalization_rejects_unconsumed_callback_failures() {
         // CoreCLR retains its configured provider for the lifetime of the process.
-        if std::env::var_os("DISUNITY_WORKER_CALLBACK_CHILD").is_none() {
-            let outputs = std::env::var_os("DISUNITY_TEST_OUTPUT_DIR")
-                .map_or_else(
-                    || PathBuf::from(".work/validation-handshake"),
-                    PathBuf::from,
-                )
-                .join(format!("worker-child-{}", std::process::id()));
-            let status = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "worker::callback_tests::actual_worker_finalization_rejects_unconsumed_callback_failures",
-                    "--nocapture",
-                ])
-                .env("DISUNITY_WORKER_CALLBACK_CHILD", "1")
-                .env("DISUNITY_TEST_OUTPUT_DIR", outputs)
-                .status()
-                .unwrap();
-            assert!(status.success(), "callback worker child failed: {status}");
-            return;
+        if crate::test_support::artifacts::child::isolated(
+            "worker::callback_tests::actual_worker_finalization_rejects_unconsumed_callback_failures",
+        ) {
+            check_finalization();
         }
-        check_finalization();
     }
 
     fn check_finalization() {

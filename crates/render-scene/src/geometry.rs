@@ -27,16 +27,12 @@
 //! its own, and shipping a second matrix per instance would cost bandwidth to
 //! deliver a value already present.
 //!
-//! # Why billboard mode travels per instance
+//! # Why billboard mode travels per vertex
 //!
-//! A billboard's orientation depends on where the camera is, so it cannot be
-//! baked into the model matrix at upload time without repacking every instance
-//! buffer each frame — which would dissolve the instanced batching the draw
-//! loop is built on. The mode therefore rides along as a per-instance integer
-//! and the vertex stage derives the facing from the camera position it already
-//! holds. Every instance in a batch shares a mesh LOD and so shares this value;
-//! the four redundant bytes buy the ability to leave the pipeline layout, the
-//! bind groups and the per-draw state entirely alone.
+//! Billboard orientation is evaluated using the main camera in both colour
+//! and shadow passes. The authored policy belongs to a mesh level, so storing
+//! it with that level's vertices lets LOD selection change policy without
+//! rewriting retained instance transforms.
 
 use glam::{Mat4, Quat, Vec3};
 use thiserror::Error;
@@ -49,15 +45,15 @@ const MILLIMETERS_PER_METER: f64 = 1_000.0;
 const MICRO_SCALE: f64 = 1_000_000.0;
 
 /// Bytes occupied by one packed vertex, as a buffer length.
-pub(crate) const VERTEX_BYTES: usize = 32;
+pub(crate) const VERTEX_BYTES: usize = 36;
 
 /// Bytes occupied by one packed instance, as a buffer length.
-const INSTANCE_BYTES: usize = 68;
+pub(crate) const INSTANCE_BYTES: usize = 64;
 
-/// Bytes occupied by one packed vertex: position, normal, texture coordinate.
+/// Bytes occupied by one packed vertex: position, normal, UV and billboard mode.
 pub const VERTEX_STRIDE: u64 = VERTEX_BYTES as u64;
 
-/// Bytes occupied by one packed instance: a column-major `mat4`, then a mode.
+/// Bytes occupied by one packed instance: a column-major `mat4`.
 pub const INSTANCE_STRIDE: u64 = INSTANCE_BYTES as u64;
 
 /// Billboard mode for geometry drawn exactly as authored.
@@ -100,6 +96,7 @@ pub fn pack_vertices(lod: &SceneMeshLod) -> Result<Vec<u8>, GeometryError> {
     let mut bytes = Vec::with_capacity(vertices.len() * VERTEX_BYTES);
     for (index, vertex) in vertices.iter().enumerate() {
         pack_vertex(vertex, index, &mut bytes)?;
+        bytes.extend_from_slice(&billboard_mode(lod.billboard()).to_le_bytes());
     }
     Ok(bytes)
 }
@@ -167,20 +164,19 @@ pub fn model_matrix(transform: &SceneTransform) -> Mat4 {
     )
 }
 
-/// Packs a model matrix and billboard mode into instance bytes.
+/// Packs a model matrix into instance bytes.
 ///
-/// The matrix is column-major; the mode follows it as a single `u32`.
+/// The matrix is column-major.
 #[must_use]
-pub fn pack_instance(transform: &SceneTransform, billboard: Option<BillboardPolicy>) -> Vec<u8> {
-    pack_model_instance(model_matrix(transform), billboard_mode(billboard))
+pub fn pack_instance(transform: &SceneTransform) -> Vec<u8> {
+    pack_model_instance(model_matrix(transform))
 }
 
-pub(crate) fn pack_model_instance(matrix: Mat4, mode: u32) -> Vec<u8> {
+pub(crate) fn pack_model_instance(matrix: Mat4) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(INSTANCE_BYTES);
     for column in matrix.to_cols_array() {
         push_f32(&mut bytes, column);
     }
-    bytes.extend_from_slice(&mode.to_le_bytes());
     bytes
 }
 
@@ -200,7 +196,7 @@ pub const fn billboard_mode(billboard: Option<BillboardPolicy>) -> u32 {
 
 /// Describes the packed vertex layout to `wgpu`.
 #[must_use]
-pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 3] {
+pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
     [
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x3,
@@ -217,12 +213,17 @@ pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 3] {
             offset: 24,
             shader_location: 2,
         },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Uint32,
+            offset: 32,
+            shader_location: 8,
+        },
     ]
 }
 
 /// Describes the packed instance layout to `wgpu`.
 #[must_use]
-pub const fn instance_attributes() -> [wgpu::VertexAttribute; 5] {
+pub const fn instance_attributes() -> [wgpu::VertexAttribute; 4] {
     [
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x4,
@@ -243,11 +244,6 @@ pub const fn instance_attributes() -> [wgpu::VertexAttribute; 5] {
             format: wgpu::VertexFormat::Float32x4,
             offset: 48,
             shader_location: 6,
-        },
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Uint32,
-            offset: 64,
-            shader_location: 7,
         },
     ]
 }

@@ -1,27 +1,16 @@
 use compat_kit::RunRequest;
-use compat_player::run_request;
+use compat_player::{Installation, run_request};
 use serde_json::json;
-use std::path::Path;
+
+#[path = "../src/test_support.rs"]
+pub mod support;
 
 #[test]
 fn unchanged_snake_scene_binds_and_updates_native_objects_then_reloads() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let source = root.join(".work/games/snake");
-    let state = compat_kit::fixture::inspect(&source).unwrap();
-    assert_eq!(
-        state.scripts.len(),
-        8,
-        "all original scripts must participate in this test"
-    );
-    let artifacts = tempfile::Builder::new()
-        .prefix("snake-live-")
-        .tempdir_in(root.join(".work/tmp"))
-        .unwrap();
-    let request = request(&root, artifacts.path(), state.scripts);
-    let report = run_request(&root, &request);
+    let installation = support::installation();
+    let artifacts = support::scratch("snake-live-");
+    let request = request(&installation, artifacts.path());
+    let report = run_request(&installation, &request);
     assert!(
         report.diagnostics.is_empty(),
         "{}",
@@ -53,21 +42,25 @@ fn unchanged_snake_scene_binds_and_updates_native_objects_then_reloads() {
     assert!(report.teardown.completed);
     assert_eq!(report.teardown.native_worlds, 0);
     assert_eq!(report.teardown.managed_roots, 0);
-    sequential_sessions(&root, &request, artifacts);
-    failed_binding_is_observed_after_cleanup(&root, request);
+    sequential_sessions(&installation, &request, artifacts);
+    failed_binding_is_observed_after_cleanup(&installation, request);
 }
 
-fn sequential_sessions(root: &Path, previous: &RunRequest, artifacts: tempfile::TempDir) {
-    sequential_session_uses_the_same_process_image(root, previous, artifacts.path());
+fn sequential_sessions(
+    installation: &Installation,
+    previous: &RunRequest,
+    artifacts: tempfile::TempDir,
+) {
+    sequential_session_uses_the_same_process_image(installation, previous, artifacts.path());
     drop(artifacts);
-    let distinct = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
-    sequential_session_uses_the_same_process_image(root, previous, distinct.path());
+    let distinct = support::scratch("snake-sequential-");
+    sequential_session_uses_the_same_process_image(installation, previous, distinct.path());
 }
 
 fn sequential_session_uses_the_same_process_image(
-    root: &Path,
+    installation: &Installation,
     previous: &RunRequest,
-    artifacts: &Path,
+    artifacts: &std::path::Path,
 ) {
     let mut request = previous.clone();
     request.artifact_root = artifacts.into();
@@ -77,7 +70,7 @@ fn sequential_session_uses_the_same_process_image(
         json!({"frame":1,"phase":"observe","action":"observe","selector":"world.snapshot"}),
         json!({"frame":2,"phase":"unload","action":"unload"}),
     ];
-    let report = run_request(root, &request);
+    let report = run_request(installation, &request);
     assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
     assert_eq!(report.observations.len(), 1);
     assert!(report.teardown.completed);
@@ -85,11 +78,8 @@ fn sequential_session_uses_the_same_process_image(
     assert_eq!(report.teardown.managed_roots, 0);
 }
 
-fn request(
-    root: &Path,
-    artifacts: &Path,
-    scripts: std::collections::BTreeMap<String, String>,
-) -> RunRequest {
+fn request(installation: &Installation, artifacts: &std::path::Path) -> RunRequest {
+    let root = installation.root();
     RunRequest {
         schema_version: 1,
         run_id: "snake-integration".into(),
@@ -97,8 +87,8 @@ fn request(
         profile: "compat-6000.3".into(),
         desktop: false,
         seed: 17,
-        source_root: root.join(".work/games/snake"),
-        source_hashes: scripts,
+        source_root: worldrunner_original_games::checkout(worldrunner_original_games::Game::Snake)
+            .unwrap(),
         artifact_root: artifacts.into(),
         assertions: vec![],
         metadata: json!({"scene":"Assets/Scenes/GameScene.unity","script_count":8,
@@ -119,13 +109,13 @@ fn request(
     }
 }
 
-fn failed_binding_is_observed_after_cleanup(root: &Path, mut request: RunRequest) {
-    let artifacts = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
+fn failed_binding_is_observed_after_cleanup(installation: &Installation, mut request: RunRequest) {
+    let artifacts = support::scratch("snake-binding-");
     request.artifact_root = artifacts.path().into();
     request.metadata["managed_profile"] =
         json!({"field_aliases":{"GameLoop.config":"missing_config_field"}});
     request.timeline = vec![json!({"frame":0,"phase":"load","action":"load"})];
-    let report = run_request(root, &request);
+    let report = run_request(installation, &request);
     assert!(
         report.diagnostics.iter().any(|entry| entry
             .message
@@ -140,13 +130,13 @@ fn failed_binding_is_observed_after_cleanup(root: &Path, mut request: RunRequest
     assert_eq!(report.teardown.native_worlds, 0);
     assert_eq!(report.teardown.managed_roots, 0);
     assert!(report.captures.is_empty());
-    failed_public_open_releases_partial_world(root, request);
+    failed_public_open_releases_partial_world(installation, request);
 }
 
-fn failed_public_open_releases_partial_world(root: &Path, mut request: RunRequest) {
-    assert!(compat_player::Session::open(root, &request).is_err());
+fn failed_public_open_releases_partial_world(installation: &Installation, mut request: RunRequest) {
+    assert!(compat_player::Session::open(installation, &request).is_err());
     request.metadata["managed_profile"] = json!({});
-    let mut session = compat_player::Session::open(root, &request).unwrap();
+    let mut session = compat_player::Session::open(installation, &request).unwrap();
     assert_eq!(
         session.statistics().unwrap().0,
         1,

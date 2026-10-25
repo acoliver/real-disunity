@@ -1,3 +1,4 @@
+mod checked;
 use std::sync::{Arc, OnceLock};
 
 use crate::{
@@ -23,17 +24,30 @@ impl CopyOutput {
             resources: validate_output(device, format).map(|()| Arc::new(OnceLock::new())),
         }
     }
-
-    /// Deterministic sRGB8 output from linear f32 composition. Encode to an
-    /// [`ExactSrgb8::write_view`](crate::ExactSrgb8::write_view) or an externally
-    /// allocated `Rgba8Unorm` view.
-    /// Validation rejects already-quantized input and missing blend support.
+    /// Deterministic sRGB8 output from linear single-sample f32 composition.
+    /// Supply an `ExactSrgb8::write_view` or an `Rgba8Unorm` output view.
     pub fn exact_srgb8(device: &wgpu::Device) -> Self {
         Self {
             format: ExactSrgb8::WRITE_FORMAT,
             exact: true,
             resources: ExactSrgb8::frame_config(device, [1, 1]).map(|_| Arc::new(OnceLock::new())),
         }
+    }
+
+    /// Validate source and destination before allocating targets or pipeline storage.
+    pub fn validate_config(
+        &self,
+        device: &wgpu::Device,
+        config: crate::FrameConfig,
+    ) -> Result<(), PostError> {
+        self.resources.as_ref().map_err(Clone::clone)?;
+        if self.exact && (config.format != ExactSrgb8::WORKING_FORMAT || config.samples != 1) {
+            return Err(PostError::ExactCompositionFormat);
+        }
+        if !is_float(config.format, device.features()) {
+            return Err(PostError::CopySourceFormat(config.format));
+        }
+        Ok(())
     }
 }
 
@@ -109,6 +123,13 @@ fn is_float(format: wgpu::TextureFormat, features: wgpu::Features) -> bool {
 }
 
 impl StageFactory for CopyOutput {
+    fn validate_config(
+        &self,
+        device: &wgpu::Device,
+        config: crate::FrameConfig,
+    ) -> Result<(), PostError> {
+        Self::validate_config(self, device, config)
+    }
     fn build(
         &self,
         device: &wgpu::Device,
@@ -116,13 +137,7 @@ impl StageFactory for CopyOutput {
         _: &Resources,
     ) -> Result<StageSet, PostError> {
         let resources = self.resources.as_ref().map_err(Clone::clone)?;
-        let format = targets.config().format;
-        if self.exact && (format != ExactSrgb8::WORKING_FORMAT || targets.config().samples != 1) {
-            return Err(PostError::ExactCompositionFormat);
-        }
-        if !is_float(format, device.features()) {
-            return Err(PostError::CopySourceFormat(format));
-        }
+        self.validate_config(device, targets.config())?;
         // Validate both formats before allocation; clones and resizes reuse the pipeline.
         let resources =
             resources.get_or_init(|| CopyResources::new(device, self.format, self.exact));
@@ -136,7 +151,7 @@ impl StageFactory for CopyOutput {
         });
         Ok(StageSet {
             stages: vec![Stage::fullscreen(
-                "post copy output",
+                crate::StageId::new("post copy output", 0),
                 &resources.pipeline,
                 &[&group],
                 StageTarget::Output,

@@ -1,7 +1,9 @@
+#[path = "../support/resident.rs"]
+mod resident;
 use super::{
+    capture::Capture,
     extraction::{Extraction, hash},
     native::{Fixture, Session},
-    receipt::{ViewReceipt, provenance},
     stage::{FORMAT, Factory},
     store,
     view::{Target, canonical_position},
@@ -35,7 +37,7 @@ impl<'a> Renderer<'a> {
         )
         .unwrap();
         let pipelines = ScenePipelines::new(context.device(), FORMAT);
-        let scene = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+        let scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
         let textures = CanonicalTextureStore::new(context.device(), context.queue());
         Self {
             context,
@@ -53,13 +55,13 @@ impl<'a> Renderer<'a> {
         session: &Session,
         source: &Extraction,
         object: u64,
-    ) -> Result<ViewReceipt, String> {
+    ) -> Result<Capture, String> {
         source.validate(fixture, session, true)?;
         let position = canonical_position(source.position(object)?);
         self.scene
             .set_dynamic_quads(
                 self.context.device(),
-                self.context.queue(),
+                self.context.submission(),
                 &self.pipelines,
                 &[DynamicQuad {
                     position,
@@ -70,10 +72,10 @@ impl<'a> Renderer<'a> {
             )
             .map_err(|error| error.to_string())?;
         let resolved_view = self.target.resolve();
-        let view = SceneView::from_resolved(resolved_view);
+        let view = SceneView::from_resolved(resolved_view, [0, -10_000, 0]);
         self.scene
             .set_frame(self.context.queue(), FrameUniform::unlit(&view));
-        let (pixels, submission) = self.render(&view);
+        let pixels = self.render(&view);
         source.validate(fixture, session, true)?;
         let gpu_completion_hash = hash(&pixels);
         let id = format!(
@@ -82,11 +84,7 @@ impl<'a> Renderer<'a> {
         );
         let retained_texture =
             store::retain(&mut self.textures, self.target.viewport, &id, &pixels);
-        let mut provenance = provenance();
-        provenance["gpu_submission"] = serde_json::json!(submission);
-        provenance["adapter"] =
-            serde_json::json!(format!("{:?}", self.context.adapter().get_info()));
-        Ok(ViewReceipt {
+        Ok(Capture {
             stamp: source.stamp.clone(),
             captured_snapshot: source.captured_value()["snapshot"].clone(),
             resolved_view,
@@ -94,13 +92,12 @@ impl<'a> Renderer<'a> {
             captured_format: FORMAT,
             texture_revision: source.stamp.content_revision,
             gpu_completion_hash,
-            provenance,
             pixels,
             retained_texture,
         })
     }
 
-    fn render(&mut self, view: &SceneView) -> (Vec<u8>, String) {
+    fn render(&mut self, view: &SceneView) -> Vec<u8> {
         let context = self.context;
         let size = self.target.viewport;
         self.chain.resize(context.device(), size).unwrap();
@@ -111,65 +108,32 @@ impl<'a> Renderer<'a> {
             size,
             FORMAT,
         );
-        let mut encoder = context
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        draw(
-            &mut encoder,
-            self.chain.targets().scene(),
-            depth.depth_view(),
-            &self.scene,
-            &self.pipelines,
-        );
-        self.chain.encode(
-            &mut encoder,
-            &output.create_view(&wgpu::TextureViewDescriptor::default()),
-        );
         let mut readback = post::Readback::new(
             context.device(),
             post::FrameConfig::new(size, FORMAT, 1),
             1_048_576,
         )
         .unwrap();
-        readback.encode(&mut encoder, &output).unwrap();
-        let submission = context.queue().submit([encoder.finish()]);
-        let submission_identity = format!("{submission:?}");
-        (
-            readback
-                .read_encoded(context.device(), Some(submission))
-                .unwrap(),
-            submission_identity,
-        )
+        let prepared = context
+            .submission()
+            .prepare(context.device(), |encoder, _| {
+                resident::encode(
+                    context.device(),
+                    encoder,
+                    (&self.scene, &self.pipelines),
+                    (self.chain.targets().scene(), depth.depth_view()),
+                )
+                .unwrap();
+                self.chain.encode(
+                    encoder,
+                    &output.create_view(&wgpu::TextureViewDescriptor::default()),
+                );
+                readback.encode(encoder, &output)
+            })
+            .unwrap();
+        let submission = prepared.submit().unwrap();
+        readback
+            .read_encoded(context.device(), Some(submission))
+            .unwrap()
     }
-}
-
-fn draw(
-    encoder: &mut wgpu::CommandEncoder,
-    color: &wgpu::TextureView,
-    depth: &wgpu::TextureView,
-    scene: &SceneGpu,
-    pipelines: &ScenePipelines,
-) {
-    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("native snapshot canonical scene"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: color,
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            view: depth,
-            depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(1.0),
-                store: wgpu::StoreOp::Store,
-            }),
-            stencil_ops: None,
-        }),
-        ..Default::default()
-    });
-    scene.draw(&mut pass, pipelines);
 }

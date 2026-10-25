@@ -6,8 +6,7 @@ use std::fs;
 fn worker_storage_cap_includes_hidden_directories_and_discards_oversized_outputs() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
-    fs::create_dir_all(root.path().join(".work/source")).unwrap();
-    let data = json!({"schema_version":1,"name":"storage","source_root":".work/source","profiles":["test"],"default_profile":"test","evidence_label":"harness-only",
+    let data = json!({"schema_version":1,"name":"storage","game":"snake","profiles":["test"],"default_profile":"test","evidence_label":"harness-only",
         "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":["storage"]},
         "limits":{"deadline_ms":2000,"log_bytes":1024,"artifact_bytes":1_048_576,"capture_count":4},
         "assertions":[{"op":"equal","selector":"counter","value":{"count":7}}]});

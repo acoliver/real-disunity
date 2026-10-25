@@ -7,7 +7,7 @@ fn live_scan_restarts_after_real_entry_disappears_before_metadata() {
     let removed = root.path().join("temporary");
     fs::write(&removed, "x").unwrap();
     let mut first = true;
-    let paths = scanner(root.path(), 10, 10, false, |path| {
+    let paths = scanner(root.path(), 10, 10, |path| {
         if first {
             first = false;
             fs::remove_file(path).unwrap();
@@ -24,7 +24,7 @@ fn strict_scan_rejects_real_disappearance_with_path_and_operation() {
     let root = tempfile::tempdir().unwrap();
     let removed = root.path().join("temporary");
     fs::write(&removed, "x").unwrap();
-    let error = scanner(root.path(), 10, 10, false, |path| {
+    let error = scanner(root.path(), 10, 10, |path| {
         fs::remove_file(path).unwrap();
     })
     .once()
@@ -40,7 +40,7 @@ fn continuously_disappearing_entries_exhaust_exactly_three_scans() {
     let target = root.path().join("temporary");
     fs::write(&target, "x").unwrap();
     let mut attempts = 0;
-    let error = scanner(root.path(), 10, 10, false, |path| {
+    let error = scanner(root.path(), 10, 10, |path| {
         attempts += 1;
         fs::remove_file(path).unwrap();
         fs::write(root.path().join(format!("next-{attempts}")), "x").unwrap();
@@ -58,7 +58,7 @@ fn retry_discards_partial_counts_and_checks_hidden_files_and_caps() {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join("temporary"), "x").unwrap();
         let mut first = true;
-        let error = scanner(root.path(), bytes, files, false, |path| {
+        let error = scanner(root.path(), bytes, files, |path| {
             if first {
                 first = false;
                 fs::remove_file(path).unwrap();
@@ -70,7 +70,7 @@ fn retry_discards_partial_counts_and_checks_hidden_files_and_caps() {
         assert!(matches!(
             error,
             ScanError::Rejected {
-                reason: "artifact/source storage cap exceeded",
+                reason: "artifact storage cap exceeded",
                 ..
             }
         ));
@@ -82,7 +82,7 @@ fn retry_never_accepts_a_symlink_replacement() {
     let root = tempfile::tempdir().unwrap();
     fs::write(root.path().join("temporary"), "x").unwrap();
     let mut first = true;
-    let error = scanner(root.path(), 10, 10, false, |path| {
+    let error = scanner(root.path(), 10, 10, |path| {
         if first {
             first = false;
             fs::remove_file(path).unwrap();
@@ -106,7 +106,7 @@ fn root_disappearance_or_symlink_is_always_fatal() {
     let directory = root.path().join("scan");
     fs::create_dir(&directory).unwrap();
     fs::write(directory.join("temporary"), "x").unwrap();
-    let error = scanner(&directory, 10, 10, false, |path| {
+    let error = scanner(&directory, 10, 10, |path| {
         fs::remove_file(path).unwrap();
         fs::remove_dir(&directory).unwrap();
     })
@@ -121,7 +121,7 @@ fn root_disappearance_or_symlink_is_always_fatal() {
     ));
     symlink(root.path(), &directory).unwrap();
     assert!(live_tree_files(&directory, 10, 10).is_err());
-    assert!(scan(&directory, 10, 10, false).is_err());
+    assert!(scan(&directory, 10, 10).is_err());
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn special_files_and_budget_fail_without_a_retry() {
     let root = tempfile::tempdir().unwrap();
     let socket = std::os::unix::net::UnixListener::bind(root.path().join("socket")).unwrap();
     let mut calls = 0;
-    let error = scanner(root.path(), 10, 10, false, |_| {
+    let error = scanner(root.path(), 10, 10, |_| {
         calls += 1;
     })
     .live()
@@ -137,7 +137,7 @@ fn special_files_and_budget_fail_without_a_retry() {
     assert!(matches!(
         error,
         ScanError::Rejected {
-            reason: "nonregular artifact/source rejected",
+            reason: "nonregular artifact rejected",
             ..
         }
     ));
@@ -151,7 +151,7 @@ fn retry_resets_partial_byte_and_file_counts_before_acceptance() {
     fs::write(root.path().join("a"), "aa").unwrap();
     fs::write(root.path().join("b"), "bb").unwrap();
     let mut calls = 0;
-    let paths = scanner(root.path(), 4, 2, false, |path| {
+    let paths = scanner(root.path(), 4, 2, |path| {
         calls += 1;
         if calls == 2 {
             fs::remove_file(path).unwrap();
@@ -178,7 +178,7 @@ fn replacing_the_root_directory_invalidates_live_and_strict_scans() {
         let directory = root.path().join("scan");
         fs::create_dir(&directory).unwrap();
         fs::write(directory.join("temporary"), "x").unwrap();
-        let mut scan = scanner(&directory, 10, 10, false, |_| {
+        let mut scan = scanner(&directory, 10, 10, |_| {
             fs::rename(&directory, root.path().join("previous")).unwrap();
             fs::create_dir(&directory).unwrap();
             fs::write(directory.join("temporary"), "x").unwrap();
@@ -200,7 +200,7 @@ fn observed_budget_excess_is_fatal_without_restart() {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join(".over-cap"), "data").unwrap();
         let mut calls = 0;
-        let error = scanner(root.path(), max_bytes, max_files, false, |_| {
+        let error = scanner(root.path(), max_bytes, max_files, |_| {
             calls += 1;
         })
         .live()
@@ -208,7 +208,7 @@ fn observed_budget_excess_is_fatal_without_restart() {
         assert!(matches!(
             error,
             ScanError::Rejected {
-                reason: "artifact/source storage cap exceeded",
+                reason: "artifact storage cap exceeded",
                 ..
             }
         ));

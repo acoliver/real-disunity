@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 [assembly: InternalsVisibleTo("CompatibilityBridge")]
+[assembly: InternalsVisibleTo("Compatibility.Tests")]
 
 namespace UnityEngine;
 

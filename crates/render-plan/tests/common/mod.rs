@@ -80,7 +80,7 @@ fn environment() -> Value {
 
 fn effects() -> Value {
     json!({
-        "water": {
+        "water": { "height_millimeters": 0, "color_micro": [50000,200_000,250_000], "absorption_micro": [300_000,100_000,50000], "roughness_micro": 200_000,
             "asset_uri": "synthetic:element/water-surface",
             "east_min_millimeters": -1000,
             "north_min_millimeters": -1000,
@@ -89,7 +89,7 @@ fn effects() -> Value {
         },
         "sky": { "asset_uri": "synthetic:element/sky-dome" },
         "sun": {
-            "direction": { "x": 0, "y": 0, "z": 0, "w": 1_000_000 },
+            "direction": [0, 0, 1_000_000],
             "irradiance_micro": 1_250_000,
         },
         "ambient": { "irradiance_micro": 300_000 },
@@ -101,6 +101,8 @@ fn effects() -> Value {
             "blend_band_micro": 10_000,
         },
         "ssao": {
+            "sample_count": 16,
+            "bias_millimeters": 10,
             "radius_millimeters": 750,
             "intensity_micro": 1_000_000,
             "horizon_angle_millidegrees": 90_000,
@@ -189,8 +191,8 @@ fn assets() -> Value {
 /// One minimal fully valid authored render contract.
 pub fn valid_contract() -> Value {
     json!({
-        "schema": "real-disunity.render-contract.v1",
-        "schema_version": 1,
+        "schema": "real-disunity.render-contract.v4",
+        "schema_version": 4,
         "contract_id": "synthetic-contract-alpha",
         "basis": basis(),
         "scene": { "meshes": [

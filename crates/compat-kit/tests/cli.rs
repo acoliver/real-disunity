@@ -6,14 +6,8 @@ use tempfile::TempDir;
 fn setup(mode: &str) -> TempDir {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join("fixtures")).unwrap();
-    fs::create_dir_all(dir.path().join(".work/source/Assets")).unwrap();
-    fs::write(
-        dir.path().join(".work/source/Assets/Original.cs"),
-        "class Original {}\n",
-    )
-    .unwrap();
     let fixture = json!({
-        "schema_version": 1, "name": "harness-only", "source_root": ".work/source",
+        "schema_version": 1, "name": "harness-only", "game": "snake",
         "profiles": ["test"], "default_profile": "test", "evidence_label": "harness-only",
         "worker": {"program": env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"), "args": [mode]},
         "limits": {"deadline_ms": 350, "log_bytes": 1024, "artifact_bytes": 1_048_576, "capture_count": 4},
@@ -43,6 +37,44 @@ fn run(root: &Path) -> Value {
         String::from_utf8_lossy(&out.stderr)
     );
     serde_json::from_slice(&out.stdout).unwrap()
+}
+
+#[test]
+fn removed_source_refresh_command_is_rejected() {
+    let root = setup("pass");
+    let output = cli(root.path(), &["fixture", "refresh", "harness-only"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!root.path().join(".work").exists());
+}
+
+#[test]
+fn source_resolution_failure_is_blocked_before_starting_a_worker() {
+    let root = setup("pass");
+    let mut fixture = compat_kit::fixture::load(root.path(), "harness-only").unwrap();
+    fixture.game = "unknown".into();
+    let record = compat_kit::runner::run(
+        root.path(),
+        &fixture,
+        None,
+        false,
+        &compat_kit::RunControl::default(),
+    )
+    .unwrap();
+    assert_eq!(record.status, Status::Blocked);
+    assert!(record.worker.is_none());
+    assert!(
+        record
+            .messages
+            .iter()
+            .any(|m| m.contains("unknown original game"))
+    );
+    assert!(
+        !root
+            .path()
+            .join(record.run_dir)
+            .join("request.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -85,7 +117,6 @@ fn harness_only_worker_failures_have_distinct_outcomes() {
         ("missing-image", "error", "capture"),
         ("bad-image", "error", "PNG"),
         ("leak", "error", "teardown"),
-        ("source-drift", "fail", "source"),
     ] {
         let root = setup(mode);
         let result = run(root.path());
@@ -153,23 +184,20 @@ fn bounded_logs_and_actual_image_dashboard_with_no_record_cells() {
 }
 
 #[test]
-fn editable_current_source_is_hashed_without_freezing_and_report_paths_are_checked() {
+fn pinned_checkout_is_sent_without_source_hashes_and_report_paths_are_checked() {
     let root = setup("pass");
-    let source = root.path().join(".work/source/Assets/Original.cs");
-    let first = run(root.path());
-    fs::write(&source, "class Edited {}\n").unwrap();
-    let second = run(root.path());
-    assert_eq!(second["status"], "pass");
-    assert_ne!(
-        first["source_before"]["scripts"],
-        second["source_before"]["scripts"]
-    );
-    assert_eq!(second["source_before"], second["source_after"]);
-    let directory = root.path().join(second["run_dir"].as_str().unwrap());
+    let result = run(root.path());
+    assert_eq!(result["status"], "pass");
+    let directory = root.path().join(result["run_dir"].as_str().unwrap());
     let request: Value =
         serde_json::from_slice(&fs::read(directory.join("request.json")).unwrap()).unwrap();
-    assert_eq!(request["source_hashes"], second["source_before"]["scripts"]);
-    let mut forged = second;
+    let source =
+        worldrunner_original_games::checkout(worldrunner_original_games::Game::Snake).unwrap();
+    assert_eq!(request["source_root"], source.to_str().unwrap());
+    assert!(request.get("source_hashes").is_none());
+    assert!(result.get("source_before").is_none());
+    assert!(result["reporting"].get("identities").is_none());
+    let mut forged = result;
     forged["run_id"] = json!("../other-result");
     fs::write(
         directory.join("run.json"),
@@ -177,7 +205,7 @@ fn editable_current_source_is_hashed_without_freezing_and_report_paths_are_check
     )
     .unwrap();
     let (records, errors) = compat_kit::dashboard::records(root.path()).unwrap();
-    assert_eq!(records.len(), 1);
+    assert!(records.is_empty());
     assert!(
         errors.iter().any(|e| e.contains("report identity")),
         "{errors:?}"
@@ -248,10 +276,7 @@ fn nine_status_worker_protocol_preserves_outcomes_and_failure_dominance() {
         let result = run(root.path());
         assert_eq!(result["status"], canonical, "diagnostic {wire}: {result}");
     }
-    assert_eq!(
-        serde_json::from_str::<Status>("\"not_implemented\"").unwrap(),
-        Status::NotImplemented
-    );
+    assert!(serde_json::from_str::<Status>("\"not_implemented\"").is_err());
 }
 
 #[test]

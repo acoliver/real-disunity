@@ -69,7 +69,7 @@ fn colored_terrain(reversed: bool, blur_radius_millimeters: u32) -> RenderScene 
             })
             .unwrap(),
         ),
-        effects: effects(),
+        effects: Some(effects()),
     })
     .unwrap()
 }

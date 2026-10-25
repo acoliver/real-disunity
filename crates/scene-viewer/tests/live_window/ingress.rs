@@ -9,8 +9,8 @@ use worldrunner_scene_viewer::{
     LiveReceipt, LiveTick, run_live,
 };
 
-#[path = "ingress/evidence.rs"]
-mod evidence;
+#[path = "ingress/os_window.rs"]
+mod os_window;
 
 const TITLE: &str = "worldrunner-timestamped-ingress";
 const SINK: &str = "worldrunner-ingress-focus-sink";
@@ -81,19 +81,19 @@ impl LiveDriver for Driver {
         self.receipts += 1;
         match receipt.frame {
             0 => {
-                evidence::focus(TITLE);
-                evidence::xdo(&["keydown", "a", "keyup", "a"]);
+                os_window::focus(TITLE);
+                os_window::xdo(&["keydown", "a", "keyup", "a"]);
             }
-            1 => evidence::xdo(&["keydown", "b"]),
-            3 => evidence::xdo(&["keyup", "b"]),
+            1 => os_window::xdo(&["keydown", "b"]),
+            3 => os_window::xdo(&["keyup", "b"]),
             4 => {
-                evidence::xdo(&["keydown", "d"]);
-                evidence::focus(SINK);
+                os_window::xdo(&["keydown", "d"]);
+                os_window::focus(SINK);
             }
-            5 => evidence::focus(TITLE),
+            5 => os_window::focus(TITLE),
             6 => {
-                evidence::xdo(&["keyup", "d"]);
-                evidence::xdo(&["key", "F5", "F12", "Escape"]);
+                os_window::xdo(&["keyup", "d"]);
+                os_window::xdo(&["key", "F5", "F12", "Escape"]);
             }
             7 => {
                 let sender = self.sender.as_ref().unwrap();
@@ -136,7 +136,7 @@ fn run_clock(clock: LiveClock) {
             .spawn()
             .unwrap(),
     );
-    evidence::wait_window(SINK);
+    os_window::wait_window(SINK);
     let mut options = LiveOptions::new(TITLE, [96, 64]);
     options.frame_interval = Duration::from_millis(150);
     options.max_frames = Some(10);
@@ -149,7 +149,7 @@ fn run_clock(clock: LiveClock) {
     };
     run_live(&mut driver, options).unwrap();
     assert_eq!(driver.receipts, 10);
-    evidence::verify(&driver);
+    os_window::verify(&driver);
     println!(
         "timestamped ingress: real OS between-frame short tap, held/release, focus loss/regain, reserved controls, channel repeat/provenance and unchanged legacy input passed"
     );

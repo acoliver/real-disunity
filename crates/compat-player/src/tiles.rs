@@ -116,7 +116,8 @@ mod tests {
         )
         .unwrap();
         let graph = worldrunner::compat_content::import_project(
-            &root.join(".work/games/breakout"),
+            &worldrunner_original_games::checkout(worldrunner_original_games::Game::Breakout)
+                .unwrap(),
             Path::new("Assets/Scenes/SampleScene.unity"),
             &profile,
             &sidecar,

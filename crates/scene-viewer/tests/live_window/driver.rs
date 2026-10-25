@@ -6,7 +6,7 @@ use worldrunner_render_scene::{
 };
 use worldrunner_scene_viewer::{LiveDriver, LiveFrame, LiveInputEvent, LiveReceipt, LiveTick};
 
-use super::evidence;
+use super::os_window;
 
 #[derive(Default)]
 pub(super) struct Driver {
@@ -90,13 +90,12 @@ impl LiveDriver for Driver {
         let capture = receipt.capture.expect("requested actual presented pixels");
         assert_eq!(capture.id, capture_id(tick));
         assert_eq!(capture.image.viewport, tick.viewport);
-        evidence::landmarks(&capture.image, receipt.frame);
-        evidence::save(&capture.image, receipt.frame);
+        os_window::landmarks(&capture.image, receipt.frame);
         self.images.push(capture.image);
         match receipt.frame {
-            0 => evidence::key("keydown"),
-            2 => evidence::key("keyup"),
-            3 => evidence::resize(),
+            0 => os_window::key("keydown"),
+            2 => os_window::key("keyup"),
+            3 => os_window::resize(),
             4 => self
                 .sender
                 .as_ref()

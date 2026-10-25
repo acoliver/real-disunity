@@ -6,7 +6,7 @@ use std::{
 use worldrunner_compat_content::{ImportError, ImportProfile, ImportSidecar, import_project};
 
 fn original() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.work/games/snake")
+    worldrunner_original_games::checkout(worldrunner_original_games::Game::Snake).unwrap()
 }
 fn copy_dir(source: &Path, target: &Path) {
     fs::create_dir_all(target).unwrap();

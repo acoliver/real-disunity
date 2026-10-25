@@ -1,12 +1,12 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::BTreeMap;
 use worldrunner_asset_id::{AssetVariant, LogicalAssetId, QualityTier};
 use worldrunner_catalog::{CatalogBuilder, ResolutionPolicy};
-use worldrunner_compat_content::{ImportProfile, ImportSidecar, import_project};
+use worldrunner_compat_content::{ImportProfile, ImportSidecar, ImportedScene, import_project};
 use worldrunner_package::{Package, PackageBuilder, PackageKind, PackageLimits, PackageManifest};
 
-#[test]
-fn canonical_package_and_catalog_resolve_imported_graph_and_actual_source_assets() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.work/games/snake");
+fn source_fixture() -> (ImportedScene, BTreeMap<String, Vec<u8>>) {
+    let root =
+        worldrunner_original_games::checkout(worldrunner_original_games::Game::Snake).unwrap();
     let g = import_project(
         &root,
         "Assets/Scenes/GameScene.unity".as_ref(),
@@ -19,6 +19,12 @@ fn canonical_package_and_catalog_resolve_imported_graph_and_actual_source_assets
         .keys()
         .map(|path| (path.clone(), std::fs::read(root.join(path)).unwrap()))
         .collect();
+    (g, sources)
+}
+
+#[test]
+fn canonical_package_and_catalog_resolve_imported_graph_and_actual_source_assets() {
+    let (g, sources) = source_fixture();
     let variant = AssetVariant {
         art_set: "original".into(),
         quality: QualityTier::Baseline,

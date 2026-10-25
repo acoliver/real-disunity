@@ -12,7 +12,7 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE = ROOT / ".work/display-resumed"
+BASE = Path(os.environ.get("COMPAT_DISPLAY_OUTPUT", ROOT / ".work/compat-display"))
 
 
 def stop_group(process):

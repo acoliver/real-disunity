@@ -3,13 +3,13 @@ use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_
 
 #[path = "driver.rs"]
 mod driver;
-#[path = "evidence.rs"]
-mod evidence;
+#[path = "os_window.rs"]
+mod os_window;
 #[path = "replay.rs"]
 mod replay;
 
 pub(super) fn run() {
-    let mut options = LiveOptions::new(evidence::TITLE, [128, 64]);
+    let mut options = LiveOptions::new(os_window::TITLE, [128, 64]);
     options.fixed_dt = Some(Duration::from_millis(20));
     options.max_frames = Some(8);
     // Deliberately unsorted. Admission preserves stable event order per frame.

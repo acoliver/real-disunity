@@ -45,6 +45,7 @@ impl Layer {
 
 const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-asset-id", Layer::Foundation),
+    ("worldrunner-original-games", Layer::Foundation),
     ("worldrunner-core-types", Layer::Foundation),
     ("worldrunner-catalog", Layer::Foundation),
     ("worldrunner-package", Layer::Foundation),

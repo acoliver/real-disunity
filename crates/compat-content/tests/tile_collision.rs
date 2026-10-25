@@ -18,7 +18,7 @@ fn imported(bounds: bool) -> ImportedScene {
         json!([])
     };
     import_project(
-        &base.join("../../.work/games/breakout"),
+        &worldrunner_original_games::checkout(worldrunner_original_games::Game::Breakout).unwrap(),
         "Assets/Scenes/SampleScene.unity".as_ref(),
         &profile,
         &serde_json::from_value::<ImportSidecar>(sidecar).unwrap(),
@@ -130,9 +130,8 @@ fn bounds_policy_requires_a_nonempty_geometry_fidelity_reason() {
         }]}),
     )
     .unwrap();
-    let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let result = worldrunner_compat_content::import_project(
-        &base.join("../../.work/games/breakout"),
+        &worldrunner_original_games::checkout(worldrunner_original_games::Game::Breakout).unwrap(),
         "Assets/Scenes/SampleScene.unity".as_ref(),
         &worldrunner_compat_content::ImportProfile::default(),
         &sidecar,

@@ -1,28 +1,12 @@
-use std::path::PathBuf;
-use std::sync::OnceLock;
-
 use serde_json::{Value, json};
 use worldrunner_disunity_runtime::{CompatibilityHost, ManagedHostConfig};
 
 pub fn config() -> ManagedHostConfig {
-    let native =
-        PathBuf::from(std::env::var_os("DISUNITY_TEST_NATIVE_LIBRARY").expect("explicit native"));
-    let root =
-        PathBuf::from(std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").expect("frozen CLR tuple"));
-    let bridge = root.join("artifacts/bin/CompatibilityBridge/debug/CompatibilityBridge.dll");
-    static IMAGE: OnceLock<libloading::Library> = OnceLock::new();
-    // SAFETY: retain the explicit trusted ABI image through native TLS teardown.
-    IMAGE.get_or_init(|| unsafe { libloading::Library::new(&native).unwrap() });
-    ManagedHostConfig {
-        ffi_library: native,
-        runtime_config: bridge.with_extension("runtimeconfig.json"),
-        assembly: bridge,
-        bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-    }
+    crate::support::artifacts().config()
 }
 
 pub fn fixture(host: &CompatibilityHost, world: u64, mode: u32, depth: u32) -> Value {
-    let root = PathBuf::from(std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").unwrap());
+    let root = crate::support::artifacts().managed_root.clone();
     let object = host
         .request(world, &json!({"op":"object.create","name":"nested-host"}))
         .unwrap()["handle"]

@@ -1,6 +1,6 @@
 # Original sample admission observations
 
-These observations describe the selected local originals at implementation time. Profiles and fixture sidecars should be qualified again when sources refresh. The importer accepts updated sources; hashes identify the imported snapshot.
+These observations describe the pinned originals selected by `worldrunner-original-games`. Profiles and fixture sidecars should be checked again when the pins change. The importer accepts updated sources; source hashes identify imported content.
 
 ## Snake scene and missing visual
 
@@ -35,7 +35,7 @@ The original project version is 2017.1.0f3. Scene Prefab records use `m_ParentPr
 
 The original Goal prefab retains a stale `team` field while original Goal.cs declares `scoresTo`. The source-specific profile maps `team` to `scoresTo` for script GUID `fec2b0e28e0bb6e4f930b2db3fb4f7c9`. A scene-authored `scoresTo` override takes precedence. Behavioral tests verify that the two scene goal values remain 0 and 1 and that their `ScorePoint` event targets resolve to the expanded MatchManager component.
 
-UI DLL GUID `f70555f144d8491a825f0804e09c671c` identifies multiple classes through different file IDs. Actual serialized Text records use file ID `708705254`; `profiles/legacy-2017.json` declares that type and explicit host builtin font/material identities. The profile also maps file ID `1980459831` to `UnityEngine.UI.CanvasScaler`. Three other scene UI DLL file IDs remain unresolved by this profile: `1077351063`, `-619905303`, and `1301386320`. Their fields remain available for a future supported UI adapter. CanvasRenderer, Behaviour, and AudioListener components also retain diagnostics.
+UI DLL GUID `f70555f144d8491a825f0804e09c671c` identifies multiple classes through different file IDs. Actual serialized Text records use file ID `708705254`; `profiles/pong-source.json` declares that type and explicit host builtin font/material identities. The profile also maps file ID `1980459831` to `UnityEngine.UI.CanvasScaler`. Three other scene UI DLL file IDs remain unresolved by this profile: `1077351063`, `-619905303`, and `1301386320`. Their fields remain available for a future supported UI adapter. CanvasRenderer, Behaviour, and AudioListener components also retain diagnostics.
 
 Builtin font `0000000000000000e000000000000000:10102` and sprite material `0000000000000000f000000000000000:10754` require generic host implementations. The profile names these requirements and supplies no replacement renderer. GUIDs containing only digits or exponent-looking hexadecimal text remain strings throughout YAML decoding.
 
@@ -51,7 +51,7 @@ With no source corrections or builtin/type profile, the original selected scenes
 
 Diagnostics are deduplicated by source path/file ID/field/code/message. Identical defects in a prefab template and its scene copy share a source-local diagnostic. Snake has two missing-GUID, three builtin-replacement, and one unsupported-component diagnostics. Breakout has eight missing-GUID, two builtin-replacement, five unsupported-component, one invalid-tile-collider (no default bounds selection), and two unavailable-script-type diagnostics. Pong has six missing-GUID, six builtin-replacement, eleven unsupported-component, and six unavailable-script-type diagnostics.
 
-The `.work/content` JSON artifacts preserve full field paths, source GUIDs, file IDs, and component names. Counts establish import behavior; native admission, script execution, rendering, and full game compatibility require the host lanes.
+The imported graph preserves field paths, source GUIDs, file IDs and component names. Counts establish import behavior. Native admission, script execution and rendering require host tests.
 
 ## Resumed admission increment
 
@@ -59,12 +59,10 @@ Authoritative reasoned overlays are now present in `overlays/{snake,breakout,pon
 
 Pong's original Canvas root RectTransform `2f4cefa539f44df40a7fe27b9fab654a:1901759440` serializes zero scale before engine-owned screen UI layout. The explicit overlay sets its three local scale axes to one because native TRS rejects noninvertible scale. Native UI computes evaluated root position/scale from the orthographic camera, viewport and CanvasScaler. Importer copies authored anchors and applies them after TRS so native position setters cannot overwrite their initial values. This is an explicit compatibility overlay, independent of game logic.
 
-Actual native transport evidence creates Snake 8 objects / 16 components, Breakout 12 / 33, and Pong 26 / 77, with template nodes native-inactive. Exact omitted component IDs/reasons remain in each materialization result. Breakout's policy now admits typed TilemapCollider2D. The source-bound overlay explicitly selects sprite_bounds for all 48 wall cells because original sprite physicsShape is empty. The material resolves to bounciness 1/friction 0. Six repeated native wall bounces, covered centers, clear interior and affine/clone tests pass; full managed-game physics remains unqualified. Native Tilemap receives all 48 authored cells, sprite references, source grid dimensions and renderer metadata. Pong's Text, RectTransform, Canvas and CanvasScaler now use typed native fields. No original source hashes changed from the preceding importer snapshot.
+Actual native transport evidence creates Snake 8 objects / 16 components, Breakout 12 / 33, and Pong 26 / 77, with template nodes native-inactive. Exact omitted component IDs/reasons remain in each materialization result. Breakout's policy now admits typed TilemapCollider2D. The source-bound overlay explicitly selects sprite_bounds for all 48 wall cells because original sprite physicsShape is empty. The material resolves to bounciness 1/friction 0. Six repeated native wall bounces, covered centers, clear interior and affine/clone tests pass; full managed-game physics remains unqualified. Native Tilemap receives all 48 authored cells, sprite references, source grid dimensions and renderer metadata. Pong's Text, RectTransform, Canvas and CanvasScaler now use typed native fields.
 
 Original reachable texture paths are `Assets/Images/space.png`, `Assets/Images/coconut.jpg`, `Assets/Images/spritesheet-breakout.png`, and Pong `Assets/Sprites/{Ball,Player}.png`. PNG dimensions and sprite metadata are imported; JPEG bytes/path are retained without a native JPEG pixel decoder in this crate. The host owns payload decoding and GPU upload.
 
 ## Current Breakout source profile exclusions
 
 Original Brick.cs declares frameTime and uses PowerUp.Instance.Apply(). Its serialized prefab retains powerUpChance=0.1 and widePlatformDuration=8. The exact source script GUID 57fc46ce82be2cd0284f27309fe6c2a6 has reasoned field_exclusions for those stale names. Both values remain in component/document source fields; script/native binding fields omit them and emit two source_field_excluded diagnostics. PowerUp.cs owns its current chance and duration fields. Ball.startSpeed -> speed remains unchanged. Production fixture metadata must be refreshed by its owner after these profile changes.
-
-Fresh evidence lives under `.work/content-next/all` and `.work/content-next/tile-collision-evidence.json`. Breakout emits 39 graph components/15 assets, 12 native objects/33 native components, 90 requests and five explicit omissions. The original 7-script census and source hashes are unchanged. Source inspection found that the managed NativeIdentity.Component currently throws for the absent TilemapCollider2D facade; managed binding/play qualification requires that owner to add a facade or deliberate generic wrapper. No C# files were changed here.

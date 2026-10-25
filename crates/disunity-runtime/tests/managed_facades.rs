@@ -1,30 +1,15 @@
 #[path = "support/handshake.rs"]
-mod support;
+pub mod support;
 
 use std::{path::Path, process::Command};
 
 #[test]
 fn original_source_facades_and_native_lifecycle_suites_execute_in_managed_ci() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let root = root.canonicalize().expect("workspace must exist");
-    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
-    let artifacts = support::artifacts();
-    assert!(
-        artifacts.bridge().is_file() && artifacts.probe().is_file(),
-        "build must produce the exact bridge and test assemblies"
-    );
-    let output = support::managed::execute(
-        Command::new(&dotnet)
-            .arg(artifacts.probe())
-            .env("RD_WORKTREE", &root)
-            .env("DISUNITY_TEST_MANAGED_ROOT", &artifacts.managed_root)
-            .env("DISUNITY_TEST_NATIVE_LIBRARY", &artifacts.native)
-            .current_dir(&root),
-    );
+    let output = run(&[]);
     for marker in [
-        "PASS source engineering evidence Snake: 8",
-        "PASS source engineering evidence Breakout: 7",
-        "PASS source engineering evidence Pong: 20",
+        "PASS original compiler inputs Snake: 8",
+        "PASS original compiler inputs Breakout: 7",
+        "PASS original compiler inputs Pong: 20",
         "PASS original DeathZone:",
         "PASS native liveness:",
         "PASS lifecycle resource contract:",
@@ -44,4 +29,63 @@ fn original_source_facades_and_native_lifecycle_suites_execute_in_managed_ci() {
             "suite did not execute {marker}:\n{output}"
         );
     }
+}
+
+fn run(arguments: &[&str]) -> String {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = root.canonicalize().expect("workspace must exist");
+    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
+    let artifacts = support::artifacts();
+    assert!(
+        artifacts.bridge().is_file() && artifacts.probe().is_file(),
+        "build must produce the exact bridge and test assemblies"
+    );
+    support::managed::execute(
+        Command::new(&dotnet)
+            .arg(artifacts.probe())
+            .args(["--artifacts"])
+            .arg(&artifacts.native)
+            .arg(&artifacts.managed_root)
+            .arg(&root)
+            .args(arguments)
+            .current_dir(&root),
+    )
+}
+
+#[test]
+fn managed_profile_codec_and_fault_suites_use_current_artifacts() {
+    for suite in [
+        "--contextual-metadata-only",
+        "--contextual-bounded-codec-only",
+        "--contextual-codec-only",
+        "--contextual-cleanup-only",
+        "--nested-movenext-only",
+        "--nested-authored-breakout",
+        "--nested-original-breakout",
+        "--nested-unsupported",
+        "--nested-matching",
+        "--nested-authorization",
+        "--nested-waits",
+        "--nested-original-pong",
+        "--single-original-pong",
+        "--nested-start-only",
+        "--byte-profile-missing-requirement",
+        "--byte-profile-boundaries",
+        "--byte-profile-copy-fault",
+        "--byte-profile-descriptor",
+        "--byte-profile-only",
+        "--byte-profile-unselected",
+        "--readiness-only",
+        "--readiness-missing-provider",
+        "--handshake-describe-only",
+        "--handshake-load-only",
+    ] {
+        let output = run(&[suite]);
+        assert!(
+            output.contains("PASS"),
+            "{suite} did not report its assertions: {output}"
+        );
+    }
+    assert!(run(&["--nested-scenario", "0", "3"]).contains("PASS"));
+    assert!(run(&["--contextual-cleanup-only", "--mutation"]).contains("PASS"));
 }

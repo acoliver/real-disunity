@@ -29,6 +29,8 @@ public sealed class GameObject : IDisposable
 
     public Transform Transform { get; }
 
+    internal bool IsDestroyed => _destroyed;
+
     public void Destroy()
     {
         if (_destroyed)
@@ -38,6 +40,7 @@ public sealed class GameObject : IDisposable
         WorldRunner.EnsureLoaded();
         var result = NativeBindings.disunity_gameobject_destroy(WorldRunner.WorldHandle, _handle);
         WorldRunner.ThrowIfError(result);
+        WorldRunner.RemovePendingCommands(_handle);
         _destroyed = true;
         WorldRunner.Forget(this);
     }

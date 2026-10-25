@@ -1,9 +1,7 @@
 use super::super::policy::Readiness;
 use super::{
     capture::{assert_metadata, capture},
-    landmarks,
-    live::retain,
-    wait,
+    landmarks, wait,
 };
 use gpu::{
     device::GpuContext, draw::SceneGpu, frame::FrameUniform, offscreen::OffscreenTarget,
@@ -21,11 +19,11 @@ use worldrunner::scene::{
 fn asymmetric_landmarks_render_with_both_lenses_conventions_and_resize() {
     let context = wait(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut scene = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+    let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     scene
         .set_dynamic_quads(
             context.device(),
-            context.queue(),
+            context.submission(),
             &pipelines,
             &landmarks::quads(),
         )
@@ -37,7 +35,7 @@ fn asymmetric_landmarks_render_with_both_lenses_conventions_and_resize() {
         ] {
             for lens in lenses() {
                 let resolved = resolve_view(size, convention, lens);
-                let view = gpu::SceneView::from_resolved(resolved);
+                let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
                 scene.set_frame(context.queue(), FrameUniform::unlit(&view));
                 let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
                 let image = capture(
@@ -51,18 +49,6 @@ fn asymmetric_landmarks_render_with_both_lenses_conventions_and_resize() {
                 .unwrap();
                 landmarks::assert_landmarks(&image, &resolved);
                 assert_metadata(&image, view.viewport());
-                let lens_name = if matches!(lens, CameraLens::Orthographic { .. }) {
-                    "ortho"
-                } else {
-                    "perspective"
-                };
-                retain(
-                    &format!(
-                        "landmarks-{}x{}-{convention:?}-{lens_name}",
-                        size[0], size[1]
-                    ),
-                    &image,
-                );
             }
         }
     }

@@ -1,13 +1,14 @@
 use crate::ViewerError;
-use worldrunner_render_post::{CopyOutput, FrameConfig, PostChain, Readback, Resources};
-use worldrunner_render_scene::{Viewport, offscreen::RgbaImage, renderer::depth_texture};
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_scene::Viewport;
+use worldrunner_render_scene::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 
 /// Keep the scene renderer's sRGB contract; copy output adds no new display look.
 pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 pub(super) struct Presentation {
-    chain: PostChain<CopyOutput>,
-    readback: Option<Readback>,
+    pub scheduler: ConfiguredFrameRenderer,
     pub targets: Targets,
 }
 
@@ -17,83 +18,94 @@ pub(super) struct Targets {
 }
 
 impl Presentation {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: Viewport) -> Self {
-        let chain = PostChain::new(
-            device,
-            FrameConfig::new([size.width, size.height], COLOR, 1),
-            Resources::default(),
-            CopyOutput::new(device, format),
-        )
-        .expect("validated viewer extent");
-        let targets = Targets::new(device, &chain, size);
-        Self {
-            chain,
-            readback: None,
-            targets,
-        }
+    #[cfg(test)]
+    pub fn new(
+        context: &worldrunner_render_scene::device::GpuContext,
+        format: wgpu::TextureFormat,
+        size: Viewport,
+    ) -> Self {
+        Self::with_profile(context, format, size, crate::FrameProfile::Legacy, None).unwrap()
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, size: Viewport) {
-        if self
-            .chain
-            .resize(device, [size.width, size.height])
-            .expect("validated viewer extent")
-        {
-            self.targets = Targets::new(device, &self.chain, size);
-            self.readback = None;
+    pub fn with_profile(
+        context: &worldrunner_render_scene::device::GpuContext,
+        format: wgpu::TextureFormat,
+        size: Viewport,
+        profile: crate::FrameProfile,
+        effects: Option<&worldrunner_render_plan::SceneEffects>,
+    ) -> Result<Self, ViewerError> {
+        let mut settings = RendererConfiguration::legacy([size.width, size.height], format);
+        settings.frame.format = COLOR;
+        if let crate::FrameProfile::Hdr { samples, tone_map } = profile {
+            settings.frame = FrameConfig::new(
+                [size.width, size.height],
+                wgpu::TextureFormat::Rgba16Float,
+                samples,
+            );
+            let exposure = effects.map_or(1.0, |effects| {
+                f64::from(effects.grading().exposure_micro) / 1_000_000.0
+            });
+            settings.hdr = Some((exposure, tone_map));
+            settings.post = effects
+                .map(worldrunner_render_scene::post_settings)
+                .transpose()?
+                .unwrap_or_default();
+            settings.ssao = effects.and_then(|effects| effects.ssao()).copied();
+            settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
+            settings.water = effects.and_then(|effects| effects.water()).copied();
         }
+        let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
+        settings.additional.buffer(
+            "live capture and CPU image",
+            pitch * u64::from(size.height),
+            2,
+        );
+        let scheduler =
+            ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1024 * 1024 * 1024))
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+        let targets = Targets::new(context.device(), &scheduler, size);
+        Ok(Self { scheduler, targets })
     }
 
-    pub fn encode_capture(
+    pub fn resize(
         &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
+        context: &worldrunner_render_scene::device::GpuContext,
+        size: Viewport,
     ) -> Result<(), ViewerError> {
-        let texture = self.targets.color.texture();
-        if self.readback.is_none() {
-            self.readback = Some(Readback::new(
-                device,
-                FrameConfig::new([texture.width(), texture.height()], COLOR, 1),
-                device.limits().max_buffer_size,
-            )?);
+        self.scheduler.collect();
+        if self.scheduler.configuration().frame.size != [size.width, size.height] {
+            let mut settings = self.scheduler.configuration().clone();
+            settings.frame.size = [size.width, size.height];
+            settings.additional = worldrunner_render_gpu::configuration::AllocationSet::default();
+            let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
+            settings.additional.buffer(
+                "live capture and CPU image",
+                pitch * u64::from(size.height),
+                2,
+            );
+            self.scheduler
+                .reconfigure(context, settings)
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            self.targets = Targets::new(context.device(), &self.scheduler, size);
         }
-        self.readback
-            .as_mut()
-            .expect("capture storage")
-            .encode(encoder, texture)?;
         Ok(())
     }
 
-    pub fn read_capture(
-        &mut self,
-        device: &wgpu::Device,
-        submission: wgpu::SubmissionIndex,
-    ) -> Result<RgbaImage, ViewerError> {
-        let pixels = self
-            .readback
-            .as_mut()
-            .expect("encoded capture")
-            .read_encoded(device, Some(submission))?;
-        let texture = self.targets.color.texture();
-        Ok(RgbaImage {
-            viewport: Viewport {
-                width: texture.width(),
-                height: texture.height(),
-            },
-            pixels,
-        })
-    }
-
-    pub fn present(&self, encoder: &mut wgpu::CommandEncoder, surface: &wgpu::TextureView) {
-        self.chain.encode(encoder, surface);
+    pub fn present(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        surface: &wgpu::TextureView,
+    ) -> Result<(), ViewerError> {
+        self.scheduler.encode_output(encoder, surface)?;
+        Ok(())
     }
 }
 
 impl Targets {
-    fn new(device: &wgpu::Device, chain: &PostChain<CopyOutput>, size: Viewport) -> Self {
+    fn new(_device: &wgpu::Device, chain: &ConfiguredFrameRenderer, _size: Viewport) -> Self {
         Self {
             color: chain.targets().scene().clone(),
-            depth: depth_texture(device, size).create_view(&wgpu::TextureViewDescriptor::default()),
+            depth: chain.targets().depth().clone(),
         }
     }
 }
@@ -106,6 +118,19 @@ pub(super) struct Extents {
 }
 
 impl Extents {
+    pub fn placeholder() -> Self {
+        Self {
+            surface: Viewport {
+                width: 1,
+                height: 1,
+            },
+            render: Viewport {
+                width: 1,
+                height: 1,
+            },
+        }
+    }
+
     pub fn new(size: [u32; 2], device_limit: u32) -> Result<Option<Self>, ViewerError> {
         if size.contains(&0) {
             return Ok(None);

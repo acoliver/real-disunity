@@ -10,11 +10,7 @@ mod store;
 fn canonical_post_factory_and_encoded_readback_preserve_scene_and_authored_stage() {
     let context = wait(GpuContext::request_with_features(wgpu::Features::empty()))
         .expect("canonical post consumer requires an admitted GPU");
-    let mut factory = if std::env::var_os("MIGRATION_CONSUMER_WRONG_POST").is_some() {
-        factory::Fixture::with_marker(&context, 0.0)
-    } else {
-        factory::Fixture::new(&context)
-    };
+    let mut factory = factory::Fixture::new(&context);
     for size in [[65, 47], [130, 94]] {
         let pixels = factory.render(&context, size);
         assert_eq!(pixels.len(), (size[0] * size[1] * 4) as usize);
@@ -25,18 +21,21 @@ fn canonical_post_factory_and_encoded_readback_preserve_scene_and_authored_stage
             &[255, 0, 0, 255],
             "scene contribution through post chain"
         );
-        super::live::retain(
-            &format!("canonical-post-{}x{}", size[0], size[1]),
-            &worldrunner::scene::gpu::offscreen::RgbaImage {
-                viewport: worldrunner::scene::gpu::Viewport {
-                    width: size[0],
-                    height: size[1],
-                },
-                pixels,
-            },
-        );
     }
     assert_eq!(factory.builds(), 2, "resize rebuilds caller stage bindings");
+}
+
+#[test]
+fn a_wrong_authored_output_stage_is_visible_in_the_readback() {
+    let context = wait(GpuContext::request_with_features(wgpu::Features::empty()))
+        .expect("canonical post consumer requires an admitted GPU");
+    let mut factory = factory::Fixture::with_marker(&context, 0.0);
+    let pixels = factory.render(&context, [65, 47]);
+    assert_ne!(
+        &pixels[..4],
+        &[255, 255, 0, 255],
+        "wrong stage must change the marker"
+    );
 }
 
 #[test]

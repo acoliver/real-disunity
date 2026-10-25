@@ -81,7 +81,7 @@ fn add_fixture_values(values: &mut BTreeSet<String>, fixture: &Fixture, field: &
 
 pub fn matrix(fixtures: &[Fixture], runs: &[RunRecord]) -> Result<String> {
     let mut html = filters(fixtures, runs)?;
-    html.push_str("<h2>Game and profile matrix</h2><p>Each row groups matching controlled identities. Unknown identities remain separate. Null dimension outcomes are unmeasured. All attempts remain in history.</p><table><tr><th>Fixture / profile</th><th>Reduced status</th><th>Dimensions, identities and attempts</th></tr>");
+    html.push_str("<h2>Game and profile matrix</h2><p>Rows summarize attempts by fixture, profile, mode and platform. These summaries do not certify identical builds or inputs. Null dimension outcomes are unmeasured. All attempts remain in history.</p><table><tr><th>Fixture / profile</th><th>Reduced status</th><th>Dimensions and attempts</th></tr>");
     for group in reporting::groups(runs) {
         let record = runs
             .iter()

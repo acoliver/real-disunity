@@ -61,11 +61,11 @@ internal static unsafe class ReadinessAuthorization
         using var world = new ReadinessWorld(path);
         var manifest = world.Manifest([new("probe", new GameObject("missing-capability"), nameof(ReadinessProbe), new { })]);
         NativeIdentity.Reset();
-        BinderBehavior.Check(BridgeBehavior.Call(&ManagedBridge.LoadFixture, manifest.ToJsonString()) != 0, "older provider must reject bounded scheduler before binding");
-        BinderBehavior.Check(BridgeBehavior.LastError().Contains("native readiness primitives capability"), "missing native capability diagnosed independently by Cdecl bridge");
+        DescriptorRejection.Assert(manifest, "native_readiness_primitives_v1", "readiness primitives capability");
         AssertNoRoots();
-        Console.WriteLine("PASS readiness Cdecl older provider missing native capability rejects before binding/Awake");
+        Console.WriteLine("PASS readiness missing descriptor capability rejects before binding/Awake");
     }
+
     private static void RejectDuplicateProfiles(JsonNode manifest)
     {
         var encoded = manifest.ToJsonString();

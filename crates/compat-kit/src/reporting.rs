@@ -21,8 +21,6 @@ pub struct Selection {
     pub diagnostic_dimensions: BTreeMap<usize, String>,
     pub units: BTreeMap<usize, String>,
     pub required_dimensions: Vec<String>,
-    pub provider_inputs: Option<Vec<String>>,
-    pub overlay_inputs: Option<Vec<String>>,
 }
 impl Selection {
     pub fn from_fixture(fixture: &crate::Fixture) -> Result<Self, String> {
@@ -89,21 +87,6 @@ impl From<FailureCause> for String {
         cause.message
     }
 }
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(default)]
-pub struct Identities {
-    pub source: Option<String>,
-    pub overlay: Option<String>,
-    pub provider: Option<String>,
-    pub test: Option<String>,
-}
-impl Identities {
-    fn complete(&self) -> bool {
-        [&self.source, &self.overlay, &self.provider, &self.test]
-            .iter()
-            .all(|v| v.as_ref().is_some_and(|s| !s.is_empty()))
-    }
-}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Prerequisite {
     pub id: String,
@@ -119,9 +102,7 @@ pub struct Context {
     pub game: Option<String>,
     pub mode: Option<String>,
     pub platform: Value,
-    pub identities: Identities,
     pub prerequisites: Vec<Prerequisite>,
-    pub provider_files: BTreeMap<String, String>,
     pub outcomes: BTreeMap<String, Option<Status>>,
     pub failure_causes: Vec<FailureCause>,
     pub required_dimensions: Vec<String>,
@@ -198,11 +179,10 @@ pub struct Group {
 }
 fn identity(record: &RunRecord) -> Value {
     let context = &record.reporting;
-    let incomplete =
-        !context.identities.complete() || context.mode.is_none() || context.platform.is_null();
+    let incomplete = context.mode.is_none() || context.platform.is_null();
     serde_json::json!({"fixture":record.fixture,"profile":record.profile,"evidence_label":record.evidence_label,
         "case_id":context.case_id,"game":context.game,"mode":context.mode,"platform":context.platform,
-        "identities":context.identities,"unknown_attempt":incomplete.then_some(&record.run_id)})
+        "unknown_attempt":incomplete.then_some(&record.run_id)})
 }
 pub fn groups(records: &[RunRecord]) -> Vec<Group> {
     let mut buckets: BTreeMap<String, Vec<&RunRecord>> = BTreeMap::new();

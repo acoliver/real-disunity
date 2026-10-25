@@ -1,8 +1,8 @@
 #[path = "support/handshake.rs"]
-mod support;
+pub mod support;
 
 use serde_json::json;
-use worldrunner_disunity_runtime::{CompatibilityHost, HostError, ManagedHostConfig};
+use worldrunner_disunity_runtime::{CompatibilityHost, ManagedHostConfig};
 
 fn config() -> ManagedHostConfig {
     let artifacts = support::artifacts();
@@ -11,23 +11,6 @@ fn config() -> ManagedHostConfig {
         runtime_config: artifacts.bridge().with_extension("runtimeconfig.json"),
         assembly: artifacts.bridge(),
         bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-    }
-}
-
-fn actual_host_rejects_unnegotiated_provider_before_world_allocation() {
-    for _ in 0..2 {
-        let result = CompatibilityHost::boot(&config());
-        let error = result
-            .err()
-            .expect("boot accepted a provider without a compatible pure descriptor");
-        eprintln!("provider rejected: {error}");
-        assert!(matches!(
-            error,
-            HostError::Abi(_)
-                | HostError::Request(_)
-                | HostError::Compatibility(_)
-                | HostError::ResponseBudget(_)
-        ));
     }
 }
 
@@ -59,13 +42,6 @@ fn actual_host_validates_created_and_existing_world_before_fixture_callbacks() {
     host.destroy_world(world).unwrap();
     assert!(host.load_fixture(&json!({"world":world})).is_err());
     external_world(&mut host);
-    assert_eq!(host.store_statistics().unwrap().0, 0);
-}
-
-fn created_world_handshake_failure_destroys_the_fresh_world() {
-    let mut host = CompatibilityHost::boot(&config()).unwrap();
-    assert_eq!(host.store_statistics().unwrap().0, 0);
-    assert!(host.create_world().is_err());
     assert_eq!(host.store_statistics().unwrap().0, 0);
 }
 
@@ -107,13 +83,7 @@ fn activate_probe(host: &mut CompatibilityHost, world: u64) {
 
 #[test]
 fn actual_cdecl_handshake_acceptance() {
-    if std::env::var_os("HANDSHAKE_EXPECT_REJECT").is_some() {
-        actual_host_rejects_unnegotiated_provider_before_world_allocation();
-    } else if std::env::var_os("HANDSHAKE_WORLD_REJECT").is_some() {
-        created_world_handshake_failure_destroys_the_fresh_world();
-    } else {
-        actual_host_validates_created_and_existing_world_before_fixture_callbacks();
-    }
+    actual_host_validates_created_and_existing_world_before_fixture_callbacks();
 }
 
 fn external_world(host: &mut CompatibilityHost) {

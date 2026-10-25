@@ -1,13 +1,15 @@
-//! Shared GPU mechanics, not shadow policy.
+//! Shared GPU mechanics and explicit directional fitting utilities.
 //!
-//! Callers own shader sources, vertex layouts, light fitting, cascade selection,
-//! uniform encoding and cascade policy. This crate owns bounded square
+//! Callers supply shader sources, vertex layouts, coverage or split distances,
+//! uniform encoding and sampling policy. This crate owns bounded square
 //! `Depth32Float` maps, explicit receiver dimensions/bindings, depth-only pipelines
 //! and far-depth clear/store passes, validated directional configuration and shared sampling kernels. No scene, asset or filesystem inputs are used.
 
 mod config;
 pub use config::{DirectionalCoverage, DirectionalShadowConfig, InvalidShadowConfig, ShadowFilter};
+mod cascades;
 mod fit;
+pub use cascades::{cascade_blend, cascade_index, practical_splits, stable_frustum_fit};
 mod shader;
 pub use fit::{DirectionalFit, InvalidFit};
 pub const WGSL: &str = crate::shadow_wgsl!();

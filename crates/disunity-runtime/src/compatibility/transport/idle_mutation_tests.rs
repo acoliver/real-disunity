@@ -28,9 +28,7 @@ unsafe extern "C" fn malformed_copy(
     DisunityResult { code: 0, detail: 0 }
 }
 fn fixture() -> (std::mem::ManuallyDrop<Library>, NativeTransport, u64, Value) {
-    let path = std::env::var("DISUNITY_IDLE_NATIVE_LIBRARY").unwrap();
-    // SAFETY: this test explicitly selects the newly built task-owned native image.
-    let library = unsafe { Library::new(path) }.unwrap();
+    let library = crate::load_ffi_image(&crate::test_support::artifacts().config()).unwrap();
     let transport = NativeTransport::bind(&library).unwrap();
     let world = transport.create_world().unwrap();
     let opened = transport
@@ -72,6 +70,11 @@ fn fixture() -> (std::mem::ManuallyDrop<Library>, NativeTransport, u64, Value) {
 }
 #[test]
 fn idle_copy_parse_and_release_uncertainty_never_resubmits_mutation() {
+    if !crate::test_support::child::isolated(
+        "compatibility::transport::idle_mutation_tests::idle_copy_parse_and_release_uncertainty_never_resubmits_mutation",
+    ) {
+        return;
+    }
     for mode in 0..3 {
         let (_library, mut transport, world, request) = fixture();
         let (copy, free) = (transport.copy, transport.free);

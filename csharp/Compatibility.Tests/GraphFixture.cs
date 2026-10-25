@@ -11,7 +11,7 @@ internal static class GraphFixture
         var source = profiles.RootElement.GetProperty("sources").GetProperty(game);
         var profileId = selectedProfile ?? source.GetProperty("default_profile").GetString()!;
         var profile = profiles.RootElement.GetProperty("profiles").GetProperty(profileId);
-        using var graph = JsonDocument.Parse(File.ReadAllText(Path.Combine(repository, ".work/content", graphName + ".json")));
+        using var graph = JsonDocument.Parse(File.ReadAllText(Path.Combine(TestArtifacts.ManagedRoot, "graphs", graphName + ".json")));
         var root = graph.RootElement;
         var handles = CreateObjects(root);
         CreateComponents(root, handles);
@@ -24,7 +24,7 @@ internal static class GraphFixture
         }
         return JsonDocument.Parse(JsonSerializer.Serialize(new
         {
-            assemblies = new[] { Path.Combine(Environment.GetEnvironmentVariable("DISUNITY_TEST_MANAGED_ROOT") ?? Path.Combine(repository, ".work/managed"), "artifacts/bin", game, "debug", game + ".dll") },
+            assemblies = new[] { Path.Combine(TestArtifacts.ManagedRoot, "artifacts/bin", game, "debug", game + ".dll") },
             graph = root, handles,
             profile = new
             {

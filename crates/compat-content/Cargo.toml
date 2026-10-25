@@ -18,6 +18,7 @@ worldrunner-asset-id = { path = "../asset-id" }
 worldrunner-package = { path = "../package" }
 
 [dev-dependencies]
+worldrunner-original-games = { path = "../original-games" }
 tempfile.workspace = true
 worldrunner-catalog = { path = "../catalog" }
 

@@ -34,14 +34,15 @@ fn semantic_error_envelopes_and_malformed_native_handles_stop_execution() {
 }
 
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::BTreeMap;
 use worldrunner_compat_content::{
     AdmissionPolicy, ImportProfile, ImportedScene, import_project, materialization_plan,
     materialize,
 };
 
 fn snake() -> ImportedScene {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.work/games/snake");
+    let root =
+        worldrunner_original_games::checkout(worldrunner_original_games::Game::Snake).unwrap();
     let sidecar = serde_json::from_value(json!({"reference_substitutions":[{
         "guid":"311925a002f4447b3a28927169b83ea6", "file_id":7_482_667_652_216_324_306_i64,
         "replacement":{"$builtin":"authored.unit-square"}, "reason":"Explicit missing-art substitute"

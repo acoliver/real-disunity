@@ -43,9 +43,12 @@ fn failed_host() -> (CompatibilityHost, u64) {
     (host, world)
 }
 #[test]
-#[ignore = "requires isolated actual CLR process"]
 fn actual_host_persistent_release_keeps_owner_and_recovers() {
-    assert!(std::env::var_os("COMPAT_DISPLAY_CONTAINMENT").is_some());
+    if !crate::test_support::child::isolated(
+        "compatibility::idle_cleanup_fault_tests::actual_host_persistent_release_keeps_owner_and_recovers",
+    ) {
+        return;
+    }
     let (mut host, world) = failed_host();
     assert!(
         host.retry_cleanup(world)
@@ -89,9 +92,12 @@ fn recover_retained(report: serde_json::Value) {
     );
 }
 #[test]
-#[ignore = "requires isolated actual CLR process"]
 fn actual_host_thread_exit_keeps_claim_and_reportable_owner() {
-    assert!(std::env::var_os("COMPAT_DISPLAY_CONTAINMENT").is_some());
+    if !crate::test_support::child::isolated(
+        "compatibility::idle_cleanup_fault_tests::actual_host_thread_exit_keeps_claim_and_reportable_owner",
+    ) {
+        return;
+    }
     std::thread::spawn(|| {
         let (host, _) = failed_host();
         drop(host);
@@ -110,9 +116,12 @@ fn actual_host_thread_exit_keeps_claim_and_reportable_owner() {
 }
 
 #[test]
-#[ignore = "requires isolated actual CLR process"]
 fn actual_host_cleanup_rejects_foreign_world_without_releasing_response() {
-    assert!(std::env::var_os("COMPAT_DISPLAY_CONTAINMENT").is_some());
+    if !crate::test_support::child::isolated(
+        "compatibility::idle_cleanup_fault_tests::actual_host_cleanup_rejects_foreign_world_without_releasing_response",
+    ) {
+        return;
+    }
     let (mut host, world) = failed_host();
     let foreign = host.native.create_world().unwrap();
     assert!(matches!(

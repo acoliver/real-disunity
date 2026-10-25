@@ -1,13 +1,16 @@
 use serde_json::json;
 
-use super::{config, fault, fixture};
+use super::{config, fault, fixture, isolate};
 use crate::CompatibilityHost;
 
 #[test]
 fn actual_cdecl_contacts_fault_preserves_report_and_real_queue() {
-    let Some((config, assembly)) = config() else {
+    if !isolate(
+        "compatibility::terminal_tests::controls::actual_cdecl_contacts_fault_preserves_report_and_real_queue",
+    ) {
         return;
-    };
+    }
+    let (config, assembly) = config();
     let mut host = CompatibilityHost::boot(&config).unwrap();
     let world = host.create_world().unwrap();
     host.open_phase_session(world).unwrap();
@@ -49,9 +52,12 @@ fn actual_cdecl_contacts_fault_preserves_report_and_real_queue() {
 
 #[test]
 fn actual_cdecl_initialize_transport_fault_preserves_primary_and_drains() {
-    let Some((config, assembly)) = config() else {
+    if !isolate(
+        "compatibility::terminal_tests::controls::actual_cdecl_initialize_transport_fault_preserves_primary_and_drains",
+    ) {
         return;
-    };
+    }
+    let (config, assembly) = config();
     let mut host = CompatibilityHost::boot(&config).unwrap();
     let world = host.create_world().unwrap();
     host.open_phase_session(world).unwrap();
@@ -76,9 +82,12 @@ fn actual_cdecl_initialize_transport_fault_preserves_primary_and_drains() {
 
 #[test]
 fn actual_cdecl_closed_retains_ownership_and_refuses_reload_or_retry() {
-    let Some((config, assembly)) = config() else {
+    if !isolate(
+        "compatibility::terminal_tests::controls::actual_cdecl_closed_retains_ownership_and_refuses_reload_or_retry",
+    ) {
         return;
-    };
+    }
+    let (config, assembly) = config();
     let mut host = CompatibilityHost::boot(&config).unwrap();
     let world = host.create_world().unwrap();
     host.open_phase_session(world).unwrap();
@@ -119,9 +128,12 @@ fn terminal_requirements_reject_unpaired_capabilities() {
 
 #[test]
 fn actual_cdecl_dispatch_guard_rejects_takeover_before_native_admission() {
-    let Some((config, assembly)) = config() else {
+    if !isolate(
+        "compatibility::terminal_tests::controls::actual_cdecl_dispatch_guard_rejects_takeover_before_native_admission",
+    ) {
         return;
-    };
+    }
+    let (config, assembly) = config();
     let mut host = CompatibilityHost::boot(&config).unwrap();
     let world = host.create_world().unwrap();
     host.open_phase_session(world).unwrap();

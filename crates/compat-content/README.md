@@ -2,32 +2,32 @@
 
 `worldrunner-compat-content` reads an explicitly selected original scene and its reachable serialized assets. It emits a serde graph for the host to admit into the native world. The crate has no runtime, managed, renderer, or game-identity dependency. Files in the selected project are read only.
 
-Receipt-owned dependency policies and trusted provider composition are documented in [DEPENDENCY-ADMISSION.md](DEPENDENCY-ADMISSION.md). The new `ContentReceipt::admit` boundary retains unresolved edges and reports blocked or explicitly translated outcomes. Existing import/materialization defaults remain unchanged.
-
 ## Import one scene
 
 ```rust
 use std::path::Path;
 use worldrunner_compat_content::{import_project, ImportProfile, ImportSidecar};
+use worldrunner_original_games::{checkout, Game};
 
+let root = checkout(Game::Pong)?;
 let graph = import_project(
-    Path::new(".work/games/pong"),
+    &root,
     Path::new("Assets/Scenes/Main.unity"),
     &ImportProfile::default(),
     &ImportSidecar::default(),
 )?;
-# Ok::<(), worldrunner_compat_content::ImportError>(())
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-The example executable writes JSON to stdout. Run it from the repository root with the session environment loaded:
+The example executable writes JSON to stdout. Resolve the pinned original through the shared fetcher, then run from the repository root:
 
 ```sh
-source .session/env.sh
+PONG=$(cargo run -p worldrunner-original-games --bin original-games -- path pong)
 cargo run -p worldrunner-compat-content --example import -- \
-  .work/games/pong Assets/Scenes/Main.unity > .work/content/pong.json
+  "$PONG" Assets/Scenes/Main.unity
 ```
 
-Optional third and fourth arguments are profile and sidecar JSON paths. `profiles/legacy-2017.json` declares the older correspondence names and explicit host-owned builtin/font/Text requirements. Hosts must supply the implementations named by those declarations. The profile creates no replacement pixels or managed classes.
+Optional third and fourth arguments are profile and sidecar JSON paths. `profiles/pong-source.json` declares the older correspondence names and explicit host-owned builtin/font/Text requirements. Hosts must supply the implementations named by those declarations. The profile creates no replacement pixels or managed classes.
 
 ## Graph and world admission
 
@@ -97,24 +97,28 @@ Importing collects missing references and unsupported component diagnostics whil
 
 Supported prefab operations include recursive instance expansion, original 2017/modern correspondence, local override references, nested/array property overrides, parent overrides, and removed components. Added/removed GameObject operations and added-component lists produce explicit unsupported-operation diagnostics. Full engine asset bundles, arbitrary binary scene formats, package resolution/downloads, animation, UI layout, and arbitrary mesh conversion are outside this crate.
 
+## Owned source snapshots
+
+`import_receipt` returns a `ContentReceipt` holding the imported graph, the exact source bytes read, and its import profile and sidecar. `graph()` and `sources()` expose immutable views. `verify_current(root)` reimports with those same inputs and rejects changed source bytes or source inventory. A fresh import accepts current sources. `package_current` checks freshness before returning package inputs. `import_receipt_with_source` accepts an explicit `ContentSource` for controlled source reads.
+
+Dependency policies, trusted-provider registration and translated-selection proofs are outside this crate. Materialization uses `AdmissionPolicy` directly and rejects unresolved metadata references without dependency-classification exemptions.
+
 ## Verification
 
-Run `cargo test -p worldrunner-compat-content`, `cargo clippy -p worldrunner-compat-content --all-targets -- -D warnings`, and `cargo fmt -p worldrunner-compat-content -- --check` after sourcing `.session/env.sh`.
-
-Tests read original scene/prefab/config/sprite sources in `.work/games`. Error/refresh tests modify disposable copies under the configured `.work` temporary directory. They establish parsing and graph behavior, canonical packaging, and source admission. They do not establish gameplay execution or rendering coverage.
-
-The content-owned Python transport test runs the Rust `materialize` example through one actual native shared-library image. It verifies all three resulting worlds without compiling scripts or advancing gameplay:
+Run the Rust behavior tests and strict lints:
 
 ```sh
-source .session/env.sh
-export CARGO_TARGET_DIR="$RD_WORKTREE/.work/target-content"
-cargo build --locked --jobs 2 -p worldrunner-compat-content --examples
-# Generate *-ready.json with each source profile and overlay first.
-python3 crates/compat-content/tests/native_transport.py
+cargo +1.97.0 test -p worldrunner-original-games -p worldrunner-compat-content --all-features -- --include-ignored --test-threads=1
+cargo +1.97.0 clippy -p worldrunner-original-games -p worldrunner-compat-content --all-targets --all-features -- -D warnings
+cargo +1.97.0 fmt -p worldrunner-original-games -p worldrunner-compat-content -- --check
 ```
 
-Set `COMPAT_CONTENT_NATIVE_LIBRARY` to select another host-built image. The default is `.work/target/debug/libworldrunner_disunity_ffi.so`. The Rust example communicates requests on stdout and unwrapped native response data on stdin; Python supplies only transport and snapshot assertions. The test writes actual maps, requests, snapshots and native image SHA256 under `.work/content`. It does not establish managed lifecycle, gameplay, font rasterization or GPU output.
+Tests resolve the read-only originals through `worldrunner_original_games::checkout`. Error and refresh tests copy selected assets into disposable temporary directories. They establish parsing, prefab expansion, graph references, canonical packaging, source drift rejection and materialization behavior.
 
-## Fresh tile collision qualification
+The Python tests build their Rust examples, original-game fetcher and native shared library with two Cargo jobs. They fetch pinned originals through the CLI, import fresh graphs, and create temporary transport files under `CARGO_TARGET_DIR` (default `target/content`). Each test cleans up its files and native worlds. They require the Rust 1.97.0 toolchain and cached Cargo dependencies:
 
-After building examples with Rust 1.97.0 and the session environment, run `python3 crates/compat-content/tests/native_tile_collision.py`. It imports the current original sources with the authoritative profiles, verifies source hashes, executes the public materialization closure through the C ABI image, checks all 48 wall centers and clear interior, deduplicated ray queries, six continuous bounces including a 15-unit swept move, source affine conversion and independent clone collision ownership. Results stay under `.work/content-next`. A separate all-three admission replay can use `COMPAT_CONTENT_OUTPUT` to isolate its graphs/results. These checks execute no managed callbacks and make no GPU claim.
+```sh
+python3 -m unittest discover -s crates/compat-content/tests -p 'native_*.py' -v
+```
+
+The native transport test checks all three imported worlds, authored transforms, template inactivity, resolved references and typed component fields. Tile collision tests check all 48 wall centers, the clear interior, deduplicated ray queries, continuous bounces including a 15-unit swept move, source affine conversion, independent clone ownership and world cleanup. These tests execute no managed callbacks and make no gameplay or GPU coverage claim.

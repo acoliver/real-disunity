@@ -46,7 +46,15 @@ impl NativeTransport {
         world: u64,
     ) -> Result<(), HostError> {
         let descriptor = self.request(0, &json!({"version":1,"op":"describe"}))?;
-        capability(&descriptor, PROFILE)?;
+        self.select_byte_profile_with_descriptor(world, &descriptor)
+    }
+
+    pub(in crate::compatibility) fn select_byte_profile_with_descriptor(
+        &self,
+        world: u64,
+        descriptor: &Value,
+    ) -> Result<(), HostError> {
+        capability(descriptor, PROFILE)?;
         if self
             .byte_worlds
             .lock()
@@ -100,6 +108,7 @@ impl CompatibilityHost {
             return Err(invalid("requires an owned world before session.open"));
         }
         capability(&self.bridge.description()?, CONSUMER)?;
+        capability(&self.negotiation.native, PROFILE)?;
         self.native.select_byte_profile(world)
     }
 

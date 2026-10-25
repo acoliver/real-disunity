@@ -1,6 +1,10 @@
 #[test]
-#[ignore = "requires explicitly selected immutable snapshot provider and managed bridge"]
 fn actual_native_receipt_forgery_rejection() {
+    if !crate::test_support::child::isolated(
+        "compatibility::snapshot::tests::actual_native_receipt_forgery_rejection",
+    ) {
+        return;
+    }
     let (mut host, world) = snapshot_host();
     let capture = host.capture_snapshot(world).unwrap();
     let before = host
@@ -123,23 +127,11 @@ fn reject_malformed_envelopes_stamps_and_nested_payloads() {
 }
 
 fn snapshot_host() -> (CompatibilityHost, u64) {
-    let config = crate::ManagedHostConfig {
-        ffi_library: std::env::var_os("DISUNITY_TEST_NATIVE_LIBRARY")
-            .unwrap()
-            .into(),
-        assembly: std::path::PathBuf::from(std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").unwrap())
-            .join("artifacts/bin/CompatibilityBridge/debug/CompatibilityBridge.dll"),
-        runtime_config: std::path::PathBuf::from(
-            std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").unwrap(),
-        )
-        .join("artifacts/bin/CompatibilityBridge/debug/CompatibilityBridge.runtimeconfig.json"),
-        bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-    };
+    let config = crate::test_support::artifacts().config();
     let mut host = CompatibilityHost::boot(&config).unwrap();
     let world = host.create_world().unwrap();
     host.open_phase_session(world).unwrap();
-    let probe = std::path::PathBuf::from(std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").unwrap())
-        .join("artifacts/bin/Compatibility.Tests/debug/Compatibility.Tests.dll");
+    let probe = crate::test_support::artifacts().probe();
     host.load_fixture(&json!({"world":world,"assemblies":[probe],"handles":{},
         "requirements":{"execution_profile":"native_phase_context_v1"},
         "graph":{"nodes":[],"components":[],"assets":[],"aliases":{}}}))

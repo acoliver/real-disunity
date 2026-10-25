@@ -33,7 +33,7 @@ pub enum DeviceError {
 pub struct GpuContext {
     adapter: Adapter,
     device: Device,
-    queue: Queue,
+    submission: worldrunner_render_gpu::submission::SubmissionAuthority,
 }
 
 impl GpuContext {
@@ -93,6 +93,26 @@ impl GpuContext {
         adapter: Adapter,
         required_features: Features,
     ) -> Result<Self, DeviceError> {
+        Self::from_adapter_with_timing(
+            adapter,
+            required_features,
+            worldrunner_render_post::TimingMode::Disabled,
+        )
+        .await
+    }
+
+    /// Optional timing enables supported timestamp queries; required timing rejects absent capability.
+    pub async fn from_adapter_with_timing(
+        adapter: Adapter,
+        required_features: Features,
+        timing: worldrunner_render_post::TimingMode,
+    ) -> Result<Self, DeviceError> {
+        let required_features = required_features
+            | if timing == worldrunner_render_post::TimingMode::Required {
+                timing.features()
+            } else {
+                Features::empty()
+            };
         let available = adapter.features();
         let missing = required_features.difference(available);
         if !missing.is_empty() {
@@ -106,16 +126,27 @@ impl GpuContext {
             &adapter,
             &worldrunner_render_gpu::device::DeviceRequirements {
                 required_features,
+                optional_features: if timing == worldrunner_render_post::TimingMode::Optional {
+                    timing.features()
+                } else {
+                    Features::empty()
+                },
                 ..Default::default()
             },
         )
         .await
         .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;
 
+        let submission =
+            worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
+        let observer = submission.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            observer.report_device_loss(format!("{reason:?}: {message}"));
+        });
         Ok(Self {
             adapter,
             device,
-            queue,
+            submission,
         })
     }
 
@@ -127,8 +158,12 @@ impl GpuContext {
 
     /// Returns the queue, for submitting uploads and command buffers.
     #[must_use]
-    pub const fn queue(&self) -> &Queue {
-        &self.queue
+    pub fn queue(&self) -> &Queue {
+        self.submission.queue()
+    }
+
+    pub const fn submission(&self) -> &worldrunner_render_gpu::submission::SubmissionAuthority {
+        &self.submission
     }
 
     /// Returns the adapter, the only source of truth about format support.

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "snake",
-  "source_root": ".work/games/snake",
+  "game": "snake",
   "profiles": [
     "source-6000.3",
     "compat-6000.3",
@@ -10,7 +10,7 @@
   "default_profile": "source-6000.3",
   "evidence_label": "original-source/authored-missing-sprite",
   "worker": {
-    "program": "{root}/.work/target/debug/compat-player",
+    "program": "{root}/target/debug/compat-player",
     "args": []
   },
   "seed": 17,
@@ -180,27 +180,5 @@
       "phase": "render",
       "origin": "original-source/authored-missing-sprite"
     }
-  ],
-  "refresh": {
-    "remote": "origin",
-    "branch": "main",
-    "gates": [
-      {
-        "program": "python3",
-        "args": [
-          "{root}/fixtures/gates/qualify.py",
-          "snake",
-          "compile"
-        ]
-      },
-      {
-        "program": "python3",
-        "args": [
-          "{root}/fixtures/gates/qualify.py",
-          "snake",
-          "test"
-        ]
-      }
-    ]
-  }
+  ]
 }

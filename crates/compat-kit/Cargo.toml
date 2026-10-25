@@ -1,6 +1,6 @@
 [package]
 name = "compat-kit"
-description = "Process-isolated compatibility harness and fixture qualification tool"
+description = "Process-isolated compatibility harness and fixture runner"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,6 +18,7 @@ serde_json.workspace = true
 sha2.workspace = true
 png.workspace = true
 rustix = { workspace = true, features = ["process"] }
+worldrunner-original-games = { path = "../original-games" }
 
 [dev-dependencies]
 tempfile.workspace = true

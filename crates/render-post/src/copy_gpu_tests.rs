@@ -67,9 +67,15 @@ fn copy_texture_load_preserves_float32_without_requiring_filterability() {
             queue.submit([encoder.finish()]);
             let mut readback = Readback::new(&device, config, 1024).unwrap();
             let original = readback
-                .read(&device, &queue, chain.targets().texture())
+                .read(
+                    &device,
+                    &crate::test_authority(&queue),
+                    chain.targets().texture(),
+                )
                 .unwrap();
-            let copied = readback.read(&device, &queue, &output).unwrap();
+            let copied = readback
+                .read(&device, &crate::test_authority(&queue), &output)
+                .unwrap();
             let validation = pollster::block_on(scope.pop());
             assert_eq!(&original[..4], &2.5_f32.to_le_bytes());
             assert_eq!(
@@ -109,7 +115,9 @@ fn hdr_four_sample_resolve_and_copy_preserve_values_outside_unorm_range() {
         );
         queue.submit([encoder.finish()]);
         let mut readback = Readback::new(&device, FrameConfig::new(size, format, 1), 4096).unwrap();
-        let pixels = readback.read(&device, &queue, &output).unwrap();
+        let pixels = readback
+            .read(&device, &crate::test_authority(&queue), &output)
+            .unwrap();
         assert_eq!(
             pixels.len(),
             usize::try_from(size[0] * size[1] * 8).unwrap()
@@ -217,9 +225,15 @@ fn copy_preserves_pattern_orientation_alpha_and_every_srgb_code() {
         queue.submit([encoder.finish()]);
         let mut readback = Readback::new(&device, config, 1024 * 1024).unwrap();
         let original = readback
-            .read(&device, &queue, chain.targets().texture())
+            .read(
+                &device,
+                &crate::test_authority(&queue),
+                chain.targets().texture(),
+            )
             .unwrap();
-        let copied = readback.read(&device, &queue, &output).unwrap();
+        let copied = readback
+            .read(&device, &crate::test_authority(&queue), &output)
+            .unwrap();
         assert_ne!(&original[..4], &original[4..8]);
         assert_ne!(&original[..4], &original[257 * 4..258 * 4]);
         let red: std::collections::BTreeSet<_> =

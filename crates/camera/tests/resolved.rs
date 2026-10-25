@@ -297,6 +297,24 @@ fn finite_lenses_with_unrepresentable_far_plane_are_rejected() {
 }
 
 #[test]
+fn finite_governed_far_planes_keep_queries_finite_beyond_f32_depth_precision() {
+    for far_meters in [16_777.219, 33_554.433, 4_294_967.5] {
+        let lens = CameraLens::Perspective {
+            vertical_fov_radians: 1.0,
+            near_meters: 0.1,
+            far_meters,
+        };
+        let camera = state(lens, ViewHandedness::RightHanded);
+        let view = resolve(&camera).unwrap();
+        assert_eq!(view.clip_distances_meters()[0].to_bits(), 0.1_f32.to_bits());
+        for pixel in [Vec2::ZERO, Vec2::new(800.0, 600.0)] {
+            assert!(view.screen_to_world(pixel.extend(1.0)).unwrap().is_finite());
+            assert!(view.screen_ray(pixel).unwrap().direction.is_finite());
+        }
+    }
+}
+
+#[test]
 fn finite_world_points_that_overflow_screen_coordinates_are_diagnosed() {
     let view = resolve(&state(orthographic(), ViewHandedness::RightHanded)).unwrap();
     assert_eq!(

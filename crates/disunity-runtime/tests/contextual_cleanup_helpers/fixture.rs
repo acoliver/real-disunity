@@ -1,22 +1,8 @@
-use std::path::PathBuf;
-
 use serde_json::{Map, Value, json};
 use worldrunner_disunity_runtime::{CompatibilityHost, ManagedHostConfig};
 
 pub fn config() -> ManagedHostConfig {
-    let managed = PathBuf::from(
-        std::env::var_os("DISUNITY_CONTEXTUAL_MANAGED").expect("frozen managed directory required"),
-    );
-    let bridge = managed.join("artifacts/bin/CompatibilityBridge/debug/CompatibilityBridge.dll");
-    ManagedHostConfig {
-        ffi_library: PathBuf::from(
-            std::env::var_os("DISUNITY_CONTEXTUAL_NATIVE")
-                .expect("immutable native image required"),
-        ),
-        runtime_config: bridge.with_extension("runtimeconfig.json"),
-        assembly: bridge,
-        bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-    }
+    crate::support::artifacts().config()
 }
 
 pub fn manifest(host: &CompatibilityHost, world: u64, script_type: &str, count: u64) -> Value {
@@ -43,7 +29,7 @@ pub fn manifest(host: &CompatibilityHost, world: u64, script_type: &str, count: 
             json!({"id":id,"object":"owner","script":{"type_name":script_type,"fields":fields}}),
         );
     }
-    let managed = PathBuf::from(std::env::var_os("DISUNITY_CONTEXTUAL_MANAGED").unwrap());
+    let managed = crate::support::artifacts().managed_root.clone();
     json!({"world":world,"assemblies":[managed.join("artifacts/bin/Compatibility.Tests/debug/Compatibility.Tests.dll")],
         "requirements":{"execution_profile":"native_phase_context_v1","scheduler_profile":"native_contextual_lifecycle_batch_v1",
             "callback_profile":"contextual_lifecycle_batch_v1","native_capabilities":["native_contextual_lifecycle_batch_v1"],

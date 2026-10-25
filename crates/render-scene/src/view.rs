@@ -106,6 +106,7 @@ pub struct OrthographicLens {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SceneView {
     resolved: ResolvedView,
+    eye_millimeters: [i64; 3],
 }
 
 impl SceneView {
@@ -117,8 +118,11 @@ impl SceneView {
 
     /// Adapts an already resolved CPU camera without recomputing matrices.
     #[must_use]
-    pub const fn from_resolved(resolved: ResolvedView) -> Self {
-        Self { resolved }
+    pub const fn from_resolved(resolved: ResolvedView, eye_millimeters: [i64; 3]) -> Self {
+        Self {
+            resolved,
+            eye_millimeters,
+        }
     }
 
     /// Resolves an orthographic lens using the same canonical Z-up view basis.
@@ -157,6 +161,18 @@ impl SceneView {
             far_meters: f64::from(meters_scalar(camera.far_plane_millimeters)),
         };
         resolve_scene(pose, lens, SCENE_UP, viewport)
+    }
+
+    /// Exact authored eye position for CPU distance selection.
+    #[must_use]
+    pub const fn eye_millimeters(&self) -> [i64; 3] {
+        self.eye_millimeters
+    }
+
+    /// Near and far distances used to construct this projection, in metres.
+    #[must_use]
+    pub const fn clip_distances_meters(&self) -> [f32; 2] {
+        self.resolved.clip_distances_meters()
     }
 
     /// Returns the viewport used to resolve this projection.
@@ -218,7 +234,7 @@ fn resolve_scene(
         },
     };
     resolve(&state)
-        .map(SceneView::from_resolved)
+        .map(|resolved| SceneView::from_resolved(resolved, pose.eye_millimeters))
         .map_err(scene_error)
 }
 
@@ -255,7 +271,7 @@ fn meters(millimeters: [i64; 3]) -> Vec3 {
 }
 
 /// Rewrites one integral millimetre distance into metres.
-fn meters_scalar(millimeters: u32) -> f32 {
+pub(crate) fn meters_scalar(millimeters: u32) -> f32 {
     f64_to_f32(f64::from(millimeters) / f64::from(MILLIMETERS_PER_METER))
 }
 

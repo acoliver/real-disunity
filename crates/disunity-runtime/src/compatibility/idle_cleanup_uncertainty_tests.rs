@@ -52,9 +52,12 @@ unsafe extern "C" fn blocked_cleanup(_: *const u8, _: usize) -> i32 {
     -88
 }
 #[test]
-#[ignore = "requires isolated actual CLR process"]
 fn actual_host_release_error_after_free_reports_absent_generation() {
-    assert!(std::env::var_os("COMPAT_DISPLAY_CONTAINMENT").is_some());
+    if !crate::test_support::child::isolated(
+        "compatibility::idle_cleanup_uncertainty_tests::actual_host_release_error_after_free_reports_absent_generation",
+    ) {
+        return;
+    }
     let (mut host, world, object) = loaded();
     REAL.set(host.native.free_for_cleanup_test()).unwrap();
     host.native.set_free_for_cleanup_test(error_after_free);
@@ -72,9 +75,12 @@ fn actual_host_release_error_after_free_reports_absent_generation() {
     assert_eq!(boot().store_statistics().unwrap().0, 0);
 }
 #[test]
-#[ignore = "requires isolated actual CLR process"]
 fn actual_host_primary_release_cleanup_errors_keep_managed_owner() {
-    assert!(std::env::var_os("COMPAT_DISPLAY_CONTAINMENT").is_some());
+    if !crate::test_support::child::isolated(
+        "compatibility::idle_cleanup_uncertainty_tests::actual_host_primary_release_cleanup_errors_keep_managed_owner",
+    ) {
+        return;
+    }
     let (mut host, world, object) = loaded();
     REAL.set(host.native.free_for_cleanup_test()).unwrap();
     COPY.set(host.native.copy_for_cleanup_test()).unwrap();

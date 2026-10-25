@@ -53,7 +53,7 @@ fn factor_scene(mapped: bool, roughness_micro: u32, metalness_micro: u32) -> Ren
         )
         .expect("factor fixture geometry validates"),
         terrain: None,
-        effects: effects(),
+        effects: Some(effects()),
     })
     .expect("factor fixture scene validates")
 }

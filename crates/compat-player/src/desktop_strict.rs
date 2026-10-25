@@ -57,7 +57,7 @@ impl Desktop<'_> {
                 || self.playback.pending_unload
                 || self.cursor == self.playback.request.timeline.len()
         };
-        crate::interactive_evidence::journal(
+        crate::interactive_log::journal(
             &self.playback.request.artifact_root,
             &json!({"stage":"strict_ingress","frame":tick.frame,"events":events,
                 "retired":reload,"epoch_endpoint_ns":endpoint.as_nanos().to_string()}),
@@ -68,7 +68,7 @@ impl Desktop<'_> {
     fn reject_elapsed(&mut self, tick: &LiveTick, error: String) -> String {
         let row = super::diagnostics::elapsed_rejected(tick, &error);
         if let Err(failure) =
-            crate::interactive_evidence::journal(&self.playback.request.artifact_root, &row)
+            crate::interactive_log::journal(&self.playback.request.artifact_root, &row)
         {
             self.diagnostic_failure(format!(
                 "strict_elapsed_rejected diagnostic write failed: {failure}"
@@ -127,7 +127,7 @@ impl Desktop<'_> {
             .iter()
             .map(|dt| json!({"num":u64::from(dt.subsec_nanos()),"den":1_000_000_000}))
             .collect();
-        crate::interactive_evidence::journal(
+        crate::interactive_log::journal(
             &self.playback.request.artifact_root,
             &json!({"stage":"update","execution_profile":crate::strict::PROFILE,"frame":tick.frame,
                 "elapsed_ns":tick.elapsed.as_nanos().to_string(),"dt_ns":tick.dt.as_nanos().to_string(),

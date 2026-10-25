@@ -9,17 +9,10 @@ use worldrunner::scene::viewer::{
     IngressOrigin, LiveClock, LiveDriver, LiveInputEvent, LiveInputSample,
 };
 
-fn root() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
-}
-
 #[test]
 fn presentation_startup_is_explicit_strict_interactive_and_exact() {
-    let root = root();
-    let artifacts = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
+    let installation = crate::test_support::installation();
+    let artifacts = crate::test_support::scratch("desktop-");
     let cases = [
         (false, None, Ok(LiveClock::Legacy)),
         (true, None, Ok(LiveClock::Acquisition)),
@@ -37,7 +30,7 @@ fn presentation_startup_is_explicit_strict_interactive_and_exact() {
         (true, Some(json!(true)), Err("unsupported")),
     ];
     for (strict, startup, expected) in cases {
-        let mut request = request(&root, artifacts.path());
+        let mut request = request(artifacts.path());
         if strict {
             request.metadata["execution_profile"] = json!(crate::strict::PROFILE);
         }
@@ -46,7 +39,7 @@ fn presentation_startup_is_explicit_strict_interactive_and_exact() {
         }
         let mut report = report();
         let mut session = None;
-        let playback = Playback::new(&root, &request, &mut report, &mut session).unwrap();
+        let playback = Playback::new(&installation, &request, &mut report, &mut session).unwrap();
         match (Desktop::new(playback), expected) {
             (Ok(driver), Ok(clock)) => assert_eq!(driver.clock(), clock),
             (Err(error), Err(fragment)) => assert!(error.contains(fragment), "{error}"),
@@ -78,15 +71,15 @@ fn tap(sequence: u64, pressed: bool) -> LiveInputSample {
 
 #[test]
 fn actual_initial_scene_extraction_never_advances_captures_or_submits_input() {
-    let root = root();
-    let artifacts = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
-    let mut request = request(&root, artifacts.path());
+    let installation = crate::test_support::installation();
+    let artifacts = crate::test_support::scratch("desktop-");
+    let mut request = request(artifacts.path());
     request.metadata["execution_profile"] = json!(crate::strict::PROFILE);
     request.metadata["presentation_startup"] = json!("ready_prewarmed_v1");
     request.seed = 17;
     let mut report = report();
     let mut session = None;
-    let playback = Playback::new(&root, &request, &mut report, &mut session).unwrap();
+    let playback = Playback::new(&installation, &request, &mut report, &mut session).unwrap();
     let mut driver = Desktop::new(playback).unwrap();
     let viewport = tick(0, vec![]).viewport;
     driver.initialize(viewport).unwrap();

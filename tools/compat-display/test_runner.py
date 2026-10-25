@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
+import tempfile
 import subprocess
 import sys
 import time
@@ -9,14 +11,20 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "tools/compat-display/run.py"
-BASE = ROOT / ".work/display-resumed"
+BASE = ROOT / ".work/compat-display"
 
 
 class ContainedDisplayTests(unittest.TestCase):
+    def setUp(self):
+        BASE.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=BASE)
+        self.addCleanup(self.temporary.cleanup)
+        self.environment = dict(os.environ, COMPAT_DISPLAY_OUTPUT=self.temporary.name)
+
     def run_command(self, command):
         return subprocess.run([sys.executable, str(RUNNER), "--", *command], cwd=ROOT,
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=45)
+                              timeout=45, env=self.environment)
 
     def session_from(self, result):
         self.assertIn("session=", result.stdout)
@@ -46,7 +54,11 @@ class ContainedDisplayTests(unittest.TestCase):
         marker.unlink()
 
     def test_real_x_geometry_and_coreclr_startup(self):
-        dotnet = Path(os.environ["DOTNET_ROOT"]) / "dotnet"
+        configured = os.environ.get('DOTNET_ROOT')
+        found = str(Path(configured) / 'dotnet') if configured else shutil.which('dotnet')
+        self.assertIsNotNone(found, 'set DOTNET_ROOT or install dotnet on PATH for the CoreCLR test')
+        dotnet = Path(found)
+        self.environment['DOTNET_ROOT'] = str(dotnet.parent)
         self.assertTrue(dotnet.is_file(), f"expected configured CoreCLR at {dotnet}")
         probe = self.run_command(["sh", "-c",
                                   "xdpyinfo -display \"$DISPLAY\" | grep -F 'dimensions:    1280x800 pixels' && \"$DOTNET_ROOT/dotnet\" --info"])
@@ -70,7 +82,7 @@ class ContainedDisplayTests(unittest.TestCase):
 
     def test_interrupt_cleans_the_command_group_and_private_display(self):
         wrapper = subprocess.Popen([sys.executable, str(RUNNER), "--", sys.executable,
-                                    "-c", "import time; time.sleep(60)"], cwd=ROOT,
+                                    "-c", "import time; time.sleep(60)"], cwd=ROOT, env=self.environment,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         session = Path(wrapper.stdout.readline().strip().removeprefix("session="))
         deadline = time.monotonic() + 15

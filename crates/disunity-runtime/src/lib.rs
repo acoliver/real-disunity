@@ -14,8 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use libloading::Library;
 mod bridge;
 mod compatibility;
-#[cfg(target_os = "linux")]
-pub use compatibility::NativeImageLease;
 pub use compatibility::{
     AdvanceReport, CapturedSnapshot, CompatibilityHost, HostIdleMutationError, SnapshotStamp,
 };
@@ -110,21 +108,6 @@ impl ManagedHostConfig {
             return Err(HostError::FfiNotFound(
                 self.ffi_library.display().to_string(),
             ));
-        }
-        if self.bridge_type.trim().is_empty() {
-            return Err(HostError::Hostfxr(
-                "bridge type must be explicit and nonempty".into(),
-            ));
-        }
-        Ok(())
-    }
-
-    #[cfg(target_os = "linux")]
-    fn validate_managed(&self) -> Result<(), HostError> {
-        for path in [&self.runtime_config, &self.assembly] {
-            if !path.is_file() {
-                return Err(HostError::ManagedArtifactsMissing(path.clone()));
-            }
         }
         if self.bridge_type.trim().is_empty() {
             return Err(HostError::Hostfxr(
@@ -339,42 +322,29 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn managed_only_validation_leaves_native_selection_to_the_owned_lease() {
-        let config = managed_config();
-        assert!(config.validate_managed().is_ok());
-        assert!(matches!(
-            config.validate(),
-            Err(super::HostError::FfiNotFound(_))
-        ));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn legacy_validation_preserves_native_error_before_empty_bridge() {
+    fn validation_checks_native_image_before_empty_bridge() {
         let mut config = managed_config();
-        config.bridge_type = " 	".into();
+        config.bridge_type = " \t".into();
         assert!(matches!(
             config.validate(),
             Err(super::HostError::FfiNotFound(_))
-        ));
-        assert!(matches!(
-            config.validate_managed(),
-            Err(super::HostError::Hostfxr(_))
         ));
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn both_validation_routes_reject_missing_managed_artifacts_first() {
+    fn validation_rejects_missing_managed_artifacts_first() {
         let mut config = managed_config();
         config.runtime_config = config.ffi_library.clone();
         assert!(matches!(
             config.validate(),
             Err(super::HostError::ManagedArtifactsMissing(path)) if path == config.runtime_config
         ));
-        assert!(matches!(
-            config.validate_managed(),
-            Err(super::HostError::ManagedArtifactsMissing(path)) if path == config.runtime_config
-        ));
     }
 }
+
+#[cfg(test)]
+extern crate self as worldrunner_disunity_runtime;
+#[cfg(test)]
+#[path = "../tests/support/handshake.rs"]
+pub mod test_support;

@@ -51,8 +51,6 @@ impl Target {
     }
 }
 
-pub const POLICY: &str = "native XYZ to canonical XZY; identity rotation/scale; RH ortho half-height 2; eye (0,-10,0); forward +Y; up +Z";
-
 pub fn canonical_position(native: [f32; 3]) -> [f32; 3] {
     [native[0], native[2], native[1]]
 }

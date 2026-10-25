@@ -2,11 +2,7 @@ use super::*;
 use std::path::PathBuf;
 
 fn setup() -> (tempfile::TempDir, PathBuf, RunRequest) {
-    let worktree = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let directory = tempfile::tempdir_in(worktree.join(".work/tmp")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("root");
     fs::create_dir_all(&root).unwrap();
     let request = RunRequest {
@@ -19,7 +15,6 @@ fn setup() -> (tempfile::TempDir, PathBuf, RunRequest) {
         timeline: vec![],
         assertions: vec![],
         source_root: directory.path().join("source"),
-        source_hashes: BTreeMap::new(),
         artifact_root: root.join(".work/artifacts"),
         metadata: json!({}),
     };

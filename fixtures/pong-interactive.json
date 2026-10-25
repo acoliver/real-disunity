@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "pong-interactive",
-  "source_root": ".work/games/pong",
+  "game": "pong",
   "profiles": [
     "source-2017.1",
     "compat-6000.3",
@@ -10,7 +10,7 @@
   "default_profile": "source-2017.1",
   "evidence_label": "original-source/legacy-mappings-dejavu-font",
   "worker": {
-    "program": "{root}/.work/target/debug/compat-player",
+    "program": "{root}/target/debug/compat-player",
     "args": []
   },
   "seed": 17,
@@ -112,9 +112,9 @@
     },
     "coverage": "Bounded continuous desktop exploration with real keyboard input. This fixture does not assert complete game qualification.",
     "fonts": {
-      "host.builtin-font": ".work/fonts/DejaVuSans.ttf"
+      "host.builtin-font": "fixtures/fonts/DejaVuSans.ttf"
     },
-    "font_license": ".work/fonts/DejaVu-LICENSE.txt",
+    "font_license": "fixtures/fonts/DejaVu-LICENSE.txt",
     "interactive": {
       "duration_ms": 30000,
       "max_frames": 3600,
@@ -135,27 +135,5 @@
       "phase": "render",
       "origin": "original-source/legacy-mappings-dejavu-font"
     }
-  ],
-  "refresh": {
-    "remote": "origin",
-    "branch": "master",
-    "gates": [
-      {
-        "program": "python3",
-        "args": [
-          "{root}/fixtures/gates/qualify.py",
-          "pong",
-          "compile"
-        ]
-      },
-      {
-        "program": "python3",
-        "args": [
-          "{root}/fixtures/gates/qualify.py",
-          "pong",
-          "test"
-        ]
-      }
-    ]
-  }
+  ]
 }

@@ -4,11 +4,15 @@ use worldrunner::scene::{
         MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode,
         SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
         SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh,
-        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades,
-        SceneSky, SceneSsao, SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat,
-        TextureColorSpace, TextureHandle,
+        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneShadowCascades, SceneSky,
+        SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat, TextureColorSpace,
+        TextureHandle,
     },
     viewer::{OrbitLimits, ViewerOptions, run},
+};
+use worldrunner_render_plan::{
+    SceneDirection, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface,
+    TerrainLodPolicy,
 };
 const MICRO: i64 = 1_000_000;
 
@@ -20,9 +24,20 @@ fn camera() -> SceneCamera {
     }
 }
 
-fn effects() -> SceneEffects {
+fn effects(terrain: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
-        water: None,
+        water: std::env::args().any(|arg| arg == "--water").then_some(
+            worldrunner_render_plan::SceneWaterPlane {
+                height_millimeters: 100,
+                east_min_millimeters: -900,
+                north_min_millimeters: -900,
+                east_extent_millimeters: 1800,
+                north_extent_millimeters: 1800,
+                color_micro: [50000, 200_000, 250_000],
+                absorption_micro: [300_000, 100_000, 50000],
+                roughness_micro: 200_000,
+            },
+        ),
         sky: SceneSky::ProceduralHemisphere {
             zenith: SceneColor {
                 red: 255,
@@ -36,25 +51,21 @@ fn effects() -> SceneEffects {
             },
         },
         sun: SceneSun {
-            direction: SceneRotation {
-                x: 0,
-                y: 0,
-                z: ROTATION_MICRO_SCALE,
-                w: 0,
-            },
-            // Ambient-only lighting makes channel-order errors obvious in this small example.
-            irradiance_micro: 0,
+            direction: SceneDirection::new(if terrain {
+                [600_000, 0, 800_000]
+            } else {
+                [0, 0, 1_000_000]
+            })
+            .unwrap(),
+            irradiance_micro: if terrain { 1_000_000 } else { 0 },
         },
         ambient: SceneAmbient {
-            sky_irradiance_micro: 1_000_000,
-            ground_irradiance_micro: 1_000_000,
+            sky_irradiance_micro: if terrain { 100_000 } else { 1_000_000 },
+            ground_irradiance_micro: if terrain { 100_000 } else { 1_000_000 },
         },
-        shadows: SceneShadowCascades::new(vec![10_000], 0).expect("one unblended cascade is valid"),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 0,
-            horizon_angle_millidegrees: 30_000,
-        },
+        shadows: SceneShadowCascades::new(vec![2_000, 4_000, 8_000, 16_000], 100_000)
+            .expect("four coverage cascades are valid"),
+        ssao: None,
         camera: camera(),
         grading: SceneColorGrading {
             exposure_micro: 1_000_000,
@@ -68,24 +79,23 @@ fn effects() -> SceneEffects {
 }
 
 fn identity() -> SceneTransform {
-    SceneTransform {
-        position_millimeters: [0, 0, 0],
-        rotation: SceneRotation {
-            x: 0,
-            y: 0,
-            z: 0,
-            w: ROTATION_MICRO_SCALE,
-        },
-        scale_millionths: 1_000_000,
-    }
+    SceneTransform::from_world_schema(
+        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
+        [0; 3],
+        [0, 0, 0, ROTATION_MICRO_SCALE],
+        1_000_000,
+    )
+    .expect("the example placement uses the schema boundary")
 }
 
 fn vertex(position: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
-    SceneVertex {
-        position_millimeters: position,
-        normal_micro: [0, 0, MICRO],
-        texcoord_micro: texcoord,
-    }
+    SceneVertex::from_world_schema(
+        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
+        position,
+        [0, MICRO, 0],
+        texcoord,
+    )
+    .expect("the example mesh uses the schema boundary")
 }
 
 /// A two-metre ground quad at elevation zero, facing up.
@@ -99,10 +109,10 @@ fn quad() -> SceneMesh {
         SceneMeshLod::new(
             0,
             vec![
-                vertex([-half, -half, 0], [0, 0]),
-                vertex([half, -half, 0], [MICRO, 0]),
-                vertex([half, half, 0], [MICRO, MICRO]),
-                vertex([-half, half, 0], [0, MICRO]),
+                vertex([-half, 0, half], [0, 0]),
+                vertex([half, 0, half], [MICRO, 0]),
+                vertex([half, 0, -half], [MICRO, MICRO]),
+                vertex([-half, 0, -half], [0, MICRO]),
             ],
             vec![0, 1, 2, 0, 2, 3],
             None,
@@ -127,7 +137,27 @@ fn material(alpha_mode: SceneAlphaMode, double_sided: bool) -> SceneMaterial {
     .expect("the example material carries in-range scalars")
 }
 
-fn scene() -> RenderScene {
+fn terrain() -> SceneTerrain {
+    SceneTerrain::new(SceneTerrainParts {
+        columns: 7,
+        rows: 7,
+        origin_east_millimeters: -3_000,
+        origin_north_millimeters: -3_000,
+        sample_spacing_millimeters: 1_000,
+        heights_millimeters: (0..49)
+            .map(|i| if i % 7 == 4 { 2_000 } else { 0 })
+            .collect(),
+        surface_indices: vec![0; 49],
+        surfaces: vec![SceneTerrainSurface::new(
+            MaterialHandle::from_raw(1),
+            SceneTerrainAppearance::NEUTRAL,
+        )],
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap()
+}
+
+fn scene(with_terrain: bool) -> RenderScene {
     let texture = SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,
         color_space: TextureColorSpace::Srgb,
@@ -136,28 +166,54 @@ fn scene() -> RenderScene {
         mips: 1,
         bytes: vec![255, 0, 0, 255].into(),
     };
+    let map = |bytes: [u8; 4]| SceneTexture::Texels {
+        format: TexelFormat::Rgba8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 1,
+        height: 1,
+        mips: 1,
+        bytes: Vec::from(bytes).into(),
+    };
+    let terrain_material = SceneMaterial::new(SceneMaterialParts {
+        albedo: TextureHandle::from_raw(0),
+        normal: Some(TextureHandle::from_raw(1)),
+        roughness_metallic: Some(TextureHandle::from_raw(2)),
+        ambient_occlusion: None,
+        self_illumination: None,
+        roughness_micro: 1_000_000,
+        metalness_micro: 0,
+        alpha_mode: SceneAlphaMode::Opaque,
+        double_sided: false,
+    })
+    .unwrap();
+    let terrain = with_terrain.then(terrain);
+    let mut placement = identity();
+    if with_terrain {
+        placement.position_millimeters[2] = 1_500;
+    }
     RenderScene::new(SceneParts {
         resources: SceneResources::new(
-            vec![texture],
-            vec![material(SceneAlphaMode::Opaque, false)],
+            vec![texture, map([128, 128, 255, 255]), map([0, 255, 0, 255])],
+            vec![material(SceneAlphaMode::Opaque, false), terrain_material],
         )
         .unwrap(),
         geometry: SceneGeometry::new(
             vec![quad()],
             vec![SceneObject::new(
-                identity(),
+                placement,
                 MeshHandle::from_raw(0),
                 MaterialHandle::from_raw(0),
             )],
         )
         .unwrap(),
-        terrain: None,
-        effects: effects(),
+        terrain,
+        effects: Some(effects(with_terrain)),
     })
     .unwrap()
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let terrain = std::env::args().any(|arg| arg == "--terrain");
     let shadows =
         std::env::args()
             .any(|arg| arg == "--shadows")
@@ -170,12 +226,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 normal_bias_meters: 0.01,
             });
     run(
-        scene(),
+        scene(terrain),
         ViewerOptions {
+            frames_in_flight: 2,
+            frame_profile: if std::env::args().any(|arg| arg == "--hdr" || arg == "--water") {
+                worldrunner::scene::viewer::FrameProfile::Hdr {
+                    samples: if std::env::args().any(|arg| arg == "--msaa") {
+                        4
+                    } else {
+                        1
+                    },
+                    tone_map: worldrunner::scene::viewer::ToneMap::Reinhard,
+                }
+            } else {
+                worldrunner::scene::viewer::FrameProfile::Legacy
+            },
+            camera: SceneCamera {
+                vertical_fov_millidegrees: 60_000,
+                near_plane_millimeters: 100,
+                far_plane_millimeters: 1_000_000,
+            },
             title: "Generic scene viewer".into(),
             size: [800, 600],
             pose: CameraPose {
-                eye_millimeters: [0, -2000, 2000],
+                eye_millimeters: if terrain {
+                    [0, -7_000, 6_000]
+                } else {
+                    [0, -2000, 2000]
+                },
                 target_millimeters: [0, 0, 0],
             },
             orbit: OrbitLimits {

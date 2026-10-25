@@ -176,7 +176,7 @@ impl QuadDraw {
                 Quat::from_array(quad.rotation).normalize(),
                 Vec3::from_array(quad.position),
             );
-            instances.extend_from_slice(&pack_model_instance(model, BILLBOARD_FIXED));
+            instances.extend_from_slice(&pack_model_instance(model));
             for channel in quad.tint {
                 push_f32(&mut tints, channel);
             }
@@ -224,7 +224,7 @@ impl QuadDraw {
 fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
     let [left, bottom, right, top] = quad.rect;
     let [u0, v0, u1, v1] = quad.uv_rect;
-    let mut bytes = Vec::with_capacity(4 * 32);
+    let mut bytes = Vec::with_capacity(4 * crate::geometry::VERTEX_BYTES);
     for (x, z, u, v) in [
         (left, bottom, u0, v1),
         (right, bottom, u1, v1),
@@ -235,6 +235,7 @@ fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
         push_vec3(&mut bytes, Vec3::NEG_Y);
         push_f32(&mut bytes, u);
         push_f32(&mut bytes, v);
+        bytes.extend_from_slice(&BILLBOARD_FIXED.to_le_bytes());
     }
     bytes
 }

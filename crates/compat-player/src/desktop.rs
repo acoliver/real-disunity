@@ -24,7 +24,7 @@ pub(crate) fn run(playback: Playback<'_>) -> Result<(), String> {
         ],
     );
     options.max_frames = Some(driver.frame_limit()?);
-    let profile = diagnostics::begin(driver.strict.is_some());
+    let profile = diagnostics::begin(driver.strict.is_some(), driver.playback.request);
     let outcome = worldrunner::scene::viewer::run_live(&mut driver, options)
         .map_err(|error| error.to_string());
     if let Err(error) = diagnostics::flush(&driver.playback.request.artifact_root, profile) {
@@ -143,7 +143,7 @@ impl<'a> Desktop<'a> {
             "dt":tick.dt.as_secs_f64(),"steps":steps,"simulated":state.simulated(),
             "keys":self.input.state().0,"reload":reload,"stop":finished,
             "input":format!("{:?}",tick.input)});
-        crate::interactive_evidence::journal(&self.playback.request.artifact_root, &journal)?;
+        crate::interactive_log::journal(&self.playback.request.artifact_root, &journal)?;
         if tick.frame == 0 || finished || commands.contains(&Command::Capture) {
             self.capture(tick.frame)?;
         }
@@ -159,7 +159,7 @@ impl<'a> Desktop<'a> {
             return Ok(());
         }
         state.captures += 1;
-        crate::interactive_evidence::capture(&mut self.playback, frame)
+        crate::interactive_log::capture(&mut self.playback, frame)
     }
 
     fn frame(&mut self, tick: &LiveTick, exit: bool) -> Result<LiveFrame, String> {
@@ -222,7 +222,7 @@ impl LiveDriver for Desktop<'_> {
             capture: None,
             exit: false,
         };
-        crate::interactive_evidence::journal(
+        crate::interactive_log::journal(
             &self.playback.request.artifact_root,
             &json!({"stage":"startup_prepared","startup":crate::strict::STARTUP,
                 "quads":frame.quads.len(),"viewport":[viewport.width,viewport.height]}),
@@ -231,7 +231,7 @@ impl LiveDriver for Desktop<'_> {
     }
 
     fn ready(&mut self) -> Result<(), String> {
-        crate::interactive_evidence::journal(
+        crate::interactive_log::journal(
             &self.playback.request.artifact_root,
             &json!({"stage":"ready","startup":crate::strict::STARTUP,
                 "execution_profile":crate::strict::PROFILE}),
@@ -288,7 +288,7 @@ impl LiveDriver for Desktop<'_> {
             return Err("desktop presentation omitted requested capture".into());
         }
         if self.continuous.is_some() {
-            crate::interactive_evidence::journal(
+            crate::interactive_log::journal(
                 &self.playback.request.artifact_root,
                 &json!({"stage":"presented","frame":receipt.frame,"elapsed":receipt.elapsed.as_secs_f64()}),
             )?;

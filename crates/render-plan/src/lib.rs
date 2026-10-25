@@ -59,13 +59,14 @@ pub use plan::{
     build_render_world_plan,
 };
 pub use scene::{
-    BillboardPolicy, DocumentSceneInput, EFFECTS_MICRO_SCALE, MATERIAL_MICRO_SCALE, MaterialHandle,
-    MeshHandle, ProvenSceneContribution, ROTATION_MICRO_SCALE, RenderScene, RouteDeclarationRef,
-    RouteSceneFactory, RouteSceneInput, SceneAlphaMode, SceneAmbient, SceneAntiAlias, SceneCamera,
-    SceneColor, SceneColorGrading, SceneCompositionFactory, SceneContribution, SceneEffects,
-    SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod,
-    SceneObject, SceneParts, ScenePlacement, ScenePostStage, SceneResources, SceneRotation,
-    SceneShadowCascades, SceneSky, SceneSsao, SceneSun, SceneTerrain, SceneTerrainAppearance,
+    BillboardPolicy, DIRECTION_MICRO_SCALE, DocumentSceneInput, EFFECTS_MICRO_SCALE,
+    MATERIAL_MICRO_SCALE, MaterialHandle, MeshHandle, ProvenSceneContribution,
+    ROTATION_MICRO_SCALE, RenderScene, RouteDeclarationRef, RouteSceneFactory, RouteSceneInput,
+    SceneAlphaMode, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
+    SceneCompositionFactory, SceneContribution, SceneDirection, SceneEffects, SceneEffectsParts,
+    SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject,
+    SceneParts, ScenePlacement, ScenePostStage, SceneResources, SceneRotation, SceneShadowCascades,
+    SceneSky, SceneSsao, SceneSsr, SceneSun, SceneTerrain, SceneTerrainAppearance,
     SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform, SceneValidationError,
     SceneVertex, SceneWaterPlane, TerrainLodPolicy, TexelFormat, TextureColorSpace,
     TextureEncoding, TextureHandle,
@@ -83,3 +84,5 @@ pub use document::{
     StreamLimits, TerrainMaterialSlot, TerrainRecipe, TransformMillimeters, UniformScaleMillionths,
     WaterPlaneRecipe, WindRecipe,
 };
+
+pub use scene::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};

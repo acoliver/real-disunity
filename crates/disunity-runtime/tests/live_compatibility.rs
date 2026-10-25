@@ -1,82 +1,16 @@
+#[path = "support/handshake.rs"]
+pub mod support;
 use serde_json::{Value, json};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
 use worldrunner_disunity_runtime::{CompatibilityHost, ManagedHostConfig};
 
-fn tool(command: &mut Command) {
-    let output = command
-        .output()
-        .expect("integration prerequisite must be installed");
-    assert!(
-        output.status.success(),
-        "{command:?}\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-fn configure(root: &Path) -> (ManagedHostConfig, PathBuf) {
-    let output = root.join(".work/runtime-host-probe");
-    fs::create_dir_all(&output).unwrap();
-    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or("dotnet".into());
-    tool(
-        Command::new(&dotnet)
-            .arg("build")
-            .arg(root.join("csharp/CompatibilityBridge/CompatibilityBridge.csproj"))
-            .arg("--artifacts-path")
-            .arg(output.join("bridge"))
-            .args(["--nologo", "-m:2"]),
-    );
-    let project = output.join("HostProbe.csproj");
-    fs::write(&project,format!(r#"<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><ProjectReference Include="{}/csharp/UnityCompat/UnityCompat.csproj"/><Compile Include="Probe.cs"/></ItemGroup></Project>"#,root.display())).unwrap();
-    fs::write(output.join("Probe.cs"),r#"using UnityEngine;
-public sealed class HostProbe : MonoBehaviour {
-    [SerializeField] private int displacement;
-    [SerializeField] private Transform target;
-    private void Awake() { target.position = new Vector3(displacement, 0, 0); }
-    private void Update() { if (Input.GetKeyDown(KeyCode.W)) target.position += new Vector3(Time.deltaTime, 1, 0); }
-}"#).unwrap();
-    tool(
-        Command::new(&dotnet)
-            .arg("build")
-            .arg(project)
-            .arg("--artifacts-path")
-            .arg(output.join("game"))
-            .args(["--nologo", "-m:2"]),
-    );
-    let bridge = output.join("bridge/bin/CompatibilityBridge/debug/CompatibilityBridge.dll");
-    let target = PathBuf::from(
-        std::env::var_os("CARGO_TARGET_DIR").expect("source worktree environment before test"),
-    );
-    let ffi = target.join("debug").join(format!(
-        "{}worldrunner_disunity_ffi{}",
-        std::env::consts::DLL_PREFIX,
-        std::env::consts::DLL_SUFFIX
-    ));
-    assert!(
-        ffi.is_file(),
-        "build the canonical FFI cdylib before this integration test"
-    );
-    (
-        ManagedHostConfig {
-            ffi_library: ffi,
-            runtime_config: bridge.with_extension("runtimeconfig.json"),
-            assembly: bridge,
-            bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-        },
-        output.join("game/bin/HostProbe/debug/HostProbe.dll"),
-    )
+fn configure() -> (ManagedHostConfig, PathBuf) {
+    (support::artifacts().config(), support::artifacts().probe())
 }
 
 #[test]
 fn live_private_callbacks_bind_before_awake_and_mutate_the_same_native_world() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let (config, assembly) = configure(&root);
+    let (config, assembly) = configure();
     let mut host = CompatibilityHost::boot(&config).unwrap();
     assert_eq!(host.store_statistics().unwrap().0, 0);
     for _ in 0..2 {

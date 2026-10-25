@@ -69,8 +69,9 @@ public static class NativeWorld
     }
 }
 
-internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = false) : INativeWorld
+internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = false, INativeTransport? transport = null) : INativeWorld
 {
+    internal INativeTransport Transport { get; } = transport ?? new LibraryTransport();
     internal ulong Handle => world;
     internal bool ByteProfile => byteProfile;
     private const string LibraryName = "worldrunner_disunity_ffi";
@@ -112,7 +113,7 @@ internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = fa
         unsafe
         {
             fixed (byte* requestPointer = bytes)
-                result = NativeBindings.disunity_world_request(world, requestPointer, (nuint)bytes.Length, &response);
+                result = Transport.Request(world, requestPointer, (nuint)bytes.Length, &response);
         }
         Check(result, "native request failed");
         Exception? primary = null;
@@ -121,7 +122,7 @@ internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = fa
             nuint length = 0;
             unsafe
             {
-                var probe = NativeBindings.disunity_response_copy(response, null, 0, &length);
+                var probe = Transport.Copy(response, null, 0, &length);
                 if (probe.code != 0 && probe.code != 2)
                     throw new NativeWorldException(probe.code.ToString(), "native response length probe failed");
             }
@@ -132,7 +133,7 @@ internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = fa
             unsafe
             {
                 fixed (byte* outputPointer = output)
-                    Check(NativeBindings.disunity_response_copy(response, outputPointer, (nuint)output.Length, &length), "native response copy failed");
+                    Check(Transport.Copy(response, outputPointer, (nuint)output.Length, &length), "native response copy failed");
             }
             if (length != (nuint)output.Length) throw new InvalidDataException("native response length changed during copy");
             return JsonDocument.Parse(output);
@@ -140,7 +141,7 @@ internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = fa
         catch (Exception error) { primary = error; throw; }
         finally
         {
-            var released = NativeBindings.disunity_response_free(response);
+            var released = Transport.Free(response);
             if (released.code != 0 && primary is not null)
                 throw new AggregateException(primary, new NativeWorldException(released.code.ToString(), "native response release failed"));
             Check(released, "native response release failed");
@@ -171,6 +172,15 @@ internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = fa
                     ?? throw new InvalidOperationException("configure the native FFI image before calling it"));
             return _nativeImage;
         }
+    }
+
+    private sealed unsafe class LibraryTransport : INativeTransport
+    {
+        public DisunityResult Request(ulong world, byte* bytes, nuint length, ulong* response) =>
+            NativeBindings.disunity_world_request(world, bytes, length, response);
+        public DisunityResult Copy(ulong response, byte* bytes, nuint capacity, nuint* length) =>
+            NativeBindings.disunity_response_copy(response, bytes, capacity, length);
+        public DisunityResult Free(ulong response) => NativeBindings.disunity_response_free(response);
     }
 
     private static class NativeBindings

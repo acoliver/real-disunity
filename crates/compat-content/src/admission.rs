@@ -15,20 +15,13 @@ pub(crate) fn plan(
     scene: &ImportedScene,
     policy: &AdmissionPolicy,
 ) -> Result<MaterializationPlan, MaterializationError> {
-    plan_classified(scene, policy, &BTreeSet::new())
-}
-pub(crate) fn plan_classified(
-    scene: &ImportedScene,
-    policy: &AdmissionPolicy,
-    exemptions: &BTreeSet<(String, String)>,
-) -> Result<MaterializationPlan, MaterializationError> {
     let skipped_components = omissions(scene, policy)?;
     let components: Vec<_> = scene
         .components
         .iter()
         .filter(|c| c.object.is_some() && !skipped_components.contains_key(&c.id))
         .collect();
-    validate(scene, &components, exemptions)?;
+    validate(scene, &components)?;
     let mut commands = Vec::new();
     for node in &scene.nodes {
         let transforms: Vec<_> = components
@@ -161,7 +154,6 @@ fn omission<'a>(c: &ImportedComponent, policy: &'a AdmissionPolicy) -> Option<&'
 fn validate(
     scene: &ImportedScene,
     components: &[&ImportedComponent],
-    exemptions: &BTreeSet<(String, String)>,
 ) -> Result<(), MaterializationError> {
     let mut live = BTreeSet::new();
     for id in scene
@@ -180,9 +172,8 @@ fn validate(
             path,
             scene,
             live: &live,
-            exemptions,
         }
-        .check(metadata, "", 0)?;
+        .check(metadata, 0)?;
     }
     for c in components {
         if !scene.nodes.iter().any(|n| c.object.as_ref() == Some(&n.id)) {
@@ -301,33 +292,24 @@ struct MetadataValidation<'a> {
     path: &'a str,
     scene: &'a ImportedScene,
     live: &'a BTreeSet<String>,
-    exemptions: &'a BTreeSet<(String, String)>,
 }
 impl MetadataValidation<'_> {
-    fn check(&self, value: &Value, field: &str, depth: usize) -> Result<(), MaterializationError> {
+    fn check(&self, value: &Value, depth: usize) -> Result<(), MaterializationError> {
         if depth > 96 {
             return Err(error(self.path, "field recursion exceeds 96"));
-        }
-        if self.exemptions.contains(&(self.path.into(), field.into())) {
-            return Ok(());
         }
         if value.get("$missing").is_some() || value.get("$ref").is_some() {
             return values(value, self.path, self.scene, self.live, depth);
         }
         match value {
             Value::Object(map) => {
-                for (key, value) in map {
-                    let next = if field.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{field}.{key}")
-                    };
-                    self.check(value, &next, depth + 1)?;
+                for value in map.values() {
+                    self.check(value, depth + 1)?;
                 }
             }
             Value::Array(array) => {
-                for (index, value) in array.iter().enumerate() {
-                    self.check(value, &format!("{field}[{index}]"), depth + 1)?;
+                for value in array {
+                    self.check(value, depth + 1)?;
                 }
             }
             _ => {}

@@ -2,9 +2,7 @@ use std::path::PathBuf;
 use worldrunner_compat_content::{ImportProfile, ImportSidecar, import_project, script_census};
 
 fn root(game: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.work/games")
-        .join(game)
+    worldrunner_original_games::checkout(game.parse().unwrap()).unwrap()
 }
 
 #[test]

@@ -33,7 +33,7 @@ pub fn read(context: &GpuContext, texture: &wgpu::Texture) -> [u8; 4] {
     let config = post::FrameConfig::new([1, 1], texture.format(), 1);
     let mut readback = post::Readback::new(context.device(), config, 256).unwrap();
     readback
-        .read(context.device(), context.queue(), texture)
+        .read(context.device(), context.submission(), texture)
         .unwrap()
         .try_into()
         .unwrap()

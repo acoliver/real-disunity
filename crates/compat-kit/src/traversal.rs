@@ -46,11 +46,7 @@ impl fmt::Display for ScanError {
                 operation,
                 error,
                 ..
-            } => write!(
-                f,
-                "artifact/source scan {operation} {}: {error}",
-                path.display()
-            ),
+            } => write!(f, "artifact scan {operation} {}: {error}", path.display()),
             Self::Rejected { path, reason } => write!(f, "{reason}: {}", path.display()),
         }
     }
@@ -62,7 +58,6 @@ struct Scan<'a, F> {
     root: &'a Path,
     max_bytes: u64,
     max_files: usize,
-    skip_git: bool,
     before_metadata: F,
     paths: Vec<PathBuf>,
     bytes: u64,
@@ -74,9 +69,6 @@ impl<F: FnMut(&Path)> Scan<'_, F> {
         for entry in entries {
             let entry =
                 entry.map_err(|e| ScanError::io(directory, "entry", e, directory != self.root))?;
-            if self.skip_git && entry.file_name() == ".git" {
-                continue;
-            }
             let path = entry.path();
             (self.before_metadata)(&path);
             let meta = fs::symlink_metadata(&path)
@@ -89,7 +81,7 @@ impl<F: FnMut(&Path)> Scan<'_, F> {
                 if self.bytes > self.max_bytes || self.paths.len() > self.max_files {
                     return Err(ScanError::Rejected {
                         path,
-                        reason: "artifact/source storage cap exceeded",
+                        reason: "artifact storage cap exceeded",
                     });
                 }
             } else {
@@ -98,7 +90,7 @@ impl<F: FnMut(&Path)> Scan<'_, F> {
                     reason: if meta.is_symlink() {
                         "symlink rejected"
                     } else {
-                        "nonregular artifact/source rejected"
+                        "nonregular artifact rejected"
                     },
                 });
             }
@@ -154,29 +146,22 @@ fn verify_root(root: &Path, expected: (u64, u64)) -> ScanResult<()> {
     }
     Ok(())
 }
-pub(crate) fn scan(
-    root: &Path,
-    max_bytes: u64,
-    max_files: usize,
-    skip_git: bool,
-) -> ScanResult<Vec<PathBuf>> {
-    scanner(root, max_bytes, max_files, skip_git, |_| {}).once()
+pub(crate) fn scan(root: &Path, max_bytes: u64, max_files: usize) -> ScanResult<Vec<PathBuf>> {
+    scanner(root, max_bytes, max_files, |_| {}).once()
 }
 pub fn live_tree_files(root: &Path, max_bytes: u64, max_files: usize) -> ScanResult<Vec<PathBuf>> {
-    scanner(root, max_bytes, max_files, false, |_| {}).live()
+    scanner(root, max_bytes, max_files, |_| {}).live()
 }
 fn scanner<F: FnMut(&Path)>(
     root: &Path,
     max_bytes: u64,
     max_files: usize,
-    skip_git: bool,
     before_metadata: F,
 ) -> Scan<'_, F> {
     Scan {
         root,
         max_bytes,
         max_files,
-        skip_git,
         before_metadata,
         paths: Vec::new(),
         bytes: 0,

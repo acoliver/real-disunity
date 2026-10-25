@@ -1,0 +1,19 @@
+[package]
+name = "worldrunner-original-games"
+description = "Read-only original game sources fetched at pinned revisions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempfile.workspace = true
+thiserror.workspace = true
+
+[[bin]]
+name = "original-games"
+path = "src/main.rs"
+
+[lints]
+workspace = true

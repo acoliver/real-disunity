@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "SnakeJourney",
-  "source_root": ".work/games/snake",
+  "game": "snake",
   "profiles": [
     "source-6000.3",
     "compat-6000.3",
@@ -10,7 +10,7 @@
   "default_profile": "source-6000.3",
   "evidence_label": "original-source/authored-missing-sprite",
   "worker": {
-    "program": "{root}/.work/target/debug/compat-player",
+    "program": "{root}/target/debug/compat-player",
     "args": []
   },
   "seed": 17,
@@ -23917,16 +23917,7 @@
       "segment_name": "SneakSegment",
       "food_name": "Food"
     },
-    "journey_source_hashes": {
-      "Assets/Scripts/FoodSpawner.cs": "e4f0d72779f914aafd4b1a90789ed102b3c7363da462a1fbcd7bfbe7ab50ffe3",
-      "Assets/Scripts/GameConfig.cs": "9c81f1015c95d6fc75987e7ddd3c4dc63bd969be44cc5c5ead188757e8632050",
-      "Assets/Scripts/GameLoop.cs": "ee7e77bff1787c15f089a635307bb143ce1893bf9b8aab2a8a20f68af04c6e9a",
-      "Assets/Scripts/GridSystem.cs": "eed2e7d9e492ca99e85761396cc6e1273eee2bbef6e3bd77ab881b98d5ecfff1",
-      "Assets/Scripts/InputBuffer.cs": "024c157d3a5c301dde8be0d12c0666e0385d589f0d025ab380fc921be5e28dbd",
-      "Assets/Scripts/PlayerInputReader.cs": "ce3b6b920b40afd222ba356a1aff4e9fa04eb59e5b01d62ee213438f82a42094",
-      "Assets/Scripts/SnakeModel.cs": "47d156eae61d8b8ca66a07891dfb5557bbbcbbb0fd33549aec47972d9f3befda",
-      "Assets/Scripts/SnakeView.cs": "dde43a55bed814595df956a2f33715cf7dd862a5eeecbc81c99f3a8510cd9ee0"
-    },
+
     "native_update_contract": "Each logical tick duration is subdivided into 1/60-second native Updates plus a final remainder. Logical frame labels retain input/observation/capture boundaries."
   }
 }

@@ -2,9 +2,7 @@ use std::path::PathBuf;
 use worldrunner_compat_content::{ImportProfile, ImportSidecar, import_project};
 
 fn root(game: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.work/games")
-        .join(game)
+    worldrunner_original_games::checkout(game.parse().unwrap()).unwrap()
 }
 
 #[test]
@@ -117,7 +115,7 @@ fn pong_2017_overrides_keep_axes_transforms_and_unityevent_target() {
 #[test]
 fn profile_maps_dll_file_ids_to_distinct_managed_types_and_builtin_assets() {
     let profile: ImportProfile =
-        serde_json::from_str(include_str!("../profiles/legacy-2017.json")).unwrap();
+        serde_json::from_str(include_str!("../profiles/pong-source.json")).unwrap();
     let g = import_project(
         &root("pong"),
         "Assets/Scenes/Main.unity".as_ref(),

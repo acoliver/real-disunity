@@ -29,7 +29,7 @@ fn facade_camera_resolves_planar_screen_queries_for_existing_draw_contract() {
         },
     })
     .unwrap();
-    let scene_view = gpu::SceneView::from_resolved(camera);
+    let scene_view = gpu::SceneView::from_resolved(camera, [0, -10_000, 0]);
     let landmark = Vec3::new(2.0, 0.0, 1.0);
     let pixel = camera.world_to_screen(landmark).unwrap();
     assert!(pixel.abs_diff_eq(Vec3::new(150.0, 25.0, 0.5), 0.0001));
@@ -67,7 +67,7 @@ fn facade_free_fly_rts_and_governed_views_share_reconstruction_contract() {
             view.reconstruction_projection_matrix() * view.reconstruction_view_matrix();
         assert!(raster.abs_diff_eq(reconstruction, 0.0001));
         assert_eq!(
-            gpu::SceneView::from_resolved(view).view_projection_matrix(),
+            gpu::SceneView::from_resolved(view, [1_000, 20_000, 3_000]).view_projection_matrix(),
             raster
         );
     }

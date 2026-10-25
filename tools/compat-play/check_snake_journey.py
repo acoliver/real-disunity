@@ -30,6 +30,18 @@ def verify(record_path):
         if frame == checkpoints["fixture-reload"]:
             pool = []
         states[frame] = journey.state_at(report, frame, cfg, pool)
+    foods, updates = verify_transitions(states, checkpoints, request, cfg, run_dir)
+    captures_info = inspect_captures(record, run_dir, checkpoints)
+    return {"status": "pass", "fixture": record["fixture"], "profile": record["profile"],
+            "desktop": request["desktop"], "record": str(record_path), "run_dir": str(run_dir),
+            "observed_frames": len(states), "assertions": len(record["assertions"]),
+            "native_updates": len(updates), "maximum_update_dt": max(updates),
+            "foods": foods, "game_over_logs": 3, "teardown": report["teardown"],
+            "captures": captures_info}
+
+
+def verify_transitions(states, checkpoints, request, cfg, run_dir):
+    updates = [entry['dt'] for entry in request['timeline'] if entry['action'] == 'advance']
     before_reload = [(frame, state) for frame, state in states.items()
                      if frame < checkpoints["fixture-reload"]]
     foods = []
@@ -73,26 +85,21 @@ def verify(record_path):
         frame = checkpoints[name]
         journey.require(states[frame - 1]["body"][0][axis] == cfg["size"][axis] - 1
                         and states[frame]["body"][0][axis] == 0, f"missing authored {name} crossing")
-    source = journey.source_inventory(Path(record["source_before"]["root"]))
-    journey.require(source == record["source_before"]["scripts"] == record["source_after"]["scripts"],
-                    "original source changed")
+    return foods, updates
+
+
+def inspect_captures(record, run_dir, checkpoints):
     captures = [journey.work_path(journey.ROOT, run_dir / item["path"]) for item in record["captures"]]
     journey.require(len(captures) == len(checkpoints), "missing checkpoint capture")
     for path, capture in zip(captures, record["captures"]):
         journey.require(hashlib.sha256(path.read_bytes()).hexdigest() == capture["sha256"],
-                        f"capture differs from canonical receipt: {path}")
+                        f"capture differs from validated run: {path}")
     decoded = [journey.decode_png(path) for path in captures]
     journey.validate_capture_pixels(decoded)
-    receipts = [{"path": str(path), "width": image[0], "height": image[1],
-                 "pixel_sha256": hashlib.sha256(image[2]).hexdigest()}
+    captures_info = [{"path": str(path), "width": image[0], "height": image[1],
+                 "pixel_bytes": len(image[2])}
                 for path, image in zip(captures, decoded)]
-    return {"status": "pass", "fixture": record["fixture"], "profile": record["profile"],
-            "desktop": request["desktop"], "record": str(record_path), "run_dir": str(run_dir),
-            "observed_frames": len(states), "assertions": len(record["assertions"]),
-            "native_updates": len(updates), "maximum_update_dt": max(updates),
-            "timeline_sha256": hashlib.sha256(json.dumps(request["timeline"], sort_keys=True).encode()).hexdigest(),
-            "foods": foods, "game_over_logs": 3, "teardown": report["teardown"],
-            "source_hashes": source, "captures": receipts}
+    return captures_info
 
 
 def main():
@@ -110,12 +117,13 @@ def main():
                         for desktop in (False, True)}
             journey.require({(run["profile"], run["desktop"]) for run in runs} == expected,
                             "requires modern/2017 GPU and actual desktop records")
-            journey.require(len({run["timeline_sha256"] for run in runs}) == 1,
-                            "profile/desktop timelines differ")
-            pixels = [{Path(capture["path"]).name: capture["pixel_sha256"]
-                       for capture in run["captures"]} for run in runs]
+            requests = [journey.read_json(Path(run['run_dir']) / 'request.json') for run in runs]
+            journey.require(all(request['timeline'] == requests[0]['timeline'] for request in requests),
+                            'profile/desktop timelines differ')
+            pixels = [{Path(capture['path']).name: journey.decode_png(Path(capture['path']))
+                       for capture in run['captures']} for run in runs]
             journey.require(all(images == pixels[0] for images in pixels),
-                            "canonical pixels differ across profile/desktop replays")
+                            'canonical pixels differ across profile/desktop replays')
     except (journey.JourneyError, OSError, ValueError, KeyError) as error:
         result = {"status": "fail", "message": str(error)}
     if args.output:

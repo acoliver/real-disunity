@@ -11,6 +11,7 @@ static void Require(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
 }
 
+TestArtifacts.Configure(ref args);
 var world = new RecordingWorld("{\"version\":1,\"ok\":true,\"data\":{\"value\":9}}");
 NativeWorld.Attach(world);
 using (var response = NativeWorld.Request("time.get"))
@@ -38,27 +39,27 @@ BridgeBehavior.BeforeLoad();
 if (args.Contains("--contextual-metadata-only")) { ContextualMetadataBehavior.Run(); return; }
 if (args.Contains("--contextual-bounded-codec-only")) { ContextualCleanupCodecBehavior.Run(); return; }
 if (args.Contains("--contextual-codec-only")) { ContextualCodecBehavior.Run(); return; }
-if (args.Contains("--contextual-cleanup-only")) { ContextualCleanupBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, args.Contains("--mutation")); return; }
-if (args.Contains("--nested-movenext-only")) { NestedStartBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, true); return; }
-if (args.Contains("--nested-scenario")) { NestedScenarioBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, int.Parse(args[1]), args.Length > 2 ? int.Parse(args[2]) : 1); return; }
-if (args.Contains("--nested-authored-breakout")) { NestedOriginalBehavior.Breakout(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, Environment.GetEnvironmentVariable("RD_WORKTREE")!, true); return; }
-if (args.Contains("--nested-original-breakout")) { NestedOriginalBehavior.Breakout(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, Environment.GetEnvironmentVariable("RD_WORKTREE")!); return; }
-if (args.Contains("--nested-unsupported")) { NestedSelectionBehavior.Unsupported(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
-if (args.Contains("--nested-matching")) { NestedSelectionBehavior.Matching(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
-if (args.Contains("--nested-authorization")) { ReadinessAuthorization.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, true); return; }
-if (args.Contains("--nested-waits")) { ReadinessWaitBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, true); return; }
-if (args.Contains("--nested-original-pong")) { NestedPongBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, Environment.GetEnvironmentVariable("RD_WORKTREE")!, true); return; }
-if (args.Contains("--single-original-pong")) { NestedPongBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!, Environment.GetEnvironmentVariable("RD_WORKTREE")!, false); return; }
-if (args.Contains("--nested-start-only")) { NestedStartBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
-if (args.Contains("--byte-profile-missing-requirement")) { ByteProfileBehavior.RejectMissingRequirement(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
-if (args.Contains("--byte-profile-boundaries")) { ByteProfileBoundaries.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
-if (args.Contains("--byte-profile-copy-fault")) { ByteCopyFault.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
+if (args.Contains("--contextual-cleanup-only")) { ContextualCleanupBehavior.Run(TestArtifacts.Native, args.Contains("--mutation")); return; }
+if (args.Contains("--nested-movenext-only")) { NestedStartBehavior.Run(TestArtifacts.Native, true); return; }
+if (args.Contains("--nested-scenario")) { NestedScenarioBehavior.Run(TestArtifacts.Native, int.Parse(args[1]), args.Length > 2 ? int.Parse(args[2]) : 1); return; }
+if (args.Contains("--nested-authored-breakout")) { NestedOriginalBehavior.Breakout(TestArtifacts.Native, TestArtifacts.Repository, true); return; }
+if (args.Contains("--nested-original-breakout")) { NestedOriginalBehavior.Breakout(TestArtifacts.Native, TestArtifacts.Repository); return; }
+if (args.Contains("--nested-unsupported")) { NestedSelectionBehavior.Unsupported(TestArtifacts.Native); return; }
+if (args.Contains("--nested-matching")) { NestedSelectionBehavior.Matching(TestArtifacts.Native); return; }
+if (args.Contains("--nested-authorization")) { ReadinessAuthorization.Run(TestArtifacts.Native, true); return; }
+if (args.Contains("--nested-waits")) { ReadinessWaitBehavior.Run(TestArtifacts.Native, true); return; }
+if (args.Contains("--nested-original-pong")) { NestedPongBehavior.Run(TestArtifacts.Native, TestArtifacts.Repository, true); return; }
+if (args.Contains("--single-original-pong")) { NestedPongBehavior.Run(TestArtifacts.Native, TestArtifacts.Repository, false); return; }
+if (args.Contains("--nested-start-only")) { NestedStartBehavior.Run(TestArtifacts.Native); return; }
+if (args.Contains("--byte-profile-missing-requirement")) { ByteProfileBehavior.RejectMissingRequirement(TestArtifacts.Native); return; }
+if (args.Contains("--byte-profile-boundaries")) { ByteProfileBoundaries.Run(TestArtifacts.Native); return; }
+if (args.Contains("--byte-profile-copy-fault")) { ByteCopyFault.Run(TestArtifacts.Native); return; }
 if (args.Contains("--byte-profile-descriptor")) { ByteProfileBehavior.Descriptor(); return; }
-if (args.Contains("--byte-profile-only")) { ByteProfileBehavior.Run(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
-if (args.Contains("--byte-profile-unselected")) { ByteProfileBehavior.Unselected(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!); return; }
+if (args.Contains("--byte-profile-only")) { ByteProfileBehavior.Run(TestArtifacts.Native); return; }
+if (args.Contains("--byte-profile-unselected")) { ByteProfileBehavior.Unselected(TestArtifacts.Native); return; }
 if (args.Contains("--readiness-only"))
 {
-    var readinessPath = Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!;
+    var readinessPath = TestArtifacts.Native;
     ReadinessBehavior.Run(readinessPath);
     ReadinessWaitBehavior.Run(readinessPath);
     ReadinessWaitBehavior.Unsupported(readinessPath);
@@ -76,7 +77,7 @@ if (args.Contains("--readiness-only"))
 }
 if (args.Contains("--readiness-missing-provider"))
 {
-    ReadinessAuthorization.MissingProvider(Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")!);
+    ReadinessAuthorization.MissingProvider(TestArtifacts.Native);
     return;
 }
 if (args.Contains("--handshake-describe-only")) { HandshakeBehavior.Describe(); return; }
@@ -101,12 +102,9 @@ foreach (var name in expectedExports)
 Require(exports.Single(item => item.Attribute!.EntryPoint == "Unload").Method.GetParameters().Length == 0,
     "Unload must take no parameters");
 
-var repository = Environment.GetEnvironmentVariable("RD_WORKTREE")
-    ?? throw new InvalidOperationException("source .session/env.sh before running native integration checks");
-SourceAssemblyEvidence.Verify(repository);
-var nativePath = Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")
-    ?? Path.Combine(repository, ".work/target/debug/libworldrunner_disunity_ffi.so");
-if (!File.Exists(nativePath)) throw new FileNotFoundException("build worldrunner-disunity-ffi before running integration checks", nativePath);
+var repository = TestArtifacts.Repository;
+OriginalAssemblyBehavior.Verify(repository);
+var nativePath = TestArtifacts.Native;
 var nativeImage = System.Runtime.InteropServices.NativeLibrary.Load(nativePath);
 try
 {

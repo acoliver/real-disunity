@@ -14,6 +14,7 @@ from pathlib import Path
 import signal
 import struct
 import subprocess
+import sys
 import time
 import uuid
 import zlib
@@ -25,6 +26,9 @@ LABEL = "original-source/authored-missing-sprite"
 OFFSETS = {"W": (0, 1), "S": (0, -1), "A": (-1, 0), "D": (1, 0)}
 OPPOSITE = {"W": "S", "S": "W", "A": "D", "D": "A"}
 ROOT = Path(__file__).resolve().parents[2]
+
+sys.path.insert(0, str(ROOT / "tools"))
+from original_games import checkout
 
 
 class JourneyError(RuntimeError):
@@ -53,12 +57,6 @@ def work_path(root, path):
     path = path.resolve()
     require(path.is_relative_to((root / ".work").resolve()), f"output must be inside .work: {path}")
     return path
-
-
-def source_inventory(source):
-    paths = sorted((source / "Assets/Scripts").rglob("*.cs"))
-    require(len(paths) == 8, f"expected eight original Snake scripts, found {len(paths)}")
-    return {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
 
 
 def neighbor(point, key, size, wrap):
@@ -166,11 +164,10 @@ def observe_actions(frame, food=True):
 
 
 def command(root, executable, arguments, folder, timeout=180):
-    """Every worker/build/harness process sources the shared worktree environment."""
+    """Run a selected executable with a bounded process-group lifetime."""
     stdout, stderr = folder / "stdout.log", folder / "stderr.log"
     with stdout.open("wb") as out, stderr.open("wb") as err:
-        process = subprocess.Popen(["bash", "-c", 'source "$1"; shift; exec "$@"', "snake-journey",
-                                    str(root / ".session/env.sh"), str(executable), *map(str, arguments)],
+        process = subprocess.Popen([str(executable), *map(str, arguments)],
                                    cwd=root, env=os.environ.copy(), stdout=out, stderr=err, start_new_session=True)
         try:
             status = process.wait(timeout=timeout)
@@ -183,10 +180,10 @@ def command(root, executable, arguments, folder, timeout=180):
 
 
 class Worker:
-    def __init__(self, root, output, executable, configuration):
+    def __init__(self, root, output, executable, configuration, source, harness):
         self.root, self.output, self.executable = root, output, executable
         self.configuration = configuration
-        self.source = root / ".work/games/snake"
+        self.source, self.harness = source, harness
         self.calls = 0
         self.last_folder = None
 
@@ -198,10 +195,9 @@ class Worker:
         folder = work_path(self.root, self.output / f"prefix-{self.calls:03d}")
         folder.mkdir(parents=True)
         self.last_folder = folder
-        hashes = source_inventory(self.source)
         request = {"schema_version": 1, "run_id": folder.name, "fixture": "snake-journey",
                    "profile": profile, "desktop": False, "seed": 17, "timeline": timeline,
-                   "assertions": [], "source_root": str(self.source), "source_hashes": hashes,
+                   "assertions": [], "source_root": str(self.source),
                    "artifact_root": str(folder), "metadata": self.configuration}
         write_json(folder / "request.json", request)
         old = {name: os.environ.get(name) for name in ("COMPAT_ROOT", "COMPAT_REQUEST", "COMPAT_RESPONSE", "COMPAT_ARTIFACTS")}
@@ -215,7 +211,6 @@ class Worker:
                     os.environ.pop(name, None)
                 else:
                     os.environ[name] = value
-        require(source_inventory(self.source) == hashes, "original Snake scripts changed during prefix execution")
         if status or not (folder / "response.json").is_file():
             raise ProviderBlocked(f"worker failed ({status}); see {folder}/stderr.log")
         report = read_json(folder / "response.json")
@@ -267,6 +262,11 @@ def decode_png(path):
     except zlib.error as error:
         raise JourneyError(f"PNG decompression failed: {error}") from error
     require(len(raw) == expected and inflater.eof and not inflater.unused_data, "PNG scanline size mismatch")
+    return width, height, decode_scanlines(raw, width, height, channels)
+
+
+def decode_scanlines(raw, width, height, channels):
+    stride = width * channels
     previous, pixels = bytearray(stride), bytearray()
     for y in range(height):
         start = y * (stride + 1)
@@ -294,7 +294,7 @@ def decode_png(path):
                 pixels.extend(row[x:x + 3])
                 pixels.append(255)
         previous = row
-    return width, height, bytes(pixels)
+    return bytes(pixels)
 
 
 def validate_capture_pixels(decoded):
@@ -603,12 +603,9 @@ class Planner:
         timeline.sort(key=lambda entry: entry["frame"])
         timeline.append(action(self.frame + 1, "unload"))
         cfg = dict(self.runner.configuration)
-        cfg.update(journey_checkpoints=self.checkpoints, journey_observed_config=self.cfg,
-                   journey_source_hashes=source_inventory(self.runner.source))
+        cfg.update(journey_checkpoints=self.checkpoints, journey_observed_config=self.cfg)
         worker = str(self.runner.executable)
-        if self.runner.executable == self.runner.root / ".work/target/debug/compat-player":
-            worker = "{root}/.work/target/debug/compat-player"
-        return {"schema_version": 1, "name": "SnakeJourney", "source_root": ".work/games/snake",
+        return {"schema_version": 1, "name": "SnakeJourney", "game": "snake",
                 "profiles": ["source-6000.3", "compat-6000.3", "compat-2017.1"], "default_profile": self.profile,
                 "evidence_label": LABEL, "worker": {"program": worker, "args": []},
                 "seed": 17, "limits": {"deadline_ms": 180000, "log_bytes": 1048576,
@@ -620,7 +617,7 @@ def replay_harness(planner, fixture_path, desktop):
     runner = planner.runner
     folder = runner.output / ("desktop" if desktop else "gpu")
     folder.mkdir()
-    executable = runner.root / ".work/target/debug/compat-kit"
+    executable = runner.harness
     if not executable.is_file():
         raise ProviderBlocked(f"harness unavailable: {executable}")
     arguments = ["run", fixture_path, "--profile", planner.profile]
@@ -648,16 +645,13 @@ def replay_harness(planner, fixture_path, desktop):
             "canonical source Game Over output differs from collision/death assertions")
     captures = [work_path(runner.root, run_dir / capture["path"]) for capture in record["captures"]]
     validate_capture_pixels([decode_png(path) for path in captures])
-    source = source_inventory(runner.source)
-    require(source == planner.summary["source_hashes"], "source changed between planning and canonical replay")
-    require(record["source_before"]["scripts"] == record["source_after"]["scripts"], "canonical source drift")
     return {"status": "pass", "record": str(folder / "record.json"), "run_dir": str(run_dir),
             "captures": [str(path) for path in captures], "assertions": len(record["assertions"]),
             "game_over_lines": planner.stationary_ticks}
 
 
 def execute_journey(runner, args, summary):
-    authored_graph = read_json(runner.root / ".work/content/snake-ready.json")
+    authored_graph = read_json(args.graph)
     cfg = config_from_graph(authored_graph)
     summary["authored_config"] = cfg
     planner = Planner(runner, args.profile, cfg, summary)
@@ -683,7 +677,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["probe", "run"])
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--worker", type=Path, default=ROOT / ".work/target/debug/compat-player")
+    parser.add_argument("--worker", type=Path, required=True)
+    parser.add_argument("--harness", type=Path, required=True)
+    parser.add_argument("--graph", type=Path, required=True)
     parser.add_argument("--profile", default="source-6000.3", choices=["source-6000.3", "compat-6000.3", "compat-2017.1"])
     parser.add_argument("--desktop", action="store_true", help="also replay the exact generated fixture in a real desktop window")
     args = parser.parse_args()
@@ -700,8 +696,7 @@ def main():
         summary["budget_scan_concurrent_file_removals"] = usage.returncode != 0
         summary["worktree_bytes"] = int(usage.stdout.split()[0])
         require(summary["worktree_bytes"] <= 500_000_000_000, "500GB hard worktree budget exceeded")
-        summary["source_hashes"] = source_inventory(ROOT / ".work/games/snake")
-        runner = Worker(ROOT, output, args.worker.resolve(), metadata(ROOT))
+        runner = Worker(ROOT, output, args.worker.resolve(), metadata(ROOT), checkout("snake"), args.harness.resolve())
         if args.mode == "probe":
             timeline = [action(0, "load"), action(1, "advance", dt=0.125001),
                         action(1, "observe", selector=WORLD), action(1, "observe", selector="managed.snapshot"),

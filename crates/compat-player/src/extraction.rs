@@ -351,8 +351,9 @@ mod texture_format_tests {
     use super::*;
     #[test]
     fn original_breakout_jpeg_is_decoded_without_rewriting_it() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../.work/games/breakout/Assets/Images/coconut.jpg");
+        let path = worldrunner_original_games::checkout(worldrunner_original_games::Game::Breakout)
+            .unwrap()
+            .join("Assets/Images/coconut.jpg");
         let original = std::fs::read(&path).unwrap();
         let (size, pixels) = decode_texture(&path).unwrap();
         assert_eq!(size, [140, 140]);

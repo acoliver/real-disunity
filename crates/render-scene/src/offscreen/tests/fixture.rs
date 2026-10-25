@@ -1,4 +1,5 @@
 use crate::{CameraPose, SceneView, Viewport};
+use worldrunner_render_plan::SceneDirection;
 use worldrunner_render_plan::*;
 const MICRO: i64 = 1_000_000;
 
@@ -26,12 +27,7 @@ fn effects() -> SceneEffects {
             },
         },
         sun: SceneSun {
-            direction: SceneRotation {
-                x: 0,
-                y: 0,
-                z: ROTATION_MICRO_SCALE,
-                w: 0,
-            },
+            direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
             // Ambient-only lighting isolates raw albedo/readback from white GGX highlights.
             irradiance_micro: 0,
         },
@@ -41,11 +37,7 @@ fn effects() -> SceneEffects {
         },
         shadows: SceneShadowCascades::new(vec![10_000, 40_000], 50_000)
             .expect("two ascending cascades are valid"),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 500_000,
-            horizon_angle_millidegrees: 30_000,
-        },
+        ssao: None,
         camera: camera(),
         grading: SceneColorGrading {
             exposure_micro: 1_000_000,
@@ -152,7 +144,7 @@ pub(super) fn scene(malformed: bool) -> RenderScene {
         )
         .unwrap(),
         terrain: None,
-        effects: effects(),
+        effects: Some(effects()),
     })
     .unwrap()
 }
@@ -163,7 +155,7 @@ pub(super) fn view(scene: &RenderScene, viewport: Viewport) -> SceneView {
             eye_millimeters: [0, -2_000, 2_000],
             target_millimeters: [0, 0, 0],
         },
-        *scene.effects().camera(),
+        *scene.effects().unwrap().camera(),
         viewport,
     )
     .unwrap()

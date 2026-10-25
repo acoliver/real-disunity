@@ -8,7 +8,7 @@ use worldrunner_world_runtime::{
 use crate::document::{ContractDocument, ContractDocumentError};
 
 /// Exact capability selecting the governed authored render contract.
-pub const RENDER_CONTRACT_CAPABILITY_URI: &str = "urn:real-disunity:capability:render-contract:v1";
+pub const RENDER_CONTRACT_CAPABILITY_URI: &str = "urn:real-disunity:capability:render-contract:v4";
 
 /// Explicit bound for authored render-contract discovery.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

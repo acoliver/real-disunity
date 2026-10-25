@@ -1,11 +1,11 @@
-use std::{collections::BTreeSet, path::Path};
+use std::collections::BTreeSet;
 
 use compat_kit::RunRequest;
 use serde_json::{Value, json};
 use worldrunner::compat_content::ImportedScene;
 use worldrunner::managed::CompatibilityHost;
 
-use crate::{admission, assembly};
+use crate::{Installation, admission, managed_build};
 
 pub struct Session {
     host: CompatibilityHost,
@@ -26,14 +26,18 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn open(root: &Path, request: &RunRequest) -> Result<Self, String> {
-        let mut session = Self::prepare(root, request)?;
+    pub fn open(installation: &Installation, request: &RunRequest) -> Result<Self, String> {
+        let mut session = Self::prepare(installation, request)?;
         session.load()?;
         Ok(session)
     }
-    pub(crate) fn prepare(root: &Path, request: &RunRequest) -> Result<Self, String> {
+    pub(crate) fn prepare(
+        installation: &Installation,
+        request: &RunRequest,
+    ) -> Result<Self, String> {
+        let root = installation.root();
         let strict = crate::strict::admit(request)?;
-        let assemblies = assembly::prepare(root, request)?;
+        let assemblies = managed_build::prepare(installation, request)?;
         let host = CompatibilityHost::boot(&assemblies.host).map_err(|error| error.to_string())?;
         let graph = admission::import(&request.source_root, &request.metadata)?;
         std::fs::write(
@@ -338,7 +342,7 @@ pub(crate) mod callback_test {
         }
     }
     fn loaded_host() -> (CompatibilityHost, u64, std::path::PathBuf) {
-        let artifacts = crate::managed_test_artifacts::artifacts();
+        let artifacts = crate::test_support::artifacts::artifacts();
         let config = ManagedHostConfig {
             ffi_library: artifacts.native.clone(),
             runtime_config: artifacts.bridge().with_extension("runtimeconfig.json"),

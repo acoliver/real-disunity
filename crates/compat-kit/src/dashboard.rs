@@ -150,7 +150,7 @@ fn matrix(fixtures: &[crate::model::Fixture]) -> Result<String> {
     for fixture in fixtures {
         write!(html, "<option>{}</option>", escape(&fixture.name)).map_err(io)?;
     }
-    html.push_str("</select><select id=\"profile\"><option value=\"\">Default fixture profile</option></select><label><input id=\"desktop\" type=\"checkbox\">Desktop</label><button onclick=\"runFixture()\">Run</button><button onclick=\"refreshFixture()\">Refresh source</button><label><input id=\"accept\" type=\"checkbox\">Accept qualified candidate</label><p id=\"action\"></p><div id=\"tasks\"></div></div>");
+    html.push_str("</select><select id=\"profile\"><option value=\"\">Default fixture profile</option></select><label><input id=\"desktop\" type=\"checkbox\">Desktop</label><button onclick=\"runFixture()\">Run</button><p id=\"action\"></p><div id=\"tasks\"></div></div>");
     Ok(html)
 }
 

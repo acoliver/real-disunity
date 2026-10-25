@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {inflateSync} from 'node:zlib';
 
 export function selectionExpression(fixture, profile) {
-  return `(()=>{const f=document.querySelector('#fixture');f.value=${JSON.stringify(fixture)};f.dispatchEvent(new Event('change'));const p=document.querySelector('#profile');const desired=${JSON.stringify(profile || '')};if(!p.options.length||(desired&&![...p.options].some(o=>o.value===desired)))return null;p.value=desired;document.querySelector('#desktop').checked=false;document.querySelector('#accept').checked=false;return {fixture:f.value,profile:p.value,profiles:[...p.options].map(o=>({value:o.value,text:o.textContent})),desktop:document.querySelector('#desktop').checked,accept:document.querySelector('#accept').checked};})()`;
+  return `(()=>{const f=document.querySelector('#fixture');f.value=${JSON.stringify(fixture)};f.dispatchEvent(new Event('change'));const p=document.querySelector('#profile');const desired=${JSON.stringify(profile || '')};if(!p.options.length||(desired&&![...p.options].some(o=>o.value===desired)))return null;p.value=desired;document.querySelector('#desktop').checked=false;return {fixture:f.value,profile:p.value,profiles:[...p.options].map(o=>({value:o.value,text:o.textContent})),desktop:document.querySelector('#desktop').checked};})()`;
 }
 
 export function nativeWorkerEvidence(maps) {
@@ -15,10 +15,12 @@ export function nativeWorkerEvidence(maps) {
 
 export function pngEvidence(bytes) {
   assert(bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])), 'PNG signature');
+  assert(bytes.length>=33, 'complete PNG header');
   const width=bytes.readUInt32BE(16), height=bytes.readUInt32BE(20);
   const chunks=[];
   let end=false;
   for(let offset=8;offset<bytes.length;) {
+    assert(offset+12<=bytes.length, 'complete PNG chunk');
     const length=bytes.readUInt32BE(offset), type=bytes.toString('ascii',offset+4,offset+8);
     assert(offset+12+length<=bytes.length, 'complete PNG chunk');
     if(type==='IDAT')chunks.push(bytes.subarray(offset+8,offset+8+length));

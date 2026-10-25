@@ -44,7 +44,8 @@ fn planar_half_height_resize_and_top_left_queries_agree() {
             .unwrap();
         assert!(hit.abs_diff_eq(point, 0.0001));
         assert_eq!(
-            worldrunner::scene::gpu::SceneView::from_resolved(view).view_projection_matrix(),
+            worldrunner::scene::gpu::SceneView::from_resolved(view, [0, -10_000, 0])
+                .view_projection_matrix(),
             view.view_projection_matrix()
         );
     }

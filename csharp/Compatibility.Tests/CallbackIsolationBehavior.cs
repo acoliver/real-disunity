@@ -7,9 +7,8 @@ internal static unsafe class CallbackIsolationBehavior
 {
     internal static void Run(string nativePath, ulong world)
     {
-        var phases = Environment.GetEnvironmentVariable("CALLBACK_TEST_PHASE") is { } selected
-            ? new[] { selected } : new[] { "Awake", "OnEnable", "Start", "FixedUpdate", "Update", "LateUpdate" };
-        foreach (var phase in phases) Phase(nativePath, world, phase);
+        foreach (var phase in new[] { "Awake", "OnEnable", "Start", "FixedUpdate", "Update", "LateUpdate" })
+            Phase(nativePath, world, phase);
         Console.WriteLine("PASS callback isolation: Cdecl initialization/start/update/fixed/late peers, structured original errors and pure probes");
     }
     private static void Phase(string nativePath, ulong world, string phase)
@@ -72,9 +71,8 @@ internal static unsafe class CallbackIsolationBehavior
     }
     internal static void AssertError(JsonElement error, string message, ulong component)
     {
-        var expected = Environment.GetEnvironmentVariable("CALLBACK_EXPECT_WRONG_ERROR") is null ? "callback sentinel " + message : "deliberately wrong";
         BinderBehavior.Check(error.GetProperty("exception_type").GetString() == "System.ArgumentException" &&
-            error.GetProperty("message").GetString() == expected, "original callback type/message preserved");
+            error.GetProperty("message").GetString() == "callback sentinel " + message, "original callback type/message preserved");
         BinderBehavior.Check(error.GetProperty("stack").GetString()!.Contains("CallbackIsolationProbe." + message), "original callback stack preserved");
         BinderBehavior.Check(error.GetProperty("component").GetUInt64() == component && error.GetProperty("callback").GetString() == message,
             "failure identifies actual component and message");

@@ -1,22 +1,11 @@
+#[path = "support/handshake.rs"]
+pub mod support;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use worldrunner_disunity_runtime::{DisunityHost, HostError, ManagedHostConfig};
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-fn run(command: &mut Command) {
-    let output = command
-        .output()
-        .expect("verification tool must be installed");
-    assert!(
-        output.status.success(),
-        "{command:?}:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    println!("{}", String::from_utf8_lossy(&output.stdout));
 }
 
 #[test]
@@ -36,43 +25,25 @@ fn missing_explicit_artifacts_fail_without_claiming_the_runtime() {
 }
 
 fn build_fixture(root: &Path) -> ManagedHostConfig {
-    run(
-        Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
-            .args([
-                "build",
-                "--locked",
-                "--jobs",
-                "2",
-                "-p",
-                "worldrunner-disunity-ffi",
-            ])
+    let artifacts = support::artifacts();
+    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
+    support::managed::execute(
+        Command::new(dotnet)
+            .arg(
+                artifacts
+                    .managed_root
+                    .join("artifacts/bin/Disunity.Tests/debug/Disunity.Tests.dll"),
+            )
+            .arg(&artifacts.native)
             .current_dir(root),
     );
-    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
-    run(Command::new(&dotnet)
-        .args(["run", "--project"])
-        .arg(root.join("csharp/Disunity.Tests/Disunity.Tests.csproj"))
-        .arg("-p:TreatWarningsAsErrors=true"));
-    run(Command::new(&dotnet)
-        .args(["build", "--warnaserror"])
-        .arg(root.join("csharp/PortableFixture/PortableFixture.csproj")));
-    let target =
-        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
-    let target = if target.is_absolute() {
-        target
-    } else {
-        root.join(target)
-    };
-    let name = format!(
-        "{}worldrunner_disunity_ffi{}",
-        std::env::consts::DLL_PREFIX,
-        std::env::consts::DLL_SUFFIX
-    );
-    let managed = root.join("csharp/PortableFixture/bin/Debug/net8.0");
+    let assembly = artifacts
+        .managed_root
+        .join("artifacts/bin/PortableFixture/debug/PortableFixture.dll");
     ManagedHostConfig {
-        ffi_library: target.join("debug").join(name),
-        runtime_config: managed.join("PortableFixture.runtimeconfig.json"),
-        assembly: managed.join("PortableFixture.dll"),
+        ffi_library: artifacts.native.clone(),
+        runtime_config: assembly.with_extension("runtimeconfig.json"),
+        assembly,
         bridge_type: "PortableFixture.NativeBridge, PortableFixture".into(),
     }
 }

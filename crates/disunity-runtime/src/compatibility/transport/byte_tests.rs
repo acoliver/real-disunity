@@ -2,26 +2,19 @@ use super::*;
 use serde_json::json;
 
 fn native() -> (std::mem::ManuallyDrop<Library>, NativeTransport) {
-    image("DISUNITY_BYTE_NATIVE_LIBRARY")
-}
-
-/// An older ABI-2 image without the byte-transport capability, selected separately
-/// so the rejection test and the current-image tests share one test run.
-fn old_native() -> (std::mem::ManuallyDrop<Library>, NativeTransport) {
-    image("DISUNITY_OLD_BYTE_NATIVE_LIBRARY")
-}
-
-fn image(variable: &str) -> (std::mem::ManuallyDrop<Library>, NativeTransport) {
-    let path = std::env::var(variable)
-        .unwrap_or_else(|error| panic!("explicit immutable image required in {variable}: {error}"));
-    // SAFETY: qualification supplies the immutable ABI-2 image and retains it for this test.
-    let library = unsafe { Library::new(path) }.unwrap();
+    let config = crate::test_support::artifacts().config();
+    let library = crate::load_ffi_image(&config).unwrap();
     let transport = NativeTransport::bind(&library).unwrap();
     (std::mem::ManuallyDrop::new(library), transport)
 }
 
 #[test]
 fn actual_native_byte_selection_is_explicit_and_frozen() {
+    if !crate::test_support::child::isolated(
+        "compatibility::transport::byte_tests::actual_native_byte_selection_is_explicit_and_frozen",
+    ) {
+        return;
+    }
     let (_library, transport) = native();
     let world = transport.create_world().unwrap();
     let before = transport
@@ -40,12 +33,17 @@ fn actual_native_byte_selection_is_explicit_and_frozen() {
 }
 
 #[test]
-fn actual_old_native_byte_selection_rejects_without_mutation() {
-    let (_library, transport) = old_native();
+fn descriptor_without_byte_capability_rejects_without_mutation() {
+    if !crate::test_support::child::isolated(
+        "compatibility::transport::byte_tests::descriptor_without_byte_capability_rejects_without_mutation",
+    ) {
+        return;
+    }
+    let (_library, transport) = native();
     let world = transport.create_world().unwrap();
     let before = transport.request(world, &json!({"op":"snapshot"})).unwrap();
     let error = transport
-        .select_byte_profile(world)
+        .select_byte_profile_with_descriptor(world, &json!({"capabilities":[]}))
         .unwrap_err()
         .to_string();
     assert!(error.contains("capability"), "{error}");
@@ -59,6 +57,11 @@ fn actual_old_native_byte_selection_rejects_without_mutation() {
 
 #[test]
 fn actual_native_byte_requests_are_bounded_and_responses_release_synchronously() {
+    if !crate::test_support::child::isolated(
+        "compatibility::transport::byte_tests::actual_native_byte_requests_are_bounded_and_responses_release_synchronously",
+    ) {
+        return;
+    }
     let (_library, transport) = native();
     let world = transport.create_world().unwrap();
     transport.select_byte_profile(world).unwrap();
@@ -99,6 +102,11 @@ fn sized_transaction(transport: &NativeTransport, world: u64) -> Value {
 
 #[test]
 fn actual_native_byte_exact_eight_mib_copy_and_native_oversize_rollback() {
+    if !crate::test_support::child::isolated(
+        "compatibility::transport::byte_tests::actual_native_byte_exact_eight_mib_copy_and_native_oversize_rollback",
+    ) {
+        return;
+    }
     let (_library, transport) = native();
     let world = transport.create_world().unwrap();
     transport.select_byte_profile(world).unwrap();

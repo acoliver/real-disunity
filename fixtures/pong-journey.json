@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "pong-journey",
-  "source_root": ".work/games/pong",
+  "game": "pong",
   "profiles": [
     "source-2017.1",
     "compat-6000.3",
@@ -10,7 +10,7 @@
   "default_profile": "source-2017.1",
   "evidence_label": "original-source/legacy-mappings-dejavu-font",
   "worker": {
-    "program": "{root}/.work/target/debug/compat-player",
+    "program": "{root}/target/debug/compat-player",
     "args": []
   },
   "seed": 17,
@@ -112,9 +112,9 @@
     },
     "coverage": "Keyboard-only physical paddle contacts, both goals, reset/wait/relaunch, repeated scoring and reload.",
     "fonts": {
-      "host.builtin-font": ".work/fonts/DejaVuSans.ttf"
+      "host.builtin-font": "fixtures/fonts/DejaVuSans.ttf"
     },
-    "font_license": ".work/fonts/DejaVu-LICENSE.txt",
+    "font_license": "fixtures/fonts/DejaVu-LICENSE.txt",
     "source_sha256": {
       "Assets/Scripts/Ball/Ball.cs": "0770545e155316b53095f84130a3a6b85bccac9c8fe5cb72db13d003767abf4a",
       "Assets/Scripts/Ball/BallMovement.cs": "0770e3c62d22bc66dd79863295b161f1d2291bea1cb9c8fcc7a75c018483cf49",
@@ -13021,6 +13021,5 @@
       "pointer": "/50/trigger",
       "value": true
     }
-  ],
-  "refresh": null
+  ]
 }

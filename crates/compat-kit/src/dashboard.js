@@ -22,13 +22,6 @@ function runFixture() {
   post('/api/run', data);
 }
 
-function refreshFixture() {
-  post('/api/refresh', {
-    fixture: document.getElementById('fixture').value,
-    accept: document.getElementById('accept').checked,
-  });
-}
-
 function showTask(task) {
   const paragraph = document.createElement('p');
   paragraph.textContent = task.fixture + ' / ' + task.profile + ' / ' + task.id + ' ' + task.kind + ' ' +
@@ -100,5 +93,5 @@ if (location.protocol === 'http:') {
   setInterval(poll, 1000);
 } else {
   document.getElementById('action').textContent =
-    'Static report. Start compat-kit serve for Run, Stop and Refresh controls.';
+    'Static report. Start compat-kit serve for Run and Stop controls.';
 }

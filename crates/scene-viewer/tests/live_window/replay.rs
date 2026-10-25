@@ -11,7 +11,7 @@ pub(super) fn verify(desktop: &Driver) {
     let context =
         pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut scene = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+    let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let mut replay = Driver::default();
     replay.initialize(desktop.ticks[0].viewport).unwrap();
     let mut target = OffscreenTarget::new(context.device(), desktop.ticks[0].viewport).unwrap();
@@ -19,11 +19,16 @@ pub(super) fn verify(desktop: &Driver) {
         let frame = replay.update(tick).unwrap();
         if let Some(textures) = &frame.textures {
             scene
-                .set_dynamic_textures(context.device(), context.queue(), &pipelines, textures)
+                .set_dynamic_textures(context.device(), context.submission(), textures)
                 .unwrap();
         }
         scene
-            .set_dynamic_quads(context.device(), context.queue(), &pipelines, &frame.quads)
+            .set_dynamic_quads(
+                context.device(),
+                context.submission(),
+                &pipelines,
+                &frame.quads,
+            )
             .unwrap();
         scene.set_frame(context.queue(), FrameUniform::unlit(&frame.view));
         if target.viewport() != tick.viewport {

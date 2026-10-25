@@ -435,6 +435,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "worldrunner-original-games",
 ]
 
 [[package]]
@@ -447,12 +448,12 @@ dependencies = [
  "jpeg-decoder",
  "png",
  "pollster",
- "rustix 1.1.5",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tempfile",
  "worldrunner",
+ "worldrunner-disunity-runtime",
+ "worldrunner-original-games",
 ]
 
 [[package]]
@@ -3414,9 +3415,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.10"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -3922,6 +3923,7 @@ dependencies = [
  "worldrunner-import-schema",
  "worldrunner-material",
  "worldrunner-mesh",
+ "worldrunner-original-games",
  "worldrunner-package",
  "worldrunner-render-gpu",
  "worldrunner-render-plan",
@@ -3977,6 +3979,7 @@ dependencies = [
  "thiserror 2.0.21",
  "worldrunner-asset-id",
  "worldrunner-catalog",
+ "worldrunner-original-games",
  "worldrunner-package",
 ]
 
@@ -4010,11 +4013,11 @@ version = "0.1.0"
 dependencies = [
  "libloading",
  "netcorehost",
- "rustix 1.1.5",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
+ "worldrunner-original-games",
 ]
 
 [[package]]
@@ -4046,6 +4049,14 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "worldrunner-asset-id",
+]
+
+[[package]]
+name = "worldrunner-original-games"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4105,6 +4116,7 @@ dependencies = [
  "pollster",
  "thiserror 2.0.21",
  "wgpu",
+ "worldrunner-render-gpu",
 ]
 
 [[package]]
@@ -4153,7 +4165,6 @@ name = "worldrunner-scene-viewer"
 version = "0.1.0"
 dependencies = [
  "glam",
- "png",
  "pollster",
  "thiserror 2.0.21",
  "wgpu",

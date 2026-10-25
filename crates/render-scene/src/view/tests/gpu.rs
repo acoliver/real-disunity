@@ -68,13 +68,13 @@ fn required_gpu_landmarks_match_camera_queries_and_resize() {
         .expect("required headless landmark test needs an admitted GPU adapter");
     eprintln!("resolved camera GPU: {:?}", context.adapter().get_info());
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut gpu = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+    let mut gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let quads = LANDMARKS.map(|(position, tint, _)| DynamicQuad {
         position,
         tint,
         ..DynamicQuad::default()
     });
-    gpu.set_dynamic_quads(context.device(), context.queue(), &pipelines, &quads)
+    gpu.set_dynamic_quads(context.device(), context.submission(), &pipelines, &quads)
         .unwrap();
     for viewport in [
         Viewport {
@@ -114,7 +114,7 @@ fn shared_view(
         convention: worldrunner_camera::ViewConvention { handedness },
     })
     .unwrap();
-    SceneView::from_resolved(resolved)
+    SceneView::from_resolved(resolved, [0, -10_000, 0])
 }
 
 #[test]
@@ -125,13 +125,13 @@ fn required_gpu_shared_resolver_matches_pixels_for_lenses_and_handedness() {
         .expect("required shared-camera test needs an admitted GPU adapter");
     eprintln!("shared resolver GPU: {:?}", context.adapter().get_info());
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut gpu = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+    let mut gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let quads = LANDMARKS.map(|(position, tint, _)| DynamicQuad {
         position,
         tint,
         ..DynamicQuad::default()
     });
-    gpu.set_dynamic_quads(context.device(), context.queue(), &pipelines, &quads)
+    gpu.set_dynamic_quads(context.device(), context.submission(), &pipelines, &quads)
         .unwrap();
     for lens in [
         CameraLens::Perspective {

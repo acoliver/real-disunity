@@ -12,8 +12,7 @@ use std::{
 fn root(mode: &str) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
-    fs::create_dir_all(root.path().join(".work/source")).unwrap();
-    let fixture = json!({"schema_version":1,"name":"harness-only","source_root":".work/source","profiles":["test","unrun"],"default_profile":"test","evidence_label":"harness-only",
+    let fixture = json!({"schema_version":1,"name":"harness-only","game":"snake","profiles":["test","unrun"],"default_profile":"test","evidence_label":"harness-only",
         "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":[mode]},"limits":{"deadline_ms":3000,"log_bytes":1024,"artifact_bytes":1_048_576,"capture_count":4},
         "assertions":[{"op":"equal","selector":"counter","value":{"count":7}}]});
     fs::write(
@@ -78,7 +77,7 @@ fn http_headers(
     )
 }
 #[test]
-fn localhost_browser_endpoints_run_stop_refresh_and_reject_traversal() {
+fn localhost_browser_endpoints_run_stop_and_reject_removed_routes_and_traversal() {
     let root = root("hang");
     let (mut server, address) = launch_server(root.path());
     let address = address.as_str();
@@ -127,7 +126,7 @@ fn localhost_browser_endpoints_run_stop_refresh_and_reject_traversal() {
             &auth,
         )
         .0,
-        202
+        404
     );
     assert_eq!(
         http(address, "GET", "/files/../../Cargo.toml", &Value::Null).0,

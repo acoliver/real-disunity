@@ -1,15 +1,17 @@
 """Keyboard-only planning using canonical native observations."""
 import argparse
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-WORK = ROOT / '.work/breakout-journey'
+
+sys.path.insert(0, str(ROOT / "tools"))
+from original_games import checkout
 
 
 def compact_presentation(fixture, ticks_per_frame=10):
@@ -67,7 +69,7 @@ def replay_fixture(fixture, timeline, frame, case, evidence, sample_frames=()):
     if sum(a['action'] == 'capture' for a in timeline) > 32:
         raise ValueError('capture budget exceeded')
     frozen = copy.deepcopy(fixture)
-    frozen.update(name='BreakoutJourney-' + case, refresh=None,
+    frozen.update(name='BreakoutJourney-' + case,
                   profiles=['compat-2017.1', 'compat-6000.3'], default_profile='compat-6000.3',
                   timeline=copy.deepcopy(timeline) + [action(frame, 'unload')], assertions=[],
                   limits=dict(deadline_ms=120000, log_bytes=1048576,
@@ -107,14 +109,6 @@ def steer(current, target):
     return ['D' if target > current else 'A']
 
 
-def source_inventory(source):
-    files = sorted(source.glob('Assets/Scripts/**/*.cs'))
-    expected = {'Ball', 'BallSpawner', 'Brick', 'BrickSpawner', 'DeathZone', 'Platform', 'PowerUp'}
-    if len(files) != 7 or {p.stem for p in files} != expected:
-        raise ValueError('expected exactly the seven original Breakout sources')
-    return {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
-
-
 def component(obj, kind):
     return next(c for c in obj['components'] if c['kind'] == kind)
 
@@ -132,15 +126,15 @@ def dump(path, value):
 
 
 class Planner:
-    def __init__(self, resume=False, seed=17, case="main"):
+    def __init__(self, worker, source, output, resume=False, seed=17, case="main"):
         if not case.replace("-", "").isalnum():
             raise ValueError("case must be an alphanumeric directory name")
-        self.work = WORK if case == "main" else WORK / case
+        self.work = output if case == "main" else output / case
+        self.worker = worker
         self.work.mkdir(parents=True, exist_ok=True)
         self.fixture = json.loads((ROOT / 'fixtures/breakout.json').read_text())
-        self.fixture.update(name='BreakoutJourney', refresh=None, seed=seed)
-        self.source = ROOT / self.fixture['source_root']
-        self.before = source_inventory(self.source)
+        self.fixture.update(name='BreakoutJourney', seed=seed)
+        self.source = source
         self.timeline = [action(0, 'load')]
         self.frame, self.serial = 0, 0
         self.checkpoints, self.samples = [], []
@@ -150,7 +144,6 @@ class Planner:
                 setattr(self, key, state[key])
             self.fixture['metadata'] = state['metadata']
             self.fixture['seed'] = state['seed']
-            assert self.before == state['source_hashes']
 
     def run(self, count=0, keys=(), every=5):
         if self.serial >= 100 or self.frame + count > 5000:
@@ -171,28 +164,22 @@ class Planner:
                      action(self.frame, 'observe', selector='events'), action(self.frame, 'unload')]
         request = dict(schema_version=1, run_id=folder.name, fixture='BreakoutJourney',
                        profile='compat-6000.3', desktop=False, seed=self.fixture['seed'], timeline=timeline,
-                       assertions=[], source_root=str(self.source), source_hashes=self.before,
+                       assertions=[], source_root=str(self.source),
                        artifact_root=str(folder), metadata=self.fixture['metadata'])
         dump(folder / 'request.json', request)
         env = dict(os.environ, COMPAT_ROOT=str(ROOT), COMPAT_REQUEST=str(folder / 'request.json'),
                    COMPAT_RESPONSE=str(folder / 'response.json'), COMPAT_ARTIFACTS=str(folder))
         began = time.monotonic()
         with (folder / 'stdout.log').open('w') as out, (folder / 'stderr.log').open('w') as err:
-            subprocess.run([str(ROOT / '.work/target/debug/compat-player')], cwd=ROOT, env=env,
+            subprocess.run([str(self.worker)], cwd=ROOT, env=env,
                            stdout=out, stderr=err, timeout=120, check=True)
         report = json.loads((folder / 'response.json').read_text())
         if report['diagnostics']:
             raise RuntimeError(report['diagnostics'])
         assert report['teardown'] == dict(completed=True, native_worlds=0, managed_roots=0, pending_readbacks=0)
-        assert source_inventory(self.source) == self.before
         self.snapshot, self.events = [o['value'] for o in report['observations'][-2:]]
         self.samples = [o for o in report['observations'] if o['phase'] == 'sample' and o['frame'] > start]
         self.timeline = [a for a in self.timeline if a['phase'] != 'sample']
-        if 'assembly' not in self.fixture['metadata']:
-            proof = folder / 'build/original-source-count.json'
-            qualification = json.loads(proof.read_text())
-            if 'assembly_sha256' in qualification:
-                self.fixture['metadata'].update(assembly=qualification['assembly'], assembly_qualification=str(proof))
         self.save()
         print('prefix', self.serial, 'tick', self.frame, 'seconds', round(time.monotonic()-began, 2),
               'bricks', len(live(self.snapshot, 'Brick')), 'balls', len(live(self.snapshot, 'Ball')),
@@ -202,7 +189,7 @@ class Planner:
     def save(self):
         dump(self.work / 'resume.json', dict(timeline=self.timeline, frame=self.frame, serial=self.serial,
              checkpoints=self.checkpoints, snapshot=self.snapshot, events=self.events,
-             metadata=self.fixture['metadata'], seed=self.fixture['seed'], source_hashes=self.before))
+             metadata=self.fixture['metadata'], seed=self.fixture['seed']))
 
     def paddle(self):
         return live(self.snapshot, 'Platform')[0]
@@ -264,7 +251,6 @@ class Planner:
         fixture = replay_fixture(self.fixture, self.timeline, self.frame, name,
                                  dict(status='partial', checkpoints=[c['label'] for c in self.checkpoints],
                                       complete_journey=False), sample_frames=sample_frames)
-        fixture['metadata']['source_sha256'] = self.before
         fixture['metadata']['journey_checkpoints'] = [dict(label=c['label'], frame=c['frame'],
             brick_count=len(live(c['snapshot'], 'Brick')), ball_count=len(live(c['snapshot'], 'Ball')))
             for c in self.checkpoints]
@@ -294,7 +280,7 @@ class Planner:
                     origin=fixture['evidence_label']))
         if compact:
             fixture = compact_presentation(fixture)
-        path = ROOT / f'fixtures/breakout-journey-{name}.json'
+        path = self.work / f'breakout-journey-{name}.json'
         dump(path, fixture)
         dump(self.work / 'planned-checkpoints.json', self.checkpoints)
         return path
@@ -302,6 +288,8 @@ class Planner:
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--worker', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--probe', type=int, default=1)
     parser.add_argument('--seed', type=int, default=17)
@@ -312,7 +300,7 @@ def main():
     parser.add_argument('--compact', action='store_true', help='batch presentation labels without changing native stimuli')
     parser.add_argument('--scenario', choices=['probe', 'controls', 'powerup'], default='probe')
     args = parser.parse_args()
-    planner = Planner(args.resume, args.seed, args.case)
+    planner = Planner(args.worker.resolve(), checkout("breakout"), args.output.resolve(), args.resume, args.seed, args.case)
     if args.scenario == 'controls':
         planner.controls()
     elif args.scenario == 'powerup':

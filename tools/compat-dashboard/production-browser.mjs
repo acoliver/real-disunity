@@ -1,20 +1,18 @@
-// Production qualification through installed Chrome and Node's built-in CDP client.
+// Current game-fixture checks through installed Chrome and Node's built-in CDP client.
 import assert from 'node:assert/strict';
-import {spawn, execFileSync} from 'node:child_process';
-import {mkdir, mkdtemp, readFile, writeFile, readdir, stat, lstat, rm} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {mkdir, mkdtemp, readFile, writeFile, readdir, stat, rm} from 'node:fs/promises';
 import {openSync} from 'node:fs';
 import {request as httpRequest} from 'node:http';
 import path from 'node:path';
 import {pngEvidence, nativeWorkerEvidence} from './browser-evidence.mjs';
 import {displayContext} from './display-context.mjs';
 
-const root = process.env.RD_WORKTREE;
-assert(root, 'source .session/env.sh first');
+const root = path.resolve(process.env.COMPAT_ROOT || new URL('../../', import.meta.url).pathname);
 const display = await displayContext(root);
-const base = path.join(root, '.work/resumed-production-browser');
+const base = path.resolve(process.env.COMPAT_BROWSER_OUTPUT || path.join(root, '.work/compat-browser'));
 await mkdir(base, {recursive:true});
-const directory = await mkdtemp(path.join(base, 'qualification-'));
+const directory = await mkdtemp(path.join(base, 'run-'));
 for (const name of ['home', 'tmp', 'cache', 'config', 'state', 'chrome', 'runtime']) {
   await mkdir(path.join(directory, name), {mode:0o700});
 }
@@ -24,10 +22,9 @@ const environment = {...process.env, COMPAT_ROOT:root, HOME:path.join(directory,
   XDG_STATE_HOME:path.join(directory,'state'), XDG_RUNTIME_DIR:path.join(directory,'runtime'),
   MESA_SHADER_CACHE_DIR:path.join(directory,'cache/mesa'),
   COMPAT_RUNS:path.join(directory,'runs'), VK_DRIVER_FILES:'/usr/share/vulkan/icd.d/lvp_icd.json', DISPLAY:display.display};
-const binary = path.join(process.env.CARGO_TARGET_DIR, 'debug/compat-kit');
+const binary = process.env.COMPAT_KIT || path.join(process.env.CARGO_TARGET_DIR || path.join(root, 'target'), 'debug/compat-kit');
 const results = {started:new Date().toISOString(), directory, display, checks:{}, findings:[], processes:{}, status:'running',
-  scope:{runtime:'frozen legacy provider bundle',strict_admission_qualified:false,connected_refresh_qualified:false,
-    offline_refresh:'blocked-result rendering is evaluated separately; connected refresh still requires success'}};
+  scope:'current fixture runs and dashboard behavior'};
 const pending = new Map();
 let server, chrome, socket, url, sequence = 0;
 const ownedWorkers = new Set();
@@ -92,7 +89,7 @@ function safeDiagnostic(value) {
 async function navigationSnapshot(runIds) {
   const snapshot={at:new Date().toISOString(),phase:results.phase,expected_server_run_ids:runIds?.slice(0,100)};
   try {
-    snapshot.document=await evaluate(`(()=>{const f=document.querySelector('#fixture');const p=document.querySelector('#profile');let runs;try{runs=JSON.parse(sessionStorage.getItem('compat-runs'));}catch{runs='invalid JSON';}return {previous_document:!!window.__qualificationPreviousDocument,time_origin:performance.timeOrigin,ready:document.readyState,path:location.pathname,selected_fixture:f?.value,selected_profile:p?.value,profiles:[...(p?.options||[])].slice(0,20).map(o=>o.value),stored_run_ids:Array.isArray(runs)?runs.slice(0,100):runs,images:{total:document.images.length,complete:[...document.images].filter(i=>i.complete&&i.naturalWidth>0).length},state_resources:performance.getEntriesByType('resource').filter(r=>new URL(r.name).pathname==='/api/state').slice(-8).map(r=>({duration_ms:r.duration,transfer_bytes:r.transferSize})),action_error:(document.querySelector('#action')?.textContent||'').replace(/[a-f0-9]{64}/gi,'[redacted]').slice(0,2048)};})()`);
+    snapshot.document=await evaluate(`(()=>{const f=document.querySelector('#fixture');const p=document.querySelector('#profile');let runs;try{runs=JSON.parse(sessionStorage.getItem('compat-runs'));}catch{runs='invalid JSON';}return {previous_document:!!window.__previousDashboardDocument,time_origin:performance.timeOrigin,ready:document.readyState,path:location.pathname,selected_fixture:f?.value,selected_profile:p?.value,profiles:[...(p?.options||[])].slice(0,20).map(o=>o.value),stored_run_ids:Array.isArray(runs)?runs.slice(0,100):runs,images:{total:document.images.length,complete:[...document.images].filter(i=>i.complete&&i.naturalWidth>0).length},state_resources:performance.getEntriesByType('resource').filter(r=>new URL(r.name).pathname==='/api/state').slice(-8).map(r=>({duration_ms:r.duration,transfer_bytes:r.transferSize})),action_error:(document.querySelector('#action')?.textContent||'').replace(/[a-f0-9]{64}/gi,'[redacted]').slice(0,2048)};})()`);
   } catch(error) {snapshot.document_error=safeDiagnostic(error.message);}
   (results.navigation_diagnostics??=[]).push(snapshot);
 }
@@ -103,10 +100,10 @@ async function navigate() {
     // No task is started until navigation finishes. Repeated full-state reads compete with image loading.
     attempt.run_ids=(await state()).runs.map(run=>run.run_id);
     const key=JSON.stringify(attempt.run_ids);
-    await evaluate('window.__qualificationPreviousDocument=true');
+    await evaluate('window.__previousDashboardDocument=true');
     const response=await cdp('Page.navigate',{url});
     attempt.response={frame_id:response.frameId,loader_id:response.loaderId,error:response.errorText?safeDiagnostic(response.errorText):null};
-    await until(()=>evaluate(`!window.__qualificationPreviousDocument && document.readyState==='complete' && !!document.querySelector('#fixture') && document.querySelector('#profile').options.length>1 && sessionStorage.getItem('compat-runs')===${JSON.stringify(key)}`),
+    await until(()=>evaluate(`!window.__previousDashboardDocument && document.readyState==='complete' && !!document.querySelector('#fixture') && document.querySelector('#profile').options.length>1 && sessionStorage.getItem('compat-runs')===${JSON.stringify(key)}`),
       'dashboard ready with current run history',60000);
   } finally {
     await navigationSnapshot(attempt.run_ids);
@@ -117,12 +114,11 @@ async function select(fixture, profile) {
   await evaluate(`(()=>{const f=document.querySelector('#fixture');f.value=${JSON.stringify(fixture)};f.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(()=>evaluate(`(()=>{const f=document.querySelector('#fixture');const p=document.querySelector('#profile');return f.value===${JSON.stringify(fixture)}&&p.options.length>1&&${profile ? `[...p.options].some(o=>o.value===${JSON.stringify(profile)})` : 'true'};})()`),'fixture profile catalog ready',30000);
   const desired=profile || '';
-  await evaluate(`(async()=>{const p=document.querySelector('#profile');p.value=${JSON.stringify(desired)};p.dispatchEvent(new Event('change',{bubbles:true}));const d=document.querySelector('#desktop');d.checked=false;d.dispatchEvent(new Event('change',{bubbles:true}));const a=document.querySelector('#accept');a.checked=false;a.dispatchEvent(new Event('change',{bubbles:true}));await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));})()`);
-  const selection=await evaluate(`(()=>({fixture:document.querySelector('#fixture').value,profile:document.querySelector('#profile').value,profiles:[...document.querySelector('#profile').options].map(o=>({value:o.value,text:o.textContent})),desktop:document.querySelector('#desktop').checked,accept:document.querySelector('#accept').checked}))()`);
+  await evaluate(`(async()=>{const p=document.querySelector('#profile');p.value=${JSON.stringify(desired)};p.dispatchEvent(new Event('change',{bubbles:true}));const d=document.querySelector('#desktop');d.checked=false;d.dispatchEvent(new Event('change',{bubbles:true}));await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));})()`);
+  const selection=await evaluate(`(()=>({fixture:document.querySelector('#fixture').value,profile:document.querySelector('#profile').value,profiles:[...document.querySelector('#profile').options].map(o=>({value:o.value,text:o.textContent})),desktop:document.querySelector('#desktop').checked}))()`);
   assert.equal(selection.fixture,fixture);
   if(profile) assert.equal(selection.profile,profile);
   assert.equal(selection.desktop,false);
-  assert.equal(selection.accept,false);
   return selection;
 }
 async function clickAction(text) {
@@ -150,51 +146,6 @@ async function processes() {
   }));
   return rows.filter(Boolean);
 }
-async function sourceSnapshot() {
-  const source=path.join(root,'.work/games/snake');
-  const run=args=>execFileSync('git',['-C',source,...args],{encoding:'utf8',env:environment}).trim();
-  const scripts={};
-  async function walk(directory) {
-    for(const item of await readdir(directory,{withFileTypes:true})) {
-      const file=path.join(directory,item.name);
-      if(item.isDirectory() && item.name!=='.git')await walk(file);
-      else if(item.isFile()&&item.name.endsWith('.cs'))scripts[path.relative(source,file)]=createHash('sha256').update(await readFile(file)).digest('hex');
-    }
-  }
-  await walk(source);
-  let lock=null;
-  try {lock=await readFile(path.join(root,'.work/compat/locks/snake.json'),'utf8');}catch(error){if(error.code!=='ENOENT')throw error;}
-  return {revision:run(['rev-parse','HEAD']),status:run(['status','--porcelain','--untracked-files=all']),scripts,lock};
-}
-async function sourceQualification(run,runDirectory) {
-  const fixture=results.fixture_inputs['snake-journey'].fixture;
-  const request=await json(path.join(runDirectory,'request.json'));
-  assert.equal(request.seed,fixture.seed);
-  assert.equal(request.timeline.length,fixture.timeline.length);
-  assert.deepEqual(request.timeline.map(({frame,phase,action})=>({frame,phase,action})),fixture.timeline.map(({frame,phase,action})=>({frame,phase,action})));
-  assert.deepEqual(request.timeline.filter(step=>step.action==='input'),fixture.timeline.filter(step=>step.action==='input'));
-  assert.deepEqual(request.assertions,fixture.assertions);
-  assert.equal(request.desktop,false);
-  assert.equal(request.profile,run.profile);
-  const proof=await json(path.join(runDirectory,'build/original-source-count.json'));
-  const sourceDirectory=path.join(root,'.work/games/snake');
-  assert.equal(proof.source_count,8);
-  assert.equal(proof.count,8);
-  assert.equal(proof.compiler_inputs_verified,true);
-  assert.equal(Object.keys(proof.source_hashes).length,8);
-  assert.equal(proof.compiler_inputs.length,8);
-  assert.deepEqual([...proof.compiler_inputs].sort(),Object.keys(run.source_before.scripts).sort().map(file=>path.join(sourceDirectory,file)));
-  assert(proof.metadata.references.includes('UnityCompat'));
-  assert.deepEqual(proof.source_hashes,run.source_before.scripts);
-  const assemblyPath=path.resolve(proof.assembly);
-  const assemblyRelative=path.relative(runDirectory,assemblyPath);
-  assert(assemblyRelative && !assemblyRelative.startsWith('..'+path.sep) && assemblyRelative!=='..' && !path.isAbsolute(assemblyRelative), 'compiled game PE must remain in the run build directory');
-  const assembly=await readFile(assemblyPath);
-  assert.equal(assembly.toString('ascii',0,2),'MZ','compiled original-source assembly must be a PE file');
-  const assemblySha256=createHash('sha256').update(assembly).digest('hex');
-  assert.equal(assemblySha256,proof.assembly_sha256);
-  return proof;
-}
 async function runJourney(profile, label) {
   await navigate();
   const selection=await select('SnakeJourney',profile);
@@ -210,7 +161,6 @@ async function runJourney(profile, label) {
   assert.equal(run.captures.length,16);
   assert(run.captures.every(c=>c.width===960&&c.height===720));
   const runDirectory=path.join(root,run.run_dir);
-  const proof=await sourceQualification(run,runDirectory);
   const pngs=[];
   for(const capture of run.captures) {
     const file=path.join(runDirectory,capture.path);
@@ -220,30 +170,9 @@ async function runJourney(profile, label) {
     pngs.push({path:file,frame:capture.frame,phase:capture.phase,...info});
   }
   await writeFile(path.join(directory,label+'-pngs.json'),JSON.stringify(pngs,null,2)+'\n');
-  const identities={};
-  for(const item of await readdir(path.join(runDirectory,'build'),{recursive:true})) {
-    if(/identity|manifest|native-image/.test(item)) {
-      const file=path.join(runDirectory,'build',item);
-      if((await stat(file)).isFile())identities[item]=await readFile(file,'utf8');
-    }
-  }
-  await writeFile(path.join(directory,label+'-identities.json'),JSON.stringify(identities,null,2)+'\n');
-  assert.deepEqual(run.source_before,run.source_after);
   assert.deepEqual(run.worker.teardown,{completed:true,native_worlds:0,managed_roots:0,pending_readbacks:0});
-  const native=await json(path.join(runDirectory,'build/native-image.json'));
-  const imagePath=path.resolve(native.image);
-  const imageRoot=path.join(root,'.work/compat/native-images');
-  const imageRelative=path.relative(imageRoot,imagePath);
-  assert(imageRelative && !imageRelative.startsWith('..'+path.sep) && imageRelative!=='..' && !path.isAbsolute(imageRelative), 'native image must remain in process-lifetime worktree storage');
-  assert.equal(native.scope,'process');
-  assert(Number.isSafeInteger(native.process_id) && native.process_id>0);
-  const imageStat=await lstat(imagePath);
-  assert(imageStat.isFile() && !imageStat.isSymbolicLink(), 'native image must be a regular file, not a symlink');
-  assert.equal(imageStat.size,native.bytes);
-  assert.equal(createHash('sha256').update(await readFile(imagePath)).digest('hex'),native.sha256);
-  assert.equal(native.sha256,results.runtime.native.sha256);
-  assert.equal(createHash('sha256').update(await readFile(results.runtime.player.path)).digest('hex'),results.runtime.player.sha256);
-  return {selection,task_id:task.id,run_id:run.run_id,run_dir:run.run_dir,profile:task.profile,assertions:run.assertions.length,captures:run.captures.length,pngs:path.join(directory,label+'-pngs.json'),elapsed_ms:run.elapsed_ms,teardown:run.worker.teardown,source_qualification:{assembly:proof.assembly,source_count:proof.source_count,compiler_inputs_verified:proof.compiler_inputs_verified}};
+  return {selection,task_id:task.id,run_id:run.run_id,run_dir:run.run_dir,profile:task.profile,
+    assertions:run.assertions.length,captures:run.captures.length,elapsed_ms:run.elapsed_ms,teardown:run.worker.teardown};
 }
 async function domEvidence(runId,label) {
   await navigate();
@@ -279,7 +208,7 @@ async function cleanupChrome() {
   const groups=new Set(rows.filter(row=>row.command.includes(profile)||row.command.includes(database)).map(row=>row.group));
   if(chrome)groups.add(chrome.pid);
   for(const group of groups) {
-    assert(group>0&&group!==process.pid,'refuse to terminate the qualification process group');
+    assert(group>0&&group!==process.pid,'refuse to terminate the browser harness process group');
     try{process.kill(-group,'SIGKILL');}catch(error){if(error.code!=='ESRCH')throw error;}
   }
   return [...groups];
@@ -326,7 +255,7 @@ async function securityEvidence() {
   const token=await evaluate(`document.querySelector('meta[name="compat-token"]').content`);
   assert.match(token,/^[a-f0-9]{64}$/);
   const observations=[];
-  for(const route of ['run','refresh','stop']) {
+  for(const route of ['run','stop']) {
     for(const credential of [null,'invalid']) {
       const observation=await evaluate(`(async()=>{const headers={'Content-Type':'application/json'};const credential=${JSON.stringify(credential)};if(credential)headers['X-Compat-Token']=credential;const response=await fetch('/api/${route}',{method:'POST',headers,body:JSON.stringify({fixture:'SnakeJourney',id:'unowned-task'})});return {status:response.status,body:await response.json()};})()`);
       assert.equal(observation.status,403);
@@ -355,41 +284,14 @@ async function securityEvidence() {
   assert.deepEqual(after.runs.map(r=>r.run_id),before.runs.map(r=>r.run_id),'rejected requests changed history');
   return {observations,headers,no_task_or_history_mutation:true,bootstrap_token_retained:false};
 }
-async function offlineRefreshEvidence() {
-  const task=await json(path.join(directory,'refresh-task.json'));
-  const result=task.result;
-  assert.equal(result.status,'blocked');
-  assert.equal(result.accepted,false);
-  assert.equal(result.failure_cause.kind,'infrastructure');
-  assert.equal(result.failure_cause.stage,'refresh-configuration');
-  assert.match(result.message,/source update failed: exit status: 128/);
-  assert.equal(result.integrity.engine_proof,false);
-  assert.equal(result.integrity.scope,'harness-gates-only');
-  const rendered=await until(()=>evaluate(`(()=>{const p=[...document.querySelectorAll('#tasks p')].find(p=>p.textContent.includes(${JSON.stringify(task.id)}));if(!p)return false;const start=p.textContent.indexOf('{');if(start<0)return false;return {result:JSON.parse(p.textContent.slice(start)),stop_present:!!p.querySelector('button')};})()`),'blocked refresh result in production DOM',30000);
-  assert.deepEqual(rendered.result,result);
-  assert.equal(rendered.stop_present,false);
-  const preservation=await json(path.join(directory,'refresh-source-preservation.json'));
-  assert.deepEqual(preservation.after,preservation.before);
-  const git=[];
-  for(const name of await readdir(result.output)) {
-    if(name.startsWith('git-'))git.push({path:path.join(result.output,name,'stderr.log'),stderr:await readFile(path.join(result.output,name,'stderr.log'),'utf8')});
-  }
-  assert(git.some(log=>log.stderr.includes('Could not resolve host: github.com')),'offline disposition requires the actual remote DNS failure');
-  return {task_id:task.id,result,rendered,git,source_and_lock_preserved:true,scope:'offline blocked-result rendering only',connected_refresh_qualified:false};
-}
 const watchdog=setTimeout(()=>{results.findings.push({phase:results.phase,error:'1700 second phase watchdog'});persist().finally(()=>{terminate(chrome);terminate(server);process.exit(2);});},1700000);
 try {
   await phase('browser-start',async()=>{
-    results.binary={path:binary,modified:(await stat(binary)).mtime.toISOString(),sha256:createHash('sha256').update(await readFile(binary)).digest('hex')};
-    results.runtime={};
-    for(const [name,file] of [['player','compat-player'],['native','libworldrunner_disunity_ffi.so']]) {
-      const full=path.join(process.env.CARGO_TARGET_DIR,'debug',file);
-      results.runtime[name]={path:full,sha256:createHash('sha256').update(await readFile(full)).digest('hex')};
-    }
-    results.environment={DISPLAY:environment.DISPLAY,VK_DRIVER_FILES:environment.VK_DRIVER_FILES,COMPAT_RUNS:environment.COMPAT_RUNS};
-    results.original_before=await sourceSnapshot();
+    results.environment={DISPLAY:environment.DISPLAY,COMPAT_RUNS:environment.COMPAT_RUNS};
     results.fixture_inputs={};
-    for(const name of ['snake','snake-journey']) {const file=path.join(root,'fixtures',name+'.json');const bytes=await readFile(file);results.fixture_inputs[name]={sha256:createHash('sha256').update(bytes).digest('hex'),fixture:JSON.parse(bytes)};}
+    for(const name of ['snake','snake-journey']) {
+      results.fixture_inputs[name]={fixture:await json(path.join(root,'fixtures',name+'.json'))};
+    }
     server=spawn(binary,['serve','--port','0'],{cwd:root,env:environment,detached:true,stdio:['ignore','pipe','pipe']});
     results.processes.server=server.pid;
     let stdout='';
@@ -401,7 +303,7 @@ try {
     // The owned absolute TMPDIR exceeds Linux's Unix-socket path limit in Chrome.
     const temporaryAlias='/proc/'+process.pid+'/fd/'+openSync(path.join(directory,'tmp'),'r');
     const chromeEnvironment={...environment,TMPDIR:temporaryAlias,TMP:temporaryAlias,TEMP:temporaryAlias};
-    chrome=spawn('/usr/bin/google-chrome',['--no-sandbox','--disable-gpu','--disable-features=Vulkan','--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-crash-reporter','--disable-dev-shm-usage','--remote-debugging-port=0','--user-data-dir='+profile,'--disk-cache-dir='+path.join(directory,'cache/chrome'),'about:blank'],{cwd:root,env:chromeEnvironment,detached:true,stdio:['ignore',openSync(path.join(directory,'chrome-stdout.log'),'a'),openSync(path.join(directory,'chrome-stderr.log'),'a')]});
+    chrome=spawn(process.env.COMPAT_BROWSER || '/usr/bin/google-chrome',['--no-sandbox','--disable-gpu','--disable-features=Vulkan','--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-crash-reporter','--disable-dev-shm-usage','--remote-debugging-port=0','--user-data-dir='+profile,'--disk-cache-dir='+path.join(directory,'cache/chrome'),'about:blank'],{cwd:root,env:chromeEnvironment,detached:true,stdio:['ignore',openSync(path.join(directory,'chrome-stdout.log'),'a'),openSync(path.join(directory,'chrome-stderr.log'),'a')]});
     results.processes.chrome=chrome.pid;
     const port=await until(async()=>Number((await readFile(path.join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0]),'installed Chrome',30000);
     const tabs=await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -457,31 +359,6 @@ try {
     const check=results.checks[label+'-journey'];
     if(check.status==='pass')await phase('after-stop-'+label+'-images',()=>domEvidence(check.run_id,'after-stop-'+label));
   }
-  await phase('refresh-production-snake',async()=>{
-    await navigate();
-    const selection=await select('snake');
-    assert.equal(selection.accept,false);
-    const before=await sourceSnapshot();
-    const job=await clickAction('Refresh source');
-    const task=await complete(job.id,600000);
-    const after=await sourceSnapshot();
-    await writeFile(path.join(directory,'refresh-task.json'),JSON.stringify(task,null,2)+'\n');
-    await writeFile(path.join(directory,'refresh-source-preservation.json'),JSON.stringify({before,after},null,2)+'\n');
-    assert.deepEqual(after,before,'original source or active lock changed');
-    assert.equal(task.result.accepted,false);
-    const visible=await until(()=>evaluate(`(()=>{const p=[...document.querySelectorAll('#tasks p')].find(p=>p.textContent.includes(${JSON.stringify(job.id)}));return p?.textContent.includes('"status"')?p.textContent:false;})()`),'visible refresh result',30000);
-    await writeFile(path.join(directory,'refresh-visible.txt'),visible+'\n');
-    assert.equal(task.result.status,'pass',JSON.stringify(task.result));
-    assert.equal(task.result.gates.length,2);
-    assert(task.result.gates.every(g=>g.exit==='exit status: 0'&&!g.interrupted));
-    const proof=await json(path.join(task.result.output,'candidate-assembly.json'));
-    assert.equal(proof.source_count,Object.keys(proof.source_hashes).length);
-    const fixture=await json(path.join(task.result.output,'candidate-fixture.json'));
-    assert.equal(fixture.metadata.assembly_qualification,path.join(task.result.output,'candidate-assembly.json'));
-    assert.equal(fixture.metadata.script_count,proof.source_count);
-    return {task_id:task.id,result:task.result,source_preserved:true,accept:false,qualification_source_count:proof.source_count,visible:true};
-  });
-  if(results.checks['refresh-production-snake'].status==='fail')await phase('offline-refresh-blocked-rendering',offlineRefreshEvidence);
   await phase('result-filters',filterEvidence);
   await phase('security',securityEvidence);
   const compat=results.checks['compat-journey'];
@@ -501,14 +378,13 @@ try {
   await delay(500);
   for(const row of await processes())if(row.ppid===server?.pid&&row.command.includes('/compat-player '))ownedWorkers.add(row.group);
   for(const group of ownedWorkers)try{process.kill(-group,'SIGKILL');}catch{}
-  try{results.original_after=await sourceSnapshot();assert.deepEqual(results.original_after,results.original_before);}catch(error){results.findings.push({phase:'source-preservation',error:String(error)});}
   await writeFile(path.join(directory,'browser-events.json'),JSON.stringify(browserEvents,null,2).replace(/[a-f0-9]{64}/gi,'[redacted]')+'\n');
   socket?.close();
   results.processes.chrome_groups=await cleanupChrome();
   terminate(server);
   await delay(300);
   const rows=await processes();
-  results.cleanup={owned_server_alive:rows.some(p=>p.pid===server?.pid&&p.state!=='Z'),owned_chrome_group_alive:rows.some(p=>p.group===chrome?.pid&&p.state!=='Z'),owned_chrome_helpers_alive:rows.filter(p=>results.processes.chrome_groups.includes(p.group)&&p.state!=='Z'),owned_worker_groups_alive:rows.filter(p=>ownedWorkers.has(p.group)&&p.state!=='Z'),xvfb97:rows.filter(p=>p.command.includes('Xvfb :97')).map(p=>p.pid)};
+  results.cleanup={owned_server_alive:rows.some(p=>p.pid===server?.pid&&p.state!=='Z'),owned_chrome_group_alive:rows.some(p=>p.group===chrome?.pid&&p.state!=='Z'),owned_chrome_helpers_alive:rows.filter(p=>results.processes.chrome_groups.includes(p.group)&&p.state!=='Z'),owned_worker_groups_alive:rows.filter(p=>ownedWorkers.has(p.group)&&p.state!=='Z')};
   if(results.cleanup.owned_server_alive||results.cleanup.owned_chrome_group_alive||results.cleanup.owned_chrome_helpers_alive.length||results.cleanup.owned_worker_groups_alive.length) {
     results.findings.push({phase:'cleanup',error:'owned browser, server or worker processes survived cleanup'});
   } else {

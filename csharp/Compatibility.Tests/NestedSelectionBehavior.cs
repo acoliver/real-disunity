@@ -10,12 +10,11 @@ internal static unsafe class NestedSelectionBehavior
         var manifest = world.Manifest([new("probe", new GameObject("unsupported-nested"), nameof(NestedStartProbe), new { })]);
         manifest["requirements"]!["scheduler_profile"] = "native_readiness_nested_start_v1";
         NativeIdentity.Reset();
-        var before = ReadStatus();
-        BinderBehavior.Check(BridgeBehavior.Call(&ManagedBridge.LoadFixture, manifest.ToJsonString()) != 0, "old provider rejects nested profile before binding");
-        BinderBehavior.Check(ReadStatus() == before, "old provider profile rejection consumes no native Initialize");
+        DescriptorRejection.Assert(manifest, "native_readiness_nested_start_v1", "nested-start capability");
         Empty();
-        Console.WriteLine("PASS nested old provider rejected before Initialize or child side effects");
+        Console.WriteLine("PASS nested descriptor rejected before Initialize or child side effects");
     }
+
     internal static void Matching(string path)
     {
         using var world = new ReadinessWorld(path, nestedSession: true);

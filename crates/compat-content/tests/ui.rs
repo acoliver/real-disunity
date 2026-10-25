@@ -8,7 +8,7 @@ fn original_ui_uses_typed_rect_canvas_text_and_scaler_native_fields() {
         serde_json::from_slice(&std::fs::read(base.join("profiles/pong-source.json")).unwrap())
             .unwrap();
     let graph = import_project(
-        &base.join("../../.work/games/pong"),
+        &worldrunner_original_games::checkout(worldrunner_original_games::Game::Pong).unwrap(),
         "Assets/Scenes/Main.unity".as_ref(),
         &profile,
         &ImportSidecar::default(),

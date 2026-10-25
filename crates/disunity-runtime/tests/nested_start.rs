@@ -1,6 +1,6 @@
 mod nested_support;
-#[path = "support/old_native.rs"]
-mod old_native;
+#[path = "support/handshake.rs"]
+pub mod support;
 
 use nested_support::{config, fixture};
 use serde_json::{Value, json};
@@ -57,25 +57,6 @@ fn actual_cdecl_nested_claim_budget_is_shared_and_recovery_drains() {
     host.unload().unwrap();
     host.destroy_world(world).unwrap();
     assert_eq!(host.store_statistics().unwrap().0, 0);
-}
-
-#[test]
-fn actual_cdecl_old_native_rejects_nested_selection_without_mutation() {
-    old_native::run_in_old_native_process(
-        "actual_cdecl_old_native_rejects_nested_selection_without_mutation",
-        || {
-            let mut host = CompatibilityHost::boot(&config()).unwrap();
-            let world = host.create_world().unwrap();
-            let before = host.request(world, &json!({"op":"snapshot"})).unwrap();
-            assert!(host.open_nested_phase_session(world).is_err());
-            assert_eq!(
-                host.request(world, &json!({"op":"snapshot"})).unwrap(),
-                before
-            );
-            host.destroy_world(world).unwrap();
-            assert_eq!(host.store_statistics().unwrap().0, 0);
-        },
-    );
 }
 
 #[test]

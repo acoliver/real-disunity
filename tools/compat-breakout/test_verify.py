@@ -73,40 +73,6 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(result['ball_counts'], [])
         self.assertEqual(result['diagnostics'], ['provider error'])
 
-    def test_native_identity_uses_frozen_run_image_even_after_canonical_rebuild(self):
-        import hashlib
-        import json
-        import tempfile
-        from pathlib import Path
-        from driver import ROOT
-        from verify import native_identity
-        with tempfile.TemporaryDirectory(dir=ROOT / '.work') as folder:
-            root = Path(folder)
-            (root / 'build').mkdir()
-            image = ROOT / '.work/compat/native-images/test-process/native/test-process/native.so'
-            image.parent.mkdir(parents=True, exist_ok=True)
-            image.write_bytes(b'frozen actual worker image')
-            canonical = root / 'canonical.so'
-            canonical.write_bytes(b'concurrent later build')
-            digest = hashlib.sha256(image.read_bytes()).hexdigest()
-            manifest = dict(image=str(image), source=str(canonical), sha256=digest,
-                            bytes=image.stat().st_size, scope='process', process_id=12345)
-            (root / 'build/native-image.json').write_text(json.dumps(manifest))
-            self.assertEqual(native_identity(root)['sha256'], digest)
-            manifest['process_id'] = 0
-            (root / 'build/native-image.json').write_text(json.dumps(manifest))
-            with self.assertRaises(AssertionError):
-                native_identity(root)
-            manifest['process_id'] = 12345
-            (root / 'build/native-image.json').write_text(json.dumps(manifest))
-            image.write_bytes(b'corrupt image')
-            with self.assertRaises(AssertionError):
-                native_identity(root)
-            image.unlink()
-            image.parent.rmdir()
-            image.parent.parent.rmdir()
-            image.parent.parent.parent.rmdir()
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "breakout",
-  "source_root": ".work/games/breakout",
+  "game": "breakout",
   "profiles": [
     "source-6000.3",
     "compat-6000.3",
@@ -10,7 +10,7 @@
   "default_profile": "source-6000.3",
   "evidence_label": "original-source/unlit-material-translation/sprite-bounds-collision",
   "worker": {
-    "program": "{root}/.work/target/debug/compat-player",
+    "program": "{root}/target/debug/compat-player",
     "args": []
   },
   "seed": 17,
@@ -178,27 +178,5 @@
       "phase": "render",
       "origin": "original-source/unlit-material-translation/sprite-bounds-collision"
     }
-  ],
-  "refresh": {
-    "remote": "origin",
-    "branch": "main",
-    "gates": [
-      {
-        "program": "python3",
-        "args": [
-          "{root}/fixtures/gates/qualify.py",
-          "breakout",
-          "compile"
-        ]
-      },
-      {
-        "program": "python3",
-        "args": [
-          "{root}/fixtures/gates/qualify.py",
-          "breakout",
-          "test"
-        ]
-      }
-    ]
-  }
+  ]
 }

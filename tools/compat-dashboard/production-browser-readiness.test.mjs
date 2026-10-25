@@ -33,7 +33,7 @@ test('waiting for a complete current document does not repeatedly download full 
     evaluate:async expression=>{
       if(expression.startsWith('!window.')) {
         checks++;
-        window.__qualificationPreviousDocument=checks===1;
+        window.__previousDashboardDocument=checks===1;
         document.readyState=checks===2?'interactive':'complete';
         profile.options=checks===3?[{}]:[{},{}];
         stored=checks===4?'["stale-run"]':'["current-run"]';

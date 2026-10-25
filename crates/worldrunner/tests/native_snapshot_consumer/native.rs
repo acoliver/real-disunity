@@ -1,6 +1,5 @@
 use serde_json::{Value, json};
-use std::path::PathBuf;
-use worldrunner::managed::{CompatibilityHost, HostError, ManagedHostConfig};
+use worldrunner::managed::{CompatibilityHost, HostError};
 
 pub struct Fixture {
     host: &'static mut CompatibilityHost,
@@ -14,16 +13,7 @@ pub struct Session {
 
 impl Fixture {
     pub fn boot() -> Self {
-        let image =
-            PathBuf::from(std::env::var_os("SNAPSHOT_PROVIDER").expect("explicit provider"));
-        let managed =
-            PathBuf::from(std::env::var_os("SNAPSHOT_BRIDGE_DIR").expect("explicit bridge"));
-        let config = ManagedHostConfig {
-            ffi_library: image,
-            runtime_config: managed.join("CompatibilityBridge.runtimeconfig.json"),
-            assembly: managed.join("CompatibilityBridge.dll"),
-            bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-        };
+        let config = super::artifacts::artifacts().config();
         // CLR retains native callbacks until process exit, including during TLS teardown.
         let host = Box::leak(Box::new(CompatibilityHost::boot(&config).unwrap()));
         Self {

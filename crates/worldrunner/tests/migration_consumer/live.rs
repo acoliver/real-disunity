@@ -15,9 +15,9 @@ use worldrunner::scene::{camera::ViewHandedness, gpu};
 fn two_resident_updates_and_caller_stage_obey_capture_policy() {
     let context = wait(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let resolved = planar([65, 47], ViewHandedness::RightHanded);
-    let view = gpu::SceneView::from_resolved(resolved);
+    let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut scene = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+    let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     scene.set_frame(context.queue(), FrameUniform::unlit(&view));
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let stage_calls = Cell::new(0);
@@ -55,8 +55,6 @@ fn two_resident_updates_and_caller_stage_obey_capture_policy() {
     assert_eq!(pixel(&final_image, 1, 1), [255, 255, 0, 255]);
     assert_ne!(first.pixels, final_image.pixels);
     assert_metadata(&final_image, view.viewport());
-    retain("texture-before", &first);
-    retain("texture-after-stage", &final_image);
 }
 
 fn update_texture(
@@ -68,15 +66,14 @@ fn update_texture(
     scene
         .set_dynamic_textures(
             context.device(),
-            context.queue(),
-            pipelines,
+            context.submission(),
             &[landmarks::texture(revision)],
         )
         .unwrap();
     scene
         .set_dynamic_quads(
             context.device(),
-            context.queue(),
+            context.submission(),
             pipelines,
             &[DynamicQuad {
                 rect: [-1.5, -1.5, 1.5, 1.5],
@@ -122,15 +119,17 @@ fn canonical_generation_output_drives_visible_consumer_state() {
     let height = generated.document.terrain.heights_millimeters[17];
     let channel = u8::try_from(height.unsigned_abs() % 192 + 32).unwrap();
     let context = wait(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
-    let view = gpu::SceneView::from_resolved(planar([65, 47], ViewHandedness::RightHanded));
+    let view = gpu::SceneView::from_resolved(
+        planar([65, 47], ViewHandedness::RightHanded),
+        [0, -10_000, 0],
+    );
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut scene = SceneGpu::empty(context.device(), context.queue(), &pipelines);
+    let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     scene.set_frame(context.queue(), FrameUniform::unlit(&view));
     scene
         .set_dynamic_textures(
             context.device(),
-            context.queue(),
-            &pipelines,
+            context.submission(),
             &[worldrunner::scene::plan::SceneTexture::Texels {
                 color_space: worldrunner::scene::plan::TextureColorSpace::Srgb,
                 format: worldrunner::scene::plan::TexelFormat::Rgba8Unorm,
@@ -144,7 +143,7 @@ fn canonical_generation_output_drives_visible_consumer_state() {
     scene
         .set_dynamic_quads(
             context.device(),
-            context.queue(),
+            context.submission(),
             &pipelines,
             &[DynamicQuad {
                 texture: Some(0),
@@ -167,22 +166,6 @@ fn canonical_generation_output_drives_visible_consumer_state() {
         "generation canonical_hash={:?} sample_height_mm={height} pixel_channel={channel}",
         generated.canonical_hash
     );
-    retain("generation", &image);
-}
-
-pub fn retain(name: &str, image: &gpu::offscreen::RgbaImage) {
-    if let Some(directory) = std::env::var_os("MIGRATION_CONSUMER_ARTIFACTS") {
-        let directory = std::path::PathBuf::from(directory);
-        let owned = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../.work/resumed-migration-consumer")
-            .canonicalize()
-            .unwrap();
-        assert!(directory.canonicalize().unwrap().starts_with(owned));
-        std::fs::write(directory.join(format!("{name}.rgba")), &image.pixels).unwrap();
-        std::fs::write(directory.join(format!("{name}.json")), format!(
-            "{{\"width\":{},\"height\":{},\"format\":\"RGBA8-sRGB\",\"orientation\":\"top-left\",\"row_bytes\":{},\"completion\":\"offscreen-readback\",\"native_stamps\":null}}\n",
-            image.viewport.width, image.viewport.height, image.viewport.width * 4)).unwrap();
-    }
 }
 
 fn assert_blocked(

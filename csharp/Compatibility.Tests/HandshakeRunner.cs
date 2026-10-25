@@ -5,8 +5,7 @@ internal static class HandshakeRunner
 {
     public static void Run()
     {
-        var path = Environment.GetEnvironmentVariable("DISUNITY_TEST_NATIVE_LIBRARY")
-            ?? throw new InvalidOperationException("explicit test image required");
+        var path = TestArtifacts.Native;
         var image = NativeLibrary.Load(path);
         var create = Marshal.GetDelegateForFunctionPointer<WorldCreate>(NativeLibrary.GetExport(image, "disunity_world_create"));
         var destroy = Marshal.GetDelegateForFunctionPointer<WorldDestroy>(NativeLibrary.GetExport(image, "disunity_world_destroy"));

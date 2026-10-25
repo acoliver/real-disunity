@@ -3,9 +3,7 @@ use thiserror::Error;
 use worldrunner_asset_id::{ContentHash, LogicalAssetId};
 
 const MAGIC: [u8; 8] = *b"RDMATL01";
-mod terrain_fold;
-pub use terrain_fold::{TerrainFoldSource, TerrainRequestOverride};
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const HEADER_BYTES: usize = 52;
 const MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -41,8 +39,6 @@ pub struct MaterialArtifact {
     /// Blend shading normals toward the terrain normal when requested.
     #[serde(default)]
     pub terrain_distorted: bool,
-    #[serde(default)]
-    pub terrain_fold_source: Option<TerrainFoldSource>,
 }
 
 fn default_uv_tiling() -> [f32; 2] {

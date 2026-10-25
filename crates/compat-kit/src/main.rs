@@ -1,7 +1,7 @@
 use compat_kit::{
     RunControl, dashboard,
     files::{Result, io},
-    fixture, refresh, runner, server,
+    fixture, runner, server,
 };
 use serde_json::{Value, json};
 use std::{
@@ -56,7 +56,7 @@ fn dispatch() -> Result<i32> {
             server::serve(&root, port)?;
         }
         "help" | "--help" | "-h" => println!(
-            "compat-kit doctor\ncompat-kit fixture check [name]\ncompat-kit fixture refresh [name] [--accept]\ncompat-kit run <fixture> [--desktop] [--profile id]\ncompat-kit dashboard [output-directory-inside-.work]\ncompat-kit serve [--port 8787]"
+            "compat-kit doctor\ncompat-kit fixture check [name]\ncompat-kit run <fixture> [--desktop] [--profile id]\ncompat-kit dashboard [output-directory-inside-.work]\ncompat-kit serve [--port 8787]"
         ),
         other => return Err(format!("unknown command: {other}")),
     }
@@ -66,7 +66,7 @@ fn doctor(root: &Path) -> Result<Value> {
     let fixtures = fixture::catalog(root)?;
     let mut checks = Vec::new();
     for fixture in fixtures {
-        let source = fixture::check(root, &fixture).unwrap_or_else(|error| json!({"error":error}));
+        let source = fixture::check(&fixture).unwrap_or_else(|error| json!({"error":error}));
         let worker = fixture.worker.as_ref().map(|w| w.program.clone());
         let executable = worker.as_ref().is_some_and(|w| {
             if w.contains('/') {
@@ -125,12 +125,11 @@ fn run_command(root: &Path, args: &[String]) -> Result<i32> {
 }
 
 fn fixture_command(root: &Path, args: &[String]) -> Result<i32> {
-    let action = args.get(1).ok_or("fixture requires check or refresh")?;
-    let names: Vec<_> = args
-        .iter()
-        .skip(2)
-        .filter(|a| a.as_str() != "--accept")
-        .collect();
+    let action = args.get(1).ok_or("fixture requires check")?;
+    if action != "check" {
+        return Err("fixture requires check".into());
+    }
+    let names: Vec<_> = args.iter().skip(2).collect();
     if names.len() > 1 {
         return Err("fixture accepts at most one name".into());
     }
@@ -141,16 +140,7 @@ fn fixture_command(root: &Path, args: &[String]) -> Result<i32> {
     };
     let mut results = Vec::new();
     for fixture in fixtures {
-        let result = match action.as_str() {
-            "check" => fixture::check(root, &fixture),
-            "refresh" => refresh::refresh(
-                root,
-                &fixture,
-                args.iter().any(|a| a == "--accept"),
-                &RunControl::default(),
-            ),
-            _ => return Err("fixture requires check or refresh".into()),
-        };
+        let result = fixture::check(&fixture);
         results.push(result.unwrap_or_else(
             |error| json!({"fixture":fixture.name,"status":"blocked","message":error}),
         ));

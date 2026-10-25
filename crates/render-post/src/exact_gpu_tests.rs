@@ -69,17 +69,25 @@ fn exact_srgb8_matches_f64_oracle_at_every_threshold_neighbor() {
     )
     .unwrap();
     let output = ExactSrgb8::new(&device, size).unwrap();
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    render_values(&device, &mut encoder, chain.targets(), &values);
-    chain.encode(&mut encoder, output.write_view());
-    queue.submit([encoder.finish()]);
+    let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue);
+    authority
+        .prepare(&device, |encoder, _| {
+            render_values(&device, encoder, chain.targets(), &values);
+            chain.encode(encoder, output.write_view());
+            Ok::<_, crate::PostError>(())
+        })
+        .unwrap()
+        .submit()
+        .unwrap();
     let mut readback = Readback::new(
         &device,
         FrameConfig::new(size, ExactSrgb8::OUTPUT_FORMAT, 1),
         u64::from(width) * 4 + 256,
     )
     .unwrap();
-    let actual = readback.read(&device, &queue, output.texture()).unwrap();
+    let actual = readback
+        .read(&device, &authority, output.texture())
+        .unwrap();
     assert_eq!(actual.len(), values.len() * 4);
     for (index, (value, pixel)) in values.iter().zip(actual.chunks_exact(4)).enumerate() {
         let expected = reference_srgb8(*value);

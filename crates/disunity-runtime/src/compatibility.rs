@@ -22,13 +22,9 @@ mod idle_mutation;
 pub use idle_mutation::HostIdleMutationError;
 mod phase;
 mod readiness;
-#[cfg(target_os = "linux")]
-mod sealed_image;
 mod snapshot;
 mod terminal;
 pub use advance::AdvanceReport;
-#[cfg(target_os = "linux")]
-pub use sealed_image::NativeImageLease;
 #[cfg(test)]
 mod terminal_tests;
 pub use failures::CallbackFailurePage;
@@ -414,3 +410,6 @@ mod idle_cleanup_fault_tests;
 
 #[cfg(all(test, target_os = "linux"))]
 mod idle_cleanup_uncertainty_tests;
+
+#[cfg(test)]
+mod capability_tests;

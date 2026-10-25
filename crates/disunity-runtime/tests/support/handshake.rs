@@ -2,14 +2,27 @@
 pub(crate) mod managed;
 
 use std::{path::PathBuf, process::Command, sync::OnceLock};
+use worldrunner_disunity_runtime::ManagedHostConfig;
+
+#[path = "child.rs"]
+pub mod child;
 
 pub struct Artifacts {
     pub native: PathBuf,
     pub managed_root: PathBuf,
-    _build_lock: std::fs::File,
+    _build_lock: Option<std::fs::File>,
 }
 
 impl Artifacts {
+    pub fn config(&self) -> ManagedHostConfig {
+        ManagedHostConfig {
+            ffi_library: self.native.clone(),
+            runtime_config: self.bridge().with_extension("runtimeconfig.json"),
+            assembly: self.bridge(),
+            bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
+        }
+    }
+
     pub fn bridge(&self) -> PathBuf {
         self.managed_root
             .join("artifacts/bin/CompatibilityBridge/debug/CompatibilityBridge.dll")
@@ -31,11 +44,15 @@ fn build() -> Artifacts {
         .join("../..")
         .canonicalize()
         .expect("workspace must exist");
-    let outputs = root.join(
-        std::env::var_os("DISUNITY_TEST_OUTPUT_DIR")
-            .unwrap_or_else(|| ".work/validation-handshake".into()),
-    );
+    let outputs = root.join("target/test-artifacts");
     std::fs::create_dir_all(&outputs).unwrap();
+    if child::active() {
+        return Artifacts {
+            native: native_path(&outputs),
+            managed_root: outputs.join("managed"),
+            _build_lock: None,
+        };
+    }
     let build_lock = std::fs::File::options()
         .read(true)
         .write(true)
@@ -47,27 +64,21 @@ fn build() -> Artifacts {
     build_lock
         .lock()
         .expect("test artifact lock must be available");
-    let managed_root = if let Some(path) = std::env::var_os("DISUNITY_TEST_MANAGED_ROOT") {
-        root.join(path)
-    } else {
-        let directory = outputs.join("managed");
-        let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
-        managed::build_suites(&root, &dotnet, &directory.join("artifacts"));
-        directory
-    };
-    let native = match std::env::var_os("DISUNITY_TEST_NATIVE_LIBRARY") {
-        Some(path) => root.join(path),
-        None => build_native(&root, &outputs),
-    };
-    Artifacts {
+    let managed_root = outputs.join("managed");
+    let native = build_native(&root, &outputs);
+    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
+    managed::build_suites(&root, &dotnet, &managed_root.join("artifacts"));
+    let result = Artifacts {
         native,
         managed_root,
-        _build_lock: build_lock,
-    }
+        _build_lock: Some(build_lock),
+    };
+    assert!(result.config().assembly.is_file() && result.probe().is_file());
+    result
 }
 
 fn build_native(root: &std::path::Path, outputs: &std::path::Path) -> PathBuf {
-    let target = outputs.join("native-target");
+    let target = outputs.join("native");
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     managed::execute(
         Command::new(cargo)
@@ -83,7 +94,11 @@ fn build_native(root: &std::path::Path, outputs: &std::path::Path) -> PathBuf {
                 "worldrunner-disunity-ffi",
             ]),
     );
-    target.join("debug").join(format!(
+    native_path(outputs)
+}
+
+fn native_path(outputs: &std::path::Path) -> PathBuf {
+    outputs.join("native/debug").join(format!(
         "{}worldrunner_disunity_ffi{}",
         std::env::consts::DLL_PREFIX,
         std::env::consts::DLL_SUFFIX,

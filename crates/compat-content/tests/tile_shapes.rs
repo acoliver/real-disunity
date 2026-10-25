@@ -6,7 +6,7 @@ fn base() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 fn source() -> PathBuf {
-    base().join("../../.work/games/breakout")
+    worldrunner_original_games::checkout(worldrunner_original_games::Game::Breakout).unwrap()
 }
 fn import(root: &Path, overrides: Value) -> ImportedScene {
     let profile: ImportProfile = serde_json::from_slice(

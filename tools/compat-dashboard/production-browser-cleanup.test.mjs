@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
-import {readFile,readdir,mkdtemp,rm} from 'node:fs/promises';
+import {readFile,readdir,mkdtemp,rm,mkdir} from 'node:fs/promises';
 import {setTimeout} from 'node:timers/promises';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -11,7 +11,8 @@ const source=await readFile(new URL('./production-browser.mjs',import.meta.url),
 const declaration=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end));
 
 test('cleanup removes separately grouped Chrome helpers while preserving another profile',async()=>{
-  const base=path.join(process.env.RD_WORKTREE,'.work/resumed-production-browser');
+  const base=path.resolve(new URL('../../.work/compat-browser',import.meta.url).pathname);
+  await mkdir(base,{recursive:true});
   const directory=await mkdtemp(path.join(base,'cleanup-test-'));
   const launch=argument=>spawn(process.execPath,['-e','setInterval(()=>{},1000)','--',argument],{detached:true,stdio:'ignore'});
   const chrome=launch('--user-data-dir='+path.join(directory,'chrome'));
@@ -21,7 +22,7 @@ test('cleanup removes separately grouped Chrome helpers while preserving another
   const exits=new Map(children.map(child=>[child,once(child,'exit')]));
   await Promise.all(children.map(child=>once(child,'spawn')));
   const context=vm.createContext({chrome,directory,process,readFile,readdir,path,assert});
-  vm.runInContext(declaration('async function processes()', 'async function sourceSnapshot()')+
+  vm.runInContext(declaration('async function processes()', 'async function runJourney(')+
     declaration('function terminate(', 'async function filterEvidence()'),context);
   try {
     await context.cleanupChrome();

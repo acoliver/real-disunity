@@ -63,7 +63,7 @@ fn render<F: StageFactory>(
     queue.submit([encoder.finish()]);
     Readback::new(device, config, 1024 * 1024)
         .unwrap()
-        .read(device, queue, &output)
+        .read(device, &crate::test_authority(queue), &output)
         .unwrap()
 }
 
@@ -183,6 +183,7 @@ impl StageFactory for AuthoredEffect {
             copy.stages.insert(
                 0,
                 Stage {
+                    id: crate::StageId::new("disabled history reset", 0),
                     label: "disabled history reset",
                     enabled: false,
                     operation: Operation::Clear(persistent.buffers[0].clone()),
@@ -216,6 +217,7 @@ impl StageFactory for AuthoredEffect {
         Ok(StageSet {
             stages: vec![
                 Stage {
+                    id: crate::StageId::new("authored history update", 0),
                     label: "authored history update",
                     enabled: true,
                     operation: Operation::Compute {
@@ -225,7 +227,7 @@ impl StageFactory for AuthoredEffect {
                     },
                 },
                 Stage::fullscreen(
-                    "authored output",
+                    crate::StageId::new("authored output", 0),
                     &self.display,
                     &[&display],
                     StageTarget::Output,

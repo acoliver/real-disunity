@@ -17,9 +17,9 @@ use crate::document::terrain::TerrainRecipe;
 use crate::document::validate::require_identifier;
 
 /// Schema tag of the authored render-contract document family.
-pub const RENDER_CONTRACT_SCHEMA: &str = "real-disunity.render-contract.v1";
+pub const RENDER_CONTRACT_SCHEMA: &str = "real-disunity.render-contract.v4";
 /// Schema version of the authored render-contract document family.
-pub const RENDER_CONTRACT_SCHEMA_VERSION: u32 = 1;
+pub const RENDER_CONTRACT_SCHEMA_VERSION: u32 = 4;
 
 /// Version envelope shared by every authored render contract.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -313,6 +313,17 @@ impl ContractDocument {
     /// family or version, an unknown field, a missing mandatory value, or any
     /// violated authored invariant.
     pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, ContractDocumentError> {
+        #[derive(Deserialize)]
+        struct Envelope {
+            schema: String,
+            schema_version: u32,
+        }
+        let envelope: Envelope = serde_json::from_slice(bytes)?;
+        ContractDocumentHeader {
+            schema: envelope.schema,
+            schema_version: envelope.schema_version,
+        }
+        .verify()?;
         let raw: RawContractDocument = serde_json::from_slice(bytes)?;
         ContractDocument::from_structural(raw)
     }

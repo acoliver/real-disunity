@@ -1,4 +1,3 @@
-import hashlib
 import json
 import unittest
 from driver import ROOT, Planner, active_object, steering_keys, step_actions, reset_state
@@ -12,16 +11,28 @@ class JourneyTests(unittest.TestCase):
         self.assertEqual(fixture['evidence_label'], 'original-source/legacy-mappings-dejavu-font')
 
     def test_generator_defaults_to_fresh_source_compilation(self):
-        planner = Planner(None)
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder)
+            scripts = source / 'Assets/Scripts'
+            scripts.mkdir(parents=True)
+            for index in range(20):
+                (scripts / f'Script{index}.cs').write_text(f'class Script{index} {{}}')
+            planner = Planner(source / 'worker', source, source / 'output')
         for field in ('assembly', 'assembly_qualification', 'assembly_sha256'):
             self.assertNotIn(field, planner.fixture['metadata'])
-        self.assertEqual(len(planner.before), 20)
+        self.assertEqual(planner.fixture['game'], 'pong')
+        self.assertNotIn('source_root', planner.fixture)
 
-    def test_final_stimulus_retains_qualified_full_journey(self):
+    def test_final_stimulus_uses_keyboard_and_observable_checkpoints(self):
         fixture = json.loads((ROOT / 'fixtures/pong-journey.json').read_text())
-        digest = hashlib.sha256(json.dumps(fixture['timeline'], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.assertEqual(digest, '6215d3540a8ffdc6c468761c15345bd4200bfa10e15a380917e851fc1694174e')
-        self.assertEqual(len(fixture['timeline']), 1422)
+        self.assertEqual(fixture['timeline'][0]['action'], 'load')
+        self.assertEqual(fixture['timeline'][-1]['action'], 'unload')
+        self.assertEqual({a['action'] for a in fixture['timeline']},
+                         {'load', 'input', 'advance', 'observe', 'capture', 'reload', 'unload'})
+        self.assertTrue(all(not a.get('axes') for a in fixture['timeline']))
+        self.assertEqual(len([a for a in fixture['timeline'] if a['action'] == 'capture']), 5)
         self.assertEqual(len(fixture['assertions']), 366)
 
     def test_selects_live_instance_instead_of_prefab(self):

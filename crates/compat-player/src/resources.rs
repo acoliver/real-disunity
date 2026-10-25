@@ -134,10 +134,9 @@ mod tests {
     use super::*;
     #[test]
     fn original_axis_duplicates_retain_all_keys_without_a_managed_input_world() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let text =
-            fs::read_to_string(root.join(".work/games/pong/ProjectSettings/InputManager.asset"))
-                .unwrap();
+        let pong =
+            worldrunner_original_games::checkout(worldrunner_original_games::Game::Pong).unwrap();
+        let text = fs::read_to_string(pong.join("ProjectSettings/InputManager.asset")).unwrap();
         let command = axis_command(&text).unwrap();
         assert_eq!(command["axes"]["Vertical"]["positive_keys"], json!(["W"]));
         assert_eq!(

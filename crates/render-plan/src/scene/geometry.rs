@@ -165,6 +165,7 @@ impl SceneMeshLod {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneMesh {
     lods: Box<[SceneMeshLod]>,
+    max_distances_millimeters: Box<[u64]>,
 }
 
 impl SceneMesh {
@@ -173,13 +174,36 @@ impl SceneMesh {
     /// # Errors
     ///
     /// Returns [`SceneValidationError`] when the chain is empty or its level
-    /// indices are not contiguous from zero.
+    /// indices are not contiguous from zero. Multi-level chains require
+    /// [`Self::with_distances`] instead, because their thresholds cannot be inferred.
     pub fn new(lods: Vec<SceneMeshLod>) -> Result<Self, SceneValidationError> {
         let mesh = Self {
             lods: lods.into_boxed_slice(),
+            max_distances_millimeters: Box::default(),
         };
         mesh.validate()?;
         Ok(mesh)
+    }
+
+    /// Adopts authored inclusive distance ceilings, one per level. Beyond the
+    /// final ceiling the last level remains selected. Distances are measured
+    /// from the main camera to the placement origin, without scale adjustment.
+    pub fn with_distances(
+        lods: Vec<SceneMeshLod>,
+        max_distances_millimeters: Vec<u64>,
+    ) -> Result<Self, SceneValidationError> {
+        let mesh = Self {
+            lods: lods.into_boxed_slice(),
+            max_distances_millimeters: max_distances_millimeters.into_boxed_slice(),
+        };
+        mesh.validate()?;
+        Ok(mesh)
+    }
+
+    /// Authored inclusive ceilings. A single-level mesh needs no thresholds.
+    #[must_use]
+    pub fn max_distances_millimeters(&self) -> &[u64] {
+        &self.max_distances_millimeters
     }
 
     /// Returns the owned LOD chain from the nearest level outward.
@@ -209,6 +233,14 @@ impl SceneMesh {
                 });
             }
             lod.validate()?;
+        }
+        let distances = &self.max_distances_millimeters;
+        if !(self.lods.len() == 1 && distances.is_empty())
+            && (distances.len() != self.lods.len()
+                || distances.first() == Some(&0)
+                || distances.windows(2).any(|pair| pair[0] >= pair[1]))
+        {
+            return Err(SceneValidationError::LodDistances);
         }
         Ok(())
     }
@@ -258,14 +290,19 @@ impl SceneRotation {
     ///
     /// # Errors
     ///
-    /// Returns [`SceneValidationError`] when the component squares deviate
-    /// from one squared micro-unit scale by more than
+    /// Returns [`SceneValidationError`] when the component squares overflow
+    /// their sum or deviate from one squared micro-unit scale by more than
     /// `ROTATION_NORMALIZATION_TOLERANCE`.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        let squares = i128::from(self.x) * i128::from(self.x)
-            + i128::from(self.y) * i128::from(self.y)
-            + i128::from(self.z) * i128::from(self.z)
-            + i128::from(self.w) * i128::from(self.w);
+        let squares = [self.x, self.y, self.z, self.w]
+            .into_iter()
+            .try_fold(0_i128, |sum, component| {
+                let component = i128::from(component);
+                sum.checked_add(component * component)
+            })
+            .ok_or(SceneValidationError::ArithmeticOverflow {
+                part: "scene rotation",
+            })?;
         let deviation = (squares - ROTATION_MICRO_SCALE_SQUARED).abs();
         if deviation <= ROTATION_NORMALIZATION_TOLERANCE {
             Ok(())
@@ -413,7 +450,8 @@ mod tests {
         )
         .expect("far level validates");
         assert_eq!(far.billboard(), Some(BillboardPolicy::CrossQuads));
-        SceneMesh::new(vec![near, far]).expect("contiguous chain validates");
+        SceneMesh::with_distances(vec![near, far], vec![10_000, 40_000])
+            .expect("contiguous chain validates");
         let drifted = SceneMeshLod::new(2, vec![vertex()], vec![0, 0, 0], None)
             .expect("level payload validates");
         assert!(matches!(

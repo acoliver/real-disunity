@@ -45,17 +45,9 @@ class ObservationsTests(unittest.TestCase):
         with self.assertRaisesRegex(journey.JourneyError, "managed:FoodSpawner:CurrentFoodPos"):
             journey.observation({"observations": []}, journey.FOOD, 1)
 
-    def test_source_count_is_derived_and_requires_eight(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".work/tmp") as folder:
-            source = Path(folder)
-            (source / "Assets/Scripts").mkdir(parents=True)
-            (source / "Assets/Scripts/One.cs").write_text("public class One {}")
-            with self.assertRaisesRegex(journey.JourneyError, "eight|8"):
-                journey.source_inventory(source)
-
     def test_missing_worker_is_reported_as_blocked(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".work/tmp") as folder:
-            runner = journey.Worker(ROOT, Path(folder), ROOT / ".work/absent-snake-worker", {})
+        with tempfile.TemporaryDirectory() as folder:
+            runner = journey.Worker(ROOT, Path(folder), Path(folder) / "absent-worker", {}, Path(folder), Path(folder) / "harness")
             with self.assertRaisesRegex(journey.ProviderBlocked, "worker unavailable"):
                 runner.run([], "source-6000.3")
 
@@ -89,7 +81,7 @@ class CaptureTests(unittest.TestCase):
                          chunk(b"IDAT", zlib.compress(b"\0" + pixels)) + chunk(b"IEND", b""))
 
     def test_capture_decodes_pixels_and_rejects_blank_and_truncated(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".work/tmp") as folder:
+        with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "capture.png"
             self.png(path, b"\xff\0\0\xff\0\xff\0\xff")
             decoded = journey.decode_png(path)

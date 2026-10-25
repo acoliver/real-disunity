@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::path::PathBuf;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -14,7 +14,6 @@ pub enum Status {
     Error,
     Skipped,
     Inconclusive,
-    #[serde(alias = "not_implemented")]
     NotImplemented,
     Flaky,
 }
@@ -64,7 +63,7 @@ impl Limits {
 pub struct Fixture {
     pub schema_version: u32,
     pub name: String,
-    pub source_root: PathBuf,
+    pub game: String,
     pub profiles: Vec<String>,
     pub default_profile: String,
     pub evidence_label: String,
@@ -79,17 +78,7 @@ pub struct Fixture {
     #[serde(default)]
     pub assertions: Vec<Assertion>,
     #[serde(default)]
-    pub refresh: Option<RefreshSpec>,
-    #[serde(default)]
     pub metadata: Value,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct RefreshSpec {
-    pub remote: String,
-    pub branch: String,
-    pub gates: Vec<CommandSpec>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -134,6 +123,7 @@ pub enum Assertion {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunRequest {
     pub schema_version: u32,
     pub run_id: String,
@@ -144,9 +134,37 @@ pub struct RunRequest {
     pub timeline: Vec<Value>,
     pub assertions: Vec<Assertion>,
     pub source_root: PathBuf,
-    pub source_hashes: BTreeMap<String, String>,
     pub artifact_root: PathBuf,
     pub metadata: Value,
+}
+
+impl RunRequest {
+    /// The request a worker receives for one run of `fixture`.
+    pub fn for_fixture(fixture: &Fixture, run: RunTarget) -> Self {
+        Self {
+            schema_version: 1,
+            run_id: run.run_id,
+            fixture: fixture.name.clone(),
+            profile: run.profile,
+            desktop: run.desktop,
+            seed: fixture.seed,
+            timeline: fixture.timeline.clone(),
+            assertions: fixture.assertions.clone(),
+            source_root: run.source_root,
+            artifact_root: run.artifact_root,
+            metadata: fixture.metadata.clone(),
+        }
+    }
+}
+
+/// Where and how one fixture run executes.
+#[derive(Clone, Debug)]
+pub struct RunTarget {
+    pub run_id: String,
+    pub profile: String,
+    pub desktop: bool,
+    pub source_root: PathBuf,
+    pub artifact_root: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -210,32 +228,13 @@ pub struct ValidatedCapture {
     pub sha256: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SourceState {
-    pub root: PathBuf,
-    pub revision: Option<String>,
-    pub dirty: Option<bool>,
-    pub scripts: BTreeMap<String, String>,
-    #[serde(default)]
-    pub inputs: BTreeMap<String, String>,
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum TckRunSchema {
     #[serde(rename = "real-disunity.tck-run/1")]
     V1,
 }
-fn deserialize_run_schema<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> std::result::Result<Option<TckRunSchema>, D::Error> {
-    TckRunSchema::deserialize(deserializer).map(Some)
-}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RunRecord {
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_run_schema"
-    )]
-    pub schema: Option<TckRunSchema>,
+    pub schema: TckRunSchema,
     pub schema_version: u32,
     pub run_id: String,
     pub fixture: String,
@@ -248,8 +247,6 @@ pub struct RunRecord {
     pub messages: Vec<String>,
     pub assertions: Vec<AssertionResult>,
     pub captures: Vec<ValidatedCapture>,
-    pub source_before: Option<SourceState>,
-    pub source_after: Option<SourceState>,
     pub worker: Option<WorkerReport>,
     #[serde(default)]
     pub reporting: crate::reporting::Context,

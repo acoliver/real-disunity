@@ -5,7 +5,7 @@ use worldrunner::compat_content::{ImportProfile, ImportSidecar, ImportedScene, i
 fn snake_scene() -> (serde_json::Value, ImportedScene) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let selected = fixture::load(&root, "snake-interactive").unwrap();
-    let source = fixture::source_root(&root, &selected).unwrap();
+    let source = fixture::source_root(&selected).unwrap();
     let profile: ImportProfile =
         serde_json::from_value(selected.metadata["import_profile"].clone()).unwrap();
     let sidecar: ImportSidecar =

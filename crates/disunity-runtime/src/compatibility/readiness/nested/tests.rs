@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use crate::ManagedHostConfig;
 use crate::compatibility::{CompatibilityHost, transport::NativeTransport};
 
 #[path = "fault.rs"]
@@ -26,22 +25,16 @@ fn fixture(host: &CompatibilityHost, world: u64, assembly: &PathBuf) -> (Value, 
 
 #[test]
 fn actual_cdecl_nested_fatal_after_unwind_retains_writes_clock_and_disposes_once() {
-    let root = PathBuf::from(
-        std::env::var_os("DISUNITY_TEST_MANAGED_ROOT").expect("frozen managed tuple"),
-    );
-    let bridge = root.join("artifacts/bin/CompatibilityBridge/debug/CompatibilityBridge.dll");
-    let config = ManagedHostConfig {
-        ffi_library: std::env::var_os("DISUNITY_TEST_NATIVE_LIBRARY")
-            .unwrap()
-            .into(),
-        runtime_config: bridge.with_extension("runtimeconfig.json"),
-        assembly: bridge,
-        bridge_type: "CompatibilityBridge.ManagedBridge, CompatibilityBridge".into(),
-    };
+    if !crate::test_support::child::isolated(
+        "compatibility::readiness::nested::tests::actual_cdecl_nested_fatal_after_unwind_retains_writes_clock_and_disposes_once",
+    ) {
+        return;
+    }
+    let config = crate::test_support::artifacts().config();
     let mut host = CompatibilityHost::boot(&config).unwrap();
     let world = host.create_world().unwrap();
     host.open_nested_phase_session(world).unwrap();
-    let assembly = root.join("artifacts/bin/Compatibility.Tests/debug/Compatibility.Tests.dll");
+    let assembly = crate::test_support::artifacts().probe();
     let (manifest, object) = fixture(&host, world, &assembly);
     host.load_fixture(&manifest).unwrap();
     assert!(

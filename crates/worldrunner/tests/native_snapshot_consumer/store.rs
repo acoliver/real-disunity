@@ -44,6 +44,6 @@ pub fn read(context: &GpuContext, texture: &wgpu::Texture, size: [u32; 2]) -> Ve
     )
     .unwrap();
     readback
-        .read(context.device(), context.queue(), texture)
+        .read(context.device(), context.submission(), texture)
         .unwrap()
 }

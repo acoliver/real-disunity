@@ -22,7 +22,7 @@ impl post::StageFactory for Factory {
         });
         Ok(post::StageSet {
             stages: vec![post::Stage::fullscreen(
-                "native consumer authored output",
+                post::StageId::new("native consumer authored output", 0),
                 &pipeline,
                 &[&group],
                 post::StageTarget::Output,
@@ -55,11 +55,7 @@ fn pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline {
         bind_group_layouts: &[Some(&binding)],
         immediate_size: 0,
     });
-    let green = if std::env::var_os("SNAPSHOT_WRONG_STAGE").is_some() {
-        0.0
-    } else {
-        1.0
-    };
+    let green = 1.0;
     post::fullscreen_pipeline(
         device,
         post::FullscreenDescriptor {

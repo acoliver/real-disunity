@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use crate::{FrameConfig, FrameTargets, PostError, fullscreen_pass};
+use crate::{FrameConfig, FrameTargets, PostError, fullscreen_pass_timed};
 
 /// Opaque caller-authored ABI. The chain allocates these once; resize never resets history.
 #[derive(Clone, Debug)]
@@ -85,6 +85,7 @@ pub enum Operation {
 
 #[derive(Debug)]
 pub struct Stage {
+    pub id: crate::StageId,
     pub label: &'static str,
     pub enabled: bool,
     pub operation: Operation,
@@ -92,13 +93,14 @@ pub struct Stage {
 
 impl Stage {
     pub fn fullscreen(
-        label: &'static str,
+        id: crate::StageId,
         pipeline: &wgpu::RenderPipeline,
         groups: &[&wgpu::BindGroup],
         target: StageTarget,
     ) -> Self {
         Self {
-            label,
+            id,
+            label: id.name,
             enabled: true,
             operation: Operation::Fullscreen {
                 pipeline: pipeline.clone(),
@@ -108,7 +110,12 @@ impl Stage {
         }
     }
 
-    fn encode(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
+    fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        output: &wgpu::TextureView,
+        stamp: Option<&crate::timing::Stamp>,
+    ) {
         if !self.enabled {
             return;
         }
@@ -126,7 +133,7 @@ impl Stage {
             } => {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(self.label),
-                    timestamp_writes: None,
+                    timestamp_writes: stamp.map(crate::timing::Stamp::compute),
                 });
                 pass.set_pipeline(pipeline);
                 for (index, group) in groups.iter().enumerate() {
@@ -147,7 +154,7 @@ impl Stage {
                     StageTarget::Output => output,
                     StageTarget::Texture(view) => view,
                 };
-                fullscreen_pass(
+                fullscreen_pass_timed(
                     encoder,
                     Some(self.label),
                     wgpu::RenderPassColorAttachment {
@@ -161,6 +168,7 @@ impl Stage {
                     },
                     pipeline,
                     &groups.iter().collect::<Vec<_>>(),
+                    stamp,
                 );
             }
         }
@@ -175,11 +183,23 @@ pub struct StageSet {
 
 impl StageSet {
     fn validate(&self, device: &wgpu::Device) -> Result<(), PostError> {
+        let mut identities = Vec::new();
         let mut outputs = 0;
         let mut output_seen = false;
         for stage in self.stages.iter().filter(|stage| stage.enabled) {
             if output_seen {
                 return Err(PostError::OutputStage);
+            }
+            if matches!(
+                stage.operation,
+                Operation::Compute { .. } | Operation::Fullscreen { .. }
+            ) {
+                if identities.contains(&stage.id) {
+                    return Err(PostError::UnsupportedProfile(
+                        "duplicate post stage identity",
+                    ));
+                }
+                identities.push(stage.id);
             }
             match &stage.operation {
                 Operation::Fullscreen {
@@ -209,6 +229,27 @@ impl StageSet {
 /// Creates bindings and a linear schedule after allocation/resize, never encodes or submits.
 /// Kernel code, exposure ABI, adaptation rules and LUT contents belong to the provider.
 pub trait StageFactory {
+    /// Validate stage-specific working-target constraints before any target allocation.
+    fn validate_config(
+        &self,
+        _device: &wgpu::Device,
+        _config: FrameConfig,
+    ) -> Result<(), PostError> {
+        Ok(())
+    }
+    fn frame_slots(&self) -> usize {
+        1
+    }
+    fn build_for_slot(
+        &self,
+        device: &wgpu::Device,
+        targets: &FrameTargets,
+        persistent: &Resources,
+        _slot: usize,
+    ) -> Result<StageSet, PostError> {
+        self.build(device, targets, persistent)
+    }
+
     fn build(
         &self,
         device: &wgpu::Device,
@@ -217,12 +258,20 @@ pub trait StageFactory {
     ) -> Result<StageSet, PostError>;
 }
 
+/// Retained query storage and unread results, shared only across replacements.
+#[derive(Clone)]
+pub struct TimingState(std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>);
+
 /// Owns scene/MSAA resolve, fixed history, sized resources and stage execution order.
 pub struct PostChain<F> {
     targets: FrameTargets,
     persistent: Resources,
     factory: F,
-    configured: StageSet,
+    configured: Vec<StageSet>,
+    features: Vec<crate::frame::RegisteredFeature>,
+    upload_slots: [Vec<wgpu::Buffer>; 3],
+    frame_slot: usize,
+    timing: std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>,
 }
 
 impl<F: StageFactory> PostChain<F> {
@@ -232,14 +281,18 @@ impl<F: StageFactory> PostChain<F> {
         persistent: Resources,
         factory: F,
     ) -> Result<Self, PostError> {
+        factory.validate_config(device, config)?;
         let targets = FrameTargets::new(device, config)?;
-        let configured = factory.build(device, &targets, &persistent)?;
-        configured.validate(device)?;
+        let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
             persistent,
             factory,
             configured,
+            features: Vec::new(),
+            upload_slots: std::array::from_fn(|_| Vec::new()),
+            frame_slot: 0,
+            timing: std::rc::Rc::new(std::cell::RefCell::new(None)),
         })
     }
 
@@ -248,6 +301,13 @@ impl<F: StageFactory> PostChain<F> {
         if self.targets.config().size == size {
             return Ok(false);
         }
+        self.factory.validate_config(
+            device,
+            FrameConfig {
+                size,
+                ..self.targets.config()
+            },
+        )?;
         let targets = FrameTargets::new(
             device,
             FrameConfig {
@@ -255,17 +315,109 @@ impl<F: StageFactory> PostChain<F> {
                 ..self.targets.config()
             },
         )?;
-        let configured = self.factory.build(device, &targets, &self.persistent)?;
-        configured.validate(device)?;
+        let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
+        for feature in &mut self.features {
+            feature.prepared = None;
+        }
         self.targets = targets;
         self.configured = configured;
         Ok(true)
     }
 
+    /// Select only a reserved slot whose preceding submission has completed.
+    /// Immutable staging allocations remain owned by this slot until its next use.
+    pub fn select_frame_slot(&mut self, slot: usize) {
+        assert!(slot < self.upload_slots.len(), "frame slot out of range");
+        self.frame_slot = slot;
+    }
+
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
-        for stage in &self.configured.stages {
-            stage.encode(encoder, output);
+        for stage in &self.configured[self.frame_slot % self.configured.len()].stages {
+            let stamp = if stage.enabled
+                && matches!(
+                    stage.operation,
+                    Operation::Compute { .. } | Operation::Fullscreen { .. }
+                ) {
+                self.stamp(crate::PassId::Stage(stage.id))
+            } else {
+                None
+            };
+            stage.encode(encoder, output, stamp.as_ref());
         }
+    }
+
+    /// Retain unread query results when only attachment configuration changes.
+    pub fn timing_state(&self) -> TimingState {
+        TimingState(self.timing.clone())
+    }
+    pub fn restore_timing(&mut self, state: TimingState) {
+        self.timing = state.0;
+    }
+
+    /// Enables timing only after device capability negotiation.
+    pub fn configure_timing(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mode: crate::TimingMode,
+    ) -> Result<crate::TimingSupport, crate::TimingError> {
+        let timer = crate::PassTimer::new(device, queue, mode)?;
+        let support = timer.support();
+        *self.timing.borrow_mut() = Some(timer);
+        Ok(support)
+    }
+    pub fn begin_timing(
+        &self,
+        frame_id: u64,
+    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
+        worldrunner_render_gpu::submission::Publications::current()
+            .ok_or(worldrunner_render_gpu::submission::TransactionError::Missing)?;
+        if let Some(timer) = self.timing.borrow_mut().as_mut() {
+            timer.begin_frame(frame_id);
+        }
+        Ok(())
+    }
+    pub fn finish_timing(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        if let Some(timer) = self.timing.borrow_mut().as_mut() {
+            timer.finish_frame(encoder);
+        }
+        Ok(())
+    }
+    pub fn take_timings(&self) -> Result<Vec<crate::FrameTiming>, crate::TimingError> {
+        self.timing
+            .borrow_mut()
+            .as_mut()
+            .map_or_else(|| Ok(Vec::new()), crate::PassTimer::take_ready)
+    }
+    pub fn dropped_timing_frames(&self) -> u64 {
+        self.timing
+            .borrow()
+            .as_ref()
+            .map_or(0, crate::PassTimer::dropped_frames)
+    }
+    pub fn unavailable_timing_passes(&self) -> u64 {
+        self.timing
+            .borrow()
+            .as_ref()
+            .map_or(0, crate::PassTimer::unavailable_passes)
+    }
+    fn stamp(&self, pass: crate::PassId) -> Option<crate::timing::Stamp> {
+        self.timing
+            .borrow_mut()
+            .as_mut()
+            .and_then(|timer| timer.stamp(pass))
+    }
+    /// Resolve is an executor pass, including when used by encoder-only hosts.
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        let stamp = self
+            .targets
+            .resolve()
+            .and_then(|_| self.stamp(crate::PassId::Resolve));
+        self.targets.encode_resolve_timed(encoder, stamp.as_ref());
     }
 
     pub const fn targets(&self) -> &FrameTargets {
@@ -280,10 +432,215 @@ impl<F: StageFactory> PostChain<F> {
 
     /// Reconfigure shaders/options and all dependent bindings without resetting fixed history.
     pub fn reconfigure(&mut self, device: &wgpu::Device, factory: F) -> Result<(), PostError> {
-        let configured = factory.build(device, &self.targets, &self.persistent)?;
-        configured.validate(device)?;
+        let configured = build_slots(&factory, device, &self.targets, &self.persistent)?;
         self.factory = factory;
         self.configured = configured;
         Ok(())
     }
 }
+
+impl<F: StageFactory> PostChain<F> {
+    pub fn registered_feature_count(&self) -> usize {
+        self.features.len()
+    }
+
+    /// Registration retains declarations without building resources.
+    /// Registration order breaks ties within each named slot.
+    pub fn register(
+        &mut self,
+        _device: &wgpu::Device,
+        feature: Box<dyn crate::FrameFeature>,
+    ) -> Result<crate::FeatureId, crate::FrameError> {
+        let declaration = feature.declare();
+        let id = crate::FeatureId(self.features.len());
+        self.features.push(crate::frame::RegisteredFeature {
+            declaration,
+            prepared: None,
+            source: feature,
+        });
+        Ok(id)
+    }
+
+    /// Collects retained feature plans before resource validation or preparation.
+    pub fn plan_features(
+        &mut self,
+        passes: &mut Vec<crate::PassDeclaration>,
+        views: &mut Vec<crate::AttachmentView>,
+    ) -> Result<Vec<crate::FeatureDeclaration>, crate::FrameError> {
+        let declarations = self
+            .features
+            .iter()
+            .map(|feature| feature.source.plan(passes, views))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (feature, declaration) in self.features.iter_mut().zip(&declarations) {
+            feature.declaration = declaration.clone();
+        }
+        Ok(declarations)
+    }
+
+    fn prepare_features(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+        views: &[crate::AttachmentView],
+    ) -> Result<(), crate::FrameError> {
+        let replacements = self
+            .features
+            .iter()
+            .map(|feature| {
+                if feature.prepared.is_none() {
+                    feature
+                        .source
+                        .build(&crate::BuildContext {
+                            device,
+                            targets: &self.targets,
+                        })
+                        .map(Some)
+                } else {
+                    Ok(None)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (feature, replacement) in self.features.iter_mut().zip(replacements) {
+            if let Some(prepared) = replacement {
+                feature.prepared = Some(prepared);
+            }
+        }
+        let mut context = crate::PrepareContext::new(device, encoder)?;
+        context.set_views(views);
+        for feature in borrowed.iter_mut() {
+            feature.prepared.prepare(&mut context)?;
+        }
+        for feature in &mut self.features {
+            feature
+                .prepared
+                .as_mut()
+                .expect("validated feature build")
+                .prepare(&mut context)?;
+        }
+        for feature in borrowed.iter_mut() {
+            feature.prepared.commit(&mut context);
+        }
+        for feature in &mut self.features {
+            feature
+                .prepared
+                .as_mut()
+                .expect("validated feature build")
+                .commit(&mut context);
+        }
+        self.upload_slots[self.frame_slot] = context.finish();
+        Ok(())
+    }
+
+    /// Validates the complete frame before any feature prepares or draws.
+    /// Borrowed resident features precede retained registrations in a slot.
+    pub fn encode_geometry(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &crate::FramePlan<'_>,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+    ) -> Result<(), crate::FrameError> {
+        let crate::FramePlan {
+            passes,
+            views,
+            requested,
+        } = *plan;
+        let declarations: Vec<_> = borrowed
+            .iter()
+            .map(|feature| feature.declaration.clone())
+            .chain(
+                self.features
+                    .iter()
+                    .map(|feature| feature.declaration.clone()),
+            )
+            .collect();
+        crate::validate_frame(passes, &declarations, requested)?;
+        crate::frame::validate_views(passes, views)?;
+        let raster = crate::contracts::stock::compile(device, passes, views, &declarations)?;
+        self.prepare_features(device, encoder, borrowed, views)?;
+        for (index, declaration) in passes.iter().enumerate() {
+            let context = crate::DrawContext {
+                slot: declaration.slot,
+            };
+            let stamp = self.stamp(crate::PassId::Geometry(declaration.slot));
+            raster.encode_stock_pass(index, encoder, stamp.as_ref(), |pass| {
+                for feature in borrowed.iter().filter(|feature| {
+                    feature
+                        .declaration
+                        .passes
+                        .iter()
+                        .any(|pass| pass.slot == context.slot)
+                }) {
+                    feature.prepared.draw(&context, pass);
+                }
+                for feature in self.features.iter().filter(|feature| {
+                    feature
+                        .declaration
+                        .passes
+                        .iter()
+                        .any(|pass| pass.slot == context.slot)
+                }) {
+                    feature
+                        .prepared
+                        .as_ref()
+                        .expect("validated feature build")
+                        .draw(&context, pass);
+                }
+            })?;
+        }
+        self.finish_feature_draws(device, encoder, borrowed)
+    }
+
+    fn finish_feature_draws(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+    ) -> Result<(), crate::FrameError> {
+        let mut context = crate::PrepareContext::new(device, encoder)?;
+        for feature in borrowed {
+            feature.prepared.finish_draws(&mut context);
+        }
+        for feature in &mut self.features {
+            feature
+                .prepared
+                .as_mut()
+                .expect("validated feature build")
+                .finish_draws(&mut context);
+        }
+        self.upload_slots[self.frame_slot].extend(context.finish());
+        Ok(())
+    }
+}
+
+fn build_slots<F: StageFactory>(
+    factory: &F,
+    device: &wgpu::Device,
+    targets: &FrameTargets,
+    persistent: &Resources,
+) -> Result<Vec<StageSet>, PostError> {
+    if !matches!(factory.frame_slots(), 1 | 3) {
+        return Err(PostError::UnsupportedProfile("post frame slot count"));
+    }
+    (0..factory.frame_slots())
+        .map(|slot| {
+            let set = factory.build_for_slot(device, targets, persistent, slot)?;
+            set.validate(device)?;
+            Ok(set)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "post_effect_tests.rs"]
+mod post_effect_tests;
+
+#[cfg(test)]
+#[path = "post_regression_tests.rs"]
+mod post_regression_tests;
+
+#[cfg(test)]
+#[path = "timing_identity_tests.rs"]
+mod timing_identity_tests;

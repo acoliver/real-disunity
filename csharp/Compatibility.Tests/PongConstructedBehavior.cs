@@ -31,7 +31,7 @@ internal static class PongConstructedBehavior
         foreach (var spec in specifications) handles.Add(spec.Id, BinderBehavior.AddScript(spec.Owner, spec.Type));
         using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
         {
-            assemblies = new[] { Path.Combine(Environment.GetEnvironmentVariable("DISUNITY_TEST_MANAGED_ROOT") ?? Path.Combine(repository, ".work/managed"), "artifacts/bin/Pong/debug/Pong.dll") }, handles,
+            assemblies = new[] { Path.Combine(TestArtifacts.ManagedRoot, "artifacts/bin/Pong/debug/Pong.dll") }, handles,
             graph = new
             {
                 nodes = nodes.Select(n => new { id = n.name, template = false, active = true }), assets = Array.Empty<object>(),

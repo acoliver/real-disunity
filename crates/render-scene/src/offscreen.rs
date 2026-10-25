@@ -21,6 +21,8 @@ pub const DEFAULT_MAX_READBACK_BYTES: u64 = 256 * 1024 * 1024;
 /// A capture could not be allocated, rendered or read back.
 #[derive(Debug, Error)]
 pub enum OffscreenError {
+    #[error(transparent)]
+    Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// Empty images cannot be GPU attachments.
     #[error("offscreen viewport {0:?} has a zero dimension")]
     EmptyViewport(Viewport),
@@ -73,6 +75,8 @@ pub enum OffscreenError {
     #[error("offscreen mapped range is unavailable: {0}")]
     MappedRange(#[source] wgpu::MapRangeError),
     /// Shared target/readback validation retained at the canonical boundary.
+    #[error(transparent)]
+    Post(#[from] worldrunner_render_post::PostError),
     #[error("offscreen output service failed: {0}")]
     Output(#[source] ReadbackError),
 }
@@ -151,17 +155,18 @@ impl ReadbackLayout {
     }
 }
 
-/// Retained colour, depth and staging resources for repeated captures.
+/// Retained colour, depth and three independent staging slots for repeated captures.
 ///
 /// Submit custom rendering against the views, then call [`Self::read_rgba8`].
-/// Mutable readback access prevents overlapping mappings of the staging buffer.
+/// The convenience methods use slot zero. Explicit slots retain unread captures independently.
 #[derive(Debug)]
 pub struct OffscreenTarget {
     color: wgpu::Texture,
     color_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
-    readback: Readback,
+    readback: [Readback; 3],
     layout: ReadbackLayout,
+    scheduler: Option<crate::compositor::FrameRenderer>,
 }
 
 impl OffscreenTarget {
@@ -173,9 +178,11 @@ impl OffscreenTarget {
         Self::with_max_readback_bytes(device, viewport, DEFAULT_MAX_READBACK_BYTES)
     }
 
-    /// Creates a target with an explicit padded staging byte cap, still device-bounded.
-    /// The colour and depth textures each need about the same bytes as the staging
-    /// buffer; readback also allocates one tightly packed CPU image.
+    /// Creates a target with an explicit per-slot padded staging byte cap, still device-bounded.
+    /// Three staging buffers together allocate three times the padded image size. Colour and
+    /// depth each need about one image; each read also allocates a tightly packed CPU image.
+    /// An encoder containing a capture must be submitted and read before reusing its slot;
+    /// abandoning it does not cancel the unread capture.
     pub fn with_max_readback_bytes(
         device: &wgpu::Device,
         viewport: Viewport,
@@ -191,14 +198,36 @@ impl OffscreenTarget {
             u64::from(layout.bytes_per_row) * u64::from(viewport.height),
             layout.padded_bytes as u64
         );
-        let readback = Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?;
+        let readback = [
+            Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?,
+            Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?,
+            Readback::new(device, config, max_bytes).map_err(OffscreenError::Output)?,
+        ];
         Ok(Self {
             color,
             color_view,
             depth_view,
             readback,
             layout,
+            scheduler: None,
         })
+    }
+
+    /// Checked mip-zero, layer-zero color attachment for stock composition.
+    pub fn color_attachment(&self) -> worldrunner_render_post::AttachmentView {
+        worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene color"),
+            self.color_view().texture(),
+        )
+        .expect("offscreen color subresource")
+    }
+    /// Checked mip-zero, layer-zero depth attachment for stock composition.
+    pub fn depth_attachment(&self) -> worldrunner_render_post::AttachmentView {
+        worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene depth"),
+            self.depth_view().texture(),
+        )
+        .expect("offscreen depth subresource")
     }
 
     /// Returns the retained colour attachment for custom rendering.
@@ -224,49 +253,88 @@ impl OffscreenTarget {
         scene: &SceneGpu,
         pipelines: &ScenePipelines,
     ) -> Result<RgbaImage, OffscreenError> {
-        self.render_with_clear_color(context, scene, pipelines, wgpu::Color::BLACK)
+        let prepared = context
+            .submission()
+            .prepare(context.device(), |encoder, _| {
+                let color = self.color_attachment();
+                let depth = self.depth_attachment();
+                let renderer = self
+                    .scheduler
+                    .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()));
+                crate::compositor::encode_resident(
+                    renderer,
+                    context.device(),
+                    encoder,
+                    (scene, pipelines),
+                    (&color, &depth),
+                )
+                .map_err(worldrunner_render_post::PostError::from)?;
+                self.encode_readback(encoder)?;
+                Ok::<_, OffscreenError>(())
+            })
+            .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+        let submission = prepared.submit()?;
+        self.read_encoded(context, submission)
     }
 
-    /// Draws the same resident scene with an explicit linear RGBA clear color.
+    /// Selects a validated linear clear through the compositor, draws and captures.
     pub fn render_with_clear_color(
         &mut self,
         context: &GpuContext,
         scene: &SceneGpu,
         pipelines: &ScenePipelines,
-        clear: wgpu::Color,
+        color: wgpu::Color,
     ) -> Result<RgbaImage, OffscreenError> {
-        let mut encoder =
-            context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("offscreen scene"),
-                });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("offscreen scene"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: self.color_view(),
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.depth_view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..Default::default()
-            });
-            scene.draw(&mut pass, pipelines);
-        }
-        context.queue().submit([encoder.finish()]);
-        self.read_rgba8(context)
+        self.scheduler
+            .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()))
+            .set_clear_color(color)?;
+        self.render(context, scene, pipelines)
+    }
+
+    /// Appends capture to the frame encoder, avoiding a second submission.
+    /// Uses slot zero and rejects overwriting an unread capture.
+    /// Use explicit slots when more than one capture is pending.
+    pub fn encode_readback(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), OffscreenError> {
+        self.encode_readback_slot(0, encoder)
+    }
+
+    /// Encode into an admitted slot. Unread captures cannot be overwritten.
+    pub fn encode_readback_slot(
+        &mut self,
+        slot: usize,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), OffscreenError> {
+        self.readback[slot]
+            .encode(encoder, &self.color)
+            .map_err(output_error)
+    }
+
+    /// Waits only for a submitted frame that already contains the capture copy.
+    pub fn read_encoded(
+        &mut self,
+        context: &GpuContext,
+        submission: wgpu::SubmissionIndex,
+    ) -> Result<RgbaImage, OffscreenError> {
+        self.read_encoded_slot(context, 0, submission)
+    }
+
+    /// Read only the named capture's submission, leaving other slots untouched.
+    pub fn read_encoded_slot(
+        &mut self,
+        context: &GpuContext,
+        slot: usize,
+        submission: wgpu::SubmissionIndex,
+    ) -> Result<RgbaImage, OffscreenError> {
+        let pixels = self.readback[slot]
+            .read_encoded(context.device(), Some(submission))
+            .map_err(output_error)?;
+        Ok(RgbaImage {
+            viewport: self.viewport(),
+            pixels,
+        })
     }
 
     /// Copies previously submitted rendering and strips its padded rows.
@@ -275,9 +343,8 @@ impl OffscreenTarget {
     /// Timeouts return [`OffscreenError::Poll`] with [`wgpu::PollError::Timeout`].
     /// All resources and the supplied context must belong to the same device.
     pub fn read_rgba8(&mut self, context: &GpuContext) -> Result<RgbaImage, OffscreenError> {
-        let pixels = self
-            .readback
-            .read(context.device(), context.queue(), &self.color)
+        let pixels = self.readback[0]
+            .read(context.device(), context.submission(), &self.color)
             .map_err(output_error)?;
         Ok(RgbaImage {
             viewport: self.viewport(),
@@ -320,7 +387,7 @@ pub fn capture_scene(
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let frame = FrameUniform::new(view, scene.effects())?;
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
+    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
     gpu.set_frame(context.queue(), frame);
     target.render(context, &gpu, &pipelines)
 }

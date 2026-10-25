@@ -45,6 +45,8 @@
 //! while the near plane is governed in millimetres, and that ratio is exactly
 //! what drives depth fighting on distant coplanar surfaces.
 
+mod unlit;
+
 use std::borrow::Cow;
 
 use wgpu::{
@@ -69,8 +71,11 @@ use crate::view::Viewport;
 pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
 /// The complete, closed set of pipelines a governed scene can require.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ScenePipelines {
+    pub(crate) color_format: TextureFormat,
+    pub(crate) samples: u32,
+    pub(crate) ssao: bool,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
@@ -88,26 +93,83 @@ impl ScenePipelines {
     /// face an unusual material.
     #[must_use]
     pub fn new(device: &Device, color_format: TextureFormat) -> Self {
-        Self::with_environment(device, color_format, ENVIRONMENT_WGSL, None)
+        Self::with_environment(
+            device,
+            (color_format, 1),
+            ENVIRONMENT_WGSL,
+            TERRAIN_WGSL,
+            None,
+        )
+    }
+
+    pub fn with_samples(
+        device: &Device,
+        color_format: TextureFormat,
+        samples: u32,
+    ) -> Result<Self, worldrunner_render_post::PostError> {
+        worldrunner_render_post::FrameConfig::new([1, 1], color_format, samples)
+            .validate(&device.limits())?;
+        Ok(Self::with_environment(
+            device,
+            (color_format, samples),
+            ENVIRONMENT_WGSL,
+            TERRAIN_WGSL,
+            None,
+        ))
+    }
+
+    pub fn with_ssao(
+        device: &Device,
+        format: TextureFormat,
+        samples: u32,
+    ) -> Result<Self, worldrunner_render_post::PostError> {
+        if format != TextureFormat::Rgba16Float {
+            return Err(worldrunner_render_post::PostError::UnsupportedProfile(
+                "SSAO requires HDR",
+            ));
+        }
+        worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
+            .validate(&device.limits())?;
+        let layout = crate::ssao::ambient_layout(device);
+        Ok(Self::with_screen_space(
+            device,
+            (format, samples),
+            &crate::ssao::ambient_source(ENVIRONMENT_WGSL),
+            &crate::ssao::ambient_source(TERRAIN_WGSL),
+            None,
+            Some(&layout),
+        ))
     }
 
     pub(crate) fn with_environment(
         device: &Device,
-        color_format: TextureFormat,
+        target: (TextureFormat, u32),
         source: &str,
+        terrain_source: &str,
         shadow_layout: Option<&BindGroupLayout>,
     ) -> Self {
-        let module = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("environment"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(source)),
-        });
+        Self::with_screen_space(device, target, source, terrain_source, shadow_layout, None)
+    }
+
+    pub(crate) fn with_screen_space(
+        device: &Device,
+        target: (TextureFormat, u32),
+        source: &str,
+        terrain_source: &str,
+        shadow_layout: Option<&BindGroupLayout>,
+        screen_layout: Option<&BindGroupLayout>,
+    ) -> Self {
+        let (color_format, samples) = target;
+        let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
         let terrain_layout = terrain_bind_group_layout(device);
-        let mut groups = vec![Some(&frame_layout), Some(&material_layout)];
-        if let Some(shadow_layout) = shadow_layout {
-            groups.push(Some(shadow_layout));
-        }
+        let mut groups = pipeline_groups(
+            &frame_layout,
+            &material_layout,
+            shadow_layout,
+            screen_layout,
+        );
         let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("environment"),
             bind_group_layouts: &groups,
@@ -116,23 +178,8 @@ impl ScenePipelines {
 
         let vertex_attributes = vertex_attributes();
         let instance_attributes = instance_attributes();
-        let buffers = [
-            Some(VertexBufferLayout {
-                array_stride: VERTEX_STRIDE,
-                step_mode: VertexStepMode::Vertex,
-                attributes: &vertex_attributes,
-            }),
-            Some(VertexBufferLayout {
-                array_stride: INSTANCE_STRIDE,
-                step_mode: VertexStepMode::Instance,
-                attributes: &instance_attributes,
-            }),
-        ];
-        let targets = [Some(ColorTargetState {
-            format: color_format,
-            blend: None,
-            write_mask: ColorWrites::ALL,
-        })];
+        let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
+        let targets = color_targets(color_format);
 
         let pipelines = PipelineKey::ALL.map(|key| {
             build(
@@ -140,6 +187,7 @@ impl ScenePipelines {
                 key,
                 &layout,
                 &buffers,
+                samples,
                 FragmentState {
                     module: &module,
                     entry_point: Some(shader::fragment_entry_point(key.masked)),
@@ -148,20 +196,35 @@ impl ScenePipelines {
                 },
             )
         });
-        let unlit_alpha = build_unlit_alpha(device, color_format, &layout, &buffers, &module);
-        let terrain = build_terrain(device, &frame_layout, &terrain_layout, &buffers, &targets);
+        groups[1] = Some(&terrain_layout);
+        let terrain_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("terrain"),
+            bind_group_layouts: &groups,
+            immediate_size: 0,
+        });
+        let terrain = build_terrain(
+            device,
+            &terrain_pipeline_layout,
+            terrain_source,
+            &buffers,
+            &targets,
+            samples,
+        );
 
         Self {
+            color_format,
+            samples,
+            ssao: screen_layout.is_some(),
             frame_layout,
             material_layout,
             terrain_layout,
             pipelines,
             terrain,
-            unlit_alpha,
+            unlit_alpha: unlit::build(device, target, &layout, &buffers, &module),
         }
     }
 
-    pub(crate) const fn unlit_alpha(&self) -> &RenderPipeline {
+    pub const fn unlit_alpha(&self) -> &RenderPipeline {
         &self.unlit_alpha
     }
 
@@ -200,58 +263,22 @@ impl ScenePipelines {
     }
 }
 
-fn build_unlit_alpha(
-    device: &Device,
-    color_format: TextureFormat,
-    layout: &PipelineLayout,
-    buffers: &[Option<VertexBufferLayout<'_>>; 2],
-    module: &wgpu::ShaderModule,
-) -> RenderPipeline {
-    let alpha_targets = [Some(ColorTargetState {
-        format: color_format,
-        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-        write_mask: ColorWrites::ALL,
-    })];
-    let tint_attributes = [wgpu::VertexAttribute {
-        format: wgpu::VertexFormat::Float32x4,
-        offset: 0,
-        shader_location: 8,
-    }];
-    let alpha_buffers = [
-        buffers[0].clone(),
-        buffers[1].clone(),
+pub(crate) fn vertex_buffers<'a>(
+    vertices: &'a [wgpu::VertexAttribute],
+    instances: &'a [wgpu::VertexAttribute],
+) -> [Option<VertexBufferLayout<'a>>; 2] {
+    [
         Some(VertexBufferLayout {
-            array_stride: 16,
-            step_mode: VertexStepMode::Instance,
-            attributes: &tint_attributes,
+            array_stride: VERTEX_STRIDE,
+            step_mode: VertexStepMode::Vertex,
+            attributes: vertices,
         }),
-    ];
-    build_variant(
-        device,
-        layout,
-        &alpha_buffers,
-        FragmentState {
-            module,
-            entry_point: Some("fs_unlit"),
-            compilation_options: PipelineCompilationOptions::default(),
-            targets: &alpha_targets,
-        },
-        ObjectState {
-            key: PipelineKey {
-                masked: false,
-                double_sided: true,
-            },
-            depth_write: false,
-            vertex_entry: "vs_unlit",
-        },
-    )
-}
-
-#[derive(Clone, Copy)]
-struct ObjectState {
-    key: PipelineKey,
-    depth_write: bool,
-    vertex_entry: &'static str,
+        Some(VertexBufferLayout {
+            array_stride: INSTANCE_STRIDE,
+            step_mode: VertexStepMode::Instance,
+            attributes: instances,
+        }),
+    ]
 }
 
 /// Builds the one pipeline a single material state requires.
@@ -265,6 +292,7 @@ pub(crate) fn build(
     key: PipelineKey,
     layout: &PipelineLayout,
     buffers: &[Option<VertexBufferLayout<'_>>],
+    samples: u32,
     fragment: FragmentState<'_>,
 ) -> RenderPipeline {
     build_variant(
@@ -274,13 +302,22 @@ pub(crate) fn build(
         fragment,
         ObjectState {
             key,
+            samples,
             depth_write: true,
             vertex_entry: shader::VERTEX_ENTRY_POINT,
         },
     )
 }
 
-fn build_variant(
+#[derive(Clone, Copy)]
+pub(super) struct ObjectState {
+    key: PipelineKey,
+    samples: u32,
+    depth_write: bool,
+    vertex_entry: &'static str,
+}
+
+pub(super) fn build_variant(
     device: &Device,
     layout: &PipelineLayout,
     buffers: &[Option<VertexBufferLayout<'_>>],
@@ -316,7 +353,10 @@ fn build_variant(
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         }),
-        multisample: MultisampleState::default(),
+        multisample: MultisampleState {
+            count: state.samples,
+            ..Default::default()
+        },
         fragment: Some(fragment),
         multiview_mask: None,
         cache: None,
@@ -342,29 +382,17 @@ fn build_variant(
 /// reversing it culls the visible surface and renders the world inside out.
 fn build_terrain(
     device: &Device,
-    frame_layout: &BindGroupLayout,
-    terrain_layout: &BindGroupLayout,
+    layout: &PipelineLayout,
+    source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
+    samples: u32,
 ) -> RenderPipeline {
-    let module = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some("terrain"),
-        source: ShaderSource::Wgsl(Cow::Borrowed(TERRAIN_WGSL)),
-    });
-    // Group 0 is the very same layout object the environment pipeline uses, so
-    // the two pipeline layouts agree at that slot and the frame binding is not
-    // invalidated when the pass switches between them. Substituting an
-    // equivalent-but-separate layout here would work today and would make that
-    // guarantee depend on two declarations staying in step.
-    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("terrain"),
-        bind_group_layouts: &[Some(frame_layout), Some(terrain_layout)],
-        immediate_size: 0,
-    });
+    let module = scene_shader(device, "terrain", source);
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("terrain"),
-        layout: Some(&layout),
+        layout: Some(layout),
         vertex: VertexState {
             module: &module,
             entry_point: Some(shader::TERRAIN_VERTEX_ENTRY_POINT),
@@ -387,7 +415,10 @@ fn build_terrain(
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         }),
-        multisample: MultisampleState::default(),
+        multisample: MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         fragment: Some(FragmentState {
             module: &module,
             entry_point: Some(shader::TERRAIN_FRAGMENT_ENTRY_POINT),
@@ -424,3 +455,35 @@ pub fn depth_texture(device: &Device, viewport: Viewport) -> Texture {
 
 #[cfg(test)]
 mod tests;
+
+fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModule {
+    device.create_shader_module(ShaderModuleDescriptor {
+        label: Some(label),
+        source: ShaderSource::Wgsl(Cow::Borrowed(source)),
+    })
+}
+
+fn pipeline_groups<'a>(
+    frame: &'a BindGroupLayout,
+    material: &'a BindGroupLayout,
+    shadow: Option<&'a BindGroupLayout>,
+    screen: Option<&'a BindGroupLayout>,
+) -> Vec<Option<&'a BindGroupLayout>> {
+    let mut groups = vec![Some(frame), Some(material)];
+    if let Some(shadow) = shadow {
+        groups.push(Some(shadow));
+    }
+    if let Some(screen) = screen {
+        groups.resize(3, None);
+        groups.push(Some(screen));
+    }
+    groups
+}
+
+fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
+    [Some(ColorTargetState {
+        format,
+        blend: None,
+        write_mask: ColorWrites::ALL,
+    })]
+}

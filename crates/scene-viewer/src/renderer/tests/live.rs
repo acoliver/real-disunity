@@ -96,9 +96,8 @@ pub(super) fn pending_survives_resize_and_surface_recovery(
         assert_eq!(records.borrow().ticks.len(), 1);
         assert!(records.borrow().receipts.is_empty());
     }
-    assert!(!session.redraw(&mut renderer).unwrap());
-    assert_eq!(records.borrow().receipts.len(), 1);
-    assert!(session.redraw(&mut renderer).unwrap());
+    finish_frame(&mut session, &mut renderer, &records, 1, false);
+    finish_frame(&mut session, &mut renderer, &records, 2, true);
     verify(&records.borrow());
 }
 
@@ -128,8 +127,31 @@ fn resize_native(event_loop: &mut EventLoop<()>, renderer: Renderer) -> Renderer
 }
 
 fn skip(session: &mut Session<'_>, renderer: &mut Renderer, acquired: wgpu::CurrentSurfaceTexture) {
-    renderer.acquisitions.push_back(acquired);
+    renderer.execution.acquisitions.push_back(acquired);
     assert!(!session.redraw(renderer).unwrap());
+}
+
+fn finish_frame(
+    session: &mut Session<'_>,
+    renderer: &mut Renderer,
+    records: &Rc<RefCell<Records>>,
+    count: usize,
+    exit: bool,
+) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let finished = session.redraw(renderer).unwrap();
+        if records.borrow().receipts.len() == count {
+            assert_eq!(finished, exit);
+            return;
+        }
+        assert!(!finished);
+        assert!(
+            std::time::Instant::now() < deadline,
+            "live submission timed out"
+        );
+        std::thread::yield_now();
+    }
 }
 
 fn verify(records: &Records) {

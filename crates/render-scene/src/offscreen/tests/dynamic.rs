@@ -8,7 +8,8 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(64, 64));
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.queue(), &scene, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform::new(&view, scene.effects()).unwrap(),
@@ -25,7 +26,7 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
         tint: [0.0, 1.0, 0.0, 1.0],
         ..DynamicQuad::default()
     };
-    gpu.set_dynamic_quads(context.device(), context.queue(), &pipelines, &[quad])
+    gpu.set_dynamic_quads(context.device(), context.submission(), &pipelines, &[quad])
         .unwrap();
     assert_eq!(
         center(target.render(&context, &gpu, &pipelines).unwrap()),
@@ -34,7 +35,7 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     );
     gpu.set_dynamic_quads(
         context.device(),
-        context.queue(),
+        context.submission(),
         &pipelines,
         &[DynamicQuad {
             position: [0.0, -0.5, 0.5],

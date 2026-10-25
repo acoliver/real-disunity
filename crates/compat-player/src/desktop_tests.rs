@@ -1,5 +1,5 @@
 use crate::{desktop::Desktop, playback::Playback};
-use compat_kit::{Fixture, RunRequest, WorkerReport};
+use compat_kit::{RunRequest, WorkerReport};
 use serde_json::json;
 use std::{path::Path, time::Duration};
 use worldrunner::scene::{
@@ -9,15 +9,12 @@ use worldrunner::scene::{
 
 #[test]
 fn live_ticks_continue_after_load_and_os_input_advances_the_same_world() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let artifacts = tempfile::tempdir_in(root.join(".work/tmp")).unwrap();
-    let request = request(&root, artifacts.path());
+    let installation = crate::test_support::installation();
+    let artifacts = crate::test_support::scratch("desktop-");
+    let request = request(artifacts.path());
     let mut report = report();
     let mut session = None;
-    let playback = Playback::new(&root, &request, &mut report, &mut session).unwrap();
+    let playback = Playback::new(&installation, &request, &mut report, &mut session).unwrap();
     let mut driver = Desktop::new(playback).unwrap();
     let first = driver.update(&tick(0, vec![])).unwrap();
     assert!(
@@ -60,26 +57,14 @@ fn live_ticks_continue_after_load_and_os_input_advances_the_same_world() {
     );
 }
 
-pub(super) fn request(root: &Path, artifacts: &Path) -> RunRequest {
-    let fixture: Fixture =
-        serde_json::from_slice(&std::fs::read(root.join("fixtures/snake.json")).unwrap()).unwrap();
-    let source_root = root.join(&fixture.source_root);
-    let mut metadata = fixture.metadata;
-    metadata["interactive"] = json!({"duration_ms":30000,"max_frames":1800,"max_captures":8});
-    RunRequest {
-        schema_version: 1,
-        run_id: "interactive-live-test".into(),
-        fixture: "snake".into(),
-        profile: "compat-6000.3".into(),
-        desktop: true,
-        seed: fixture.seed,
-        source_hashes: compat_kit::fixture::inspect(&source_root).unwrap().scripts,
-        source_root,
-        artifact_root: artifacts.into(),
-        metadata,
-        assertions: vec![],
-        timeline: vec![json!({"frame":0,"phase":"load","action":"load"})],
-    }
+pub(super) fn request(artifacts: &Path) -> RunRequest {
+    let mut request = crate::test_support::fixture_request("snake", artifacts, true);
+    request.profile = "compat-6000.3".into();
+    request.metadata["interactive"] =
+        json!({"duration_ms":30000,"max_frames":1800,"max_captures":8});
+    request.assertions = vec![];
+    request.timeline = vec![json!({"frame":0,"phase":"load","action":"load"})];
+    request
 }
 
 pub(super) fn report() -> WorkerReport {

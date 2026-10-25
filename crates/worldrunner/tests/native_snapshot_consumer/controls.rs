@@ -1,7 +1,7 @@
 use super::{
+    capture::Capture,
     extraction::{Extraction, Stamp, hash},
     native::{Fixture, Session},
-    receipt::ViewReceipt,
     render::Renderer,
     store,
     view::canonical_position,
@@ -9,7 +9,7 @@ use super::{
 use serde_json::json;
 use worldrunner::{glam::Vec3, scene::gpu::device::GpuContext};
 
-pub fn markers(receipt: &ViewReceipt, source: &Extraction, object: u64) {
+pub fn markers(receipt: &Capture, source: &Extraction, object: u64) {
     assert_eq!(
         receipt.pixel(0, 0),
         [255, 255, 0, 255],
@@ -148,7 +148,7 @@ pub fn stale_after_mutation(
     fresh
 }
 
-pub fn retained_pixels(context: &GpuContext, receipt: &ViewReceipt) {
+pub fn retained_pixels(context: &GpuContext, receipt: &Capture) {
     assert_eq!(
         store::read(context, &receipt.retained_texture, receipt.target.viewport),
         receipt.pixels,
@@ -228,7 +228,7 @@ pub fn resize(
     source: &Extraction,
     renderer: &mut Renderer<'_>,
     object: u64,
-    second: &ViewReceipt,
+    second: &Capture,
 ) {
     renderer.target.resize([130, 94]);
     assert!(
@@ -246,7 +246,6 @@ pub fn resize(
     resized
         .bind_current(fixture, session, source, &renderer.target)
         .unwrap();
-    resized.retain("mutated-130x94");
     renderer.target.resize([65, 47]);
     assert!(
         second

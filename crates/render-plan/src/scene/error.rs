@@ -11,6 +11,14 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SceneValidationError {
+    #[error("invalid HDR post quantity: {part}")]
+    PostSettings { part: &'static str },
+    /// Mesh ceilings must be present per level, positive and strictly increasing.
+    #[error("mesh LOD distances require one positive, strictly increasing ceiling per level")]
+    LodDistances,
+    /// A light direction is not a quantized unit vector.
+    #[error("scene direction must be a unit vector in micro-units")]
+    DirectionNotNormalized,
     /// A mandatory collection was empty.
     #[error("{part} must not be empty")]
     EmptyCollection {

@@ -1,14 +1,16 @@
 """Plan keyboard-only Pong prefixes by executing the canonical compatibility worker."""
 import argparse
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-WORK = ROOT / '.work/pong-journey'
+
+sys.path.insert(0, str(ROOT / "tools"))
+from original_games import checkout
 DT = 0.02
 
 
@@ -41,11 +43,6 @@ def reset_state(ball):
             and body['sleeping'] and not component(ball, 'SpriteRenderer')['enabled'])
 
 
-def hashes(source):
-    return {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(source.glob('Assets/Scripts/**/*.cs'))}
-
-
 def action(frame, verb, phase=None, **kwargs):
     return dict(frame=frame, phase=phase or verb, action=verb, **kwargs)
 
@@ -58,21 +55,12 @@ def fresh_fixture(fixture):
 
 
 class Planner:
-    def __init__(self, assembly_run=None):
+    def __init__(self, worker, source, output):
+        self.worker, self.work = worker, output
         self.fixture = fresh_fixture(json.loads((ROOT / 'fixtures/pong.json').read_text()))
         self.fixture['name'] = 'pong-journey'
-        self.fixture['refresh'] = None
-        source = ROOT / self.fixture['source_root']
-        self.before = hashes(source)
-        assert len(self.before) == 20
-        if assembly_run is not None:
-            proof_path = assembly_run / 'build/original-source-count.json'
-            proof = json.loads(proof_path.read_text())
-            assert proof['source_hashes'] == self.before and proof['source_count'] == 20
-            self.fixture['metadata']['assembly'] = proof['assembly']
-            self.fixture['metadata']['assembly_qualification'] = str(proof_path)
+        self.source = source
         self.fixture['metadata']['coverage'] = 'Keyboard-only physical paddle contacts, both goals, reset/wait/relaunch, repeated scoring and reload.'
-        self.fixture['metadata']['source_sha256'] = self.before
         self.timeline = [action(0, 'load')]
         self.frame = 0
         self.serial = 0
@@ -87,19 +75,19 @@ class Planner:
             if sample:
                 self.timeline.append(action(self.frame, "observe", "sample", selector="world.snapshot"))
         self.serial += 1
-        folder = WORK / f'prefix-{self.serial:04}'
+        folder = self.work / f'prefix-{self.serial:04}'
         folder.mkdir(parents=True, exist_ok=True)
         request = dict(schema_version=1, run_id=folder.name, fixture='pong-journey',
                        profile='compat-2017.1', desktop=False, seed=17,
                        timeline=[a for a in self.timeline if a['action'] != 'capture'] + [action(self.frame, 'observe', selector='world.snapshot'),
                            action(self.frame, 'observe', selector='events'), action(self.frame, 'unload')],
-                       assertions=[], source_root=str(ROOT / self.fixture['source_root']),
-                       source_hashes=self.before, artifact_root=str(folder), metadata=self.fixture['metadata'])
+                       assertions=[], source_root=str(self.source),
+                       artifact_root=str(folder), metadata=self.fixture['metadata'])
         (folder / 'request.json').write_text(json.dumps(request))
         env = dict(os.environ, COMPAT_ROOT=str(ROOT), COMPAT_REQUEST=str(folder / 'request.json'),
                    COMPAT_RESPONSE=str(folder / 'response.json'), COMPAT_ARTIFACTS=str(folder))
         with (folder / 'stdout.log').open('w') as out, (folder / 'stderr.log').open('w') as err:
-            subprocess.run([str(ROOT / '.work/target/debug/compat-player')], cwd=ROOT,
+            subprocess.run([str(self.worker)], cwd=ROOT,
                            env=env, stdout=out, stderr=err, timeout=180, check=True)
         report = json.loads((folder / 'response.json').read_text())
         if report['diagnostics']:
@@ -123,7 +111,7 @@ class Planner:
         return self.snapshot
 
     def save_state(self):
-        (WORK / 'resume.json').write_text(json.dumps(dict(timeline=self.timeline, frame=self.frame,
+        (self.work / 'resume.json').write_text(json.dumps(dict(timeline=self.timeline, frame=self.frame,
             serial=self.serial, checkpoints=self.checkpoints, snapshot=self.snapshot, events=self.events)))
 
     def mark(self, label, capture=False):
@@ -168,39 +156,7 @@ class Planner:
             # Native per-frame samples locate goals inside bounded flight prefixes.
             steps = (110 if bounced else (1 if abs(x) > 8 else 6))
             old_events = len(self.events)
-            if (not bounced and vx * target_sign > 0 and abs(x) < 8
-                    and any(c['label'] == 'round-1-right-bounce' for c in self.checkpoints)):
-                # Reuse an empirically observed interception target for this symmetric source arena.
-                # Only control planning uses this target; every resulting state/contact is read natively.
-                first = next(c for c in self.checkpoints if c['label'] == 'round-1-right-bounce')
-                serve = next((c['snapshot'] for c in reversed(self.checkpoints)
-                              if c['label'].endswith('-relaunched')), self.snapshot)
-                launch_y = component(active_object(serve, 'Ball'), 'Rigidbody2D')['fields']['velocity'][1]
-                target_y = abs(active_object(first['snapshot'], 'Ball')['transform']['position'][1]) * (1 if launch_y >= 0 else -1)
-                starts = {p: active_object(self.snapshot, p)['transform']['position'][1] for p in ['Player', 'Enemy']}
-                travel = max(1, round((10 - .32 - abs(x)) / abs(vx) / DT) + 1)
-                def intercept(index):
-                    keys = []
-                    for p, up, down in [('Player', 'W', 'S'), ('Enemy', 'UpArrow', 'DownArrow')]:
-                        delta = target_y - starts[p]
-                        if index < round(abs(delta) / (20 * DT)):
-                            keys.append(up if delta > 0 else down)
-                    return keys
-                self.run(travel, intercept)
-            elif bounced:
-                positions = {p: active_object(self.snapshot, p)['transform']['position'][1]
-                             for p in ['Player', 'Enemy']}
-                def parked(index):
-                    result = []
-                    target = -6.5 if y >= 0 else 6.5
-                    for p, up, down in [('Player', 'W', 'S'), ('Enemy', 'UpArrow', 'DownArrow')]:
-                        distance = target - positions[p]
-                        if index < round(abs(distance) / (20 * DT)):
-                            result.append(up if distance > 0 else down)
-                    return result
-                self.run(steps, parked, sample=True)
-            else:
-                self.run(steps, keys)
+            self.steer_rally(bounced, (target_sign, x, y, vx), steps, keys)
             if not bounced:
                 handles = {active_object(self.snapshot, name)['handle'], self.ball()['handle']}
                 hit = any(not e['trigger'] and e['phase'] == 'enter' and {e['a'], e['b']} == handles
@@ -219,6 +175,42 @@ class Planner:
                 self.mark(f'{label}-goal-reset', True)
                 return
         raise RuntimeError(f'no goal: {side} at {self.frame}')
+
+    def steer_rally(self, bounced, motion, steps, keys):
+        target_sign, x, y, vx = motion
+        if (not bounced and vx * target_sign > 0 and abs(x) < 8
+                and any(c['label'] == 'round-1-right-bounce' for c in self.checkpoints)):
+            # Reuse an empirically observed interception target for this symmetric source arena.
+            # Only control planning uses this target; every resulting state/contact is read natively.
+            first = next(c for c in self.checkpoints if c['label'] == 'round-1-right-bounce')
+            serve = next((c['snapshot'] for c in reversed(self.checkpoints)
+                          if c['label'].endswith('-relaunched')), self.snapshot)
+            launch_y = component(active_object(serve, 'Ball'), 'Rigidbody2D')['fields']['velocity'][1]
+            target_y = abs(active_object(first['snapshot'], 'Ball')['transform']['position'][1]) * (1 if launch_y >= 0 else -1)
+            starts = {p: active_object(self.snapshot, p)['transform']['position'][1] for p in ['Player', 'Enemy']}
+            travel = max(1, round((10 - .32 - abs(x)) / abs(vx) / DT) + 1)
+            def intercept(index):
+                keys = []
+                for p, up, down in [('Player', 'W', 'S'), ('Enemy', 'UpArrow', 'DownArrow')]:
+                    delta = target_y - starts[p]
+                    if index < round(abs(delta) / (20 * DT)):
+                        keys.append(up if delta > 0 else down)
+                return keys
+            self.run(travel, intercept)
+        elif bounced:
+            positions = {p: active_object(self.snapshot, p)['transform']['position'][1]
+                         for p in ['Player', 'Enemy']}
+            def parked(index):
+                result = []
+                target = -6.5 if y >= 0 else 6.5
+                for p, up, down in [('Player', 'W', 'S'), ('Enemy', 'UpArrow', 'DownArrow')]:
+                    distance = target - positions[p]
+                    if index < round(abs(distance) / (20 * DT)):
+                        result.append(up if distance > 0 else down)
+                return result
+            self.run(steps, parked, sample=True)
+        else:
+            self.run(steps, keys)
 
     def wait_launch(self, label):
         assert reset_state(self.ball())
@@ -296,14 +288,13 @@ class Planner:
         self.tail_assertions.append(dict(op='equal', selector='events', frame=reload_frame, phase='observe', pointer='', value=[]))
 
     def finish(self):
-        assert hashes(ROOT / self.fixture['source_root']) == self.before
         self.fixture['metadata']['journey_checkpoints'] = [dict(label=c['label'], frame=c['frame']) for c in self.checkpoints] + getattr(self, 'tail_checkpoints', [])
         self.fixture['limits']['deadline_ms'] = 300000
         self.fixture['timeline'] = self.timeline + [action(self.frame + 1, 'unload')]
         self.fixture['assertions'] = assertions(self.checkpoints, self.fixture['evidence_label']) + getattr(self, 'tail_assertions', [])
-        output = ROOT / 'fixtures/pong-journey.json'
+        output = self.work / 'pong-journey.json'
         output.write_text(json.dumps(fresh_fixture(self.fixture), indent=2) + '\n')
-        (WORK / 'planned-checkpoints.json').write_text(json.dumps(self.checkpoints))
+        (self.work / 'planned-checkpoints.json').write_text(json.dumps(self.checkpoints))
         print('FROZEN', output, len(self.timeline), 'actions', len(self.fixture['assertions']), 'assertions', flush=True)
 
 
@@ -340,13 +331,14 @@ def assertions(checkpoints, origin):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--assembly-run', type=Path, help='Optional complete player-qualified prefix cache; final fixture always compiles fresh.')
+    parser.add_argument('--worker', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--resume', action='store_true')
     args = parser.parse_args()
-    WORK.mkdir(parents=True, exist_ok=True)
-    planner = Planner(args.assembly_run.resolve() if args.assembly_run else None)
+    args.output.mkdir(parents=True, exist_ok=True)
+    planner = Planner(args.worker.resolve(), checkout("pong"), args.output.resolve())
     if args.resume:
-        state = json.loads((WORK / 'resume.json').read_text())
+        state = json.loads((args.output / 'resume.json').read_text())
         for key, value in state.items():
             setattr(planner, key, value)
     else:

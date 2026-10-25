@@ -1,7 +1,6 @@
 use compat_kit::RunRequest;
-use compat_player::run_request;
+use compat_player::{Installation, run_request};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::Path};
 
 fn request(interactive: &Value) -> RunRequest {
     RunRequest {
@@ -12,7 +11,6 @@ fn request(interactive: &Value) -> RunRequest {
         desktop: false,
         seed: 1,
         source_root: "/unavailable-originals".into(),
-        source_hashes: BTreeMap::default(),
         artifact_root: "/unavailable-artifacts".into(),
         assertions: vec![],
         metadata: json!({"interactive": interactive}),
@@ -24,7 +22,7 @@ fn request(interactive: &Value) -> RunRequest {
 fn interactive_requires_desktop_before_source_activation() {
     let mut request = request(&json!({"duration_ms":30000,"max_frames":1800,"max_captures":8}));
     request.timeline.clear();
-    let report = run_request(Path::new("/unavailable-root"), &request);
+    let report = run_request(&unavailable(), &request);
     assert_eq!(report.diagnostics.len(), 1);
     assert!(
         report.diagnostics[0]
@@ -56,7 +54,7 @@ fn malformed_interactive_metadata_is_rejected_before_activation() {
     ] {
         let mut request = request(&config);
         request.desktop = true;
-        let report = run_request(Path::new("/unavailable-root"), &request);
+        let report = run_request(&unavailable(), &request);
         assert_eq!(report.diagnostics.len(), 1);
         assert!(
             report.diagnostics[0].message.contains("interactive"),
@@ -79,7 +77,7 @@ fn interactive_rejects_replay_actions_and_cached_assemblies() {
                 .timeline
                 .push(json!({"frame":1,"phase":"update","action":conflict,"dt":0.1}));
         }
-        let report = run_request(Path::new("/unavailable-root"), &request);
+        let report = run_request(&unavailable(), &request);
         assert!(
             report.diagnostics[0].message.contains("interactive"),
             "{:?}",
@@ -87,4 +85,9 @@ fn interactive_rejects_replay_actions_and_cached_assemblies() {
         );
         assert!(!report.teardown.completed);
     }
+}
+
+/// Admission must reject before touching the workspace or loading the native runtime.
+fn unavailable() -> Installation {
+    Installation::new("/unavailable-root", "/unavailable-native-library")
 }

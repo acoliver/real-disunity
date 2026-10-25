@@ -1,4 +1,5 @@
 use super::*;
+use worldrunner_render_plan::SceneDirection;
 use worldrunner_render_plan::*;
 
 fn camera() -> SceneCamera {
@@ -12,6 +13,10 @@ fn camera() -> SceneCamera {
 fn effects(water: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: water.then_some(SceneWaterPlane {
+            height_millimeters: 0,
+            color_micro: [50_000, 200_000, 250_000],
+            absorption_micro: [300_000, 100_000, 50_000],
+            roughness_micro: 200_000,
             east_min_millimeters: 0,
             north_min_millimeters: 0,
             east_extent_millimeters: 1000,
@@ -30,12 +35,7 @@ fn effects(water: bool) -> SceneEffects {
             },
         },
         sun: SceneSun {
-            direction: SceneRotation {
-                x: 0,
-                y: 0,
-                z: ROTATION_MICRO_SCALE,
-                w: 0,
-            },
+            direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
             // Ambient-only lighting isolates raw albedo/readback from white GGX highlights.
             irradiance_micro: 0,
         },
@@ -43,12 +43,9 @@ fn effects(water: bool) -> SceneEffects {
             sky_irradiance_micro: 1_000_000,
             ground_irradiance_micro: 1_000_000,
         },
-        shadows: SceneShadowCascades::new(vec![10_000], 0).expect("one unblended cascade is valid"),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 500_000,
-            horizon_angle_millidegrees: 30_000,
-        },
+        shadows: SceneShadowCascades::new(vec![1_000, 2_000, 4_000, 8_000], 100_000)
+            .expect("four cascades are valid"),
+        ssao: None,
         camera: camera(),
         grading: SceneColorGrading {
             exposure_micro: 1_000_000,
@@ -66,12 +63,19 @@ pub(crate) fn scene(water: bool) -> RenderScene {
         resources: SceneResources::new(vec![], vec![]).unwrap(),
         geometry: SceneGeometry::new(vec![], vec![]).unwrap(),
         terrain: None,
-        effects: effects(water),
+        effects: Some(effects(water)),
     };
     RenderScene::new(parts).unwrap()
 }
 pub(crate) fn options() -> ViewerOptions {
     ViewerOptions {
+        frame_profile: crate::FrameProfile::Legacy,
+        frames_in_flight: 2,
+        camera: SceneCamera {
+            vertical_fov_millidegrees: 60_000,
+            near_plane_millimeters: 100,
+            far_plane_millimeters: 1_000_000,
+        },
         title: "test".into(),
         size: [800, 600],
         pose: CameraPose {
@@ -101,7 +105,7 @@ fn invalid_window_size_returns_before_event_loop_startup() {
 fn water_is_rejected_before_event_loop_startup() {
     assert!(matches!(
         run(scene(true), options()),
-        Err(ViewerError::UnsupportedScene("water"))
+        Err(ViewerError::UnsupportedScene("water requires HDR"))
     ));
 }
 #[test]

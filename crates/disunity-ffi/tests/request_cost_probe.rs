@@ -49,9 +49,7 @@ fn request_cost_against_world_size() {
     println!("{}", serde_json::to_string_pretty(&rows).unwrap());
 }
 
-fn replay(world: &World, path: &std::path::Path) -> Vec<u64> {
-    let description: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+fn replay(world: &World, description: &serde_json::Value) -> Vec<u64> {
     let objects = description["objects"].as_array().unwrap();
     let mut handles = Vec::new();
     for object in objects {
@@ -65,11 +63,7 @@ fn replay(world: &World, path: &std::path::Path) -> Vec<u64> {
             world.call(json!({"op":"transform.parent","object":handle,"parent":handles[index]}));
         }
         world.call(json!({"op":"transform.set","object":handle,"position":object["position"],"space":"local"}));
-        let excluded = std::env::var("REQUEST_COST_EXCLUDE").unwrap_or_default();
         for component in object["components"].as_array().unwrap() {
-            if component["kind"] == excluded.as_str() {
-                continue;
-            }
             let added = world.call(json!({"op":"component.add","object":handle,
                 "kind":component["kind"],"fields":component["fields"]}));
             assert_eq!(added["ok"], true, "{component}: {added}");
@@ -79,11 +73,18 @@ fn replay(world: &World, path: &std::path::Path) -> Vec<u64> {
 }
 
 #[test]
-#[ignore = "timing measurement; needs REQUEST_COST_WORLD pointing at a replayable world description"]
+#[ignore = "timing measurement; run explicitly in a release build"]
 fn request_cost_in_replayed_world() {
-    let path = std::path::PathBuf::from(std::env::var_os("REQUEST_COST_WORLD").unwrap());
+    let description = json!({"objects":[
+        {"name":"root","tag":"Untagged","layer":0,"parent":null,"position":[1,2,0],
+            "components":[{"kind":"SpriteRenderer","fields":{"color":[1,1,1,1]}}]},
+        {"name":"brick","tag":"Untagged","layer":0,"parent":0,"position":[2,0,0],
+            "components":[{"kind":"BoxCollider2D","fields":{"size":[1,0.5]}}]},
+        {"name":"ball","tag":"Untagged","layer":0,"parent":0,"position":[0,1,0],
+            "components":[{"kind":"Rigidbody2D","fields":{"gravity_scale":0}}]}
+    ]});
     let world = World::new();
-    let handles = replay(&world, &path);
+    let handles = replay(&world, &description);
     let target = *handles.last().unwrap();
     assert_eq!(
         world.snapshot()["objects"].as_array().unwrap().len(),

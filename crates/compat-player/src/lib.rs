@@ -1,35 +1,30 @@
 //! A live fixture driver over the canonical native world and resident renderer.
 
 mod admission;
-mod assembly;
-mod assembly_probe;
-pub mod assembly_qualification;
 mod desktop;
+mod dotnet;
 mod extraction;
 mod graphics;
-pub mod image_lease;
+mod installation;
 mod interactive;
-mod interactive_evidence;
+mod interactive_log;
 mod live_input;
+mod managed_build;
 mod native_image;
 mod playback;
-mod process_image;
-mod provider;
-pub mod providers;
-pub mod resource_providers;
 mod resources;
 mod session;
-pub mod source_proof;
 mod strict;
 mod strict_events;
 mod strict_ingress;
 mod teardown;
 mod tiles;
 mod trace;
-pub mod trusted;
 mod ui;
 mod worker;
 
+pub use installation::Installation;
+pub use managed_build::compile_game;
 pub use session::Session;
 pub use worker::{run_request, run_worker};
 
@@ -37,5 +32,4 @@ pub use worker::{run_request, run_worker};
 mod extraction_tests;
 
 #[cfg(test)]
-#[path = "../../disunity-runtime/tests/support/handshake.rs"]
-mod managed_test_artifacts;
+mod test_support;

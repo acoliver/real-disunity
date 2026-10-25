@@ -1,6 +1,6 @@
 [package]
 name = "worldrunner-scene-viewer"
-description = "Optional terrain-free desktop host for retained governed scenes"
+description = "Optional desktop host for retained governed scenes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,8 +18,9 @@ worldrunner-render-scene = { path = "../render-scene" }
 wgpu.workspace = true
 winit.workspace = true
 
-[dev-dependencies]
-png.workspace = true
+[[test]]
+name = "callback_failure"
+harness = false
 
 [[test]]
 name = "live_window"

@@ -12,8 +12,8 @@
 //!
 //! fn capture(context: &GpuContext, view: &SceneView) -> Result<RgbaImage, Box<dyn std::error::Error>> {
 //!     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-//!     let mut gpu = SceneGpu::empty(context.device(), context.queue(), &pipelines);
-//!     gpu.set_dynamic_quads(context.device(), context.queue(), &pipelines, &[DynamicQuad {
+//!     let mut gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines)?;
+//!     gpu.set_dynamic_quads(context.device(), context.submission(), &pipelines, &[DynamicQuad {
 //!         position: [1.0, 0.0, 0.0], tint: [1.0, 0.0, 0.0, 1.0], ..DynamicQuad::default()
 //!     }])?;
 //!     gpu.set_frame(context.queue(), FrameUniform::unlit(view));

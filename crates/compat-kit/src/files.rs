@@ -109,10 +109,17 @@ pub fn safe_file(base: &Path, relative: &Path) -> Result<PathBuf> {
 }
 pub fn work_path(root: &Path, requested: &Path) -> Result<PathBuf> {
     let work = root.join(".work");
-    fs::create_dir_all(&work).map_err(io)?;
-    let base = work.canonicalize().map_err(io)?;
-    if base != work {
-        return Err(".work must be a real directory inside COMPAT_ROOT".into());
+    if root.canonicalize().map_err(io)? != root {
+        return Err("COMPAT_ROOT must be canonical".into());
+    }
+    match fs::symlink_metadata(&work) {
+        Ok(meta) => {
+            if !meta.is_dir() || meta.file_type().is_symlink() {
+                return Err(".work must be a real directory inside COMPAT_ROOT".into());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(io(error)),
     }
     let path = if requested.is_absolute() {
         requested.to_path_buf()
@@ -149,13 +156,7 @@ pub fn hash(path: &Path) -> Result<String> {
     Ok(format!("{:x}", digest.finalize()))
 }
 pub fn tree_files(root: &Path, max_bytes: u64, max_files: usize) -> Result<Vec<PathBuf>> {
-    scan(root, max_bytes, max_files, false)
-}
-pub fn source_files(root: &Path, max_bytes: u64, max_files: usize) -> Result<Vec<PathBuf>> {
-    scan(root, max_bytes, max_files, true)
-}
-fn scan(root: &Path, max_bytes: u64, max_files: usize, skip_git: bool) -> Result<Vec<PathBuf>> {
-    crate::traversal::scan(root, max_bytes, max_files, skip_git).map_err(io)
+    crate::traversal::scan(root, max_bytes, max_files).map_err(io)
 }
 pub use crate::traversal::{ScanError, live_tree_files};
 

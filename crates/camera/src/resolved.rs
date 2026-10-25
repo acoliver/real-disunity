@@ -111,9 +111,11 @@ pub struct ResolvedView {
     projection: Mat4,
     view_projection: Mat4,
     inverse_view_projection: Mat4,
+    query_inverse: glam::DMat4,
     reconstruction_view: Mat4,
     reconstruction_projection: Mat4,
     eye_meters: Vec3,
+    clip_distances_meters: [f32; 2],
     viewport: Viewport,
     convention: ViewConvention,
 }
@@ -139,6 +141,9 @@ impl ResolvedView {
     }
     pub const fn eye_meters(&self) -> Vec3 {
         self.eye_meters
+    }
+    pub const fn clip_distances_meters(&self) -> [f32; 2] {
+        self.clip_distances_meters
     }
     pub const fn viewport(&self) -> Viewport {
         self.viewport
@@ -180,7 +185,13 @@ impl ResolvedView {
             1.0 - 2.0 * point.y / size.y,
             point.z,
         );
-        homogeneous_point(self.inverse_view_projection, ndc)
+        // Authored finite far planes can exceed the depth precision of an f32 inverse.
+        let clip = self.query_inverse * ndc.as_dvec3().extend(1.0);
+        let point = (clip.truncate() / clip.w).as_vec3();
+        if clip.w == 0.0 || !point.is_finite() {
+            return Err(ViewError::PointAtInfinity);
+        }
+        Ok(point)
     }
 
     /// Tests all six homogeneous clip planes, rejecting nonfinite points.

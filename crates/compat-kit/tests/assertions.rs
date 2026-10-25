@@ -27,7 +27,6 @@ use std::fs;
 #[test]
 fn real_protocol_observations_support_tolerance_changes_events_and_timeline_roundtrip() {
     let root = tempfile::tempdir().unwrap();
-    fs::create_dir_all(root.path().join(".work/source")).unwrap();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
     let timeline = json!([
         {"frame":0,"phase":"load","action":"load"},
@@ -37,7 +36,7 @@ fn real_protocol_observations_support_tolerance_changes_events_and_timeline_roun
         {"frame":2,"phase":"unload","action":"unload"}
     ]);
     let path = root.path().join("fixtures/protocol.json");
-    let mut data = json!({"schema_version":1,"name":"protocol","source_root":".work/source","profiles":["test"],"default_profile":"test","evidence_label":"harness-only",
+    let mut data = json!({"schema_version":1,"name":"protocol","game":"snake","profiles":["test"],"default_profile":"test","evidence_label":"harness-only",
     "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":["sequence"]},"timeline":timeline,
     "assertions":[
         {"op":"tolerance","selector":"position","pointer":"/x","value":2.0,"tolerance":0.01,"frame":2},

@@ -18,8 +18,11 @@ internal static class NestedOriginalBehavior
             for (var i = 0; i < 48; i++)
             {
                 var brick = new GameObject("authored-brick-" + i);
-                brick.transform.position = new Vector3((i % 8) * 2 - 7, 4 + i / 8, 0);
-                brick.AddComponent<SpriteRenderer>(); brick.AddComponent<BoxCollider2D>();
+                // The original Brick prefab's 2x1 collider in eight columns inside the original
+                // tilemap walls (interior x -8..8, y -5..9). Rows 2..7 leave at least a ball
+                // diameter between every brick and the top wall.
+                brick.transform.position = new Vector3((i % 8) * 2 - 7, 2 + i / 8, 0);
+                brick.AddComponent<SpriteRenderer>(); brick.AddComponent<BoxCollider2D>().size = new Vector2(2, 1);
                 scripts.Add(new("authored-brick-" + i, brick, "Brick", new { frameTime = 0.05f }));
             }
         }

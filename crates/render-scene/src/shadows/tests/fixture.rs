@@ -1,4 +1,5 @@
 use glam::Vec3;
+use worldrunner_render_plan::SceneDirection;
 use worldrunner_render_plan::*;
 
 use super::super::DirectionalShadowSettings;
@@ -35,12 +36,7 @@ pub(super) fn effects_parts(light_x: i64) -> SceneEffectsParts {
             },
         },
         sun: SceneSun {
-            direction: SceneRotation {
-                x: light_x,
-                y: 0,
-                z: 800_000,
-                w: 0,
-            },
+            direction: SceneDirection::new([light_x.try_into().unwrap(), 0, 800_000]).unwrap(),
             irradiance_micro: 1_000_000,
         },
         ambient: SceneAmbient {
@@ -48,11 +44,7 @@ pub(super) fn effects_parts(light_x: i64) -> SceneEffectsParts {
             ground_irradiance_micro: 100_000,
         },
         shadows: SceneShadowCascades::new(vec![4_000], 0).unwrap(),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 0,
-            horizon_angle_millidegrees: 30_000,
-        },
+        ssao: None,
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,
@@ -140,7 +132,7 @@ pub(super) fn scene(casters: &[[i64; 3]], light_x: i64, alpha: Option<[u8; 4]>) 
         .unwrap(),
         geometry: SceneGeometry::new(vec![quad(3_000), quad(300)], objects).unwrap(),
         terrain: None,
-        effects: effects(light_x),
+        effects: Some(effects(light_x)),
     })
     .unwrap()
 }
@@ -199,32 +191,7 @@ pub(super) fn caster_scene(
         .unwrap(),
         geometry: SceneGeometry::new(vec![quad(3_000), mesh], objects).unwrap(),
         terrain: None,
-        effects: source.effects().clone(),
-    })
-    .unwrap()
-}
-
-pub(super) fn terrain_scene(source: &RenderScene) -> RenderScene {
-    let terrain = SceneTerrain::new(SceneTerrainParts {
-        columns: 2,
-        rows: 2,
-        origin_east_millimeters: 0,
-        origin_north_millimeters: 0,
-        sample_spacing_millimeters: 1_000,
-        heights_millimeters: vec![0; 4],
-        surface_indices: vec![0; 4],
-        surfaces: vec![SceneTerrainSurface::new(
-            MaterialHandle::from_raw(0),
-            SceneTerrainAppearance::NEUTRAL,
-        )],
-        lod_policy: TerrainLodPolicy::FullResolution,
-    })
-    .unwrap();
-    RenderScene::new(SceneParts {
-        resources: source.resources().clone(),
-        geometry: source.geometry().clone(),
-        terrain: Some(terrain),
-        effects: source.effects().clone(),
+        effects: source.effects().cloned(),
     })
     .unwrap()
 }

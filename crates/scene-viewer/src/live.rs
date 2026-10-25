@@ -2,7 +2,7 @@
 
 mod ingress;
 mod session;
-mod startup;
+pub(crate) mod startup;
 #[cfg(test)]
 mod tests;
 pub(crate) use session::Session;

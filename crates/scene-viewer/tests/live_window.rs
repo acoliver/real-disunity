@@ -18,8 +18,8 @@ fn main() {
 #[cfg(target_os = "linux")]
 fn scenarios() {
     assert!(
-        std::env::var_os("COMPAT_DISPLAY_CONTAINMENT").is_some(),
-        "run desktop scenarios with tools/compat-display/run.py -- COMMAND"
+        std::env::var_os("DISPLAY").is_some(),
+        "run desktop scenarios under xvfb-run"
     );
     if let Some(case) =
         std::env::args().find_map(|arg| arg.strip_prefix("--live-case=").map(str::to_owned))

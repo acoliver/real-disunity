@@ -1,3 +1,4 @@
+use super::resident;
 use worldrunner::scene::gpu::{
     self,
     device::GpuContext,
@@ -18,45 +19,21 @@ pub fn capture(
     stage: impl FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView),
 ) -> Result<RgbaImage, Box<dyn std::error::Error>> {
     admit(readiness)?;
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("migration caller frame"),
-        });
-    draw(&mut encoder, scene, pipelines, target);
-    stage(&mut encoder, target.color_view());
-    context.queue().submit([encoder.finish()]);
-    Ok(target.read_rgba8(context)?)
-}
-
-fn draw(
-    encoder: &mut wgpu::CommandEncoder,
-    scene: &SceneGpu,
-    pipelines: &ScenePipelines,
-    target: &OffscreenTarget,
-) {
-    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("migration caller-owned pass"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: target.color_view(),
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            view: target.depth_view(),
-            depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(1.0),
-                store: wgpu::StoreOp::Store,
-            }),
-            stencil_ops: None,
-        }),
-        ..Default::default()
-    });
-    scene.draw(&mut pass, pipelines);
+    let prepared = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            resident::encode(
+                context.device(),
+                encoder,
+                (scene, pipelines),
+                (target.color_view(), target.depth_view()),
+            )
+            .unwrap();
+            stage(encoder, target.color_view());
+            target.encode_readback(encoder)
+        })?;
+    let submission = prepared.submit()?;
+    Ok(target.read_encoded(context, submission)?)
 }
 
 pub fn pixel(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {

@@ -1,9 +1,21 @@
+mod bias;
+mod cascades;
+mod culling;
 mod fixture;
 mod geometry;
+mod hdr;
+mod receiver;
+mod retained;
+mod scheduler;
+mod selection;
+mod ssao;
+mod subresources;
+mod terrain;
 mod validation;
 
 use glam::{Vec3, Vec4};
 use worldrunner_render_plan::*;
+use worldrunner_render_post::{PassSlot, ResourceRef};
 
 use super::*;
 use crate::offscreen::capture_scene;
@@ -99,34 +111,34 @@ fn light_projection_maps_focus_and_handles_vertical_sun() {
 }
 
 fn with_cascades(effects: &SceneEffects, extents: Vec<u64>, blend: u64) -> SceneEffects {
-    let mut parts = fixture::effects_parts(effects.sun().direction.x);
+    let mut parts =
+        fixture::effects_parts(i64::from(effects.sun().direction.components_micro()[0]));
     parts.shadows = SceneShadowCascades::new(extents, blend).unwrap();
     SceneEffects::new(parts).unwrap()
 }
 
 #[test]
-fn multiple_cascades_and_blending_are_explicitly_rejected() {
+fn cascades_and_blending_are_supported_with_a_bounded_count() {
     let effects = fixture::effects(600_000);
-    for unsupported in [
+    for supported in [
         with_cascades(&effects, vec![1_000, 4_000], 0),
         with_cascades(&effects, vec![4_000], 1),
     ] {
-        assert!(matches!(
-            settings::validate_effects(&unsupported),
-            Err(ShadowError::UnsupportedCascades)
-        ));
+        settings::validate_effects(&supported).unwrap();
     }
 }
 
 #[test]
 fn shadowed_shader_is_valid_wgsl() {
-    let module = naga::front::wgsl::parse_str(resources::SHADOWED_WGSL).unwrap();
-    naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::empty(),
-    )
-    .validate(&module)
-    .unwrap();
+    for source in [resources::SHADOWED_WGSL, resources::SHADOWED_TERRAIN_WGSL] {
+        let module = naga::front::wgsl::parse_str(source).unwrap();
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .unwrap();
+    }
 }
 
 #[expect(
@@ -264,9 +276,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     let first = target.read_rgba8(&context).unwrap();
     renderer.set_effects(&fixture::effects(-600_000)).unwrap();
     renderer
@@ -278,9 +288,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
             },
         )
         .unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     let second = target.read_rgba8(&context).unwrap();
     let reversed = scene(&[[0, 0, 1_000]], -600_000, None);
     let baseline = capture_scene(&context, &reversed, &view()).unwrap();
@@ -301,9 +309,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
             },
         )
         .unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     let outside = target.read_rgba8(&context).unwrap();
     assert_lit(
         &outside,
@@ -341,6 +347,10 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
     let source = scene(&[], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
     parts.water = Some(SceneWaterPlane {
+        height_millimeters: 0,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
         east_min_millimeters: 0,
         north_min_millimeters: 0,
         east_extent_millimeters: 1_000,
@@ -350,17 +360,14 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
         resources: source.resources().clone(),
         geometry: source.geometry().clone(),
         terrain: None,
-        effects: SceneEffects::new(parts).unwrap(),
+        effects: Some(SceneEffects::new(parts).unwrap()),
     })
     .unwrap();
     assert!(matches!(
         ShadowedScene::new(&context, &water, settings()),
-        Err(ShadowError::UnsupportedFeature("water"))
-    ));
-    let terrain = fixture::terrain_scene(&source);
-    assert!(matches!(
-        capture_scene_shadowed(&context, &terrain, &view(), settings()),
-        Err(ShadowError::UnsupportedFeature("terrain"))
+        Err(ShadowError::Draw(DrawError::Frame(
+            FrameError::UnsupportedEffect("water requires HDR")
+        )))
     ));
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     assert!(
@@ -375,17 +382,21 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
             .is_err()
     );
     assert!(matches!(
-        renderer.set_effects(&with_cascades(source.effects(), vec![100, 200], 0)),
+        renderer.set_effects(&with_cascades(
+            source.effects().unwrap(),
+            vec![100, 200, 300, 400, 500],
+            0
+        )),
         Err(ShadowError::UnsupportedCascades)
     ));
     assert!(matches!(
-        renderer.set_effects(water.effects()),
-        Err(ShadowError::UnsupportedFeature("water"))
+        renderer.set_effects(water.effects().unwrap()),
+        Err(ShadowError::Schedule(
+            worldrunner_render_post::FrameError::WaterSettings(_)
+        ))
     ));
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    renderer
-        .render(&context, &view(), target.color_view(), target.depth_view())
-        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert!(
         target.read_rgba8(&context).unwrap() == capture_scene(&context, &source, &view()).unwrap(),
         "invalid updates must leave usable old resources and effects"
@@ -433,7 +444,7 @@ fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
         .unwrap(),
         geometry: source.geometry().clone(),
         terrain: None,
-        effects: SceneEffects::new(effects).unwrap(),
+        effects: Some(SceneEffects::new(effects).unwrap()),
     })
     .unwrap();
     let baseline = capture_scene(&context, &source, &view()).unwrap();
@@ -443,4 +454,18 @@ fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
         "shadow visibility must not multiply hemisphere ambient or emission"
     );
     assert!(at(&image, Vec3::new(-0.75, 0.0, 0.0)) > 150);
+}
+
+fn render_target(
+    renderer: &mut ShadowedScene,
+    context: &GpuContext,
+    view: &SceneView,
+    target: &OffscreenTarget,
+) -> Result<(), ShadowError> {
+    renderer.render(
+        context,
+        view,
+        &target.color_attachment(),
+        &target.depth_attachment(),
+    )
 }

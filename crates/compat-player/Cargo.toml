@@ -17,11 +17,11 @@ pollster.workspace = true
 glam.workspace = true
 base64 = "0.23.1"
 jpeg-decoder = { version = "0.3.2", default-features = false }
-rustix = { workspace = true, features = ["fs"] }
-sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+worldrunner-disunity-runtime = { path = "../disunity-runtime" }
+worldrunner-original-games = { path = "../original-games" }
 
 [lints]
 workspace = true

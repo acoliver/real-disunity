@@ -25,9 +25,11 @@ pub(super) fn resolve(state: &CameraState, aspect: f64) -> Result<ResolvedView, 
             right_projection * DMat4::from_scale(DVec3::new(1.0, 1.0, -1.0)),
         ),
     };
+    let query_inverse = (projection * view).inverse();
+    validate_clip_inverse(query_inverse)?;
+    validate_clip_inverse(projection.inverse())?;
     let view_projection = (projection * view).as_mat4();
     let inverse_view_projection = inverse(view_projection)?;
-    validate_clip_inverse(inverse_view_projection)?;
     let view = view.as_mat4();
     let projection = projection.as_mat4();
     let reconstruction_view = reconstruction_view.as_mat4();
@@ -43,7 +45,6 @@ pub(super) fn resolve(state: &CameraState, aspect: f64) -> Result<ResolvedView, 
     ] {
         inverse(matrix)?;
     }
-    validate_clip_inverse(inverse(projection)?)?;
     let eye_meters = pose.eye_meters.as_vec3();
     if !eye_meters.is_finite() {
         return Err(ViewError::SingularTransform);
@@ -53,9 +54,11 @@ pub(super) fn resolve(state: &CameraState, aspect: f64) -> Result<ResolvedView, 
         projection,
         view_projection,
         inverse_view_projection,
+        query_inverse,
         reconstruction_view,
         reconstruction_projection,
         eye_meters,
+        clip_distances_meters: clip_distances(state.lens),
         viewport: state.viewport,
         convention: state.convention,
     })
@@ -112,16 +115,32 @@ fn valid_clip(near: f64, far: f64) -> bool {
     near.is_finite() && near >= 0.0 && far.is_finite() && far > near
 }
 
-fn validate_clip_inverse(inverse: Mat4) -> Result<(), ViewError> {
+fn validate_clip_inverse(inverse: DMat4) -> Result<(), ViewError> {
     for depth in [0.0, 1.0] {
         for x in [-1.0, 1.0] {
             for y in [-1.0, 1.0] {
-                let point = inverse * glam::Vec4::new(x, y, depth, 1.0);
-                if point.w == 0.0 || !(point.truncate() / point.w).is_finite() {
+                let point = inverse * glam::DVec4::new(x, y, depth, 1.0);
+                if point.w == 0.0 || !(point.truncate() / point.w).as_vec3().is_finite() {
                     return Err(ViewError::SingularTransform);
                 }
             }
         }
     }
     Ok(())
+}
+
+fn clip_distances(lens: CameraLens) -> [f32; 2] {
+    let (CameraLens::Perspective {
+        near_meters,
+        far_meters,
+        ..
+    }
+    | CameraLens::Orthographic {
+        near_meters,
+        far_meters,
+        ..
+    }) = lens;
+    glam::DVec2::new(near_meters, far_meters)
+        .as_vec2()
+        .to_array()
 }

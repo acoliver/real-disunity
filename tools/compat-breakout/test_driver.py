@@ -1,12 +1,12 @@
 """Planner-support tests. These do not establish game compatibility."""
 import unittest
-from driver import live, steps, steer, source_inventory, replay_fixture, tracking_keys
+from driver import live, steps, steer, replay_fixture, tracking_keys
 
 
 class ReplayTests(unittest.TestCase):
     def test_export_requires_fresh_compilation_and_preserves_keyboard_timeline(self):
         fixture = {'metadata': {'assembly': '/cached.dll', 'assembly_qualification': '/proof.json'},
-                   'timeline': [], 'assertions': [], 'refresh': {'remote': 'origin'}}
+                   'timeline': [], 'assertions': []}
         timeline = [dict(frame=0, phase='load', action='load')] + steps(1, ['A'])
         frozen = replay_fixture(fixture, timeline, 1, 'wide', {})
         self.assertNotIn('assembly', frozen['metadata'])
@@ -14,7 +14,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(frozen['timeline'][:4], timeline)
         self.assertEqual(frozen['timeline'][-1]['action'], 'unload')
         self.assertEqual(frozen['limits']['deadline_ms'], 120000)
-        self.assertIsNone(frozen['refresh'])
+        self.assertNotIn('refresh', frozen)
         self.assertIn('assembly', fixture['metadata'])
 
     def test_frozen_replay_retains_requested_animation_and_loss_observations(self):
@@ -88,14 +88,6 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(steer(0, -2), ['A'])
         self.assertEqual(steer(2, 2.05), [])
 
-    def test_inventory_requires_exact_seven_source_names(self):
-        from pathlib import Path
-        root = Path(__file__).resolve().parents[2]
-        inventory = source_inventory(root / '.work/games/breakout')
-        self.assertEqual(len(inventory), 7)
-        self.assertTrue(all(len(digest) == 64 for digest in inventory.values()))
-        with self.assertRaises(ValueError):
-            source_inventory(root / '.work/nonexistent-breakout')
 
 
 if __name__ == '__main__':

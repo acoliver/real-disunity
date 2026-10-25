@@ -1,7 +1,7 @@
 #[path = "support/phase_contacts.rs"]
 mod contacts;
 #[path = "support/handshake.rs"]
-mod support;
+pub mod support;
 
 use serde_json::{Value, json};
 use worldrunner_disunity_runtime::{

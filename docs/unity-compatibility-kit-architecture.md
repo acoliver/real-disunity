@@ -4,7 +4,7 @@
 
 Engine developers need to know which public contracts work, what prevents a game from running, and whether an engine change breaks an established game journey. This kit will compile unchanged C# game scripts against independently implemented UnityEngine-shaped assemblies, execute them through the Rust engine, and retain assertions, logs and captured frames for each selected contract.
 
-The implementation sequence is Snake, Breakout, historical Pong, then rd-stranded host convergence. Each game adds a bounded set of engine and content requirements. The [case catalog](unity-compatibility-kit-cases.md) defines the initial 54 cases, and the [Snake fixture specimen](unity-compatibility-kit-fixture.example.json) shows the input, replay and evidence contract. The [PDF](unity-compatibility-kit-architecture.pdf) and [HTML](unity-compatibility-kit-architecture.html) combine these sources with diagrams and a dashboard layout.
+The implementation sequence is Snake, Breakout, historical Pong, then rd-stranded host convergence. Each game adds a bounded set of engine and content requirements. The [case catalog](unity-compatibility-kit-cases.md) defines the initial 54 cases, and the [Snake fixture specimen](unity-compatibility-kit-fixture.example.json) shows the input, replay and evidence contract. The executable [harness documentation](../crates/compat-kit/README.md) describes the current fixture protocol and source setup.
 
 ## 1. Developer workflow and delivery state
 

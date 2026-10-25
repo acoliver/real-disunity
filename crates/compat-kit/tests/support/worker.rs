@@ -4,9 +4,6 @@ use std::{env, fs, io::Write, path::PathBuf, thread, time::Duration};
 
 fn main() {
     let mode = env::args().nth(1).unwrap();
-    if gate(&mode) {
-        return;
-    }
     if mode == "sleep-child" {
         thread::sleep(Duration::from_secs(30));
         return;
@@ -31,13 +28,6 @@ fn main() {
     }
     let request: serde_json::Value =
         serde_json::from_slice(&fs::read(env::var_os("COMPAT_REQUEST").unwrap()).unwrap()).unwrap();
-    if mode == "source-drift" {
-        fs::write(
-            PathBuf::from(request["source_root"].as_str().unwrap()).join("Assets/Original.cs"),
-            "changed",
-        )
-        .unwrap();
-    }
     image(&artifacts, &mode);
     oversized(&artifacts, &mode);
     let capture = match mode.as_str() {
@@ -131,46 +121,6 @@ fn oversized(artifacts: &std::path::Path, mode: &str) {
     }
 }
 
-fn gate(mode: &str) -> bool {
-    if gate_identity_drift(mode) {
-        return true;
-    }
-    match mode {
-        "gate-mutate" => {
-            fs::write("Assets/Game.cs", "changed by gate").unwrap();
-            true
-        }
-        "gate-original-commit" => original_commit(),
-        "gate-run-candidate" => {
-            let root = PathBuf::from(env::var_os("COMPAT_ROOT").unwrap());
-            let mut fixture = compat_kit::fixture::load(&root, "local").unwrap();
-            fixture.name = "nested-candidate".into();
-            fixture.source_root = PathBuf::from(env::var_os("COMPAT_SOURCE_ROOT").unwrap());
-            fixture.worker = Some(compat_kit::model::CommandSpec {
-                program: env::current_exe().unwrap().to_string_lossy().into_owned(),
-                args: vec!["pass".into()],
-            });
-            fixture.assertions = serde_json::from_value(
-                json!([{"op":"equal","selector":"counter","pointer":"/count","value":7}]),
-            )
-            .unwrap();
-            let record = compat_kit::runner::run(
-                &root,
-                &fixture,
-                None,
-                false,
-                &compat_kit::RunControl::default(),
-            )
-            .unwrap();
-            assert_eq!(record.status, compat_kit::Status::Pass, "{record:?}");
-            true
-        }
-        "gate-pass" => true,
-        "gate-fail" => std::process::exit(23),
-        _ => false,
-    }
-}
-
 fn counter(mode: &str) -> u64 {
     if mode == "alternating" {
         let path = PathBuf::from(env::var_os("COMPAT_ROOT").unwrap()).join(".work/attempt-count");
@@ -184,40 +134,6 @@ fn counter(mode: &str) -> u64 {
     if mode == "mismatch" { 8 } else { 7 }
 }
 
-fn gate_identity_drift(mode: &str) -> bool {
-    if mode == "gate-upstream-ref-drift" {
-        let upstream = PathBuf::from(env::var_os("COMPAT_ROOT").unwrap()).join(".work/upstream");
-        assert!(
-            std::process::Command::new("git")
-                .arg("-C")
-                .arg(upstream)
-                .args(["update-ref", "refs/heads/main", "HEAD^"])
-                .status()
-                .unwrap()
-                .success()
-        );
-        return true;
-    }
-    if mode == "gate-ref-drift" {
-        assert!(
-            std::process::Command::new("git")
-                .args(["update-ref", "refs/heads/gate-added", "HEAD"])
-                .status()
-                .unwrap()
-                .success()
-        );
-        return true;
-    }
-    if mode == "gate-fetch-drift" {
-        let path = PathBuf::from(".git/FETCH_HEAD");
-        let mut bytes = fs::read(&path).unwrap();
-        bytes.extend_from_slice(b"\n");
-        fs::write(path, bytes).unwrap();
-        return true;
-    }
-    false
-}
-
 fn unsafe_live(artifacts: &std::path::Path, mode: &str) {
     if mode == "crash" {
         std::process::exit(17);
@@ -226,31 +142,4 @@ fn unsafe_live(artifacts: &std::path::Path, mode: &str) {
         std::os::unix::fs::symlink("/etc/passwd", artifacts.join("unsafe-link")).unwrap();
         thread::sleep(Duration::from_secs(30));
     }
-}
-fn original_commit() -> bool {
-    let source = PathBuf::from(env::var_os("COMPAT_ROOT").unwrap()).join(".work/source");
-    fs::write(source.join("Assets/Game.cs"), "class Concurrent {}\n").unwrap();
-    for args in [
-        vec!["add", "."],
-        vec![
-            "-c",
-            "user.name=Harness",
-            "-c",
-            "user.email=harness@localhost",
-            "commit",
-            "-m",
-            "concurrent edit",
-        ],
-    ] {
-        assert!(
-            std::process::Command::new("git")
-                .arg("-C")
-                .arg(&source)
-                .args(args)
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
-    true
 }

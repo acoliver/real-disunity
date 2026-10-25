@@ -21,16 +21,22 @@ use wgpu::{
     TexelCopyBufferLayout, Texture, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsages, TextureView, TextureViewDescriptor,
 };
+use worldrunner_render_plan::SceneDirection;
 use worldrunner_render_plan::{
     BillboardPolicy, MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode,
     SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
     SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod,
     SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades, SceneSky,
-    SceneSsao, SceneSun, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
-    TextureColorSpace, TextureEncoding, TextureHandle,
+    SceneSun, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface,
+    SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy, TextureColorSpace,
+    TextureEncoding, TextureHandle,
 };
+mod environment;
+mod lod;
 mod material_factors;
+mod retained;
+mod ssao;
+mod ssr;
 mod terrain_blend;
 
 /// The colour format every test renders into.
@@ -282,7 +288,7 @@ fn card_scene(billboard: Option<BillboardPolicy>, rotation: SceneRotation) -> Re
         geometry: SceneGeometry::new(vec![card(billboard)], vec![object])
             .expect("the fixture geometry validates"),
         terrain: None,
-        effects: effects(),
+        effects: Some(effects()),
     })
     .expect("the fixture scene validates")
 }
@@ -309,7 +315,11 @@ fn camera() -> SceneCamera {
 }
 
 fn effects() -> SceneEffects {
-    SceneEffects::new(SceneEffectsParts {
+    SceneEffects::new(effect_parts()).expect("the fixture effects validate")
+}
+
+fn effect_parts() -> SceneEffectsParts {
+    SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
             zenith: SceneColor {
@@ -326,12 +336,7 @@ fn effects() -> SceneEffects {
         sun: SceneSun {
             // Straight down from the zenith, so the upward-facing quad is lit
             // head on and a dark result cannot be blamed on grazing incidence.
-            direction: SceneRotation {
-                x: 0,
-                y: 0,
-                z: ROTATION_MICRO_SCALE,
-                w: 0,
-            },
+            direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
             irradiance_micro: 1_000_000,
         },
         ambient: SceneAmbient {
@@ -340,11 +345,7 @@ fn effects() -> SceneEffects {
         },
         shadows: SceneShadowCascades::new(vec![10_000, 40_000], 50_000)
             .expect("two ascending cascades are valid"),
-        ssao: SceneSsao {
-            radius_millimeters: 500,
-            intensity_micro: 500_000,
-            horizon_angle_millidegrees: 30_000,
-        },
+        ssao: None,
         camera: camera(),
         grading: SceneColorGrading {
             exposure_micro: 1_000_000,
@@ -353,8 +354,7 @@ fn effects() -> SceneEffects {
         },
         post: Vec::new(),
         anti_alias: SceneAntiAlias::Disabled,
-    })
-    .expect("the fixture effects are valid")
+    }
 }
 
 /// Builds a scene holding exactly one texture, material and mesh.
@@ -378,7 +378,7 @@ fn build(
             .expect("the fixture resources validate"),
         geometry: SceneGeometry::new(vec![mesh], objects).expect("the fixture geometry validates"),
         terrain: None,
-        effects: effects(),
+        effects: Some(effects()),
     })
     .expect("the fixture scene validates")
 }
@@ -431,7 +431,7 @@ fn terrain_scene(materials: usize) -> RenderScene {
         geometry: SceneGeometry::new(vec![quad()], vec![object])
             .expect("the fixture geometry validates"),
         terrain: Some(terrain(materials)),
-        effects: effects(),
+        effects: Some(effects()),
     })
     .expect("the fixture scene validates")
 }
@@ -477,7 +477,7 @@ fn frame_from(pose: CameraPose) -> FrameUniform {
         },
     )
     .expect("the fixture pose is well formed");
-    FrameUniform::new(&view, &effects()).expect("the fixture frame builds")
+    FrameUniform::new(&view, Some(&effects())).expect("the fixture frame builds")
 }
 
 /// Renders one scene into a fresh target and returns the RGBA pixels.
@@ -565,8 +565,13 @@ fn render_frame(context: &GpuContext, scene: &RenderScene, frame: FrameUniform) 
     let device = context.device();
     let queue = context.queue();
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
-    let gpu =
-        SceneGpu::upload(device, queue, scene, &pipelines).expect("the fixture scene uploads");
+    let gpu = SceneGpu::upload(
+        device,
+        &worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone()),
+        scene,
+        &pipelines,
+    )
+    .expect("the fixture scene uploads");
     gpu.set_frame(queue, frame);
 
     let color = color_target(device);
@@ -626,7 +631,7 @@ fn an_uploaded_scene_groups_its_objects_into_one_batch_per_mesh_and_material() {
     let context = context();
     let scene = scene(SceneAlphaMode::Opaque, false, 4);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.queue(), &scene, &pipelines)
+    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
         .expect("the fixture scene uploads");
     assert_eq!(gpu.batch_counts(), [1, 0, 0, 0]);
 }
@@ -645,7 +650,7 @@ fn a_masked_material_lands_in_its_own_pipeline_bucket() {
         1,
     );
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.queue(), &scene, &pipelines)
+    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
         .expect("the fixture scene uploads");
     assert_eq!(gpu.batch_counts(), [0, 0, 0, 1]);
 }
@@ -662,7 +667,7 @@ fn terrain_no_longer_enters_the_material_batches_however_many_surfaces_it_names(
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for surfaces in 1..=3 {
         let scene = terrain_scene(surfaces);
-        let gpu = SceneGpu::upload(context.device(), context.queue(), &scene, &pipelines)
+        let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
             .expect("the fixture scene uploads");
         assert_eq!(
             gpu.batch_counts(),
@@ -801,7 +806,7 @@ fn an_unreadable_texture_names_the_offending_table_entry() {
         quad(),
         1,
     );
-    let error = SceneGpu::upload(context.device(), context.queue(), &broken, &pipelines)
+    let error = SceneGpu::upload(context.device(), context.submission(), &broken, &pipelines)
         .expect_err("a truncated container cannot be prepared");
     assert!(matches!(error, DrawError::Texture { index: 0, .. }));
 }

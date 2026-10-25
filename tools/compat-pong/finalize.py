@@ -1,10 +1,9 @@
 """Add source-rule and native contact/clock assertions before immutable harness replay."""
 import argparse
 import copy
-import hashlib
 import json
 from pathlib import Path
-from driver import ROOT, WORK, fresh_fixture
+from driver import ROOT, fresh_fixture
 from verify import contact, verify_wait
 
 
@@ -36,13 +35,25 @@ def align_contact_assertions(fixture, observations):
     return result
 
 
+def align_record(fixture, record_path):
+    record = json.loads(record_path.read_text())
+    request = json.loads((ROOT / record['run_dir'] / 'request.json').read_text())
+    assert request['timeline'] == fixture['timeline']
+    assert not record['worker']['diagnostics']
+    assert all(a['passed'] for a in record['assertions'] if a['assertion'].get('selector') != 'events')
+    aligned = align_contact_assertions(fixture, record['worker']['observations'])
+    return aligned
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--fixture', type=Path, required=True)
+    parser.add_argument('--checkpoints', type=Path, required=True)
     parser.add_argument('--contact-record', type=Path, help='Align contact pointers to a canonical replay after event filtering changes.')
     args = parser.parse_args()
-    path = ROOT / 'fixtures/pong-journey.json'
+    path = args.fixture
     fixture = json.loads(path.read_text())
-    checkpoints = json.loads((WORK / 'planned-checkpoints.json').read_text())
+    checkpoints = json.loads(args.checkpoints.read_text())
     by_label = {c['label']: c for c in checkpoints}
     def append(assertion):
         if assertion not in fixture['assertions']:
@@ -70,25 +81,11 @@ def main():
         verify_wait(goal, by_label[f'round-{i}-before-deadline']['snapshot'],
                     by_label[f'round-{i}-relaunched']['snapshot'], 2)
     if args.contact_record:
-        record = json.loads(args.contact_record.read_text())
-        request = json.loads((ROOT / record['run_dir'] / 'request.json').read_text())
-        assert request['timeline'] == fixture['timeline']
-        assert record['source_before']['scripts'] == record['source_after']['scripts']
-        assert not record['worker']['diagnostics']
-        assert all(a['passed'] for a in record['assertions'] if a['assertion'].get('selector') != 'events')
-        aligned = align_contact_assertions(fixture, record['worker']['observations'])
-        changes = [dict(frame=a['frame'], old=a['pointer'], new=b['pointer'], value=a['value'])
-                   for a, b in zip(fixture['assertions'], aligned['assertions']) if a != b]
-        audit = WORK / 'final-native/contact-alignment.json'
-        audit.parent.mkdir(parents=True, exist_ok=True)
-        audit.write_text(json.dumps(dict(record=str(args.contact_record), changes=changes), indent=2) + '\n')
-        fixture = aligned
+        fixture = align_record(fixture, args.contact_record)
     fixture = fresh_fixture(fixture)
-    fixture['metadata']['timeline_sha256'] = hashlib.sha256(json.dumps(fixture['timeline'], sort_keys=True,
-                                                                          separators=(',', ':')).encode()).hexdigest()
     path.write_text(json.dumps(fixture, indent=2) + '\n')
     print(json.dumps(dict(fixture=str(path), assertions=len(fixture['assertions']),
-                         frames=max(a['frame'] for a in fixture['timeline']), metadata=fixture['metadata']['timeline_sha256'])))
+                         frames=max(a['frame'] for a in fixture['timeline']))))
 
 
 if __name__ == '__main__':

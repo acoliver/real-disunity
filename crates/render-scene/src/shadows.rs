@@ -1,10 +1,10 @@
-//! Opt-in single-map directional shadows for generic environment geometry.
+//! Opt-in cascaded directional shadows for generic environment geometry.
 //!
-//! A retained [`ShadowedScene`] uploads geometry once and submits a depth pass
+//! A retained [`ShadowedScene`] uploads geometry once and submits cascade depth passes
 //! followed by a lit pass, without readback or filesystem policy. Alpha masks,
 //! double-sided materials, instancing and camera-facing billboards use the same
-//! geometry/material code in both passes. Terrain, water and multiple cascades
-//! are rejected rather than silently rendered without their requested shadows.
+//! geometry/material code in both passes. Terrain casts and receives through the
+//! same scheduler, including planar water receivers.
 //!
 //! ```no_run
 //! use worldrunner_render_scene::{device::GpuContext, offscreen::OffscreenTarget, shadows::*};
@@ -23,34 +23,46 @@
 //! // Retain these for subsequent views/lighting changes, with no reupload.
 //! let mut renderer = ShadowedScene::new(context, scene, settings)?;
 //! let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
-//! renderer.render(context, view, target.color_view(), target.depth_view())?;
+//! renderer.render(context, view, &target.color_attachment(), &target.depth_attachment())?;
 //! let image = target.read_rgba8(context)?;
 //! # Ok(())
 //! # }
 //! ```
 
+mod cascades;
 mod resources;
+mod schedule;
 mod settings;
+
+pub(crate) fn water_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    resources::layout(device)
+}
 
 pub use settings::{DirectionalShadowSettings, MAX_SHADOW_RESOLUTION};
 
 use worldrunner_render_plan::{RenderScene, SceneEffects};
+use worldrunner_render_post::{AttachmentView, BorrowedFeature};
 
 use crate::device::GpuContext;
 use crate::draw::{DrawError, SceneGpu};
-use crate::frame::{FRAME_UNIFORM_BYTES, FrameError, FrameUniform};
+use crate::frame::{FrameError, FrameUniform};
 use crate::offscreen::{OffscreenError, OffscreenTarget, RgbaImage};
 use crate::renderer::ScenePipelines;
-use crate::upload::upload_buffer;
 use crate::view::SceneView;
-use resources::{SHADOWED_WGSL, ShadowMap};
+use resources::ShadowMap;
 
 /// An opt-in shadow request could not be prepared.
 #[derive(Debug, thiserror::Error)]
 pub enum ShadowError {
+    #[error(transparent)]
+    Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// Settings must describe a finite, representable coverage box and biases.
     #[error("invalid directional shadow fit or bias settings")]
     InvalidSettings,
+    #[error(transparent)]
+    Post(#[from] worldrunner_render_post::PostError),
+    #[error(transparent)]
+    Schedule(#[from] worldrunner_render_post::FrameError),
     /// Resolution exceeds the explicit resource ceiling or device limit.
     #[error("shadow resolution {requested} is outside 1..={limit}")]
     Resolution {
@@ -62,8 +74,8 @@ pub enum ShadowError {
     /// Shared GPU resource validation rejected the allocation.
     #[error(transparent)]
     DepthMap(#[from] worldrunner_render_shadow::DepthMapError),
-    /// No cascade splitting or blending is implemented.
-    #[error("directional shadows require exactly one declared cascade and zero blend band")]
+    /// The bounded stock shader supports up to four cascades.
+    #[error("directional shadows support one to four cascades")]
     UnsupportedCascades,
     /// A scene feature does not yet participate in the opt-in shadow passes.
     #[error("directional shadows do not support {0}")]
@@ -79,72 +91,122 @@ pub enum ShadowError {
     Offscreen(#[from] OffscreenError),
 }
 
-/// Reusable resident scene, pipelines and one bounded directional shadow map.
+/// Reusable resident scene, pipelines and a bounded directional depth array.
 ///
 /// Attachment views must belong to the supplied context, match the view's
-/// viewport, use sample count 1, `Rgba8UnormSrgb` colour and `Depth32Float` depth.
+/// viewport and the receiver pipelines' colour/sample contract, with `Depth32Float` depth.
+/// `new` selects single-sample `Rgba8UnormSrgb`; `with_target` selects an explicit target.
 /// This is also usable without an offscreen target by a compatible viewer.
 #[derive(Debug)]
 pub struct ShadowedScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
     depth_pipelines: [wgpu::RenderPipeline; 4],
-    depth_frame: wgpu::Buffer,
-    depth_frame_group: wgpu::BindGroup,
+    terrain_depth_pipeline: wgpu::RenderPipeline,
+    depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    depth_slots: Vec<Vec<(wgpu::Buffer, wgpu::BindGroup)>>,
+    frame_slot: usize,
     shadow_layout: wgpu::BindGroupLayout,
     map: ShadowMap,
     settings: DirectionalShadowSettings,
     effects: SceneEffects,
+    scheduler: crate::compositor::FrameRenderer,
 }
 
 impl ShadowedScene {
+    /// Select a live admission's slot; reuse only after that submission completes.
+    pub fn select_frame_slot(&mut self, slot: usize) {
+        self.frame_slot = slot;
+        self.scheduler.select_frame_slot(slot);
+        self.gpu.select_frame_slot(slot);
+        self.depth_frames = self.depth_slots[slot].clone();
+        self.map.select_frame_slot(slot);
+    }
     /// Validates the opt-in contract before allocating or uploading scene resources.
     pub fn new(
         context: &GpuContext,
         scene: &RenderScene,
         settings: DirectionalShadowSettings,
     ) -> Result<Self, ShadowError> {
+        Self::with_target(context, scene, settings, OffscreenTarget::COLOR_FORMAT, 1)
+    }
+
+    /// Builds receiver pipelines for a validated frame attachment profile.
+    pub fn with_target(
+        context: &GpuContext,
+        scene: &RenderScene,
+        settings: DirectionalShadowSettings,
+        format: wgpu::TextureFormat,
+        samples: u32,
+    ) -> Result<Self, ShadowError> {
+        worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
+            .validate_adapter(context.adapter())?;
         settings.validate(&context.device().limits())?;
         settings::validate_scene(scene)?;
-        settings.validate_light(scene.effects())?;
+        settings.validate_light(scene.effects().ok_or(ShadowError::UnsupportedFeature(
+            "shadows require an environmental profile",
+        ))?)?;
         let shadow_layout = resources::layout(context.device());
-        let pipelines = ScenePipelines::with_environment(
-            context.device(),
-            OffscreenTarget::COLOR_FORMAT,
-            SHADOWED_WGSL,
-            Some(&shadow_layout),
-        );
-        let depth_pipelines = resources::depth_pipelines(context.device(), &pipelines, settings);
-        let gpu = SceneGpu::upload(context.device(), context.queue(), scene, &pipelines)?;
-        let depth_frame = upload_buffer(
-            context.device(),
-            context.queue(),
-            "shadow frame",
-            wgpu::BufferUsages::UNIFORM,
-            &[0; FRAME_UNIFORM_BYTES],
-        );
-        let depth_frame_group = context
-            .device()
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("shadow frame"),
-                layout: pipelines.frame_layout(),
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: depth_frame.as_entire_binding(),
-                }],
-            });
-        let map = ShadowMap::new(context, settings, &shadow_layout)?;
+        let pipelines =
+            resources::receiver_pipelines(context, scene, (format, samples), &shadow_layout)?;
+        let (depth_pipelines, terrain_depth_pipeline) =
+            resources::depth_pipelines(context.device(), &pipelines, settings);
+        let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
+        let depth_frames = resources::depth_frames(context, pipelines.frame_layout());
+        let layers = u32::try_from(
+            scene
+                .effects()
+                .expect("validated effects")
+                .shadows()
+                .extents_millimeters()
+                .len(),
+        )
+        .expect("four cascades");
+        let map = ShadowMap::new(context, settings, &shadow_layout, layers)?;
+        let depth_slots = vec![
+            depth_frames.clone(),
+            resources::depth_frames(context, pipelines.frame_layout()),
+            resources::depth_frames(context, pipelines.frame_layout()),
+        ];
         Ok(Self {
+            scheduler: crate::compositor::FrameRenderer::new(context.device()),
             gpu,
             pipelines,
             depth_pipelines,
-            depth_frame,
-            depth_frame_group,
+            terrain_depth_pipeline,
+            depth_slots,
+            depth_frames,
+            frame_slot: 0,
             shadow_layout,
             map,
             settings,
-            effects: scene.effects().clone(),
+            effects: scene
+                .effects()
+                .cloned()
+                .ok_or(ShadowError::UnsupportedFeature(
+                    "shadows require an environmental profile",
+                ))?,
         })
+    }
+
+    /// Owned counts from the most recently submitted main-camera pass.
+    pub fn view_stats(&self) -> crate::draw::ViewStats {
+        self.gpu.view_stats()
+    }
+
+    /// Owned counts from the most recently submitted shadow cascade zero.
+    pub fn shadow_view_stats(&self) -> crate::draw::ViewStats {
+        self.gpu.shadow_view_stats()
+    }
+
+    /// Owned counts for a particular submitted cascade.
+    pub fn cascade_view_stats(&self, index: usize) -> crate::draw::ViewStats {
+        self.gpu.cascade_view_stats(index)
+    }
+
+    /// Returns the resident scene for handle-based placement edits.
+    pub fn scene_mut(&mut self) -> &mut SceneGpu {
+        &mut self.gpu
     }
 
     /// Updates fit/bias, recreating only the map if its resolution changes.
@@ -157,80 +219,161 @@ impl ShadowedScene {
         settings.validate(&context.device().limits())?;
         settings.validate_light(&self.effects)?;
         if settings.resolution != self.settings.resolution {
-            self.map = ShadowMap::new(context, settings, &self.shadow_layout)?;
+            self.map = ShadowMap::new(
+                context,
+                settings,
+                &self.shadow_layout,
+                self.map.depth.layers(),
+            )?;
         }
         self.settings = settings;
         Ok(())
     }
 
-    /// Changes lighting without uploading geometry again; the same single-cascade contract applies.
+    /// Changes lighting and cascade policy without uploading geometry again.
+    /// Changed layer counts are allocated at the next encode.
     pub fn set_effects(&mut self, effects: &SceneEffects) -> Result<(), ShadowError> {
         settings::validate_effects(effects)?;
+        if effects.ssao().is_some() != self.pipelines.ssao {
+            return Err(FrameError::UnsupportedEffect("SSAO").into());
+        }
         self.settings.validate_light(effects)?;
+        if self.effects.ssao() != effects.ssao() {
+            return Err(worldrunner_render_post::FrameError::SsaoSettings(
+                "SSAO settings are immutable; rebuild the frame profile and resident scene",
+            )
+            .into());
+        }
+        if self.effects.water() != effects.water() {
+            return Err(worldrunner_render_post::FrameError::WaterSettings(
+                "water settings are immutable; rebuild the profile and resident",
+            )
+            .into());
+        }
+        if self.effects.ssr() != effects.ssr() {
+            return Err(worldrunner_render_post::FrameError::SsrSettings(
+                "settings are immutable; rebuild the profile and resident",
+            )
+            .into());
+        }
         self.effects = effects.clone();
         Ok(())
     }
 
-    /// Submits both passes, clearing colour to opaque black and depth to one.
-    /// No host allocation or readback occurs. Use the same device as construction.
+    /// Submits cascade depth and colour passes, clearing colour to black and depth to one.
+    /// Each view reuses its host-side visible-range storage after warmup.
+    /// No readback occurs. Use the same device as construction.
     pub fn render(
         &mut self,
         context: &GpuContext,
         view: &SceneView,
-        color: &wgpu::TextureView,
-        depth: &wgpu::TextureView,
+        color: &AttachmentView,
+        depth: &AttachmentView,
     ) -> Result<(), ShadowError> {
-        let frame = FrameUniform::new(view, &self.effects)?;
-        let matrix = self.settings.matrix(frame.sun_direction)?;
-        self.gpu.set_frame(context.queue(), frame);
-        // Keep the actual camera position: billboards must face the camera in
-        // BOTH passes, not rotate toward the light during shadow rendering.
-        let light_frame = FrameUniform {
-            view_projection: matrix,
-            ..frame
+        let prepared = context
+            .submission()
+            .prepare(context.device(), |encoder, _| {
+                self.encode(context, view, color, depth, encoder)
+            })
+            .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+        prepared.submit()?;
+        Ok(())
+    }
+
+    /// Encodes all uploads and passes without submitting, for composition with output.
+    /// Requires the active transaction encoder. Resident publication happens on
+    /// submission; dropping the prepared frame discards its publications.
+    /// Checked attachments retain their selected mip and array layer.
+    pub fn encode(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        color: &AttachmentView,
+        depth: &AttachmentView,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), ShadowError> {
+        self.encode_with(context, view, (color, depth), encoder, None)
+    }
+
+    fn validate_scheduler(
+        scheduler: &crate::compositor::FrameRenderer,
+        pipelines: &ScenePipelines,
+        effects: &SceneEffects,
+    ) -> Result<(), ShadowError> {
+        scheduler.validate_ssao(pipelines, effects.ssao())?;
+        scheduler.validate_water(effects.water())?;
+        scheduler.validate_ssr(effects.ssr())?;
+        scheduler.validate_post(
+            crate::post::settings(effects)
+                .map_err(|_| FrameError::UnsupportedEffect("post settings"))?,
+        )?;
+        Ok(())
+    }
+
+    /// Uses a host's retained scheduler for both scene and output composition.
+    /// The submission, abandonment and checked-attachment rules of [`Self::encode`] apply.
+    pub fn encode_with(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        attachments: (&AttachmentView, &AttachmentView),
+        encoder: &mut wgpu::CommandEncoder,
+        scheduler: Option<&mut crate::compositor::FrameRenderer>,
+    ) -> Result<(), ShadowError> {
+        let (color, depth) = attachments;
+        let scheduler = scheduler.unwrap_or(&mut self.scheduler);
+        Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
+        let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
+        let cascades = cascades::CascadeViews::new(
+            &self.gpu,
+            view,
+            &self.effects,
+            self.settings,
+            frame.sun_direction,
+        )?;
+        let count = u32::try_from(cascades.matrices.len()).expect("four cascades");
+        let mut replacement = if self.map.depth.layers() == count {
+            None
+        } else {
+            Some(ShadowMap::new(
+                context,
+                self.settings,
+                &self.shadow_layout,
+                count,
+            )?)
         };
-        context
-            .queue()
-            .write_buffer(&self.depth_frame, 0, &light_frame.to_bytes());
-        context.queue().write_buffer(
-            &self.map.uniform,
-            0,
-            &resources::uniform_bytes(matrix, self.settings),
-        );
-        let mut encoder =
-            context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("shadowed scene"),
-                });
-        {
-            let mut pass = self.map.depth.begin_layer_pass(
-                &mut encoder,
-                0,
-                Some("directional shadow depth"),
-            )?;
-            self.gpu
-                .draw_objects(&mut pass, &self.depth_frame_group, &self.depth_pipelines);
+        let map = replacement.as_mut().unwrap_or(&mut self.map);
+        map.select_frame_slot(self.frame_slot);
+        let mut schedule =
+            schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
+        schedule.screen_space(scheduler);
+        let mut feature = ShadowFeature {
+            publications: crate::draw::DrawPublications::default(),
+            screen: scheduler.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
+            gpu: &mut self.gpu,
+            pipelines: &self.pipelines,
+            depth_pipelines: &self.depth_pipelines,
+            terrain_depth_pipeline: &self.terrain_depth_pipeline,
+            depth_frames: &self.depth_frames,
+            shadow_group: &map.group,
+            cascades,
+            frame,
+            shadow_uniform: &map.uniform,
+            settings: self.settings,
+        };
+        scheduler.encode_frame(
+            context.device(),
+            encoder,
+            (&schedule.passes, &schedule.views),
+            &mut [BorrowedFeature {
+                declaration: schedule.declaration,
+                prepared: &mut feature,
+            }],
+            (frame, Some(&map.group)),
+        )?;
+        if let Some(map) = replacement {
+            self.map = map;
         }
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("shadowed scene colour"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(depth_attachment(depth)),
-                ..Default::default()
-            });
-            pass.set_bind_group(2, &self.map.group, &[]);
-            self.gpu.draw(&mut pass, &self.pipelines);
-        }
-        context.queue().submit([encoder.finish()]);
         Ok(())
     }
 }
@@ -245,21 +388,110 @@ pub fn capture_scene_shadowed(
 ) -> Result<RgbaImage, ShadowError> {
     settings.validate(&context.device().limits())?;
     settings::validate_scene(scene)?;
-    settings.validate_light(scene.effects())?;
+    settings.validate_light(scene.effects().ok_or(ShadowError::UnsupportedFeature(
+        "shadows require an environmental profile",
+    ))?)?;
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let mut renderer = ShadowedScene::new(context, scene, settings)?;
-    renderer.render(context, view, target.color_view(), target.depth_view())?;
-    Ok(target.read_rgba8(context)?)
+    let prepared = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.encode(
+                context,
+                view,
+                &target.color_attachment(),
+                &target.depth_attachment(),
+                encoder,
+            )?;
+            target.encode_readback(encoder)?;
+            Ok::<_, ShadowError>(())
+        })
+        .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+    let submission = prepared.submit()?;
+    Ok(target.read_encoded(context, submission)?)
 }
 
-fn depth_attachment(view: &wgpu::TextureView) -> wgpu::RenderPassDepthStencilAttachment<'_> {
-    wgpu::RenderPassDepthStencilAttachment {
-        view,
-        depth_ops: Some(wgpu::Operations {
-            load: wgpu::LoadOp::Clear(1.0),
-            store: wgpu::StoreOp::Store,
-        }),
-        stencil_ops: None,
+struct ShadowFeature<'a> {
+    publications: crate::draw::DrawPublications,
+    screen: Option<crate::ssao::Geometry>,
+    gpu: &'a mut SceneGpu,
+    pipelines: &'a ScenePipelines,
+    depth_pipelines: &'a [wgpu::RenderPipeline; 4],
+    terrain_depth_pipeline: &'a wgpu::RenderPipeline,
+    depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
+    shadow_group: &'a wgpu::BindGroup,
+    cascades: cascades::CascadeViews,
+    frame: FrameUniform,
+    shadow_uniform: &'a wgpu::Buffer,
+    settings: DirectionalShadowSettings,
+}
+impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
+    fn prepare(
+        &mut self,
+        _context: &mut worldrunner_render_post::PrepareContext<'_>,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        Ok(())
+    }
+    fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
+        self.gpu.prepare_instances(context);
+        self.gpu.commit_frame(context, self.frame);
+        // Each light view has its own immutable uniform range; billboards keep the main eye.
+        for (index, &matrix) in self.cascades.matrices.iter().enumerate() {
+            let light_frame = FrameUniform {
+                view_projection: matrix,
+                ..self.frame
+            };
+            context.upload_buffer(&self.depth_frames[index].0, 0, &light_frame.to_bytes());
+        }
+        context.upload_buffer(
+            self.shadow_uniform,
+            0,
+            &resources::uniform_bytes(&self.cascades, self.settings),
+        );
+    }
+    fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
+        self.publications.publish(context);
+    }
+    fn draw(
+        &self,
+        context: &worldrunner_render_post::DrawContext,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
+            let screen = self.screen.as_ref().expect("declared metadata");
+            self.publications.record(self.gpu.draw_prepass(
+                pass,
+                screen.reflection.as_ref().expect("reflection pipelines"),
+                &screen.group,
+            ));
+        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+            let screen = self.screen.as_ref().expect("declared prepass");
+            self.publications.record(
+                self.gpu
+                    .draw_prepass(pass, &screen.pipelines, &screen.group),
+            );
+        } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
+            let matrix = self.cascades.matrices[index as usize];
+            let group = &self.depth_frames[index as usize].1;
+            self.publications.record(self.gpu.draw_objects(
+                pass,
+                group,
+                self.depth_pipelines,
+                Some((index, matrix)),
+            ));
+            self.gpu
+                .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
+        } else {
+            if let Some(screen) = &self.screen {
+                pass.set_bind_group(3, &screen.ambient, &[]);
+            }
+            pass.set_bind_group(2, self.shadow_group, &[]);
+            self.publications.record(self.gpu.draw_shadowed(
+                pass,
+                self.pipelines,
+                self.shadow_group,
+            ));
+        }
     }
 }
 

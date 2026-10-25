@@ -16,7 +16,7 @@ fn fixture(game: &str, scene: &str) -> (ImportedScene, AdmissionPolicy) {
         serde_json::from_slice(&read(format!("overlays/{game}.json"))).unwrap();
     let policy = serde_json::from_slice(&read(format!("profiles/{game}-admission.json"))).unwrap();
     let graph = import_project(
-        &base.join("../../.work/games").join(game),
+        &worldrunner_original_games::checkout(game.parse().unwrap()).unwrap(),
         format!("Assets/Scenes/{scene}.unity").as_ref(),
         &profile,
         &sidecar,

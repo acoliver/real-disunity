@@ -80,7 +80,7 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
         set.texture(
             "RCAS input",
             [w, h, 1],
-            wgpu::TextureFormat::Rgba32Float,
+            wgpu::TextureFormat::Rgba16Float,
             [1, 1],
             3,
         );

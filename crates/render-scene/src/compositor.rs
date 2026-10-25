@@ -241,6 +241,7 @@ impl FrameRenderer {
         &self,
         mut requested: worldrunner_render_post::HdrPostSettings,
     ) -> Result<(), FrameError> {
+        // Scene effects never carry reconstruction; the frame profile owns it.
         requested.upscale = self.post_requested.upscale;
         if self.post_requested != requested {
             return Err(FrameError::UnsupportedEffect(

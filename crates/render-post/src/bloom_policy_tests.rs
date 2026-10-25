@@ -62,22 +62,24 @@ fn tone_policy_rejects_zero_and_out_of_range_values() {
             .is_err()
         );
     }
-    assert!(
-        ToneCurveBright {
-            contrast: 65.0,
-            ..tone()
-        }
-        .validate()
-        .is_err()
-    );
-    assert!(
-        ToneCurveBright {
-            exposure_scale: 65.0,
-            ..tone()
-        }
-        .validate()
-        .is_err()
-    );
+    for invalid in [65505.0, f32::MAX] {
+        assert!(
+            ToneCurveBright {
+                contrast: invalid,
+                ..tone()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            ToneCurveBright {
+                exposure_scale: invalid,
+                ..tone()
+            }
+            .validate()
+            .is_err()
+        );
+    }
     assert!(
         ToneCurveBright {
             luminance: [0.0; 3],
@@ -178,5 +180,78 @@ fn every_policy_combination_validates_and_tent_rejects_changes() {
                 }
             }
         }
+    }
+}
+
+fn pyramid_settings(extraction: BrightExtraction, threshold: f32) -> HdrPostSettings {
+    let level = GaussianLevel {
+        radius: 4,
+        tint: [1.0; 3],
+        weight: 1.0,
+    };
+    HdrPostSettings {
+        bloom: Some(Bloom {
+            policies: BloomPolicies {
+                extraction,
+                ..BloomPolicies::default()
+            },
+            threshold,
+            knee: 0.5,
+            intensity: 1.0,
+            levels: 2,
+        }),
+        bloom_kernel: BloomKernel::SeparablePyramid([level; 8]),
+        ..HdrPostSettings::default()
+    }
+}
+
+#[test]
+fn tone_curve_scalars_accept_the_half_float_range() {
+    for value in [64.5, 100.0, 1000.0, 10_000.0, 65504.0] {
+        for policy in [
+            ToneCurveBright {
+                contrast: value,
+                ..tone()
+            },
+            ToneCurveBright {
+                exposure_scale: value,
+                ..tone()
+            },
+        ] {
+            assert!(policy.validate().is_ok(), "{value}");
+        }
+    }
+}
+
+#[test]
+fn bloom_threshold_limit_follows_extraction_policy() {
+    let tone_curve = BrightExtraction::ToneCurve(ToneCurveBright {
+        contrast: 10_000.0,
+        ..tone()
+    });
+    for threshold in [0.0, 64.0, 65.0, 100.0, 65504.0] {
+        assert!(
+            pyramid_settings(tone_curve, threshold).validate().is_ok(),
+            "{threshold}"
+        );
+    }
+    for threshold in [-1.0, 65505.0, f32::NAN, f32::INFINITY] {
+        assert!(
+            pyramid_settings(tone_curve, threshold).validate().is_err(),
+            "{threshold}"
+        );
+    }
+    assert!(
+        pyramid_settings(BrightExtraction::SoftKnee, 64.0)
+            .validate()
+            .is_ok()
+    );
+    for threshold in [65.0, 100.0] {
+        assert!(
+            pyramid_settings(BrightExtraction::SoftKnee, threshold)
+                .validate()
+                .is_err(),
+            "{threshold}"
+        );
     }
 }

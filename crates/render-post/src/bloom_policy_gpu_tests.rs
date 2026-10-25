@@ -287,6 +287,27 @@ fn gpu_bloom_policies_observe_caller_exposure_changes_without_rebuild() {
 }
 
 #[test]
+fn gpu_bloom_tone_curve_accepts_thresholds_and_contrast_above_64() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let mut bloom = bloom();
+    // A saturating tone curve maps a threshold of 100 near its asymptote. A large exposure
+    // scale moves fixture luminance past it, and a large contrast keeps the gate visible.
+    bloom.threshold = 100.0;
+    bloom.policies.extraction = BrightExtraction::ToneCurve(ToneCurveBright {
+        curve: BrightCurve::AcesFilmic,
+        maximum: 100.0,
+        luminance: [0.2126, 0.7152, 0.0722],
+        exposure_scale: 400.0,
+        contrast: 10_000.0,
+        epsilon: 0.00001,
+    });
+    let chain = host(&device, bloom, [17, 11]);
+    for exposure in [0.25, 1.0, 4.0] {
+        run(&device, &queue, &chain, [17, 11], exposure);
+    }
+}
+
+#[test]
 fn gpu_bloom_builder_validates_before_mutating_caller_schedule() {
     let (device, _) = crate::gpu_tests::gpu();
     let texture = color_texture(

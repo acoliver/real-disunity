@@ -155,6 +155,29 @@ pub(super) fn positive_half(bytes: &[u8]) -> f32 {
         (1.0 + fraction) * 2.0f32.powi(exponent - 15)
     }
 }
+
+fn half_ulp(value: f32) -> f32 {
+    let exponent = i32::try_from(value.abs().to_bits() >> 23).unwrap() - 127;
+    2.0f32.powi((exponent - 10).max(-24))
+}
+
+#[test]
+fn half_ulp_matches_adjacent_output_values() {
+    for bits in [0u16, 1, 0x0400, 0x3400, 0x361d, 0x3800, 0x3c00] {
+        let value = positive_half(&bits.to_le_bytes());
+        let next = positive_half(&(bits + 1).to_le_bytes());
+        assert_eq!(half_ulp(value).to_bits(), (next - value).to_bits());
+    }
+    assert!(half_ulp(0.382_075_43) > 0.0002);
+}
+
+fn absorption_error_bound(expected: f32, background: f32, scattering: f32) -> f32 {
+    // Allow one output ULP (including truncating conversions), plus rounding
+    // through depth, exp, scattering, composition and the multisample resolve.
+    let rounding = 16.0 * f32::EPSILON;
+    half_ulp(expected) + rounding / (1.0 - rounding) * (background.abs() + scattering.abs())
+}
+
 #[test]
 fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_samples() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
@@ -178,6 +201,8 @@ fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_sam
         .unwrap();
         let mut frame = FrameUniform::new(&fixture_view(), None).unwrap();
         frame.ambient_sky = glam::Vec3::new(0.5, 0.25, 0.125);
+        // Isolate absorption from the procedural normal's hemisphere weighting.
+        frame.ambient_ground = frame.ambient_sky;
         frame.sun_irradiance = glam::Vec3::ZERO;
         let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5);
         encoder.finish().submit().unwrap();
@@ -203,9 +228,10 @@ fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_sam
             let expected = background * transmission + scattering * (1.0 - transmission);
             let offset = center * 8 + channel * 2;
             let actual = positive_half(&output[offset..offset + 2]);
+            let bound = absorption_error_bound(expected, background, scattering);
             assert!(
-                (actual - expected).abs() < 0.0002,
-                "channel {channel}: {actual} versus {expected}"
+                (actual - expected).abs() <= bound,
+                "channel {channel} at {samples}x: {actual} versus {expected}, bound {bound}"
             );
         }
     }

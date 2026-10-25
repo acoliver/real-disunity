@@ -95,29 +95,57 @@ fn install_normal(
         Some(map.create_view(&wgpu::TextureViewDescriptor::default()));
 }
 
+fn surface_depth(frame: FrameUniform, inverse: glam::Mat4, x: f32, y: f32) -> f32 {
+    let unproject = |z| {
+        let point = inverse * glam::Vec4::new(x / 16.0 - 1.0, 1.0 - y / 16.0, z, 1.0);
+        point.truncate() / point.w
+    };
+    let near_point = unproject(0.0);
+    let far_point = unproject(1.0);
+    let point =
+        near_point + (far_point - near_point) * (-near_point.z / (far_point.z - near_point.z));
+    -(frame.view * point.extend(1.0)).z
+}
+
 fn shoreline_depths(frame: FrameUniform, foreground: bool, center: usize) -> Vec<u8> {
     let inverse = frame.view_projection.inverse();
-    let depths: Vec<_> = (0..1024)
+    (0..1024)
         .flat_map(|i| {
-            let pixel_x = f32::from(u16::try_from(i % 32).unwrap()) + 0.5;
-            let pixel_y = f32::from(u16::try_from(i / 32).unwrap()) + 0.5;
-            let unproject = |z| {
-                let point =
-                    inverse * glam::Vec4::new(pixel_x / 16.0 - 1.0, 1.0 - pixel_y / 16.0, z, 1.0);
-                point.truncate() / point.w
-            };
-            let near_point = unproject(0.0);
-            let far_point = unproject(1.0);
-            let point = near_point
-                + (far_point - near_point) * (-near_point.z / (far_point.z - near_point.z));
-            let surface = -(frame.view * point.extend(1.0)).z;
+            let x = f32::from(u16::try_from(i % 32).unwrap());
+            let y = f32::from(u16::try_from(i / 32).unwrap());
+            // Bound the entire pixel footprint, not just its centre: the oblique
+            // plane varies by more than 0.03 between MSAA sample positions.
+            let corners = [(x, y), (x + 1.0, y), (x, y + 1.0), (x + 1.0, y + 1.0)]
+                .map(|(x, y)| surface_depth(frame, inverse, x, y));
             let depth = if i == center {
                 50.0
+            } else if foreground {
+                corners.into_iter().fold(f32::INFINITY, f32::min) - 0.03
             } else {
-                surface + if foreground { -0.03 } else { 0.03 }
+                corners.into_iter().fold(f32::NEG_INFINITY, f32::max) + 0.03
             };
             depth.to_le_bytes()
         })
-        .collect();
-    depths
+        .collect()
+}
+
+#[test]
+fn shoreline_depth_ordering_covers_the_candidate_pixel_footprint() {
+    let frame = FrameUniform::new(&fixture_view(), None).unwrap();
+    let inverse = frame.view_projection.inverse();
+    let original = surface_depth(frame, inverse, 16.5, 16.5);
+    for (foreground, y) in [(true, 5u16), (false, 28)] {
+        let depths = shoreline_depths(frame, foreground, 16 * 32 + 16);
+        let pixel = usize::from(y) * 32 + 16;
+        let depth = f32::from_le_bytes(depths[pixel * 4..pixel * 4 + 4].try_into().unwrap());
+        assert_eq!(depth > original, foreground);
+        for dy in [0.0, 0.125, 0.375, 0.5, 0.625, 0.875, 1.0] {
+            let surface = surface_depth(frame, inverse, 16.5, f32::from(y) + dy);
+            assert_eq!(
+                depth < surface,
+                foreground,
+                "candidate row {y}, offset {dy}"
+            );
+        }
+    }
 }

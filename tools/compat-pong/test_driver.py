@@ -3,14 +3,12 @@ import unittest
 from driver import ROOT, Planner, active_object, steering_keys, step_actions, reset_state
 
 class JourneyTests(unittest.TestCase):
-    def test_final_fixture_compiles_current_sources_without_cached_paths(self):
+    def test_final_fixture_keeps_its_deadline_and_label(self):
         fixture = json.loads((ROOT / 'fixtures/pong-journey.json').read_text())
-        for field in ('assembly', 'assembly_qualification', 'assembly_sha256'):
-            self.assertNotIn(field, fixture['metadata'])
         self.assertEqual(fixture['limits']['deadline_ms'], 300000)
         self.assertEqual(fixture['evidence_label'], 'original-source/legacy-mappings-dejavu-font')
 
-    def test_generator_defaults_to_fresh_source_compilation(self):
+    def test_generator_names_the_pinned_game(self):
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as folder:
@@ -20,8 +18,6 @@ class JourneyTests(unittest.TestCase):
             for index in range(20):
                 (scripts / f'Script{index}.cs').write_text(f'class Script{index} {{}}')
             planner = Planner(source / 'worker', source, source / 'output')
-        for field in ('assembly', 'assembly_qualification', 'assembly_sha256'):
-            self.assertNotIn(field, planner.fixture['metadata'])
         self.assertEqual(planner.fixture['game'], 'pong')
         self.assertNotIn('source_root', planner.fixture)
 

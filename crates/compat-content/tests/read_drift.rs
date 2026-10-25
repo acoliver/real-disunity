@@ -1,7 +1,7 @@
 use std::{cell::Cell, fs, path::Path};
 use worldrunner_compat_content::{
     ContentSource, FileContentSource, ImportError, ImportProfile, ImportSidecar,
-    import_receipt_with_source,
+    import_content_with_source,
 };
 
 struct ChangingSource {
@@ -41,7 +41,7 @@ impl ContentSource for ChangingSource {
 }
 
 #[test]
-fn source_changed_after_content_read_is_rejected_before_receipt_publication() {
+fn source_changed_after_content_read_is_rejected_before_import_completes() {
     for change in [0, 1, 2] {
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir(temp.path().join("Assets")).unwrap();
@@ -59,7 +59,7 @@ fn source_changed_after_content_read_is_rejected_before_receipt_publication() {
             changed: Cell::new(false),
             change,
         };
-        let result = import_receipt_with_source(
+        let result = import_content_with_source(
             temp.path(),
             "Assets/Main.unity".as_ref(),
             &ImportProfile::default(),
@@ -91,7 +91,7 @@ fn unrelated_catalogue_additions_during_read_do_not_freeze_the_project() {
         changed: Cell::new(false),
         change: 3,
     };
-    let receipt = import_receipt_with_source(
+    let imported = import_content_with_source(
         temp.path(),
         "Assets/Main.unity".as_ref(),
         &ImportProfile::default(),
@@ -99,7 +99,7 @@ fn unrelated_catalogue_additions_during_read_do_not_freeze_the_project() {
         &source,
     )
     .unwrap();
-    assert_eq!(receipt.graph().nodes[0].name, "Original");
-    assert!(!receipt.sources().contains_key("Assets/Duplicate.unity"));
-    receipt.verify_current(temp.path()).unwrap();
+    assert_eq!(imported.graph().nodes[0].name, "Original");
+    assert!(!imported.sources().contains_key("Assets/Duplicate.unity"));
+    imported.verify_current(temp.path()).unwrap();
 }

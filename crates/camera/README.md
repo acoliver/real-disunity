@@ -10,7 +10,7 @@
 - `Viewport` is the existing camera-profile viewport type. Zero dimensions are errors. Resize updates the state and resolves a new immutable view.
 - `ViewConvention` retains its existing handedness field and serialization contract.
 
-The resolver does not reinterpret world axes or convert source units. All geometry, camera poses and query points must use the same coordinate frame. Governed scene documents remain Z-up millimetres. `SceneView` converts their integral camera positions to metres. Existing FreeFly/RTS methods retain their Y-up controller coordinates. A future explorer adapter must make its world-frame conversion explicit. The compatibility player's existing source Y-up metres conversion remains at its extraction boundary and is unchanged by this slice.
+The resolver does not reinterpret world axes or convert source units. All geometry, camera poses and query points must use the same coordinate frame. Governed scene documents remain Z-up millimetres. `SceneView` converts their integral camera positions to metres. Existing FreeFly/RTS methods retain their Y-up controller coordinates. A future explorer adapter must make its world-frame conversion explicit. The compatibility player converts source Y-up metres at its extraction boundary.
 
 ## Outputs and reconstruction coupling
 
@@ -44,12 +44,12 @@ Camera construction uses f64 inputs and intermediate view/projection arithmetic,
 
 The unchanged Orbit controller delegates to `SceneView::new`, so its views use this same resolver transitively.
 
-## Migration boundaries and evidence
+## Integration and tests
 
-The old camera API exposed only VP and position. The old SceneView independently built a right-handed view/projection and already supported explicit-up orthographic cameras. This slice consolidates their matrix construction and adds inverse, reconstruction, viewport and screen-query contracts. SceneView retains its historical f32 unit/angle input conversions; its former matrix construction/multiplication used f32 throughout, so matrix entries can change at rounding precision after consolidation.
+`SceneView` and camera controllers share matrix resolution, inverse, reconstruction, viewport and screen-query contracts. `SceneView` converts its f32 unit/angle inputs before resolution.
 
-Headless lavapipe tests compare asymmetric landmark pixels with CPU screen queries for perspective and orthographic lenses, both handedness conventions, and resize at 65x47 and 130x94. Captured pixels in the retained right-handed orthographic fixture are byte-identical before and after the SceneView change. This establishes a bounded regression result. Existing game captures retain their original provider identities; the current full-game providers were not rebuilt or requalified here.
+Headless [landmark tests](../worldrunner/tests/resolved_camera.rs) compare rendered pixels with CPU screen queries for perspective and orthographic lenses, both handedness conventions, and resized viewports.
 
 The facade exposes this contract through `worldrunner::scene::camera` with `default-features = false, features = ["scene"]`. The existing `gfx::worldrunner_camera` path remains available with `gfx`. The [facade consumer tests](../worldrunner/tests/resolved_camera.rs) execute shared planar queries, FreeFly/RTS reconstruction, and governed SceneView construction with scene-only features. Enabling `scene-viewer` additionally exercises Orbit drag, zoom, resize, inverse queries and ray intersection through the same facade.
 
-Live extraction consumers, session/snapshot/capture stamps, surface lifecycle, externally supplied render stages, and full REQ-09/11 migration acceptance remain separate slices. Detailed test logs and integration status are in [the camera status](../../.session/resumed-camera-status.md) and `.work/resumed-camera/`.
+The resolver owns camera mathematics. Window lifecycle and capture scheduling belong to the host and renderer. See the [compatibility architecture](../../docs/unity-compatibility-kit-architecture.md) for the player integration.

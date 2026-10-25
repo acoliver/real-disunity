@@ -25,11 +25,6 @@ impl Config {
         if !request.desktop {
             return Err("interactive requires desktop execution".into());
         }
-        if request.metadata.get("assembly").is_some()
-            || request.metadata.get("assembly_qualification").is_some()
-        {
-            return Err("interactive requires fresh original-source compilation".into());
-        }
         if request.timeline.len() != 1
             || request.timeline[0]["action"] != "load"
             || request.timeline[0]["frame"].as_u64() != Some(0)

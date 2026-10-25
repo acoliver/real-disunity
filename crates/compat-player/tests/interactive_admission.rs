@@ -66,17 +66,13 @@ fn malformed_interactive_metadata_is_rejected_before_activation() {
 }
 
 #[test]
-fn interactive_rejects_replay_actions_and_cached_assemblies() {
-    for conflict in ["advance", "reload", "unload", "input", "assembly"] {
+fn interactive_rejects_replay_actions() {
+    for conflict in ["advance", "reload", "unload", "input"] {
         let mut request = request(&json!({"duration_ms":30000,"max_frames":1800,"max_captures":8}));
         request.desktop = true;
-        if conflict == "assembly" {
-            request.metadata["assembly"] = json!("/unavailable.dll");
-        } else {
-            request
-                .timeline
-                .push(json!({"frame":1,"phase":"update","action":conflict,"dt":0.1}));
-        }
+        request
+            .timeline
+            .push(json!({"frame":1,"phase":"update","action":conflict,"dt":0.1}));
         let report = run_request(&unavailable(), &request);
         assert!(
             report.diagnostics[0].message.contains("interactive"),

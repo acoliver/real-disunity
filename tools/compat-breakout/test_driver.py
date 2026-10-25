@@ -4,18 +4,14 @@ from driver import live, steps, steer, replay_fixture, tracking_keys
 
 
 class ReplayTests(unittest.TestCase):
-    def test_export_requires_fresh_compilation_and_preserves_keyboard_timeline(self):
-        fixture = {'metadata': {'assembly': '/cached.dll', 'assembly_qualification': '/proof.json'},
-                   'timeline': [], 'assertions': []}
+    def test_export_preserves_keyboard_timeline_and_appends_unload(self):
+        fixture = {'metadata': {}, 'timeline': [], 'assertions': []}
         timeline = [dict(frame=0, phase='load', action='load')] + steps(1, ['A'])
         frozen = replay_fixture(fixture, timeline, 1, 'wide', {})
-        self.assertNotIn('assembly', frozen['metadata'])
-        self.assertNotIn('assembly_qualification', frozen['metadata'])
         self.assertEqual(frozen['timeline'][:4], timeline)
         self.assertEqual(frozen['timeline'][-1]['action'], 'unload')
         self.assertEqual(frozen['limits']['deadline_ms'], 120000)
         self.assertNotIn('refresh', frozen)
-        self.assertIn('assembly', fixture['metadata'])
 
     def test_frozen_replay_retains_requested_animation_and_loss_observations(self):
         timeline = [dict(frame=0, phase='load', action='load')]

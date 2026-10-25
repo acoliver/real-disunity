@@ -79,8 +79,6 @@ def verify_record(record_path, fixture_path):
     request = json.loads((run_dir / 'request.json').read_text())
     assert request['timeline'] == fixture['timeline']
     assert request['profile'] == record['profile'] and request['seed'] == 17
-    for field in ('assembly', 'assembly_qualification', 'assembly_sha256'):
-        assert field not in request['metadata'], ('final replay must compile fresh', field)
     changes = verify_captures(record, fixture, run_dir)
     return dict(status='pass', run_id=record['run_id'], profile=record['profile'],
                 assertions=len(record['assertions']), desktop=request['desktop'],

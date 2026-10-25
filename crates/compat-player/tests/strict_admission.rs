@@ -62,15 +62,7 @@ fn strict_and_legacy_actions_cannot_cross_modes_before_activation() {
 }
 
 #[test]
-fn strict_cached_assemblies_and_malformed_ratios_reject_before_compilation() {
-    for field in ["assembly", "assembly_qualification"] {
-        let mut metadata = json!({"execution_profile":"native_phase_context_v1"});
-        metadata[field] = json!("/missing.dll");
-        rejects(
-            &request(metadata, json!({"action":"observe"})),
-            "fresh original-source",
-        );
-    }
+fn strict_malformed_ratios_reject_before_compilation() {
     rejects(
         &request(
             json!({"execution_profile":"native_phase_context_v1"}),

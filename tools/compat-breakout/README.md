@@ -11,13 +11,13 @@ python3 tools/compat-display/run.py -- python3 tools/compat-breakout/replay.py \
   fixtures/breakout-journey-multiball-loss-compact.json --matrix \
   --harness target/debug/compat-kit \
   --output .work/breakout-replays/breakout-journey-multiball-loss-compact
-python3 tools/compat-breakout/qualify.py --replays .work/breakout-replays
+python3 tools/compat-breakout/check_journey.py --replays .work/breakout-replays
 python3 -m unittest discover -s tools/compat-breakout
 ```
 
 Repeat replay for controls-complete and wide-complete, using their corresponding fixture stems as output directory names. `--matrix` covers both compatibility profiles offscreen and desktop. Desktop requires the contained display harness; no fixed display number is assumed. The worker deadline remains 120 seconds and the wrapper bounds execution to 130 seconds. Existing outputs are never reused as cached acceptance.
 
-`qualify.py` directly checks all current scenario records, measured speed, layout, break sprites/removal, physical contacts, normal/wide clamps, width expiry, ball-loss identity preservation, fresh launch and renewed keyboard control. It compares decoded capture pixels between corresponding current runs and prints missing requirements. It writes no qualification hash or provenance receipt.
+`check_journey.py` directly checks all current scenario records, measured speed, layout, break sprites/removal, physical contacts, normal/wide clamps, width expiry, ball-loss identity preservation, fresh launch and renewed keyboard control. It compares decoded capture pixels between corresponding current runs and prints missing requirements.
 
 ## Generate a plan
 

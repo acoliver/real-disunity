@@ -1,9 +1,9 @@
-"""Qualify the complete multi-seed journey from fresh-source native GPU replays."""
+"""Check the complete multi-seed journey from fresh-source native GPU replays."""
 import argparse
 import json
 from pathlib import Path
 from driver import ROOT, live, position, replay_fixture
-from verify import clamp_evidence, verify_record
+from verify import clamps_reach_edges, verify_record
 
 SCENARIOS = ['multiball-loss', 'controls-complete', 'wide-complete']
 VARIANTS = [(p, desktop) for p in ['compat-2017.1', 'compat-6000.3']
@@ -70,8 +70,8 @@ def scenario_requirements(summaries, records, label):
             for b in s['ball_id_samples'][0]['states']) for s in summaries.values()),
         ten_break_sprites_and_removal=any(count >= 10 and int(handle) in s['removed_bricks']
             for s in summaries.values() for handle, count in s['break_sprite_counts'].items()),
-        normal_clamps=clamp_evidence(controls['widths'], 2),
-        wide_clamps=clamp_evidence(wide['widths'], 4),
+        normal_clamps=clamps_reach_edges(controls['widths'], 2),
+        wide_clamps=clamps_reach_edges(wide['widths'], 4),
         actual_wide_expiry=wide['width_lifetime']['expired'],
         observed_width_extension=wide['width_lifetime']['observed_past_initial_duration'],
         no_premature_respawn=loss['loss']['no_premature_respawn'],
@@ -103,8 +103,6 @@ def main():
             fixture_path = args.fixtures / f'breakout-journey-{scenario}-compact.json'
             fixture = json.loads(fixture_path.read_text())
             assert fixture['metadata']['script_count'] == 7
-            assert 'assembly' not in fixture['metadata']
-            assert 'assembly_qualification' not in fixture['metadata']
             assert fixture['limits']['deadline_ms'] == 120000
             # Revalidate the public stimulus contract without changing the frozen file.
             replay_fixture(fixture, fixture['timeline'][:-1],

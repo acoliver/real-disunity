@@ -4,13 +4,20 @@ The planner navigates from actual public food and native body observations. The 
 
 ## Run with explicit inputs
 
-Provide current worker/harness builds and an imported graph from the supported content tooling:
+Build the worker and harness, resolve the pinned original, and import a fresh graph for the planner. Run these commands from the repository root:
 
 ```sh
+cargo build -j 2 -p worldrunner-disunity-ffi -p compat-player -p compat-kit
+SNAKE=$(cargo run -j 2 -p worldrunner-original-games --bin original-games -- path snake)
+mkdir -p target/compat-inputs
+cargo run -j 2 -p worldrunner-compat-content --example import -- \
+  "$SNAKE" Assets/Scenes/GameScene.unity \
+  crates/compat-content/profiles/snake-source.json \
+  crates/compat-content/overlays/snake.json > target/compat-inputs/snake.json
 python3 -m unittest discover -s tools/compat-play
 python3 tools/compat-display/run.py -- python3 tools/compat-play/snake_journey.py run \
   --worker target/debug/compat-player \
-  --harness target/debug/compat-kit --graph .work/content/snake-ready.json \
+  --harness target/debug/compat-kit --graph target/compat-inputs/snake.json \
   --output .work/snake-plan --desktop --profile source-6000.3
 ```
 

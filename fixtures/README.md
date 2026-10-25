@@ -14,7 +14,7 @@ Smoke fixtures exercise load, input, advance, observations, capture, reload and 
 
 ## Source setup and checks
 
-Set `"game"` to `"snake"`, `"breakout"` or `"pong"`. The kit resolves sources through [worldrunner-original-games](../crates/original-games/README.md), which fetches the pinned revision into `target/original-games` and verifies HEAD and a clean checkout before use. No fixture can select an arbitrary source directory. Shipped workers use `{root}/target/debug/compat-player`, independently of the kit's build target directory. Discovery accepts executable fixtures only. Removed refresh and per-file source-hash fields are rejected.
+Set `"game"` to `"snake"`, `"breakout"` or `"pong"`. The kit resolves sources through [worldrunner-original-games](../crates/original-games/README.md), which fetches the pinned revision into `target/original-games` and verifies HEAD and a clean checkout before use. No fixture can select an arbitrary source directory. Shipped workers use `{root}/target/debug/compat-player`, independently of the kit's build target directory. Discovery accepts executable fixtures only. Unknown top-level fixture fields are rejected.
 
 ```sh
 target/debug/compat-kit fixture check

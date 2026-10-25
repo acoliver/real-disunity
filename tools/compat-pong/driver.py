@@ -47,17 +47,10 @@ def action(frame, verb, phase=None, **kwargs):
     return dict(frame=frame, phase=phase or verb, action=verb, **kwargs)
 
 
-def fresh_fixture(fixture):
-    result = copy.deepcopy(fixture)
-    for field in ('assembly', 'assembly_qualification', 'assembly_sha256'):
-        result['metadata'].pop(field, None)
-    return result
-
-
 class Planner:
     def __init__(self, worker, source, output):
         self.worker, self.work = worker, output
-        self.fixture = fresh_fixture(json.loads((ROOT / 'fixtures/pong.json').read_text()))
+        self.fixture = json.loads((ROOT / 'fixtures/pong.json').read_text())
         self.fixture['name'] = 'pong-journey'
         self.source = source
         self.fixture['metadata']['coverage'] = 'Keyboard-only physical paddle contacts, both goals, reset/wait/relaunch, repeated scoring and reload.'
@@ -293,7 +286,7 @@ class Planner:
         self.fixture['timeline'] = self.timeline + [action(self.frame + 1, 'unload')]
         self.fixture['assertions'] = assertions(self.checkpoints, self.fixture['evidence_label']) + getattr(self, 'tail_assertions', [])
         output = self.work / 'pong-journey.json'
-        output.write_text(json.dumps(fresh_fixture(self.fixture), indent=2) + '\n')
+        output.write_text(json.dumps(self.fixture, indent=2) + '\n')
         (self.work / 'planned-checkpoints.json').write_text(json.dumps(self.checkpoints))
         print('FROZEN', output, len(self.timeline), 'actions', len(self.fixture['assertions']), 'assertions', flush=True)
 

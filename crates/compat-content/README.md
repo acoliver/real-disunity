@@ -47,7 +47,7 @@ Script bindings retain application fields including private serialized fields, n
 
 Prefab source, correspondence, and instance field names are profile data. The default accepts both modern and 2017 names. Source-script field aliases are keyed by script GUID. Aliases apply when the stale field exists; an explicitly serialized current field wins and emits `field_alias_superseded`. `field_exclusions` maps a script GUID and stale field name to an explicit reason. It excludes only binding/native Script fields, preserves component/document source fields, and emits `source_field_excluded`.
 
-Observed source-specific conditions are recorded in [SOURCE-OBSERVATIONS.md](SOURCE-OBSERVATIONS.md). They must be reevaluated after fixture refresh. The importer has no branches that recognize project names.
+Observed source-specific conditions are recorded in [SOURCE-OBSERVATIONS.md](SOURCE-OBSERVATIONS.md). Check them again when the pinned originals or fixture mappings change. The importer has no branches that recognize project names.
 
 A sidecar field override matches source GUID/file ID/property path and requires a reason. Paths support nested mappings, `Array.size`, and `Array.data[N]`. Source prefab modifications apply first, then sidecar fields, then reference resolution. A reference substitution matches a missing/original GUID and optional file ID; its explicit replacement and reason appear in diagnostics. Hosts own any authored visual replacement associated with a `$builtin` label. Original source art remains unchanged. Explicit fallback declarations can supply separately authored pixels.
 
@@ -71,7 +71,7 @@ All objects allocate inactive. Implicit Transform component handles are read fro
 
 `AdmissionPolicy::default()` rejects unsupported participants. `ignored_components` maps exact component IDs or source kind names to omission reasons. `ignored_scripts` maps original script GUID:fileID to omission reasons. Required unresolved or dangling references, absent owners and invalid parent graphs fail preflight. A known asset GUID alone cannot validate a nonexistent serialized subasset ID. Every omitted component and reason is returned explicitly.
 
-Source-specific inputs are data in `profiles/{snake,breakout,pong}-source.json`, `profiles/{snake,breakout,pong}-admission.json` and `overlays/{snake,breakout,pong}.json`. The Breakout policy admits typed TilemapCollider2D collision. Its overlay explicitly selects sprite bounds for the original empty sprite physicsShape and labels the geometry fidelity. Unavailable render-pipeline/light extensions remain explicitly omitted. Native collision evidence does not establish managed gameplay. Pong explicitly overrides the serialized zero-scale Canvas sentinel to unit scale for native invertible TRS. Original source files remain unchanged.
+Source-specific inputs are data in `profiles/{snake,breakout,pong}-source.json`, `profiles/{snake,breakout,pong}-admission.json` and `overlays/{snake,breakout,pong}.json`. The Breakout policy admits typed TilemapCollider2D collision. Its overlay explicitly selects sprite bounds for the original empty sprite physicsShape and labels the geometry fidelity. Unavailable render-pipeline/light extensions remain explicitly omitted. Native collision tests exercise the solver independently of managed gameplay. Pong explicitly overrides the serialized zero-scale Canvas sentinel to unit scale for native invertible TRS. Original source files remain unchanged.
 
 Native component preparation includes body enum/mass/drag/gravity/angular/constraint fields and resolved physics material values. Tilemap fields include all original serialization plus `tiles` entries with `position`, `tile`, `sprite`, `color`, `matrix`, `object`, and `flags`, together with `grid`, `renderer`, `tile_anchor`, and `color`. TilemapCollider2D is prepared from the normalized Tilemap on the same owner, source tile collider enum, sprite subasset metadata and resolved PhysicsMaterial2D. Native fields are exactly `cell_size`, `cell_gap`, `tile_anchor`, `offset`, `is_trigger`, `material`, `cells`. Source enum 0/1/2 maps to none/sprite/grid. Cells retain integer XY positions and affine `[e00,e10,e01,e11,e03,e13]`. Nonplanar/perspective/singular source matrices reject admission. Authored physicsShape pixel vertices are divided by PPU into sprite-local world coordinates; simple concave outlines become convex pieces. Malformed shapes reject without fallback. When shapes are empty, `ImportSidecar.tile_collider_fallbacks` must explicitly select `geometry: "sprite_bounds"` for source collider GUID/file ID with a nonempty reason. The graph emits one `tile_collision_geometry_fallback` diagnostic with affected cell count and fidelity label. Bounds use original rect/PPU/pivot and perform no alpha tracing. Cell and generated-convex-shape budgets are 4096 each. Typed Text/Canvas/CanvasScaler/RectTransform fields match the native UI protocol. Hosts register an actual font under the imported Text `font` name, such as `host.builtin-font`.
 
@@ -99,9 +99,9 @@ Supported prefab operations include recursive instance expansion, original 2017/
 
 ## Owned source snapshots
 
-`import_receipt` returns a `ContentReceipt` holding the imported graph, the exact source bytes read, and its import profile and sidecar. `graph()` and `sources()` expose immutable views. `verify_current(root)` reimports with those same inputs and rejects changed source bytes or source inventory. A fresh import accepts current sources. `package_current` checks freshness before returning package inputs. `import_receipt_with_source` accepts an explicit `ContentSource` for controlled source reads.
+`import_content` returns a `ImportedContent` holding the imported graph, the exact source bytes read, and its import profile and sidecar. `graph()` and `sources()` expose immutable views. `verify_current(root)` reimports with those same inputs and rejects changed source bytes or source inventory. A fresh import accepts current sources. `package_current` checks freshness before returning package inputs. `import_content_with_source` accepts an explicit `ContentSource` for controlled source reads.
 
-Dependency policies, trusted-provider registration and translated-selection proofs are outside this crate. Materialization uses `AdmissionPolicy` directly and rejects unresolved metadata references without dependency-classification exemptions.
+Materialization uses `AdmissionPolicy` directly and rejects unresolved metadata references before issuing native commands.
 
 ## Verification
 
@@ -113,7 +113,7 @@ cargo +1.97.0 clippy -p worldrunner-original-games -p worldrunner-compat-content
 cargo +1.97.0 fmt -p worldrunner-original-games -p worldrunner-compat-content -- --check
 ```
 
-Tests resolve the read-only originals through `worldrunner_original_games::checkout`. Error and refresh tests copy selected assets into disposable temporary directories. They establish parsing, prefab expansion, graph references, canonical packaging, source drift rejection and materialization behavior.
+Tests resolve the read-only originals through `worldrunner_original_games::checkout`. Error and changed-source tests copy selected assets into disposable temporary directories. They establish parsing, prefab expansion, graph references, canonical packaging, source drift rejection and materialization behavior.
 
 The Python tests build their Rust examples, original-game fetcher and native shared library with two Cargo jobs. They fetch pinned originals through the CLI, import fresh graphs, and create temporary transport files under `CARGO_TARGET_DIR` (default `target/content`). Each test cleans up its files and native worlds. They require the Rust 1.97.0 toolchain and cached Cargo dependencies:
 

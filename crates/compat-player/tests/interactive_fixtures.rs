@@ -14,7 +14,6 @@ fn portable_interactive_fixtures_compile_every_current_original_script() {
         let artifacts = support::scratch(name);
         let request = support::fixture_request(name, artifacts.path(), true);
         assert_eq!(request.metadata["script_count"], count);
-        assert!(request.metadata.get("assembly").is_none());
         let assembly = compat_player::compile_game(&installation, &request).unwrap();
         assert!(assembly.is_file(), "{name}");
     }

@@ -1,6 +1,6 @@
 # Original sample admission observations
 
-These observations describe the pinned originals selected by `worldrunner-original-games`. Profiles and fixture sidecars should be checked again when the pins change. The importer accepts updated sources; source hashes identify imported content.
+These observations describe the pinned originals selected by `worldrunner-original-games`. Check [profiles and fixture sidecars](README.md#profiles-and-sidecars) again when the [original-game pins](../original-games/README.md) change. The importer accepts updated sources; source hashes identify imported content.
 
 ## Snake scene and missing visual
 
@@ -8,7 +8,7 @@ These observations describe the pinned originals selected by `worldrunner-origin
 
 Both `Assets/Visuals/FoodVisual.prefab` and `Assets/Visuals/SneakSegment.prefab` reference missing sprite GUID `311925a002f4447b3a28927169b83ea6`, file ID `7482667652216324306`. The source checkouts contain no corresponding texture. Fixtures may explicitly substitute a separately authored visual. The importer leaves the reference unresolved by default.
 
-A fixture-owned sidecar can declare the replacement identity below. Its host must supply actual authored visual content for the label before gameplay/render qualification. This declaration supplies no pixels:
+A fixture-owned sidecar can declare the replacement identity below. Its host must supply actual authored visual content for the label before rendering. This declaration supplies no pixels:
 
 ```json
 {
@@ -53,16 +53,16 @@ Diagnostics are deduplicated by source path/file ID/field/code/message. Identica
 
 The imported graph preserves field paths, source GUIDs, file IDs and component names. Counts establish import behavior. Native admission, script execution and rendering require host tests.
 
-## Resumed admission increment
+## Native admission mappings
 
-Authoritative reasoned overlays are now present in `overlays/{snake,breakout,pong}.json`; source and native admission profiles are in `profiles`. Snake's authored square includes bounded actual RGBA generation through `FallbackSprite::rgba8()` and leaves missing-original diagnostics visible. Breakout's absent 2D material explicitly selects the host unlit material while retaining original texels. Applied stale source field aliases emit diagnostics.
+Reasoned overlays are present in `overlays/{snake,breakout,pong}.json`; source and native admission profiles are in `profiles`. Snake's authored square includes bounded actual RGBA generation through `FallbackSprite::rgba8()` and leaves missing-original diagnostics visible. Breakout's absent 2D material explicitly selects the host unlit material while retaining original texels. Applied stale source field aliases emit diagnostics.
 
 Pong's original Canvas root RectTransform `2f4cefa539f44df40a7fe27b9fab654a:1901759440` serializes zero scale before engine-owned screen UI layout. The explicit overlay sets its three local scale axes to one because native TRS rejects noninvertible scale. Native UI computes evaluated root position/scale from the orthographic camera, viewport and CanvasScaler. Importer copies authored anchors and applies them after TRS so native position setters cannot overwrite their initial values. This is an explicit compatibility overlay, independent of game logic.
 
-Actual native transport evidence creates Snake 8 objects / 16 components, Breakout 12 / 33, and Pong 26 / 77, with template nodes native-inactive. Exact omitted component IDs/reasons remain in each materialization result. Breakout's policy now admits typed TilemapCollider2D. The source-bound overlay explicitly selects sprite_bounds for all 48 wall cells because original sprite physicsShape is empty. The material resolves to bounciness 1/friction 0. Six repeated native wall bounces, covered centers, clear interior and affine/clone tests pass; full managed-game physics remains unqualified. Native Tilemap receives all 48 authored cells, sprite references, source grid dimensions and renderer metadata. Pong's Text, RectTransform, Canvas and CanvasScaler now use typed native fields.
+The [native transport test](tests/native_transport.py) checks Snake 8 objects / 16 components, Breakout 12 / 33, and Pong 26 / 77, with template nodes native-inactive. Exact omitted component IDs/reasons remain in each materialization result. Breakout's policy admits typed TilemapCollider2D. The source-bound overlay explicitly selects sprite_bounds for all 48 wall cells because original sprite physicsShape is empty. The material resolves to bounciness 1/friction 0. The [native tile collision tests](tests/native_tile_collision.py) check repeated wall bounces, covered centers, clear interior and affine/clone behavior. Native Tilemap receives all 48 authored cells, sprite references, source grid dimensions and renderer metadata. Pong's Text, RectTransform, Canvas and CanvasScaler use typed native fields.
 
 Original reachable texture paths are `Assets/Images/space.png`, `Assets/Images/coconut.jpg`, `Assets/Images/spritesheet-breakout.png`, and Pong `Assets/Sprites/{Ball,Player}.png`. PNG dimensions and sprite metadata are imported; JPEG bytes/path are retained without a native JPEG pixel decoder in this crate. The host owns payload decoding and GPU upload.
 
 ## Current Breakout source profile exclusions
 
-Original Brick.cs declares frameTime and uses PowerUp.Instance.Apply(). Its serialized prefab retains powerUpChance=0.1 and widePlatformDuration=8. The exact source script GUID 57fc46ce82be2cd0284f27309fe6c2a6 has reasoned field_exclusions for those stale names. Both values remain in component/document source fields; script/native binding fields omit them and emit two source_field_excluded diagnostics. PowerUp.cs owns its current chance and duration fields. Ball.startSpeed -> speed remains unchanged. Production fixture metadata must be refreshed by its owner after these profile changes.
+Original Brick.cs declares frameTime and uses PowerUp.Instance.Apply(). Its serialized prefab retains powerUpChance=0.1 and widePlatformDuration=8. The exact source script GUID 57fc46ce82be2cd0284f27309fe6c2a6 has reasoned field_exclusions for those stale names. Both values remain in component/document source fields; script/native binding fields omit them and emit two source_field_excluded diagnostics. PowerUp.cs owns its current chance and duration fields. Ball.startSpeed -> speed remains unchanged. Fixture metadata selects these source mappings through the committed profile.

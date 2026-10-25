@@ -2,7 +2,7 @@ use crate::ImportError;
 use std::{fs, io::Read, path::Path};
 
 /// Bounded content reads supplied by the composition root. Implementations must be read-only
-/// and return at most `limit` bytes. The importer rechecks reads before publishing a receipt.
+/// and return at most `limit` bytes. The importer rechecks reads before returning imported content.
 pub trait ContentSource {
     fn read(&self, root: &Path, relative: &str, limit: usize) -> Result<Vec<u8>, ImportError>;
 }

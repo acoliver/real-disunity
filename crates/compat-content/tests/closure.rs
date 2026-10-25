@@ -114,10 +114,10 @@ fn environment_fixture(root: &Path) {
 }
 
 #[test]
-fn receipt_owns_transitive_metadata_payloads_and_unserialized_runtime_and_settings() {
+fn imported_content_owns_transitive_metadata_payloads_and_unserialized_runtime_and_settings() {
     let temp = fixture();
     environment_fixture(temp.path());
-    let receipt = worldrunner_compat_content::import_receipt(
+    let imported = worldrunner_compat_content::import_content(
         temp.path(),
         SCENE.as_ref(),
         &ImportProfile::default(),
@@ -133,27 +133,27 @@ fn receipt_owns_transitive_metadata_payloads_and_unserialized_runtime_and_settin
         "ProjectSettings/Settings.asset",
     ] {
         assert_eq!(
-            receipt.sources().get(path),
+            imported.sources().get(path),
             Some(&fs::read(temp.path().join(path)).unwrap()),
             "missing owned input {path}"
         );
     }
-    let old = receipt.sources()[SCENE].clone();
+    let old = imported.sources()[SCENE].clone();
     fs::write(
         temp.path().join(SCENE),
         "%YAML 1.1\n--- !u!1 &1\nGameObject:\n  m_Name: Future\n",
     )
     .unwrap();
     assert_eq!(
-        receipt.sources()[SCENE],
+        imported.sources()[SCENE],
         old,
-        "receipt exposed mutable bytes"
+        "imported content exposed mutable bytes"
     );
     assert!(
-        receipt.verify_current(temp.path()).is_err(),
-        "stale receipt adopted"
+        imported.verify_current(temp.path()).is_err(),
+        "stale imported content adopted"
     );
-    let fresh = worldrunner_compat_content::import_receipt(
+    let fresh = worldrunner_compat_content::import_content(
         temp.path(),
         SCENE.as_ref(),
         &ImportProfile::default(),
@@ -164,9 +164,9 @@ fn receipt_owns_transitive_metadata_payloads_and_unserialized_runtime_and_settin
 }
 
 #[test]
-fn receipt_rejects_additive_script_drift_but_fresh_import_accepts_it() {
+fn imported_content_rejects_additive_script_drift_but_fresh_import_accepts_it() {
     let temp = fixture();
-    let receipt = worldrunner_compat_content::import_receipt(
+    let imported = worldrunner_compat_content::import_content(
         temp.path(),
         SCENE.as_ref(),
         &ImportProfile::default(),
@@ -176,10 +176,10 @@ fn receipt_rejects_additive_script_drift_but_fresh_import_accepts_it() {
     fs::create_dir_all(temp.path().join("Assets/Scripts")).unwrap();
     fs::write(temp.path().join("Assets/Scripts/New.cs"), "class New {}\n").unwrap();
     assert!(
-        receipt.verify_current(temp.path()).is_err(),
+        imported.verify_current(temp.path()).is_err(),
         "additive source drift missed"
     );
-    let fresh = worldrunner_compat_content::import_receipt(
+    let fresh = worldrunner_compat_content::import_content(
         temp.path(),
         SCENE.as_ref(),
         &ImportProfile::default(),

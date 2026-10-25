@@ -74,8 +74,6 @@ def replay_fixture(fixture, timeline, frame, case, evidence, sample_frames=()):
                   timeline=copy.deepcopy(timeline) + [action(frame, 'unload')], assertions=[],
                   limits=dict(deadline_ms=120000, log_bytes=1048576,
                               artifact_bytes=268435456, capture_count=32))
-    for key in ['assembly', 'assembly_qualification']:
-        frozen['metadata'].pop(key, None)
     frozen['metadata']['coverage'] = evidence
     return frozen
 

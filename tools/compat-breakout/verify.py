@@ -5,7 +5,7 @@ from pathlib import Path
 from driver import ROOT, component, live, position, velocity
 
 
-def clamp_evidence(widths, width, limit=8):
+def clamps_reach_edges(widths, width, limit=8):
     edge = limit - width / 2
     return all(any(row['width'] == width and abs(row['x'] - sign * edge) <= .001
                    for row in widths) for sign in [-1, 1])

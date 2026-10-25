@@ -3,7 +3,7 @@ import argparse
 import copy
 import json
 from pathlib import Path
-from driver import ROOT, fresh_fixture
+from driver import ROOT
 from verify import contact, verify_wait
 
 
@@ -82,7 +82,7 @@ def main():
                     by_label[f'round-{i}-relaunched']['snapshot'], 2)
     if args.contact_record:
         fixture = align_record(fixture, args.contact_record)
-    fixture = fresh_fixture(fixture)
+    fixture = copy.deepcopy(fixture)
     path.write_text(json.dumps(fixture, indent=2) + '\n')
     print(json.dumps(dict(fixture=str(path), assertions=len(fixture['assertions']),
                          frames=max(a['frame'] for a in fixture['timeline']))))

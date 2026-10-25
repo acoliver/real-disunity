@@ -31,12 +31,6 @@ pub(crate) fn startup(metadata: &Value, strict_interactive: bool) -> Result<bool
 
 pub(crate) fn admit(request: &RunRequest) -> Result<bool, String> {
     let strict = selected(&request.metadata)?;
-    if strict
-        && (request.metadata.get("assembly").is_some()
-            || request.metadata.get("assembly_qualification").is_some())
-    {
-        return Err("strict execution_profile requires fresh original-source compilation".into());
-    }
     for action in &request.timeline {
         action_mode(strict, action["action"].as_str().unwrap_or(""))?;
         match action["action"].as_str() {

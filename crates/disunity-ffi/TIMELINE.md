@@ -2,11 +2,11 @@
 
 This additive native contract uses ABI 2, the existing 15 C exports and version-1 JSON envelopes. It implements exact frame admission and normalized input projections. The native authority remains in `Clock` and `Input`; the existing session owns thread affinity, generational lifetime, staging and retained request identities.
 
-The broader [REQ-04](../../project-plans/unity-tck/spec.md#req-04-shared-timeline-and-input) also requires callback scheduling, OS adapters, package settings and managed integration. Those requirements are outside this slice. S1 worlds retain their original endpoint policy. The separate [native phase-context increment](PHASE_CONTEXT.md) adds opt-in native-only phase credentials, host-driven order and pre-script fixed input. Native coroutine readiness and whole-game qualification remain unadvertised.
+The [phase-context contract](PHASE_CONTEXT.md) adds private phase credentials, host-driven order and pre-script fixed input. Its fixed projection occurs before FixedUpdate; standalone rational timeline worlds project fixed input during physics stepping. The [runtime architecture](../../docs/unity-compatibility-kit-architecture.md) describes managed and player integration.
 
 ## Rational values and clock selection
 
-A ratio is `{ "num": unsigned_integer, "den": unsigned_integer }`. Time values use seconds. `time_scale` is dimensionless. Input components must satisfy `num <= 9007199254740991` and `1 <= den <= 1000000000000`, before reduction. Results are reduced, with zero represented as `0/1`. Every intermediate stored result must fit these same bounds. Arithmetic uses checked nonnegative rational operations with bounded u128 intermediates; inexact fallback is forbidden. The phase-context increment expands the former 10^9 denominator ceiling to 10^12, preserving exact 1/60 plus integer nanoseconds (common denominator 3*10^9). Previous valid inputs remain valid. Denominator growth can still reject otherwise small elapsed times.
+A ratio is `{ "num": unsigned_integer, "den": unsigned_integer }`. Time values use seconds. `time_scale` is dimensionless. Input components must satisfy `num <= 9007199254740991` and `1 <= den <= 1000000000000`, before reduction. Results are reduced, with zero represented as `0/1`. Every intermediate stored result must fit these same bounds. Arithmetic uses checked nonnegative rational operations with bounded u128 intermediates; inexact fallback is forbidden. The 10^12 denominator ceiling supports exact 1/60 plus integer nanoseconds (common denominator 3*10^9). Denominator growth can still reject otherwise small elapsed times.
 
 New owner-thread operations:
 

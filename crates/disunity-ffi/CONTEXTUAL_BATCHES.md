@@ -1,12 +1,12 @@
 # Native Cleanup lifecycle batches
 
-`session.open` can select `native_contextual_lifecycle_batch_v1` on a fresh world. This is a native-only profile. Its descriptor reports `managed_integration:false` and `callback_batch_attestation:false`. Existing managed consumers do not select it.
+`session.open` can select `native_contextual_lifecycle_batch_v1` on a fresh world. Its descriptor reports `managed_integration:false` and `callback_batch_attestation:false`. A separately selected [managed consumer](../disunity-runtime/src/compatibility/callback_batches.rs) validates and dispatches the Cleanup envelope.
 
 The profile supports serial Initialize readiness and lifecycle-only Cleanup batches. It rejects frame advancement, routine operations, and registration of Start, Update, FixedUpdate or LateUpdate metadata. Contacts and nested execution are unsupported. Initialization uses the existing private readiness protocol, including its 4096 root-claim budget. Registration during Initialize returns `{binding}`; the binding is the native generation-checked component handle scoped by the exact current session. Old profiles still return `{}`.
 
 ## Authority and wire format
 
-Every callbacks operation requires the exact claimed private native Context. Host phase controls continue to require the separate host credential. Keep both credentials and all bindings private to the host or future managed adapter.
+Every callbacks operation requires the exact claimed private native Context. Host phase controls continue to require the separate host credential. Keep both credentials and all bindings private to the host or managed adapter.
 
 The native envelope is exactly:
 
@@ -18,7 +18,7 @@ Record = {binding,component,kind,payload:{}}
 
 `lease` projects the existing seven-field Context. In this envelope, lease integers, binding, component, callback_batch, and rational components use integer JSON up to 9007199254740991 or canonical unsigned decimal strings up to u64::MAX. Unsafe numeric integer tokens, signs, whitespace, exponents and leading-zero strings reject. The outer operation Context and existing readiness Decision/completion subprotocol retain their existing exact native-u64 JSON codec. Consumers of those private inherited fields must preserve integers without double conversion.
 
-For this slice, `root_phase` is `Cleanup`, `phase` is `destroy`, and `flags` is 1, meaning partial Cleanup lifecycle scope. `kind` is OnDisable or OnDestroy. `time` is `{numerator,denominator}` from the native rational timeline. Delta projections come from the current native clock without advancement and validate by parsed f32 bit equality. No host-generated time is accepted.
+In this profile, `root_phase` is `Cleanup`, `phase` is `destroy`, and `flags` is 1, meaning partial Cleanup lifecycle scope. `kind` is OnDisable or OnDestroy. `time` is `{numerator,denominator}` from the native rational timeline. Delta projections come from the current native clock without advancement and validate by parsed f32 bit equality. No host-generated time is accepted.
 
 ## Linear operations
 
@@ -31,7 +31,7 @@ For this slice, `root_phase` is `Cleanup`, `phase` is `destroy`, and `flags` is 
 | `readiness.complete {context,ticket,outcome}` | Completes the entered ticket and advances one batch cursor. `ok` and `failed` both count as attempts. The existing last-identical-completion acknowledgment remains idempotent. |
 | `callbacks.finish {context,batch}` | Closes a completely drained or natively cut batch. |
 
-On an ordering mismatch, native cuts the unexecuted suffix, retains at most one actual unentered selection, and returns `replan:true`. Finish the cut batch before asking for another envelope. The next envelope contains the retained decision alone. Entry revalidates priority through the same selector, retains that ticket identity if unchanged, and replaces a superseded selection without entering it. This path is defensive in the Cleanup-only scope: disabling or removing an already awakened component preserves its retained native Cleanup obligations and ordering. No dynamic-update priority qualification is claimed.
+On an ordering mismatch, native cuts the unexecuted suffix, retains at most one actual unentered selection, and returns `replan:true`. Finish the cut batch before asking for another envelope. The next envelope contains the retained decision alone. Entry revalidates priority through the same selector, retains that ticket identity if unchanged, and replaces a superseded selection without entering it. This path is defensive in the Cleanup-only scope: disabling or removing an already awakened component preserves its retained native Cleanup obligations and ordering. Dynamic Update callbacks are excluded from this profile.
 
 There is at most one pending envelope, at most 4096 records, at most 1 MiB of encoded envelope bytes, and at most 4096 issuances per root. Existing per-root execution claims remain separate. Direct Cleanup readiness.next/enter is forbidden in this profile. Pending batches block phase.finish and snapshot drain. Native Cleanup obligations must also drain before phase.finish. Terminal takeover revokes a pending batch and abandons uncertain entered tickets through the existing once-only recovery mechanism. The host must unwind external callback execution before takeover.
 
@@ -41,4 +41,4 @@ The request-size check precedes parsing. A streaming raw scan sees every operati
 
 Reservation, acceptance, entry, completion and finish are staged with the canonical world. Response admission failure commits no batch, ticket, flag or cursor transition. Process-wide checked identity allocation can leave unused generation gaps after rollback. Identities are never reused.
 
-A native-ticket entry is separate from invocation of a managed method. Native tests and C ABI probes establish native selection and linear authority only. CLR execution, managed failure aggregation, contact recipient batches, coroutine batches and full SPEC157/161 remain pending.
+A native-ticket entry authorizes one operation. The bridge invokes the managed method and completes the ticket, preserving callback failures for the host. [Native tests](tests/contextual_batches.rs) cover selection and linear authority; the [runtime consumer test](../disunity-runtime/tests/contextual_cleanup_consumer.rs) exercises Cdecl dispatch and cleanup. Contact and coroutine batches are unsupported.

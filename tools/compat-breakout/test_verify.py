@@ -5,12 +5,12 @@ from verify import summarize
 
 class EvidenceTests(unittest.TestCase):
     def test_clamp_evidence_requires_both_width_aware_edges(self):
-        from verify import clamp_evidence
-        self.assertFalse(clamp_evidence([dict(width=4, x=-7), dict(width=4, x=7)], 4))
-        self.assertFalse(clamp_evidence([dict(width=2, x=-7), dict(width=2, x=7)], 4))
-        self.assertFalse(clamp_evidence([dict(width=4, x=6)], 4))
-        self.assertTrue(clamp_evidence([dict(width=4, x=-6), dict(width=4, x=6)], 4))
-        self.assertTrue(clamp_evidence([dict(width=2, x=-7), dict(width=2, x=7)], 2))
+        from verify import clamps_reach_edges
+        self.assertFalse(clamps_reach_edges([dict(width=4, x=-7), dict(width=4, x=7)], 4))
+        self.assertFalse(clamps_reach_edges([dict(width=2, x=-7), dict(width=2, x=7)], 4))
+        self.assertFalse(clamps_reach_edges([dict(width=4, x=6)], 4))
+        self.assertTrue(clamps_reach_edges([dict(width=4, x=-6), dict(width=4, x=6)], 4))
+        self.assertTrue(clamps_reach_edges([dict(width=2, x=-7), dict(width=2, x=7)], 2))
 
     def test_width_evidence_requires_native_time_and_return_without_reload(self):
         from verify import width_evidence

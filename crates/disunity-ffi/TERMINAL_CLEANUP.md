@@ -1,8 +1,8 @@
 # Native terminal cleanup contract
 
-## Provider and scope
+## Capability and scope
 
-The additive capability is `native_terminal_cleanup_v1`, with ABI 2, protocol 1 and the existing 15 exports. The descriptor's `native_terminal_cleanup` object reports `managed_integration:false`, `closed_recovery:false`, `projection_policy:"freeze_current"`, `recovery_roots:1`, `readiness_ticket_reconciliation:true` and `max_readiness_claims:4096`. Existing phase, readiness and snapshot capabilities remain independent. This provider supplies native authority and native attempt accounting. CLR execution, managed ownership and runtime dispatch-depth enforcement require a matching consumer.
+The additive capability is `native_terminal_cleanup_v1`, with ABI 2, protocol 1 and the existing 15 exports. The descriptor's `native_terminal_cleanup` object reports `managed_integration:false`, `closed_recovery:false`, `projection_policy:"freeze_current"`, `recovery_roots:1`, `readiness_ticket_reconciliation:true` and `max_readiness_claims:4096`. Existing phase, readiness and snapshot capabilities remain independent. Native supplies authority and attempt accounting. The [runtime consumer](../disunity-runtime/src/compatibility/terminal.rs) handles managed ownership and dispatch-depth checks through the matching bridge.
 
 ## Wire operation
 
@@ -17,7 +17,7 @@ Status adds `terminal_cleanup:bool` and `terminal_recovery`, null outside termin
 - `execution_unknown`: the count of entered old tickets whose completion was abandoned. At most one ticket can be outstanding. This records uncertainty about execution and never certifies callback success.
 - `native_obligations`: `remaining_scripts`, `remaining_routines`, `claims`, `max_claims`, `attempts_drained`, and `outstanding_ticket`. Script counts represent records with remaining lifecycle obligations; a record may need both OnDisable and OnDestroy. These counts describe native records, with no CLR root-count assertion.
 
-Host keys and phase tokens occur only in private credential responses and requests. Status, errors, snapshots and Debug implementations expose neither credential. Retain private owned response bytes when transport receipt is uncertain. Copying the response does not execute the operation again.
+Host keys and phase tokens occur only in private credential responses and requests. Status, errors, snapshots and Debug implementations expose neither credential. Retain private owned response bytes when response delivery is uncertain. Copying the response does not execute the operation again.
 
 ## Admission and permanent terminality
 
@@ -63,4 +63,4 @@ Successful phase.finish requires exact claimed authority and drained native obli
 6. Finish only after the selected scheduler has drained. Aggregate primary, callback, cleanup, admission, transport and close errors with actual measured scripts/coroutines/bindings. Clear loaded ownership only after measured drain. Retain cleanup-pending ownership and reject reload when roots remain, even after native world destruction.
 7. Classify unsupported provider, already Closed, admission failure, transport uncertainty, budget exhaustion and incomplete cleanup separately. On lost private context, recover saved response bytes or close incomplete. Never reconstruct credentials from status, replay begin/claim execution, reopen Closed or fabricate a zero-dt frame.
 
-The historical 525 retained CLR-root failure and the 14 old-provider baseline probes remain unresolved managed evidence. Actual hostfxr/Cdecl failure recovery, iterator finally execution, failed partial binding, recursive host rejection and measured zero managed roots require the next runtime/managed lane. Native world drain alone proves none of those outcomes.
+The [runtime terminal tests](../disunity-runtime/src/compatibility/terminal_tests.rs) exercise hostfxr/Cdecl failure recovery, partial binding and measured managed-root cleanup. Native obligation counts and managed root counts are separate measurements. A host reports both before releasing ownership.

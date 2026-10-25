@@ -4,13 +4,13 @@ use worldrunner_asset_id::AssetVariant;
 use worldrunner_package::AssetInput;
 
 /// Owned read bundle. No native objects, simulation state or filesystem-backed buffers.
-pub struct ContentReceipt {
+pub struct ImportedContent {
     graph: ImportedScene,
     sources: BTreeMap<String, Vec<u8>>,
     profile: ImportProfile,
     sidecar: ImportSidecar,
 }
-impl ContentReceipt {
+impl ImportedContent {
     pub fn graph(&self) -> &ImportedScene {
         &self.graph
     }
@@ -19,7 +19,7 @@ impl ContentReceipt {
     }
     /// Reimport against current inputs before export/adoption. Future imports remain valid.
     pub fn verify_current(&self, root: &Path) -> Result<(), ImportError> {
-        let current = import_receipt(
+        let current = import_content(
             root,
             Path::new(&self.graph.scene),
             &self.profile,
@@ -44,24 +44,24 @@ impl ContentReceipt {
             .package_inputs(self.sources.clone(), variant, source_package)
     }
 }
-pub fn import_receipt(
+pub fn import_content(
     root: &Path,
     scene: &Path,
     profile: &ImportProfile,
     sidecar: &ImportSidecar,
-) -> Result<ContentReceipt, ImportError> {
-    import_receipt_with_source(root, scene, profile, sidecar, &crate::FileContentSource)
+) -> Result<ImportedContent, ImportError> {
+    import_content_with_source(root, scene, profile, sidecar, &crate::FileContentSource)
 }
 
-pub fn import_receipt_with_source(
+pub fn import_content_with_source(
     root: &Path,
     scene: &Path,
     profile: &ImportProfile,
     sidecar: &ImportSidecar,
     source: &dyn crate::ContentSource,
-) -> Result<ContentReceipt, ImportError> {
+) -> Result<ImportedContent, ImportError> {
     let (graph, sources) = crate::import_inner(root, scene, profile, sidecar, Some(source))?;
-    Ok(ContentReceipt {
+    Ok(ImportedContent {
         graph,
         sources,
         profile: profile.clone(),

@@ -1,6 +1,6 @@
 use serde_json::json;
 use std::{fs, path::Path};
-use worldrunner_compat_content::{ImportProfile, ImportSidecar, import_receipt};
+use worldrunner_compat_content::{ImportProfile, ImportSidecar, import_content};
 
 const SCENE: &str = "Assets/Main.unity";
 fn fixture() -> tempfile::TempDir {
@@ -18,8 +18,8 @@ fn fixture() -> tempfile::TempDir {
     .unwrap();
     temp
 }
-fn receipt(root: &Path) -> worldrunner_compat_content::ContentReceipt {
-    import_receipt(
+fn imported(root: &Path) -> worldrunner_compat_content::ImportedContent {
+    import_content(
         root,
         SCENE.as_ref(),
         &ImportProfile::default(),
@@ -44,7 +44,7 @@ fn helper_metadata_dependencies_are_transitive_and_payload_meta_drift_rejects_ex
     )
     .unwrap();
     for path in ["Assets/Bytes.bin", "Assets/Bytes.bin.meta"] {
-        let snapshot = receipt(temp.path());
+        let snapshot = imported(temp.path());
         assert!(
             snapshot.sources().contains_key(path),
             "missing transitive {path}"
@@ -93,7 +93,7 @@ fn closure_environment_bytes_and_entries_share_explicit_budgets() {
             ..ImportProfile::default()
         },
     ] {
-        let result = import_receipt(
+        let result = import_content(
             temp.path(),
             SCENE.as_ref(),
             &profile,
@@ -106,7 +106,7 @@ fn closure_environment_bytes_and_entries_share_explicit_budgets() {
     }
     for scene in ["../outside.unity", "/absolute.unity"] {
         assert!(
-            import_receipt(
+            import_content(
                 temp.path(),
                 scene.as_ref(),
                 &ImportProfile::default(),
@@ -137,7 +137,7 @@ fn metadata_runtime_and_parent_directory_symlinks_are_rejected() {
         }
         std::os::unix::fs::symlink(&target, &path).unwrap();
         assert!(
-            import_receipt(
+            import_content(
                 temp.path(),
                 SCENE.as_ref(),
                 &ImportProfile::default(),
@@ -153,7 +153,7 @@ fn metadata_runtime_and_parent_directory_symlinks_are_rejected() {
 fn overlays_pin_identity_schema_shape_and_optional_current_source_hash() {
     let temp = fixture();
     let before = fs::read(temp.path().join(SCENE)).unwrap();
-    let original = receipt(temp.path());
+    let original = imported(temp.path());
     let base = json!({"guid":"11111111111111111111111111111111", "file_id":1,
         "property_path":"shape", "value":{"x":3,"y":4}, "reason":"Explicit test geometry",
         "precondition":{"schema_version":1,"class_id":1,"expected_value":{"x":1,"y":2},
@@ -170,7 +170,7 @@ fn overlays_pin_identity_schema_shape_and_optional_current_source_hash() {
         *patch.pointer_mut(pointer).unwrap() = value;
         let sidecar = serde_json::from_value(json!({"field_overrides":[patch]})).unwrap();
         assert!(
-            import_receipt(
+            import_content(
                 temp.path(),
                 SCENE.as_ref(),
                 &ImportProfile::default(),
@@ -182,7 +182,7 @@ fn overlays_pin_identity_schema_shape_and_optional_current_source_hash() {
         assert_eq!(fs::read(temp.path().join(SCENE)).unwrap(), before);
     }
     let sidecar = serde_json::from_value(json!({"field_overrides":[base]})).unwrap();
-    let changed = import_receipt(
+    let changed = import_content(
         temp.path(),
         SCENE.as_ref(),
         &ImportProfile::default(),
@@ -211,7 +211,7 @@ fn settings_and_scene_share_the_total_document_budget() {
         max_documents: 2,
         ..ImportProfile::default()
     };
-    let result = import_receipt(
+    let result = import_content(
         temp.path(),
         SCENE.as_ref(),
         &profile,

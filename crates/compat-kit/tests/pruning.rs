@@ -1,9 +1,11 @@
+#[path = "support/root.rs"]
+mod root;
 use compat_kit::storage;
 use std::fs;
 
 #[test]
 fn pruning_reclaims_only_idle_owned_runs_and_preserves_live_leases() {
-    let root = tempfile::tempdir().unwrap();
+    let root = root::temporary();
     let old_run = storage::allocate(root.path()).unwrap();
     let old_path = old_run.path.clone();
     fs::write(old_path.join("result"), "old result").unwrap();
@@ -23,7 +25,7 @@ fn pruning_reclaims_only_idle_owned_runs_and_preserves_live_leases() {
 
 #[test]
 fn pruning_never_follows_symlinks_or_removes_original_game_storage() {
-    let root = tempfile::tempdir().unwrap();
+    let root = root::temporary();
     let unsafe_tree = storage::allocate(root.path()).unwrap();
     let unsafe_path = unsafe_tree.path.clone();
     let target = root.path().join("outside-harness");

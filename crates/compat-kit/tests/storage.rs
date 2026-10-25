@@ -1,10 +1,12 @@
+#[path = "support/root.rs"]
+mod root;
 use compat_kit::{RunControl, fixture, runner};
 use serde_json::json;
 use std::fs;
 
 #[test]
 fn worker_storage_cap_includes_hidden_directories_and_discards_oversized_outputs() {
-    let root = tempfile::tempdir().unwrap();
+    let root = root::temporary();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
     let data = json!({"schema_version":1,"name":"storage","game":"snake","profiles":["test"],"default_profile":"test","evidence_label":"harness-only",
         "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":["storage"]},
@@ -35,7 +37,7 @@ fn worker_storage_cap_includes_hidden_directories_and_discards_oversized_outputs
 
 #[test]
 fn broken_symlink_output_cannot_escape_worktree() {
-    let root = tempfile::tempdir().unwrap();
+    let root = root::temporary();
     fs::create_dir_all(root.path().join(".work")).unwrap();
     std::os::unix::fs::symlink(
         root.path().join("missing"),

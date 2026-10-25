@@ -1,5 +1,7 @@
 #[path = "support/http.rs"]
 mod http;
+#[path = "support/root.rs"]
+mod root;
 use http::{Server, exchange, root, snapshot};
 use serde_json::{Value, json};
 use std::{

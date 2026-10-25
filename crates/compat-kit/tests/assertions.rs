@@ -1,3 +1,5 @@
+#[path = "support/root.rs"]
+mod root;
 #[test]
 fn a_missing_pointer_in_the_latest_observation_or_event_cannot_be_hidden() {
     let worker: compat_kit::WorkerReport = serde_json::from_value(serde_json::json!({
@@ -26,9 +28,8 @@ use std::fs;
 
 #[test]
 fn real_protocol_observations_support_tolerance_changes_events_and_timeline_roundtrip() {
-    let temp = tempfile::tempdir().unwrap();
-    // Runs take the canonical root, as the CLI resolves it; macOS temp paths are symlinked.
-    let root = temp.path().canonicalize().unwrap();
+    let workspace = root::temporary();
+    let root = workspace.path();
     fs::create_dir_all(root.join("fixtures")).unwrap();
     let timeline = json!([
         {"frame":0,"phase":"load","action":"load"},
@@ -50,8 +51,8 @@ fn real_protocol_observations_support_tolerance_changes_events_and_timeline_roun
     fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
     let run = || {
         runner::run(
-            root.as_path(),
-            &fixture::load(root.as_path(), "protocol").unwrap(),
+            root,
+            &fixture::load(root, "protocol").unwrap(),
             None,
             false,
             &RunControl::default(),

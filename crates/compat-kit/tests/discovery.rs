@@ -1,3 +1,5 @@
+#[path = "support/root.rs"]
+mod root;
 use compat_kit::{Fixture, fixture};
 use serde_json::json;
 use std::{fs, path::Path};
@@ -9,7 +11,7 @@ fn specification() -> serde_json::Value {
 
 #[test]
 fn discovery_requires_executable_fixtures_for_every_json_file() {
-    let root = tempfile::tempdir().unwrap();
+    let root = root::temporary();
     let fixtures = root.path().join("fixtures");
     fs::create_dir(&fixtures).unwrap();
     let path = fixtures.join("anything.json");
@@ -21,7 +23,7 @@ fn discovery_requires_executable_fixtures_for_every_json_file() {
 
 #[test]
 fn fixture_sources_are_named_games_and_removed_configuration_is_rejected() {
-    let root = tempfile::tempdir().unwrap();
+    let root = root::temporary();
     let path = root.path().join("probe.json");
     fs::write(&path, specification().to_string()).unwrap();
     fixture::load(root.path(), path.to_str().unwrap()).unwrap();

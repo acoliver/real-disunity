@@ -1,3 +1,5 @@
+#[path = "support/root.rs"]
+mod root;
 use compat_kit::{RunControl, fixture, runner};
 use serde_json::{Value, json};
 use std::{
@@ -9,8 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn root(mode: &str) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
+fn root(mode: &str) -> root::Root {
+    let root = root::temporary();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
     let fixture = json!({"schema_version":1,"name":"harness-only","game":"snake","profiles":["test","unrun"],"default_profile":"test","evidence_label":"harness-only",
         "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":[mode]},"limits":{"deadline_ms":3000,"log_bytes":1024,"artifact_bytes":1_048_576,"capture_count":4},

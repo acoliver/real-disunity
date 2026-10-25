@@ -140,8 +140,8 @@ pub fn exchange(
         body: body.into(),
     }
 }
-pub fn root(mode: &str) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
+pub fn root(mode: &str) -> crate::root::Root {
+    let root = crate::root::temporary();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
     let fixture = json!({"schema_version":1,"name":"harness-only","game":"snake",
         "profiles":["test"],"default_profile":"test","evidence_label":"harness-only",

@@ -1,9 +1,11 @@
+#[path = "support/root.rs"]
+mod root;
 use compat_kit::dashboard;
 use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command};
 
-fn setup(mode: &str) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
+fn setup(mode: &str) -> root::Root {
+    let root = root::temporary();
     fs::create_dir_all(root.path().join("fixtures")).unwrap();
     let fixture = json!({"schema_version":1,"name":"probe","game":"snake",
         "profiles":["test","unrun"],"default_profile":"test","evidence_label":"harness-only",

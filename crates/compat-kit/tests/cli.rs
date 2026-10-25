@@ -1,30 +1,13 @@
 use compat_kit::Status;
 use serde_json::{Value, json};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
-use tempfile::TempDir;
+#[path = "support/root.rs"]
+mod root;
 
-/// A temporary workspace addressed by its canonical path, as the CLI resolves its root.
-/// macOS temporary directories sit behind the /var symlink.
-struct Root {
-    _temp: TempDir,
-    path: PathBuf,
-}
-impl Root {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
+use root::Root;
+use std::{fs, path::Path, process::Command};
 
 fn setup(mode: &str) -> Root {
-    let temp = tempfile::tempdir().unwrap();
-    let dir = Root {
-        path: temp.path().canonicalize().unwrap(),
-        _temp: temp,
-    };
+    let dir = root::temporary();
     fs::create_dir_all(dir.path().join("fixtures")).unwrap();
     let fixture = json!({
         "schema_version": 1, "name": "harness-only", "game": "snake",

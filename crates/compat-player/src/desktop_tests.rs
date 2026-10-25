@@ -9,6 +9,7 @@ use worldrunner::scene::{
 
 #[test]
 fn live_ticks_continue_after_load_and_os_input_advances_the_same_world() {
+    let _host = crate::one_host::one_host_at_a_time();
     let installation = crate::test_support::installation();
     let artifacts = crate::test_support::scratch("desktop-");
     let request = request(artifacts.path());

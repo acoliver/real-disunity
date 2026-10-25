@@ -22,6 +22,7 @@ fn sample(sequence: u64, pressed: bool) -> LiveInputSample {
 
 #[test]
 fn actual_strict_desktop_rejects_stall_without_mutation_or_losing_a_staged_tap() {
+    let _host = crate::one_host::one_host_at_a_time();
     let installation = crate::test_support::installation();
     let artifacts = crate::test_support::scratch("desktop-");
     let mut request = request(artifacts.path());
@@ -102,6 +103,7 @@ fn reject_malformed_batch(driver: &mut Desktop<'_>) {
 #[test]
 fn common_acquisition_clock_is_explicitly_selected_only_for_strict_desktop() {
     use worldrunner::scene::viewer::LiveClock;
+    let _host = crate::one_host::one_host_at_a_time();
     let installation = crate::test_support::installation();
     let artifacts = crate::test_support::scratch("desktop-");
     for strict in [false, true] {
@@ -226,6 +228,7 @@ fn check_spans(profile: worldrunner::scene::viewer::cpu_profile::CpuProfile) {
 
 #[test]
 fn elapsed_rejection_precedes_pending_timeline_load_and_invalid_input_batch() {
+    let _host = crate::one_host::one_host_at_a_time();
     let installation = crate::test_support::installation();
     let artifacts = crate::test_support::scratch("desktop-");
     let mut request = request(artifacts.path());

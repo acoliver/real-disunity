@@ -11,6 +11,7 @@ use worldrunner::scene::viewer::{
 
 #[test]
 fn presentation_startup_is_explicit_strict_interactive_and_exact() {
+    let _host = crate::one_host::one_host_at_a_time();
     let installation = crate::test_support::installation();
     let artifacts = crate::test_support::scratch("desktop-");
     let cases = [
@@ -71,6 +72,7 @@ fn tap(sequence: u64, pressed: bool) -> LiveInputSample {
 
 #[test]
 fn actual_initial_scene_extraction_never_advances_captures_or_submits_input() {
+    let _host = crate::one_host::one_host_at_a_time();
     let installation = crate::test_support::installation();
     let artifacts = crate::test_support::scratch("desktop-");
     let mut request = request(artifacts.path());

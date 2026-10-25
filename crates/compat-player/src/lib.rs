@@ -32,4 +32,7 @@ pub use worker::{run_request, run_worker};
 mod extraction_tests;
 
 #[cfg(test)]
+mod one_host;
+
+#[cfg(test)]
 mod test_support;

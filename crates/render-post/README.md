@@ -112,3 +112,25 @@ presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
 Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
 Licensed under the MIT License. The full copyright, permission and warranty
 notice is preserved in the shader file.
+
+### Numerical checks and informational timing
+
+The scalar f64 reference and f32 GPU kernels are compared with an absolute
+per-channel tolerance of 0.0001. HDR composition allows one 8-bit code step
+for attachment transfer and quantization. Fixtures cover constant fields,
+vertical and 45-degree edges, a steeper rasterized edge, full-range and
+mid-range checkerboards, single-pixel inputs, and odd extents. The EASU
+nearest-four clamp bounds each result; arbitrary rasterized slopes can have
+small reversals within those bounds.
+
+Run the informational timing test on the selected Vulkan device:
+
+```sh
+cargo test -p worldrunner-render-post gpu_post_chain_scale_timings_are_informational -- --nocapture
+```
+
+It reports three post-chain GPU samples for each of 0.5, 0.77 and 1.0 scale at
+320x180 output. Samples include tone mapping and enabled reconstruction/RCAS.
+The first sample can include driver warm-up. These timings have no performance
+threshold and exclude scene rendering. Linux CI selects Mesa lavapipe with
+`VK_ICD_FILENAMES` and `WGPU_BACKEND=vulkan`.

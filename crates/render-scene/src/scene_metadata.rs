@@ -12,6 +12,7 @@ pub(crate) struct Geometry {
     pub group: wgpu::BindGroup,
     pub ambient: wgpu::BindGroup,
     pub reflection: Option<ScenePipelines>,
+    pub forward: Option<(ScenePipelines, wgpu::BindGroup)>,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +66,7 @@ impl SceneMetadata {
                 group,
                 ambient,
                 reflection: None,
+                forward: None,
             },
             passes,
             uniform,

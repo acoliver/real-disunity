@@ -1,9 +1,12 @@
-//! Scheduled reflections add only the environment-specular lobe, currently zero in forward lighting.
+//! Scheduled opaque reflections with conservative final-scene depth traversal.
 use crate::frame::metadata::FrameProduct;
+mod final_depth;
+pub(crate) mod forward;
 mod gpu;
 mod metadata;
 #[cfg(test)]
 mod tests;
+pub(crate) mod water;
 use crate::{frame::FrameUniform, scene_metadata::SceneMetadata};
 use worldrunner_render_plan::{SceneSsao, SceneSsr};
 use worldrunner_render_post::{
@@ -15,6 +18,27 @@ pub(crate) fn validate_settings(settings: &SceneSsr) -> Result<(), FrameError> {
     settings.validate().map_err(|_| {
         FrameError::SsrSettings("steps, thickness, cutoff or resolution scale out of range")
     })
+}
+pub(crate) fn validate_extent(
+    config: FrameConfig,
+    settings: &SceneSsr,
+    limits: &wgpu::Limits,
+) -> Result<(), FrameError> {
+    let width = if settings.resolution_scale_micro == 500_000 {
+        config.size[0].div_ceil(2)
+    } else {
+        config.size[0]
+    };
+    if width
+        .checked_mul(config.samples)
+        .is_none_or(|width| width > limits.max_texture_dimension_2d)
+        || config.size[1] > limits.max_texture_dimension_2d
+    {
+        return Err(FrameError::SsrSettings(
+            "sample-packed radiance extent exceeds device texture limit",
+        ));
+    }
+    Ok(())
 }
 pub(crate) const fn neutral_ao() -> SceneSsao {
     SceneSsao {
@@ -42,21 +66,29 @@ fn resource(index: u32) -> ResourceRef {
 #[derive(Debug)]
 pub(crate) struct Ssr {
     pub settings: SceneSsr,
+    forward_products: [wgpu::Texture; 2],
+    pub environment: [wgpu::TextureView; 2],
+    pub composition: worldrunner_render_lighting::reflections::Composition,
     material: wgpu::Texture,
     material_depth: wgpu::Texture,
-    depth: wgpu::Texture,
+    source_depth: wgpu::Texture,
     normals: wgpu::Texture,
     hierarchy: Vec<wgpu::Texture>,
+    final_depth: final_depth::FinalDepth,
     reflections: Vec<wgpu::Texture>,
     uniform: wgpu::Buffer,
     trace: wgpu::RenderPipeline,
     reduce: wgpu::RenderPipeline,
     resolve: wgpu::RenderPipeline,
+    water_trace: wgpu::RenderPipeline,
+    water_resolve: wgpu::RenderPipeline,
 }
 impl Ssr {
     pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
         let mut textures = vec![&self.material, &self.material_depth];
+        textures.extend(self.forward_products.iter());
         textures.extend(self.reflections.iter());
+        textures.extend(self.final_depth.textures());
         textures
     }
 
@@ -67,58 +99,54 @@ impl Ssr {
         screen: &mut SceneMetadata,
     ) -> Result<Self, FrameError> {
         validate_settings(&settings)?;
+        validate_extent(config, &settings, &device.limits())?;
+        let environment = forward::install(device, config, screen);
         screen.geometry.reflection =
             Some(crate::scene_metadata::pipelines(device, &screen.uniform, true).0);
         // All geometry pipelines use the same explicit group layout as the normal prepass.
 
         let material = metadata::material_texture(device, config.size, screen)?;
-        let levels = screen.passes.depth_levels();
-        let hierarchy: Vec<_> = [0, 2, 4, 6]
-            .into_iter()
-            .map(|index| levels[index.min(levels.len() - 1)].clone())
-            .collect();
-        let mut extent = if settings.resolution_scale_micro == 500_000 {
-            config.size.map(|side| side.div_ceil(2))
-        } else {
-            config.size
-        };
-        let mut reflections = Vec::new();
-        loop {
-            reflections.push(crate::ssao::passes::texture(
-                device,
-                extent,
-                wgpu::TextureFormat::Rgba16Float,
-            ));
-            if extent == [1, 1] || reflections.len() == 6 {
-                break;
-            }
-            extent = extent.map(|side| side.div_ceil(2));
-        }
+        let final_depth = final_depth::FinalDepth::new(device, config.size, config.samples);
+        let hierarchy = final_depth.trace_levels();
+        let reflections = gpu::radiance_textures(device, config, settings.resolution_scale_micro);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("SSR camera"),
             size: 160,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let trace = gpu::pipeline(device, include_str!("ssr/trace.wgsl"), 1, false);
-        let reduce = gpu::pipeline(device, include_str!("ssr/reduce.wgsl"), 1, false);
+        let trace = gpu::pipeline(device, &gpu::trace_source(config.samples, false), 1, false);
+        let reduce = gpu::pipeline(device, &gpu::reduce_source(config.samples), 1, false);
         let resolve = gpu::pipeline(
             device,
-            &gpu::resolve_source(reflections.len()),
+            &gpu::sampled_resolve_source(reflections.len(), config.samples, false),
+            config.samples,
+            true,
+        );
+        let water_trace = gpu::pipeline(device, &gpu::trace_source(config.samples, true), 1, false);
+        let water_resolve = gpu::pipeline(
+            device,
+            &gpu::sampled_resolve_source(reflections.len(), config.samples, true),
             config.samples,
             true,
         );
         Ok(Self {
             settings,
+            environment,
+            forward_products: forward::products(device, config),
+            composition: worldrunner_render_lighting::reflections::Composition::Additive,
+            water_trace,
+            water_resolve,
             material_depth: crate::ssao::passes::texture(
                 device,
                 config.size,
                 wgpu::TextureFormat::Depth32Float,
             ),
             material,
-            depth: screen.depth.clone(),
+            source_depth: screen.passes.depth_levels()[0].clone(),
             normals: screen.normals.clone(),
             hierarchy,
+            final_depth,
             reflections,
             uniform,
             trace,
@@ -126,17 +154,39 @@ impl Ssr {
             resolve,
         })
     }
+    pub fn resized(
+        &self,
+        device: &wgpu::Device,
+        config: FrameConfig,
+        screen: &mut SceneMetadata,
+    ) -> Result<Self, FrameError> {
+        let mut replacement = Self::new(device, config, self.settings, screen)?;
+        replacement.environment.clone_from(&self.environment);
+        replacement.composition = self.composition;
+        let group = forward::group(device, screen, &replacement.environment);
+        screen
+            .geometry
+            .forward
+            .as_mut()
+            .expect("forward metadata")
+            .1 = group;
+        Ok(replacement)
+    }
     pub fn feature<'a>(
         &'a self,
-        _device: &wgpu::Device,
         frame: FrameUniform,
-        passes: &[PassDeclaration],
-        views: &[AttachmentView],
+        plan: (&[PassDeclaration], &[AttachmentView]),
         config: FrameConfig,
+        mut water: Option<water::Inputs>,
     ) -> Result<ReflectionFeature<'a>, FrameError> {
-        let color = crate::water::planning::opaque_source(passes, views, config, false)?.clone();
+        let color = crate::water::planning::opaque_source(plan.0, plan.1, config, false)?.clone();
+        if let Some(inputs) = &mut water {
+            inputs.depth =
+                crate::water::planning::opaque_source(plan.0, plan.1, config, true)?.resource();
+        }
         Ok(ReflectionFeature {
             ssr: self,
+            water,
             frame,
             color,
             groups: Vec::new(),
@@ -145,11 +195,65 @@ impl Ssr {
 }
 pub(crate) struct ReflectionFeature<'a> {
     ssr: &'a Ssr,
+    water: Option<water::Inputs>,
     frame: FrameUniform,
     color: AttachmentView,
     groups: Vec<wgpu::BindGroup>,
 }
 impl ReflectionFeature<'_> {
+    fn prepare_trace(&mut self, context: &PrepareContext<'_>) -> Result<(), FrameError> {
+        let ssr = self.ssr;
+        let snapshot = context.resource(ResourceRef::new("opaque snapshot color"))?;
+        let mut trace_inputs = vec![
+            snapshot.view().clone(),
+            ssr.normals
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+            ssr.material
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
+        trace_inputs.extend(
+            ssr.hierarchy
+                .iter()
+                .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
+        );
+        trace_inputs.push(self.ssr_source_depth());
+        trace_inputs.push(
+            context
+                .resource(
+                    FrameProduct::opaque_depth(self.color.texture().sample_count()).resource(),
+                )?
+                .view()
+                .clone(),
+        );
+        if let Some(water) = &self.water {
+            water.trace_views(context, &mut trace_inputs)?;
+        }
+        let trace_pipeline = if self.water.is_some() {
+            &ssr.water_trace
+        } else {
+            &ssr.trace
+        };
+        self.groups = vec![gpu::group(
+            context.device(),
+            trace_pipeline,
+            Some(&ssr.uniform),
+            &trace_inputs,
+        )];
+        for texture in ssr.reflections.iter().take(ssr.reflections.len() - 1) {
+            self.groups.push(gpu::group(
+                context.device(),
+                &ssr.reduce,
+                None,
+                &[texture.create_view(&wgpu::TextureViewDescriptor::default())],
+            ));
+        }
+        Ok(())
+    }
+    fn ssr_source_depth(&self) -> wgpu::TextureView {
+        self.ssr
+            .source_depth
+            .create_view(&wgpu::TextureViewDescriptor::default())
+    }
     fn trace_reads(&self) -> Vec<ResourceRef> {
         let ssr = self.ssr;
         let mut reads = vec![
@@ -157,18 +261,12 @@ impl ReflectionFeature<'_> {
             FrameProduct::normals().resource(),
             FrameProduct::material().resource(),
         ];
-        for level in [0, 2, 4, 6] {
-            let last = ssr
-                .depth
-                .width()
-                .max(ssr.depth.height())
-                .next_power_of_two()
-                .trailing_zeros();
-            reads.push(ResourceRef {
-                version: level.min(last),
-                ..ResourceRef::new("linear camera depth")
-            });
+        if let Some(water) = &self.water {
+            reads.extend(water::reads(water.depth));
         }
+        reads.extend(ssr.final_depth.reads());
+        reads.push(FrameProduct::linear_depth(0).resource());
+        reads.push(FrameProduct::opaque_depth(self.color.texture().sample_count()).resource());
         reads.sort();
         reads.dedup();
         reads
@@ -211,6 +309,12 @@ impl ReflectionFeature<'_> {
             effects: vec!["SSR"],
         };
         self.schedule_metadata(passes, views)?;
+        forward::schedule(&ssr.forward_products, passes, views)?;
+        declaration.passes.extend(ssr.final_depth.schedule(
+            self.color.texture().sample_count(),
+            passes,
+            views,
+        )?);
         for (index, texture) in ssr.reflections.iter().enumerate() {
             let index = u32::try_from(index).expect("bounded reflection levels");
             let slot = if index == 0 {
@@ -243,12 +347,16 @@ impl ReflectionFeature<'_> {
         feature.reads = (0..u32::try_from(ssr.reflections.len()).expect("bounded levels"))
             .map(resource)
             .collect();
+        feature.reads.extend(forward::resources());
         feature.reads.extend([
             FrameProduct::material().resource(),
             FrameProduct::normals().resource(),
             FrameProduct::opaque_depth(self.color.texture().sample_count()).resource(),
             FrameProduct::final_depth(self.color.texture().sample_count()).resource(),
         ]);
+        if let Some(water) = &self.water {
+            feature.reads.extend(water::reads(water.depth));
+        }
         declaration.passes.push(feature);
         Ok(declaration)
     }
@@ -256,37 +364,11 @@ impl ReflectionFeature<'_> {
 impl PreparedFeature for ReflectionFeature<'_> {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         let ssr = self.ssr;
-        let snapshot = context.resource(ResourceRef::new("opaque snapshot color"))?;
         let opaque_depth = context
             .resource(FrameProduct::opaque_depth(self.color.texture().sample_count()).resource())?;
         let final_depth = context
             .resource(FrameProduct::final_depth(self.color.texture().sample_count()).resource())?;
-        let mut trace_inputs = vec![
-            snapshot.view().clone(),
-            ssr.normals
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-            ssr.material
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-        ];
-        trace_inputs.extend(
-            ssr.hierarchy
-                .iter()
-                .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
-        );
-        self.groups = vec![gpu::group(
-            context.device(),
-            &ssr.trace,
-            Some(&ssr.uniform),
-            &trace_inputs,
-        )];
-        for texture in ssr.reflections.iter().take(ssr.reflections.len() - 1) {
-            self.groups.push(gpu::group(
-                context.device(),
-                &ssr.reduce,
-                None,
-                &[texture.create_view(&wgpu::TextureViewDescriptor::default())],
-            ));
-        }
+        self.prepare_trace(context)?;
         let mut resolve_inputs = vec![
             ssr.material
                 .create_view(&wgpu::TextureViewDescriptor::default()),
@@ -300,12 +382,27 @@ impl PreparedFeature for ReflectionFeature<'_> {
                 .iter()
                 .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
         );
+        resolve_inputs.extend(
+            ssr.forward_products
+                .each_ref()
+                .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
+        );
+        if let Some(water) = &self.water {
+            water.resolve_views(&mut resolve_inputs);
+        }
+        let resolve_pipeline = if self.water.is_some() {
+            &ssr.water_resolve
+        } else {
+            &ssr.resolve
+        };
         self.groups.push(gpu::group(
             context.device(),
-            &ssr.resolve,
+            resolve_pipeline,
             Some(&ssr.uniform),
             &resolve_inputs,
         ));
+        self.groups
+            .extend(ssr.final_depth.groups(context.device(), final_depth.view()));
         Ok(())
     }
     fn commit(&mut self, context: &mut PrepareContext<'_>) {
@@ -318,7 +415,7 @@ impl PreparedFeature for ReflectionFeature<'_> {
             gpu::scalar(self.ssr.settings.max_steps),
             gpu::scalar(self.ssr.settings.thickness_millimeters) / 1000.0,
             gpu::scalar(self.ssr.settings.roughness_cutoff_micro) / 1_000_000.0,
-            f32::from(u8::from(self.frame.unlit)),
+            f32::from(u8::from(self.frame.unlit || !self.ssr.settings.enabled)),
             gpu::scalar(self.color.size()[0]),
             gpu::scalar(self.color.size()[1]),
             if self.ssr.settings.resolution_scale_micro == 500_000 {
@@ -326,7 +423,10 @@ impl PreparedFeature for ReflectionFeature<'_> {
             } else {
                 1.0
             },
-            0.0,
+            f32::from(u8::from(
+                self.ssr.composition
+                    == worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment,
+            )),
         ]);
         context.upload_buffer(
             &self.ssr.uniform,
@@ -343,11 +443,32 @@ impl PreparedFeature for ReflectionFeature<'_> {
         pass: &mut wgpu::RenderPass<'_>,
     ) {
         let (pipeline, index) = match context.slot {
-            PassSlot::ReflectionTrace => (&self.ssr.trace, 0),
+            PassSlot::ReflectionTrace => (
+                if self.water.is_some() {
+                    &self.ssr.water_trace
+                } else {
+                    &self.ssr.trace
+                },
+                0,
+            ),
             PassSlot::ReflectionMip(index) => {
                 (&self.ssr.reduce, usize::try_from(index).expect("mip index"))
             }
-            PassSlot::ScreenSpaceAfterTransparent => (&self.ssr.resolve, self.groups.len() - 1),
+            PassSlot::ScreenSpaceAfterTransparent => (
+                if self.water.is_some() {
+                    &self.ssr.water_resolve
+                } else {
+                    &self.ssr.resolve
+                },
+                self.ssr.reflections.len(),
+            ),
+            PassSlot::ReflectionDepthPyramid(level) => {
+                let index = usize::try_from(level).expect("depth levels");
+                (
+                    self.ssr.final_depth.pipeline(index),
+                    self.ssr.reflections.len() + 1 + index,
+                )
+            }
             _ => unreachable!("reflection slot"),
         };
         pass.set_pipeline(pipeline);

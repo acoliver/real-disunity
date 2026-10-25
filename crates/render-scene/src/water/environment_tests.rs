@@ -49,7 +49,7 @@ fn prepared_environment_matches_replaceable_lobe_and_sample_receivers() {
             assert_eq!(&s[offset..offset + 8], &c[offset..offset + 8]);
             assert!(u16::from_le_bytes(s[offset..offset + 2].try_into().unwrap()) > 0);
             normals.push(n[offset..offset + 6].to_vec());
-            let f0 = numerical::positive_half(&m[offset..offset + 2]);
+            let f0 = numerical::positive_half(&m[offset + 4..offset + 6]);
             assert!((f0 - 0.02037).abs() < 0.00002);
         }
         if samples == 4 {

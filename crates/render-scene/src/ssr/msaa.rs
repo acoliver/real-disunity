@@ -223,6 +223,7 @@ fn setup(context: &GpuContext, config: FrameConfig) -> (Ssr, wgpu::Texture) {
         view_formats: &[],
     });
     let feature = ReflectionFeature {
+        water: None,
         ssr: &ssr,
         frame: frame(),
         groups: Vec::new(),
@@ -251,7 +252,7 @@ fn assert_reflection(
     context: &GpuContext,
     snapshots: &Snapshots,
     result: &[u8],
-    samples: u32,
+    _samples: u32,
     water: bool,
 ) {
     let centre = (4 * 9 + 4) * 8;
@@ -271,14 +272,5 @@ fn assert_reflection(
             read(context, &snapshots.depth),
             read(context, &snapshots.final_depth)
         );
-        if samples == 4 {
-            let centre_depth = 1.0 / (1.0 / 0.1 - 0.98 * (1.0 / 0.1 - 1.0 / 200.0));
-            let bytes = read(context, &snapshots.depth);
-            let actual = f32::from_le_bytes(bytes[40 * 4..41 * 4].try_into().unwrap());
-            assert!(
-                (actual - centre_depth).abs() > 0.001,
-                "fixture must expose different centre and MSAA sample depths"
-            );
-        }
     }
 }

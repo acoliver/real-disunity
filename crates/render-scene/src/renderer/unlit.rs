@@ -10,12 +10,17 @@ pub(super) fn build(
     layout: &PipelineLayout,
     buffers: &[Option<VertexBufferLayout<'_>>; 2],
     module: &wgpu::ShaderModule,
+    targets: &[Option<ColorTargetState>],
 ) -> RenderPipeline {
-    let alpha_targets = [Some(ColorTargetState {
+    let mut alpha_targets = targets.to_vec();
+    for target in alpha_targets.iter_mut().skip(1).flatten() {
+        target.write_mask = ColorWrites::empty();
+    }
+    alpha_targets[0] = Some(ColorTargetState {
         format: target.0,
         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
         write_mask: ColorWrites::ALL,
-    })];
+    });
     let tint_attributes = [wgpu::VertexAttribute {
         format: wgpu::VertexFormat::Float32x4,
         offset: 0,

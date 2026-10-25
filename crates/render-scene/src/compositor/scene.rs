@@ -62,6 +62,12 @@ impl PreparedFeature for SceneFeature<'_> {
                 ));
                 return;
             }
+            if let Some((pipelines, group)) = &screen.forward {
+                pass.set_bind_group(3, group, &[]);
+                self.publications
+                    .record(self.gpu.draw_color(pass, pipelines, None));
+                return;
+            }
             pass.set_bind_group(3, &screen.ambient, &[]);
         }
         self.publications

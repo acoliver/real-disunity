@@ -1,7 +1,7 @@
 //! Planar water reads immutable opaque snapshots and writes surface depth.
 mod geometry;
 pub(crate) mod planning;
-mod receivers;
+pub(crate) mod receivers;
 pub(crate) mod snapshots;
 pub(crate) mod surface;
 #[cfg(test)]

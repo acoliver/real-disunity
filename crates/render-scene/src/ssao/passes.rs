@@ -30,7 +30,7 @@ pub(crate) fn texture(
     })
 }
 
-pub(super) fn pipeline(device: &wgpu::Device, shader: &str) -> wgpu::RenderPipeline {
+pub(crate) fn pipeline(device: &wgpu::Device, shader: &str) -> wgpu::RenderPipeline {
     pipeline_format(device, shader, wgpu::TextureFormat::R32Float)
 }
 

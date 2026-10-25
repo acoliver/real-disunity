@@ -182,7 +182,11 @@ impl ScenePipelines {
         let vertex_attributes = vertex_attributes();
         let instance_attributes = instance_attributes();
         let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
-        let targets = color_targets(color_format);
+        let targets = if source.contains("struct ReflectionOutput") {
+            vec![color_targets(color_format)[0].clone(); 3]
+        } else {
+            color_targets(color_format).to_vec()
+        };
 
         let pipelines = build_objects(device, &layout, &buffers, &targets, samples, &module);
         groups[1] = Some(&terrain_layout);
@@ -213,7 +217,7 @@ impl ScenePipelines {
             terrain_layout,
             pipelines,
             terrain,
-            unlit_alpha: unlit::build(device, target, &layout, &buffers, &module),
+            unlit_alpha: unlit::build(device, target, &layout, &buffers, &module, &targets),
         }
     }
 

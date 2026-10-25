@@ -89,3 +89,8 @@ mod math_parity_gpu_tests;
 
 pub mod atmosphere;
 pub mod ibl;
+
+pub mod reflections;
+
+#[cfg(test)]
+mod reflections_tests;

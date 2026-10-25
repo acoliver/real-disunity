@@ -31,6 +31,7 @@ pub(super) fn resolve_capture(
     upload(context, &target, &[0.25, 0.125, 0.0625, 1.0].repeat(9));
     let color = AttachmentView::new(ResourceRef::new("scene color"), &target).unwrap();
     let mut feature = ReflectionFeature {
+        water: None,
         ssr: &ssr,
         frame: frame(),
         color,
@@ -96,6 +97,11 @@ fn resolve_inputs(ssr: &Ssr, final_depth: &wgpu::Texture) -> Vec<wgpu::TextureVi
         ssr.reflections
             .iter()
             .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
+    );
+    inputs.extend(
+        ssr.forward_products
+            .each_ref()
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
     );
     inputs
 }

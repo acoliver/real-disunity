@@ -111,18 +111,14 @@ impl FrameRenderer {
         if !matches!(samples, 1 | 4) {
             return Err(PostError::SampleCount(samples));
         }
-        if let Some(effects) = effects {
-            if let Some(settings) = effects.ssao() {
-                crate::ssao::validate_settings(settings)?;
-            }
-            crate::frame::validate_stock_effects(effects)
-                .map_err(|_| PostError::UnsupportedProfile("scene effects"))?;
-        }
-        if let Some(settings) = effects.and_then(|effects| effects.ssr()) {
-            crate::ssr::validate_settings(settings)?;
-        }
+        validate_hdr_effects(effects)?;
         let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
         config.validate_adapter(context.adapter())?;
+        validate_reflection_extent(
+            context.device(),
+            config,
+            effects.and_then(|effects| effects.ssr()),
+        )?;
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
@@ -175,6 +171,7 @@ impl FrameRenderer {
         size: [u32; 2],
     ) -> Result<(), FrameError> {
         if let Some(settings) = self.ssr_requested.filter(|settings| settings.enabled) {
+            crate::ssr::validate_extent(self.targets().config(), &settings, &device.limits())?;
             if self.ssao.is_none() {
                 self.ssao = Some(crate::scene_metadata::SceneMetadata::new(
                     device,
@@ -364,6 +361,8 @@ impl FrameRenderer {
     }
     /// Submitted per-sample water receivers: view normal and water flag (alpha),
     /// dielectric F0 and roughness, and replaceable linear environment specular.
+    /// Sample-frequency normal/coverage, material (pixel offsets RG, scalar F0 B,
+    /// roughness A), and environment specular (camera transmittance A).
     pub fn water_receivers(
         &self,
     ) -> Option<(wgpu::TextureView, wgpu::TextureView, wgpu::TextureView)> {
@@ -378,6 +377,45 @@ impl FrameRenderer {
                     specular.create_view(&wgpu::TextureViewDescriptor::default()),
                 )
             })
+    }
+    /// Install shared linear environment maps and select environment replacement for SSR.
+    pub fn set_reflection_environment(
+        &mut self,
+        device: &wgpu::Device,
+        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+    ) -> Result<(), crate::sky::preparation::PreparationError> {
+        let (cube, lut) = maps.views()?;
+        self.ssr
+            .as_mut()
+            .expect("SSR must be installed")
+            .environment = [cube.clone(), lut.clone()];
+        let screen = self.ssao.as_mut().expect("SSR metadata must be installed");
+        let group = crate::ssr::forward::group(device, screen, &[cube.clone(), lut.clone()]);
+        screen
+            .geometry
+            .forward
+            .as_mut()
+            .expect("SSR forward pipelines")
+            .1 = group;
+        self.ssr
+            .as_mut()
+            .expect("SSR must be installed")
+            .composition =
+            worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment;
+        if let Some(water) = &mut self.water {
+            water.environment = [cube, lut];
+        }
+        Ok(())
+    }
+    /// Select the reflection composition algorithm explicitly.
+    pub fn set_reflection_composition(
+        &mut self,
+        composition: worldrunner_render_lighting::reflections::Composition,
+    ) {
+        self.ssr
+            .as_mut()
+            .expect("SSR must be installed")
+            .composition = composition;
     }
     /// Install R7's submitted, prefiltered cube and integrated BRDF LUT.
     pub fn set_water_environment(
@@ -417,12 +455,12 @@ impl FrameRenderer {
         device: &wgpu::Device,
         size: [u32; 2],
     ) -> Result<bool, worldrunner_render_post::PostError> {
-        FrameConfig::new(
+        let config = FrameConfig {
             size,
-            self.targets().config().format,
-            self.targets().config().samples,
-        )
-        .validate(&device.limits())?;
+            ..self.targets().config()
+        };
+        validate_reflection_extent(device, config, self.ssr.as_ref().map(|ssr| &ssr.settings))?;
+        config.validate(&device.limits())?;
         let mut replacement = self
             .ssao
             .as_ref()
@@ -445,13 +483,12 @@ impl FrameRenderer {
             .transpose()?;
         let reflection =
             if let (Some(screen), Some(ssr)) = (replacement.as_mut(), self.ssr.as_ref()) {
-                Some(crate::ssr::Ssr::new(
+                Some(ssr.resized(
                     device,
                     FrameConfig {
                         size,
                         ..self.targets().config()
                     },
-                    ssr.settings,
                     screen,
                 )?)
             } else {
@@ -558,7 +595,10 @@ impl FrameRenderer {
         frame: crate::frame::FrameUniform,
         shadow: Option<&wgpu::BindGroup>,
         encoder: &wgpu::CommandEncoder,
-    ) {
+    ) -> Result<(), FrameError> {
+        if let Some(water) = &self.water {
+            crate::water::surface::validate_inputs(water)?;
+        }
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         self.water_state.borrow_mut().feature = self.water.as_ref().map(|water| {
             water.feature(
@@ -568,6 +608,7 @@ impl FrameRenderer {
                 shadow,
             )
         });
+        Ok(())
     }
     /// Camera-aware composition for stock and external features, including
     /// declaration-requested snapshots. The optional binding supplies shared shadows.
@@ -579,16 +620,13 @@ impl FrameRenderer {
         features: &mut [BorrowedFeature<'_>],
         input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
     ) -> Result<(), FrameError> {
-        if let Some(water) = &self.water {
-            crate::water::surface::validate_inputs(water)?;
-        }
         let config = self.targets().config();
         let (frame, shadow) = input;
         let (passes, views) = plan;
         let mut passes = passes.to_vec();
         let mut views = views.to_vec();
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
-        self.set_water_input(device, frame, shadow, encoder);
+        self.set_water_input(device, frame, shadow, encoder)?;
         let mut combined = reborrow_features(features);
         let mut screen = self
             .ssao
@@ -601,10 +639,14 @@ impl FrameRenderer {
                 prepared: screen,
             });
         }
+        let water = self
+            .water
+            .as_ref()
+            .map(|water| crate::ssr::water::Inputs::new(water, self.frame_slot));
         let mut reflection = self
             .ssr
             .as_ref()
-            .map(|ssr| ssr.feature(device, frame, &passes, &views, self.targets().config()))
+            .map(|ssr| ssr.feature(frame, (&passes, &views), config, water))
             .transpose()?;
         if let Some(reflection) = &mut reflection {
             let declaration = reflection.schedule(&mut passes, &mut views)?;
@@ -789,4 +831,31 @@ fn encode_planned(
         },
         features,
     )
+}
+
+fn validate_reflection_extent(
+    device: &wgpu::Device,
+    config: FrameConfig,
+    settings: Option<&worldrunner_render_plan::SceneSsr>,
+) -> Result<(), FrameError> {
+    if let Some(settings) = settings.filter(|settings| settings.enabled) {
+        crate::ssr::validate_extent(config, settings, &device.limits())?;
+    }
+    Ok(())
+}
+
+fn validate_hdr_effects(
+    effects: Option<&worldrunner_render_plan::SceneEffects>,
+) -> Result<(), PostError> {
+    if let Some(effects) = effects {
+        if let Some(settings) = effects.ssao() {
+            crate::ssao::validate_settings(settings)?;
+        }
+        crate::frame::validate_stock_effects(effects)
+            .map_err(|_| PostError::UnsupportedProfile("scene effects"))?;
+    }
+    if let Some(settings) = effects.and_then(|effects| effects.ssr()) {
+        crate::ssr::validate_settings(settings)?;
+    }
+    Ok(())
 }

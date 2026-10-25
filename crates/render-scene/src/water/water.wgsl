@@ -83,5 +83,7 @@ fn water_camera_transmittance(position: vec3<f32>) -> f32 {
     // The snapshot already contains camera fog. Preserve its transmitted share,
     // and fog only the water's newly added scattering and reflection.
     let color = rd_compose_water_fog(background, transmission, scattering, specular, air, fog);
-    return WaterOutput(vec4<f32>(color, 1.0), vec4<f32>(normalize((water.view * vec4<f32>(normal, 0.0)).xyz), 1.0), vec4<f32>(vec3<f32>(0.02037), roughness), vec4<f32>(specular * air, 1.0));
+    let receiver_clip = water.clip * vec4<f32>(input.world, 1.0);
+    let receiver_pixel = (receiver_clip.xy / receiver_clip.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5)) * vec2<f32>(size);
+    return WaterOutput(vec4<f32>(color, 1.0), vec4<f32>(normalize((water.view * vec4<f32>(normal, 0.0)).xyz), 1.0), vec4<f32>(receiver_pixel - floor(input.position.xy), 0.02037, roughness), vec4<f32>(specular * air, air));
 }

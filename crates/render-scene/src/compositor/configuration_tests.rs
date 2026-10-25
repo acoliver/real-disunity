@@ -260,3 +260,82 @@ fn clear_scene(encoder: &mut wgpu::CommandEncoder, renderer: &ConfiguredFrameRen
         ..Default::default()
     });
 }
+
+#[test]
+fn reflection_maps_and_composition_survive_both_replacement_paths() {
+    use crate::sky::preparation::EnvironmentPreparation;
+    use worldrunner_render_lighting::reflections::Composition;
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let preparation = EnvironmentPreparation {
+        cube_size: 2,
+        mip_count: 2,
+        lut_size: 1,
+        samples: 8,
+    };
+    let maps = reflection_maps(&context, preparation);
+    let views = maps.views().unwrap();
+    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    settings.ssr = Some(worldrunner_render_plan::SceneSsr {
+        enabled: true,
+        max_steps: 64,
+        thickness_millimeters: 100,
+        roughness_cutoff_micro: 600_000,
+        resolution_scale_micro: 1_000_000,
+    });
+    let base = settings
+        .allocations()
+        .validate(&context.device().limits())
+        .unwrap();
+    let external = preparation
+        .allocations()
+        .unwrap()
+        .validate(&context.device().limits())
+        .unwrap();
+    settings.additional = preparation.allocations().unwrap();
+    assert_eq!(
+        settings
+            .allocations()
+            .validate(&context.device().limits())
+            .unwrap(),
+        base + external
+    );
+    let mut renderer =
+        ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(100_000))
+            .unwrap();
+    renderer
+        .set_reflection_environment(context.device(), &maps)
+        .unwrap();
+    let current = renderer.state.current_mut();
+    current.resize(context.device(), [7, 5]).unwrap();
+    let ssr = current.ssr.as_ref().unwrap();
+    assert_eq!(ssr.environment[0].texture(), views.0.texture());
+    assert_eq!(ssr.environment[1].texture(), views.1.texture());
+    assert_eq!(ssr.composition, Composition::ReplaceEnvironment);
+    settings.frame.size = [9, 7];
+    renderer.reconfigure(&context, settings).unwrap();
+    let ssr = renderer.state.current().ssr.as_ref().unwrap();
+    assert_eq!(ssr.environment[0].texture(), views.0.texture());
+    assert_eq!(ssr.environment[1].texture(), views.1.texture());
+    assert_eq!(ssr.composition, Composition::ReplaceEnvironment);
+}
+
+fn reflection_maps(
+    context: &GpuContext,
+    preparation: crate::sky::preparation::EnvironmentPreparation,
+) -> crate::sky::preparation::PreparedEnvironmentMaps {
+    use crate::sky::preparation::encode;
+    let source = crate::water::receivers::empty_environment(context.device());
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let maps = encode(
+        context.device(),
+        &mut encoder,
+        &source[0],
+        preparation,
+        AllocationBudget(4096),
+    )
+    .unwrap();
+    encoder.finish().submit().unwrap();
+    maps
+}

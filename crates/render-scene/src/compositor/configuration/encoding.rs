@@ -34,6 +34,23 @@ impl ConfiguredFrameRenderer {
     ) -> Result<(), crate::sky::preparation::PreparationError> {
         self.state.current_mut().set_water_environment(maps)
     }
+    pub fn set_reflection_environment(
+        &mut self,
+        device: &wgpu::Device,
+        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+    ) -> Result<(), crate::sky::preparation::PreparationError> {
+        self.state
+            .current_mut()
+            .set_reflection_environment(device, maps)
+    }
+    pub fn set_reflection_composition(
+        &mut self,
+        composition: worldrunner_render_lighting::reflections::Composition,
+    ) {
+        self.state
+            .current_mut()
+            .set_reflection_composition(composition);
+    }
     pub fn water_receivers(
         &self,
     ) -> Option<(wgpu::TextureView, wgpu::TextureView, wgpu::TextureView)> {

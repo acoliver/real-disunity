@@ -3957,6 +3957,7 @@ dependencies = [
  "worldrunner-world-model",
  "worldrunner-world-runtime",
  "worldrunner-world-schema",
+ "worldrunner-world-simulation",
 ]
 
 [[package]]
@@ -4096,8 +4097,10 @@ dependencies = [
 name = "worldrunner-world-simulation"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "glam",
  "thiserror 2.0.21",
+ "ttf-parser",
 ]
 
 [[package]]

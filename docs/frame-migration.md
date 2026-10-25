@@ -2,7 +2,7 @@
 
 Consumers moving from the earlier renderer must rebuild their CPU documents and GPU pipelines together. The render contract is version 4 and the material payload is version 2. Old serialized documents require explicit conversion before loading; the engine does not reinterpret an older version. Keep the required camera, lighting and material fields. Optional complete effect recipes remain opt-in and are validated even when their weights are zero.
 
-The stock packed vertex stride is 36 bytes and the instance stride is 64 bytes. Use `geometry::VERTEX_STRIDE`, `geometry::INSTANCE_STRIDE` and the engine packing helpers instead of an older host layout. Rebuild vertex layouts and buffers together. Scene coordinates are Z-up metres on the GPU, converted from integer millimetres at the CPU boundary. Materials carry the texture and scalar inputs used by the forward and metadata pipelines; regenerate version-2 payloads through the material API rather than copying earlier bytes.
+The stock packed vertex stride is 40 bytes and the instance stride is 80 bytes. Use `geometry::VERTEX_STRIDE`, `geometry::INSTANCE_STRIDE` and the engine packing helpers instead of an older host layout. Rebuild vertex layouts and buffers together. Scene coordinates are Z-up metres on the GPU, converted from integer millimetres at the CPU boundary. Materials carry the texture and scalar inputs used by the forward and metadata pipelines; regenerate version-2 payloads through the material API rather than copying earlier bytes.
 
 ## Document conversion: v2 to v3 to v4
 
@@ -87,7 +87,7 @@ v4["effects"]["water"].update(
 assert v4 == json.loads((fixtures / "render-contract-v4.json").read_text())
 ```
 
-Material payload v2 and the 36-byte vertex / 64-byte instance strides are unchanged from baseline `3f82ffca`. Reuse matching packing helpers rather than treating those layouts as new in this migration.
+Material payload v2 now uses a 112-byte uniform; packed vertices use 40 bytes and instances use 80 bytes. Reuse matching packing helpers rather than treating those layouts as new in this migration.
 
 Shadow `extent_millimeters` values remain coverage-box extents, not camera far-split distances. Retaining them preserves coverage semantics. To opt into camera splits, construct `SceneShadowCascades::camera_splits(distances_millimeters, blend_band_micro)` explicitly. Distances must increase, exceed the camera near plane and not exceed its far plane. Do not reinterpret old extents as splits by changing only an envelope version.
 

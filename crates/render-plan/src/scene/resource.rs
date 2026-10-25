@@ -315,6 +315,8 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    translucency_micro: u32,
+    terrain_contact: Option<super::SceneTerrainContact>,
     features: Option<super::SceneMaterialFeatures>,
     albedo: TextureHandle,
     normal: Option<TextureHandle>,
@@ -328,6 +330,24 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    /// Fraction of backlighting transmitted through a thin surface.
+    pub fn with_translucency(mut self, value: u32) -> Result<Self, SceneValidationError> {
+        require_unit_range("foliage translucency", u64::from(value))?;
+        self.translucency_micro = value;
+        Ok(self)
+    }
+    pub const fn translucency_micro(&self) -> u32 {
+        self.translucency_micro
+    }
+    #[must_use]
+    pub const fn with_terrain_contact(mut self, value: super::SceneTerrainContact) -> Self {
+        self.terrain_contact = Some(value);
+        self
+    }
+    pub const fn terrain_contact(&self) -> Option<super::SceneTerrainContact> {
+        self.terrain_contact
+    }
+
     /// Attaches typed inputs without changing any base material channel.
     pub fn with_features(
         mut self,
@@ -351,6 +371,8 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            translucency_micro: 0,
+            terrain_contact: None,
             features: None,
             albedo: parts.albedo,
             normal: parts.normal,

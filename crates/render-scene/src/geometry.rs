@@ -45,15 +45,15 @@ const MILLIMETERS_PER_METER: f64 = 1_000.0;
 const MICRO_SCALE: f64 = 1_000_000.0;
 
 /// Bytes occupied by one packed vertex, as a buffer length.
-pub(crate) const VERTEX_BYTES: usize = 36;
+pub(crate) const VERTEX_BYTES: usize = 40;
 
 /// Bytes occupied by one packed instance, as a buffer length.
-pub(crate) const INSTANCE_BYTES: usize = 64;
+pub(crate) const INSTANCE_BYTES: usize = 80;
 
-/// Bytes occupied by one packed vertex: position, normal, UV and billboard mode.
+/// Bytes occupied by one packed vertex: position, normal, UV, billboard mode and AO.
 pub const VERTEX_STRIDE: u64 = VERTEX_BYTES as u64;
 
-/// Bytes occupied by one packed instance: a column-major `mat4`.
+/// Bytes occupied by one packed instance: a column-major `mat4` and linear tint.
 pub const INSTANCE_STRIDE: u64 = INSTANCE_BYTES as u64;
 
 /// Billboard mode for geometry drawn exactly as authored.
@@ -74,6 +74,9 @@ pub const BILLBOARD_SPHERICAL: u32 = 2;
 /// Governed geometry could not be packed for the GPU.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum GeometryError {
+    /// A dimensioned card cannot be scaled from a flat or collapsed authored extent.
+    #[error("card geometry must have nonzero horizontal and vertical extent")]
+    DegenerateCardExtent,
     /// A vertex normal had no direction.
     #[error("vertex {index} has a zero-length normal, which has no direction to shade with")]
     DegenerateNormal {
@@ -93,10 +96,19 @@ pub enum GeometryError {
 /// direction would hide the authoring fault behind plausible shading instead.
 pub fn pack_vertices(lod: &SceneMeshLod) -> Result<Vec<u8>, GeometryError> {
     let vertices = lod.vertices();
+    let normal_scale = cards::normal_scale(lod)?;
     let mut bytes = Vec::with_capacity(vertices.len() * VERTEX_BYTES);
-    for (index, vertex) in vertices.iter().enumerate() {
-        pack_vertex(vertex, index, &mut bytes)?;
-        bytes.extend_from_slice(&billboard_mode(lod.billboard()).to_le_bytes());
+    for (index, vertex) in card_vertices(lod)?.enumerate() {
+        pack_vertex(&vertex, normal_scale, index, &mut bytes)?;
+        let mode = billboard_mode(lod.billboard());
+        let coverage = lod
+            .card()
+            .map_or(0, |card| (1_000_000 - card.coverage_micro()) << 2);
+        bytes.extend_from_slice(&(mode | coverage).to_le_bytes());
+        let ao = lod
+            .vertex_occlusion_micro()
+            .map_or(1_000_000, |values| values[index]);
+        push_f32(&mut bytes, narrow(f64::from(ao) / MICRO_SCALE));
     }
     Ok(bytes)
 }
@@ -104,6 +116,7 @@ pub fn pack_vertices(lod: &SceneMeshLod) -> Result<Vec<u8>, GeometryError> {
 /// Appends one packed vertex to a buffer.
 fn pack_vertex(
     vertex: &SceneVertex,
+    normal_scale: Vec3,
     index: usize,
     bytes: &mut Vec<u8>,
 ) -> Result<(), GeometryError> {
@@ -113,7 +126,7 @@ fn pack_vertex(
         micro_to_unit(vertex.normal_micro[1]),
         micro_to_unit(vertex.normal_micro[2]),
     );
-    let normal = normal
+    let normal = (normal * normal_scale)
         .try_normalize()
         .ok_or(GeometryError::DegenerateNormal { index })?;
 
@@ -164,7 +177,7 @@ pub fn model_matrix(transform: &SceneTransform) -> Mat4 {
     )
 }
 
-/// Packs a model matrix into instance bytes.
+/// Packs a model matrix and neutral tint into instance bytes.
 ///
 /// The matrix is column-major.
 #[must_use]
@@ -176,6 +189,18 @@ pub(crate) fn pack_model_instance(matrix: Mat4) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(INSTANCE_BYTES);
     for column in matrix.to_cols_array() {
         push_f32(&mut bytes, column);
+    }
+    for _ in 0..4 {
+        push_f32(&mut bytes, 1.0);
+    }
+    bytes
+}
+
+pub(crate) fn pack_object(object: worldrunner_render_plan::SceneObject) -> Vec<u8> {
+    let mut bytes = pack_instance(object.transform());
+    for (index, channel) in object.tint().channels().into_iter().enumerate() {
+        let value = narrow(f64::from(channel) / MICRO_SCALE);
+        bytes[64 + index * 4..68 + index * 4].copy_from_slice(&value.to_le_bytes());
     }
     bytes
 }
@@ -196,7 +221,7 @@ pub const fn billboard_mode(billboard: Option<BillboardPolicy>) -> u32 {
 
 /// Describes the packed vertex layout to `wgpu`.
 #[must_use]
-pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
+pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 5] {
     [
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x3,
@@ -218,12 +243,17 @@ pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
             offset: 32,
             shader_location: 8,
         },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32,
+            offset: 36,
+            shader_location: 7,
+        },
     ]
 }
 
 /// Describes the packed instance layout to `wgpu`.
 #[must_use]
-pub const fn instance_attributes() -> [wgpu::VertexAttribute; 4] {
+pub const fn instance_attributes() -> [wgpu::VertexAttribute; 5] {
     [
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x4,
@@ -244,6 +274,11 @@ pub const fn instance_attributes() -> [wgpu::VertexAttribute; 4] {
             format: wgpu::VertexFormat::Float32x4,
             offset: 48,
             shader_location: 6,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 64,
+            shader_location: 10,
         },
     ]
 }
@@ -310,3 +345,20 @@ fn narrow(value: f64) -> f32 {
 
 #[cfg(test)]
 mod tests;
+
+mod cards;
+pub(crate) use cards::card_vertices;
+
+/// The preceding LOD fills the exact complement of an authored card mask.
+pub(crate) fn pack_transition(
+    lod: &SceneMeshLod,
+    coverage_micro: u32,
+) -> Result<Vec<u8>, GeometryError> {
+    let mut bytes = pack_vertices(lod)?;
+    for vertex in bytes.chunks_exact_mut(VERTEX_BYTES) {
+        let mode = u32::from_le_bytes(vertex[32..36].try_into().expect("mode")) & 3;
+        let flags = mode | ((1_000_000 - coverage_micro) << 2) | (1 << 31);
+        vertex[32..36].copy_from_slice(&flags.to_le_bytes());
+    }
+    Ok(bytes)
+}

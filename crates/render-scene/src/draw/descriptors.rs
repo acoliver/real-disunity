@@ -1,8 +1,6 @@
 //! Capability admission is checked before any upload or allocation.
 use crate::frame::FrameError;
-use worldrunner_render_plan::{
-    RenderScene, SceneAmbientOcclusion, SceneMaterialFeatures, SceneTint,
-};
+use worldrunner_render_plan::{RenderScene, SceneMaterialFeatures};
 
 pub(crate) fn validate(scene: &RenderScene) -> Result<(), FrameError> {
     for material in scene.resources().materials() {
@@ -10,36 +8,45 @@ pub(crate) fn validate(scene: &RenderScene) -> Result<(), FrameError> {
             validate_material(features)?;
         }
     }
-    for object in scene.geometry().objects() {
-        if object.tint() != SceneTint::WHITE {
-            return Err(FrameError::UnsupportedEffect("instance tint"));
-        }
-    }
-    for mesh in scene.geometry().meshes() {
-        for lod in mesh.lods() {
-            if lod.card().is_some() {
+    if let Some(terrain) = scene.terrain() {
+        for surface in terrain.surfaces() {
+            let material = &scene.resources().materials()[surface.material().raw() as usize];
+            if let Some(features) = material.features() {
+                validate_terrain_material(features)?;
+            }
+            if material.translucency_micro() != 0 || material.terrain_contact().is_some() {
                 return Err(FrameError::UnsupportedEffect(
-                    "card dimensions and transitions",
+                    "terrain material surface features",
                 ));
             }
+        }
+    }
+    for material in scene.resources().materials() {
+        if material.terrain_contact().is_some() && scene.terrain().is_none() {
+            return Err(FrameError::UnsupportedEffect(
+                "terrain contact requires a heightfield",
+            ));
         }
     }
     Ok(())
 }
 
 fn validate_material(features: &SceneMaterialFeatures) -> Result<(), FrameError> {
-    for (requested, name) in [
-        (features.tint != SceneTint::WHITE, "material tint"),
-        (
-            features.ambient_occlusion != SceneAmbientOcclusion::UNOCCLUDED,
-            "material occlusion",
-        ),
-        (features.wind.is_some(), "wind deformation"),
-        (features.layer.is_some(), "material layer blending"),
-    ] {
-        if requested {
-            return Err(FrameError::UnsupportedEffect(name));
-        }
+    if features.layer.is_some() {
+        return Err(FrameError::UnsupportedEffect("material layer blending"));
+    }
+    Ok(())
+}
+
+fn validate_terrain_material(features: &SceneMaterialFeatures) -> Result<(), FrameError> {
+    use worldrunner_render_plan::{SceneAmbientOcclusion, SceneTint};
+    if features.tint != SceneTint::WHITE
+        || features.ambient_occlusion != SceneAmbientOcclusion::UNOCCLUDED
+        || features.wind.is_some()
+    {
+        return Err(FrameError::UnsupportedEffect(
+            "terrain material geometry features",
+        ));
     }
     Ok(())
 }
@@ -47,8 +54,25 @@ fn validate_material(features: &SceneMaterialFeatures) -> Result<(), FrameError>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mesh_features_remain_rejected_for_terrain_materials() {
+        assert!(validate_terrain_material(&neutral()).is_ok());
+        let features = SceneMaterialFeatures {
+            tint: SceneTint::new([0; 3]).unwrap(),
+            ..neutral()
+        };
+        assert!(validate_material(&features).is_ok());
+        assert!(matches!(
+            validate_terrain_material(&features),
+            Err(FrameError::UnsupportedEffect(
+                "terrain material geometry features"
+            ))
+        ));
+    }
+
     use worldrunner_render_plan::{
-        MaterialHandle, SceneDirection, SceneLayerBlend, SceneLayerMode, SceneWind,
+        MaterialHandle, SceneAmbientOcclusion, SceneLayerBlend, SceneLayerMode, SceneTint,
     };
     fn neutral() -> SceneMaterialFeatures {
         SceneMaterialFeatures {
@@ -61,34 +85,16 @@ mod tests {
     #[test]
     fn unsupported_material_requests_fail_before_upload() {
         assert!(validate_material(&neutral()).is_ok());
-        for features in [
-            SceneMaterialFeatures {
-                tint: SceneTint::new([0; 3]).unwrap(),
-                ..neutral()
-            },
-            SceneMaterialFeatures {
-                ambient_occlusion: SceneAmbientOcclusion::new(1_000_000, true).unwrap(),
-                ..neutral()
-            },
-            SceneMaterialFeatures {
-                wind: Some(
-                    SceneWind::new(SceneDirection::new([0, 0, 1_000_000]).unwrap(), 1, 1000, 0)
-                        .unwrap(),
-                ),
-                ..neutral()
-            },
-            SceneMaterialFeatures {
-                layer: Some(
-                    SceneLayerBlend::new(MaterialHandle::from_raw(0), 0, SceneLayerMode::Linear)
-                        .unwrap(),
-                ),
-                ..neutral()
-            },
-        ] {
-            assert!(matches!(
-                validate_material(&features),
-                Err(FrameError::UnsupportedEffect(_))
-            ));
-        }
+        let features = SceneMaterialFeatures {
+            layer: Some(
+                SceneLayerBlend::new(MaterialHandle::from_raw(0), 0, SceneLayerMode::Linear)
+                    .unwrap(),
+            ),
+            ..neutral()
+        };
+        assert!(matches!(
+            validate_material(&features),
+            Err(FrameError::UnsupportedEffect("material layer blending"))
+        ));
     }
 }

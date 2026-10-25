@@ -25,6 +25,13 @@ pub(super) struct Bounds {
 }
 
 impl Bounds {
+    fn expanded(self, extent: Vec3) -> Self {
+        Self {
+            min: self.min - extent,
+            max: self.max + extent,
+        }
+    }
+
     fn transformed(self, matrix: Mat4) -> Self {
         let center = matrix.transform_point3((self.min + self.max) * 0.5);
         let half = (self.max - self.min) * 0.5;
@@ -56,11 +63,9 @@ impl MeshSelection {
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
         let mut radius_squared = 0.0_f32;
-        for vertex in mesh
-            .lods()
-            .iter()
-            .flat_map(worldrunner_render_plan::SceneMeshLod::vertices)
-        {
+        for vertex in mesh.lods().iter().flat_map(|lod| {
+            crate::geometry::card_vertices(lod).expect("mesh upload validated card extents")
+        }) {
             let point = millimeters_to_meters(vertex.position_millimeters);
             min = min.min(point);
             max = max.max(point);
@@ -178,7 +183,12 @@ impl Selection {
             // selection work nor statistics.
             for (slot, object, visible) in batch.placements() {
                 self.stats.considered += 1;
-                if !visible || !frustum.intersects(mesh.world_bounds(object.transform())) {
+                if !visible
+                    || !frustum.intersects(
+                        mesh.world_bounds(object.transform())
+                            .expanded(instances.wind_extents[key.2]),
+                    )
+                {
                     self.stats.culled += 1;
                     continue;
                 }
@@ -223,12 +233,14 @@ pub(super) fn caster_matrix(
     receiver: Mat4,
 ) -> Mat4 {
     let mut near = terrain.map_or(0.0, |bounds| caster_near(bounds, receiver));
-    for (&(_, mesh, _), batch) in &instances.batches {
+    for (&(_, mesh, material), batch) in &instances.batches {
         // Scan allocated slots, excluding removed placements from caster fitting.
         for (_, object, visible) in batch.placements().filter(|(_, _, visible)| *visible) {
             debug_assert!(visible);
             near = near.min(caster_near(
-                meshes[mesh].world_bounds(object.transform()),
+                meshes[mesh]
+                    .world_bounds(object.transform())
+                    .expanded(instances.wind_extents[material]),
                 receiver,
             ));
         }

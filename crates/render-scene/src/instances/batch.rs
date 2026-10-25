@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use worldrunner_render_plan::{SceneObject, SceneTransform};
 
-use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_instance};
+use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_object};
 
 #[derive(Debug, Default)]
 pub(crate) struct InstanceBatch {
@@ -53,7 +53,7 @@ impl InstanceBatch {
     fn pack(&mut self, position: usize) {
         let object = self.get(position).0;
         self.bytes[position * STRIDE..(position + 1) * STRIDE]
-            .copy_from_slice(&pack_instance(object.transform()));
+            .copy_from_slice(&pack_object(object));
         self.dirty.insert(position);
     }
 

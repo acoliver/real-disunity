@@ -105,6 +105,8 @@ pub struct FrameUniform {
     pub exposure: f32,
     /// True when the scene explicitly omits its environmental profile.
     pub unlit: bool,
+    /// Deterministic animation clock shared by every geometry pass.
+    pub animation_time_milliseconds: u32,
 }
 
 impl FrameUniform {
@@ -149,6 +151,7 @@ impl FrameUniform {
             ambient_ground: ground,
             exposure: environment.scene_exposure,
             unlit: false,
+            animation_time_milliseconds: 0,
         })
     }
 
@@ -164,6 +167,7 @@ impl FrameUniform {
             ambient_ground: Vec3::ZERO,
             exposure: 1.0,
             unlit: true,
+            animation_time_milliseconds: 0,
         }
     }
 
@@ -189,7 +193,8 @@ impl FrameUniform {
         }
         write_f32(&mut bytes, &mut offset, self.exposure);
         write_f32(&mut bytes, &mut offset, f32::from(u8::from(self.unlit)));
-        write_f32(&mut bytes, &mut offset, 0.0);
+        bytes[offset..offset + 4].copy_from_slice(&self.animation_time_milliseconds.to_le_bytes());
+        offset += 4;
         write_f32(&mut bytes, &mut offset, 0.0);
         debug_assert_eq!(offset, FRAME_UNIFORM_BYTES, "the block is written in full");
         bytes

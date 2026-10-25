@@ -76,6 +76,7 @@ pub enum BillboardPolicy {
 /// One owned mesh level-of-detail with its geometry payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneMeshLod {
+    vertex_occlusion_micro: Option<Box<[u32]>>,
     card: Option<super::SceneCard>,
     level_index: u8,
     vertices: Box<[SceneVertex]>,
@@ -84,6 +85,26 @@ pub struct SceneMeshLod {
 }
 
 impl SceneMeshLod {
+    /// Supplies one baked occlusion value per vertex, in millionths.
+    /// Absence means fully unoccluded. Materials opt into this stream explicitly.
+    pub fn with_vertex_occlusion(mut self, values: Vec<u32>) -> Result<Self, SceneValidationError> {
+        if values.len() != self.vertices.len() {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "vertex occlusion count differs from vertex count",
+            });
+        }
+        for &value in &values {
+            super::material_features::bounded("vertex occlusion", value, 1_000_000)?;
+        }
+        self.vertex_occlusion_micro = Some(values.into_boxed_slice());
+        Ok(self)
+    }
+
+    /// Optional baked occlusion stream in vertex order.
+    pub fn vertex_occlusion_micro(&self) -> Option<&[u32]> {
+        self.vertex_occlusion_micro.as_deref()
+    }
+
     pub fn with_card(mut self, card: super::SceneCard) -> Result<Self, SceneValidationError> {
         if self.billboard != Some(card.policy()) {
             return Err(SceneValidationError::UnsupportedInput {
@@ -111,6 +132,7 @@ impl SceneMeshLod {
         billboard: Option<BillboardPolicy>,
     ) -> Result<Self, SceneValidationError> {
         let level = Self {
+            vertex_occlusion_micro: None,
             card: None,
             level_index,
             vertices: vertices.into_boxed_slice(),

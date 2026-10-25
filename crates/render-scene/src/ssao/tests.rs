@@ -178,6 +178,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
         ambient_ground: glam::Vec3::ONE,
         exposure: 1.0,
         unlit: false,
+        animation_time_milliseconds: 0,
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();

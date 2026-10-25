@@ -140,6 +140,11 @@ impl SceneWind {
 }
 
 /// Card dimensions and transition coverage for an existing billboard LOD.
+/// Dimensions fit the centered horizontal extent and foot-to-top height.
+/// At a selected card level, coverage is a screen-pixel fraction; the preceding
+/// mesh fills its complement wherever their rasterized silhouettes overlap.
+/// Alpha cutouts and each representation's silhouette remain authored separately.
+/// Distance thresholds remain inclusive and depend only on the main camera.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneCard {
     policy: BillboardPolicy,
@@ -180,4 +185,52 @@ pub struct SceneMaterialFeatures {
     pub ambient_occlusion: SceneAmbientOcclusion,
     pub wind: Option<SceneWind>,
     pub layer: Option<SceneLayerBlend>,
+}
+
+/// Constant terrain-contact surface values in linear scene units.
+/// `tint` supplies target linear albedo, not a multiplier. Roughness and metalness
+/// interpolate toward the target without changing alpha or the surface normal.
+/// Weight is one at the rendered heightfield and zero one distance away, on
+/// either side. There is no contact outside the heightfield extent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SceneTerrainContact {
+    tint: SceneTint,
+    roughness_micro: u32,
+    metalness_micro: u32,
+    distance_millimeters: u32,
+}
+impl SceneTerrainContact {
+    pub const fn tint(self) -> SceneTint {
+        self.tint
+    }
+    pub const fn roughness_micro(self) -> u32 {
+        self.roughness_micro
+    }
+    pub const fn metalness_micro(self) -> u32 {
+        self.metalness_micro
+    }
+    pub const fn distance_millimeters(self) -> u32 {
+        self.distance_millimeters
+    }
+
+    pub fn new(
+        tint: SceneTint,
+        roughness_micro: u32,
+        metalness_micro: u32,
+        distance_millimeters: u32,
+    ) -> Result<Self, SceneValidationError> {
+        bounded("contact roughness", roughness_micro, 1_000_000)?;
+        bounded("contact metalness", metalness_micro, 1_000_000)?;
+        if distance_millimeters == 0 {
+            return Err(SceneValidationError::ExtentNotPositive {
+                part: "contact distance",
+            });
+        }
+        Ok(Self {
+            tint,
+            roughness_micro,
+            metalness_micro,
+            distance_millimeters,
+        })
+    }
 }

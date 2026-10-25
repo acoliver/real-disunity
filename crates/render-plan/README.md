@@ -35,8 +35,8 @@ Disunity. The package name is retained for application API compatibility.
   this boundary. Positions, normals, and quaternion axes must cross together.
 
 There is no built-in content adapter registry, inventory interpreter, source
-terrain/clutter table, proprietary decoder, or bundled content. Producers must
-supply canonical artifacts or construct scenes through the validated public API.
+terrain/clutter table, format-specific decoder, or bundled content. Producers must
+supply engine artifacts or construct scenes through the validated public API.
 
 ## Screen-space reflections
 

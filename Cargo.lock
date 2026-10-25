@@ -4002,6 +4002,7 @@ dependencies = [
  "ab_glyph",
  "base64",
  "csbindgen",
+ "getrandom 0.3.4",
  "glam",
  "serde",
  "serde_json",

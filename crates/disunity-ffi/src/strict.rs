@@ -82,11 +82,8 @@ pub(crate) fn nested_readiness(w: &DisunityWorld) -> bool {
         .is_some_and(|a| a.profile == crate::readiness::NESTED_PROFILE)
 }
 pub(crate) fn entropy() -> Result<String, String> {
-    use std::io::Read;
     let mut bytes = [0_u8; 32];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .map_err(|_| "OS credential entropy unavailable")?;
+    getrandom::fill(&mut bytes).map_err(|_| "OS credential entropy unavailable")?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 pub(crate) fn allow_mutation(w: &DisunityWorld) -> Result<(), String> {

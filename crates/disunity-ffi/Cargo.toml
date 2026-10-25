@@ -15,6 +15,7 @@ serde_json.workspace = true
 glam.workspace = true
 ab_glyph = "0.2.32"
 base64 = "0.23.1"
+getrandom = "0.3.4"
 
 [build-dependencies]
 csbindgen = "1.9.8"

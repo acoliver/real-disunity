@@ -126,11 +126,11 @@ pub(super) fn check_entry(
     let texture = &allocation.texture;
     let usage = match entry.kind {
         TextureBindingKind::Sampled(sample_type) => {
-            check_sample_type(device, entry, texture, sample_type)?;
+            check_sample_type(device, entry, sample_type)?;
             wgpu::TextureUsages::TEXTURE_BINDING
         }
         TextureBindingKind::Storage(access) => {
-            check_storage(device, entry, texture, access)?;
+            check_storage(device, entry, access)?;
             if access != wgpu::StorageTextureAccess::ReadOnly
                 && allocation.lifetime == ResourceLifetime::ImportedReadOnly
             {
@@ -141,7 +141,7 @@ pub(super) fn check_entry(
     };
     if entry.samples != texture.sample_count()
         || entry.semantic != allocation.semantic
-        || !texture.usage().contains(usage)
+        || !entry.view.usage().contains(usage)
     {
         return Err(ContractError::Binding(allocation.key));
     }
@@ -151,11 +151,11 @@ pub(super) fn check_entry(
 fn check_sample_type(
     device: &wgpu::Device,
     entry: &TextureBinding,
-    texture: &wgpu::Texture,
     sample_type: wgpu::TextureSampleType,
 ) -> Result<(), ContractError> {
     use wgpu::TextureSampleType as Type;
-    let actual = texture
+    let actual = entry
+        .view
         .format()
         .sample_type(Some(entry.view.range.aspect), Some(device.features()));
     let compatible = actual == Some(sample_type)
@@ -179,7 +179,6 @@ fn check_sample_type(
 fn check_storage(
     device: &wgpu::Device,
     entry: &TextureBinding,
-    texture: &wgpu::Texture,
     access: wgpu::StorageTextureAccess,
 ) -> Result<(), ContractError> {
     use wgpu::{StorageTextureAccess as Access, TextureFormatFeatureFlags as Flags};
@@ -195,14 +194,16 @@ fn check_storage(
         wgpu::TextureViewDimension::Cube | wgpu::TextureViewDimension::CubeArray
     ) || entry.samples != 1
         || entry.view.range.mips.len() != 1
-        || !texture
+        || !entry
+            .view
             .format()
             .guaranteed_format_features(features)
             .flags
             .contains(required)
         || (access == Access::Atomic
             && (!features.contains(wgpu::Features::TEXTURE_ATOMIC)
-                || !texture
+                || !entry
+                    .view
                     .usage()
                     .contains(wgpu::TextureUsages::STORAGE_ATOMIC)))
         || (access != Access::ReadOnly
@@ -211,7 +212,7 @@ fn check_storage(
     {
         return Err(ContractError::StorageAccess {
             allocation: entry.view.allocation,
-            format: texture.format(),
+            format: entry.view.format(),
             access,
         });
     }
@@ -222,6 +223,7 @@ pub(super) fn binding_type(
     entry: &TextureBinding,
     registry: &ResourceRegistry,
 ) -> Result<wgpu::BindingType, ContractError> {
+    registry.check_view(&entry.view)?;
     let view_dimension = entry.view.dimension;
     Ok(match entry.kind {
         TextureBindingKind::Sampled(sample_type) => wgpu::BindingType::Texture {
@@ -231,7 +233,7 @@ pub(super) fn binding_type(
         },
         TextureBindingKind::Storage(access) => wgpu::BindingType::StorageTexture {
             access,
-            format: registry.allocation(entry.view.allocation)?.texture.format(),
+            format: entry.view.format(),
             view_dimension,
         },
     })

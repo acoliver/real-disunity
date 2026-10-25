@@ -14,10 +14,12 @@ pub use samplers::{CheckedSampler, SamplerBinding};
 mod buffer_bindings;
 mod buffer_scopes;
 mod buffers;
+mod declared_texture;
 mod operation_validation;
 mod operations;
 mod raster;
 mod registry;
+pub use declared_texture::DeclaredTexture;
 pub(crate) mod stock;
 mod transfers;
 mod validation;
@@ -107,6 +109,8 @@ pub struct CheckedView {
     version: u32,
     view: wgpu::TextureView,
     dimension: wgpu::TextureViewDimension,
+    format: wgpu::TextureFormat,
+    usage: wgpu::TextureUsages,
     lease: Option<worldrunner_render_gpu::submission::FrameLease>,
 }
 impl CheckedView {
@@ -121,6 +125,14 @@ impl CheckedView {
     }
     pub const fn dimension(&self) -> wgpu::TextureViewDimension {
         self.dimension
+    }
+    /// Selected allocation/alternate format, before native aspect-specific resolution.
+    pub const fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+    /// Usages permitted by this view, possibly narrower than its allocation.
+    pub const fn usage(&self) -> wgpu::TextureUsages {
+        self.usage
     }
     pub fn view(&self) -> &wgpu::TextureView {
         &self.view
@@ -208,6 +220,15 @@ pub enum ContractError {
     Pipeline,
     #[error("unknown or stale allocation {0:?}")]
     StaleAllocation(AllocationKey),
+    #[error("texture creation descriptor does not match native properties")]
+    TextureDescriptor,
+    #[error("texture creation declaration is unsupported: {0:?}")]
+    TextureDeclaration(wgpu::TextureFormat),
+    #[error("undeclared texture view format {format:?}: {allocation:?}")]
+    ViewFormat {
+        allocation: AllocationKey,
+        format: wgpu::TextureFormat,
+    },
     #[error("invalid subresource range for {0:?}")]
     Range(AllocationKey),
     #[error("conflicting import or replacement of {0:?}")]

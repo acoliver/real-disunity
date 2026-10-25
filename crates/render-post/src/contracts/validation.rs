@@ -105,7 +105,7 @@ pub(super) fn validate_usage(
         (UseKind::Copy, AccessMode::Write | AccessMode::ReadWrite) => wgpu::TextureUsages::COPY_DST,
         _ => return Err(ContractError::Binding(allocation.key)),
     };
-    if !allocation.texture.usage().contains(required)
+    if !usage.view.usage().contains(required)
         || (usage.access == AccessMode::Write && usage.before.is_some())
         || (usage.access != AccessMode::Write && usage.before.is_none())
     {
@@ -174,7 +174,7 @@ fn validate_attachments(
     let mut total_bytes: u32 = 0;
     for color in pass.colors.iter().flatten() {
         let actual = attachment_shape(registry, device, &color.view, false)?;
-        let format = registry.allocation(color.view.allocation)?.texture.format();
+        let format = color.view.format();
         let alignment = format
             .target_component_alignment()
             .expect("validated color format");
@@ -242,15 +242,14 @@ fn attachment_shape(
 ) -> Result<([u32; 2], u32), ContractError> {
     registry.check_view(view)?;
     let texture = &registry.allocation(view.allocation)?.texture;
-    let features = texture
-        .format()
-        .guaranteed_format_features(device.features());
+    let format = view.format();
+    let features = format.guaranteed_format_features(device.features());
     if view.range.mips.len() != 1
         || view.range.layers.len() != 1
-        || texture.format().is_depth_stencil_format() != depth
-        || texture.format().has_stencil_aspect()
+        || format.is_depth_stencil_format() != depth
+        || format.has_stencil_aspect()
         || (depth
-            && (!texture.format().has_depth_aspect()
+            && (!format.has_depth_aspect()
                 || view.range.aspect == wgpu::TextureAspect::StencilOnly))
         || !features
             .allowed_usages
@@ -283,10 +282,9 @@ pub(super) fn validate_resolve(
     if samples == 1
         || target_samples != 1
         || source_size != target_size
-        || source_allocation.texture.format() != target_allocation.texture.format()
+        || source.format() != target.format()
         || source_allocation.semantic != target_allocation.semantic
-        || !source_allocation
-            .texture
+        || !source
             .format()
             .guaranteed_format_features(device.features())
             .flags

@@ -1,7 +1,7 @@
 use super::*;
 use worldrunner_render_post::{BufferReadback, FrameError as ScheduleError};
 
-fn uniforms(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<u8>> {
+pub(super) fn uniforms(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<u8>> {
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut buffers = vec![renderer.gpu.frame_buffer(), &renderer.map.uniform];
     buffers.extend(renderer.depth_frames.iter().map(|(buffer, _)| buffer));

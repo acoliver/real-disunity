@@ -22,7 +22,10 @@ fn import_views(
                     view.texture(),
                     ResourceLifetime::FrameLocal,
                     Semantic::Unspecified,
-                    None,
+                    views
+                        .iter()
+                        .any(|other| other.texture() == view.texture() && other.retained())
+                        .then_some(0),
                 )
                 .map(|key| (view.resource(), key))
         })
@@ -37,7 +40,11 @@ pub(crate) fn compile(
     registry: &mut ResourceRegistry,
 ) -> Result<CompiledRaster, ContractError> {
     let keys = import_views(registry, views)?;
-    let mut versions = BTreeMap::<ResourceRef, u32>::new();
+    let mut versions: BTreeMap<ResourceRef, u32> = views
+        .iter()
+        .filter(|view| view.retained())
+        .map(|view| (view.resource(), 0))
+        .collect();
     let mut raster = Vec::new();
     for (index, pass) in passes.iter().enumerate() {
         let uses = features

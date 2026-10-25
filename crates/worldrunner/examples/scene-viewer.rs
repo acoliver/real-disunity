@@ -212,6 +212,21 @@ fn scene(with_terrain: bool) -> RenderScene {
     .unwrap()
 }
 
+fn refresh_policy() -> worldrunner::gpu::shadows::CascadeRefreshPolicy {
+    use worldrunner::gpu::shadows::CascadeRefreshPolicy;
+    if std::env::args().any(|arg| arg == "--staggered-shadows") {
+        CascadeRefreshPolicy {
+            intervals: [1, 2, 4, 4],
+            phases: [0, 0, 1, 3],
+            max_non_near: 1,
+            light_delta_radians: 0.01,
+            projection_delta_texels: 2.0,
+        }
+    } else {
+        CascadeRefreshPolicy::default()
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let terrain = std::env::args().any(|arg| arg == "--terrain");
     let shadows =
@@ -224,6 +239,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 resolution: 512,
                 depth_bias: 0.001,
                 normal_bias_meters: 0.01,
+                refresh_policy: refresh_policy(),
             });
     run(
         scene(terrain),

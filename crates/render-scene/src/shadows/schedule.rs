@@ -40,6 +40,7 @@ impl ShadowSchedule {
         color: &AttachmentView,
         depth: &AttachmentView,
         pipelines: &crate::renderer::ScenePipelines,
+        refresh: [bool; 4],
     ) -> Result<Self, ShadowError> {
         let color_id = crate::compositor::attachment_resource("scene color", color);
         let depth_id = crate::compositor::attachment_resource("scene depth", depth);
@@ -56,6 +57,11 @@ impl ShadowSchedule {
                 ..ResourceRef::new("shadow depth")
             };
             let attachment = AttachmentView::new(shadow, map.texture())?;
+            if !refresh[usize::try_from(index).expect("four cascades")] {
+                views.push(attachment.with_retained_contents());
+                opaque_feature.reads.push(shadow);
+                continue;
+            }
             let slot = PassSlot::ShadowCasters(index);
             let mut pass = PassDeclaration::new(slot);
             pass.depth = Some(crate::compositor::attachment(shadow, &attachment, true));

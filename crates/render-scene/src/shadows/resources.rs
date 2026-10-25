@@ -179,12 +179,16 @@ impl ShadowMap {
                 resolution: settings.resolution,
                 layers,
                 receiver_dimension: ReceiverDimension::D2Array,
-                readback: false,
+                readback: cfg!(test),
                 budget: DepthMapBudget {
                     max_resolution: super::MAX_SHADOW_RESOLUTION,
                     max_layers: 4,
                     max_texture_bytes: max_resolution * max_resolution * 4 * 4,
-                    max_readback_bytes: 0,
+                    max_readback_bytes: if cfg!(test) {
+                        max_resolution * max_resolution * 4
+                    } else {
+                        0
+                    },
                 },
             },
         )?;

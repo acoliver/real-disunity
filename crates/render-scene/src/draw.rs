@@ -165,6 +165,7 @@ struct Retained {
 pub struct SceneGpu {
     sky: Option<crate::sky::Sky>,
     celestial: Option<crate::sky::meshes::Meshes>,
+    caster_generation: u64,
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
@@ -236,6 +237,7 @@ impl SceneGpu {
         let mut gpu = Self {
             celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view),
+            caster_generation: 0,
             post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),

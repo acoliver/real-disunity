@@ -3,6 +3,10 @@ use worldrunner_render_plan::{SceneObject, SceneTransform};
 use super::{InstanceError, InstanceHandle, InstanceWrite, SceneGpu};
 
 impl SceneGpu {
+    pub(crate) fn caster_generation(&self) -> u64 {
+        self.caster_generation
+    }
+
     /// Provisions bounded page uploads and declares stock geometry's capture writes.
     pub fn capture_write_keys(
         &self,
@@ -60,7 +64,9 @@ impl SceneGpu {
         object: SceneObject,
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
-        self.instances.add(object, visible)
+        let handle = self.instances.add(object, visible)?;
+        self.caster_generation = self.caster_generation.wrapping_add(1);
+        Ok(handle)
     }
 
     /// Enumerates live handles in slot order, initially the input object order.
@@ -76,7 +82,9 @@ impl SceneGpu {
 
     /// Removes a placement without moving surviving batch slots or rewriting bytes.
     pub fn remove_instance(&mut self, handle: InstanceHandle) -> Result<(), InstanceError> {
-        self.instances.remove(handle)
+        self.instances.remove(handle)?;
+        self.caster_generation = self.caster_generation.wrapping_add(1);
+        Ok(())
     }
 
     /// Replaces a validated transform. Repeated edits coalesce at frame flush.
@@ -94,7 +102,12 @@ impl SceneGpu {
         handle: InstanceHandle,
         visible: bool,
     ) -> Result<(), InstanceError> {
-        self.instances.set_visible(handle, visible)
+        let changed = self.instances.get(handle)?.1 != visible;
+        self.instances.set_visible(handle, visible)?;
+        if changed {
+            self.caster_generation = self.caster_generation.wrapping_add(1);
+        }
+        Ok(())
     }
 
     /// Writes only changed contiguous instance ranges before recording a frame.

@@ -155,6 +155,15 @@ pub fn validate_frame(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
 ) -> Result<(), FrameError> {
+    validate_frame_inputs(passes, features, requested, &[])
+}
+
+pub(crate) fn validate_frame_inputs(
+    passes: &[PassDeclaration],
+    features: &[FeatureDeclaration],
+    requested: &[&'static str],
+    views: &[AttachmentView],
+) -> Result<(), FrameError> {
     validate_transparency(features)?;
     if passes.iter().enumerate().any(|(index, pass)| {
         passes[..index]
@@ -178,7 +187,23 @@ pub fn validate_frame(
             }
         }
     }
-    let mut produced = BTreeMap::new();
+    let mut produced: BTreeMap<_, _> = views
+        .iter()
+        .filter(|view| view.retained)
+        .map(|view| {
+            (
+                view.resource(),
+                AttachmentDeclaration {
+                    resource: view.resource(),
+                    format: view.format(),
+                    size: view.size(),
+                    samples: view.texture().sample_count(),
+                    load: AttachmentLoad::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            )
+        })
+        .collect();
     for pass in passes {
         let attachments: Vec<_> = pass.color.iter().chain(&pass.depth).collect();
         validate_attachments(pass, &produced)?;
@@ -439,11 +464,23 @@ pub struct BorrowedFeature<'a> {
 /// Views are borrowed for this encode only; plans never retain surface views.
 #[derive(Clone, Debug)]
 pub struct AttachmentView {
+    retained: bool,
     resource: ResourceRef,
     view: wgpu::TextureView,
     format: wgpu::TextureFormat,
 }
 impl AttachmentView {
+    /// Declares initialized contents from an earlier ordered submission. The caller
+    /// must retain the allocation and submit encoders in preparation order.
+    #[must_use]
+    pub fn with_retained_contents(mut self) -> Self {
+        self.retained = true;
+        self
+    }
+    pub(crate) fn retained(&self) -> bool {
+        self.retained
+    }
+
     pub const fn resource(&self) -> ResourceRef {
         self.resource
     }
@@ -472,6 +509,7 @@ impl AttachmentView {
         }
         Ok(Self {
             resource,
+            retained: self.retained,
             view: self.view.clone(),
             format: self.format,
         })
@@ -496,6 +534,7 @@ impl AttachmentView {
         Ok(Self {
             resource,
             view,
+            retained: false,
             format: texture.format(),
         })
     }

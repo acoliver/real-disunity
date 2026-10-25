@@ -195,3 +195,39 @@ rejected, including requests with zero weights. MSAA and FXAA may run together.
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
+
+## Cascade refresh scheduling
+
+`DirectionalShadowSettings::refresh_policy` defaults to
+`CascadeRefreshPolicy::default()`: every cascade renders every submitted frame.
+The default keeps the existing fits, uniform values and pass sequence.
+An opt-in policy declares four frame intervals and periodic phases, a maximum
+number of ordinary non-near refreshes, a light-angle threshold in radians and
+an XY projection-motion threshold in texels. For example, intervals `[1, 2, 4, 4]`,
+phases `[0, 0, 1, 3]` and `max_non_near: 1` refresh the near layer each frame
+and stagger the three farther layers. Policy validation rejects zero intervals,
+out-of-range phases, invalid thresholds and periodic slots that exceed the budget.
+Unused cascade slots must also form a valid policy.
+
+Initialization, explicit `invalidate_shadows`, changed settings or cascade
+layout, map resolution, target extent, caster membership, light direction beyond
+the threshold, depth projection changes and fitted XY motion beyond the texel
+threshold force immediate refresh. Forced refreshes bypass the periodic budget.
+Depth projection changes are conservative, including orientation changes affecting
+the depth row. Camera-split fits retain their existing stable texel snapping.
+Each reused layer retains its last rendered matrix and depth bias; receiver
+uploads use those values together. Refresh evidence advances only on successful
+submission. Submit encoders in preparation order, as required by frame admission.
+`cascade_refresh_states()` exposes the last submitted matrices, frames and reasons.
+
+Caster insertion, removal and visibility edits change the membership generation.
+Transform animation may remain stale until the next periodic refresh unless it
+changes the fitted depth range. Hosts needing immediate animated shadows should
+use the default policy or call `invalidate_shadows()` after their edits.
+Far-cascade reuse can produce visible temporal stepping and delayed occluder motion.
+
+Call `request_shadow_capture()` before encoding a retained-scene capture to force
+all maps fresh. The desktop viewer and same-frame depth-fitting capture do this
+automatically. One-shot `capture_scene_shadowed` starts with fresh resources.
+The procedural viewer accepts `--shadows --staggered-shadows` for the example
+policy above. `ViewerOptions::shadows` also accepts an explicit refresh policy.

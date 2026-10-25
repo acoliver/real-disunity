@@ -101,6 +101,30 @@ fn empty_state() -> DisunityObjectState {
     }
 }
 
+fn assert_allocation_free_capacity_probe(session: &Session) {
+    let mut written = 0;
+    let (result, bytes) = allocated(|| unsafe {
+        disunity_world_export_objects(session.0, std::ptr::null_mut(), 0, &mut written)
+    });
+    assert_eq!(result.code, result_code::OK);
+    assert_eq!(written, 64);
+    assert_eq!(bytes, 0, "capacity probing must not construct a snapshot");
+}
+
+fn assert_truncated_export(session: &Session, states: &mut [DisunityObjectState]) {
+    let complete = states.to_vec();
+    states.fill(empty_state());
+    let mut written = 0;
+    assert_eq!(
+        unsafe { disunity_world_export_objects(session.0, states.as_mut_ptr(), 3, &mut written) }
+            .code,
+        result_code::OK
+    );
+    assert_eq!(written, 64);
+    assert_eq!(&states[..3], &complete[..3]);
+    assert!(states[3..].iter().all(|state| *state == empty_state()));
+}
+
 #[test]
 fn bulk_export_reads_live_handles_without_snapshot_allocations() {
     let session = Session::new();
@@ -124,14 +148,9 @@ fn bulk_export_reads_live_handles_without_snapshot_allocations() {
     assert!(!objects.contains(&replacement));
     objects.push(replacement);
 
-    let mut written = 0;
-    let (result, bytes) = allocated(|| unsafe {
-        disunity_world_export_objects(session.0, std::ptr::null_mut(), 0, &mut written)
-    });
-    assert_eq!(result.code, result_code::OK);
-    assert_eq!(written, 64);
-    assert_eq!(bytes, 0, "capacity probing must not construct a snapshot");
+    assert_allocation_free_capacity_probe(&session);
 
+    let mut written = 0;
     let mut states = vec![empty_state(); 64];
     let (result, bytes) = allocated(|| unsafe {
         disunity_world_export_objects(session.0, states.as_mut_ptr(), 64, &mut written)
@@ -146,16 +165,7 @@ fn bulk_export_reads_live_handles_without_snapshot_allocations() {
             .map_or(0, |c| c.x as u32);
         assert_eq!(state.material_slot, expected);
     }
-    let complete = states.clone();
-    states.fill(empty_state());
-    assert_eq!(
-        unsafe { disunity_world_export_objects(session.0, states.as_mut_ptr(), 3, &mut written) }
-            .code,
-        result_code::OK
-    );
-    assert_eq!(written, 64);
-    assert_eq!(&states[..3], &complete[..3]);
-    assert!(states[3..].iter().all(|state| *state == empty_state()));
+    assert_truncated_export(&session, &mut states);
 }
 
 #[test]

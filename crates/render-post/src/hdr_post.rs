@@ -23,6 +23,7 @@ pub struct Bloom {
 pub struct HdrPostSettings {
     pub adaptive: Option<AdaptiveExposure>,
     pub bloom: Option<Bloom>,
+    pub bloom_kernel: crate::BloomKernel,
     pub fxaa: Option<f32>,
     pub upscale: Option<crate::UpscaleSettings>,
 }
@@ -34,6 +35,12 @@ impl HdrPostSettings {
             return Err(PostError::UnsupportedProfile(
                 "reduced HDR extent requires an upscale mode",
             ));
+        }
+        // Gaussian levels run at the render extent and must not be smaller than 1x1.
+        if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
+            (self.bloom, self.bloom_kernel)
+        {
+            crate::gaussian_extents(config.size, bloom.levels)?;
         }
         Ok(())
     }
@@ -85,6 +92,9 @@ impl HdrPostSettings {
                 || !(1..=8).contains(&b.levels)
         }) {
             return Err(PostError::UnsupportedProfile("bloom settings"));
+        }
+        if let Some(bloom) = self.bloom {
+            self.bloom_kernel.validate(bloom.levels)?;
         }
         if self
             .fxaa

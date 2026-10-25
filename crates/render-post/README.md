@@ -141,3 +141,78 @@ It reports three post-chain GPU samples for each of 0.5, 0.77 and 1.0 scale at
 The first sample can include driver warm-up. These timings have no performance
 threshold and exclude scene rendering. Linux CI selects Mesa lavapipe with
 `VK_ICD_FILENAMES` and `WGPU_BACKEND=vulkan`.
+
+## Separable Gaussian bloom
+
+Set `HdrPostSettings::bloom_kernel` to `BloomKernel::SeparablePyramid` to
+select Gaussian bloom. `BloomKernel::Tent` remains the default and retains the
+existing binomial reduction and tent reconstruction. `bloom: None` schedules no bloom passes for either
+kernel. The shared `Bloom` parameters control threshold, quadratic knee, level
+count (1 through 8), and final intensity. The Gaussian option supplies eight
+`GaussianLevel` entries; only the requested prefix is read. Each entry specifies
+an integer radius (0 through 64 texels), RGB tint and scalar weight. Tint and
+weight must be finite and in 0 through 64. Radius zero is an identity blur.
+
+```rust
+use worldrunner_render_post::{Bloom, BloomKernel, GaussianLevel, HdrPostSettings};
+let settings = HdrPostSettings {
+    bloom: Some(Bloom { threshold: 1.0, knee: 0.5, intensity: 0.7, levels: 5 }),
+    bloom_kernel: BloomKernel::SeparablePyramid([GaussianLevel {
+        radius: 44,
+        tint: [1.0, 0.9, 0.8],
+        weight: 0.2,
+    }; 8]),
+    ..HdrPostSettings::default()
+};
+settings.validate().unwrap();
+```
+
+The first pass applies the bright pass independently to four source texels and
+averages them into a ceiling-half-resolution target. Later levels average 2x2
+blocks with edge clamping, so the last odd row and column remain represented.
+Each extent is `ceil(previous / 2)` on each axis. A requested level after 1x1
+is rejected by the factory before target allocation. Small images can use
+`gaussian_extents` to choose their requested count explicitly.
+
+After all downsample passes, levels execute from coarsest to finest. A horizontal
+Gaussian blur writes a scratch target. The vertical blur writes back into that
+level's original downsample target, applies its tint and weight, and adds the
+bilinearly upsampled result from the next coarser level. The terminal vertical
+pass has no coarser contribution. The final half-resolution image is bilinearly
+upsampled during tone mapping and multiplied by `Bloom::intensity`. Alpha comes
+from the original scene. Unit tints and weights summing to one preserve a
+constant field's post-bright-pass radiance. Other weights deliberately change
+energy.
+
+The CPU generates a normalized discrete Gaussian with `sigma = radius / 3`.
+Adjacent positive taps are folded into one bilinear sample with a fractional
+offset and mirrored around the centre. Each axis requires
+`1 + 2 * ceil(radius / 2)` filtered samples per pixel. Folded taps live in an
+immutable storage buffer and are read directly by the shader. Each level owns
+two RGBA16Float textures and a tap buffer per admitted slot. The original
+level target is reused after its downsample consumers have executed. Resize and
+reconfiguration use the existing transactional `PostChain` replacement path.
+
+Every pass has a stable timestamp identity: `gaussian_bright` at level zero,
+`gaussian_downsample` at subsequent levels, and `gaussian_horizontal` /
+`gaussian_vertical` at each logical level. Enable the existing chain timing API
+to collect these individually. The explicit synthetic probe renders a
+1600x900 frame with radii 44, 32, 20, 12 and 6, discards five warm-up samples
+and reports per-pass medians over twenty samples:
+
+```sh
+WGPU_BACKEND=vulkan cargo test -p worldrunner-render-post --lib \
+  gaussian_bloom_stage_timestamps -- --ignored --nocapture --test-threads=1
+```
+
+The shader reads taps directly from the storage buffer. Passing the tap array to
+a helper by value and indexing it dynamically produced the same output but cost
+about 236 ms per frame on an RDNA3 integrated GPU, against about 1.2 ms for direct
+access, so that form is not used.
+
+Numerical tests compare each odd-extent pyramid level to a discrete CPU
+convolution, including centre/edge impulses, radius 0, 1, 4, 44 and 64, threshold,
+knee, tint and weights. The GPU tolerance is `0.004 * abs(reference) + 0.0001`,
+accounting for half-float stores and hardware bilinear interpolation. CPU folded
+weights preserve normalization and discrete convolution within `1e-6` for every
+supported radius.

@@ -12,6 +12,16 @@ Reduction samples a three-by-three footprint at source-texel offsets around the 
 
 Reconstruction applies the same separable tent to the lower-resolution image, with offsets measured in lower-resolution texels. Average that result with the current high-resolution level. Both kernels and the final average preserve constant radiance. Integer loads clamp at image boundaries, including odd extents and single-texel levels.
 
+## Separable Gaussian bloom
+
+`BloomKernel::SeparablePyramid` is an alternative to the binomial and tent pyramid above. It uses the same prefilter.
+
+Level zero has the half-resolution extent `ceil(width/2) x ceil(height/2)`. Each later level halves again with ceiling division. The first pass averages the prefiltered values of the four source texels under each level-zero texel. Later passes average four texels of the previous level. Integer loads clamp at borders.
+
+For a level with radius `r > 0`, the discrete weights are `w(i) = exp(-i^2 / (2 sigma^2))` for `i = 0..r` with `sigma = r / 3`, normalized so `w(0) + 2 * sum(w(1..r)) = 1`. Radius zero is the identity. Adjacent positive taps `i` and `i+1` are folded into one bilinear fetch at offset `i + w(i+1) / (w(i) + w(i+1))` with weight `w(i) + w(i+1)`. An unpaired last tap keeps its own offset and weight. Each fetch is mirrored about the centre. Bilinear interpolation between two texels reproduces the two discrete weights exactly, so folding does not change the convolution away from borders.
+
+Levels are blurred from the coarsest to the finest. The horizontal pass convolves the level with its weights. The vertical pass convolves the horizontal result, multiplies it by the level tint and weight, and adds a bilinear sample of the next coarser level's result, if any. The tone stage samples the level-zero result bilinearly at each output pixel and multiplies it by `Bloom::intensity`. The CPU computes the weights; the shader reads them from a storage buffer.
+
 ## FXAA
 
 Use `(R + 2G + B) / 4` as a display-linear luminance proxy. The coefficients favor green and sum to one. A three-by-three neighborhood supplies minimum and maximum luminance. Skip filtering when contrast is at most `max(1/64, maximum/10)`.

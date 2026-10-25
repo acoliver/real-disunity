@@ -10,6 +10,8 @@ description = "Disunity C ABI: versioned, append-only exports over engine-owned 
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+worldrunner-world-simulation = { path = "../world-simulation" }
+glam.workspace = true
 
 [build-dependencies]
 csbindgen = "1.9.8"

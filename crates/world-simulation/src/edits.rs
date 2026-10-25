@@ -1,0 +1,77 @@
+use std::collections::BTreeSet;
+
+use glam::{Quat, Vec3};
+
+use crate::{ComponentDesc, LocalTransform, ObjectHandle, World, WorldError};
+
+/// Typed edits accepted atomically by native storage, independent of any ABI command encoding.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ObjectEdit {
+    Translation(ObjectHandle, Vec3),
+    Rotation(ObjectHandle, Quat),
+    MaterialSlot(ObjectHandle, u32),
+}
+
+impl World {
+    pub fn apply_edits(&mut self, edits: &[ObjectEdit]) -> Result<(), WorldError> {
+        self.validate_edits(edits)?;
+        for edit in edits {
+            match *edit {
+                ObjectEdit::Translation(object, translation) => {
+                    let value = LocalTransform {
+                        translation,
+                        ..self.local_transform(object)?
+                    };
+                    self.set_local_transform(object, value)?;
+                }
+                ObjectEdit::Rotation(object, rotation) => {
+                    let value = LocalTransform {
+                        rotation,
+                        ..self.local_transform(object)?
+                    };
+                    self.set_local_transform(object, value)?;
+                }
+                ObjectEdit::MaterialSlot(object, material_slot) => {
+                    let desc = ComponentDesc::Renderer { material_slot };
+                    if let Some(handle) = self.renderer(object)? {
+                        self.set_component(handle, desc)?;
+                    } else {
+                        self.add_component(object, desc)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_edits(&self, edits: &[ObjectEdit]) -> Result<(), WorldError> {
+        let mut renderers = BTreeSet::new();
+        for edit in edits {
+            match *edit {
+                ObjectEdit::Translation(object, translation) => {
+                    self.local_transform(object)?;
+                    LocalTransform {
+                        translation,
+                        ..Default::default()
+                    }
+                    .validate()?;
+                }
+                ObjectEdit::Rotation(object, rotation) => {
+                    self.local_transform(object)?;
+                    LocalTransform {
+                        rotation,
+                        ..Default::default()
+                    }
+                    .validate()?;
+                }
+                ObjectEdit::MaterialSlot(object, _) => {
+                    self.local_transform(object)?;
+                    if self.renderer(object)?.is_none() {
+                        renderers.insert(object);
+                    }
+                }
+            }
+        }
+        self.components.check_additional(renderers.len())
+    }
+}

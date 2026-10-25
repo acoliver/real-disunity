@@ -33,6 +33,7 @@ worldrunner-world-generation = { path = "../world-generation", optional = true }
 worldrunner-world-model = { path = "../world-model", optional = true }
 worldrunner-world-runtime = { path = "../world-runtime", optional = true }
 worldrunner-world-schema = { path = "../world-schema", optional = true }
+worldrunner-world-simulation = { path = "../world-simulation", optional = true }
 
 [features]
 default = ["assets", "gfx", "world"]
@@ -54,7 +55,9 @@ scene = [
     "dep:worldrunner-render-scene",
 ]
 script = ["dep:worldrunner-script"]
+simulation = ["dep:worldrunner-world-simulation"]
 world = [
+    "simulation",
     "dep:worldrunner-render-plan",
     "dep:worldrunner-save",
     "dep:worldrunner-world-generation",

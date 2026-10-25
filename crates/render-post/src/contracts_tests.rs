@@ -134,7 +134,21 @@ fn encode_stock_fixture(
     second.slot = crate::PassSlot::Opaque;
     second.color.as_mut().unwrap().load = AttachmentLoad::Load;
     let views = [crate::AttachmentView::new(resource, targets.scene().texture()).unwrap()];
-    let compiled = crate::contracts::stock::compile(device, &[first, second], &views, &[]).unwrap();
+    let compiled = crate::contracts::stock::compile(
+        device,
+        &[first, second],
+        &views,
+        &[],
+        &mut crate::contracts::ResourceRegistry::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        compiled.ids().collect::<Vec<_>>(),
+        vec![
+            RasterId::new(crate::StageId::new("stock geometry", 0), 0),
+            RasterId::new(crate::StageId::new("stock geometry", 0), 1),
+        ]
+    );
     compiled
         .encode_stock_pass(0, encoder, None, |_| {})
         .unwrap();

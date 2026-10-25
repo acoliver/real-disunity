@@ -132,6 +132,17 @@ impl ResidentPages {
         None
     }
 
+    pub(crate) fn capture_write_key(&self) -> capture::WriteKey {
+        self.storage().state.borrow().capture_write_key()
+    }
+
+    pub(in crate::terrain::pages) fn lookup_for_drawing(
+        &self,
+        key: PageKey,
+    ) -> Option<ResidentPage> {
+        self.storage().state.borrow().lookup_for_drawing(key)
+    }
+
     pub fn is_current(&self, page: ResidentPage) -> bool {
         self.storage().state.borrow().is_current(page)
     }

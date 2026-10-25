@@ -18,6 +18,10 @@ pub(crate) struct InstanceBatch {
 }
 
 impl InstanceBatch {
+    pub(crate) fn publication_key(&self) -> worldrunner_render_gpu::submission::capture::WriteKey {
+        crate::compositor::publication::key(&self.uploaded)
+    }
+
     pub fn add(&mut self, object: SceneObject, visible: bool) -> usize {
         let position = self.free.pop_first().unwrap_or_else(|| {
             let position = self.placements.len();
@@ -164,7 +168,7 @@ pub(crate) fn flush_prepared(
     let uploaded = batch.uploaded.clone();
     let valid = batch.buffer_valid.clone();
     let bytes = batch.bytes.clone();
-    context.publish(move || {
+    crate::compositor::publication::stage(context, &uploaded.clone(), move || {
         *uploaded.borrow_mut() = bytes;
         valid.set(true);
     });

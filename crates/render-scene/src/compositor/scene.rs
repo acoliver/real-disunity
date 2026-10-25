@@ -5,7 +5,7 @@ use worldrunner_render_post::{
 };
 
 pub(crate) struct SceneFeature<'a> {
-    publications: crate::draw::DrawPublications,
+    pub(crate) publications: crate::draw::DrawPublications,
     pub gpu: &'a mut crate::draw::SceneGpu,
     pub pipelines: &'a crate::renderer::ScenePipelines,
     pub frame: crate::frame::FrameUniform,

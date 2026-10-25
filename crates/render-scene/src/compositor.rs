@@ -1,7 +1,9 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod configuration;
+mod depth_prefix;
 mod output;
+pub(crate) mod publication;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 use output::FrameOutput;
@@ -331,6 +333,24 @@ impl FrameRenderer {
                     .create_view(&wgpu::TextureViewDescriptor::default())
             })
     }
+    /// Existing pixel-centre linear metre depth and normal coverage for shadow
+    /// statistics. Callers rebind after resize; no additional prepass is allocated.
+    pub fn depth_statistics_source(
+        &self,
+    ) -> Result<Option<(AttachmentView, AttachmentView)>, FrameError> {
+        use crate::frame::metadata::FrameProduct;
+        self.ssao
+            .as_ref()
+            .map(|source| {
+                let levels = source.passes.depth_levels();
+                Ok((
+                    FrameProduct::linear_depth(0).attachment(levels[0])?,
+                    FrameProduct::normals().attachment(&source.normals)?,
+                ))
+            })
+            .transpose()
+    }
+
     pub fn targets(&self) -> &worldrunner_render_post::FrameTargets {
         self.chain.targets()
     }
@@ -415,7 +435,7 @@ impl FrameRenderer {
                 self.exposure_reset.get(),
             )?;
             let reset = self.exposure_reset.clone();
-            worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+            publication::encode(encoder, &reset.clone(), move || {
                 reset.set(false);
             })
             .map_err(FrameError::from)?;
@@ -427,7 +447,7 @@ impl FrameRenderer {
             .map_err(FrameError::from)?;
         let time = self.post_time.clone();
         let seconds = self.elapsed_seconds;
-        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+        publication::encode(encoder, &time.clone(), move || {
             time.set(seconds);
         })
         .map_err(FrameError::from)?;
@@ -568,7 +588,7 @@ impl FrameRenderer {
     ) {
         let ready = self.snapshot_ready.clone();
         let slot = self.frame_slot;
-        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+        publication::encode(encoder, &ready.clone(), move || {
             ready.borrow_mut()[slot] = request;
         })
         .expect("checked transaction encoder");

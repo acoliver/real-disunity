@@ -270,6 +270,7 @@ pub struct PostChain<F> {
     configured: Vec<StageSet>,
     features: Vec<crate::frame::RegisteredFeature>,
     upload_slots: [Vec<wgpu::Buffer>; 3],
+    capture_resources: Option<crate::contracts::ResourceRegistry>,
     frame_slot: usize,
     timing: std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>,
 }
@@ -290,10 +291,43 @@ impl<F: StageFactory> PostChain<F> {
             factory,
             configured,
             features: Vec::new(),
+            capture_resources: None,
             upload_slots: std::array::from_fn(|_| Vec::new()),
             frame_slot: 0,
             timing: std::rc::Rc::new(std::cell::RefCell::new(None)),
         })
+    }
+
+    /// Reserve physical identities shared by both segments of a stock capture.
+    pub fn capture_write_keys(
+        &mut self,
+        textures: &[&wgpu::Texture],
+    ) -> Result<
+        Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+        crate::contracts::ContractError,
+    > {
+        use crate::contracts::{ResourceLifetime, Semantic};
+        let registry = self.capture_resources.get_or_insert_with(Default::default);
+        textures
+            .iter()
+            .map(|texture| {
+                let key = registry.import(
+                    texture,
+                    ResourceLifetime::FrameLocal,
+                    Semantic::Unspecified,
+                    None,
+                )?;
+                Ok(
+                    worldrunner_render_gpu::submission::capture::WriteKey::Resource {
+                        id: key.id(),
+                        generation: key.generation(),
+                    },
+                )
+            })
+            .collect()
+    }
+    pub fn clear_capture_resources(&mut self) {
+        self.capture_resources = None;
     }
 
     /// Build replacements before switching; fixed history remains unchanged on resize/failure.
@@ -551,6 +585,21 @@ impl<F: StageFactory> PostChain<F> {
         Ok(())
     }
 
+    /// Encode a complete borrowed subplan without invoking retained frame features.
+    /// Used for metadata prefixes; the same validation and raster compiler apply.
+    pub fn encode_geometry_prefix(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &crate::FramePlan<'_>,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+    ) -> Result<(), crate::FrameError> {
+        let retained = std::mem::take(&mut self.features);
+        let result = self.encode_geometry(device, encoder, plan, borrowed);
+        self.features = retained;
+        result
+    }
+
     /// Validates the complete frame before any feature prepares or draws.
     /// Borrowed resident features precede retained registrations in a slot.
     pub fn encode_geometry(
@@ -576,7 +625,13 @@ impl<F: StageFactory> PostChain<F> {
             .collect();
         crate::validate_frame(passes, &declarations, requested)?;
         crate::frame::validate_views(passes, views)?;
-        let raster = crate::contracts::stock::compile(device, passes, views, &declarations)?;
+        let mut local_registry = crate::contracts::ResourceRegistry::default();
+        let registry = self
+            .capture_resources
+            .as_mut()
+            .unwrap_or(&mut local_registry);
+        let raster =
+            crate::contracts::stock::compile(device, passes, views, &declarations, registry)?;
         self.prepare_features(device, encoder, borrowed, views)?;
         for (index, declaration) in passes.iter().enumerate() {
             let context = crate::DrawContext {

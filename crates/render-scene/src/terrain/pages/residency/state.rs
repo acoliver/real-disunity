@@ -97,6 +97,18 @@ impl PageState {
             self.uploaded = 0;
         }
     }
+    pub fn capture_write_key(&self) -> WriteKey {
+        WriteKey::Resident(self.cache)
+    }
+    pub fn lookup_for_drawing(&self, key: PageKey) -> Option<ResidentPage> {
+        let slot = self.slots[*self.index.get(&key)?]
+            .as_ref()
+            .expect("indexed slot");
+        let same_transaction = self.transaction.as_ref().is_some_and(|owner| {
+            Publications::current().is_some_and(|current| current.same_transaction(owner))
+        });
+        (slot.submitted || same_transaction).then_some(slot.page)
+    }
     pub fn keys(&self) -> impl Iterator<Item = PageKey> + '_ {
         self.index.keys().copied()
     }

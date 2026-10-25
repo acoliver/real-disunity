@@ -5,6 +5,8 @@
 //! `Depth32Float` maps, explicit receiver dimensions/bindings, depth-only pipelines
 //! and far-depth clear/store passes, validated directional configuration and shared sampling kernels. No scene, asset or filesystem inputs are used.
 
+mod sdsm;
+pub use sdsm::{DepthRange, RangeFilter, RangeFit};
 mod config;
 pub use config::{DirectionalCoverage, DirectionalShadowConfig, InvalidShadowConfig, ShadowFilter};
 mod cascades;

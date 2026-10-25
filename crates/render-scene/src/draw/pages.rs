@@ -9,6 +9,38 @@ use worldrunner_render_gpu::{
 use worldrunner_render_post::FrameError;
 
 impl SceneGpu {
+    pub(crate) fn clear_capture_pages(&self) {
+        if let Some(pages) = self
+            .terrain
+            .as_ref()
+            .and_then(|terrain| terrain.pages.as_ref())
+        {
+            pages.borrow_mut().clear_capture();
+        }
+    }
+
+    pub(crate) fn prepare_depth_prefix_pages(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        frame: crate::frame::FrameUniform,
+        viewport: [u32; 2],
+    ) -> Result<(), FrameError> {
+        if let Some(pages) = self
+            .terrain
+            .as_ref()
+            .and_then(|terrain| terrain.pages.as_ref())
+        {
+            pages.borrow_mut().prepare_depth_prefix(
+                device,
+                encoder,
+                frame.view_projection,
+                viewport,
+            )?;
+        }
+        Ok(())
+    }
+
     /// Enables layered material pages on this scene's existing terrain geometry.
     /// Sources return linear decoded layers in normalized terrain coordinates.
     pub fn enable_terrain_pages(

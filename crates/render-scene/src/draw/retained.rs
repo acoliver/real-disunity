@@ -3,6 +3,41 @@ use worldrunner_render_plan::{SceneObject, SceneTransform};
 use super::{InstanceError, InstanceHandle, InstanceWrite, SceneGpu};
 
 impl SceneGpu {
+    /// Provisions bounded page uploads and declares stock geometry's capture writes.
+    pub fn capture_write_keys(
+        &self,
+        device: &wgpu::Device,
+    ) -> Result<
+        Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+        worldrunner_render_post::FrameError,
+    > {
+        let mut keys = vec![
+            crate::compositor::publication::key(&self.frame),
+            crate::compositor::publication::key(&self.camera_selection),
+        ];
+        keys.extend(
+            self.shadow_selection
+                .iter()
+                .map(crate::compositor::publication::key),
+        );
+        keys.extend(
+            self.instances
+                .batches
+                .values()
+                .map(crate::instances::batch::InstanceBatch::publication_key),
+        );
+        if let Some(pages) = self
+            .terrain
+            .as_ref()
+            .and_then(|terrain| terrain.pages.as_ref())
+        {
+            let mut pages = pages.borrow_mut();
+            pages.prepare_capture(device)?;
+            keys.extend(pages.capture_write_keys());
+        }
+        Ok(keys)
+    }
+
     /// Select the admitted slot before encoding. The host must retain its admission
     /// until submission completion before selecting the same slot again.
     pub fn select_frame_slot(&mut self, slot: usize) {
@@ -139,7 +174,7 @@ impl SceneGpu {
         let published = self.frame.clone();
         let committed_group = self.committed_frame_group.clone();
         let group = self.frame_group.clone();
-        context.publish(move || {
+        crate::compositor::publication::stage(context, &published.clone(), move || {
             published.set(Some(frame));
             *committed_group.borrow_mut() = group;
         });

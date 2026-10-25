@@ -34,9 +34,9 @@ pub(crate) fn compile(
     passes: &[PassDeclaration],
     views: &[AttachmentView],
     features: &[FeatureDeclaration],
+    registry: &mut ResourceRegistry,
 ) -> Result<CompiledRaster, ContractError> {
-    let mut registry = ResourceRegistry::default();
-    let keys = import_views(&mut registry, views)?;
+    let keys = import_views(registry, views)?;
     let mut versions = BTreeMap::<ResourceRef, u32>::new();
     let mut raster = Vec::new();
     for (index, pass) in passes.iter().enumerate() {
@@ -46,7 +46,7 @@ pub(crate) fn compile(
             .filter(|feature| feature.slot == pass.slot)
             .flat_map(|feature| &feature.reads)
             .map(|resource| {
-                checked_view(&registry, &keys, *resource, versions[resource])
+                checked_view(registry, &keys, *resource, versions[resource])
                     .map(|view| ResourceUse::read(view, UseKind::Sampled))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -54,7 +54,7 @@ pub(crate) fn compile(
             .color
             .as_ref()
             .map(|attachment| {
-                let (view, before) = output(&registry, &keys, &mut versions, attachment)?;
+                let (view, before) = output(registry, &keys, &mut versions, attachment)?;
                 Ok(ColorAttachment {
                     view,
                     before,
@@ -68,7 +68,7 @@ pub(crate) fn compile(
             .depth
             .as_ref()
             .map(|attachment| {
-                let (view, before) = output(&registry, &keys, &mut versions, attachment)?;
+                let (view, before) = output(registry, &keys, &mut versions, attachment)?;
                 Ok(DepthAttachment {
                     view,
                     before,

@@ -22,7 +22,9 @@ impl DrawPublications {
             selection,
         } in self.0.get_mut().drain(..)
         {
-            context.publish(move || *destination.borrow_mut() = selection);
+            crate::compositor::publication::stage(context, &destination.clone(), move || {
+                *destination.borrow_mut() = selection;
+            });
         }
     }
 }

@@ -205,6 +205,7 @@ impl World {
         self.ensure_allocation_allowed()?;
         let owner = self.live_object(object)?;
         desc.validate()?;
+        self.validate_physics_material(&desc)?;
         desc.register_presentation()?;
         let duplicate = match desc {
             ComponentDesc::Transform(_) => true,
@@ -265,6 +266,7 @@ impl World {
     ) -> Result<(), WorldError> {
         let old = self.component(handle)?;
         desc.validate()?;
+        self.validate_physics_material(&desc)?;
         desc.register_presentation()?;
         if std::mem::discriminant(&old.desc) != std::mem::discriminant(&desc) {
             return Err(WorldError::InvalidComponent(ComponentError::KindMismatch));

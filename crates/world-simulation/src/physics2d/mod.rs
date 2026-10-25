@@ -5,6 +5,7 @@ mod body;
 mod ccd;
 mod contacts;
 mod geometry;
+mod material;
 mod motion;
 mod queries;
 mod shapes;
@@ -15,6 +16,7 @@ mod tiles;
 
 pub use body::{Body2d, BodyType, PhysicsPlane, PhysicsSettings};
 pub use contacts::{ContactEvent, ContactPhase};
+pub use material::{PhysicsMaterial2d, PhysicsMaterialHandle};
 pub use queries::{QueryFilter, RayHit};
 pub use shapes::{Collider2d, Shape2d};
 pub use tiles::{TileCell, TileGrid, TileShape};
@@ -28,6 +30,8 @@ use std::collections::BTreeMap;
 pub enum PhysicsError {
     #[error("body requires positive finite mass, finite motion and restitution in 0..1")]
     InvalidBody,
+    #[error("material requires finite nonnegative friction and bounciness in 0..1")]
+    InvalidMaterial,
     #[error("invalid convex shape or shape budget exceeded")]
     InvalidShape,
     #[error("invalid physics settings")]
@@ -53,6 +57,7 @@ type Contacts = BTreeMap<Pair, ContactEvent>;
 #[derive(Clone, Default)]
 pub(crate) struct Physics {
     settings: PhysicsSettings,
+    materials: Vec<PhysicsMaterial2d>,
     contacts: Contacts,
     pub(crate) targets: BTreeMap<ComponentHandle, Vec2>,
     events: Vec<ContactEvent>,
@@ -70,7 +75,8 @@ struct Collider {
     trigger: bool,
     layer: u8,
     mask: u32,
-    restitution: f32,
+    material: PhysicsMaterial2d,
+    material_backed: bool,
 }
 #[derive(Clone)]
 struct Motion {
@@ -140,7 +146,13 @@ impl World {
             remaining -= advance;
             if let Some(impact) = earliest {
                 let at_impact = motion::moved_colliders(&base, &motions)?;
-                solver::resolve(&at_impact, &mut motions, impact, &mut touched);
+                solver::resolve(
+                    &at_impact,
+                    &mut motions,
+                    impact,
+                    &mut touched,
+                    self.physics.settings.bounce_threshold,
+                );
             }
         }
         let final_colliders = motion::moved_colliders(&base, &motions)?;

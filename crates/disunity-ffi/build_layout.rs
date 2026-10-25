@@ -15,6 +15,7 @@ pub fn generate(out: &Path) {
         ("cloning", "crate::cloning"),
         ("callbacks", "crate::callbacks"),
         ("physics", "crate::physics"),
+        ("physics_materials", "crate::physics_materials"),
         ("ui", "crate::ui"),
         ("sprites", "crate::sprites"),
         ("presentation", "crate::presentation"),

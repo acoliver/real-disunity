@@ -24,6 +24,7 @@ public abstract class NativeComponent : Component
 public enum RigidbodyType2D { Dynamic, Kinematic, Static }
 public sealed class Rigidbody2D : NativeComponent
 {
+    public PhysicsMaterial2D? sharedMaterial { get => PhysicsMaterial2D.Get(Handle); set => PhysicsMaterial2D.Set(Handle, value); }
     private unsafe DisunityBody2d Read()
     {
         DisunityBody2d value;
@@ -52,6 +53,7 @@ public sealed class Rigidbody2D : NativeComponent
 }
 public abstract class Collider2D : NativeComponent
 {
+    public PhysicsMaterial2D? sharedMaterial { get => PhysicsMaterial2D.Get(Handle); set => PhysicsMaterial2D.Set(Handle, value); }
     internal unsafe DisunityCollider2d Read()
     {
         DisunityCollider2d value;

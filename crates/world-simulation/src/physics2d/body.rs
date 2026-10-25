@@ -41,6 +41,7 @@ pub enum BodyType {
 pub struct Body2d {
     pub body_type: BodyType,
     pub enabled: bool,
+    pub shared_material: Option<super::PhysicsMaterialHandle>,
     pub sleeping: bool,
     pub mass: f32,
     pub velocity: Vec2,
@@ -55,6 +56,7 @@ impl Default for Body2d {
         Self {
             body_type: BodyType::Dynamic,
             enabled: true,
+            shared_material: None,
             sleeping: false,
             mass: 1.0,
             velocity: Vec2::ZERO,
@@ -85,6 +87,8 @@ impl Body2d {
 pub struct PhysicsSettings {
     pub plane: PhysicsPlane,
     pub gravity: Vec2,
+    /// Material restitution applies only above this closing speed, in metres per second.
+    pub bounce_threshold: f32,
     pub max_iterations: u32,
 }
 impl Default for PhysicsSettings {
@@ -92,13 +96,19 @@ impl Default for PhysicsSettings {
         Self {
             plane: PhysicsPlane::Xy,
             gravity: Vec2::new(0.0, -9.81),
+            bounce_threshold: 1.0,
             max_iterations: 2048,
         }
     }
 }
 impl PhysicsSettings {
     pub(crate) fn validate(self) -> Result<(), PhysicsError> {
-        if !self.gravity.is_finite() || self.max_iterations == 0 || self.max_iterations > 65536 {
+        if !self.gravity.is_finite()
+            || !self.bounce_threshold.is_finite()
+            || self.bounce_threshold < 0.0
+            || self.max_iterations == 0
+            || self.max_iterations > 65536
+        {
             return Err(PhysicsError::InvalidSettings);
         }
         Ok(())

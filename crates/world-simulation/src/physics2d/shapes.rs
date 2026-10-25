@@ -70,6 +70,7 @@ pub struct Collider2d {
     pub shapes: Vec<Shape2d>,
     pub offset: Vec2,
     pub enabled: bool,
+    pub shared_material: Option<super::PhysicsMaterialHandle>,
     pub trigger: bool,
     pub layers: u32,
 }
@@ -81,6 +82,7 @@ impl Default for Collider2d {
             }],
             offset: Vec2::ZERO,
             enabled: true,
+            shared_material: None,
             trigger: false,
             layers: u32::MAX,
         }

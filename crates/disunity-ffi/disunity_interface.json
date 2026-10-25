@@ -228,6 +228,21 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_physics_material_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_physics_material_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_physics_material_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_physics_overlap_circle",
       "since": "2.0.0",
       "rets": "DisunityResult"
@@ -289,6 +304,16 @@
     },
     {
       "name": "disunity_script_set_enabled",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shared_material_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shared_material_write",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },

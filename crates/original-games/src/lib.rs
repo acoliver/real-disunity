@@ -68,6 +68,8 @@ pub enum Error {
     },
     #[error("original checkout has local changes: {0}")]
     Modified(PathBuf),
+    #[error("{0} is not the root of its own git checkout")]
+    NotCheckout(PathBuf),
 }
 
 pub fn workspace_root() -> Result<PathBuf, Error> {

@@ -85,3 +85,22 @@ fn git_failures_retain_the_operation_and_directory() {
     assert!(matches!(error, Error::Git { operation, path, message }
         if operation == "rev-parse HEAD" && path == root.path() && !message.is_empty()));
 }
+
+#[test]
+fn a_directory_inside_another_repository_is_not_a_checkout() {
+    let (root, head) = repository();
+    let nested = root.path().join("snake-residue");
+    fs::create_dir(&nested).unwrap();
+    assert!(cache::is_checkout_root(root.path()).unwrap());
+    assert!(!cache::is_checkout_root(&nested).unwrap());
+    assert!(matches!(
+        cache::verify(&nested, &head),
+        Err(Error::NotCheckout(path)) if path == nested
+    ));
+}
+
+#[test]
+fn a_directory_outside_any_repository_is_not_a_checkout() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(!cache::is_checkout_root(root.path()).unwrap());
+}

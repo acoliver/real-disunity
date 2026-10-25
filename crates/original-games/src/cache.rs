@@ -16,6 +16,11 @@ pub(super) fn checkout(workspace: &Path, game: Game) -> Result<PathBuf, Error> {
         .write(true)
         .open(parent.join(format!("{}.lock", game.name())))?;
     lock.lock()?;
+    // A directory without its own repository is build-cache residue, never an original:
+    // git would resolve it through an enclosing repository instead.
+    if path.exists() && !is_checkout_root(&path)? {
+        fs::remove_dir_all(&path)?;
+    }
     if !path.exists() {
         let staging = tempfile::Builder::new()
             .prefix(game.name())
@@ -37,7 +42,18 @@ pub(super) fn checkout(workspace: &Path, game: Game) -> Result<PathBuf, Error> {
     Ok(path)
 }
 
+/// Whether `path` is the top level of its own git work tree.
+pub(super) fn is_checkout_root(path: &Path) -> Result<bool, Error> {
+    let Ok(top) = git(path, &["rev-parse", "--show-toplevel"]) else {
+        return Ok(false);
+    };
+    Ok(Path::new(top.trim()).canonicalize()? == path.canonicalize()?)
+}
+
 pub(super) fn verify(path: &Path, expected: &str) -> Result<(), Error> {
+    if !is_checkout_root(path)? {
+        return Err(Error::NotCheckout(path.into()));
+    }
     let head = git(path, &["rev-parse", "HEAD"])?;
     if head.trim() != expected {
         return Err(Error::Revision {

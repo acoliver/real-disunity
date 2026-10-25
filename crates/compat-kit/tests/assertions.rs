@@ -26,8 +26,10 @@ use std::fs;
 
 #[test]
 fn real_protocol_observations_support_tolerance_changes_events_and_timeline_roundtrip() {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir_all(root.path().join("fixtures")).unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    // Runs take the canonical root, as the CLI resolves it; macOS temp paths are symlinked.
+    let root = temp.path().canonicalize().unwrap();
+    fs::create_dir_all(root.join("fixtures")).unwrap();
     let timeline = json!([
         {"frame":0,"phase":"load","action":"load"},
         {"frame":1,"phase":"input","action":"input","keys":["W"],"axes":{"Vertical":1}},
@@ -35,7 +37,7 @@ fn real_protocol_observations_support_tolerance_changes_events_and_timeline_roun
         {"frame":2,"phase":"input","action":"input","keys":[],"axes":{"Vertical":0}},
         {"frame":2,"phase":"unload","action":"unload"}
     ]);
-    let path = root.path().join("fixtures/protocol.json");
+    let path = root.join("fixtures/protocol.json");
     let mut data = json!({"schema_version":1,"name":"protocol","game":"snake","profiles":["test"],"default_profile":"test","evidence_label":"harness-only",
     "worker":{"program":env!("CARGO_BIN_EXE_compat-kit-protocol-test-worker"),"args":["sequence"]},"timeline":timeline,
     "assertions":[
@@ -48,8 +50,8 @@ fn real_protocol_observations_support_tolerance_changes_events_and_timeline_roun
     fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
     let run = || {
         runner::run(
-            root.path(),
-            &fixture::load(root.path(), "protocol").unwrap(),
+            root.as_path(),
+            &fixture::load(root.as_path(), "protocol").unwrap(),
             None,
             false,
             &RunControl::default(),

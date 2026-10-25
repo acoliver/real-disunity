@@ -17,10 +17,3 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Admission for Callback<'_, F> {
         self.0(bytes)
     }
 }
-pub(super) fn prepare_response(
-    world: &mut DisunityWorld,
-    parsed: Result<protocol::Request, String>,
-    identity: u64,
-) -> Result<PreparedResponse, i32> {
-    prepare_response_profile(world, parsed, identity, Profile::Legacy)
-}

@@ -42,12 +42,9 @@ public static unsafe partial class ManagedBridge
             System.Text.Json.Nodes.JsonNode.Parse(description.RootElement.GetProperty("data").GetRawText()),
             System.Text.Json.Nodes.JsonNode.Parse(liveDescription.RootElement.GetProperty("data").GetRawText())))
             throw BridgeProtocol.Invalid("world descriptor differs from preactivation negotiation");
-        var byteProfile = ByteTransportProfile.Selected(_libraryPath, world, description.RootElement.GetProperty("data"), root);
         var strict = PhaseContexts.Selected(_libraryPath, world, description.RootElement.GetProperty("data"), root);
         var terminal = TerminalCleanupProfile.Selected(root, description.RootElement.GetProperty("data"));
-        if (byteProfile) NativeWorld.AttachNativeByteProfile(_libraryPath, world);
-        else NativeWorld.AttachNativeLibrary(_libraryPath, world);
-        ByteTransportProfile.Active = byteProfile;
+        NativeWorld.AttachNativeLibrary(_libraryPath, world);
         NativePhaseScope.Strict = strict;
         IDisposable? scope = null;
         try
@@ -66,7 +63,7 @@ public static unsafe partial class ManagedBridge
             {
                 try { _session?.Dispose(); }
                 catch (Exception cleanup) { throw new AggregateException(primary, cleanup); }
-                finally { NativeWorld.Detach(); ByteTransportProfile.Active = false; }
+                finally { NativeWorld.Detach(); }
             }
             throw;
         }
@@ -95,7 +92,7 @@ public static unsafe partial class ManagedBridge
                 finally
                 {
                     _cleanupPending = _session.ScriptCount != 0 || _session.CoroutineCount != 0 || _session.BindingCount != 0;
-                    if (!_cleanupPending) { NativeWorld.Detach(); ByteTransportProfile.Active = false; _loaded = false; }
+                    if (!_cleanupPending) { NativeWorld.Detach(); _loaded = false; }
                 }
             }
             else _session.DispatchClaimed(name);
@@ -142,7 +139,7 @@ public static unsafe partial class ManagedBridge
             observation = _session is not null ? _session.Observe(request.RootElement) : new CallbackFailures().Observe(request.RootElement);
         }
         var result = BoundedReply.Encode(observation);
-        if (result.Length > ByteTransportProfile.ResponseLimit) throw new InvalidDataException("managed observation response budget exceeded");
+        if (result.Length > BridgeProtocol.ResponseLimit) throw new InvalidDataException("managed observation response budget exceeded");
         *outLength = (nuint)result.Length;
         if (capacity == 0 && output is null)
         {
@@ -188,7 +185,7 @@ public static unsafe partial class ManagedBridge
         if (_session is { Strict: true, ScriptCount: > 0 } && NativePhaseScope.Phase is null)
             throw new InvalidOperationException("strict unload requires a native claimed cleanup phase");
         try { _session?.Dispose(); }
-        finally { NativeWorld.Detach(); ByteTransportProfile.Active = false; _loaded = false; }
+        finally { NativeWorld.Detach(); _loaded = false; }
         return 0;
     });
 
@@ -203,8 +200,8 @@ public static unsafe partial class ManagedBridge
         catch (Exception error)
         {
             var text = error.ToString();
-            _lastError = ByteTransportProfile.Active && text.Length > ByteTransportProfile.ReplyLimit / 3
-                ? text[..(ByteTransportProfile.ReplyLimit / 3)] : text;
+            _lastError = text.Length > BridgeProtocol.ResponseLimit / 3
+                ? text[..(BridgeProtocol.ResponseLimit / 3)] : text;
             return -1;
         }
     }

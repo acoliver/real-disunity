@@ -40,10 +40,6 @@ fn reject_at_byte_limit(w: &World, fill: &[u8], request: Value) {
 fn cleanup_full_generation_byte_quota_rolls_back_all_ticket_transitions() {
     let _table = crate::response_table::exclusive();
     let w = World::new();
-    ok(
-        &w,
-        json!({"version":1,"op":"transport.select","transport_profile":"transport_byte_limits_v1"}),
-    );
     let (host, c, _) = setup(&w);
     let fill = filler(&w);
     reject_at_byte_limit(&w, &fill, json!({"op":"readiness.next","context":c}));

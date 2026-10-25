@@ -36,11 +36,10 @@ type JsonEntry = unsafe extern "C" fn(*const u8, usize) -> i32;
 type CopyEntry = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type ObserveEntry = unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32;
 
-const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
+const RESPONSE_LIMIT: usize = 8 * 1024 * 1024;
 
 struct CompatibilityBridge {
     dispatch_depth: std::cell::Cell<usize>,
-    response_limit: std::cell::Cell<usize>,
     describe: CopyEntry,
     configure: JsonEntry,
     load: JsonEntry,
@@ -74,7 +73,6 @@ impl CompatibilityBridge {
         }
         Ok(Self {
             dispatch_depth: std::cell::Cell::new(0),
-            response_limit: std::cell::Cell::new(RESPONSE_LIMIT),
             describe: entry!("DescribeBridge", CopyEntry),
             configure: entry!("ConfigureNativeLibrary", JsonEntry),
             load: entry!("LoadFixture", JsonEntry),
@@ -117,8 +115,8 @@ impl CompatibilityBridge {
         let mut required = 0;
         // SAFETY: the bridge permits a null-buffer length probe and retains no pointers.
         unsafe { (self.error)(std::ptr::null_mut(), 0, &mut required) };
-        if required > self.response_limit.get() {
-            return Err(HostError::ResponseBudget(self.response_limit.get()));
+        if required > RESPONSE_LIMIT {
+            return Err(HostError::ResponseBudget(RESPONSE_LIMIT));
         }
         let mut bytes = vec![0; required];
         // SAFETY: the allocated buffer has the probed capacity.
@@ -129,7 +127,7 @@ impl CompatibilityBridge {
 
     fn invoke(&self, entry: JsonEntry, value: &Value) -> Result<(), HostError> {
         let _dispatch = self.enter_dispatch()?;
-        let bytes = transport::byte_profile::encode_bridge(value, self.response_limit.get())?;
+        let bytes = transport::codec::encode_bridge(value)?;
         // SAFETY: the bridge reads this UTF-8 buffer only during the synchronous call.
         self.check(unsafe { entry(bytes.as_ptr(), bytes.len()) })
     }
@@ -230,7 +228,6 @@ impl CompatibilityHost {
         self.validate_world(world)?;
         self.require_resolved_idle(world)?;
         idle_mutation::validate_selection(self, world, fixture)?;
-        self.validate_byte_manifest(world, fixture)?;
         self.worlds.insert(world);
         if self.strict.contains_key(&world) {
             return self.load_strict(world, fixture);
@@ -263,8 +260,7 @@ impl CompatibilityHost {
         ) {
             self.require_loaded()?;
         }
-        let request =
-            transport::byte_profile::encode_bridge(query, self.bridge.response_limit.get())?;
+        let request = transport::codec::encode_bridge(query)?;
         let mut required = 0;
         // SAFETY: Observe is read-only and supports null-buffer capacity probing.
         let probe = unsafe {
@@ -282,8 +278,8 @@ impl CompatibilityHost {
         if required == 0 {
             return Err(HostError::Request("managed observation was empty".into()));
         }
-        if required > self.bridge.response_limit.get() {
-            return Err(HostError::ResponseBudget(self.bridge.response_limit.get()));
+        if required > RESPONSE_LIMIT {
+            return Err(HostError::ResponseBudget(RESPONSE_LIMIT));
         }
         let mut bytes = vec![0; required];
         // SAFETY: the read-only result is copied into a bounded caller-owned allocation.
@@ -328,9 +324,7 @@ impl CompatibilityHost {
             return Ok(());
         }
         if let Some(world) = self.loaded_world.filter(|w| self.strict.contains_key(w)) {
-            let result = self.unload_strict(world);
-            self.bridge.response_limit.set(RESPONSE_LIMIT);
-            return result;
+            return self.unload_strict(world);
         }
         // SAFETY: the bridge is still mapped and owns only its managed dispatch roots.
         let code = unsafe { (self.bridge.unload)() };
@@ -341,9 +335,7 @@ impl CompatibilityHost {
         } else {
             Ok(())
         };
-        let result = self.bridge.check(code).and(closed);
-        self.bridge.response_limit.set(RESPONSE_LIMIT);
-        result
+        self.bridge.check(code).and(closed)
     }
 
     pub fn store_statistics(&self) -> Result<(u64, u64), HostError> {

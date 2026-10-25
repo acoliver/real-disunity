@@ -20,7 +20,6 @@ fn actual_cdecl_nested_host_matches_before_initialize_and_drains() {
     let _host_slot = one_host_at_a_time();
     let mut host = CompatibilityHost::boot(&config()).unwrap();
     let world = host.create_world().unwrap();
-    host.select_byte_profile(world).unwrap();
     host.open_nested_phase_session(world).unwrap();
     assert!(host.open_phase_session(world).is_err());
     let manifest = fixture(&host, world, 0, 3);
@@ -54,7 +53,6 @@ fn actual_cdecl_nested_claim_budget_is_shared_and_recovery_drains() {
     let _host_slot = one_host_at_a_time();
     let mut host = CompatibilityHost::boot(&config()).unwrap();
     let world = host.create_world().unwrap();
-    host.select_byte_profile(world).unwrap();
     host.open_nested_phase_session(world).unwrap();
     host.load_fixture(&fixture(&host, world, 50, 1)).unwrap();
     host.advance_rational(world, 0, 1).unwrap();
@@ -75,7 +73,6 @@ fn actual_cdecl_nested_claim_peer_exhaustion_closes_without_root_bypass() {
     let _host_slot = one_host_at_a_time();
     let mut host = CompatibilityHost::boot(&config()).unwrap();
     let world = host.create_world().unwrap();
-    host.select_byte_profile(world).unwrap();
     host.open_nested_phase_session(world).unwrap();
     let mut manifest = fixture(&host, world, 50, 1);
     nested_support::add_peer(&host, world, &mut manifest);

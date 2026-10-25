@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -33,8 +32,7 @@ public static class NativeWorld
         {
             if (!values.TryAdd(key, value)) throw new ArgumentException($"duplicate request field '{key}'", nameof(fields));
         }
-        using var request = _current is NativeJsonWorld { ByteProfile: true }
-            ? NativeByteProfile.Document(values) : JsonDocument.Parse(JsonSerializer.Serialize(values));
+        using var request = ByteTransport.Document(values);
         var response = Current.Request(request);
         if (!response.RootElement.TryGetProperty("ok", out var ok) || !ok.GetBoolean())
         {
@@ -54,26 +52,19 @@ public static class NativeWorld
 
     public static JsonElement Data(JsonDocument response) => response.RootElement.GetProperty("data");
 
-    public static void AttachNativeByteProfile(string path, ulong world)
-    {
-        NativeJsonWorld.Configure(path, world);
-        var selected = new NativeJsonWorld(world, byteProfile: true);
-        NativeByteProfile.Validate(selected);
-        Attach(selected);
-    }
-
     public static void AttachNativeLibrary(string path, ulong world)
     {
         NativeJsonWorld.Configure(path, world);
-        Attach(new NativeJsonWorld(world));
+        var native = new NativeJsonWorld(world);
+        ByteTransport.Validate(native);
+        Attach(native);
     }
 }
 
-internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = false, INativeTransport? transport = null) : INativeWorld
+internal sealed partial class NativeJsonWorld(ulong world, INativeTransport? transport = null) : INativeWorld
 {
     internal INativeTransport Transport { get; } = transport ?? new LibraryTransport();
     internal ulong Handle => world;
-    internal bool ByteProfile => byteProfile;
     private const string LibraryName = "worldrunner_disunity_ffi";
     private static readonly object ResolverGate = new();
     private static string? _libraryPath;
@@ -100,7 +91,7 @@ internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = fa
 
     public JsonDocument Request(JsonDocument request)
     {
-        var bytes = byteProfile ? NativeByteProfile.Encode(request.RootElement) : Encoding.UTF8.GetBytes(request.RootElement.GetRawText());
+        var bytes = ByteTransport.Encode(request.RootElement);
         return RequestRaw(bytes);
     }
 
@@ -126,7 +117,7 @@ internal sealed partial class NativeJsonWorld(ulong world, bool byteProfile = fa
                 if (probe.code != 0 && probe.code != 2)
                     throw new NativeWorldException(probe.code.ToString(), "native response length probe failed");
             }
-            if (byteProfile && (length == 0 || length > NativeByteProfile.ReplyLimit))
+            if (length == 0 || length > ByteTransport.ReplyLimit)
                 throw new InvalidDataException("byte transport native response exceeds eight MiB or is empty");
             if (length > int.MaxValue) throw new InvalidDataException("native response exceeds the managed JSON limit");
             var output = new byte[(int)length];

@@ -1,12 +1,11 @@
 //! Owned response buffers for execute-once native requests.
 use crate::{
     result_code,
-    transport::{Admission, Owner, Profile},
+    transport::{Admission, Owner},
 };
 use std::sync::Mutex;
 pub const MAX_REQUEST_BYTES: usize = 1 << 20;
-pub const MAX_RESPONSE_BYTES: usize = 16 << 20;
-pub const MAX_LIVE_RESPONSE_BYTES: usize = 64 << 20;
+pub const MAX_RESPONSE_BYTES: usize = 8 << 20;
 pub const MAX_RESPONSES: usize = 1024;
 pub(crate) const RESPONSE_BUDGET_EXCEEDED: &str = "response budget exceeded; operation rolled back";
 struct Response {
@@ -16,42 +15,32 @@ struct Response {
 }
 struct Responses {
     slots: Vec<Option<Response>>,
-    bytes: usize,
 }
-static RESPONSES: Mutex<Responses> = Mutex::new(Responses {
-    slots: Vec::new(),
-    bytes: 0,
-});
+static RESPONSES: Mutex<Responses> = Mutex::new(Responses { slots: Vec::new() });
 struct PoolAdmission<'a> {
     pool: &'a Responses,
     owner: Option<Owner>,
 }
 impl Admission for PoolAdmission<'_> {
-    fn preflight(&mut self, owner: Owner) -> Result<(), i32> {
-        if self.pool.slots.iter().flatten().count() >= MAX_RESPONSES
-            || (owner.profile == Profile::Legacy
-                && self.pool.bytes + MAX_RESPONSE_BYTES > MAX_LIVE_RESPONSE_BYTES)
-        {
+    fn preflight(&mut self, _owner: Owner) -> Result<(), i32> {
+        if self.pool.slots.iter().flatten().count() >= MAX_RESPONSES {
             return Err(result_code::BUDGET);
         }
         Ok(())
     }
     fn admit(&mut self, owner: Owner, bytes: &[u8]) -> Result<(), i32> {
         self.preflight(owner)?;
-        let (used, limit) = match owner.profile {
-            Profile::Legacy => (self.pool.bytes, MAX_LIVE_RESPONSE_BYTES),
-            Profile::Target => (
-                self.pool
-                    .slots
-                    .iter()
-                    .flatten()
-                    .filter(|response| response.owner == owner)
-                    .map(|response| response.bytes.len())
-                    .sum(),
-                crate::transport::MAX_OUTSTANDING,
-            ),
-        };
-        if bytes.len() > owner.profile.reply_limit() || bytes.len() > limit.saturating_sub(used) {
+        let used: usize = self
+            .pool
+            .slots
+            .iter()
+            .flatten()
+            .filter(|response| response.owner == owner)
+            .map(|response| response.bytes.len())
+            .sum();
+        if bytes.len() > MAX_RESPONSE_BYTES
+            || bytes.len() > crate::transport::MAX_OUTSTANDING.saturating_sub(used)
+        {
             return Err(result_code::BUDGET);
         }
         self.owner = Some(owner);
@@ -91,9 +80,6 @@ pub fn request_bytes(world: u64, request: &[u8]) -> Result<u64, i32> {
         .owner
         .expect("successful execution admitted its response");
     let handle = crate::make_handle(index, crate::next_generation());
-    if owner.profile == Profile::Legacy {
-        responses.bytes += bytes.len();
-    }
     let response = Some(Response {
         handle,
         bytes,
@@ -130,9 +116,6 @@ pub fn response_free(response: u64) -> Result<(), i32> {
     {
         return Err(result_code::INVALID_HANDLE);
     }
-    let r = responses.slots[i].take().unwrap();
-    if r.owner.profile == Profile::Legacy {
-        responses.bytes -= r.bytes.len();
-    }
+    responses.slots[i].take();
     Ok(())
 }

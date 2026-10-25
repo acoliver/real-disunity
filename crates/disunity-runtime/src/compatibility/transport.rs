@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use libloading::Library;
@@ -11,11 +11,10 @@ type Request = unsafe extern "C" fn(u64, *const u8, usize, *mut u64) -> Disunity
 type CopyResponse = unsafe extern "C" fn(u64, *mut u8, usize, *mut usize) -> DisunityResult;
 type FreeResponse = unsafe extern "C" fn(u64) -> DisunityResult;
 
-pub(super) mod byte_profile;
+pub(super) mod codec;
 mod idle_mutation;
 
 pub(super) struct NativeTransport {
-    byte_worlds: Mutex<BTreeSet<u64>>,
     idle_responses: Mutex<BTreeMap<u64, u64>>,
     create: unsafe extern "C" fn(*mut u64) -> DisunityResult,
     destroy: unsafe extern "C" fn(u64) -> DisunityResult,
@@ -53,7 +52,6 @@ impl NativeTransport {
             )));
         }
         Ok(Self {
-            byte_worlds: Mutex::default(),
             idle_responses: Mutex::default(),
             create: bind!("disunity_world_create"),
             destroy: bind!("disunity_world_destroy"),
@@ -85,10 +83,6 @@ impl NativeTransport {
         }
         // SAFETY: the ABI validates this generation-checked handle.
         check_native(unsafe { (self.destroy)(world) })?;
-        self.byte_worlds
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&world);
         Ok(())
     }
 
@@ -109,17 +103,17 @@ impl NativeTransport {
     }
 
     fn request_bytes(&self, world: u64, request: &Value) -> Result<Vec<u8>, HostError> {
-        let bytes = self.encode(world, request)?;
+        let bytes = codec::encode_bridge(request)?;
         if bytes.len() > 1024 * 1024 {
             return Err(HostError::Request("native request exceeds one MiB".into()));
         }
         let mut response = 0;
         // SAFETY: the request is borrowed for this call and the output handle is writable.
         check_native(unsafe { (self.request)(world, bytes.as_ptr(), bytes.len(), &mut response) })?;
-        let result = self.read_response(response, self.response_limit(world));
+        let result = self.read_response(response, super::RESPONSE_LIMIT);
         // SAFETY: the request returned this response handle; release it on all copy/parse paths.
         let released = check_native(unsafe { (self.free)(response) });
-        byte_profile::released(result, released)
+        codec::released(result, released)
     }
 
     fn read_response(&self, handle: u64, limit: usize) -> Result<Vec<u8>, HostError> {

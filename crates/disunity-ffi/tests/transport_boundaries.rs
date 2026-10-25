@@ -1,3 +1,5 @@
+#[path = "support/response_table.rs"]
+mod response_table;
 mod transport_support;
 use serde_json::{Value, json};
 use transport_support::*;
@@ -24,8 +26,8 @@ fn sized_transaction(world: &World, size: usize) -> Value {
 
 #[test]
 fn exact_eight_mib_reply_is_admitted_and_plus_one_rolls_back_and_replays_error() {
+    let _table = crate::response_table::exclusive();
     let world = World::new();
-    assert_eq!(world.select()["ok"], true);
     let request = sized_transaction(&world, REPLY);
     let bytes = serde_json::to_vec(&request).unwrap();
     let handle = request_bytes(world.0, &bytes).unwrap();
@@ -55,8 +57,8 @@ fn exact_eight_mib_reply_is_admitted_and_plus_one_rolls_back_and_replays_error()
 
 #[test]
 fn exact_request_cap_is_accepted_and_plus_one_precedes_parse_and_mutation() {
+    let _table = crate::response_table::exclusive();
     let world = World::new();
-    assert_eq!(world.select()["ok"], true);
     let mut request = br#"{"version":1,"op":"object.create"}"#.to_vec();
     request.resize(MAX_REQUEST_BYTES, b' ');
     let handle = request_bytes(world.0, &request).unwrap();
@@ -75,8 +77,8 @@ fn exact_request_cap_is_accepted_and_plus_one_precedes_parse_and_mutation() {
 
 #[test]
 fn owner_quota_is_exact_and_replay_needs_fresh_admission_without_reexecution() {
+    let _table = crate::response_table::exclusive();
     let world = World::new();
-    assert_eq!(world.select()["ok"], true);
     let mut request = sized_transaction(&world, REPLY);
     request["requestId"] = json!("retained");
     let bytes = serde_json::to_vec(&request).unwrap();
@@ -104,8 +106,8 @@ fn owner_quota_is_exact_and_replay_needs_fresh_admission_without_reexecution() {
 
 #[test]
 fn rejected_owner_quota_rolls_back_transaction_and_identity_then_retry_executes_once() {
+    let _table = crate::response_table::exclusive();
     let world = World::new();
-    assert_eq!(world.select()["ok"], true);
     let large = sized_transaction(&world, REPLY);
     let encoded = serde_json::to_vec(&large).unwrap();
     let first = request_bytes(world.0, &encoded).unwrap();
@@ -138,7 +140,8 @@ fn rejected_owner_quota_rolls_back_transaction_and_identity_then_retry_executes_
 }
 
 #[test]
-fn retired_owner_bytes_survive_destroy_reuse_without_charging_new_generation_or_legacy() {
+fn retired_owner_bytes_survive_destroy_reuse_without_charging_new_generation() {
+    let _table = crate::response_table::exclusive();
     let mut retained = Vec::new();
     let mut old_world = None;
     for _ in 0..5 {
@@ -147,7 +150,6 @@ fn retired_owner_bytes_survive_destroy_reuse_without_charging_new_generation_or_
             assert_eq!(world.0 as u32, old as u32);
             assert_ne!(world.0, old);
         }
-        assert_eq!(world.select()["ok"], true);
         let request = serde_json::to_vec(&sized_transaction(&world, REPLY)).unwrap();
         let first = request_bytes(world.0, &request).unwrap();
         let second = request_bytes(world.0, &request).unwrap();
@@ -155,10 +157,7 @@ fn retired_owner_bytes_survive_destroy_reuse_without_charging_new_generation_or_
         old_world = Some(world.0);
         retained.extend([first, second]);
     }
-    let legacy = World::new();
-    assert_eq!(legacy.call(json!({"op":"object.create"}))["ok"], true);
     let target = World::new();
-    assert_eq!(target.select()["ok"], true);
     let request = serde_json::to_vec(&sized_transaction(&target, REPLY)).unwrap();
     let first = request_bytes(target.0, &request).unwrap();
     let second = request_bytes(target.0, &request).unwrap();
@@ -177,21 +176,18 @@ fn retired_owner_bytes_survive_destroy_reuse_without_charging_new_generation_or_
 }
 
 #[test]
-fn process_handle_limit_is_shared_and_rejected_selection_remains_retryable() {
+fn process_handle_limit_is_shared_and_rejected_request_remains_retryable() {
+    let _table = crate::response_table::exclusive();
     let source = World::new();
-    assert_eq!(source.select()["ok"], true);
     let fresh = World::new();
     let mut handles = Vec::new();
     for _ in 0..MAX_RESPONSES {
         handles.push(request_bytes(source.0, b"{\"op\":\"time.get\"}").unwrap());
     }
-    let select = serde_json::to_vec(
-        &json!({"version":1,"op":"transport.select","transport_profile":PROFILE}),
-    )
-    .unwrap();
-    assert_eq!(request_bytes(fresh.0, &select), Err(2));
+    let request = br#"{"version":1,"op":"object.create"}"#;
+    assert_eq!(request_bytes(fresh.0, request), Err(2));
     response_free(handles.pop().unwrap()).unwrap();
-    let selected = request_bytes(fresh.0, &select).unwrap();
+    let selected = request_bytes(fresh.0, request).unwrap();
     assert_eq!(
         serde_json::from_slice::<Value>(&response_bytes(selected).unwrap()).unwrap()["ok"],
         true
@@ -200,39 +196,36 @@ fn process_handle_limit_is_shared_and_rejected_selection_remains_retryable() {
     for handle in handles {
         response_free(handle).unwrap();
     }
-    assert_eq!(fresh.select()["ok"], false);
+    assert_eq!(
+        fresh.call(json!({"op":"snapshot"}))["data"]["objects"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
-fn selection_reply_uses_target_bucket_while_legacy_pool_is_full() {
-    let target = World::new();
-    let legacy = World::new();
-    let request = serde_json::to_vec(&sized_transaction(&legacy, MAX_RESPONSE_BYTES)).unwrap();
-    let handles: Vec<_> = (0..4)
-        .map(|_| request_bytes(legacy.0, &request).unwrap())
-        .collect();
-    assert_eq!(request_bytes(legacy.0, b"{\"op\":\"time.get\"}"), Err(2));
-    assert_eq!(request_bytes(0, b"{\"op\":\"describe\"}"), Err(2));
-    assert_eq!(request_bytes(u64::MAX, b"{\"op\":\"time.get\"}"), Err(2));
-    let select = serde_json::to_vec(
-        &json!({"version":1,"op":"transport.select","transport_profile":PROFILE}),
-    )
-    .unwrap();
-    let selected = request_bytes(target.0, &select).unwrap();
-    let exact = serde_json::to_vec(&sized_transaction(&target, REPLY)).unwrap();
-    let first = request_bytes(target.0, &exact).unwrap();
-    assert_eq!(request_bytes(target.0, &exact), Err(2));
-    response_free(selected).unwrap();
-    let second = request_bytes(target.0, &exact).unwrap();
-    for handle in handles.into_iter().chain([first, second]) {
+fn full_world_quota_does_not_charge_control_or_other_world() {
+    let _table = crate::response_table::exclusive();
+    let full = World::new();
+    let request = serde_json::to_vec(&sized_transaction(&full, REPLY)).unwrap();
+    let first = request_bytes(full.0, &request).unwrap();
+    let second = request_bytes(full.0, &request).unwrap();
+    assert_eq!(request_bytes(full.0, br#"{"op":"time.get"}"#), Err(2));
+    let control = request_bytes(0, br#"{"op":"describe"}"#).unwrap();
+    let other = World::new();
+    assert_eq!(other.call(json!({"op":"object.create"}))["ok"], true);
+    assert_eq!(request_bytes(u64::MAX, br#"{"op":"time.get"}"#), Err(1));
+    for handle in [first, second, control] {
         response_free(handle).unwrap();
     }
 }
 
 #[test]
-fn target_read_serialization_stops_at_eight_mib() {
+fn read_serialization_stops_at_eight_mib() {
+    let _table = crate::response_table::exclusive();
     let target = World::new();
-    assert_eq!(target.select()["ok"], true);
     for _ in 0..13 {
         target.call(json!({"op":"object.create","name":"x".repeat(600_000)}));
     }

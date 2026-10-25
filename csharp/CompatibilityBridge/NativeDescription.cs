@@ -17,12 +17,6 @@ internal static unsafe class NativeDescription
         try { return ReadImage(image, world, status ? "session.status" : "describe", BridgeProtocol.ResponseLimit); }
         finally { NativeLibrary.Free(image); }
     }
-    internal static JsonDocument ReadTransport(string path, ulong world)
-    {
-        var image = NativeLibrary.Load(path);
-        try { return ReadImage(image, world, "transport.get", ByteTransportProfile.ReplyLimit); }
-        finally { NativeLibrary.Free(image); }
-    }
     private static JsonDocument ReadImage(nint image, ulong world, string operation, int limit)
     {
         var version = (delegate* unmanaged[Cdecl]<uint*, Result>)NativeLibrary.GetExport(image, "disunity_abi_version");

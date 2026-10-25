@@ -140,7 +140,6 @@ impl CompatibilityHost {
 
     pub(super) fn load_strict(&mut self, world: u64, fixture: &Value) -> Result<(), HostError> {
         super::readiness::validate_selection(self, world, fixture)?;
-        self.validate_byte_manifest(world, fixture)?;
         if fixture["requirements"]["execution_profile"] != PROFILE {
             return Err(invalid(
                 "manifest must explicitly require native_phase_context_v1",

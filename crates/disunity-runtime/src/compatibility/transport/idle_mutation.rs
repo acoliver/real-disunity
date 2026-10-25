@@ -15,7 +15,7 @@ impl NativeTransport {
         request: &Value,
     ) -> Result<Value, HostIdleMutationError> {
         use HostIdleMutationError::Rejected;
-        let bytes = self.encode(world, request).map_err(Rejected)?;
+        let bytes = super::codec::encode_bridge(request).map_err(Rejected)?;
         if bytes.len() > 1024 * 1024 {
             return Err(Rejected(HostError::Request(
                 "native request exceeds one MiB".into(),
@@ -29,7 +29,7 @@ impl NativeTransport {
         if let Err(error) = submitted {
             return Err(unknown(error));
         }
-        let copied = self.read_response(response, self.response_limit(world));
+        let copied = self.read_response(response, super::super::RESPONSE_LIMIT);
         // SAFETY: this response belongs to this submission; no mutation is repeated.
         let released = check_native(unsafe { (self.free)(response) });
         self.classify_idle_response(world, response, request, copied, released)

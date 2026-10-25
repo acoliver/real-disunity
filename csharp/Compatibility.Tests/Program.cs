@@ -47,12 +47,10 @@ if (args.Contains("--nested-waits")) { ReadinessWaitBehavior.Run(TestArtifacts.N
 if (args.Contains("--nested-original-pong")) { NestedPongBehavior.Run(TestArtifacts.Native, TestArtifacts.Repository, true); return; }
 if (args.Contains("--single-original-pong")) { NestedPongBehavior.Run(TestArtifacts.Native, TestArtifacts.Repository, false); return; }
 if (args.Contains("--nested-start-only")) { NestedStartBehavior.Run(TestArtifacts.Native); return; }
-if (args.Contains("--byte-profile-missing-requirement")) { ByteProfileBehavior.RejectMissingRequirement(TestArtifacts.Native); return; }
-if (args.Contains("--byte-profile-boundaries")) { ByteProfileBoundaries.Run(TestArtifacts.Native); return; }
-if (args.Contains("--byte-profile-copy-fault")) { ByteCopyFault.Run(TestArtifacts.Native); return; }
-if (args.Contains("--byte-profile-descriptor")) { ByteProfileBehavior.Descriptor(); return; }
-if (args.Contains("--byte-profile-only")) { ByteProfileBehavior.Run(TestArtifacts.Native); return; }
-if (args.Contains("--byte-profile-unselected")) { ByteProfileBehavior.Unselected(TestArtifacts.Native); return; }
+if (args.Contains("--byte-limits-boundaries")) { ByteLimitsBoundaries.Run(TestArtifacts.Native); return; }
+if (args.Contains("--byte-limits-copy-fault")) { ByteCopyFault.Run(TestArtifacts.Native); return; }
+if (args.Contains("--byte-limits-descriptor")) { ByteLimitsBehavior.Descriptor(); return; }
+if (args.Contains("--byte-limits-only")) { ByteLimitsBehavior.Run(TestArtifacts.Native); return; }
 if (args.Contains("--readiness-only"))
 {
     var readinessPath = TestArtifacts.Native;

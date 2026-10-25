@@ -32,7 +32,7 @@ pub(super) fn validate_native(native: &Value) -> Result<(), HostError> {
     contains(native, "bridge_revisions", json!(1))?;
     contains(native, "capabilities", json!("describe"))?;
     contains(native, "capabilities", json!("owned_responses"))?;
-    limits(native, &["max_live_response_bytes", "max_responses"])
+    super::transport::codec::validate_limits(native, true)
 }
 
 fn common(value: &Value) -> Result<(), HostError> {
@@ -73,6 +73,7 @@ impl Negotiation {
         contains(&bridge, "native_protocol_versions", json!(1))?;
         contains(&bridge, "capabilities", json!("describe_bridge"))?;
         contains(&bridge, "capabilities", json!("fixture_manifest_v1"))?;
+        super::transport::codec::validate_limits(&bridge, false)?;
         Ok(Self { native, bridge })
     }
 
@@ -125,24 +126,6 @@ impl Negotiation {
                     )?;
                     contains(&self.bridge, "capabilities", json!(super::phase::PROFILE))?;
                 }
-                "transport_profile" => {
-                    equal(
-                        required,
-                        key,
-                        json!(super::transport::byte_profile::PROFILE),
-                    )?;
-                    equal(required, "execution_profile", json!(super::phase::PROFILE))?;
-                    contains(
-                        &self.native,
-                        "capabilities",
-                        json!(super::transport::byte_profile::PROFILE),
-                    )?;
-                    contains(
-                        &self.bridge,
-                        "capabilities",
-                        json!("managed_transport_profile_consumer_v1"),
-                    )?;
-                }
                 "host_mutation_profile" => {
                     super::idle_mutation::validate(&self.native, &self.bridge, required)?;
                 }
@@ -179,19 +162,19 @@ mod tests {
         let common = json!({
             "descriptor_version": 1, "pointer_width": 64, "endianness": endianness(),
             "clock_policy": "float_accumulated", "manifest_schema_versions": [1],
-            "limits": {"max_request_bytes": 1048576, "max_response_bytes": 16777216,
-                "max_live_response_bytes": 67108864, "max_responses": 1024}
+            "limits": {"max_request_bytes": 1048576, "max_response_bytes": 8388608,
+                "max_outstanding_bytes": 16777216, "max_responses": 1024}
         });
         let mut native = common.clone();
         native["native_abi_version"] = json!(2);
         native["native_protocol_versions"] = json!([1]);
         native["bridge_revisions"] = json!([1]);
-        native["capabilities"] = json!(["describe", "owned_responses"]);
+        native["capabilities"] = json!(["describe", "owned_responses", "byte_limits"]);
         let mut bridge = common;
         bridge["bridge_revision"] = json!(1);
         bridge["native_abi_versions"] = json!([2]);
         bridge["native_protocol_versions"] = json!([1]);
-        bridge["capabilities"] = json!(["describe_bridge", "fixture_manifest_v1"]);
+        bridge["capabilities"] = json!(["describe_bridge", "fixture_manifest_v1", "byte_limits"]);
         Negotiation::new(native, bridge).unwrap()
     }
 
@@ -227,13 +210,14 @@ mod tests {
 mod idle_rename_tests {
     use super::*;
     fn paired() -> Negotiation {
-        let common = json!({"descriptor_version":1,"pointer_width":64,"endianness":endianness(),"clock_policy":"float_accumulated","manifest_schema_versions":[1],"limits":{"max_request_bytes":1048576,"max_response_bytes":16777216,"max_live_response_bytes":67108864,"max_responses":1024}});
+        let common = json!({"descriptor_version":1,"pointer_width":64,"endianness":endianness(),"clock_policy":"float_accumulated","manifest_schema_versions":[1],"limits":{"max_request_bytes":1048576,"max_response_bytes":8388608,"max_outstanding_bytes":16777216,"max_responses":1024}});
         let mut native = common.clone();
         native["native_abi_version"] = json!(2);
         native["native_protocol_versions"] = json!([1]);
         native["bridge_revisions"] = json!([1]);
         native["capabilities"] = json!([
             "describe",
+            "byte_limits",
             "owned_responses",
             "native_phase_context_native_v1",
             "native_host_idle_rename_v1"
@@ -244,6 +228,7 @@ mod idle_rename_tests {
         bridge["native_protocol_versions"] = json!([1]);
         bridge["capabilities"] = json!([
             "describe_bridge",
+            "byte_limits",
             "fixture_manifest_v1",
             "native_phase_context_v1",
             "managed_host_idle_rename_consumer_v1"

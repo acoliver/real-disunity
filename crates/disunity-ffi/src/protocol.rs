@@ -87,9 +87,7 @@ impl Request {
         let observe = self.changes_content()? && !self.is_linear();
         let result = match self {
             Self::Read(r) => r.execute(w),
-            Self::Transport(_) => {
-                Err("transport controls require a top-level session request".into())
-            }
+            Self::Transport(_) => Ok(crate::transport::effective()),
             Self::Transaction(r) => r.execute(w, world, limit),
             Self::Strict(r) => r.execute(w, world),
             Self::Readiness(r) => r.execute(w, world),

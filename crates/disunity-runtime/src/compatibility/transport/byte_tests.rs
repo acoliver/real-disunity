@@ -9,53 +9,6 @@ fn native() -> (std::mem::ManuallyDrop<Library>, NativeTransport) {
 }
 
 #[test]
-fn actual_native_byte_selection_is_explicit_and_frozen() {
-    if !crate::test_support::child::isolated(
-        "compatibility::transport::byte_tests::actual_native_byte_selection_is_explicit_and_frozen",
-    ) {
-        return;
-    }
-    let (_library, transport) = native();
-    let world = transport.create_world().unwrap();
-    let before = transport
-        .request(world, &json!({"version":1,"op":"transport.get"}))
-        .unwrap();
-    assert_eq!(before["transport_profile"], "legacy");
-    transport.select_byte_profile(world).unwrap();
-    let after = transport
-        .request(world, &json!({"version":1,"op":"transport.get"}))
-        .unwrap();
-    assert_eq!(after["transport_profile"], "transport_byte_limits_v1");
-    assert_eq!(after["limits"]["max_response_bytes"], 8 << 20);
-    assert!(transport.select_byte_profile(world).is_err());
-    transport.destroy_world(world).unwrap();
-    assert_eq!(transport.statistics().unwrap().0, 0);
-}
-
-#[test]
-fn descriptor_without_byte_capability_rejects_without_mutation() {
-    if !crate::test_support::child::isolated(
-        "compatibility::transport::byte_tests::descriptor_without_byte_capability_rejects_without_mutation",
-    ) {
-        return;
-    }
-    let (_library, transport) = native();
-    let world = transport.create_world().unwrap();
-    let before = transport.request(world, &json!({"op":"snapshot"})).unwrap();
-    let error = transport
-        .select_byte_profile_with_descriptor(world, &json!({"capabilities":[]}))
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("capability"), "{error}");
-    assert_eq!(
-        transport.request(world, &json!({"op":"snapshot"})).unwrap(),
-        before
-    );
-    transport.destroy_world(world).unwrap();
-    assert_eq!(transport.statistics().unwrap().0, 0);
-}
-
-#[test]
 fn actual_native_byte_requests_are_bounded_and_responses_release_synchronously() {
     if !crate::test_support::child::isolated(
         "compatibility::transport::byte_tests::actual_native_byte_requests_are_bounded_and_responses_release_synchronously",
@@ -64,7 +17,6 @@ fn actual_native_byte_requests_are_bounded_and_responses_release_synchronously()
     }
     let (_library, transport) = native();
     let world = transport.create_world().unwrap();
-    transport.select_byte_profile(world).unwrap();
     let mut create = json!({"version":1,"op":"object.create","name":""});
     let overhead = serde_json::to_vec(&create).unwrap().len();
     create["name"] = json!("x".repeat((1 << 20) - overhead));
@@ -109,7 +61,6 @@ fn actual_native_byte_exact_eight_mib_copy_and_native_oversize_rollback() {
     }
     let (_library, transport) = native();
     let world = transport.create_world().unwrap();
-    transport.select_byte_profile(world).unwrap();
     let mut request = sized_transaction(&transport, world);
     for _ in 0..3 {
         assert_eq!(
@@ -166,7 +117,6 @@ fn injected_cdecl_byte_copy_probe_rejects_before_allocation_and_keeps_cleanup_er
     }
     let (_library, mut transport) = native();
     let world = transport.create_world().unwrap();
-    transport.select_byte_profile(world).unwrap();
     FREE.set(transport.free).unwrap();
     transport.copy = copy;
     transport.free = free;

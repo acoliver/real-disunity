@@ -48,7 +48,7 @@ Each world retains at most 128 stamps and 32 MiB of represented snapshot bytes. 
 
 Capture and release use session staging: clone the canonical world, execute, serialize the bounded response, then commit. An operation error, oversized serialized response or transport-admission failure commits no stamp, ID, content revision or gameplay change. Transport reserves worst-case capacity before execution. The Rust request_value path also serializes and checks response size before committing.
 
-Default response-store limits are 1 MiB per request, 16 MiB per response, 64 MiB live response bytes and 1024 response handles. The [transport byte profile](TRANSPORT.md) changes reply and outstanding-byte limits for explicitly selected worlds. Copy/free has no authority or revision side effect and is cross-thread safe. Releasing snapshot metadata and freeing its response are independent operations; hosts must manage both lifetimes.
+The [transport byte limits](TRANSPORT.md) are 1 MiB per request, 8 MiB per response, 16 MiB outstanding response bytes per world generation and 1024 process-wide response handles. Copy/free has no authority or revision side effect and is cross-thread safe. Releasing snapshot metadata and freeing its response are independent operations; hosts must manage both lifetimes.
 
 ## Content revision commit boundary
 

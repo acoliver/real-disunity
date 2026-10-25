@@ -46,19 +46,19 @@ fn actual_cdecl_byte_bridge_injected_bounds_and_global_reset() {
     }
     let mut host = CompatibilityHost::boot(&config()).unwrap();
     let world = host.create_world().unwrap();
-    host.select_byte_profile(world).unwrap();
     host.open_phase_session(world).unwrap();
     let probe = crate::test_support::artifacts().probe();
     host.load_fixture(&json!({"world":world,"assemblies":[probe],"handles":{},
-        "requirements":{"execution_profile":"native_phase_context_v1","transport_profile":"transport_byte_limits_v1"},
-        "graph":{"nodes":[],"assets":[],"aliases":{},"components":[]}})).unwrap();
+        "requirements":{"execution_profile":"native_phase_context_v1"},
+        "graph":{"nodes":[],"assets":[],"aliases":{},"components":[]}}))
+        .unwrap();
     injected_bounds(&mut host);
     host.unload().unwrap();
     let original = host.bridge.observe;
     host.bridge.observe = observe;
     CLAIMED.store(usize::MAX, Ordering::SeqCst);
     assert!(
-        matches!(host.observe(&json!({"op":"managed.statistics"})), Err(HostError::ResponseBudget(n)) if n == 16 << 20)
+        matches!(host.observe(&json!({"op":"managed.statistics"})), Err(HostError::ResponseBudget(n)) if n == 8 << 20)
     );
     host.bridge.observe = original;
     host.destroy_world(world).unwrap();

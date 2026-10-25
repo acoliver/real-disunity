@@ -22,15 +22,12 @@ fn byte_descriptor_rejection_precedes_native_mutation() {
     let mut host = CompatibilityHost::boot(&crate::test_support::artifacts().config()).unwrap();
     let world = host.create_world().unwrap();
     let before = snapshot(&host, world);
-    without_capability(&mut host, "transport_byte_limits_v1");
-    let error = host.select_byte_profile(world).unwrap_err().to_string();
+    without_capability(&mut host, "byte_limits");
+    let error = super::handshake::validate_native(&host.negotiation.native)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("capability"), "{error}");
     assert_eq!(snapshot(&host, world), before);
-    assert_eq!(
-        host.request(world, &json!({"version":1,"op":"transport.get"}))
-            .unwrap()["transport_profile"],
-        "legacy"
-    );
     host.destroy_world(world).unwrap();
     assert_eq!(host.store_statistics().unwrap().0, 0);
 }

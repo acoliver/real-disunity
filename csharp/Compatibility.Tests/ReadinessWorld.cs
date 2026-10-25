@@ -11,7 +11,7 @@ internal sealed unsafe class ReadinessWorld : IDisposable
     private readonly bool _nestedSession;
     internal ulong World { get; }
     internal string Path { get; }
-    internal ReadinessWorld(string path, bool byteProfile = false, bool openSession = true, bool nativeOnlyByteProfile = false, bool nestedSession = false, Action? beforeOpen = null)
+    internal ReadinessWorld(string path, bool openSession = true, bool nestedSession = false, Action? beforeOpen = null)
     {
         Path = path;
         _nestedSession = nestedSession;
@@ -21,11 +21,6 @@ internal sealed unsafe class ReadinessWorld : IDisposable
         BinderBehavior.Check(create(out var world).code == 0, "readiness world creation");
         World = world;
         NativeWorld.AttachNativeLibrary(path, World);
-        if (byteProfile || nativeOnlyByteProfile)
-        {
-            NativeWorld.Request("transport.select", ("transport_profile", "transport_byte_limits_v1")).Dispose();
-            if (byteProfile) NativeWorld.AttachNativeByteProfile(path, World);
-        }
         if (!openSession)
         {
             BinderBehavior.Check(BridgeBehavior.Call(&ManagedBridge.ConfigureNativeLibrary, path) == 0, "configure byte boundary provider");

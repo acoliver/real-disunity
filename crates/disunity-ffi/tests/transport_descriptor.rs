@@ -24,32 +24,19 @@ fn call(world: u64, request: Value) -> Value {
 }
 
 #[test]
-fn advertises_byte_profile_separately_without_claiming_managed_callback_integration() {
+fn advertises_baseline_byte_limits_without_mutable_counters() {
     let described = call(0, json!({"version":1,"op":"describe"}));
     let data = &described["data"];
     assert!(
         data["capabilities"]
             .as_array()
             .unwrap()
-            .contains(&json!("transport_byte_limits_v1"))
+            .contains(&json!("byte_limits"))
     );
-    assert_eq!(
-        data["transport_byte_limits_v1"]["managed_integration"],
-        false
-    );
-    assert_eq!(
-        data["transport_byte_limits_v1"]["limits"]["max_request_bytes"],
-        1 << 20
-    );
-    assert_eq!(
-        data["transport_byte_limits_v1"]["limits"]["max_response_bytes"],
-        8 << 20
-    );
-    assert_eq!(
-        data["transport_byte_limits_v1"]["limits"]["max_outstanding_bytes"],
-        16 << 20
-    );
-    assert_eq!(data["limits"]["max_response_bytes"], 16 << 20);
-    assert_eq!(data["limits"]["max_live_response_bytes"], 64 << 20);
+    assert_eq!(data["limits"]["max_request_bytes"], 1 << 20);
+    assert_eq!(data["limits"]["max_response_bytes"], 8 << 20);
+    assert_eq!(data["limits"]["max_outstanding_bytes"], 16 << 20);
+    assert_eq!(data["limits"]["control_owner_quota_bytes"], 16 << 20);
+    assert_eq!(data["limits"]["max_process_response_bytes"], 8_u64 << 30);
     assert_eq!(store_statistics().0, 0);
 }

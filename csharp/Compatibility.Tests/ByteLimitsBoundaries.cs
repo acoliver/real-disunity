@@ -2,11 +2,11 @@ using System.Text;
 using System.Text.Json;
 using UnityEngine;
 
-internal static class ByteProfileBoundaries
+internal static class ByteLimitsBoundaries
 {
     internal static void Run(string path)
     {
-        using var world = new ReadinessWorld(path, byteProfile: true, openSession: false);
+        using var world = new ReadinessWorld(path, openSession: false);
         RequestBoundary();
         ReplyBoundary();
         Console.WriteLine("PASS byte consumer actual Cdecl exact1MiB request, plus-one predispatch rejection, exact8MiB reply repeated beyond16MiB cumulative, native oversize rollback");

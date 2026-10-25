@@ -2,9 +2,9 @@ using System.Text.Json;
 
 namespace UnityEngine;
 
-internal static class NativeByteProfile
+internal static class ByteTransport
 {
-    internal const string Name = "transport_byte_limits_v1";
+    internal const string Name = "byte_limits";
     internal const int RequestLimit = 1 << 20;
     internal const int ReplyLimit = 8 << 20;
 
@@ -18,8 +18,7 @@ internal static class NativeByteProfile
         using var response = world.Request(query);
         var data = NativeWorld.Data(response);
         var limits = data.GetProperty("limits");
-        if (data.GetProperty("transport_profile").GetString() != Name
-            || limits.GetProperty("max_request_bytes").GetInt32() != RequestLimit
+        if (limits.GetProperty("max_request_bytes").GetInt32() != RequestLimit
             || limits.GetProperty("max_response_bytes").GetInt32() != ReplyLimit
             || limits.GetProperty("max_outstanding_bytes").GetInt32() != 16 << 20
             || data.GetProperty("outstanding_scope").GetString() != "world_generation")

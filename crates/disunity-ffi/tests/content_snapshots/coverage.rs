@@ -143,8 +143,8 @@ fn native_only_descriptor_preserves_transport_limits() {
     assert_eq!(d["snapshot_primitives"]["managed_readiness"], false);
     assert_eq!(d["snapshot_primitives"]["pixel_attestation"], false);
     assert_eq!(d["limits"]["max_request_bytes"], 1 << 20);
-    assert_eq!(d["limits"]["max_response_bytes"], 16 << 20);
-    assert_eq!(d["limits"]["max_live_response_bytes"], 64 << 20);
+    assert_eq!(d["limits"]["max_response_bytes"], 8 << 20);
+    assert_eq!(d["limits"]["max_outstanding_bytes"], 16 << 20);
     assert_eq!(d["limits"]["max_responses"], 1024);
 }
 

@@ -25,7 +25,7 @@ fn descriptor_advertises_only_implemented_integrity_and_actual_limits() {
         );
     }
     assert_eq!(data["limits"]["max_retained_requests"], 1024);
-    assert_eq!(data["limits"]["max_retained_request_bytes"], 32 << 20);
+    assert_eq!(data["limits"]["max_retained_request_bytes"], 16 << 20);
     assert_eq!(data["limits"]["max_request_id_bytes"], 128);
     assert_eq!(data["limits"]["max_transaction_operations"], 128);
     assert_eq!(

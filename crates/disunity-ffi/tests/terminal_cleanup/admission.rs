@@ -118,11 +118,32 @@ fn terminal_only_writes_and_transactions_cannot_reopen_gameplay() {
     finish(&w, &h, &c);
 }
 
+/// Fills the world's outstanding reply bytes with descending reply sizes until even a
+/// `time.get` reply no longer fits, well before the response handle limit.
+fn fill_outstanding_bytes(w: &World, objects: &[Value]) -> Vec<u64> {
+    let requests = objects
+        .iter()
+        .map(|object| json!({"op":"object.get","object":object}))
+        .chain([json!({"op":"time.get"})]);
+    let mut held = Vec::new();
+    for request in requests {
+        let bytes = serde_json::to_vec(&request).unwrap();
+        while let Ok(response) = request_bytes(w.0, &bytes) {
+            held.push(response);
+        }
+    }
+    assert!(held.len() < MAX_RESPONSES, "the byte limit must bind first");
+    held
+}
+
 #[test]
 fn terminal_response_admission_is_atomic_at_handle_and_byte_limits() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let h = open(&w);
-    let o = ok(&w, json!({"op":"object.create","name":"n".repeat(900_000)}))["handle"].clone();
+    let objects = [900_000, 90_000, 9_000, 900, 90].map(|length| {
+        ok(&w, json!({"op":"object.create","name":"n".repeat(length)}))["handle"].clone()
+    });
     let old = issue(&w, &h, "Initialize");
     claim(&w, &old);
     let before = ok(&w, json!({"op":"session.status"}));
@@ -138,12 +159,8 @@ fn terminal_response_admission_is_atomic_at_handle_and_byte_limits() {
     );
     for r in held.drain(..) {
         response_free(r).unwrap();
-    let _table = crate::response_table::exclusive();
     }
-    let get = serde_json::to_vec(&json!({"op":"object.get","object":o})).unwrap();
-    while let Ok(r) = request_bytes(w.0, &get) {
-        held.push(r);
-    }
+    held = fill_outstanding_bytes(&w, &objects);
     assert_eq!(request_bytes(w.0, &request), Err(2));
     assert_eq!(
         request_value(w.0, json!({"op":"session.status"})).unwrap()["data"],
@@ -159,6 +176,7 @@ fn terminal_response_admission_is_atomic_at_handle_and_byte_limits() {
 
 #[test]
 fn terminal_transition_stales_current_snapshot_and_preserves_historical_bytes() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let h = open(&w);
     run(&w, &h, "Initialize");
@@ -176,7 +194,6 @@ fn terminal_transition_stales_current_snapshot_and_preserves_historical_bytes() 
     );
     assert_eq!(
         ok(
-    let _table = crate::response_table::exclusive();
             &w,
             json!({"op":"snapshot.validate","host":h,"stamp":capture["stamp"],"require_current":false})
         )["current"],

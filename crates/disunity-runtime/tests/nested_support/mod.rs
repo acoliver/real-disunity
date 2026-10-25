@@ -15,7 +15,7 @@ pub fn fixture(host: &CompatibilityHost, world: u64, mode: u32, depth: u32) -> V
     let script = host.request(world, &json!({"op":"component.add","object":object,"kind":"Script","fields":{"type":"NestedScenarioProbe"}})).unwrap()["handle"].as_u64().unwrap();
     json!({"world":world,"assemblies":[root.join("artifacts/bin/Compatibility.Tests/debug/Compatibility.Tests.dll")],
         "requirements":{"execution_profile":"native_phase_context_v1","scheduler_profile":"native_readiness_nested_start_v1",
-        "transport_profile":"transport_byte_limits_v1","native_capabilities":["native_terminal_cleanup_v1"],"bridge_capabilities":["managed_terminal_cleanup_v1"]},
+        "native_capabilities":["native_terminal_cleanup_v1"],"bridge_capabilities":["managed_terminal_cleanup_v1"]},
         "handles":{"owner":object,"probe":script},"graph":{"nodes":[{"id":"owner","active":true,"template":false}],
         "components":[{"id":"probe","object":"owner","script":{"type_name":"NestedScenarioProbe","fields":{"mode":mode,"depth":depth}}}],"assets":[],"aliases":{}}})
 }

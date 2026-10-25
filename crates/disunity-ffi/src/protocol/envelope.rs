@@ -26,10 +26,8 @@ impl Envelope {
                 Ok(id.to_owned())
             })
             .transpose()?;
-        if matches!(
-            map.get("op").and_then(Value::as_str),
-            Some("transport.select" | "transport.get")
-        ) && (!versioned || id.is_some())
+        if matches!(map.get("op").and_then(Value::as_str), Some("transport.get"))
+            && (!versioned || id.is_some())
         {
             return Err("transport controls require explicit version 1 without requestId".into());
         }

@@ -62,7 +62,7 @@ Supported payloads:
 | `axis` | `axis:string`, `value:f32`, finite in `[-1,1]` |
 | `focus` | `focused:bool` |
 
-Unknown fields and mismatched payloads are invalid. Names use the existing 1..128-byte non-control identifier policy. Keys and buttons share that identifier namespace. Per-event held union is bounded at 256 names and per-source analog entries total at 256. Batch size and retained queue size are each 1..4,096 records. These are input budgets, independent of callback limits. The existing 1 MiB request, 16 MiB response and 64 MiB live-response limits also apply.
+Unknown fields and mismatched payloads are invalid. Names use the existing 1..128-byte non-control identifier policy. Keys and buttons share that identifier namespace. Per-event held union is bounded at 256 names and per-source analog entries total at 256. Batch size and retained queue size are each 1..4,096 records. These are input budgets, independent of callback limits. The 1 MiB request, 8 MiB response and 16 MiB per-generation outstanding-response limits also apply.
 
 Success returns `{ "accepted_event_ids": [1,2], "queued_events": 2 }`. The complete batch commits atomically, including validation against all intermediate held states. Invalid ingress does not select timestamped mode or consume IDs. Event IDs provide ordering, without a second retry protocol. Identical-byte retries with the existing explicit `requestId` return the retained response and enqueue nothing twice. A replay without that request identity is rejected by event order.
 

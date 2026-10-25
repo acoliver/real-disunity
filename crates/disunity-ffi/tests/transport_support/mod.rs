@@ -1,6 +1,5 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 use worldrunner_disunity_ffi::{abi::*, response::*};
-pub const PROFILE: &str = "transport_byte_limits_v1";
 pub const REPLY: usize = 8 << 20;
 pub const OUTSTANDING: usize = 16 << 20;
 
@@ -13,9 +12,6 @@ impl World {
     }
     pub fn call(&self, request: Value) -> Value {
         call(self.0, request)
-    }
-    pub fn select(&self) -> Value {
-        self.call(json!({"version":1,"op":"transport.select","transport_profile":PROFILE}))
     }
 }
 impl Drop for World {

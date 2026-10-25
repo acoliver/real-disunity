@@ -10,7 +10,7 @@ internal sealed class ByteRequestCodec : JsonConverter<byte[]>
 
     public override byte[] Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
     {
-        using var output = new BoundedJsonStream(NativeByteProfile.RequestLimit);
+        using var output = new BoundedJsonStream(ByteTransport.RequestLimit);
         Value(ref reader, output);
         return output.ToArray();
     }

@@ -7,7 +7,6 @@ internal sealed class BoundedReply : Stream
     private readonly MemoryStream _buffer = new();
     internal static byte[] Encode(object value)
     {
-        if (!ByteTransportProfile.Active) return JsonSerializer.SerializeToUtf8Bytes(value);
         using var stream = new BoundedReply();
         JsonSerializer.Serialize(stream, value);
         return stream._buffer.ToArray();
@@ -21,7 +20,7 @@ internal sealed class BoundedReply : Stream
     public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
     public override void Write(ReadOnlySpan<byte> buffer)
     {
-        if (buffer.Length > ByteTransportProfile.ReplyLimit - Length)
+        if (buffer.Length > BridgeProtocol.ResponseLimit - Length)
             throw new InvalidDataException("managed observation response budget exceeded");
         _buffer.Write(buffer);
     }

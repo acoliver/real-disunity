@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 pub(crate) const MAX_RETAINED_REQUESTS: usize = 1024;
-pub(crate) const MAX_RETAINED_BYTES: usize = 32 << 20;
+pub(crate) const MAX_RETAINED_BYTES: usize = 16 << 20;
 pub(crate) const MAX_REQUEST_ID_BYTES: usize = 128;
 
 struct Entry {
@@ -23,19 +23,10 @@ impl Ledger {
         }
         Ok(Some(entry.response.clone()))
     }
-    pub(crate) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-    pub(crate) fn reserve(
-        &self,
-        id: &str,
-        request: &[u8],
-        profile: crate::transport::Profile,
-    ) -> Result<(), i32> {
+    pub(crate) fn reserve(&self, id: &str, request: &[u8]) -> Result<(), i32> {
         // A new identity must fit its worst-case semantic result before execution.
-        let required = id.len() + request.len() + profile.reply_limit();
-        if self.entries.len() >= MAX_RETAINED_REQUESTS
-            || self.bytes + required > profile.retained_limit()
+        let required = id.len() + request.len() + crate::response::MAX_RESPONSE_BYTES;
+        if self.entries.len() >= MAX_RETAINED_REQUESTS || self.bytes + required > MAX_RETAINED_BYTES
         {
             return Err(crate::result_code::BUDGET);
         }

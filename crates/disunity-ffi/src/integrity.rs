@@ -1,4 +1,4 @@
-use crate::transport::{Admission, Owner, Profile};
+use crate::transport::{Admission, Owner};
 use crate::{DisunityWorld, encoding::encode, ledger::Ledger, protocol, result_code};
 use serde_json::Value;
 use std::thread::{ThreadId, current};
@@ -8,7 +8,6 @@ pub(crate) struct Session {
     pub(crate) world: DisunityWorld,
     owner: ThreadId,
     ledger: Ledger,
-    profile: Profile,
 }
 impl Default for Session {
     fn default() -> Self {
@@ -16,7 +15,6 @@ impl Default for Session {
             world: DisunityWorld::default(),
             owner: current().id(),
             ledger: Ledger::default(),
-            profile: Profile::Legacy,
         }
     }
 }
@@ -34,17 +32,14 @@ impl Session {
         bytes: &[u8],
         admit: &mut impl Admission,
     ) -> Result<Vec<u8>, i32> {
-        let owner = Owner {
-            world,
-            profile: self.profile,
-        };
-        if let Ok(protocol::Request::Transport(request)) = &envelope.request {
-            return self.transport(world, request, admit);
-        }
+        let owner = Owner::World(world);
         admit.preflight(owner)?;
         if !envelope.is_unretained_read() && self.require_owner().is_err() {
             return admit_response(
-                encode(Err(WRONG_THREAD.into()), self.profile.reply_limit())?,
+                encode(
+                    Err(WRONG_THREAD.into()),
+                    crate::response::MAX_RESPONSE_BYTES,
+                )?,
                 owner,
                 admit,
             );
@@ -54,16 +49,15 @@ impl Session {
                 Ok(Some(response)) => return admit_response(response, owner, admit),
                 Err(error) => {
                     return admit_response(
-                        encode(Err(error), self.profile.reply_limit())?,
+                        encode(Err(error), crate::response::MAX_RESPONSE_BYTES)?,
                         owner,
                         admit,
                     );
                 }
-                Ok(None) => self.ledger.reserve(id, bytes, self.profile)?,
+                Ok(None) => self.ledger.reserve(id, bytes)?,
             }
         }
-        let prepared =
-            prepare_response_profile(&mut self.world, envelope.request, world, self.profile)?;
+        let prepared = prepare_response(&mut self.world, envelope.request, world)?;
         admit.admit(owner, &prepared.response)?;
         if let Some(staged) = prepared.world {
             self.world = staged;
@@ -72,40 +66,6 @@ impl Session {
             self.ledger.retain(id, bytes, &prepared.response);
         }
         Ok(prepared.response)
-    }
-    fn transport(
-        &mut self,
-        world: u64,
-        request: &crate::transport::Request,
-        admit: &mut impl Admission,
-    ) -> Result<Vec<u8>, i32> {
-        let result = match request {
-            crate::transport::Request::Get {} => Ok(self.profile),
-            crate::transport::Request::Select { transport_profile } => {
-                self.select_profile(transport_profile)
-            }
-        };
-        let profile = result.as_ref().copied().unwrap_or(self.profile);
-        let owner = Owner { world, profile };
-        admit.preflight(owner)?;
-        let response = encode(result.map(Profile::effective), profile.reply_limit())?;
-        admit.admit(owner, &response)?;
-        self.profile = profile;
-        Ok(response)
-    }
-    fn select_profile(&self, name: &str) -> Result<Profile, String> {
-        self.require_owner()?;
-        if name != crate::transport::PROFILE {
-            return Err("unsupported transport profile".into());
-        }
-        if self.profile != Profile::Legacy
-            || self.world.content_revision != 0
-            || self.world.strict.is_some()
-            || !self.ledger.is_empty()
-        {
-            return Err("transport selection requires an untouched unselected world".into());
-        }
-        Ok(Profile::Target)
     }
 }
 
@@ -129,34 +89,29 @@ pub(crate) fn execute_prepared_admitted(
             .ok()
             .and_then(protocol::Envelope::global_descriptor)
     {
-        let owner = Owner {
-            world: 0,
-            profile: Profile::Legacy,
-        };
+        let owner = Owner::Control;
         admit.preflight(owner)?;
-        return admit_response(encode(Ok(data), owner.profile.reply_limit())?, owner, admit);
+        return admit_response(
+            encode(Ok(data), crate::response::MAX_RESPONSE_BYTES)?,
+            owner,
+            admit,
+        );
     }
     let mut store = crate::lock_store();
     let session = match crate::live_session_mut(&mut store, world) {
         Ok(session) => session,
         Err(_) => {
-            admit.preflight(Owner {
-                world,
-                profile: Profile::Legacy,
-            })?;
+            admit.preflight(Owner::Control)?;
             return Err(result_code::INVALID_HANDLE);
         }
     };
     match parsed {
         Ok(envelope) => session.execute_admitted(world, envelope, bytes, admit),
         Err(error) => {
-            let owner = Owner {
-                world,
-                profile: session.profile,
-            };
+            let owner = Owner::World(world);
             admit.preflight(owner)?;
             admit_response(
-                encode(Err(error), owner.profile.reply_limit())?,
+                encode(Err(error), crate::response::MAX_RESPONSE_BYTES)?,
                 owner,
                 admit,
             )
@@ -183,13 +138,12 @@ fn admit_response(
     admit.admit(owner, &response)?;
     Ok(response)
 }
-fn prepare_response_profile(
+fn prepare_response(
     world: &mut DisunityWorld,
     parsed: Result<protocol::Request, String>,
     identity: u64,
-    profile: Profile,
 ) -> Result<PreparedResponse, i32> {
-    let limit = profile.reply_limit();
+    let limit = crate::response::MAX_RESPONSE_BYTES;
     let request = match parsed {
         Ok(request) => request,
         Err(error) => return encode(Err(error), limit).map(PreparedResponse::unchanged),
@@ -228,8 +182,6 @@ fn budget_response(limit: usize) -> Result<Vec<u8>, i32> {
     encode(Err(crate::response::RESPONSE_BUDGET_EXCEEDED.into()), limit)
 }
 
-#[cfg(test)]
-use compat::prepare_response;
 #[cfg(test)]
 #[path = "integrity/compat.rs"]
 mod compat;

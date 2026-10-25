@@ -5,9 +5,9 @@ internal static class ByteCopyFault
 {
     internal static void Run(string path)
     {
-        using var world = new ReadinessWorld(path, byteProfile: true, openSession: false);
+        using var world = new ReadinessWorld(path, openSession: false);
         var fault = new FaultTransport(((NativeJsonWorld)NativeWorld.Current).Transport);
-        NativeWorld.Attach(new NativeJsonWorld(world.World, byteProfile: true, transport: fault));
+        NativeWorld.Attach(new NativeJsonWorld(world.World, transport: fault));
         OversizeRequest(fault);
         for (var mode = 1; mode <= 2; mode++) VerifyCopyFault(fault, mode);
         Console.WriteLine("PASS injected copy transport: oversize rejected before allocation/copy; real retained handle freed once; primary+cleanup failures retained");

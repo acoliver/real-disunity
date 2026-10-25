@@ -1,5 +1,6 @@
 //! Tessellates canonical Z-up terrain using the shared mesh upload layout.
 
+pub mod pages;
 use glam::{DVec3, Vec3};
 use thiserror::Error;
 use worldrunner_render_plan::{SceneRotation, SceneTerrain, SceneTransform, TerrainLodPolicy};

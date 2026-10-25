@@ -45,6 +45,7 @@
 //! while the near plane is governed in millimetres, and that ratio is exactly
 //! what drives depth fighting on distant coplanar surfaces.
 
+mod pages;
 mod unlit;
 
 use std::borrow::Cow;
@@ -81,6 +82,8 @@ pub struct ScenePipelines {
     terrain_layout: BindGroupLayout,
     pipelines: [RenderPipeline; 4],
     terrain: RenderPipeline,
+    pub(crate) cached_terrain: RenderPipeline,
+    pub(crate) cached_terrain_layout: BindGroupLayout,
     unlit_alpha: RenderPipeline,
 }
 
@@ -181,21 +184,7 @@ impl ScenePipelines {
         let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
         let targets = color_targets(color_format);
 
-        let pipelines = PipelineKey::ALL.map(|key| {
-            build(
-                device,
-                key,
-                &layout,
-                &buffers,
-                samples,
-                FragmentState {
-                    module: &module,
-                    entry_point: Some(shader::fragment_entry_point(key.masked)),
-                    compilation_options: PipelineCompilationOptions::default(),
-                    targets: &targets,
-                },
-            )
-        });
+        let pipelines = build_objects(device, &layout, &buffers, &targets, samples, &module);
         groups[1] = Some(&terrain_layout);
         let terrain_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("terrain"),
@@ -211,7 +200,11 @@ impl ScenePipelines {
             samples,
         );
 
+        let (cached_terrain_layout, cached_terrain) =
+            pages::build_cached(device, &groups, terrain_source, &buffers, &targets, samples);
         Self {
+            cached_terrain_layout,
+            cached_terrain,
             color_format,
             samples,
             ssao: screen_layout.is_some(),
@@ -486,4 +479,29 @@ fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
         blend: None,
         write_mask: ColorWrites::ALL,
     })]
+}
+
+fn build_objects(
+    device: &Device,
+    layout: &PipelineLayout,
+    buffers: &[Option<VertexBufferLayout<'_>>],
+    targets: &[Option<ColorTargetState>],
+    samples: u32,
+    module: &wgpu::ShaderModule,
+) -> [RenderPipeline; 4] {
+    PipelineKey::ALL.map(|key| {
+        build(
+            device,
+            key,
+            layout,
+            buffers,
+            samples,
+            FragmentState {
+                module,
+                entry_point: Some(shader::fragment_entry_point(key.masked)),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets,
+            },
+        )
+    })
 }

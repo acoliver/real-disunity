@@ -28,6 +28,10 @@ pub use material_features::{
     SceneTint, SceneWind,
 };
 mod terrain;
+mod terrain_pages;
+pub use terrain_pages::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
+#[cfg(test)]
+mod terrain_pages_tests;
 
 pub use composition::{
     DocumentSceneInput, ProvenSceneContribution, RouteDeclarationRef, RouteSceneFactory,

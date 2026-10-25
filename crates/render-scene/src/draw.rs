@@ -24,6 +24,7 @@ use crate::upload::{
 
 mod descriptors;
 mod dynamic;
+mod pages;
 mod publication;
 mod retained;
 pub(crate) use publication::{DrawPublications, SelectionPublication};
@@ -118,10 +119,11 @@ struct GpuTerrain {
     instances: Buffer,
     bind_group: BindGroup,
     bounds: visibility::Bounds,
-    #[expect(
-        dead_code,
-        reason = "owns the grid and palette memory the bind group reads"
-    )]
+    page_bounds: [f32; 4],
+    page_elevation: [f32; 2],
+    uniform: Buffer,
+    sampler: Sampler,
+    pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
     retained: Vec<Texture>,
 }
 
@@ -324,12 +326,23 @@ impl SceneGpu {
         };
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
         if let Some(terrain) = &self.terrain {
-            pass.set_pipeline(pipelines.terrain());
-            pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
-            if let Some(shadow) = shadow {
-                pass.set_bind_group(2, shadow, &[]);
+            let cached_group = terrain
+                .pages
+                .as_ref()
+                .map(|pages| pages.borrow().draw_group());
+            if !matches!(cached_group, Some(None)) {
+                if let Some(Some(group)) = cached_group {
+                    pass.set_pipeline(&pipelines.cached_terrain);
+                    pass.set_bind_group(TERRAIN_GROUP, &group, &[]);
+                } else {
+                    pass.set_pipeline(pipelines.terrain());
+                    pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
+                }
+                if let Some(shadow) = shadow {
+                    pass.set_bind_group(2, shadow, &[]);
+                }
+                Self::draw_terrain_geometry(pass, terrain);
             }
-            Self::draw_terrain_geometry(pass, terrain);
         }
         if dynamic {
             self.dynamic.draw(pass, &frame_group, pipelines);

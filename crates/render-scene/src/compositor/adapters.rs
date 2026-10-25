@@ -38,6 +38,9 @@ pub fn encode_resident(
 ) -> Result<(), FrameError> {
     let (scene, pipelines) = scene;
     let (color, depth) = attachments;
+    if scene.has_terrain_pages() {
+        scene.prepare_terrain_pages(device, encoder, scene.resident_frame(), color.size())?;
+    }
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(renderer.color_attachment(color.resource(), color));
     pass.depth = Some(super::attachment(depth.resource(), depth, true));

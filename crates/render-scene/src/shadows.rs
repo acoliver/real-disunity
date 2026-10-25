@@ -324,6 +324,8 @@ impl ShadowedScene {
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
+        self.gpu
+            .prepare_terrain_pages(context.device(), encoder, frame, color.size())?;
         let cascades = cascades::CascadeViews::new(
             &self.gpu,
             view,

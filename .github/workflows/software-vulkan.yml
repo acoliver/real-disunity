@@ -21,6 +21,11 @@ jobs:
           components: rustfmt, clippy
       - name: Install software Vulkan implementation and isolated X11 display
         run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth libxkbcommon-x11-0
+      # The compatibility player and facade tests compile the original games against the
+      # managed facade and render them, so this job needs the .NET SDK as well as a GPU.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
       - uses: Swatinem/rust-cache@v2
       - name: Select lavapipe explicitly and verify the device
         shell: bash

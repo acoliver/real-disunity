@@ -13,7 +13,18 @@ mod components;
 mod edits;
 mod handles;
 pub use edits::ObjectEdit;
+mod clone;
+mod fields;
+mod hierarchy;
+mod lifecycle;
+mod lifetime;
+mod transform;
 mod world;
+pub use clone::Instantiation;
+pub use fields::FieldValue;
+pub use hierarchy::ParentSpace;
+pub use lifecycle::{LifecycleWork, MutationId, ScriptMessage};
+pub use lifetime::DestroyWhen;
 
 pub use components::{ComponentDesc, LocalTransform};
 pub use handles::{ComponentHandle, ObjectHandle};
@@ -57,4 +68,16 @@ pub enum WorldError {
     CapacityExceeded(LimitKind),
     #[error("object name/tag must be at most 1024 bytes and layer in 0..31")]
     InvalidObject,
+    #[error("parenting would create a hierarchy cycle")]
+    HierarchyCycle,
+    #[error("parent matrix is singular")]
+    SingularParent,
+    #[error("local matrix cannot be represented as TRS")]
+    NonRepresentableLocalTransform,
+    #[error("invalid or excessive script fields")]
+    InvalidFields,
+    #[error("component is not a script")]
+    NotScript,
+    #[error("lifecycle mutation does not belong to this world")]
+    WrongMutation,
 }

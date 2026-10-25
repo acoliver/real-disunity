@@ -124,7 +124,10 @@ pub(crate) fn destroy_object(store: &mut Store, world: u64, object: u64) -> Resu
     let session = store.session_mut(world)?;
     session
         .native
-        .destroy_object(session.object(object)?)
+        .destroy(
+            session.object(object)?,
+            worldrunner_world_simulation::DestroyWhen::EndOfFrame,
+        )
         .map_err(|error| error.to_string())?;
     session.objects.remove(&object);
     Ok(())

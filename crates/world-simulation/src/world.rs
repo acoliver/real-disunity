@@ -1,5 +1,3 @@
-use glam::Mat4;
-
 use crate::handles::{Arena, next_world};
 use crate::{
     ComponentDesc, ComponentError, ComponentHandle, LimitKind, LocalTransform, ObjectHandle,
@@ -42,13 +40,14 @@ impl Default for ObjectDesc {
     }
 }
 
-struct Object {
+pub(crate) struct Object {
     name: String,
     tag: String,
     layer: u8,
-    active: bool,
+    pub(crate) active: bool,
+    pub(crate) parent: Option<ObjectHandle>,
     transform: ComponentHandle,
-    renderer: Option<ComponentHandle>,
+    pub(crate) renderer: Option<ComponentHandle>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,7 +78,9 @@ pub struct WorldSnapshot {
 /// The sole owner of live object and component state for a simulation session.
 pub struct World {
     pub(crate) identity: u64,
-    objects: Arena<Object>,
+    pub(crate) objects: Arena<Object>,
+    pub(crate) lifetime: crate::lifetime::Lifetime,
+    pub(crate) lifecycle: crate::lifecycle::Lifecycle,
     pub(crate) components: Arena<ComponentSnapshot>,
 }
 
@@ -87,6 +88,8 @@ impl World {
     pub fn new(settings: WorldSettings) -> Result<Self, WorldError> {
         Ok(Self {
             identity: next_world()?,
+            lifetime: crate::lifetime::Lifetime::default(),
+            lifecycle: crate::lifecycle::Lifecycle::default(),
             objects: Arena::new(settings.max_objects, LimitKind::Objects),
             components: Arena::new(settings.max_components, LimitKind::Components),
         })
@@ -114,6 +117,7 @@ impl World {
                 tag: desc.tag,
                 layer: desc.layer,
                 active: desc.active,
+                parent: None,
                 transform,
                 renderer: None,
             },
@@ -121,9 +125,12 @@ impl World {
         Ok(object)
     }
 
-    fn live_object(&self, handle: ObjectHandle) -> Result<&Object, WorldError> {
+    pub(crate) fn live_object(&self, handle: ObjectHandle) -> Result<&Object, WorldError> {
         if handle.0.world != self.identity {
             return Err(WorldError::WrongWorld);
+        }
+        if self.lifetime.objects.contains(&handle) {
+            return Err(WorldError::StaleObject(handle));
         }
         self.objects
             .get(handle.0)
@@ -146,6 +153,9 @@ impl World {
     pub fn component(&self, handle: ComponentHandle) -> Result<&ComponentSnapshot, WorldError> {
         if handle.0.world != self.identity {
             return Err(WorldError::WrongWorld);
+        }
+        if self.lifetime.components.contains(&handle) {
+            return Err(WorldError::StaleComponent(handle));
         }
         self.components
             .get(handle.0)
@@ -174,6 +184,7 @@ impl World {
                 .expect("validated object")
                 .renderer = Some(handle);
         }
+        let script = matches!(desc, ComponentDesc::Script { .. });
         self.components.insert(
             handle.0,
             ComponentSnapshot {
@@ -182,6 +193,11 @@ impl World {
                 desc,
             },
         );
+        if script {
+            self.lifecycle
+                .scripts
+                .insert(handle, crate::lifecycle::ScriptState::default());
+        }
         Ok(handle)
     }
 
@@ -202,23 +218,10 @@ impl World {
         Ok(())
     }
 
+    /// Removes and retires only the requested component.
     pub fn remove_component(&mut self, handle: ComponentHandle) -> Result<(), WorldError> {
-        let component = self.component(handle)?;
-        match component.desc {
-            ComponentDesc::Transform(_) => {
-                return Err(WorldError::InvalidComponent(
-                    ComponentError::RequiredTransform,
-                ));
-            }
-            ComponentDesc::Renderer { .. } => {
-                self.objects
-                    .get_mut(component.object.0)
-                    .expect("live component owner")
-                    .renderer = None;
-            }
-            ComponentDesc::Script { .. } => {}
-        }
-        self.components.remove(handle.0);
+        self.destroy_component(handle)?;
+        self.retire_component(handle);
         Ok(())
     }
 
@@ -226,17 +229,10 @@ impl World {
         Ok(self.live_object(object)?.renderer)
     }
 
+    /// Destroys and retires only the requested subtree.
     pub fn destroy_object(&mut self, handle: ObjectHandle) -> Result<(), WorldError> {
-        self.live_object(handle)?;
-        let components: Vec<_> = self
-            .components
-            .iter(self.identity)
-            .filter_map(|(id, c)| (c.object == handle).then_some(id))
-            .collect();
-        for id in components {
-            self.components.remove(id);
-        }
-        self.objects.remove(handle.0);
+        self.destroy(handle, crate::DestroyWhen::EndOfFrame)?;
+        self.retire_subtree(handle);
         Ok(())
     }
 
@@ -257,20 +253,18 @@ impl World {
         self.set_component(handle, ComponentDesc::Transform(value))
     }
 
-    pub fn world_matrix(&self, object: ObjectHandle) -> Result<Mat4, WorldError> {
-        Ok(self.local_transform(object)?.matrix())
-    }
-
     pub fn snapshot(&self) -> WorldSnapshot {
         WorldSnapshot {
             objects: self
                 .objects
                 .iter(self.identity)
+                .filter(|(id, _)| !self.lifetime.objects.contains(&ObjectHandle(*id)))
                 .map(|(id, _)| self.object(ObjectHandle(id)).expect("live arena entry"))
                 .collect(),
             components: self
                 .components
                 .iter(self.identity)
+                .filter(|(id, _)| !self.lifetime.components.contains(&ComponentHandle(*id)))
                 .map(|(_, value)| value.clone())
                 .collect(),
         }

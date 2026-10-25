@@ -74,9 +74,16 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
         | AllocationError::Native(
             WorldError::WrongWorld | WorldError::StaleObject(_) | WorldError::StaleComponent(_),
         ) => DisunityResult::invalid_handle(),
-        AllocationError::Native(WorldError::InvalidComponent(_) | WorldError::InvalidObject) => {
-            DisunityResult::invalid_argument()
-        }
+        AllocationError::Native(
+            WorldError::InvalidComponent(_)
+            | WorldError::InvalidObject
+            | WorldError::HierarchyCycle
+            | WorldError::SingularParent
+            | WorldError::NonRepresentableLocalTransform
+            | WorldError::InvalidFields
+            | WorldError::NotScript
+            | WorldError::WrongMutation,
+        ) => DisunityResult::invalid_argument(),
     }
 }
 

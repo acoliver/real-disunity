@@ -19,9 +19,10 @@ jobs:
         with:
           toolchain: 1.97.0
           components: rustfmt, clippy
-      # xdotool sends real X11 key and focus events to the live-window tests.
+      # The live-window tests send real X11 key and focus events with xdotool, take focus
+      # with an xmessage window (x11-utils) and pin the keymap with setxkbmap (x11-xkb-utils).
       - name: Install software Vulkan implementation and isolated X11 display
-        run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth libxkbcommon-x11-0 xdotool
+        run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth libxkbcommon-x11-0 xdotool x11-utils x11-xkb-utils
       - uses: Swatinem/rust-cache@v2
       - name: Select lavapipe explicitly and verify the device
         shell: bash

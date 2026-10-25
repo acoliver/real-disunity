@@ -14,6 +14,8 @@ The policy gate parses Rust sources and package manifests instead of relying on 
 
 CI runs CPU quality/build/test workflows on Linux, Windows, and macOS, and a separate Linux software-Vulkan workflow for graphics-feature execution. Native graphics support on contributor machines may require system Vulkan libraries and a suitable driver.
 
-## Provenance and licensing
+## Licensing and distribution
 
-The workspace is marked proprietary and non-publishable. No license is granted by this build guide. Before distributing derived binaries or source, perform a documented provenance and license review. A clean build, a fresh repository, and passing quality checks are not evidence of independent authorship or of rights to distribute dependencies.
+The workspace and C# projects are licensed under the [MIT License](../LICENSE). Dependencies retain their own licenses; distributions must comply with their terms as well.
+
+Cargo registry publication remains disabled with `publish = false` because workspace dependencies use local paths without registry version requirements. This packaging restriction does not limit the use or distribution permitted by the MIT License.

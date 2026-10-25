@@ -6,7 +6,7 @@ use crate::{
 
 pub(super) fn fixture(size: [u16; 2]) -> Image {
     Image::new(size, |x, y| {
-        let v = 1.0 + f64::from((x * 7 + y * 3) % 13) * 0.5;
+        let v = 2.0 + f64::from((x * 7 + y * 3) % 13) * 0.5;
         [v, v * 0.25, 0.5]
     })
 }

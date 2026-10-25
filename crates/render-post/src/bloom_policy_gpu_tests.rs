@@ -204,7 +204,7 @@ fn run(
         device,
         &mut encoder,
         chain.targets().resolved(),
-        "let v=1.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
+        "let v=2.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
     );
     chain.encode(
         &mut encoder,
@@ -409,7 +409,7 @@ fn gpu_bloom_stock_hdr_uses_fixed_and_adaptive_exposure_inputs() {
             &queue,
             &chain,
             0,
-            "let v=1.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
+            "let v=2.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
             true,
         );
         let expected = scalar::pyramid(&scalar::fixture([17, 11]), bloom, &levels, 2.0);
@@ -476,7 +476,7 @@ fn gpu_bloom_repeat_terminal_stock_matches_cpu() {
             &queue,
             &chain,
             0,
-            "let v=1.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
+            "let v=2.0+f32((u32(p.x)*7u+u32(p.y)*3u)%13u)*0.5;return vec4<f32>(v,v*0.25,0.5,1.0);",
             false,
         );
         let expected = scalar::pyramid(&scalar::fixture(size), bloom, &levels, 1.0);

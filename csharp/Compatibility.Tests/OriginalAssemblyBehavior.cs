@@ -15,7 +15,9 @@ internal static class OriginalAssemblyBehavior
     {
         var source = profiles.GetProperty("sources").GetProperty(name);
         var inputs = Path.Combine(TestArtifacts.ManagedRoot, "artifacts/obj", name, "debug/original-sources.txt");
-        var sources = File.ReadAllLines(inputs).Where(path => path.Contains("/Assets/", StringComparison.Ordinal)).ToArray();
+        // MSBuild records inputs with the host's separators; compare them in one form.
+        var sources = File.ReadAllLines(inputs).Select(path => path.Replace('\\', '/'))
+            .Where(path => path.Contains("/Assets/", StringComparison.Ordinal)).ToArray();
         BinderBehavior.Check(sources.Length > 0, name + " compiler input set is empty");
         var root = sources[0][..sources[0].IndexOf("/Assets/", StringComparison.Ordinal)];
         var version = File.ReadLines(Path.Combine(root, "ProjectSettings/ProjectVersion.txt"))

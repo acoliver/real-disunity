@@ -40,10 +40,7 @@ pub fn artifacts() -> &'static Artifacts {
 }
 
 fn build() -> Artifacts {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("workspace must exist");
+    let root = worldrunner_original_games::workspace_root().expect("workspace must exist");
     let outputs = root.join("target/test-artifacts");
     std::fs::create_dir_all(&outputs).unwrap();
     if child::active() {

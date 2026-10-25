@@ -1,7 +1,7 @@
 #[path = "support/handshake.rs"]
 pub mod support;
 
-use std::{path::Path, process::Command};
+use std::process::Command;
 
 #[test]
 fn original_source_facades_and_native_lifecycle_suites_execute_in_managed_ci() {
@@ -32,8 +32,7 @@ fn original_source_facades_and_native_lifecycle_suites_execute_in_managed_ci() {
 }
 
 fn run(arguments: &[&str]) -> String {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let root = root.canonicalize().expect("workspace must exist");
+    let root = worldrunner_original_games::workspace_root().expect("workspace must exist");
     let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
     let artifacts = support::artifacts();
     assert!(

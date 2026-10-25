@@ -18,6 +18,9 @@ pub mod input;
 pub mod object_api;
 pub mod physics;
 #[cfg(test)]
+mod physics_material_tests;
+pub mod physics_materials;
+#[cfg(test)]
 mod physics_tests;
 pub mod presentation;
 pub mod scheduling;

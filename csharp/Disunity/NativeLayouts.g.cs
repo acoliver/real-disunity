@@ -80,6 +80,9 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityRayHit>("normal_y").ToInt32() != 20) throw new InvalidOperationException("DisunityRayHit.normal_y offset");
         if (Marshal.OffsetOf<DisunityRayHit>("distance").ToInt32() != 24) throw new InvalidOperationException("DisunityRayHit.distance offset");
         if (Marshal.SizeOf<DisunityRayHit>() != 32 || typeof(DisunityRayHit).GetFields().Length != 6) throw new InvalidOperationException("DisunityRayHit layout");
+        if (Marshal.OffsetOf<DisunityPhysicsMaterial2d>("friction").ToInt32() != 0) throw new InvalidOperationException("DisunityPhysicsMaterial2d.friction offset");
+        if (Marshal.OffsetOf<DisunityPhysicsMaterial2d>("bounciness").ToInt32() != 4) throw new InvalidOperationException("DisunityPhysicsMaterial2d.bounciness offset");
+        if (Marshal.SizeOf<DisunityPhysicsMaterial2d>() != 8 || typeof(DisunityPhysicsMaterial2d).GetFields().Length != 2) throw new InvalidOperationException("DisunityPhysicsMaterial2d layout");
         if (Marshal.OffsetOf<DisunityRect>("min_x").ToInt32() != 0) throw new InvalidOperationException("DisunityRect.min_x offset");
         if (Marshal.OffsetOf<DisunityRect>("min_y").ToInt32() != 4) throw new InvalidOperationException("DisunityRect.min_y offset");
         if (Marshal.OffsetOf<DisunityRect>("max_x").ToInt32() != 8) throw new InvalidOperationException("DisunityRect.max_x offset");

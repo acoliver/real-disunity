@@ -468,6 +468,37 @@ namespace Disunity.Native
 
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one material identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_material_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_material_create(ulong world, ulong* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one material record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_material_read(ulong world, ulong handle, DisunityPhysicsMaterial2d* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  `value` points to one readable material record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_material_write(ulong world, ulong handle, DisunityPhysicsMaterial2d* value);
+
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one identity; zero denotes no explicit asset.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shared_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shared_material_read(ulong world, ulong handle, ulong* output);
+
+        [DllImport(__DllName, EntryPoint = "disunity_shared_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shared_material_write(ulong world, ulong handle, ulong asset);
+
+        /// <summary>
+        ///  # Safety
         ///  Bytes are readable for length; output is writable for one identity.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_font_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -860,6 +891,13 @@ namespace Disunity.Native
         public float normal_x;
         public float normal_y;
         public float distance;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityPhysicsMaterial2d
+    {
+        public float friction;
+        public float bounciness;
     }
 
     [StructLayout(LayoutKind.Sequential)]

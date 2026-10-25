@@ -22,6 +22,7 @@ fn main() {
         "src/callbacks.rs",
         "src/input.rs",
         "src/physics.rs",
+        "src/physics_materials.rs",
         "src/ui.rs",
         "src/object_api.rs",
         "build.rs",
@@ -74,6 +75,7 @@ fn generate_native_records() {
         "src/callbacks.rs",
         "src/input.rs",
         "src/physics.rs",
+        "src/physics_materials.rs",
         "src/ui.rs",
         "src/object_api.rs",
     ] {
@@ -122,6 +124,7 @@ fn generate_bindings(generated: &std::path::Path) {
         .input_extern_file("src/callbacks.rs")
         .input_extern_file("src/input.rs")
         .input_extern_file("src/physics.rs")
+        .input_extern_file("src/physics_materials.rs")
         .input_extern_file("src/ui.rs")
         .input_extern_file("src/object_api.rs")
         .csharp_dll_name("worldrunner_disunity_ffi")

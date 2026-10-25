@@ -15,6 +15,8 @@ pub(crate) struct Session {
     pub native: World,
     pub presentation:
         Option<worldrunner_world_simulation::presentation::extraction::WorldRenderPlan>,
+    pub physics_materials:
+        BTreeMap<u64, worldrunner_world_simulation::physics2d::PhysicsMaterialHandle>,
     pub fonts: worldrunner_world_simulation::ui::FontBook,
     pub font_ids: BTreeMap<u64, worldrunner_world_simulation::FontId>,
     pub clones: BTreeMap<u64, crate::cloning::PendingClone>,
@@ -105,6 +107,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
         session: Session {
             native,
             presentation: None,
+            physics_materials: BTreeMap::new(),
             fonts: worldrunner_world_simulation::ui::FontBook::new(Default::default())
                 .map_err(|e| AllocationError::Native(e.into()))?,
             font_ids: BTreeMap::new(),

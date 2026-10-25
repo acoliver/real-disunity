@@ -245,6 +245,13 @@ pub struct DisunityRayHit {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityPhysicsMaterial2d {
+    pub friction: f32,
+    pub bounciness: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityRect {
     pub min_x: f32,
     pub min_y: f32,

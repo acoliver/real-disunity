@@ -144,6 +144,7 @@ fn body(value: DisunityBody2d) -> Result<Body2d, crate::errors::AbiError> {
         freeze_rotation: value.freeze_rotation == 1,
         restitution: value.restitution,
         sleeping: false,
+        shared_material: None,
     })
 }
 
@@ -170,8 +171,18 @@ pub unsafe extern "C" fn disunity_body_write(
         ) {
             return Err("component is not a body".into());
         }
+        let mut next = body(value)?;
+        let ComponentDesc::Body2d(previous) = &s
+            .native
+            .component(id)
+            .map_err(crate::errors::AbiError::from)?
+            .desc
+        else {
+            unreachable!()
+        };
+        next.shared_material = previous.shared_material;
         s.native
-            .set_component(id, ComponentDesc::Body2d(body(value)?))
+            .set_component(id, ComponentDesc::Body2d(next))
             .map_err(crate::errors::AbiError::from)
     })
 }
@@ -250,10 +261,20 @@ pub unsafe extern "C" fn disunity_collider_write(
         ) {
             return Err("component is not a collider".into());
         }
+        let ComponentDesc::Collider2d(previous) = &s
+            .native
+            .component(id)
+            .map_err(crate::errors::AbiError::from)?
+            .desc
+        else {
+            unreachable!()
+        };
+        let shared_material = previous.shared_material;
         s.native
             .set_component(
                 id,
                 ComponentDesc::Collider2d(Collider2d {
+                    shared_material,
                     shapes: vec![shape],
                     offset: Vec2::new(v.offset_x, v.offset_y),
                     enabled: v.enabled == 1,

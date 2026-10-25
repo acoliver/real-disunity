@@ -7,6 +7,7 @@ pub(super) fn resolve(
     motions: &mut Motions,
     impact: Impact,
     touched: &mut Contacts,
+    bounce_threshold: f32,
 ) {
     let (_, index_a, index_b, normal) = impact;
     let (collider_a, collider_b) = (&colliders[index_a], &colliders[index_b]);
@@ -30,11 +31,25 @@ pub(super) fn resolve(
     }
     let relative = point_velocity(motions, collider_a.owner, ra)
         - point_velocity(motions, collider_b.owner, rb);
-    let impulse = (1.0 + collider_a.restitution.max(collider_b.restitution))
-        * relative.dot(normal).max(0.0)
-        / denominator;
+    let material = collider_a.material.combine(collider_b.material);
+    let closing_speed = relative.dot(normal).max(0.0);
+    let restitution = if (collider_a.material_backed || collider_b.material_backed)
+        && closing_speed <= bounce_threshold
+    {
+        0.0
+    } else {
+        material.bounciness()
+    };
+    let impulse = (1.0 + restitution) * closing_speed / denominator;
     apply_impulse(motions, collider_a.owner, ra, -normal * impulse);
     apply_impulse(motions, collider_b.owner, rb, normal * impulse);
+    friction_impulse(
+        motions,
+        (collider_a.owner, collider_b.owner),
+        (ra, rb),
+        normal,
+        material.friction() * impulse,
+    );
     let depth = geometry::overlap(sa, sb).map_or(0.0, |(_, d)| d);
     let ia = inverse_mass(motions, collider_a.owner);
     let ib = inverse_mass(motions, collider_b.owner);
@@ -49,6 +64,25 @@ pub(super) fn resolve(
     if let Some(m) = motions.get_mut(&collider_b.owner) {
         m.position += correction * ib;
     }
+}
+fn friction_impulse(
+    m: &mut Motions,
+    owners: (ObjectHandle, ObjectHandle),
+    arms: (Vec2, Vec2),
+    normal: Vec2,
+    limit: f32,
+) {
+    if limit == 0.0 {
+        return;
+    }
+    let (a, b) = owners;
+    let (ra, rb) = arms;
+    let tangent = normal.perp();
+    let denominator = effective_mass(m, a, ra, tangent) + effective_mass(m, b, rb, tangent);
+    let speed = (point_velocity(m, a, ra) - point_velocity(m, b, rb)).dot(tangent);
+    let impulse = (speed / denominator).clamp(-limit, limit);
+    apply_impulse(m, a, ra, -tangent * impulse);
+    apply_impulse(m, b, rb, tangent * impulse);
 }
 fn inverse_mass(m: &Motions, o: ObjectHandle) -> f32 {
     m.get(&o).map_or(0.0, |m| m.inverse_mass)

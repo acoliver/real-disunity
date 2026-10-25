@@ -21,6 +21,7 @@ fn declared_exports() -> BTreeSet<String> {
         include_str!("../src/callbacks.rs"),
         include_str!("../src/input.rs"),
         include_str!("../src/physics.rs"),
+        include_str!("../src/physics_materials.rs"),
         include_str!("../src/ui.rs"),
         include_str!("../src/object_api.rs"),
         include_str!("../src/sprites.rs"),

@@ -147,10 +147,10 @@ impl World {
                 continue;
             }
             let body = self.attached_body(c.object)?;
-            let (kind, restitution) = match body.map(|c| &c.desc) {
+            let kind = match body.map(|c| &c.desc) {
                 Some(ComponentDesc::Body2d(b)) if !b.enabled => continue,
-                Some(ComponentDesc::Body2d(b)) => (b.body_type, b.restitution),
-                _ => (BodyType::Static, 0.0),
+                Some(ComponentDesc::Body2d(b)) => b.body_type,
+                _ => BodyType::Static,
             };
             let plane = self.physics.settings.plane;
             let matrix = self.world_matrix(c.object)?;
@@ -175,7 +175,12 @@ impl World {
                             .masks
                             .as_ref()
                             .map_or(u32::MAX, |m| m[layer as usize]),
-                    restitution,
+                    material: self.collider_material(c.handle)?,
+                    material_backed: desc.shared_material.is_some()
+                        || body.is_some_and(|c| {
+                            matches!(&c.desc,
+                            ComponentDesc::Body2d(b) if b.shared_material.is_some())
+                        }),
                 });
             }
         }

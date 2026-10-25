@@ -170,9 +170,12 @@ settings.validate().unwrap();
 The first pass applies the bright pass independently to four source texels and
 averages them into a ceiling-half-resolution target. Later levels average 2x2
 blocks with edge clamping, so the last odd row and column remain represented.
-Each extent is `ceil(previous / 2)` on each axis. A requested level after 1x1
-is rejected by the factory before target allocation. Small images can use
-`gaussian_extents` to choose their requested count explicitly.
+Each extent is `ceil(previous / 2)` on each axis. By default, a requested level
+after 1x1 is rejected by the factory before target allocation. Set
+`bloom.policies.terminal = BloomTerminal::Repeat` to retain the requested level
+count on small extents. Small images can use `gaussian_extents` for default
+validation or `gaussian_extents_with_terminal(size, count, terminal)` to inspect
+the selected policy's extents.
 
 After all downsample passes, levels execute from coarsest to finest. A horizontal
 Gaussian blur writes a scratch target. The vertical blur writes back into that
@@ -257,6 +260,14 @@ and arithmetic order remain unchanged. Nondefault policies require
   below `first_blurred` remain bright-only reductions. For six reductions with
   a bright-only half-resolution level and quarter-resolution output, select
   `{ first_blurred: 1, output: 1 }`. Coarser blurred levels still fold additively.
+- `BloomTerminal::Reject` is the default and rejects any requested level after
+  the first 1x1 reduction. `Repeat` keeps all remaining logical levels at 1x1.
+  Each is reduced, blurred, tinted, weighted and folded independently through
+  the existing pyramid. Selection indices still address logical levels, and
+  `AxisClampedPairs` clamps each radius to the 1-texel axis before pairing.
+  For six levels, a 1x1 source produces six 1x1 levels; 17x9 produces 9x5,
+  5x3, 3x2, 2x1, 1x1, 1x1; 32x32 produces 16x16, 8x8, 4x4, 2x2, 1x1, 1x1.
+  This option applies to both `BloomPyramid::append` and stock HDR bloom.
 - `BloomTintPass::Vertical` retains the original tint placement.
   `Horizontal` applies RGB tint before the horizontal half-float store; weight
   remains in the vertical pass before additive folding. Moving tint changes

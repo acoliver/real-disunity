@@ -46,9 +46,10 @@ impl<'a> GaussianPyramid<'a> {
         levels: &[GaussianLevel; 8],
         exposure: Option<(&wgpu::Buffer, f64)>,
     ) -> wgpu::TextureView {
-        let extents = crate::gaussian_extents(
+        let extents = crate::gaussian_extents_with_terminal(
             [source.texture().width(), source.texture().height()],
             bloom.levels,
+            bloom.policies.terminal,
         )
         .expect("validated Gaussian extents");
         let mut pyramid = Vec::new();

@@ -1,11 +1,12 @@
 use super::reference::Image;
 use crate::{
-    Bloom, BloomReduction, BrightCurve, BrightExtraction, GaussianKernelRule, GaussianLevel,
+    Bloom, BloomReduction, BloomTerminal, BrightCurve, BrightExtraction, GaussianKernelRule,
+    GaussianLevel,
 };
 
 pub(super) fn fixture(size: [u16; 2]) -> Image {
     Image::new(size, |x, y| {
-        let v = f64::from((x * 7 + y * 3) % 13) * 0.5;
+        let v = 2.0 + f64::from((x * 7 + y * 3) % 13) * 0.5;
         [v, v * 0.25, 0.5]
     })
 }
@@ -142,6 +143,11 @@ pub(super) fn pyramid(
 ) -> Vec<Image> {
     let mut images = vec![reduce(input, bloom, exposure, true)];
     for _ in 1..bloom.levels {
+        assert!(
+            bloom.policies.terminal == BloomTerminal::Repeat
+                || images.last().unwrap().size != [1, 1],
+            "reference requires Repeat for additional terminal levels"
+        );
         images.push(reduce(images.last().unwrap(), bloom, exposure, false));
     }
     for i in (usize::try_from(bloom.policies.selection.first_blurred).unwrap()..images.len()).rev()

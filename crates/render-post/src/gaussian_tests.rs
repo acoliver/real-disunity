@@ -109,3 +109,34 @@ fn axis_kernel_support_sigma_and_clamping_follow_authored_rule() {
     assert_eq!(rule.parameters(3, 0).unwrap().0, 2);
     assert!(rule.parameters(65, 100).is_err());
 }
+
+#[test]
+fn repeat_terminal_extents_keep_six_ceiling_half_levels() {
+    for (size, expected) in [
+        ([1, 1], [[1, 1]; 6]),
+        ([17, 9], [[9, 5], [5, 3], [3, 2], [2, 1], [1, 1], [1, 1]]),
+        ([32, 32], [[16, 16], [8, 8], [4, 4], [2, 2], [1, 1], [1, 1]]),
+    ] {
+        assert_eq!(
+            gaussian_extents_with_terminal(size, 6, crate::BloomTerminal::Repeat).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn terminal_policies_preserve_invalid_extent_and_level_count_errors() {
+    assert_eq!(
+        crate::BloomPolicies::default().terminal,
+        crate::BloomTerminal::Reject
+    );
+    for terminal in [crate::BloomTerminal::Reject, crate::BloomTerminal::Repeat] {
+        assert_eq!(
+            gaussian_extents_with_terminal([0, 1], 6, terminal),
+            Err(PostError::EmptyExtent)
+        );
+        for count in [0, 9, u32::MAX] {
+            assert!(gaussian_extents_with_terminal([1, 1], count, terminal).is_err());
+        }
+    }
+}

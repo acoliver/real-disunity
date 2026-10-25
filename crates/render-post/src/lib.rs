@@ -39,7 +39,7 @@ mod bloom_policy;
 mod chain;
 mod copy;
 pub use bloom_policy::{
-    BloomLevelSelection, BloomPolicies, BloomReduction, BloomTintPass, BrightCurve,
+    BloomLevelSelection, BloomPolicies, BloomReduction, BloomTerminal, BloomTintPass, BrightCurve,
     BrightExtraction, GaussianKernelRule, ToneCurveBright,
 };
 mod gaussian;
@@ -47,7 +47,7 @@ mod gaussian_gpu;
 mod hdr_post;
 pub use gaussian::{
     BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS,
-    MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_weights,
+    MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_extents_with_terminal, gaussian_weights,
 };
 mod post_filters;
 mod tone_map;

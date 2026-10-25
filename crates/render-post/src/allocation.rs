@@ -97,7 +97,11 @@ fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &Hdr
 fn gaussian_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrPostSettings) {
     if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
         (settings.bloom, settings.bloom_kernel)
-        && let Ok(extents) = crate::gaussian_extents(config.size, bloom.levels)
+        && let Ok(extents) = crate::gaussian_extents_with_terminal(
+            config.size,
+            bloom.levels,
+            bloom.policies.terminal,
+        )
     {
         for (index, [w, h]) in extents.into_iter().enumerate() {
             let blurred = u32::try_from(index).unwrap() >= bloom.policies.selection.first_blurred;

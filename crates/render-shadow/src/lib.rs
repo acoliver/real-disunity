@@ -51,3 +51,6 @@ pub fn begin_depth_pass<'a>(
 
 #[cfg(test)]
 mod tests;
+
+mod refresh;
+pub use refresh::{CascadeRefreshInput, CascadeRefreshPolicy, CascadeRefreshState, RefreshReason};

@@ -132,6 +132,7 @@ impl ShadowedScene {
     ) -> Result<CaptureWrites, ShadowError> {
         let scene_keys = self.gpu.capture_write_keys(input.context.device())?;
         let mut suffix = scene_keys.clone();
+        suffix.push(crate::compositor::publication::key(&self.refresh));
         suffix.extend(self.scheduler.capture_write_keys());
         suffix.extend(self.scheduler.capture_effect_keys(input.context.device())?);
         suffix.extend(self.scheduler.capture_texture_keys(&[
@@ -157,6 +158,7 @@ impl ShadowedScene {
         state: &SceneDepthFitting,
         fitting: &DepthFitting,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
+        self.request_shadow_capture();
         let context = input.context;
         context
             .device()

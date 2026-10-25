@@ -13,6 +13,7 @@ pub(super) fn settings() -> DirectionalShadowSettings {
         resolution: 512,
         depth_bias: 0.001,
         normal_bias_meters: 0.01,
+        refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
     }
 }
 

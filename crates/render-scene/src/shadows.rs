@@ -18,6 +18,7 @@
 //!     resolution: 1024,
 //!     depth_bias: 0.001,
 //!     normal_bias_meters: 0.01,
+//!         refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
 //! };
 //! let image = capture_scene_shadowed(context, scene, view, settings)?;
 //!
@@ -31,6 +32,7 @@
 //! ```
 
 mod cascades;
+mod refresh;
 mod resources;
 mod schedule;
 mod settings;
@@ -39,6 +41,8 @@ pub mod sdsm;
 pub(crate) fn water_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     resources::layout(device)
 }
+
+pub use worldrunner_render_shadow::CascadeRefreshPolicy;
 
 pub use settings::{DirectionalShadowSettings, MAX_SHADOW_RESOLUTION};
 
@@ -113,6 +117,7 @@ pub struct ShadowedScene {
     shadow_layout: wgpu::BindGroupLayout,
     map: ShadowMap,
     settings: DirectionalShadowSettings,
+    refresh: std::rc::Rc<std::cell::RefCell<refresh::RefreshCache>>,
     depth_fitting: Option<sdsm::scene::SceneDepthFitting>,
     effects: SceneEffects,
     scheduler: crate::compositor::FrameRenderer,
@@ -183,6 +188,7 @@ impl ShadowedScene {
             depth_frames,
             frame_slot: 0,
             depth_fitting: None,
+            refresh: std::rc::Rc::default(),
             shadow_layout,
             map,
             settings,
@@ -232,6 +238,9 @@ impl ShadowedScene {
                 self.map.depth.layers(),
             )?;
         }
+        if self.settings != settings {
+            self.invalidate_shadows();
+        }
         self.settings = settings;
         Ok(())
     }
@@ -263,6 +272,9 @@ impl ShadowedScene {
                 "settings are immutable; rebuild the profile and resident",
             )
             .into());
+        }
+        if self.effects.shadows() != effects.shadows() {
+            self.invalidate_shadows();
         }
         self.effects = effects.clone();
         Ok(())
@@ -371,6 +383,20 @@ impl ShadowedScene {
         Ok(cascades)
     }
 
+    fn replacement_map(&self, context: &GpuContext) -> Result<Option<ShadowMap>, ShadowError> {
+        let count = u32::try_from(self.effects.shadows().extents_millimeters().len())
+            .expect("four cascades");
+        if self.map.depth.layers() == count {
+            return Ok(None);
+        }
+        Ok(Some(ShadowMap::new(
+            context,
+            self.settings,
+            &self.shadow_layout,
+            count,
+        )?))
+    }
+
     fn encode_fitted(
         &mut self,
         context: &GpuContext,
@@ -382,6 +408,7 @@ impl ShadowedScene {
             Option<(sdsm::DepthRange, sdsm::RangeFit)>,
         ),
     ) -> Result<(), ShadowError> {
+        let mut replacement = self.replacement_map(context)?;
         let (scheduler, fitting) = input;
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
@@ -389,27 +416,27 @@ impl ShadowedScene {
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_terrain_pages(context.device(), encoder, frame, color.size())?;
-        let cascades = Self::prepare_cascades(
+        let mut cascades = Self::prepare_cascades(
             (&self.gpu, &self.effects, self.settings),
             view,
             frame.sun_direction,
             fitting,
         )?;
-        let count = u32::try_from(cascades.matrices.len()).expect("four cascades");
-        let mut replacement = if self.map.depth.layers() == count {
-            None
-        } else {
-            Some(ShadowMap::new(
-                context,
-                self.settings,
-                &self.shadow_layout,
-                count,
-            )?)
-        };
+        let mut next_refresh = self.refresh.borrow().clone();
+        if replacement.is_some() {
+            next_refresh.invalidate();
+        }
+        let refresh = next_refresh.prepare(
+            &mut cascades,
+            self.settings,
+            frame.sun_direction,
+            color.size(),
+            self.gpu.caster_generation(),
+        );
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
         let mut schedule =
-            schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines)?;
+            schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines, refresh)?;
         schedule.screen_space(scheduler);
         schedule.celestial(&self.gpu, context.device(), color.size());
         let mut feature = ShadowFeature {
@@ -439,6 +466,7 @@ impl ShadowedScene {
         if let Some(map) = replacement {
             self.map = map;
         }
+        next_refresh.publish(encoder, &self.refresh)?;
         Ok(())
     }
 }

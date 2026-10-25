@@ -169,6 +169,11 @@ impl Renderer {
             return Ok(None);
         };
         self.prepare_frame(view, ready.admission.slot())?;
+        if capture.is_some()
+            && let Resident::Shadowed(scene) = &mut self.resident
+        {
+            scene.request_shadow_capture();
+        }
         let output = ready
             .frame
             .texture

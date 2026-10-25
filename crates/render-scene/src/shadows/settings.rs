@@ -31,6 +31,8 @@ pub struct DirectionalShadowSettings {
     pub depth_bias: f32,
     /// Offset along the receiver shading normal, in scene metres; nonnegative.
     pub normal_bias_meters: f32,
+    /// Per-cascade periodic slots and forced-refresh thresholds.
+    pub refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy,
 }
 
 impl DirectionalShadowSettings {
@@ -59,6 +61,9 @@ impl DirectionalShadowSettings {
     /// Construction and updates additionally validate the fit against the active
     /// sun direction, since representability depends on the light orientation.
     pub fn validate(self, limits: &wgpu::Limits) -> Result<(), ShadowError> {
+        self.refresh_policy
+            .validate()
+            .map_err(|_| ShadowError::InvalidSettings)?;
         let valid = self.focus_meters.is_finite()
             && self.half_extent_meters.is_finite()
             && self.half_extent_meters > 0.0

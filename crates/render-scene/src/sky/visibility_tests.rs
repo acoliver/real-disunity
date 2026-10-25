@@ -67,6 +67,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
             resolution: 16,
             depth_bias: 0.0,
             normal_bias_meters: 0.0,
+            refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
         wgpu::TextureFormat::Rgba16Float,
         1,

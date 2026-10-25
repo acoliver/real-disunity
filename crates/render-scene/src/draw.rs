@@ -165,6 +165,7 @@ struct Retained {
 pub struct SceneGpu {
     sky: Option<crate::sky::Sky>,
     celestial: Option<crate::sky::meshes::Meshes>,
+    caster_generation: u64,
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
@@ -189,6 +190,15 @@ pub struct SceneGpu {
     terrain: Option<GpuTerrain>,
     dynamic: crate::dynamic::DynamicGpu,
     retained: Retained,
+}
+
+fn mesh_selections(scene: &RenderScene) -> Vec<MeshSelection> {
+    scene
+        .geometry()
+        .meshes()
+        .iter()
+        .map(MeshSelection::new)
+        .collect()
 }
 
 impl SceneGpu {
@@ -224,18 +234,14 @@ impl SceneGpu {
             },
         );
         let meshes = upload_meshes(device, queue, scene)?;
-        let mesh_selection = scene
-            .geometry()
-            .meshes()
-            .iter()
-            .map(MeshSelection::new)
-            .collect();
+        let mesh_selection = mesh_selections(scene);
         let terrain = upload_terrain(device, queue, scene, pipelines.terrain_layout(), &sampler)?;
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
             celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view),
+            caster_generation: 0,
             post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),

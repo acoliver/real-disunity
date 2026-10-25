@@ -20,7 +20,7 @@ mod renderer;
 
 pub use camera::{OrbitCamera, OrbitLimits};
 use worldrunner_render_plan::{RenderScene, SceneCamera};
-pub use worldrunner_render_post::ToneMap;
+pub use worldrunner_render_post::{RenderScale, ToneMap, UpscaleMode, UpscaleSettings};
 pub use worldrunner_render_scene::compositor::FrameProfile;
 use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 

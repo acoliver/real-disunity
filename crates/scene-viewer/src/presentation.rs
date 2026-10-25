@@ -10,6 +10,7 @@ pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrg
 pub(super) struct Presentation {
     pub scheduler: ConfiguredFrameRenderer,
     pub targets: Targets,
+    scale: Option<worldrunner_render_post::RenderScale>,
 }
 
 pub(super) struct Targets {
@@ -36,7 +37,14 @@ impl Presentation {
     ) -> Result<Self, ViewerError> {
         let mut settings = RendererConfiguration::legacy([size.width, size.height], format);
         settings.frame.format = COLOR;
-        if let crate::FrameProfile::Hdr { samples, tone_map } = profile {
+        let hdr = match profile {
+            crate::FrameProfile::Legacy => None,
+            crate::FrameProfile::Hdr { samples, tone_map }
+            | crate::FrameProfile::HdrUpscaled {
+                samples, tone_map, ..
+            } => Some((samples, tone_map)),
+        };
+        if let Some((samples, tone_map)) = hdr {
             settings.frame = FrameConfig::new(
                 [size.width, size.height],
                 wgpu::TextureFormat::Rgba16Float,
@@ -54,6 +62,15 @@ impl Presentation {
             settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
             settings.water = effects.and_then(|effects| effects.water()).copied();
         }
+        let scale = if let crate::FrameProfile::HdrUpscaled { scale, upscale, .. } = profile {
+            settings.post.upscale = Some(upscale);
+            settings.frame = settings
+                .frame
+                .with_render_extent(scale.extent([size.width, size.height])?);
+            Some(scale)
+        } else {
+            None
+        };
         let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
         settings.additional.buffer(
             "live capture and CPU image",
@@ -64,7 +81,11 @@ impl Presentation {
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1024 * 1024 * 1024))
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         let targets = Targets::new(context.device(), &scheduler, size);
-        Ok(Self { scheduler, targets })
+        Ok(Self {
+            scheduler,
+            targets,
+            scale,
+        })
     }
 
     pub fn resize(
@@ -73,9 +94,15 @@ impl Presentation {
         size: Viewport,
     ) -> Result<(), ViewerError> {
         self.scheduler.collect();
-        if self.scheduler.configuration().frame.size != [size.width, size.height] {
+        if self.scheduler.configuration().frame.output_extent() != [size.width, size.height] {
             let mut settings = self.scheduler.configuration().clone();
             settings.frame.size = [size.width, size.height];
+            settings.frame.output_size = None;
+            if let Some(scale) = self.scale {
+                settings.frame = settings
+                    .frame
+                    .with_render_extent(scale.extent([size.width, size.height])?);
+            }
             settings.additional = worldrunner_render_gpu::configuration::AllocationSet::default();
             let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
             settings.additional.buffer(

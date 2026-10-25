@@ -234,7 +234,7 @@ fn assert_only_producer(
     let (_, feature) = planning::snapshot_feature(
         context.device(),
         &mut snapshots,
-        (config, frame, 0),
+        (config, &frame, 0),
         plan,
         &[ResourceRef::new(name)],
         false,

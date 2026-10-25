@@ -24,6 +24,14 @@ struct RefreshKey {
 }
 
 impl RefreshCache {
+    pub fn clone_for_frame(&self, map_replaced: bool) -> Self {
+        let mut next = self.clone();
+        if map_replaced {
+            next.invalidate();
+        }
+        next
+    }
+
     pub fn publish(
         self,
         encoder: &wgpu::CommandEncoder,

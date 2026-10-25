@@ -423,10 +423,7 @@ impl ShadowedScene {
             frame.sun_direction,
             fitting,
         )?;
-        let mut next_refresh = self.refresh.borrow().clone();
-        if replacement.is_some() {
-            next_refresh.invalidate();
-        }
+        let mut next_refresh = self.refresh.borrow().clone_for_frame(replacement.is_some());
         let refresh = next_refresh.prepare(
             &mut cascades,
             self.settings,

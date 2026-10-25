@@ -158,13 +158,20 @@ fn frame(source: &RenderScene) -> FrameUniform {
     FrameUniform::new(&view, source.effects()).unwrap()
 }
 fn render(context: &GpuContext, source: &RenderScene, samples: u32) -> FrameRenderer {
-    render_with_environment(context, source, samples, &environment(context))
+    render_with_environment(
+        context,
+        source,
+        samples,
+        &environment(context),
+        frame(source),
+    )
 }
 fn render_with_environment(
     context: &GpuContext,
     source: &RenderScene,
     samples: u32,
     maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+    frame: FrameUniform,
 ) -> FrameRenderer {
     let mut renderer = FrameRenderer::hdr(
         context,
@@ -200,7 +207,7 @@ fn render_with_environment(
         &mut encoder,
         (&mut gpu, &pipelines),
         (&color, &depth),
-        frame(source),
+        frame,
     )
     .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
@@ -368,7 +375,13 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
     let reference_factor = prepared_cpu_factor(&context, &maps);
     for samples in [1, 4] {
         let source = source(false, false);
-        let renderer = render_with_environment(&context, &source, samples, &maps);
+        let renderer = render_with_environment(
+            &context,
+            &source,
+            samples,
+            &maps,
+            texel_center_frame(&source),
+        );
         let ssr = renderer.ssr.as_ref().unwrap();
         assert!(
             channel(&context, ssr.textures()[4], 0, 3)
@@ -410,6 +423,28 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
             }
         }
     }
+}
+
+fn texel_center_frame(source: &RenderScene) -> FrameUniform {
+    // Reflection points along (-1, 2, 1), the +Y face's (0.25, 0.75) texel
+    // center at roughness 0.5's integer LOD 1 (a 2x2 face).
+    let view = SceneView::orthographic(
+        CameraPose {
+            eye_millimeters: [1000, -2000, 1000],
+            target_millimeters: [0, 0, 0],
+        },
+        crate::view::OrthographicLens {
+            vertical_half_extent_meters: 1.5,
+            near_meters: 0.1,
+            far_meters: 10.0,
+        },
+        Viewport {
+            width: 32,
+            height: 32,
+        },
+    )
+    .unwrap();
+    FrameUniform::new(&view, source.effects()).unwrap()
 }
 
 fn prepared_cpu_factor(

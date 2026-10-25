@@ -31,6 +31,7 @@ fn native_contact_callbacks_follow_physics_and_recheck_mutation() {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }

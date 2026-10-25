@@ -1,16 +1,19 @@
+using Disunity.Native;
+using Disunity.Hosting;
 using System.Runtime.InteropServices;
 
-namespace Disunity;
+namespace UnityEngine;
 
 /// <summary>
 /// A scene object owned by the native store. The C# object is a handle plus a
 /// cache; the native side is authoritative and a destroyed handle makes every
 /// member access throw <see cref="ObjectDisposedException"/>.
 /// </summary>
-public sealed class GameObject : IDisposable
+public sealed class GameObject : Object, IDisposable
 {
     private readonly ulong _handle;
     private bool _destroyed;
+    private readonly ulong _world = DisunityHost.WorldHandle;
 
     internal GameObject(ulong handle)
     {
@@ -27,22 +30,50 @@ public sealed class GameObject : IDisposable
         }
     }
 
-    public Transform Transform { get; }
+    internal override GameObject Owner => this;
+    public Transform Transform { get; internal set; }
+    public Transform transform => Transform;
+    public T? GetComponent<T>() where T : class => DisunityHost.Components(this).OfType<T>().FirstOrDefault();
+    public T AddComponent<T>() where T : Component, new() => DisunityHost.AttachComponent(this, new T());
 
-    internal bool IsDestroyed => _destroyed;
+    public string name { get => DisunityHost.ObjectText(this, 0); set => DisunityHost.ObjectText(this, 0, value); }
+    public string tag { get => DisunityHost.ObjectText(this, 1); set => DisunityHost.ObjectText(this, 1, value); }
+    public bool activeSelf => (DisunityHost.ObjectFlags(this) & 1) != 0;
+    public bool activeInHierarchy => (DisunityHost.ObjectFlags(this) & 2) != 0;
+    public bool CompareTag(string value) => tag == value;
+    public static GameObject? FindGameObjectWithTag(string tag) => DisunityHost.ActiveObjects().FirstOrDefault(value => value.tag == tag);
+
+    internal unsafe bool IsDestroyed
+    {
+        get
+        {
+            if (_destroyed) return true;
+            if (_world != DisunityHost.WorldHandle) return _destroyed = true;
+            uint alive;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_object_alive(_world, _handle, &alive));
+            return _destroyed = alive == 0;
+        }
+    }
 
     public void Destroy()
     {
-        if (_destroyed)
+        if (IsDestroyed)
         {
             return;
         }
-        WorldRunner.EnsureLoaded();
-        var result = NativeBindings.disunity_gameobject_destroy(WorldRunner.WorldHandle, _handle);
-        WorldRunner.ThrowIfError(result);
-        WorldRunner.RemovePendingCommands(_handle);
+        DisunityHost.EnsureLoaded();
+        var result = NativeBindings.disunity_gameobject_destroy(DisunityHost.WorldHandle, _handle);
+        DisunityHost.ThrowIfError(result);
+        DisunityHost.RemovePendingCommands(_handle);
         _destroyed = true;
-        WorldRunner.Forget(this);
+        DisunityHost.PruneInvalidated();
+    }
+
+    public unsafe void SetActive(bool value)
+    {
+        DisunityAdvance work;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_gameobject_set_active(DisunityHost.WorldHandle, NativeHandle, value ? 1u : 0u, &work));
+        DisunityHost.Drain(work);
     }
 
     public void Dispose() => Destroy();
@@ -51,7 +82,7 @@ public sealed class GameObject : IDisposable
 
     internal void ThrowIfDestroyed()
     {
-        if (_destroyed)
+        if (IsDestroyed)
         {
             throw new ObjectDisposedException(nameof(GameObject));
         }
@@ -59,32 +90,50 @@ public sealed class GameObject : IDisposable
 }
 
 /// <summary>Position and Y rotation, applied through the native command buffer.</summary>
-public sealed class Transform
+public partial class Transform : Component
 {
-    private readonly GameObject _owner;
-    private Vector3 _position;
-    private float _rotationY;
-    private int _materialSlot;
 
-    internal Transform(GameObject owner) => _owner = owner;
+    internal Transform(GameObject owner) { gameObject = owner; }
+    protected Transform() { }
+
+    private unsafe DisunityObjectState Read()
+    {
+        DisunityObjectState state;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_gameobject_read(DisunityHost.WorldHandle, gameObject.NativeHandle, &state));
+        return state;
+    }
+
+    public unsafe Transform? parent
+    {
+        get
+        {
+            ulong handle;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_transform_get_parent(DisunityHost.WorldHandle, gameObject.NativeHandle, &handle));
+            return handle == 0 ? null : DisunityHost.ResolveObject(handle).transform;
+        }
+        set => SetParent(value);
+    }
+
+    public unsafe void SetParent(Transform? value, bool worldPositionStays = true)
+    {
+        DisunityAdvance work;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_transform_parent(DisunityHost.WorldHandle, gameObject.NativeHandle,
+            value?.gameObject.NativeHandle ?? 0, worldPositionStays ? 1u : 0u, &work));
+        DisunityHost.Drain(work);
+    }
 
     public Vector3 position
     {
         get
         {
-            _owner.ThrowIfDestroyed();
-            return _position;
+            gameObject.ThrowIfDestroyed();
+            var state = Read();
+            return new Vector3(state.x, state.y, state.z);
         }
         set
         {
-            _owner.ThrowIfDestroyed();
-            _position = value;
-            WorldRunner.Enqueue(new NativeCommand(
-                _owner.NativeHandle,
-                NativeCommandKind.SetPosition,
-                value.X,
-                value.Y,
-                value.Z));
+            gameObject.ThrowIfDestroyed();
+            unsafe { DisunityHost.ThrowIfError(NativeBindings.disunity_transform_set_position(DisunityHost.WorldHandle, gameObject.NativeHandle, value.X, value.Y, value.Z)); }
         }
     }
 
@@ -92,19 +141,13 @@ public sealed class Transform
     {
         get
         {
-            _owner.ThrowIfDestroyed();
-            return _rotationY;
+            gameObject.ThrowIfDestroyed();
+            return Read().rotation_y_radians;
         }
         set
         {
-            _owner.ThrowIfDestroyed();
-            _rotationY = value;
-            WorldRunner.Enqueue(new NativeCommand(
-                _owner.NativeHandle,
-                NativeCommandKind.SetRotationY,
-                value,
-                0.0f,
-                0.0f));
+            gameObject.ThrowIfDestroyed();
+            unsafe { DisunityHost.ThrowIfError(NativeBindings.disunity_transform_set_rotation_y(DisunityHost.WorldHandle, gameObject.NativeHandle, value)); }
         }
     }
 
@@ -113,15 +156,14 @@ public sealed class Transform
     {
         get
         {
-            _owner.ThrowIfDestroyed();
-            return _materialSlot;
+            gameObject.ThrowIfDestroyed();
+            return checked((int)Read().material_slot);
         }
         set
         {
-            _owner.ThrowIfDestroyed();
-            _materialSlot = value;
-            WorldRunner.Enqueue(new NativeCommand(
-                _owner.NativeHandle,
+            gameObject.ThrowIfDestroyed();
+            DisunityHost.Enqueue(new NativeCommand(
+                gameObject.NativeHandle,
                 NativeCommandKind.SetMaterialSlot,
                 value,
                 0.0f,
@@ -129,6 +171,3 @@ public sealed class Transform
         }
     }
 }
-
-/// <summary>Single-precision 3-vector mirroring the native layout.</summary>
-public readonly record struct Vector3(float X, float Y, float Z);

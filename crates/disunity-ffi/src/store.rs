@@ -13,8 +13,11 @@ pub(crate) enum AllocationError {
 
 pub(crate) struct Session {
     pub native: World,
+    pub fonts: worldrunner_world_simulation::ui::FontBook,
+    pub font_ids: BTreeMap<u64, worldrunner_world_simulation::FontId>,
+    pub clones: BTreeMap<u64, crate::cloning::PendingClone>,
+    pub dispatch: crate::scheduling::Dispatch,
     pub objects: BTreeMap<u64, ObjectHandle>,
-    pub applied_commands: Vec<DisunityCommand>,
     pub pending_commands: Vec<DisunityCommand>,
     pub last_error: Option<String>,
 }
@@ -39,7 +42,7 @@ pub(crate) fn lock_store() -> std::sync::MutexGuard<'static, Store> {
 }
 
 impl Store {
-    fn allocate_handle(&mut self) -> Result<u64, AllocationError> {
+    pub(crate) fn allocate_handle(&mut self) -> Result<u64, AllocationError> {
         let handle = self.next_handle;
         self.next_handle = handle
             .checked_add(1)
@@ -47,7 +50,7 @@ impl Store {
         Ok(handle)
     }
 
-    pub fn session(&self, handle: u64) -> Result<&Session, String> {
+    pub fn session(&self, handle: u64) -> Result<&Session, crate::errors::AbiError> {
         self.worlds
             .iter()
             .flatten()
@@ -56,7 +59,7 @@ impl Store {
             .ok_or_else(|| "world handle is stale".into())
     }
 
-    pub fn session_mut(&mut self, handle: u64) -> Result<&mut Session, String> {
+    pub fn session_mut(&mut self, handle: u64) -> Result<&mut Session, crate::errors::AbiError> {
         self.worlds
             .iter_mut()
             .flatten()
@@ -67,23 +70,44 @@ impl Store {
 }
 
 impl Session {
-    pub fn object(&self, handle: u64) -> Result<ObjectHandle, String> {
-        self.objects
+    pub fn object(&self, handle: u64) -> Result<ObjectHandle, crate::errors::AbiError> {
+        let object = self
+            .objects
             .get(&handle)
             .copied()
-            .ok_or_else(|| "object handle is stale or belongs to another world".into())
+            .ok_or("object handle is stale or belongs to another world")?;
+        self.native
+            .object(object)
+            .map_err(crate::errors::AbiError::from)?;
+        Ok(object)
     }
 }
 
 pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
-    let native = World::new(WorldSettings::default()).map_err(AllocationError::Native)?;
+    let mut native = World::new(WorldSettings::default()).map_err(AllocationError::Native)?;
+    use worldrunner_world_simulation::{AxisBinding, AxisId, KeyCode};
+    let binding = |negative: &[u16], positive: &[u16]| AxisBinding {
+        negative: negative.iter().copied().map(KeyCode).collect(),
+        positive: positive.iter().copied().map(KeyCode).collect(),
+        invert: false,
+    };
+    native
+        .set_input_axes(BTreeMap::from([
+            (AxisId(0), binding(&[2, 30], &[5, 31])),
+            (AxisId(1), binding(&[20, 29], &[24, 28])),
+        ]))
+        .map_err(AllocationError::Native)?;
     let handle = store.allocate_handle()?;
     let entry = Some(Entry {
         handle,
         session: Session {
             native,
+            fonts: worldrunner_world_simulation::ui::FontBook::new(Default::default())
+                .map_err(|e| AllocationError::Native(e.into()))?,
+            font_ids: BTreeMap::new(),
+            clones: BTreeMap::new(),
+            dispatch: Default::default(),
             objects: BTreeMap::new(),
-            applied_commands: Vec::new(),
             pending_commands: Vec::new(),
             last_error: None,
         },
@@ -96,7 +120,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
     Ok(handle)
 }
 
-pub(crate) fn destroy_world(store: &mut Store, handle: u64) -> Result<(), String> {
+pub(crate) fn destroy_world(store: &mut Store, handle: u64) -> Result<(), crate::errors::AbiError> {
     let entry = store
         .worlds
         .iter_mut()
@@ -120,7 +144,11 @@ pub(crate) fn create_object(store: &mut Store, world: u64) -> Result<u64, Alloca
     Ok(handle)
 }
 
-pub(crate) fn destroy_object(store: &mut Store, world: u64, object: u64) -> Result<(), String> {
+pub(crate) fn destroy_object(
+    store: &mut Store,
+    world: u64,
+    object: u64,
+) -> Result<(), crate::errors::AbiError> {
     let session = store.session_mut(world)?;
     session
         .native
@@ -128,19 +156,24 @@ pub(crate) fn destroy_object(store: &mut Store, world: u64, object: u64) -> Resu
             session.object(object)?,
             worldrunner_world_simulation::DestroyWhen::EndOfFrame,
         )
-        .map_err(|error| error.to_string())?;
-    session.objects.remove(&object);
+        .map_err(crate::errors::AbiError::from)?;
+    session
+        .objects
+        .retain(|_, handle| session.native.object(*handle).is_ok());
     Ok(())
 }
 
-pub(crate) fn last_error(handle: u64) -> Result<Option<String>, String> {
+pub(crate) fn last_error(handle: u64) -> Result<Option<String>, crate::errors::AbiError> {
     let store = lock_store();
     Ok(store.session(handle)?.last_error.clone())
 }
 
 /// Observes the same native World owned by the ABI image, without a copied store.
 /// The callback holds the global store mutex and must not reenter ABI/store functions.
-pub fn with_native_world<T>(handle: u64, f: impl FnOnce(&World) -> T) -> Result<T, String> {
+pub fn with_native_world<T>(
+    handle: u64,
+    f: impl FnOnce(&World) -> T,
+) -> Result<T, crate::errors::AbiError> {
     let store = lock_store();
     Ok(f(&store.session(handle)?.native))
 }

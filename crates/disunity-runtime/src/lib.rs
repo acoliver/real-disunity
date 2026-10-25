@@ -12,21 +12,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libloading::Library;
-mod bridge;
+mod managed_entrypoints;
 
-use bridge::ManagedBridge;
+use managed_entrypoints::ManagedBridge;
 
-/// Live-object snapshot row; mirrors the ffi ABI struct exactly.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DisunityObjectState {
-    pub object: u64,
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-    pub rotation_y_radians: f32,
-    pub material_slot: u32,
-}
+#[path = "native.g.rs"]
+pub mod native;
+pub use native::DisunityErrorReason;
+pub use native::DisunityObjectState;
+use native::{DisunityAdvance, DisunityResult};
 
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
@@ -46,6 +40,16 @@ pub enum HostError {
     SliceRun(i32),
     #[error("disunity abi call failed with code {0}")]
     Abi(i32),
+    #[error("native operation failed ({code}/{reason:?}): {message}")]
+    Native {
+        code: i32,
+        reason: DisunityErrorReason,
+        message: String,
+    },
+    #[error("ABI revision mismatch: expected {expected}, got {actual}")]
+    AbiRevision { expected: u32, actual: u32 },
+    #[error("managed callback failed: {0}")]
+    Managed(String),
     #[error("no slice world is loaded")]
     NoWorld,
 }
@@ -69,15 +73,9 @@ impl Drop for HostClaim {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct DisunityResult {
-    code: i32,
-    detail: u64,
-}
-
 /// Explicit application boundary. The bridge must expose the unmanaged `Run`,
-/// `WorldHandle`, `Unload`, `TokenAlloc`, `TokenFree`, and `TokenLive` methods.
+/// `WorldHandle`, `Unload`, `Dispatch`, `Error`, `ReadPosition`,
+/// `ConfigureNativeLibrary`, `TokenAlloc`, `TokenFree`, and `TokenLive` methods.
 /// `Run` receives a UTF-8 fixture path; no application assembly is selected implicitly.
 #[derive(Clone, Debug)]
 pub struct ManagedHostConfig {
@@ -130,6 +128,14 @@ macro_rules! symbol {
 /// and run any number of slice lifecycles through it.
 pub struct DisunityHost {
     _library: Library,
+    advance: unsafe extern "C" fn(u64, u64, u64, *mut DisunityAdvance) -> DisunityResult,
+    resume:
+        unsafe extern "C" fn(u64, u64, u32, *const u8, u32, *mut DisunityAdvance) -> DisunityResult,
+    error_take: unsafe extern "C" fn(u64, *mut native::DisunityBuffer) -> DisunityResult,
+    buffer_copy: unsafe extern "C" fn(u64, *mut u8, u32, *mut u32) -> DisunityResult,
+    buffer_free: unsafe extern "C" fn(u64) -> DisunityResult,
+    callback_check: unsafe extern "C" fn(u64, u64) -> DisunityResult,
+    set_position: unsafe extern "C" fn(u64, u64, f32, f32, f32) -> DisunityResult,
     export_objects:
         unsafe extern "C" fn(u64, *mut DisunityObjectState, u32, *mut u32) -> DisunityResult,
     store_statistics: unsafe extern "C" fn(*mut u64, *mut u64) -> DisunityResult,
@@ -140,6 +146,7 @@ pub struct DisunityHost {
     /// engine-side so a leak is observable here, not only in managed memory.
     live_token: Option<isize>,
     _claim: HostClaim,
+    _thread_affinity: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 
 impl DisunityHost {
@@ -155,10 +162,25 @@ impl DisunityHost {
         // SAFETY: symbols resolve against the explicitly configured ABI library.
         let export_objects = symbol!(library, b"disunity_world_export_objects\0");
         let store_statistics = symbol!(library, b"disunity_store_statistics\0");
+        let version: unsafe extern "C" fn(*mut u32) -> DisunityResult =
+            symbol!(library, b"disunity_abi_version\0");
+        let mut revision = 0;
+        let result = unsafe { version(&mut revision) };
+        if result.code != 0 {
+            return Err(HostError::Abi(result.code));
+        }
+        check_revision(revision)?;
         let bridge = ManagedBridge::load(config)?;
         bridge.configure(config)?;
 
         Ok(Self {
+            advance: symbol!(library, b"disunity_world_advance\0"),
+            resume: symbol!(library, b"disunity_world_resume\0"),
+            error_take: symbol!(library, b"disunity_error_take\0"),
+            buffer_copy: symbol!(library, b"disunity_buffer_copy\0"),
+            buffer_free: symbol!(library, b"disunity_buffer_free\0"),
+            callback_check: symbol!(library, b"disunity_callback_check\0"),
+            set_position: symbol!(library, b"disunity_transform_set_position\0"),
             _library: library,
             export_objects,
             store_statistics,
@@ -166,6 +188,7 @@ impl DisunityHost {
             world: None,
             live_token: None,
             _claim: claim,
+            _thread_affinity: std::marker::PhantomData,
         })
     }
 
@@ -189,6 +212,90 @@ impl DisunityHost {
         }
         self.world = Some(unsafe { (self.bridge.world_handle)() });
         Ok(())
+    }
+
+    /// Advances the native scheduler, releasing the ABI call before managed dispatch.
+    pub fn advance(&mut self, numerator: u64, denominator: u64) -> Result<(), HostError> {
+        let world = self.world.ok_or(HostError::NoWorld)?;
+        let mut work = DisunityAdvance::default();
+        let mut result = unsafe { (self.advance)(world, numerator, denominator, &mut work) };
+        let mut failure = None;
+        while result.code == 0 && work.kind == 1 {
+            let code = unsafe { (self.bridge.dispatch)(work.script, work.message) };
+            let message = if code == 0 {
+                String::new()
+            } else {
+                self.bridge.failure()
+            };
+            if failure.is_none() && code != 0 {
+                failure = Some(message.clone());
+            }
+            result = unsafe { (self.callback_check)(world, work.ticket) };
+            if result.code != 0 {
+                break;
+            }
+            result = unsafe {
+                (self.resume)(
+                    world,
+                    work.ticket,
+                    u32::from(code != 0),
+                    message.as_ptr(),
+                    u32::try_from(message.len()).map_err(|_| HostError::Abi(2))?,
+                    &mut work,
+                )
+            };
+        }
+        if let Some(message) = failure {
+            return Err(HostError::Managed(message));
+        }
+        if result.code != 0 {
+            return Err(self.native_error(result));
+        }
+        Ok(())
+    }
+
+    fn native_error(&self, result: DisunityResult) -> HostError {
+        let mut owned = native::DisunityBuffer::default();
+        let taken = unsafe { (self.error_take)(self.world.unwrap_or(0), &mut owned) };
+        if taken.code != 0 {
+            return HostError::Abi(taken.code);
+        }
+        let mut bytes = vec![0; owned.length as usize];
+        let mut written = 0;
+        let copied = unsafe {
+            (self.buffer_copy)(owned.handle, bytes.as_mut_ptr(), owned.length, &mut written)
+        };
+        let freed = unsafe { (self.buffer_free)(owned.handle) };
+        if copied.code != 0 || freed.code != 0 || written != owned.length {
+            return HostError::Abi(2);
+        }
+        HostError::Native {
+            code: result.code,
+            reason: decode_reason(result.detail),
+            message: String::from_utf8(bytes).expect("native diagnostics are UTF-8"),
+        }
+    }
+
+    /// Mutates the very same native object used by managed wrappers.
+    pub fn set_position(&mut self, object: u64, value: [f32; 3]) -> Result<(), HostError> {
+        let world = self.world.ok_or(HostError::NoWorld)?;
+        let result = unsafe { (self.set_position)(world, object, value[0], value[1], value[2]) };
+        if result.code == 0 {
+            Ok(())
+        } else {
+            Err(self.native_error(result))
+        }
+    }
+
+    pub fn managed_position(&self, object: u64) -> Result<[f32; 3], HostError> {
+        self.world.ok_or(HostError::NoWorld)?;
+        let mut value = [0.0; 3];
+        let code = unsafe { (self.bridge.read_position)(object, value.as_mut_ptr()) };
+        if code == 0 {
+            Ok(value)
+        } else {
+            Err(HostError::Managed(self.bridge.failure()))
+        }
     }
 
     /// Bulk-extracts live object states; the renderer's per-frame read.
@@ -224,11 +331,15 @@ impl DisunityHost {
     /// Ends the slice: unloads the managed world and frees the run's token.
     pub fn unload_slice(&mut self) -> Result<(), HostError> {
         let token = self.live_token.ok_or(HostError::NoWorld)?;
-        unsafe { (self.bridge.unload)() };
+        let code = unsafe { (self.bridge.unload)() };
         unsafe { (self.bridge.token_free)(token) };
         self.world = None;
         self.live_token = None;
-        Ok(())
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(HostError::Managed(self.bridge.failure()))
+        }
     }
 
     /// Live and allocated world-slot counts, the soak drain check.
@@ -258,11 +369,48 @@ impl Drop for DisunityHost {
     }
 }
 
+fn check_revision(actual: u32) -> Result<(), HostError> {
+    if actual == 2 {
+        Ok(())
+    } else {
+        Err(HostError::AbiRevision {
+            expected: 2,
+            actual,
+        })
+    }
+}
+
+fn decode_reason(reason: u64) -> DisunityErrorReason {
+    use DisunityErrorReason as R;
+    match reason {
+        2 => R::InvalidTime,
+        3 => R::WrongCallback,
+        4 => R::CallbackFailed,
+        5 => R::Faulted,
+        6 => R::AbortedScope,
+        7 => R::Capacity,
+        8 => R::SingularParent,
+        9 => R::Physics,
+        10 => R::StaleHandle,
+        11 => R::AdvanceInProgress,
+        12 => R::InvalidComponent,
+        13 => R::Ui,
+        14 => R::NotReady,
+        _ => R::InvalidArgument,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::{align_of, offset_of, size_of};
 
     use super::{DisunityObjectState, DisunityResult};
+
+    #[test]
+    fn rejects_a_wrong_revision() {
+        assert!(super::check_revision(1).is_err());
+        assert!(super::check_revision(2).is_ok());
+    }
 
     #[test]
     fn dynamically_loaded_native_types_match_the_abi_layout() {

@@ -7,11 +7,31 @@ use std::path::Path;
 
 /// Exports declared in `src/abi.rs`.
 fn declared_exports() -> BTreeSet<String> {
-    let source = include_str!("../src/abi.rs");
+    let source = concat!(
+        include_str!("../src/abi.rs"),
+        include_str!("../src/assets.rs"),
+        "\n",
+        include_str!("../src/scheduling.rs"),
+        "\n",
+        include_str!("../src/buffers.rs"),
+        "\n",
+        include_str!("../src/cloning.rs"),
+        "\n",
+        include_str!("../src/hierarchy.rs"),
+        include_str!("../src/callbacks.rs"),
+        include_str!("../src/input.rs"),
+        include_str!("../src/physics.rs"),
+        include_str!("../src/ui.rs"),
+        include_str!("../src/object_api.rs")
+    );
     let mut names = BTreeSet::new();
     for line in source.lines() {
         let line = line.trim();
-        if let Some(rest) = line.strip_prefix("pub unsafe extern \"C\" fn ") {
+        if let Some(rest) = line
+            .replace("pub extern", "pub unsafe extern")
+            .strip_prefix("pub unsafe extern \"C\" fn ")
+            .or_else(|| line.strip_prefix("pub extern \"C\" fn "))
+        {
             let name = rest.split('(').next().unwrap_or_default().trim().to_owned();
             assert!(!name.is_empty(), "unparsed export line: {line}");
             names.insert(name);

@@ -39,6 +39,7 @@ fn late_destruction_cancels_waiting_coroutine_before_frame_completes() {
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -98,6 +99,7 @@ fn clone_lifecycle_can_drain_without_advancing_time() {
                 messages.push(c.message);
                 work = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => break,
             Advance::Complete(_) => panic!(),
         }
@@ -149,6 +151,7 @@ fn run(world: &mut World, mut next: Advance) -> Vec<(ComponentHandle, ScriptMess
                 next = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => return result,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -169,6 +172,7 @@ fn disabled_queued_start_is_not_lost_and_inactive_clone_waits() {
                 next = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -221,6 +225,7 @@ fn scripts_added_during_update_get_lifecycle_and_start_before_update() {
                 next = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -253,6 +258,7 @@ fn destroy_during_update_suppresses_later_callbacks_and_cancels_iterator() {
                 next = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -339,6 +345,7 @@ fn coroutine_yield_scaled_wait_pause_and_fixed_resume() {
                 next = world.resume(c.ticket, outcome).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }
@@ -385,6 +392,7 @@ fn fixed_update_runs_before_motion_and_update_observes_completed_motion() {
                 next = world.resume(c.ticket, CallbackOutcome::Returned).unwrap();
             }
             Advance::Complete(_) => break,
+            Advance::AssetCallback(_) => panic!("unexpected asset callback"),
             Advance::LifecycleComplete => panic!(),
         }
     }

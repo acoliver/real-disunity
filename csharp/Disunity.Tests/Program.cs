@@ -1,9 +1,10 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using Disunity;
+using UnityEngine;
+using Disunity.Hosting;
 
-var assembly = typeof(WorldRunner).Assembly;
-Type AbiType(string name) => assembly.GetType($"Disunity.{name}", throwOnError: true)!;
+var assembly = typeof(DisunityHost).Assembly;
+Type AbiType(string name) => assembly.GetType($"Disunity.Native.{name}", throwOnError: true)!;
 var bindings = AbiType("NativeBindings");
 var result = AbiType("DisunityResult");
 var command = AbiType("DisunityCommand");
@@ -54,17 +55,102 @@ CheckImport("disunity_gameobject_destroy", u64, u64);
 CheckImport("disunity_transform_set_position", u64, u64, f32, f32, f32);
 CheckImport("disunity_transform_set_rotation_y", u64, u64, f32);
 CheckImport("disunity_command_buffer_submit", u64, command.MakePointerType(), u32);
-CheckImport("disunity_world_step", u64, f32, u64);
+
 CheckImport("disunity_error_message", u64, typeof(byte).MakePointerType(), u32, u32.MakePointerType());
 CheckImport("disunity_store_statistics", u64.MakePointerType(), u64.MakePointerType());
 CheckImport("disunity_world_export_objects", u64, state.MakePointerType(), u32, u32.MakePointerType());
-Require(bindings.GetMethods(Imports).Length == 12, "unexpected native import count");
+var advance = AbiType("DisunityAdvance");
+var clock = AbiType("DisunityClock");
+var buffer = AbiType("DisunityBuffer");
+var bytes = typeof(byte).MakePointerType();
+CheckImport("disunity_abi_check", u32);
+CheckImport("disunity_script_register", u64, u64, u64, u64.MakePointerType());
+CheckImport("disunity_world_activate", u64, u64, advance.MakePointerType());
+CheckImport("disunity_world_advance", u64, u64, u64, advance.MakePointerType());
+CheckImport("disunity_world_resume", u64, u64, u32, bytes, u32, advance.MakePointerType());
+CheckImport("disunity_world_clock", u64, clock.MakePointerType());
+CheckImport("disunity_error_take", u64, buffer.MakePointerType());
+CheckImport("disunity_buffer_copy", u64, bytes, u32, u32.MakePointerType());
+CheckImport("disunity_buffer_free", u64);
+CheckImport("disunity_gameobject_read", u64, u64, state.MakePointerType());
+CheckImport("disunity_clone_create", u64, u64, u64, u64.MakePointerType(), u32.MakePointerType());
+CheckImport("disunity_clone_copy", u64, u64, AbiType("DisunityCloneRow").MakePointerType(), u32, u32.MakePointerType());
+CheckImport("disunity_clone_bind", u64, u64, u64, u64);
+CheckImport("disunity_transform_parent", u64, u64, u64, u32, advance.MakePointerType());
+CheckImport("disunity_transform_get_parent", u64, u64, u64.MakePointerType());
+CheckImport("disunity_gameobject_set_active", u64, u64, u32, advance.MakePointerType());
+CheckImport("disunity_clone_abort", u64, u64);
+CheckImport("disunity_clone_activate", u64, u64, advance.MakePointerType());
+CheckImport("disunity_callback_read", u64, u64, AbiType("DisunityCallback").MakePointerType());
+CheckImport("disunity_callback_wait", u64, u64, u32, u64, u64);
+CheckImport("disunity_coroutine_start", u64, u64, u32, u64, u64, u64.MakePointerType());
+CheckImport("disunity_coroutine_stop", u64, u64);
+CheckImport("disunity_coroutine_cancelled", u64, u64.MakePointerType());
+CheckImport("disunity_input_push", u64, u64, u64, u32, u32, f32);
+CheckImport("disunity_input_read", u64, u32, u32, u32.MakePointerType(), f32.MakePointerType());
+CheckImport("disunity_physics_create", u64, u64, u32, u64.MakePointerType());
+CheckImport("disunity_body_write", u64, u64, AbiType("DisunityBody2d").MakePointerType());
+CheckImport("disunity_body_read", u64, u64, AbiType("DisunityBody2d").MakePointerType());
+CheckImport("disunity_collider_write", u64, u64, AbiType("DisunityCollider2d").MakePointerType());
+CheckImport("disunity_collider_read", u64, u64, AbiType("DisunityCollider2d").MakePointerType());
+CheckImport("disunity_physics_raycast", u64, f32, f32, f32, f32, f32, u32, AbiType("DisunityRayHit").MakePointerType());
+CheckImport("disunity_physics_overlap_circle", u64, f32, f32, f32, u32, u64.MakePointerType());
+CheckImport("disunity_font_register", u64, bytes, u32, u64.MakePointerType());
+CheckImport("disunity_ui_create", u64, u64, u32, u64, u64.MakePointerType());
+CheckImport("disunity_rect_write", u64, u64, AbiType("DisunityRect").MakePointerType());
+CheckImport("disunity_rect_read", u64, u64, AbiType("DisunityRect").MakePointerType());
+CheckImport("disunity_canvas_write", u64, u64, AbiType("DisunityCanvas").MakePointerType());
+CheckImport("disunity_canvas_read", u64, u64, AbiType("DisunityCanvas").MakePointerType());
+CheckImport("disunity_text_write", u64, u64, f32, bytes, u32);
+CheckImport("disunity_text_read", u64, u64, bytes, u32, u32.MakePointerType(), f32.MakePointerType());
+CheckImport("disunity_ui_rect", u64, u64, u32, u32, AbiType("DisunityRect").MakePointerType());
+CheckImport("disunity_script_enabled", u64, u64, u32.MakePointerType());
+CheckImport("disunity_script_set_enabled", u64, u64, u32, advance.MakePointerType());
+CheckImport("disunity_coroutine_ready", u64, u64);
+CheckImport("disunity_transform_read", u64, u64, AbiType("DisunityTransform").MakePointerType());
+CheckImport("disunity_transform_write", u64, u64, AbiType("DisunityTransform").MakePointerType());
+CheckImport("disunity_object_text_write", u64, u64, u32, bytes, u32);
+CheckImport("disunity_object_text_read", u64, u64, u32, bytes, u32, u32.MakePointerType());
+CheckImport("disunity_object_flags", u64, u64, u32.MakePointerType());
+CheckImport("disunity_world_fixed_delta", u64, typeof(double).MakePointerType());
+CheckImport("disunity_body_move_position", u64, u64, f32, f32);
+CheckImport("disunity_rotation_read", u64, u64, f32.MakePointerType(), f32.MakePointerType(), f32.MakePointerType(), f32.MakePointerType());
+CheckImport("disunity_rotation_write", u64, u64, f32, f32, f32, f32);
+CheckImport("disunity_asset_create", u64, u64);
+CheckImport("disunity_asset_destroy", u64, u64);
+CheckImport("disunity_asset_alive", u64, u64, u32.MakePointerType());
+CheckImport("disunity_asset_activate", u64, u64, advance.MakePointerType());
+CheckImport("disunity_body_set_sleeping", u64, u64, u32);
+CheckImport("disunity_body_sleeping", u64, u64, u32.MakePointerType());
+CheckImport("disunity_object_alive", u64, u64, u32.MakePointerType());
+CheckImport("disunity_callback_check", u64, u64);
+CheckImport("disunity_script_retained", u64, u64, u32.MakePointerType());
+Require(bindings.GetMethods(Imports).Length == 73, "unexpected native import count");
+AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
 
 CheckLayout(result, 16, ("code", typeof(int), 0), ("detail", u64, 8));
 CheckLayout(command, 24, ("object", u64, 0), ("kind", u32, 8),
     ("x", f32, 12), ("y", f32, 16), ("z", f32, 20));
 CheckLayout(state, 32, ("object", u64, 0), ("x", f32, 8), ("y", f32, 12),
     ("z", f32, 16), ("rotation_y_radians", f32, 20), ("material_slot", u32, 24));
-Console.WriteLine("PASS: all 12 native import signatures/calling conventions and all 3 ABI struct layouts");
+CheckLayout(advance, 32, ("kind", u32, 0), ("message", u32, 4), ("ticket", u64, 8), ("script", u64, 16), ("frame", u64, 24));
+CheckLayout(clock, 24, ("delta", typeof(double), 0), ("time", typeof(double), 8), ("frame", u64, 16));
+CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
+Console.WriteLine("PASS: all 73 native import signatures and generated ABI layout expectations");
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
 LifecycleTests.Run(args[0]);
+
+ReviewRegressionTests.Run();
+HostTests.Run();
+CloneTests.Run();
+
+CoroutineInputTests.Run();
+
+PhysicsTests.Run();
+
+UiTests.Run();
+
+EnabledTests.Run();
+
+GameApiTests.Run();
+AssetSleepTests.Run();

@@ -64,6 +64,9 @@ fn effective_mass(m: &Motions, o: ObjectHandle, r: Vec2, n: Vec2) -> f32 {
 }
 fn apply_impulse(m: &mut Motions, o: ObjectHandle, r: Vec2, impulse: Vec2) {
     if let Some(m) = m.get_mut(&o) {
+        if impulse != Vec2::ZERO {
+            m.sleeping = false;
+        }
         m.velocity += impulse * m.inverse_mass;
         m.angular += r.perp_dot(impulse) * m.inverse_inertia;
     }
@@ -77,7 +80,9 @@ pub(super) fn earliest_impact(
     let mut earliest: Option<Impact> = None;
     for (i, a) in colliders.iter().enumerate() {
         for (j, b) in colliders.iter().enumerate().skip(i + 1) {
-            if !pair_allowed(a, b)
+            if (motions.get(&a.owner).is_none_or(|m| m.sleeping)
+                && motions.get(&b.owner).is_none_or(|m| m.sleeping))
+                || !pair_allowed(a, b)
                 || a.trigger
                 || b.trigger
                 || inverse_mass(motions, a.owner) + inverse_mass(motions, b.owner) == 0.0
@@ -102,7 +107,11 @@ pub(super) fn collect_triggers(
 ) -> Result<(), WorldError> {
     for (i, a) in colliders.iter().enumerate() {
         for b in &colliders[i + 1..] {
-            if !pair_allowed(a, b) || (!a.trigger && !b.trigger) {
+            if (motions.get(&a.owner).is_none_or(|m| m.sleeping)
+                && motions.get(&b.owner).is_none_or(|m| m.sleeping))
+                || !pair_allowed(a, b)
+                || (!a.trigger && !b.trigger)
+            {
                 continue;
             }
             if let Some((t, n)) = super::ccd::sweep(a, b, motions, advance, budget)? {

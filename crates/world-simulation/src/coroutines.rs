@@ -71,7 +71,7 @@ impl World {
         self.coroutines.entries.insert(id, entry);
         Ok(id)
     }
-    pub(crate) fn coroutine_eligible(&self, script: ComponentHandle) -> bool {
+    pub fn coroutine_eligible(&self, script: ComponentHandle) -> bool {
         self.lifecycle
             .scripts
             .get(&script)

@@ -41,6 +41,7 @@ pub enum BodyType {
 pub struct Body2d {
     pub body_type: BodyType,
     pub enabled: bool,
+    pub sleeping: bool,
     pub mass: f32,
     pub velocity: Vec2,
     /// Radians per second.
@@ -54,6 +55,7 @@ impl Default for Body2d {
         Self {
             body_type: BodyType::Dynamic,
             enabled: true,
+            sleeping: false,
             mass: 1.0,
             velocity: Vec2::ZERO,
             angular_velocity: 0.0,

@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace Disunity;
+namespace Disunity.Hosting;
 
 /// <summary>Resolves all engine imports to the native image explicitly selected by the host.</summary>
 internal static class NativeLibrary

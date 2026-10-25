@@ -9,6 +9,7 @@
 //! # Ok::<(), worldrunner_world_simulation::WorldError>(())
 //! ```
 
+mod assets;
 mod clock;
 mod coroutines;
 mod scheduled_contacts;

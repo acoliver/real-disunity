@@ -15,6 +15,12 @@ pub struct CallbackTicket {
     sequence: u64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AssetCallbackWork {
+    pub ticket: CallbackTicket,
+    pub identity: u64,
+    pub message: ScriptMessage,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CallbackWork {
     pub ticket: CallbackTicket,
     pub script: ComponentHandle,
@@ -34,12 +40,14 @@ pub struct FrameSummary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Advance {
     Callback(CallbackWork),
+    AssetCallback(AssetCallbackWork),
     LifecycleComplete,
     Complete(FrameSummary),
 }
 #[derive(Clone, Copy)]
 pub(crate) enum Task {
     Work(LifecycleWork),
+    Asset(u64, ScriptMessage, bool),
     Teardown(LifecycleWork),
     Phase(ScriptMessage),
     Fixed(crate::clock::FixedPhase),
@@ -49,11 +57,24 @@ pub(crate) enum Task {
     Coroutines(bool),
     Cleanup,
 }
+#[derive(Clone, Copy)]
+enum Suspended {
+    Script(CallbackWork),
+    Asset(AssetCallbackWork),
+}
+impl Suspended {
+    fn ticket(self) -> CallbackTicket {
+        match self {
+            Self::Script(work) => work.ticket,
+            Self::Asset(work) => work.ticket,
+        }
+    }
+}
 #[derive(Clone, Default)]
 struct Scope {
     lifecycle: bool,
     tasks: VecDeque<Task>,
-    callback: Option<CallbackWork>,
+    callback: Option<Suspended>,
 }
 #[derive(Clone, Default)]
 pub(crate) struct Scheduler {
@@ -65,8 +86,26 @@ pub(crate) struct Scheduler {
     frame_unscaled_delta: TimeSpan,
     failure: Option<ScriptFailure>,
     faulted: bool,
+    terminal_failure: Option<ScriptFailure>,
 }
 impl World {
+    pub fn script_retained(&self, script: ComponentHandle) -> bool {
+        self.component(script).is_ok()
+            || self.lifecycle.cleanup.iter().any(|work| work.script == script)
+            || self.scheduler.scopes.iter().any(|scope| {
+                matches!(scope.callback, Some(Suspended::Script(work)) if work.script == script)
+                    || scope.tasks.iter().any(|task| matches!(task, Task::Work(work) | Task::Teardown(work) if work.script == script))
+            })
+    }
+    pub fn callback_pending(&self, ticket: CallbackTicket) -> bool {
+        self.scheduler
+            .scopes
+            .iter()
+            .any(|scope| scope.callback.is_some_and(|work| work.ticket() == ticket))
+    }
+    pub fn terminal_failure(&self) -> Option<&ScriptFailure> {
+        self.scheduler.terminal_failure.as_ref()
+    }
     pub fn clock(&self) -> &Clock {
         &self.clock
     }
@@ -158,6 +197,7 @@ impl World {
         if self.scheduler.scopes.is_empty() {
             self.scheduler.known_scripts = self.lifecycle.scripts.keys().copied().collect();
         }
+        self.lifecycle.unpublished.remove(&mutation.sequence);
         let tasks = self
             .take_lifecycle_work(mutation)?
             .into_iter()
@@ -181,23 +221,38 @@ impl World {
             .last()
             .and_then(|scope| scope.callback)
             .ok_or(WorldError::WrongCallback)?;
-        if ticket != callback.ticket {
+        if ticket != callback.ticket() {
             return Err(WorldError::WrongCallback);
         }
         if matches!(outcome, CallbackOutcome::Yielded(_))
-            && !matches!(callback.message, ScriptMessage::Coroutine(_))
+            && !matches!(
+                callback,
+                Suspended::Script(CallbackWork {
+                    message: ScriptMessage::Coroutine(_),
+                    ..
+                })
+            )
         {
             return Err(WorldError::WrongCallback);
         }
         if let CallbackOutcome::Yielded(wait) = outcome {
-            let ScriptMessage::Coroutine(id) = callback.message else {
+            let Suspended::Script(CallbackWork {
+                script,
+                message: ScriptMessage::Coroutine(id),
+                ..
+            }) = callback
+            else {
                 unreachable!()
             };
             if self.coroutines.entries.contains_key(&id) {
-                let entry = self.coroutine_wait(callback.script, wait)?;
+                let entry = self.coroutine_wait(script, wait)?;
                 self.coroutines.entries.insert(id, entry);
             }
-        } else if let ScriptMessage::Coroutine(id) = callback.message {
+        } else if let Suspended::Script(CallbackWork {
+            message: ScriptMessage::Coroutine(id),
+            ..
+        }) = callback
+        {
             if matches!(outcome, CallbackOutcome::Failed(_)) {
                 self.coroutines.cancel(id);
             } else {
@@ -222,6 +277,7 @@ impl World {
         let nodes: BTreeSet<_> = known
             .difference(&self.scheduler.known_scripts)
             .filter_map(|&script| self.component(script).ok().map(|c| c.object))
+            .filter(|&object| !self.is_unpublished(object))
             .collect();
         if !nodes.is_empty() {
             let mutation = self.reserve_mutation()?;
@@ -238,8 +294,23 @@ impl World {
         }
     }
     fn pending_lifecycle(&mut self) {
-        let batches = std::mem::take(&mut self.lifecycle.mutations);
-        self.enqueue_front(batches.into_values().flatten().map(Task::Work));
+        let ready: Vec<_> = self
+            .lifecycle
+            .mutations
+            .keys()
+            .copied()
+            .filter(|id| !self.lifecycle.unpublished.contains_key(id))
+            .collect();
+        let batches: Vec<_> = ready
+            .into_iter()
+            .flat_map(|id| {
+                self.lifecycle
+                    .mutations
+                    .remove(&id)
+                    .expect("selected mutation")
+            })
+            .collect();
+        self.enqueue_front(batches.into_iter().map(Task::Work));
     }
     fn eligible(&self, script: ComponentHandle) -> bool {
         self.script_ready(script).unwrap_or(false)
@@ -305,15 +376,17 @@ impl World {
         if self.scheduler.failure.is_some() {
             return Ok(());
         }
+        self.scheduler.terminal_failure = Some(failure.clone());
         self.scheduler.failure = Some(failure);
         self.coroutines.cancel_all();
+        self.fail_script_assets();
         let mut teardown: VecDeque<_> = self
             .scheduler
             .scopes
             .iter()
             .rev()
             .flat_map(|scope| scope.tasks.iter().copied())
-            .filter(|task| matches!(task, Task::Teardown(_)))
+            .filter(|task| matches!(task, Task::Teardown(_) | Task::Asset(_, _, true)))
             .collect();
         teardown.push_back(Task::Cleanup);
         self.scheduler.scopes.clear();
@@ -436,8 +509,55 @@ impl World {
             .scopes
             .last_mut()
             .expect("active scope")
-            .callback = Some(callback);
+            .callback = Some(Suspended::Script(callback));
         Ok(Some(Advance::Callback(callback)))
+    }
+    pub(crate) fn open_asset_scope(&mut self, identity: u64) -> Result<Advance, WorldError> {
+        if self
+            .scheduler
+            .scopes
+            .last()
+            .is_some_and(|scope| scope.callback.is_none())
+        {
+            return Err(WorldError::WrongCallback);
+        }
+        self.scheduler.scopes.push(Scope {
+            lifecycle: true,
+            tasks: VecDeque::from([
+                Task::Asset(identity, ScriptMessage::Awake, false),
+                Task::Asset(identity, ScriptMessage::OnEnable, false),
+            ]),
+            callback: None,
+        });
+        self.poll_scheduler()
+    }
+    fn issue_asset_callback(
+        &mut self,
+        identity: u64,
+        message: ScriptMessage,
+    ) -> Result<Option<Advance>, WorldError> {
+        if !self.enter_asset(identity, message) {
+            return Ok(None);
+        }
+        self.scheduler.sequence = self
+            .scheduler
+            .sequence
+            .checked_add(1)
+            .ok_or(TimeError::Overflow)?;
+        let callback = AssetCallbackWork {
+            ticket: CallbackTicket {
+                world: self.identity,
+                sequence: self.scheduler.sequence,
+            },
+            identity,
+            message,
+        };
+        self.scheduler
+            .scopes
+            .last_mut()
+            .expect("active scope")
+            .callback = Some(Suspended::Asset(callback));
+        Ok(Some(Advance::AssetCallback(callback)))
     }
     fn poll_scheduler(&mut self) -> Result<Advance, WorldError> {
         loop {
@@ -467,6 +587,21 @@ impl World {
             if let Some(work) = self.run_task(task)? {
                 return Ok(work);
             }
+        }
+    }
+    fn enqueue_cleanup(&mut self) {
+        let mut work: Vec<_> = self
+            .take_cleanup()
+            .into_iter()
+            .map(Task::Teardown)
+            .collect();
+        work.extend(
+            self.asset_cleanup()
+                .into_iter()
+                .map(|(id, message)| Task::Asset(id, message, true)),
+        );
+        if !work.is_empty() {
+            self.enqueue_front(work.into_iter().chain([Task::Cleanup]));
         }
     }
     fn run_task(&mut self, task: Task) -> Result<Option<Advance>, WorldError> {
@@ -512,12 +647,10 @@ impl World {
                 let tasks = self.due_coroutines(fixed);
                 self.enqueue_front(tasks);
             }
-            Task::Cleanup => {
-                let work = self.take_cleanup();
-                if !work.is_empty() {
-                    self.enqueue_front(work.into_iter().map(Task::Teardown).chain([Task::Cleanup]));
-                }
+            Task::Asset(identity, message, _) => {
+                return self.issue_asset_callback(identity, message);
             }
+            Task::Cleanup => self.enqueue_cleanup(),
         }
         Ok(None)
     }

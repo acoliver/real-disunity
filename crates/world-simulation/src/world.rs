@@ -78,6 +78,8 @@ pub struct WorldSnapshot {
 
 /// The sole owner of live object and component state for a simulation session.
 pub struct World {
+    pub(crate) assets: crate::assets::Assets,
+    pub(crate) assets_limit: u32,
     pub(crate) clock: crate::Clock,
     pub(crate) input: crate::input::Input,
     pub(crate) coroutines: crate::coroutines::Coroutines,
@@ -93,6 +95,8 @@ pub struct World {
 impl World {
     pub fn new(settings: WorldSettings) -> Result<Self, WorldError> {
         Ok(Self {
+            assets: crate::assets::Assets::default(),
+            assets_limit: settings.max_objects,
             clock: crate::Clock::default(),
             input: crate::input::Input::default(),
             coroutines: crate::coroutines::Coroutines::default(),
@@ -160,6 +164,25 @@ impl World {
             transform: object.transform,
             local_transform: self.local_transform(handle)?,
         })
+    }
+
+    pub fn set_object_text(
+        &mut self,
+        handle: ObjectHandle,
+        tag: bool,
+        text: String,
+    ) -> Result<(), WorldError> {
+        self.live_object(handle)?;
+        if text.len() > 1024 {
+            return Err(WorldError::InvalidObject);
+        }
+        let object = self.objects.get_mut(handle.0).expect("validated object");
+        if tag {
+            object.tag = text;
+        } else {
+            object.name = text;
+        }
+        Ok(())
     }
 
     pub fn component(&self, handle: ComponentHandle) -> Result<&ComponentSnapshot, WorldError> {
@@ -284,13 +307,19 @@ impl World {
             objects: self
                 .objects
                 .iter(self.identity)
-                .filter(|(id, _)| !self.lifetime.objects.contains(&ObjectHandle(*id)))
+                .filter(|(id, _)| {
+                    !self.lifetime.objects.contains(&ObjectHandle(*id))
+                        && !self.is_unpublished(ObjectHandle(*id))
+                })
                 .map(|(id, _)| self.object(ObjectHandle(id)).expect("live arena entry"))
                 .collect(),
             components: self
                 .components
                 .iter(self.identity)
-                .filter(|(id, _)| !self.lifetime.components.contains(&ComponentHandle(*id)))
+                .filter(|(id, value)| {
+                    !self.lifetime.components.contains(&ComponentHandle(*id))
+                        && !self.is_unpublished(value.object)
+                })
                 .map(|(_, value)| value.clone())
                 .collect(),
         }

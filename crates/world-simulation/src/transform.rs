@@ -73,7 +73,49 @@ fn orient_single_axis(axes: &mut [Vec3; 3], index: usize, orientation: Quat) {
 }
 
 impl World {
-    pub(crate) fn world_rotation(&self, object: ObjectHandle) -> Result<Quat, WorldError> {
+    pub fn world_position(&self, object: ObjectHandle) -> Result<Vec3, WorldError> {
+        Ok(self.world_matrix(object)?.w_axis.truncate())
+    }
+
+    pub fn local_position_from_world(
+        &self,
+        object: ObjectHandle,
+        position: Vec3,
+    ) -> Result<Vec3, WorldError> {
+        self.live_object(object)?;
+        if !position.is_finite() {
+            return Err(WorldError::InvalidComponent(
+                crate::ComponentError::InvalidTransform,
+            ));
+        }
+        let Some(parent) = self.parent(object)? else {
+            return Ok(position);
+        };
+        let matrix = self.world_matrix(parent)?;
+        if matrix.determinant() == 0.0 {
+            return Err(WorldError::SingularParent);
+        }
+        let inverse = matrix.inverse();
+        if !inverse.is_finite() {
+            return Err(WorldError::SingularParent);
+        }
+        Ok(inverse.transform_point3(position))
+    }
+
+    pub fn set_world_position(
+        &mut self,
+        object: ObjectHandle,
+        position: Vec3,
+    ) -> Result<(), WorldError> {
+        let translation = self.local_position_from_world(object, position)?;
+        let local = LocalTransform {
+            translation,
+            ..self.local_transform(object)?
+        };
+        self.set_local_transform(object, local)
+    }
+
+    pub fn world_rotation(&self, object: ObjectHandle) -> Result<Quat, WorldError> {
         let mut rotation = Quat::IDENTITY;
         let mut current = Some(object);
         while let Some(handle) = current {
@@ -83,16 +125,28 @@ impl World {
         Ok(rotation.normalize())
     }
 
+    pub fn set_world_rotation(
+        &mut self,
+        object: ObjectHandle,
+        rotation: Quat,
+    ) -> Result<(), WorldError> {
+        let mut local = self.local_transform(object)?;
+        let parent = self
+            .parent(object)?
+            .map(|p| self.world_rotation(p))
+            .transpose()?
+            .unwrap_or(Quat::IDENTITY);
+        local.rotation = parent.inverse() * rotation;
+        self.set_local_transform(object, local)
+    }
+
     pub fn world_matrix(&self, object: ObjectHandle) -> Result<Mat4, WorldError> {
-        let mut chain = Vec::new();
+        let mut matrix = Mat4::IDENTITY;
         let mut current = Some(object);
         while let Some(handle) = current {
-            chain.push(self.local_transform(handle)?.matrix());
+            matrix = self.local_transform(handle)?.matrix() * matrix;
             current = self.parent(handle)?;
         }
-        Ok(chain
-            .into_iter()
-            .rev()
-            .fold(Mat4::IDENTITY, |world, local| world * local))
+        Ok(matrix)
     }
 }

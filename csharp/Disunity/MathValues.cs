@@ -1,0 +1,48 @@
+namespace UnityEngine;
+
+public record struct Vector2Int(int x, int y)
+{
+    public static Vector2Int zero => new(0, 0);
+    public static Vector2Int up => new(0, 1);
+    public static Vector2Int down => new(0, -1);
+    public static Vector2Int left => new(-1, 0);
+    public static Vector2Int right => new(1, 0);
+    public static Vector2Int operator +(Vector2Int a, Vector2Int b) => new(a.x + b.x, a.y + b.y);
+    public static Vector2Int operator /(Vector2Int a, int b) => new(a.x / b, a.y / b);
+}
+
+public record struct Vector3(float X, float Y, float Z = 0)
+{
+    public float x { readonly get => X; set => X = value; }
+    public float y { readonly get => Y; set => Y = value; }
+    public float z { readonly get => Z; set => Z = value; }
+    public static Vector3 zero => new(0, 0, 0);
+    public static Vector3 one => new(1, 1, 1);
+    public static Vector3 operator *(Vector3 a, float b) => new(a.X * b, a.Y * b, a.Z * b);
+    public static implicit operator Vector3(Vector2 a) => new(a.x, a.y, 0);
+    public static implicit operator Vector2(Vector3 a) => new(a.X, a.Y);
+}
+
+public readonly record struct Quaternion(float x, float y, float z, float w)
+{
+    public static Quaternion identity => new(0, 0, 0, 1);
+}
+
+public static class Mathf
+{
+    public static float Min(float a, float b) => MathF.Min(a, b);
+    public static float Clamp(float value, float min, float max) => Math.Clamp(value, min, max);
+}
+
+public static class Random
+{
+    public static float value => System.Random.Shared.NextSingle();
+    public static int Range(int minInclusive, int maxExclusive) => System.Random.Shared.Next(minInclusive, maxExclusive);
+    public static float Range(float minInclusive, float maxInclusive) => minInclusive + value * (maxInclusive - minInclusive);
+}
+
+public static class Debug
+{
+    public static void Log(object? message) => Console.WriteLine(message);
+    public static void LogError(object? message) => Console.Error.WriteLine(message);
+}

@@ -5,7 +5,6 @@ use std::{
 
 use worldrunner_disunity_ffi::{
     DisunityCommand, DisunityObjectState, abi::*, command_kind, result_code, with_native_world,
-    with_world,
 };
 
 struct CountingAllocator;
@@ -136,7 +135,7 @@ fn bulk_export_reads_live_handles_without_snapshot_allocations() {
         .collect();
     session.submit(&commands);
     assert_eq!(
-        unsafe { disunity_world_step(session.0, 0.0, 1) }.code,
+        unsafe { advance_frame(session.0, 0.0, 1) }.code,
         result_code::OK
     );
     let removed = objects.remove(7);
@@ -175,7 +174,7 @@ fn diagnostics_allocate_only_the_message_not_world_or_history() {
     let commands: Vec<_> = objects.iter().map(|&object| material(object, 3)).collect();
     session.submit(&commands);
     assert_eq!(
-        unsafe { disunity_world_step(session.0, 0.0, 1) }.code,
+        unsafe { advance_frame(session.0, 0.0, 1) }.code,
         result_code::OK
     );
     session.submit(&commands);
@@ -190,10 +189,10 @@ fn diagnostics_allocate_only_the_message_not_world_or_history() {
     assert_eq!(bytes, 0, "an absent error must not clone unrelated storage");
 
     assert_eq!(
-        unsafe { disunity_world_step(session.0, f32::NAN, 2) }.code,
+        unsafe { advance_frame(session.0, f32::NAN, 2) }.code,
         result_code::ERROR
     );
-    let expected = b"delta must be finite and non-negative";
+    let expected = b"time is outside rational bounds";
     for capacity in [0, 128] {
         let (result, bytes) = allocated(|| unsafe {
             disunity_error_message(session.0, buffer.as_mut_ptr(), capacity, &mut length)
@@ -214,9 +213,23 @@ fn diagnostics_allocate_only_the_message_not_world_or_history() {
         with_native_world(session.0, |world| world.snapshot()).unwrap(),
         before
     );
-    with_world(session.0, |world| {
-        assert_eq!(world.applied_commands, commands);
-        assert_eq!(world.pending_commands, commands);
-    })
-    .unwrap();
+}
+
+unsafe fn advance_frame(
+    world: u64,
+    delta: f32,
+    _frame: u64,
+) -> worldrunner_disunity_ffi::DisunityResult {
+    let mut work = worldrunner_disunity_ffi::scheduling::DisunityAdvance::default();
+    let elapsed = std::time::Duration::try_from_secs_f32(delta)
+        .ok()
+        .and_then(|d| u64::try_from(d.as_nanos()).ok());
+    unsafe {
+        worldrunner_disunity_ffi::scheduling::disunity_world_advance(
+            world,
+            elapsed.unwrap_or(0),
+            if elapsed.is_some() { 1_000_000_000 } else { 0 },
+            &mut work,
+        )
+    }
 }

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using Disunity;
+using UnityEngine;
+using Disunity.Hosting;
 
 namespace PortableFixture;
 
@@ -7,13 +8,16 @@ namespace PortableFixture;
 public static class NativeBridge
 {
     private static readonly HashSet<nint> Tokens = new();
+    private static string LastError = "";
+    private static int DestroyedBefore;
+    private static int AssetsBefore;
 
     [UnmanagedCallersOnly]
     public static int ConfigureNativeLibrary(nint utf8Path)
     {
         try
         {
-            WorldRunner.ConfigureNativeLibrary(Marshal.PtrToStringUTF8(utf8Path)
+            DisunityHost.ConfigureNativeLibrary(Marshal.PtrToStringUTF8(utf8Path)
                 ?? throw new ArgumentException("native library path is required"));
             return 0;
         }
@@ -26,33 +30,83 @@ public static class NativeBridge
         try
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
-            if (path == null || File.ReadAllText(path).Trim() != "portable-triangle-v1")
+            var kind = path == null ? "" : File.ReadAllText(path).Trim();
+            if (kind != "portable-triangle-v1" && kind != "portable-load-failure-v1" && kind != "portable-callback-failure-v1" && kind != "portable-long-failure-v1")
             {
                 return -2;
             }
-            WorldRunner.LoadWorld();
+            TriangleBehaviour.FailUpdates = false;
+            TriangleBehaviour.LongFailure = kind == "portable-long-failure-v1";
+            AssetsBefore = FixtureAsset.Destroyed;
+            DestroyedBefore = TriangleBehaviour.Destroyed;
+            DisunityHost.LoadWorld();
             var behaviours = Enumerable.Range(0, 3)
-                .Select(i => WorldRunner.AddComponent(new TriangleBehaviour(i))).ToArray();
-            WorldRunner.Step(0.125f);
+                .Select(i => DisunityHost.AddComponent(new TriangleBehaviour(i))).ToArray();
+            if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
+            DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
                 || Time.Frame != 1 || Time.DeltaTime != 0.125f)
             {
                 throw new InvalidOperationException("all lifecycle phases must run in the first step");
             }
+            TriangleBehaviour.FailUpdates = kind is "portable-callback-failure-v1" or "portable-long-failure-v1";
             return 0;
         }
-        catch
+        catch (Exception error)
         {
-            WorldRunner.UnloadWorld();
+            LastError = error.ToString();
+            try { DisunityHost.UnloadWorld(); } catch (Exception cleanup) { LastError += cleanup.ToString(); }
             return -3;
         }
     }
 
     [UnmanagedCallersOnly]
-    public static ulong WorldHandle() => WorldRunner.WorldHandle;
+    public static ulong WorldHandle() => DisunityHost.WorldHandle;
 
     [UnmanagedCallersOnly]
-    public static void Unload() => WorldRunner.UnloadWorld();
+    public static int Unload()
+    {
+        try
+        {
+            var loaded = DisunityHost.IsLoaded;
+            if (loaded && FixtureAsset.Destroyed != AssetsBefore + 3 && Time.Frame > 1) throw new InvalidOperationException("Rust-driven frame omitted asset teardown");
+            DisunityHost.UnloadWorld();
+            if (loaded && FixtureAsset.Destroyed != AssetsBefore + 3) throw new InvalidOperationException("live asset teardown omitted");
+            if (loaded && !TriangleBehaviour.FailUpdates && TriangleBehaviour.Destroyed != DestroyedBefore + 3)
+                throw new InvalidOperationException("native image did not remain available through final callbacks");
+            return 0;
+        }
+        catch (Exception error) { LastError = error.ToString(); return -1; }
+    }
+
+    [UnmanagedCallersOnly]
+    public static int Dispatch(ulong identity, uint message)
+    {
+        try { DisunityHost.Dispatch(identity, message); return 0; }
+        catch (Exception error) { DisunityHost.ReportFault(); LastError = error.ToString(); return -1; }
+    }
+
+    [UnmanagedCallersOnly]
+    public static unsafe int Error(byte* output, uint capacity, uint* written)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(LastError);
+        *written = checked((uint)bytes.Length);
+        if (capacity < bytes.Length) return 2;
+        bytes.CopyTo(new Span<byte>(output, (int)capacity));
+        return 0;
+    }
+
+    [UnmanagedCallersOnly]
+    public static unsafe int ReadPosition(ulong handle, float* xyz)
+    {
+        try
+        {
+            var value = DisunityHost.ObjectPosition(handle);
+            xyz[0] = value.X; xyz[1] = value.Y; xyz[2] = value.Z;
+            return 0;
+        }
+        catch (Exception error) { LastError = error.ToString(); return -1; }
+    }
 
     [UnmanagedCallersOnly]
     public static nint TokenAlloc()

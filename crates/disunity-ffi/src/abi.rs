@@ -19,8 +19,28 @@ pub mod result_code {
     pub const INVALID_ARGUMENT: i32 = 4;
 }
 
-/// Result of every ABI call. `detail` carries `0` unless `code` is `ERROR`,
-/// where it is a fetch handle for `disunity_error_message`.
+/// Stable categories carried in DisunityResult.detail for native errors.
+#[repr(u64)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisunityErrorReason {
+    InvalidArgument = 1,
+    InvalidTime = 2,
+    WrongCallback = 3,
+    CallbackFailed = 4,
+    Faulted = 5,
+    AbortedScope = 6,
+    Capacity = 7,
+    SingularParent = 8,
+    Physics = 9,
+    StaleHandle = 10,
+    AdvanceInProgress = 11,
+    InvalidComponent = 12,
+    Ui = 13,
+    NotReady = 14,
+}
+
+/// Result of every ABI call. For ERROR, detail is a DisunityErrorReason tag.
+/// Diagnostic text is copied through disunity_error_take and explicitly freed.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisunityResult {
@@ -29,24 +49,24 @@ pub struct DisunityResult {
 }
 
 impl DisunityResult {
-    const fn ok() -> Self {
+    pub(crate) const fn ok() -> Self {
         Self {
             code: result_code::OK,
             detail: 0,
         }
     }
 
-    fn invalid_handle() -> Self {
+    pub(crate) fn invalid_handle() -> Self {
         Self {
             code: result_code::INVALID_HANDLE,
-            detail: 0,
+            detail: DisunityErrorReason::StaleHandle as u64,
         }
     }
 
     fn budget() -> Self {
         Self {
             code: result_code::BUDGET,
-            detail: 0,
+            detail: DisunityErrorReason::Capacity as u64,
         }
     }
 
@@ -57,17 +77,22 @@ impl DisunityResult {
         }
     }
 
-    fn invalid_argument() -> Self {
+    pub(crate) fn invalid_argument() -> Self {
         Self {
             code: result_code::INVALID_ARGUMENT,
-            detail: 0,
+            detail: DisunityErrorReason::InvalidArgument as u64,
         }
     }
 }
 pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> DisunityResult {
     use crate::store::AllocationError;
     use worldrunner_world_simulation::WorldError;
-    match error {
+    let reason = match &error {
+        AllocationError::InvalidWorld => DisunityErrorReason::StaleHandle,
+        AllocationError::HandleCapacity => DisunityErrorReason::Capacity,
+        AllocationError::Native(error) => crate::errors::AbiError::Native(error.clone()).reason(),
+    };
+    let mut result = match error {
         AllocationError::HandleCapacity
         | AllocationError::Native(WorldError::CapacityExceeded(_)) => DisunityResult::budget(),
         AllocationError::InvalidWorld
@@ -96,17 +121,21 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
             | WorldError::CallbackFailed(_)
             | WorldError::Faulted,
         ) => DisunityResult::invalid_argument(),
-    }
+    };
+    result.detail = reason as u64;
+    result
 }
 
 /// The ABI version of this library; see `disunity_interface.json`.
-pub const DISUNITY_ABI_VERSION: u32 = 1;
+pub const DISUNITY_ABI_VERSION: u32 = 2;
 
-fn translate_error(world: Option<u64>, reason: &str) -> DisunityResult {
-    let detail = 1;
+pub(crate) fn translate_error(
+    world: Option<u64>,
+    reason: &crate::errors::AbiError,
+) -> DisunityResult {
     let mut store = crate::lock_store();
-    crate::record_error(&mut store, world, reason);
-    DisunityResult::error(detail)
+    crate::record_error(&mut store, world, &reason.to_string());
+    DisunityResult::error(reason.reason() as u64)
 }
 
 /// Writes the ABI version this library implements into `out_version`.
@@ -206,19 +235,24 @@ pub unsafe extern "C" fn disunity_transform_set_position(
     y: f32,
     z: f32,
 ) -> DisunityResult {
-    unsafe {
-        disunity_command_buffer_submit(
+    let result = {
+        let mut store = crate::lock_store();
+        crate::commands::apply_immediate(
+            &mut store,
             world,
-            &DisunityCommand {
+            DisunityCommand {
                 object,
                 kind: command_kind::SET_POSITION,
                 x,
                 y,
                 z,
             },
-            1,
         )
-    }
+    };
+    result.map_or_else(
+        |error| translate_error(Some(world), &error),
+        |()| DisunityResult::ok(),
+    )
 }
 
 /// Construction-time yaw placement in radians.
@@ -233,19 +267,24 @@ pub unsafe extern "C" fn disunity_transform_set_rotation_y(
     object: u64,
     radians: f32,
 ) -> DisunityResult {
-    unsafe {
-        disunity_command_buffer_submit(
+    let result = {
+        let mut store = crate::lock_store();
+        crate::commands::apply_immediate(
+            &mut store,
             world,
-            &DisunityCommand {
+            DisunityCommand {
                 object,
                 kind: command_kind::SET_ROTATION_Y,
                 x: radians,
                 y: 0.0,
                 z: 0.0,
             },
-            1,
         )
-    }
+    };
+    result.map_or_else(
+        |error| translate_error(Some(world), &error),
+        |()| DisunityResult::ok(),
+    )
 }
 
 /// Copies a command batch into engine storage. The buffer is consumed before
@@ -278,24 +317,6 @@ pub unsafe extern "C" fn disunity_command_buffer_submit(
         Err(_) => DisunityResult::invalid_handle(),
     }
 }
-/// Advances the world one tick, draining any submitted command buffer.
-///
-/// # Safety
-/// `world` must be live; `dt` and `frame` must be finite.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_world_step(world: u64, dt: f32, frame: u64) -> DisunityResult {
-    // The guard must release before translate_error re-locks the store to
-    // record the message; holding both is a self-deadlock on the error path.
-    let outcome = {
-        let mut store = crate::lock_store();
-        crate::step_world(&mut store, world, dt, frame)
-    };
-    match outcome {
-        Ok(()) => DisunityResult::ok(),
-        Err(reason) => translate_error(Some(world), &reason),
-    }
-}
-
 /// Copies the world's last error message into `buffer` (no terminator) and
 /// writes the byte length into `out_len`. A `BUDGET` result means the buffer
 /// was too small and `out_len` carries the required size.
@@ -309,7 +330,7 @@ pub unsafe extern "C" fn disunity_error_message(
     capacity: u32,
     out_len: *mut u32,
 ) -> DisunityResult {
-    if buffer.is_null() || out_len.is_null() {
+    if (buffer.is_null() && capacity != 0) || out_len.is_null() {
         return DisunityResult::invalid_argument();
     }
     let message = crate::store::last_error(world);
@@ -327,7 +348,9 @@ pub unsafe extern "C" fn disunity_error_message(
                 return DisunityResult::budget();
             }
             unsafe {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, bytes.len());
+                if !bytes.is_empty() {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, bytes.len());
+                }
                 *out_len = bytes.len() as u32;
             }
             DisunityResult::ok()
@@ -383,4 +406,40 @@ pub unsafe extern "C" fn disunity_world_export_objects(
             |()| DisunityResult::ok(),
         )
     }
+}
+
+/// Reads authoritative native values without constructing a managed mirror.
+/// # Safety
+/// `output` is writable for one state row.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_gameobject_read(
+    world: u64,
+    object: u64,
+    output: *mut crate::DisunityObjectState,
+) -> DisunityResult {
+    if output.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let store = crate::lock_store();
+    let Ok(session) = store.session(world) else {
+        return DisunityResult::invalid_handle();
+    };
+    let Ok(native) = session.object(object) else {
+        return DisunityResult::invalid_handle();
+    };
+    let value = match crate::views::observe(session, native) {
+        Ok(value) => value,
+        Err(_) => return DisunityResult::invalid_handle(),
+    };
+    unsafe {
+        *output = crate::DisunityObjectState {
+            object,
+            x: value.position[0],
+            y: value.position[1],
+            z: value.position[2],
+            rotation_y_radians: value.rotation_y_radians,
+            material_slot: value.material_slot,
+        }
+    };
+    DisunityResult::ok()
 }

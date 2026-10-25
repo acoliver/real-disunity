@@ -1,8 +1,4 @@
-use std::{fmt::Write, fs, path::Path};
-
-use worldrunner_unity_import::{
-    Guid, ObjectId, Origin, Project, Reference, Scene, SceneError, Value, import_scene,
-};
+use worldrunner_unity_import::{Guid, ObjectId, Origin, Reference, Scene, SceneError, Value};
 
 const ITEM: &str = "11111111111111111111111111111111";
 const CONFIG: &str = "22222222222222222222222222222222";
@@ -11,65 +7,31 @@ const SCRIPT: &str = "44444444444444444444444444444444";
 const OUTER: &str = "55555555555555555555555555555555";
 const LEGACY: &str = "66666666666666666666666666666666";
 
-struct Fixture(tempfile::TempDir);
+#[path = "support/fixture.rs"]
+mod fixture;
+#[path = "support/objects.rs"]
+mod objects;
 
-impl Fixture {
-    fn new() -> Self {
-        let fixture = Self(tempfile::tempdir().unwrap());
-        fixture.file(
-            "ProjectSettings/ProjectVersion.txt",
-            "m_EditorVersion: 6000.3.7f1\n",
-        );
-        fixture.asset(
-            "Assets/Scripts/Item.cs",
-            SCRIPT,
-            "MonoImporter",
-            "class Item {}",
-        );
-        fixture.asset("Assets/Art/item.png", TEXTURE, "TextureImporter", "png");
-        fixture.asset(
-            "Assets/Config.asset",
-            CONFIG,
-            "NativeFormatImporter",
-            &config(),
-        );
-        fixture.asset("Assets/Item.prefab", ITEM, "PrefabImporter", &item_prefab());
-        fixture
-    }
+use fixture::Fixture;
+use objects::{game_object, import, transform};
 
-    fn file(&self, path: &str, text: &str) {
-        let path = self.0.path().join(path);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, text).unwrap();
-    }
-
-    fn asset(&self, path: &str, guid: &str, importer: &str, text: &str) {
-        self.file(path, text);
-        self.file(
-            &format!("{path}.meta"),
-            &format!("fileFormatVersion: 2\nguid: {guid}\n{importer}:\n  userData: \n"),
-        );
-    }
-
-    fn import(&self, scene: &str, text: &str) -> Result<Scene, SceneError> {
-        self.file(scene, text);
-        let project = Project::open(self.0.path()).unwrap();
-        import_scene(&project, Path::new(scene))
-    }
-}
-
-fn game_object(id: u64, name: &str, components: &[u64]) -> String {
-    let mut text = format!("--- !u!1 &{id}\nGameObject:\n  m_Component:\n");
-    for component in components {
-        writeln!(text, "  - component: {{fileID: {component}}}").unwrap();
-    }
-    text + &format!("  m_Layer: 0\n  m_Name: {name}\n  m_IsActive: 1\n")
-}
-
-fn transform(id: u64, object: u64, x: f64, father: u64) -> String {
-    format!(
-        "--- !u!4 &{id}\nTransform:\n  m_GameObject: {{fileID: {object}}}\n  m_LocalRotation: {{x: 0, y: 0, z: 0, w: 1}}\n  m_LocalPosition: {{x: {x}, y: 0, z: 0}}\n  m_LocalScale: {{x: 1, y: 1, z: 1}}\n  m_Children: []\n  m_Father: {{fileID: {father}}}\n"
-    )
+fn fixture() -> Fixture {
+    let fixture = Fixture::new("6000.3.7f1");
+    fixture.asset(
+        "Assets/Scripts/Item.cs",
+        SCRIPT,
+        "MonoImporter",
+        "class Item {}",
+    );
+    fixture.asset("Assets/Art/item.png", TEXTURE, "TextureImporter", "png");
+    fixture.asset(
+        "Assets/Config.asset",
+        CONFIG,
+        "NativeFormatImporter",
+        config(),
+    );
+    fixture.asset("Assets/Item.prefab", ITEM, "PrefabImporter", item_prefab());
+    fixture
 }
 
 fn behaviour(id: u64, object: u64, fields: &str) -> String {
@@ -164,10 +126,8 @@ fn modern_scene() -> String {
 
 #[test]
 fn prefab_instances_expand_with_overrides_parenting_and_removed_components() {
-    let fixture = Fixture::new();
-    let scene = fixture
-        .import("Assets/Main.unity", &modern_scene())
-        .unwrap();
+    let fixture = fixture();
+    let scene = import(&fixture, "Assets/Main.unity", &modern_scene()).unwrap();
     let holder = scene.transform_of(by_name(&scene, "Holder")).unwrap();
     assert_eq!(scene.roots(), [holder]);
     let item = by_name(&scene, "Renamed");
@@ -223,10 +183,8 @@ fn external(guid: &str, file_id: i64) -> Reference {
 
 #[test]
 fn references_resolve_to_stripped_objects_and_templates() {
-    let fixture = Fixture::new();
-    let scene = fixture
-        .import("Assets/Main.unity", &modern_scene())
-        .unwrap();
+    let fixture = fixture();
+    let scene = import(&fixture, "Assets/Main.unity", &modern_scene()).unwrap();
     let item = by_name(&scene, "Renamed");
     let holder = component(&scene, by_name(&scene, "Holder"), 114);
     let at = |key: &str| reference(&scene, holder, &[key]);
@@ -250,10 +208,8 @@ fn references_resolve_to_stripped_objects_and_templates() {
 
 #[test]
 fn references_to_assets_load_them_and_unknown_targets_are_reported() {
-    let fixture = Fixture::new();
-    let scene = fixture
-        .import("Assets/Main.unity", &modern_scene())
-        .unwrap();
+    let fixture = fixture();
+    let scene = import(&fixture, "Assets/Main.unity", &modern_scene()).unwrap();
     let holder = component(&scene, by_name(&scene, "Holder"), 114);
     let at = |key: &str| reference(&scene, holder, &[key]);
     let Reference::Object(config) = at("config") else {
@@ -321,12 +277,12 @@ fn legacy_instance(id: u64, name: &str, order: u64) -> String {
 
 #[test]
 fn legacy_prefabs_expand_through_parent_prefab_links_in_root_order() {
-    let fixture = Fixture::new();
+    let fixture = fixture();
     fixture.asset(
         "Assets/Paddle.prefab",
         LEGACY,
         "NativeFormatImporter",
-        &legacy_prefab(),
+        legacy_prefab(),
     );
     let scene = [
         legacy_instance(300, "Right", 2),
@@ -337,7 +293,7 @@ fn legacy_prefabs_expand_through_parent_prefab_links_in_root_order() {
         behaviour(500, 100, "  right: {fileID: 400}\n  prefab: {fileID: 100100000, guid: 66666666666666666666666666666666, type: 2}\n"),
     ]
     .concat();
-    let scene = fixture.import("Assets/Legacy.unity", &scene).unwrap();
+    let scene = import(&fixture, "Assets/Legacy.unity", &scene).unwrap();
     let names: Vec<_> = scene
         .roots()
         .iter()
@@ -362,7 +318,7 @@ fn legacy_prefabs_expand_through_parent_prefab_links_in_root_order() {
 
 #[test]
 fn nested_prefab_objects_use_unity_derived_file_ids() {
-    let fixture = Fixture::new();
+    let fixture = fixture();
     let outer = [
         game_object(1, "Outer", &[2]),
         transform(2, 1, 0.0, 0),
@@ -379,7 +335,7 @@ fn nested_prefab_objects_use_unity_derived_file_ids() {
         behaviour(910, 900, "  nested: {fileID: 800}\n"),
     ]
     .concat();
-    let scene = fixture.import("Assets/Nested.unity", &scene).unwrap();
+    let scene = import(&fixture, "Assets/Nested.unity", &scene).unwrap();
     let item = by_name(&scene, "Item");
     let item_transform = scene.transform_of(item).unwrap();
     let outer_transform = scene.transform_of(by_name(&scene, "Outer")).unwrap();
@@ -400,25 +356,30 @@ fn error(result: Result<Scene, SceneError>) -> String {
 
 #[test]
 fn invalid_prefab_structure_fails_with_its_file_and_object() {
-    let fixture = Fixture::new();
+    let fixture = fixture();
     let a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     fixture.asset(
         "Assets/A.prefab",
         a,
         "PrefabImporter",
-        &instance(1, b, 0, "", " []"),
+        instance(1, b, 0, "", " []"),
     );
     fixture.asset(
         "Assets/B.prefab",
         b,
         "PrefabImporter",
-        &instance(1, a, 0, "", " []"),
+        instance(1, a, 0, "", " []"),
     );
-    let message = error(fixture.import("Assets/Cycle.unity", &instance(5, a, 0, "", " []")));
+    let message = error(import(
+        &fixture,
+        "Assets/Cycle.unity",
+        &instance(5, a, 0, "", " []"),
+    ));
     assert!(message.contains("nests itself"), "{message}");
     let outside = modification(OUTER, 10, "m_Name", "x", "{fileID: 0}");
-    let message = error(fixture.import(
+    let message = error(import(
+        &fixture,
         "Assets/Outside.unity",
         &instance(5, ITEM, 0, &outside, " []"),
     ));
@@ -427,12 +388,14 @@ fn invalid_prefab_structure_fails_with_its_file_and_object() {
         "{message}"
     );
     let unknown = modification(ITEM, 999, "m_Name", "x", "{fileID: 0}");
-    let message = error(fixture.import(
+    let message = error(import(
+        &fixture,
         "Assets/Unknown.unity",
         &instance(5, ITEM, 0, &unknown, " []"),
     ));
     assert!(message.contains("missing from prefab"), "{message}");
-    let message = error(fixture.import(
+    let message = error(import(
+        &fixture,
         "Assets/Gone.unity",
         &instance(5, "99999999999999999999999999999999", 0, "", " []"),
     ));
@@ -441,16 +404,16 @@ fn invalid_prefab_structure_fails_with_its_file_and_object() {
 
 #[test]
 fn unsupported_or_inconsistent_instances_fail_with_their_cause() {
-    let fixture = Fixture::new();
+    let fixture = fixture();
     let a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let removed = instance(5, ITEM, 0, "", " []").replace(
         "m_RemovedGameObjects: []",
         "m_RemovedGameObjects:\n    - {fileID: 50}",
     );
-    let message = error(fixture.import("Assets/Removed.unity", &removed));
+    let message = error(import(&fixture, "Assets/Removed.unity", &removed));
     assert!(message.contains("not supported"), "{message}");
     let stripped = "--- !u!4 &9 stripped\nTransform:\n  m_PrefabInstance: {fileID: 123}\n  m_CorrespondingSourceObject: {fileID: 20}\n";
-    let message = error(fixture.import("Assets/Stripped.unity", stripped));
+    let message = error(import(&fixture, "Assets/Stripped.unity", stripped));
     assert!(message.contains("unknown prefab instance"), "{message}");
     let two_roots = [
         game_object(1, "A", &[2]),
@@ -460,14 +423,21 @@ fn unsupported_or_inconsistent_instances_fail_with_their_cause() {
     ]
     .concat();
     fixture.asset("Assets/Two.prefab", a, "PrefabImporter", &two_roots);
-    let message = error(fixture.import("Assets/Two.unity", &instance(5, a, 0, "", " []")));
+    let message = error(import(
+        &fixture,
+        "Assets/Two.unity",
+        &instance(5, a, 0, "", " []"),
+    ));
     assert!(
         message.contains("more than one root transform"),
         "{message}"
     );
     let bad_path = modification(ITEM, 20, "m_LocalPosition.x.Array.size", "1", "{fileID: 0}");
-    let message =
-        error(fixture.import("Assets/Path.unity", &instance(5, ITEM, 0, &bad_path, " []")));
+    let message = error(import(
+        &fixture,
+        "Assets/Path.unity",
+        &instance(5, ITEM, 0, &bad_path, " []"),
+    ));
     assert!(
         message.contains("override `m_LocalPosition.x.Array.size`"),
         "{message}"
@@ -476,10 +446,8 @@ fn unsupported_or_inconsistent_instances_fail_with_their_cause() {
 
 #[test]
 fn every_value_kind_converts() {
-    let fixture = Fixture::new();
-    let scene = fixture
-        .import("Assets/Main.unity", &modern_scene())
-        .unwrap();
+    let fixture = fixture();
+    let scene = import(&fixture, "Assets/Main.unity", &modern_scene()).unwrap();
     let holder = component(&scene, by_name(&scene, "Holder"), 114);
     let fields = &scene.object(holder).unwrap().fields;
     assert!(matches!(fields, Value::Record(_)));

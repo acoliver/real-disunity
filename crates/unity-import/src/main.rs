@@ -10,7 +10,8 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import documents <project> <asset path>
        unity-import scene <project> <scene path>
        unity-import texture <project> <texture path>
-       unity-import sprites <project> <scene path>";
+       unity-import sprites <project> <scene path>
+       unity-import components <project> <scene path>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -37,6 +38,9 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         }
         [command, project, path] if command == "sprites" => {
             sprites(Path::new(project), Path::new(path))
+        }
+        [command, project, path] if command == "components" => {
+            components(Path::new(project), Path::new(path))
         }
         _ => Err(USAGE.into()),
     }
@@ -201,5 +205,25 @@ fn sprites(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
         "sprite references: {} ({failures} unresolved)",
         references.len()
     );
+    Ok(())
+}
+
+/// Reads every grid, tilemap, collider material and renderer material in the scene.
+fn components(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
+    let project = Project::open(root)?;
+    let scene = import_scene(&project, path)?;
+    for (id, object) in scene.objects() {
+        let line = match object.type_name.as_str() {
+            "Grid" => format!("{:?}", scene.grid(id)),
+            "Tilemap" => scene.tilemap(id).map_or_else(
+                |error| error.to_string(),
+                |map| format!("{} tiles, first {:?}", map.tiles.len(), map.tiles.first()),
+            ),
+            name if name.ends_with("Collider2D") => format!("{:?}", scene.collider_material(id)),
+            "SpriteRenderer" | "TilemapRenderer" => format!("{:?}", scene.renderer_material(id)),
+            _ => continue,
+        };
+        println!("{} {}: {line}", object.type_name, id.index());
+    }
     Ok(())
 }

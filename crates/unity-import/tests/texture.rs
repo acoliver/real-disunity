@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use worldrunner_unity_import::{
-    Filter, Guid, Project, SpriteMode, TextureError, Textures, Wrap, import_texture,
+    Filter, Guid, SpriteMode, TextureError, Textures, Wrap, import_texture,
 };
 
 const SINGLE: &str = "a0000000000000000000000000000001";
@@ -9,33 +9,20 @@ const SHEET: &str = "a0000000000000000000000000000002";
 const LEGACY: &str = "a0000000000000000000000000000003";
 const PHOTO: &str = "a0000000000000000000000000000004";
 
-struct Fixture(tempfile::TempDir);
+#[path = "support/fixture.rs"]
+mod fixture;
 
-impl Fixture {
-    fn new() -> Self {
-        let fixture = Self(tempfile::tempdir().unwrap());
-        fixture.write(
-            "ProjectSettings/ProjectVersion.txt",
-            b"m_EditorVersion: 6000.3.5f2\n",
-        );
-        fixture
-    }
+use fixture::Fixture;
 
-    fn write(&self, path: &str, bytes: &[u8]) {
-        let path = self.0.path().join(path);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, bytes).unwrap();
-    }
+const EDITOR: &str = "6000.3.5f2";
 
-    fn texture(&self, path: &str, guid: &str, image: &[u8], importer: &str) {
-        self.write(path, image);
-        let meta = format!("fileFormatVersion: 2\nguid: {guid}\nTextureImporter:\n{importer}");
-        self.write(&format!("{path}.meta"), meta.as_bytes());
-    }
-
-    fn project(&self) -> Project {
-        Project::open(self.0.path()).unwrap()
-    }
+/// Writes an image and a `.meta` file with `settings` under its `TextureImporter` section.
+fn texture(fixture: &Fixture, path: &str, guid: &str, image: &[u8], settings: &str) {
+    fixture.file(path, image);
+    fixture.file(
+        &format!("{path}.meta"),
+        format!("fileFormatVersion: 2\nguid: {guid}\nTextureImporter:\n{settings}"),
+    );
 }
 
 /// Exact comparison: every expected value is a binary fraction the importer parses exactly.
@@ -83,8 +70,9 @@ const SINGLE_SETTINGS: &str = "  mipmaps:\n    sRGBTexture: 0\n  textureSettings
 
 #[test]
 fn single_sprite_textures_use_the_whole_image_and_aligned_pivot() {
-    let fixture = Fixture::new();
-    fixture.texture(
+    let fixture = Fixture::new(EDITOR);
+    texture(
+        &fixture,
         "Assets/Ball.png",
         SINGLE,
         &png(4, 2, png::ColorType::Rgba),
@@ -133,7 +121,7 @@ fn sheet(entries: &[String]) -> String {
 
 #[test]
 fn sprite_sheets_list_sprites_by_internal_id_with_alignment_pivots() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new(EDITOR);
     let entries = [
         sheet_entry(
             "ball",
@@ -150,7 +138,8 @@ fn sprite_sheets_list_sprites_by_internal_id_with_alignment_pivots() {
             [0.25, 0.75],
         ),
     ];
-    fixture.texture(
+    texture(
+        &fixture,
         "Assets/Sheet.png",
         SHEET,
         &png(8, 4, png::ColorType::Rgb),
@@ -189,14 +178,15 @@ fn sprite_sheets_list_sprites_by_internal_id_with_alignment_pivots() {
 
 #[test]
 fn legacy_sheets_take_file_ids_from_the_recycle_table() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new(EDITOR);
     let entry =
         sheet_entry("paddle", 0, [0, 0, 1, 1], 6, [0.5, 0.5]).replace("      internalID: 0\n", "");
     let settings = format!(
         "  fileIDToRecycleName:\n    21300000: ball\n    21300002: paddle\n{}",
         sheet(&[entry])
     );
-    fixture.texture(
+    texture(
+        &fixture,
         "Assets/Old.png",
         LEGACY,
         &png(2, 2, png::ColorType::Grayscale),
@@ -214,9 +204,15 @@ fn legacy_sheets_take_file_ids_from_the_recycle_table() {
 
 #[test]
 fn jpeg_textures_decode_to_rgba() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new(EDITOR);
     let jpeg = include_bytes!("fixtures/solid-16x8.jpg");
-    fixture.texture("Assets/Photo.jpg", PHOTO, jpeg, "  spriteMode: 1\n");
+    texture(
+        &fixture,
+        "Assets/Photo.jpg",
+        PHOTO,
+        jpeg,
+        "  spriteMode: 1\n",
+    );
     let texture = import_texture(&fixture.project(), guid(PHOTO)).unwrap();
     let image = texture.image();
     assert_eq!((image.width, image.height), (16, 8));
@@ -230,8 +226,9 @@ fn jpeg_textures_decode_to_rgba() {
 
 #[test]
 fn the_texture_cache_imports_once_and_resolves_sprite_references() {
-    let fixture = Fixture::new();
-    fixture.texture(
+    let fixture = Fixture::new(EDITOR);
+    texture(
+        &fixture,
         "Assets/Ball.png",
         SINGLE,
         &png(4, 2, png::ColorType::Rgba),
@@ -256,8 +253,8 @@ fn the_texture_cache_imports_once_and_resolves_sprite_references() {
 }
 
 fn import_error(image: &[u8], settings: &str) -> String {
-    let fixture = Fixture::new();
-    fixture.texture("Assets/Bad.png", SINGLE, image, settings);
+    let fixture = Fixture::new(EDITOR);
+    texture(&fixture, "Assets/Bad.png", SINGLE, image, settings);
     let error = import_texture(&fixture.project(), guid(SINGLE))
         .unwrap_err()
         .to_string();
@@ -291,11 +288,12 @@ fn unsupported_or_inconsistent_textures_fail_with_their_path() {
 
 #[test]
 fn assets_without_texture_settings_are_not_textures() {
-    let fixture = Fixture::new();
-    fixture.write("Assets/Notes.png", &png(1, 1, png::ColorType::Rgba));
-    fixture.write(
-        "Assets/Notes.png.meta",
-        format!("guid: {SINGLE}\nDefaultImporter:\n  userData: \n").as_bytes(),
+    let fixture = Fixture::new(EDITOR);
+    fixture.asset(
+        "Assets/Notes.png",
+        SINGLE,
+        "DefaultImporter",
+        png(1, 1, png::ColorType::Rgba),
     );
     let error = import_texture(&fixture.project(), guid(SINGLE)).unwrap_err();
     assert!(

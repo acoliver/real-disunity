@@ -97,10 +97,10 @@ struct VertexOutput {
     @location(0) world_position: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) texcoord: vec2<f32>,
+    @location(3) tint: vec4<f32>,
 }
 
-@vertex
-fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
+fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     let model = mat4x4<f32>(
         instance.model_column_0,
         instance.model_column_1,
@@ -133,6 +133,23 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.world_position = world_position;
     out.world_normal = normalize(rotation * vertex.normal);
     out.texcoord = vertex.texcoord;
+    out.tint = vec4<f32>(1.0);
+    return out;
+}
+
+@vertex
+fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
+    return transform_vertex(vertex, instance);
+}
+
+struct InstanceTint {
+    @location(9) tint: vec4<f32>,
+}
+
+@vertex
+fn vs_unlit(vertex: VertexInput, instance: InstanceInput, tint: InstanceTint) -> VertexOutput {
+    var out = transform_vertex(vertex, instance);
+    out.tint = tint.tint;
     return out;
 }
 
@@ -218,4 +235,9 @@ fn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> 
         discard;
     }
     return vec4<f32>(shaded.rgb, 1.0);
+}
+
+@fragment
+fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(albedo_texture, material_sampler, input.texcoord) * input.tint;
 }

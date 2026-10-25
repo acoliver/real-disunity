@@ -1,0 +1,95 @@
+{
+  "name": "synthetic-grid",
+  "source": "Synthetic local migration consumer using canonical generation.",
+  "biomes": {
+    "coastal": {
+      "definition_id": 11,
+      "biome_asset_id": "fixture.biome.shore"
+    },
+    "temperate": {
+      "definition_id": 22,
+      "biome_asset_id": "fixture.biome.plain"
+    },
+    "highland": {
+      "definition_id": 33,
+      "biome_asset_id": "fixture.biome.ridge"
+    },
+    "coastal_max_height_above_sea_millimeters": 4500,
+    "highland_max_temperature": 29000,
+    "highland_min_height_millimeters": 27000
+  },
+  "surfaces": {
+    "materials": [
+      {
+        "material_asset_id": "fixture.material.blue",
+        "uv_scale_millimeters": 3000
+      },
+      {
+        "material_asset_id": "fixture.material.tan",
+        "uv_scale_millimeters": 2500
+      },
+      {
+        "material_asset_id": "fixture.material.gray",
+        "uv_scale_millimeters": 5500
+      }
+    ],
+    "dry_moisture_max": 27000
+  },
+  "placement": {
+    "rock_denominator_rocky_terrain": 7,
+    "rock_denominator_other_terrain": 17,
+    "grass_denominator_rocky_terrain": 3,
+    "tree_denominator": 23,
+    "rock_split_denominator": 3,
+    "rock_primary": {
+      "asset_id": "fixture.prop.octahedron",
+      "base_scale_millionths": 450000,
+      "scale_jitter_modulus": 250001
+    },
+    "rock_secondary": {
+      "asset_id": "fixture.prop.cube",
+      "base_scale_millionths": 550000,
+      "scale_jitter_modulus": 350001
+    },
+    "tree": {
+      "asset_id": "fixture.prop.cone",
+      "base_scale_millionths": 850000,
+      "scale_jitter_modulus": 300001
+    },
+    "grass": {
+      "asset_id": "fixture.prop.cross",
+      "base_scale_millionths": 650000,
+      "scale_jitter_modulus": 450001
+    }
+  },
+  "catalog": {
+    "preferred_art_sets": [
+      "synthetic-primitives"
+    ],
+    "preferred_platform_profiles": [
+      "portable-rgba"
+    ],
+    "maximum_quality": "Baseline"
+  },
+  "requests": [
+    {
+      "name": "consumer",
+      "seed": 42,
+      "dimensions_meters": [
+        12,
+        8
+      ],
+      "terrain_samples": [
+        7,
+        5
+      ],
+      "parameters": {
+        "sea_level_millimeters": 0,
+        "elevation_amplitude_millimeters": 320000,
+        "terrain_frequency_microunits": 2500,
+        "environment_density_per_square_kilometer": 0
+      },
+      "asset_catalog_version": 1
+    }
+  ]
+}

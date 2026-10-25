@@ -8,6 +8,12 @@
 //! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
 
 mod app;
+pub mod cpu_profile;
+mod live;
+pub use live::{
+    IngressOrigin, LiveCapture, LiveClock, LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample,
+    LiveOptions, LiveReceipt, LiveTick, ScheduledInput,
+};
 mod camera;
 mod presentation;
 mod renderer;
@@ -42,6 +48,12 @@ pub struct ViewerOptions {
 /// Startup, presentation or scene rendering failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ViewerError {
+    #[error("live driver failed: {0}")]
+    Driver(String),
+    #[error(transparent)]
+    Dynamic(#[from] worldrunner_render_scene::dynamic::DynamicError),
+    #[error(transparent)]
+    Readback(#[from] worldrunner_render_post::ReadbackError),
     #[error(transparent)]
     Post(#[from] worldrunner_render_post::PostError),
     #[error("invalid viewer options: {0}")]
@@ -113,6 +125,32 @@ pub(crate) type SceneUpdate = Box<
         &mut worldrunner_render_scene::draw::SceneGpu,
     ) -> Result<(), worldrunner_render_scene::draw::InstanceError>,
 >;
+
+/// Runs a caller-owned live simulation through the shared desktop viewer.
+/// Call once on the main thread. The driver retains its state after this returns.
+pub fn run_live<D: LiveDriver>(driver: &mut D, options: LiveOptions) -> Result<(), ViewerError> {
+    if options.size.iter().any(|&side| side == 0 || side > 4096) {
+        return Err(ViewerError::InvalidOptions(
+            "window dimensions must be in 1..=4096",
+        ));
+    }
+    if options.frame_interval.is_zero()
+        || options.frame_interval > std::time::Duration::from_secs(1)
+    {
+        return Err(ViewerError::InvalidOptions(
+            "frame interval must be positive and at most one second",
+        ));
+    }
+    if options.max_frames == Some(0) {
+        return Err(ViewerError::InvalidOptions("frame limit must be positive"));
+    }
+    if driver.clock().real_time() && options.fixed_dt.is_some() {
+        return Err(ViewerError::InvalidOptions(
+            "acquisition clock cannot use a fixed replay delta",
+        ));
+    }
+    app::run_live(driver, options)
+}
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {
     if !(1..=3).contains(&options.frames_in_flight) {

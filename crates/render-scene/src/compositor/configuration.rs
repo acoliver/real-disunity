@@ -16,6 +16,7 @@ use worldrunner_render_post::{
 #[derive(Clone, Debug)]
 pub struct RendererConfiguration {
     pub frame: FrameConfig,
+    pub clear_color: wgpu::Color,
     pub output_format: wgpu::TextureFormat,
     pub hdr: Option<(f64, ToneMap)>,
     pub post: HdrPostSettings,
@@ -31,6 +32,7 @@ impl RendererConfiguration {
     pub fn legacy(size: [u32; 2], output_format: wgpu::TextureFormat) -> Self {
         Self {
             frame: FrameConfig::new(size, wgpu::TextureFormat::Rgba8UnormSrgb, 1),
+            clear_color: wgpu::Color::BLACK,
             output_format,
             hdr: None,
             post: HdrPostSettings::default(),
@@ -91,6 +93,7 @@ impl RendererConfiguration {
         }
     }
     fn validate(&self, context: &GpuContext) -> Result<(), PostError> {
+        super::validate_clear(self.clear_color)?;
         self.frame.validate_adapter(context.adapter())?;
         self.frame.validate(&context.device().limits())?;
         self.post.validate()?;
@@ -427,6 +430,7 @@ fn build(
         snapshots: None,
         snapshot_ready: std::rc::Rc::default(),
         frame_slot: 0,
+        clear_color: settings.clear_color,
         post_requested: settings.post,
         elapsed_seconds: 0.0,
         frame_delta: 0.0,

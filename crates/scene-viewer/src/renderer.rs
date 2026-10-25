@@ -4,6 +4,8 @@ use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
 mod execution;
+mod live;
+pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_scene::{
     SceneView, Viewport,
@@ -31,6 +33,8 @@ pub(super) struct Renderer {
     pub viewport: Option<Viewport>,
     errors: mpsc::Receiver<String>,
     animation_start: std::time::Instant,
+    live_upload: Option<live::Upload>,
+    live_pending: Option<live::Pending>,
 }
 
 enum Resident {
@@ -41,6 +45,7 @@ struct PlainScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
     effects: Option<SceneEffects>,
+    clear: Option<wgpu::Color>,
 }
 
 impl Renderer {
@@ -94,6 +99,8 @@ impl Renderer {
         )?;
         let renderer = Self {
             animation_start: std::time::Instant::now(),
+            live_upload: None,
+            live_pending: None,
             execution,
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
@@ -140,28 +147,28 @@ impl Renderer {
         view: &SceneView,
         update: &mut crate::SceneUpdate,
     ) -> Result<bool, ViewerError> {
+        Ok(self.render_admitted(view, update, None)?.is_some())
+    }
+
+    fn render_admitted(
+        &mut self,
+        view: &SceneView,
+        update: &mut crate::SceneUpdate,
+        mut capture: Option<&mut live::Capture>,
+    ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
         self.poll()?;
         let resident = &mut self.resident;
+        let upload = &mut self.live_upload;
         let Some(ready) = self.execution.acquire(&self.context, || {
+            if let Some(upload) = upload.take() {
+                resident.upload_live(&self.context, upload)?;
+            }
             update(resident.scene_mut()).map_err(ViewerError::from)
         })?
         else {
-            return Ok(false);
+            return Ok(None);
         };
-        let size = self.viewport.expect("acquired nonzero extent");
-        let extents = Extents::new(
-            [size.width, size.height],
-            self.context.device().limits().max_texture_dimension_2d,
-        )?
-        .expect("acquired nonzero extent");
-        self.presentation.resize(&self.context, extents.render)?;
-        self.resident.select_frame_slot(ready.admission.slot());
-        self.presentation
-            .scheduler
-            .select_frame_slot(ready.admission.slot());
-        self.presentation
-            .scheduler
-            .set_frame_time(self.animation_start.elapsed().as_secs_f32())?;
+        self.prepare_frame(view, ready.admission.slot())?;
         let output = ready
             .frame
             .texture
@@ -177,13 +184,43 @@ impl Renderer {
                     encoder,
                     self.presentation.scheduler.encoding(),
                 )?;
-                self.presentation.present(encoder, &output)
+                self.presentation.present(encoder, &output)?;
+                if let Some(capture) = &mut capture {
+                    capture.encode(encoder, self.presentation.targets.color.texture());
+                }
+                Ok::<_, ViewerError>(())
             })
             .map_err(|error| ViewerError::Gpu(error.to_string()))?;
-        self.execution
+        let ticket = self
+            .execution
             .submit_prepared(ready, prepared, &self.context)?;
         self.check_errors()?;
-        Ok(true)
+        Ok(Some(ticket))
+    }
+
+    /// Sizes the presentation targets and selects the admitted slot, clear and frame time.
+    fn prepare_frame(&mut self, view: &SceneView, slot: usize) -> Result<(), ViewerError> {
+        let size = self.viewport.expect("acquired nonzero extent");
+        let extents = Extents::new(
+            [size.width, size.height],
+            self.context.device().limits().max_texture_dimension_2d,
+        )?
+        .expect("acquired nonzero extent");
+        let render_size = if self.resident.clear_color().is_some() {
+            view.viewport()
+        } else {
+            extents.render
+        };
+        self.presentation.resize(&self.context, render_size)?;
+        if let Some(clear) = self.resident.clear_color() {
+            self.presentation.scheduler.set_clear_color(clear)?;
+        }
+        self.resident.select_frame_slot(slot);
+        self.presentation.scheduler.select_frame_slot(slot);
+        self.presentation
+            .scheduler
+            .set_frame_time(self.animation_start.elapsed().as_secs_f32())?;
+        Ok(())
     }
 }
 
@@ -287,6 +324,7 @@ impl Resident {
                 gpu,
                 pipelines,
                 effects: scene.effects().cloned(),
+                clear: None,
             }))
         })
     }

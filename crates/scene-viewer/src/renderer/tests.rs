@@ -1,3 +1,4 @@
+mod live;
 mod recovery;
 mod teardown;
 use super::*;
@@ -115,6 +116,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     );
     drop(presenter);
     drop((device, queue, adapter, instance));
+    live::pending_survives_resize_and_surface_recovery(&mut event_loop, window.clone());
     teardown::assert_pending_submission_cleanup(
         pollster::block_on(Renderer::new(
             event_loop.owned_display_handle(),

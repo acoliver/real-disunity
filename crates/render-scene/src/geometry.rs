@@ -169,7 +169,10 @@ pub fn model_matrix(transform: &SceneTransform) -> Mat4 {
 /// The matrix is column-major.
 #[must_use]
 pub fn pack_instance(transform: &SceneTransform) -> Vec<u8> {
-    let matrix = model_matrix(transform);
+    pack_model_instance(model_matrix(transform))
+}
+
+pub(crate) fn pack_model_instance(matrix: Mat4) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(INSTANCE_BYTES);
     for column in matrix.to_cols_array() {
         push_f32(&mut bytes, column);

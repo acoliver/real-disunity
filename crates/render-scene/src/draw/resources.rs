@@ -1,0 +1,354 @@
+use super::{
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
+    BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES, GpuLod, GpuMesh, GpuTerrain,
+    MaterialHandle, MaterialUniform, PreparedTexture, Queue, RenderScene, Sampler,
+    TERRAIN_PLACEMENT, TerrainUniformState, Texture, TextureHandle, TextureView,
+    TextureViewDescriptor, array, build_terrain_mesh, pack_indices, pack_instance, pack_vertices,
+    prepare_texture, upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
+    visibility,
+};
+
+pub(super) fn allocate_frame_slots(
+    device: &Device,
+    queue: &Queue,
+    layout: &BindGroupLayout,
+) -> Vec<(Buffer, BindGroup)> {
+    (0..3)
+        .map(|_| {
+            let buffer = upload_buffer(
+                device,
+                queue,
+                "frame slot uniform",
+                BufferUsages::UNIFORM | BufferUsages::COPY_SRC,
+                &[0u8; FRAME_UNIFORM_BYTES],
+            );
+            let group = frame_group(device, layout, &buffer);
+            (buffer, group)
+        })
+        .collect()
+}
+
+pub(super) fn frame_group(device: &Device, layout: &BindGroupLayout, buffer: &Buffer) -> BindGroup {
+    device.create_bind_group(&BindGroupDescriptor {
+        label: Some("frame"),
+        layout,
+        entries: &[BindGroupEntry {
+            binding: 0,
+            resource: buffer.as_entire_binding(),
+        }],
+    })
+}
+
+/// Resolves one validated handle to its table index.
+///
+/// `RenderScene::validate` has already proven every handle addresses its
+/// table, so this cannot fail. It is a checked conversion regardless, because
+/// an `as` cast would silently yield a wrong index on a target where `usize`
+/// is narrower than the handle, and a wrong index samples the wrong texture.
+pub(super) fn table_index(handle: TextureHandle) -> usize {
+    usize::try_from(handle.raw()).expect("a validated handle indexes its table")
+}
+
+/// Uploads every scene texture and creates a view of each.
+pub(super) fn upload_textures(
+    device: &Device,
+    queue: &Queue,
+    scene: &RenderScene,
+) -> Result<(Vec<Texture>, Vec<TextureView>), DrawError> {
+    let mut textures = Vec::new();
+    let mut views = Vec::new();
+    for (index, texture) in scene.resources().textures().iter().enumerate() {
+        let prepared =
+            prepare_texture(texture).map_err(|source| DrawError::Texture { index, source })?;
+        let uploaded = upload_texture(device, queue, &prepared)?;
+        views.push(uploaded.create_view(&TextureViewDescriptor::default()));
+        textures.push(uploaded);
+    }
+    Ok((textures, views))
+}
+
+/// What every material bind group shares, as opposed to its own maps.
+#[derive(Clone, Copy)]
+pub(super) struct MaterialBindings<'a> {
+    pub(super) layout: &'a BindGroupLayout,
+    pub(super) views: &'a [TextureView],
+    pub(super) placeholder: &'a TextureView,
+    pub(super) sampler: &'a Sampler,
+}
+
+/// Builds one bind group per material, filling absent maps with the placeholder.
+pub(super) fn upload_materials(
+    device: &Device,
+    queue: &Queue,
+    scene: &RenderScene,
+    bindings: &MaterialBindings<'_>,
+) -> (Vec<BindGroup>, Vec<Buffer>) {
+    let MaterialBindings {
+        layout,
+        views,
+        placeholder,
+        sampler,
+    } = *bindings;
+    let mut groups = Vec::new();
+    let mut uniforms = Vec::new();
+    for material in scene.resources().materials() {
+        let optional = |handle: Option<TextureHandle>| {
+            handle.map_or(placeholder, |handle| &views[table_index(handle)])
+        };
+        let bound = [
+            &views[table_index(material.albedo())],
+            optional(material.normal()),
+            optional(material.roughness_metallic()),
+            optional(material.ambient_occlusion()),
+            optional(material.self_illumination()),
+        ];
+        let prepared = worldrunner_render_gpu::resource::PreparedMaterial::new(
+            device,
+            queue,
+            worldrunner_render_gpu::resource::MaterialDescriptor {
+                label: "material",
+                layout,
+                bindings: None,
+                uniform_bytes: &MaterialUniform::from_material(material).to_bytes(),
+                textures: &bound,
+                sampler,
+            },
+        );
+        groups.push(prepared.bind_group);
+        uniforms.push(prepared.uniform);
+    }
+    (groups, uniforms)
+}
+
+/// Packs and uploads every level of every mesh.
+pub(super) fn upload_meshes(
+    device: &Device,
+    queue: &Queue,
+    scene: &RenderScene,
+) -> Result<Vec<GpuMesh>, DrawError> {
+    let mut meshes = Vec::new();
+    for (mesh, source) in scene.geometry().meshes().iter().enumerate() {
+        let mut lods = Vec::new();
+        for (level, lod) in source.lods().iter().enumerate() {
+            let vertices = pack_vertices(lod).map_err(|source| DrawError::Geometry {
+                mesh,
+                level,
+                source,
+            })?;
+            let indices = pack_indices(lod);
+            lods.push(GpuLod {
+                vertices: upload_buffer(
+                    device,
+                    queue,
+                    "mesh vertices",
+                    BufferUsages::VERTEX,
+                    &vertices,
+                ),
+                indices: upload_buffer(
+                    device,
+                    queue,
+                    "mesh indices",
+                    BufferUsages::INDEX,
+                    &indices,
+                ),
+                index_count: u32::try_from(lod.indices().len())
+                    .expect("a validated index count fits a draw"),
+            });
+        }
+        meshes.push(GpuMesh { lods });
+    }
+    Ok(meshes)
+}
+
+/// Builds the single terrain draw: its mesh, its uniform and its bind group.
+///
+/// Terrain used to enter as ordinary geometry, one mesh per material, and that
+/// is exactly what produced the material mosaic this replaces. It now has a
+/// path of its own because it needs state no object needs: the type grid, the
+/// palette arrays and the surface table the fragment shader blends through.
+///
+/// Returns `None` for a scene without terrain rather than an empty draw, so a
+/// terrainless scene costs no pipeline switch.
+pub(super) fn upload_terrain(
+    device: &Device,
+    queue: &Queue,
+    scene: &RenderScene,
+    layout: &BindGroupLayout,
+    sampler: &Sampler,
+) -> Result<Option<GpuTerrain>, DrawError> {
+    let Some(terrain) = scene.terrain() else {
+        return Ok(None);
+    };
+    let mesh = build_terrain_mesh(terrain).map_err(|source| DrawError::Terrain { source })?;
+    let uniform = TerrainUniformState::encode(terrain)
+        .map_err(|source| DrawError::TerrainUniform { source })?;
+
+    // The grid goes up at full resolution regardless of the stride the mesh was
+    // built at. That is the entire point: the geometry may be decimated because
+    // a vertex per sample is unaffordable, but the material authority must not
+    // be, or the fragment blend would be reading a grid already coarsened by
+    // exactly the process it exists to correct.
+    let grid = upload_type_grid(
+        device,
+        queue,
+        terrain.columns(),
+        terrain.rows(),
+        terrain.surface_indices(),
+    )?;
+    let palettes = upload_palettes(device, queue, scene, uniform.layer_materials())?;
+
+    // The uniform buffer is built here rather than inside the bind group so
+    // that helper takes only the resources it wires together, and so the
+    // buffer's lifetime is visibly the caller's.
+    let uniform_buffer = upload_buffer(
+        device,
+        queue,
+        "terrain uniform",
+        BufferUsages::UNIFORM,
+        uniform.bytes(),
+    );
+    let bind_group = terrain_bind_group(device, layout, sampler, &uniform_buffer, &grid, &palettes);
+    let mut retained = palettes;
+    retained.push(grid);
+    Ok(Some(GpuTerrain {
+        bounds: visibility::terrain_bounds(&mesh.vertices),
+        lod: GpuLod {
+            vertices: upload_buffer(
+                device,
+                queue,
+                "terrain vertices",
+                BufferUsages::VERTEX,
+                &mesh.vertices,
+            ),
+            indices: upload_buffer(
+                device,
+                queue,
+                "terrain indices",
+                BufferUsages::INDEX,
+                &mesh.indices,
+            ),
+            index_count: mesh.index_count,
+        },
+        // The identity placement. Terrain vertices are already in scene space,
+        // and giving terrain a transform would create a second place it could
+        // be positioned from.
+        instances: upload_buffer(
+            device,
+            queue,
+            "terrain instance",
+            BufferUsages::VERTEX,
+            &pack_instance(&TERRAIN_PLACEMENT),
+        ),
+        bind_group,
+        retained,
+    }))
+}
+/// Binds the terrain uniform, the type grid, the three palette arrays and the
+/// sampler into the one group the terrain shader reads.
+///
+/// This is lifted out of the upload so the correspondence between binding
+/// numbers and resources sits in one readable block. That correspondence is
+/// where a mismatch hides: every one of these slots is declared with the same
+/// layout as its neighbour, so a transposition validates cleanly and only shows
+/// up as terrain lit by the wrong map.
+pub(super) fn terrain_bind_group(
+    device: &Device,
+    layout: &BindGroupLayout,
+    sampler: &Sampler,
+    uniform_buffer: &Buffer,
+    grid: &Texture,
+    palettes: &[Texture],
+) -> BindGroup {
+    let grid_view = grid.create_view(&TextureViewDescriptor::default());
+    // The dimension has to be stated. A one-layer array defaults to a plain 2D
+    // view, so a palette that happens to hold a single surface would fail
+    // against a layout declaring an array while every larger palette passed.
+    let palette_views: Vec<TextureView> = palettes
+        .iter()
+        .map(|texture| {
+            texture.create_view(&TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..TextureViewDescriptor::default()
+            })
+        })
+        .collect();
+
+    let mut entries = vec![
+        BindGroupEntry {
+            binding: 0,
+            resource: uniform_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 1,
+            resource: BindingResource::TextureView(&grid_view),
+        },
+    ];
+    // Albedo, normal, roughness-metallic, in the order the shader declares them.
+    for (slot, view) in palette_views.iter().enumerate() {
+        entries.push(BindGroupEntry {
+            binding: u32::try_from(slot + 2)
+                .expect("three palette slots number far below u32::MAX"),
+            resource: BindingResource::TextureView(view),
+        });
+    }
+    entries.push(BindGroupEntry {
+        binding: 5,
+        resource: BindingResource::Sampler(sampler),
+    });
+    device.create_bind_group(&BindGroupDescriptor {
+        label: Some("terrain"),
+        layout,
+        entries: &entries,
+    })
+}
+
+/// Uploads the three palette array textures, one layer per deduplicated surface.
+///
+/// The layer order is the order [`TerrainUniformState`] assigned, and it must
+/// stay so: the surface table stores each surface's layer as an index into
+/// these arrays, so reordering here would leave every surface sampling some
+/// other surface's texture.
+///
+/// The scene textures these layers name have already been uploaded once as
+/// plain 2D textures for the object path. They are prepared and uploaded a
+/// second time here because an array texture cannot be assembled from separate
+/// texture objects; the duplication is in GPU memory, not in the decode result.
+pub(super) fn upload_palettes(
+    device: &Device,
+    queue: &Queue,
+    scene: &RenderScene,
+    layers: &[MaterialHandle],
+) -> Result<Vec<Texture>, DrawError> {
+    let materials = scene.resources().materials();
+    let textures = scene.resources().textures();
+    let mut prepared: [Vec<PreparedTexture>; 3] = array::from_fn(|_| Vec::new());
+    for (layer, handle) in layers.iter().enumerate() {
+        let material = &materials
+            [usize::try_from(handle.raw()).expect("a validated handle indexes its table")];
+        let maps = [
+            (Some(material.albedo()), "albedo"),
+            (material.normal(), "normal"),
+            (material.roughness_metallic(), "roughness-metallic"),
+        ];
+        for (slot, (handle, map)) in maps.into_iter().enumerate() {
+            let handle = handle.ok_or(DrawError::TerrainPaletteMap { layer, map })?;
+            let index = table_index(handle);
+            prepared[slot].push(
+                prepare_texture(&textures[index])
+                    .map_err(|source| DrawError::Texture { index, source })?,
+            );
+        }
+    }
+    let labels = [
+        "terrain-palette-albedo",
+        "terrain-palette-normal",
+        "terrain-palette-rough-metal",
+    ];
+    prepared
+        .iter()
+        .zip(labels)
+        .map(|(layers, label)| {
+            upload_palette_array(device, queue, label, layers).map_err(DrawError::from)
+        })
+        .collect()
+}

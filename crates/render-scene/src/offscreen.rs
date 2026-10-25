@@ -277,6 +277,20 @@ impl OffscreenTarget {
         self.read_encoded(context, submission)
     }
 
+    /// Selects a validated linear clear through the compositor, draws and captures.
+    pub fn render_with_clear_color(
+        &mut self,
+        context: &GpuContext,
+        scene: &SceneGpu,
+        pipelines: &ScenePipelines,
+        color: wgpu::Color,
+    ) -> Result<RgbaImage, OffscreenError> {
+        self.scheduler
+            .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()))
+            .set_clear_color(color)?;
+        self.render(context, scene, pipelines)
+    }
+
     /// Appends capture to the frame encoder, avoiding a second submission.
     /// Uses slot zero and rejects overwriting an unread capture.
     /// Use explicit slots when more than one capture is pending.

@@ -21,10 +21,11 @@
 //! view basis directly from a Z-up world. No other code is permitted to
 //! reinterpret an axis.
 
-use glam::camera::rh::proj::directx::perspective;
-use glam::camera::rh::view::look_at_mat4;
 use glam::{Mat4, Vec3};
 use thiserror::Error;
+use worldrunner_camera::{
+    CameraLens, CameraState, ResolvedView, ViewConvention, ViewHandedness, resolve,
+};
 use worldrunner_render_plan::SceneCamera;
 
 /// Millimetres per metre; scene distances are integral millimetres.
@@ -39,9 +40,15 @@ const SCENE_UP: Vec3 = Vec3::Z;
 /// A camera pose could not describe a view.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum ViewError {
+    /// The shared resolver rejected a lens or an unrepresentable GPU transform.
+    #[error("camera resolution failed: {0}")]
+    Resolution(worldrunner_camera::ViewError),
     /// The eye and target coincide, so the view direction is undefined.
     #[error("camera eye and target coincide, leaving the view direction undefined")]
     DegenerateDirection,
+    /// The lens cannot describe a finite orthographic volume.
+    #[error("orthographic lens requires a finite positive half extent and 0 <= near < far")]
+    InvalidOrthographicLens,
     /// The view direction is parallel to the world up axis.
     ///
     /// A camera looking straight down cannot derive a right vector from the up
@@ -84,124 +91,163 @@ pub struct Viewport {
     pub height: u32,
 }
 
+/// An orthographic lens in canonical scene metres.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OrthographicLens {
+    /// Half the visible vertical extent; horizontal extent follows the viewport aspect.
+    pub vertical_half_extent_meters: f32,
+    /// Forward distance to the near plane, including zero.
+    pub near_meters: f32,
+    /// Forward distance to the far plane.
+    pub far_meters: f32,
+}
+
 /// The resolved view and projection for one camera.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SceneView {
-    view: Mat4,
-    projection: Mat4,
-    eye_meters: Vec3,
+    resolved: ResolvedView,
     eye_millimeters: [i64; 3],
-    viewport: Viewport,
-    clip_distances_meters: [f32; 2],
 }
 
 impl SceneView {
-    /// Resolves a pose and a validated camera into view and projection.
-    ///
-    /// The projection cannot be degenerate: [`SceneCamera`] is validated by the
-    /// renderer domain to hold a field of view in `1..=179_999` millidegrees
-    /// and a far plane strictly beyond a positive near plane. Only the pose and
-    /// the viewport, which arrive from outside the scene, can fail here.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ViewError`] when the pose does not determine a view basis or
-    /// the viewport has no area.
+    /// Borrows the same CPU camera used by rasterization and screen queries.
+    #[must_use]
+    pub const fn resolved_view(&self) -> &ResolvedView {
+        &self.resolved
+    }
+
+    /// Adapts an already resolved CPU camera without recomputing matrices.
+    #[must_use]
+    pub const fn from_resolved(resolved: ResolvedView, eye_millimeters: [i64; 3]) -> Self {
+        Self {
+            resolved,
+            eye_millimeters,
+        }
+    }
+
+    /// Resolves an orthographic lens using the same canonical Z-up view basis.
+    pub fn orthographic(
+        pose: CameraPose,
+        lens: OrthographicLens,
+        viewport: Viewport,
+    ) -> Result<Self, ViewError> {
+        Self::orthographic_with_up(pose, lens, SCENE_UP.to_array(), viewport)
+    }
+
+    /// Resolves an orthographic camera with an explicit canonical up direction for roll.
+    pub fn orthographic_with_up(
+        pose: CameraPose,
+        lens: OrthographicLens,
+        up: [f32; 3],
+        viewport: Viewport,
+    ) -> Result<Self, ViewError> {
+        let lens = CameraLens::Orthographic {
+            half_height_meters: f64::from(lens.vertical_half_extent_meters),
+            near_meters: f64::from(lens.near_meters),
+            far_meters: f64::from(lens.far_meters),
+        };
+        resolve_scene(pose, lens, Vec3::from_array(up), viewport)
+    }
+
+    /// Resolves an integral governed camera through the shared CPU contract.
     pub fn new(
         pose: CameraPose,
         camera: SceneCamera,
         viewport: Viewport,
     ) -> Result<Self, ViewError> {
-        if viewport.width == 0 || viewport.height == 0 {
-            return Err(ViewError::DegenerateViewport {
-                width: viewport.width,
-                height: viewport.height,
-            });
-        }
-        let eye = meters(pose.eye_millimeters);
-        let target = meters(pose.target_millimeters);
-        let forward = target - eye;
-        if forward.length_squared() == 0.0 {
-            return Err(ViewError::DegenerateDirection);
-        }
-        let forward = forward.normalize();
-        // The right vector is what carries the Z-up world into a Y-up view. It
-        // collapses exactly when the view direction is parallel to world up.
-        let right = forward.cross(SCENE_UP);
-        if right.length_squared() == 0.0 {
-            return Err(ViewError::DegenerateRoll);
-        }
-
-        // `look_at_rh` builds a right-handed view whose space is +X right,
-        // +Y up, -Z forward. Handing it a Z-up world and a Z up axis performs
-        // the Z-up-to-Y-up change here and nowhere else, as a rotation rather
-        // than an axis swap, so handedness — and therefore face winding — is
-        // preserved.
-        let view = look_at_mat4(eye, target, SCENE_UP);
-
-        let aspect = f64_to_f32(f64::from(viewport.width) / f64::from(viewport.height));
-        let projection = perspective(
-            radians(camera.vertical_fov_millidegrees),
-            aspect,
-            meters_scalar(camera.near_plane_millimeters),
-            meters_scalar(camera.far_plane_millimeters),
-        );
-        Ok(Self {
-            view,
-            projection,
-            eye_meters: eye,
-            eye_millimeters: pose.eye_millimeters,
-            viewport,
-            clip_distances_meters: [
-                meters_scalar(camera.near_plane_millimeters),
-                meters_scalar(camera.far_plane_millimeters),
-            ],
-        })
+        let lens = CameraLens::Perspective {
+            vertical_fov_radians: f64::from(radians(camera.vertical_fov_millidegrees)),
+            near_meters: f64::from(meters_scalar(camera.near_plane_millimeters)),
+            far_meters: f64::from(meters_scalar(camera.far_plane_millimeters)),
+        };
+        resolve_scene(pose, lens, SCENE_UP, viewport)
     }
 
-    /// Exact near and far distances used to construct this projection, in metres.
+    /// Exact authored eye position for CPU distance selection.
+    #[must_use]
+    pub const fn eye_millimeters(&self) -> [i64; 3] {
+        self.eye_millimeters
+    }
+
+    /// Near and far distances used to construct this projection, in metres.
     #[must_use]
     pub const fn clip_distances_meters(&self) -> [f32; 2] {
-        self.clip_distances_meters
+        self.resolved.clip_distances_meters()
     }
 
     /// Returns the viewport used to resolve this projection.
     #[must_use]
     pub const fn viewport(&self) -> Viewport {
-        self.viewport
+        let viewport = self.resolved.viewport();
+        Viewport {
+            width: viewport.width,
+            height: viewport.height,
+        }
     }
 
     /// Returns the world-to-view matrix, the sole Z-up to Y-up conversion.
     #[must_use]
     pub const fn view_matrix(&self) -> Mat4 {
-        self.view
+        self.resolved.view_matrix()
     }
 
-    /// Returns the view-to-clip matrix for reversed-none `0..=1` depth.
+    /// Returns the view-to-clip matrix for non-reversed `0..=1` depth.
     #[must_use]
     pub const fn projection_matrix(&self) -> Mat4 {
-        self.projection
+        self.resolved.projection_matrix()
     }
 
     /// Returns the combined world-to-clip matrix.
     #[must_use]
     pub fn view_projection_matrix(&self) -> Mat4 {
-        self.projection * self.view
+        self.resolved.view_projection_matrix()
     }
 
-    /// Returns the eye position in scene-space metres.
-    ///
-    /// Shading needs a view vector in the same space as the geometry, which is
-    /// still Z-up: the basis change lives only in [`Self::view_matrix`].
+    /// Returns the eye position in unchanged scene-space metres for shading.
     #[must_use]
     pub const fn eye_meters(&self) -> Vec3 {
-        self.eye_meters
+        self.resolved.eye_meters()
     }
+}
 
-    /// Returns the authored eye position for CPU distance selection.
-    #[must_use]
-    pub const fn eye_millimeters(&self) -> [i64; 3] {
-        self.eye_millimeters
+fn resolve_scene(
+    pose: CameraPose,
+    lens: CameraLens,
+    up: Vec3,
+    viewport: Viewport,
+) -> Result<SceneView, ViewError> {
+    let eye = meters(pose.eye_millimeters);
+    let target = meters(pose.target_millimeters);
+    let state = CameraState {
+        pose: worldrunner_camera::CameraPose {
+            eye_meters: eye.as_dvec3(),
+            forward: (target - eye).as_dvec3(),
+            up: up.as_dvec3(),
+        },
+        lens,
+        viewport: worldrunner_camera::Viewport {
+            width: viewport.width,
+            height: viewport.height,
+        },
+        convention: ViewConvention {
+            handedness: ViewHandedness::RightHanded,
+        },
+    };
+    resolve(&state)
+        .map(|resolved| SceneView::from_resolved(resolved, pose.eye_millimeters))
+        .map_err(scene_error)
+}
+
+fn scene_error(error: worldrunner_camera::ViewError) -> ViewError {
+    use worldrunner_camera::ViewError as Shared;
+    match error {
+        Shared::DegenerateViewport { width, height } => {
+            ViewError::DegenerateViewport { width, height }
+        }
+        Shared::DegenerateDirection => ViewError::DegenerateDirection,
+        Shared::DegenerateRoll | Shared::NonFinitePose => ViewError::DegenerateRoll,
+        Shared::InvalidOrthographicLens => ViewError::InvalidOrthographicLens,
+        other => ViewError::Resolution(other),
     }
 }
 

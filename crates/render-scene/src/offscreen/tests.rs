@@ -3,6 +3,7 @@ use super::*;
 mod adapters;
 mod concurrent;
 mod delayed_gpu;
+mod dynamic;
 mod wait;
 
 fn viewport(width: u32, height: u32) -> Viewport {

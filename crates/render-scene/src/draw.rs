@@ -192,6 +192,15 @@ pub struct SceneGpu {
     retained: Retained,
 }
 
+fn mesh_selections(scene: &RenderScene) -> Vec<MeshSelection> {
+    scene
+        .geometry()
+        .meshes()
+        .iter()
+        .map(MeshSelection::new)
+        .collect()
+}
+
 impl SceneGpu {
     /// Uploads every texture, material, mesh and placement of one scene.
     ///
@@ -225,12 +234,7 @@ impl SceneGpu {
             },
         );
         let meshes = upload_meshes(device, queue, scene)?;
-        let mesh_selection = scene
-            .geometry()
-            .meshes()
-            .iter()
-            .map(MeshSelection::new)
-            .collect();
+        let mesh_selection = mesh_selections(scene);
         let terrain = upload_terrain(device, queue, scene, pipelines.terrain_layout(), &sampler)?;
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();

@@ -20,6 +20,7 @@ pub enum PassSlot {
     TransparentWater,
     TransparentAlpha,
     AfterWaterDepth,
+    ReflectionDepthPyramid(u32),
     ReflectionTrace,
     ReflectionMip(u32),
     ScreenSpaceAfterTransparent,

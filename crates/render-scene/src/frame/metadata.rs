@@ -13,6 +13,8 @@ pub enum MetadataMeaning {
     MaterialF0Roughness,
     /// Replaceable environment-specular contribution in linear HDR radiance.
     EnvironmentSpecularLinear,
+    /// Split-sum factor times camera transmittance, for exposed incident radiance.
+    ReflectionFactorLinear,
     /// Nearest positive view depth in metres, for conservative traversal.
     ConservativeDepthMeters,
     /// Averaged depth and normal, for occlusion filtering, never conservative traversal.
@@ -119,12 +121,35 @@ impl FrameProduct {
             TextureFormat::Rgba16Float,
         )
     }
+    pub fn forward_specular(samples: u32) -> Self {
+        Self::new(
+            ResourceRef::new("forward environment specular"),
+            MetadataMeaning::EnvironmentSpecularLinear,
+            TextureFormat::Rgba16Float,
+            MetadataSampling::PerSample(samples),
+        )
+        .expect("forward specular contract")
+    }
+    pub fn reflection_factor(samples: u32) -> Self {
+        Self::new(
+            ResourceRef::new("forward reflection factor"),
+            MetadataMeaning::ReflectionFactorLinear,
+            TextureFormat::Rgba16Float,
+            MetadataSampling::PerSample(samples),
+        )
+        .expect("forward factor contract")
+    }
     pub fn linear_depth(level: u32) -> Self {
         let mut product = Self::stock(
             "linear camera depth",
             MetadataMeaning::ConservativeDepthMeters,
             TextureFormat::R32Float,
         );
+        product.resource.version = level;
+        product
+    }
+    pub fn reflection_depth(level: u32, source_samples: u32) -> Self {
+        let mut product = Self::resolved_depth("final reflection depth", source_samples);
         product.resource.version = level;
         product
     }
@@ -199,6 +224,7 @@ fn validate_representation(
         MetadataMeaning::ViewNormalCoverage
         | MetadataMeaning::MaterialF0Roughness
         | MetadataMeaning::EnvironmentSpecularLinear
+        | MetadataMeaning::ReflectionFactorLinear
         | MetadataMeaning::AverageDepthNormalMeters => TextureFormat::Rgba16Float,
     };
     if !matches!(sampling.samples(), 1 | 4) || format != expected {

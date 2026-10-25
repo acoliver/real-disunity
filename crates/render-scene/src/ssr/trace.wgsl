@@ -10,6 +10,8 @@ struct ReflectionCamera {
 @group(0) @binding(5) var depth_2: texture_2d<f32>;
 @group(0) @binding(6) var depth_4: texture_2d<f32>;
 @group(0) @binding(7) var depth_6: texture_2d<f32>;
+@group(0) @binding(8) var receiver_depth: texture_2d<f32>;
+@group(0) @binding(9) var opaque_forward_depth: texture_2d<f32>;
 fn depth_at(level: u32, uv: vec2<f32>) -> f32 {
     let scale = exp2(min(f32(level*2u), ceil(log2(max(camera.size.x,camera.size.y)))));
     let coordinate = vec2<i32>(uv*camera.size.xy/scale);
@@ -24,21 +26,32 @@ fn edge_fade(uv: vec2<f32>) -> f32 {
     let edge = min(min(uv.x, uv.y), min(1.0-uv.x, 1.0-uv.y));
     return smoothstep(0.0, 0.08, edge);
 }
+fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: vec2<i32>) -> bool {
+    // Water-covered targets cannot supply the immutable opaque radiance.
+    // WATER_TARGET_OWNERSHIP
+    let opaque_depth = textureLoad(opaque_forward_depth, pixel, 0).r;
+    return surface == opaque_depth;
+}
 @fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     // Trace targets can be half resolution, with ceil-divided odd extents.
     let trace_size = ceil(camera.size.xy / camera.size.z);
-    let origin_uv = pixel.xy / trace_size;
+    let sample = u32(pixel.x / trace_size.x);
+    var origin_uv = vec2<f32>(pixel.x - f32(sample) * trace_size.x, pixel.y) / trace_size;
     let p = clamp(vec2<i32>(origin_uv * camera.size.xy), vec2<i32>(0), vec2<i32>(camera.size.xy)-vec2<i32>(1));
-    let packed = textureLoad(normals, p, 0);
-    let roughness = textureLoad(materials, p, 0).a;
+    var packed = textureLoad(normals, p, 0);
+    var roughness = textureLoad(materials, p, 0).a;
+    var origin_depth = textureLoad(receiver_depth, p, 0).r;
+    // WATER_RECEIVER_SELECTION
     if packed.a == 0.0 || roughness >= camera.settings.z || camera.settings.w != 0.0 { return vec4<f32>(0.0); }
-    let ray = camera.inverse_projection * vec4<f32>(origin_uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
-    let centre = ray.xyz * (-textureLoad(depth_0, p, 0).r / ray.z);
+    let centre = reflection_position(origin_uv, origin_depth);
     let normal = normalize(packed.xyz);
-    let direction = reflect(normalize(centre), normal);
+    let direction = reflect(reflection_incident(origin_uv), normal);
     let start = centre + normal * 0.005;
     var distance = 100.0;
-    if direction.z > 0.0 { distance = min(distance, max(0.0, (-0.01-start.z)/direction.z)); }
+    let near_point = camera.inverse_projection * vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let near_z = near_point.z / near_point.w;
+    if start.z > near_z { return vec4<f32>(0.0); }
+    if direction.z > 0.0 { distance = min(distance, max(0.0, (near_z-start.z)/direction.z)); }
     let end = start + direction * distance;
     let a = camera.projection * vec4<f32>(start, 1.0);
     let b = camera.projection * vec4<f32>(end, 1.0);
@@ -73,6 +86,9 @@ fn edge_fade(uv: vec2<f32>) -> f32 {
             let hit_uv = sample_uv;
             let hit_pixel = vec2<i32>(hit_uv * camera.size.xy);
             let hit_normal = textureLoad(normals, hit_pixel, 0);
+            let metadata_depth = textureLoad(receiver_depth, hit_pixel, 0).r;
+            // Opaque radiance and normals cannot describe a different final surface.
+            if !matches_receiver_depth(surface_depth, metadata_depth, hit_normal.xyz, hit_pixel) { break; }
             if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { break; }
             let hit = textureLoad(opaque, hit_pixel, 0).rgb;
             let budget_fade = smoothstep(0.0, 0.2, 1.0-f32(step)/camera.settings.x);

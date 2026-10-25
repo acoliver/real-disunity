@@ -315,14 +315,30 @@ pub(super) fn receiver_pipelines(
         || SHADOWED_TERRAIN_WGSL.to_owned(),
         |_| crate::ssao::ambient_source(SHADOWED_TERRAIN_WGSL),
     );
-    let pipelines = ScenePipelines::with_screen_space(
+    let reflection = scene
+        .effects()
+        .and_then(|effects| effects.ssr())
+        .is_some_and(|ssr| ssr.enabled);
+    let source = if reflection {
+        crate::ssr::forward::source(&crate::ssao::ambient_source(SHADOWED_WGSL), false)
+    } else {
+        source
+    };
+    let terrain_source = if reflection {
+        crate::ssr::forward::source(&crate::ssao::ambient_source(SHADOWED_TERRAIN_WGSL), true)
+    } else {
+        terrain_source
+    };
+    let reflection_layout = reflection.then(|| crate::ssr::forward::layout(context.device()));
+    let mut pipelines = ScenePipelines::with_screen_space(
         context.device(),
         (format, samples),
         &source,
         &terrain_source,
         Some(shadow_layout),
-        screen_layout.as_ref(),
+        reflection_layout.as_ref().or(screen_layout.as_ref()),
     );
 
+    pipelines.ssao = screen_layout.is_some();
     Ok(pipelines)
 }

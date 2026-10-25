@@ -1,9 +1,21 @@
+#[path = "final_depth_tests.rs"]
+mod final_depth_tests;
+#[path = "fix_tests.rs"]
+mod fix_tests;
 #[path = "msaa.rs"]
 mod msaa;
 #[path = "numerical.rs"]
 mod numerical;
+#[path = "origin_tests.rs"]
+mod origin_tests;
+#[path = "ownership_tests.rs"]
+mod ownership_tests;
 #[path = "regressions.rs"]
 mod regressions;
+#[path = "replacement_tests.rs"]
+mod replacement_tests;
+#[path = "water_tests.rs"]
+mod water_tests;
 use super::*;
 use crate::device::GpuContext;
 use worldrunner_render_post::{Readback, ToneMap};
@@ -143,7 +155,7 @@ fn gpu_reflection_resources_compile_and_half_resolution_includes_odd_edges() {
         .unwrap();
         assert_eq!(
             [ssr.reflections[0].width(), ssr.reflections[0].height()],
-            size.map(|side| side.div_ceil(2))
+            [size[0].div_ceil(2) * 4, size[1].div_ceil(2)]
         );
         assert!(screen.geometry.reflection.is_some());
     }
@@ -151,6 +163,7 @@ fn gpu_reflection_resources_compile_and_half_resolution_includes_odd_edges() {
 
 fn upload_hierarchy(context: &GpuContext, ssr: &Ssr, size: [u32; 2], depths: Vec<f32>) {
     let mut level_size = size;
+    upload(context, &ssr.source_depth, &depths);
     let mut reduced = depths;
     let mut hierarchy_values = vec![reduced.clone()];
     while level_size != [1, 1] {
@@ -183,6 +196,7 @@ fn draw_trace(
 ) -> Vec<u8> {
     let output = AttachmentView::new(ResourceRef::new("scene color"), opaque).unwrap();
     let mut feature = ReflectionFeature {
+        water: None,
         ssr,
         frame,
         color: output,
@@ -203,6 +217,14 @@ fn draw_trace(
         ssr.hierarchy
             .iter()
             .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
+    );
+    inputs.push(
+        ssr.source_depth
+            .create_view(&wgpu::TextureViewDescriptor::default()),
+    );
+    inputs.push(
+        ssr.source_depth
+            .create_view(&wgpu::TextureViewDescriptor::default()),
     );
     let group = gpu::group(context.device(), &ssr.trace, Some(&ssr.uniform), &inputs);
     worldrunner_render_post::fullscreen_pass(

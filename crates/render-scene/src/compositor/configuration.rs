@@ -157,6 +157,9 @@ impl RendererConfiguration {
         }
         if let Some(ssr) = &self.ssr {
             crate::ssr::validate_settings(ssr)?;
+            if ssr.enabled {
+                crate::ssr::validate_extent(self.frame, ssr, &context.device().limits())?;
+            }
         }
         for water in &self.water {
             crate::water::validate_settings(water)?;
@@ -237,6 +240,27 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
     let [w, h] = settings.frame.size;
     if let Some(ssr) = settings.ssr.filter(|ssr| ssr.enabled) {
         set.texture(
+            "empty reflection environment",
+            [1, 1, 6],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            1,
+        );
+        set.texture(
+            "empty reflection LUT",
+            [1, 1, 1],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            1,
+        );
+        set.texture(
+            "forward reflection products",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, settings.frame.samples],
+            2,
+        );
+        set.texture(
             "reflection material",
             [w, h, 1],
             wgpu::TextureFormat::Rgba16Float,
@@ -258,7 +282,7 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
         for _ in 0..6 {
             set.texture(
                 "reflection radiance",
-                [size[0], size[1], 1],
+                [size[0] * settings.frame.samples, size[1], 1],
                 wgpu::TextureFormat::Rgba16Float,
                 [1, 1],
                 1,
@@ -268,8 +292,25 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
             }
             size = size.map(|side| side.div_ceil(2));
         }
+        reflection_depth_allocations([w, h], set);
         set.buffer("reflection uniform", 160, 1);
         set.buffer("reflection staging", 160, 3);
+    }
+}
+
+fn reflection_depth_allocations(mut size: [u32; 2], set: &mut AllocationSet) {
+    for _ in 0..7 {
+        set.texture(
+            "final reflection depth",
+            [size[0], size[1], 1],
+            wgpu::TextureFormat::R32Float,
+            [1, 1],
+            1,
+        );
+        if size.contains(&0) || size == [1, 1] {
+            break;
+        }
+        size = size.map(|side| side.div_ceil(2));
     }
 }
 
@@ -416,10 +457,15 @@ impl ConfiguredFrameRenderer {
         let delta = previous.frame_delta;
         let history_bank = self.history.as_ref();
         let water = previous.water.clone();
+        let reflection = previous
+            .ssr
+            .as_ref()
+            .map(|ssr| (ssr.environment.clone(), ssr.composition));
         self.state
             .replace(&context.device().limits(), allocations, || {
                 let mut next = allocate(context, &settings, history_bank, Some(timing))?;
                 retain_water_inputs(&mut next, water.as_ref());
+                retain_reflection_inputs(context.device(), &mut next, reflection.as_ref());
                 next.post_time = post_time;
                 next.exposure_reset = reset;
                 next.elapsed_seconds = elapsed;
@@ -541,5 +587,28 @@ fn retain_water_inputs(next: &mut FrameRenderer, previous: Option<&crate::water:
         if next.settings == previous.settings {
             next.surface_inputs.clone_from(&previous.surface_inputs);
         }
+    }
+}
+
+fn retain_reflection_inputs(
+    device: &wgpu::Device,
+    next: &mut FrameRenderer,
+    previous: Option<&(
+        [wgpu::TextureView; 2],
+        worldrunner_render_lighting::reflections::Composition,
+    )>,
+) {
+    if let (Some(ssr), Some(screen), Some((environment, composition))) =
+        (&mut next.ssr, &mut next.ssao, previous)
+    {
+        ssr.environment.clone_from(environment);
+        ssr.composition = *composition;
+        let group = crate::ssr::forward::group(device, screen, environment);
+        screen
+            .geometry
+            .forward
+            .as_mut()
+            .expect("forward reflection metadata")
+            .1 = group;
     }
 }

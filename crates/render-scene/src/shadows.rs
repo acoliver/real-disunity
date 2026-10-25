@@ -583,7 +583,14 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
         } else {
             if let Some(screen) = &self.screen {
-                pass.set_bind_group(3, &screen.ambient, &[]);
+                pass.set_bind_group(
+                    3,
+                    screen
+                        .forward
+                        .as_ref()
+                        .map_or(&screen.ambient, |(_, group)| group),
+                    &[],
+                );
             }
             pass.set_bind_group(2, self.shadow_group, &[]);
             self.publications.record(self.gpu.draw_shadowed(

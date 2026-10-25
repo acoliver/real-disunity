@@ -72,6 +72,7 @@ pub(super) fn resolve(
     let (output, target) = targets(context, ssr, samples);
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut feature = ReflectionFeature {
+        water: None,
         ssr,
         frame: frame(),
         color: AttachmentView::new(ResourceRef::new("scene color"), &target).unwrap(),
@@ -95,6 +96,11 @@ pub(super) fn resolve(
         ssr.reflections
             .iter()
             .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
+    );
+    inputs.extend(
+        ssr.forward_products
+            .each_ref()
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
     );
     let group = gpu::group(context.device(), &ssr.resolve, Some(&ssr.uniform), &inputs);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());

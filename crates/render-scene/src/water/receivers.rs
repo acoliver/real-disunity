@@ -39,7 +39,7 @@ pub(super) fn views(textures: &[wgpu::Texture; 3]) -> Result<Vec<AttachmentView>
         .collect()
 }
 
-pub(super) fn empty_environment(device: &wgpu::Device) -> [wgpu::TextureView; 2] {
+pub(crate) fn empty_environment(device: &wgpu::Device) -> [wgpu::TextureView; 2] {
     [6, 1].map(|layers| {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("unlit water environment"),

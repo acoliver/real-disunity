@@ -7,7 +7,7 @@ struct ReflectionCamera {
 @group(0) @binding(2) var normals: texture_2d<f32>;
 @group(0) @binding(3) var opaque_depth: texture_2d<f32>;
 @group(0) @binding(4) var final_depth: texture_2d<f32>;
-@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
+@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>, @builtin(sample_index) sample: u32) -> @location(0) vec4<f32> {
     let p = vec2<i32>(pixel.xy);
     let surface = textureLoad(material, p, 0);
     let normal = textureLoad(normals, p, 0);
@@ -19,16 +19,22 @@ struct ReflectionCamera {
     let lod = clamp(surface.a / camera.settings.z, 0.0, 1.0) * f32(REFLECTION_LEVELS);
     let lower = u32(floor(lod));
     let upper = min(lower+1u, REFLECTION_LEVELSu);
-    let reflection = mix(reflected(lower, uv), reflected(upper, uv), fract(lod));
+    let reflection = mix(reflected(lower, uv, sample), reflected(upper, uv, sample), fract(lod));
     if reflection.a <= 0.0 { discard; }
-    let ray = camera.inverse_projection * vec4<f32>(uv*vec2<f32>(2.0,-2.0)+vec2<f32>(-1.0,1.0), 0.0, 1.0);
-    let cosine = clamp(dot(normalize(normal.xyz), -normalize(ray.xyz)), 0.0, 1.0);
+    let cosine = clamp(dot(normalize(normal.xyz), -reflection_incident(uv)), 0.0, 1.0);
     let fresnel = surface.rgb + (vec3<f32>(1.0)-surface.rgb)*pow(1.0-cosine,5.0);
     let roughness_fade = 1.0 - smoothstep(camera.settings.z * 0.75, camera.settings.z, surface.a);
-    return vec4<f32>(reflection.rgb * fresnel * roughness_fade, 0.0);
+    var factor = reflection_factor(fresnel, vec2<f32>(1.0, 0.0));
+    var environment = vec3<f32>(0.0);
+    let replacement = camera.size.w != 0.0;
+    if replacement {
+        factor = textureLoad(forward_factor, p, FORWARD_SAMPLE).rgb;
+        environment = textureLoad(forward_environment, p, FORWARD_SAMPLE).rgb;
+    }
+    return vec4<f32>(reflection_delta(reflection.rgb, reflection.a, factor, environment, replacement) * roughness_fade, 0.0);
 }
 fn reflection_coordinates(uv: vec2<f32>, size: vec2<i32>, footprint: f32) -> mat3x2<f32> {
-    let base = vec2<f32>(textureDimensions(reflection_0));
+    let base = vec2<f32>(textureDimensions(reflection_0)) / vec2<f32>(SAMPLE_LANES, 1);
     let position = uv * base;
     let lower = clamp(floor(position / footprint - 0.5), vec2<f32>(0.0), vec2<f32>(size - 1));
     let upper = min(lower + 1.0, vec2<f32>(size - 1));

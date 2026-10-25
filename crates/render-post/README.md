@@ -60,17 +60,21 @@ capture delta overrides even invalid host timing. Clearing an installed policy
 with empty settings removes all effects and restores the fixed schedule.
 
 Bloom prefilters unexposed radiance with a quadratic soft knee, downsamples
-with normalized 13-tap weights, and upsamples with a normalized 3x3 tent. Each
-upsample averages its local and coarser levels, preserving constant energy
-instead of multiplying brightness by pyramid depth. Bloom adds before Reinhard.
+with a normalized nine-tap binomial kernel, and upsamples with the same
+separable 3x3 tent. Each upsample averages its local and coarser levels,
+preserving constant radiance instead of multiplying brightness by pyramid
+depth. Bloom uses Rgba16Float intermediates and adds before Reinhard.
 NaN, infinities and negative channels contribute zero to metering and bloom.
 Positive infinity remains a white highlight in direct output but does not
 spread into neighbours or enter histogram arithmetic. Finite half-float
 highlights remain eligible. This extends the existing output special-value
 policy to finite statistical/filter inputs without changing direct tone mapping.
 
-FXAA uses perceptual luma from display-linear RGB, span 8, reduction 1/8,
-minimum reduction 1/128, and contrast thresholds 1/32 absolute and 1/8 relative.
-Its scene weight blends the directional result with the original pixel.
-An Rgba32Float LDR intermediate preserves flat-region precision. Only the
-final sRGB attachment applies output transfer; alpha is preserved.
+FXAA uses the display-linear luminance proxy `(R + 2G + B) / 4` and skips
+contrast at or below the greater of 1/64 and 10% of the neighborhood maximum.
+A Sobel-derived tangent selects bilinear samples 1.5 texels away along its
+major axis, with center weight 1/2 and side weights 1/4. Its scene weight
+blends that result with the original pixel. An Rgba32Float LDR intermediate
+preserves flat-region precision. Only the final sRGB attachment applies output
+transfer; alpha is preserved. See the [post-filter derivation](../../docs/post-filter-design.md)
+for the bloom and FXAA equations.

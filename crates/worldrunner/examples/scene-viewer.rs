@@ -1,5 +1,8 @@
 use worldrunner::scene::{
-    gpu::{CameraPose, shadows::DirectionalShadowSettings},
+    gpu::{
+        CameraPose,
+        shadows::{CascadeRefreshPolicy, DirectionalShadowSettings},
+    },
     plan::{
         MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode,
         SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
@@ -212,8 +215,7 @@ fn scene(with_terrain: bool) -> RenderScene {
     .unwrap()
 }
 
-fn refresh_policy() -> worldrunner::gpu::shadows::CascadeRefreshPolicy {
-    use worldrunner::gpu::shadows::CascadeRefreshPolicy;
+fn refresh_policy() -> CascadeRefreshPolicy {
     if std::env::args().any(|arg| arg == "--staggered-shadows") {
         CascadeRefreshPolicy {
             intervals: [1, 2, 4, 4],

@@ -11,6 +11,8 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SceneValidationError {
+    #[error("unsupported scene input: {part}")]
+    UnsupportedInput { part: &'static str },
     #[error("invalid HDR post quantity: {part}")]
     PostSettings { part: &'static str },
     /// Mesh ceilings must be present per level, positive and strictly increasing.

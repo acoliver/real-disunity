@@ -188,7 +188,7 @@ impl FrameRenderer {
     pub(crate) fn install_water(
         &mut self,
         device: &wgpu::Device,
-        settings: worldrunner_render_plan::SceneWaterPlane,
+        settings: worldrunner_render_plan::SceneWaterBody,
     ) -> Result<(), FrameError> {
         let water = crate::water::Water::new(device, self.targets().config(), settings)?;
         *self.snapshot_ready.borrow_mut() = Default::default();
@@ -285,7 +285,7 @@ impl FrameRenderer {
     }
     pub(crate) fn validate_water(
         &self,
-        requested: Option<&worldrunner_render_plan::SceneWaterPlane>,
+        requested: Option<&worldrunner_render_plan::SceneWaterBody>,
     ) -> Result<(), FrameError> {
         if self.water.as_ref().map(|water| &water.settings) != requested {
             return Err(FrameError::WaterSettings(

@@ -68,8 +68,8 @@ pub use scene::{
     SceneParts, ScenePlacement, ScenePostStage, SceneResources, SceneRotation, SceneShadowCascades,
     SceneSky, SceneSsao, SceneSsr, SceneSun, SceneTerrain, SceneTerrainAppearance,
     SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform, SceneValidationError,
-    SceneVertex, SceneWaterPlane, TerrainLodPolicy, TexelFormat, TextureColorSpace,
-    TextureEncoding, TextureHandle,
+    SceneVertex, SceneWaterBody, TerrainLodPolicy, TexelFormat, TextureColorSpace, TextureEncoding,
+    TextureHandle,
 };
 
 pub use document::{
@@ -86,3 +86,10 @@ pub use document::{
 };
 
 pub use scene::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
+
+pub use scene::{
+    SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,
+    SceneTint, SceneWind,
+};
+
+pub use scene::{SceneWaterGeometry, SceneWaterSettings};

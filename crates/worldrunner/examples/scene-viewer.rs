@@ -27,7 +27,7 @@ fn camera() -> SceneCamera {
 fn effects(terrain: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: std::env::args().any(|arg| arg == "--water").then_some(
-            worldrunner_render_plan::SceneWaterPlane {
+            worldrunner_render_plan::SceneWaterBody {
                 height_millimeters: 100,
                 east_min_millimeters: -900,
                 north_min_millimeters: -900,

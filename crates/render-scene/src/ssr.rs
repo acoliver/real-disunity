@@ -1,4 +1,5 @@
 //! Scheduled reflections add only the environment-specular lobe, currently zero in forward lighting.
+use crate::frame::metadata::FrameProduct;
 mod gpu;
 mod metadata;
 #[cfg(test)]
@@ -64,8 +65,7 @@ impl Ssr {
         screen.geometry.reflection = Some(metadata::pipelines(device, &screen.uniform, true).0);
         // All geometry pipelines use the same explicit group layout as the normal prepass.
 
-        let material =
-            crate::ssao::passes::texture(device, config.size, wgpu::TextureFormat::Rgba16Float);
+        let material = metadata::material_texture(device, config.size, screen)?;
         let levels = screen.passes.depth_levels();
         let hierarchy: Vec<_> = [0, 2, 4, 6]
             .into_iter()
@@ -148,8 +148,8 @@ impl ReflectionFeature<'_> {
         let ssr = self.ssr;
         let mut reads = vec![
             ResourceRef::new("opaque snapshot color"),
-            ResourceRef::new("prepass normals"),
-            ResourceRef::new("reflection material"),
+            FrameProduct::normals().resource(),
+            FrameProduct::material().resource(),
         ];
         for level in [0, 2, 4, 6] {
             let last = ssr
@@ -173,7 +173,7 @@ impl ReflectionFeature<'_> {
         views: &mut Vec<AttachmentView>,
     ) -> Result<(), FrameError> {
         let ssr = self.ssr;
-        let material = AttachmentView::new(ResourceRef::new("reflection material"), &ssr.material)?;
+        let material = FrameProduct::material().attachment(&ssr.material)?;
         let depth = AttachmentView::new(
             ResourceRef::new("reflection metadata depth"),
             &ssr.material_depth,
@@ -238,10 +238,10 @@ impl ReflectionFeature<'_> {
             .map(resource)
             .collect();
         feature.reads.extend([
-            ResourceRef::new("reflection material"),
-            ResourceRef::new("prepass normals"),
-            ResourceRef::new("opaque snapshot depth"),
-            ResourceRef::new("post-water depth"),
+            FrameProduct::material().resource(),
+            FrameProduct::normals().resource(),
+            FrameProduct::opaque_depth(self.color.texture().sample_count()).resource(),
+            FrameProduct::final_depth(self.color.texture().sample_count()).resource(),
         ]);
         declaration.passes.push(feature);
         Ok(declaration)
@@ -251,8 +251,10 @@ impl PreparedFeature for ReflectionFeature<'_> {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         let ssr = self.ssr;
         let snapshot = context.resource(ResourceRef::new("opaque snapshot color"))?;
-        let opaque_depth = context.resource(ResourceRef::new("opaque snapshot depth"))?;
-        let final_depth = context.resource(ResourceRef::new("post-water depth"))?;
+        let opaque_depth = context
+            .resource(FrameProduct::opaque_depth(self.color.texture().sample_count()).resource())?;
+        let final_depth = context
+            .resource(FrameProduct::final_depth(self.color.texture().sample_count()).resource())?;
         let mut trace_inputs = vec![
             snapshot.view().clone(),
             ssr.normals

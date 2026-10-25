@@ -22,7 +22,7 @@ pub struct RendererConfiguration {
     pub post: HdrPostSettings,
     pub ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
-    pub water: Option<worldrunner_render_plan::SceneWaterPlane>,
+    pub water: Option<worldrunner_render_plan::SceneWaterBody>,
     pub frame_slots: usize,
     pub timing: TimingMode,
     /// Host-owned persistent storage, staging, readbacks and CPU accumulation.

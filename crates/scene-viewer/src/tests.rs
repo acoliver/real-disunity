@@ -12,7 +12,7 @@ fn camera() -> SceneCamera {
 
 fn effects(water: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
-        water: water.then_some(SceneWaterPlane {
+        water: water.then_some(SceneWaterBody {
             height_millimeters: 0,
             color_micro: [50_000, 200_000, 250_000],
             absorption_micro: [300_000, 100_000, 50_000],

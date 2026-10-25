@@ -83,6 +83,32 @@ fn draw_depth(
     pass.draw(0..3, 0..1);
 }
 
+fn assert_snapshot_sampling(snapshots: &Snapshots, samples: u32) {
+    use crate::frame::metadata::MetadataSampling;
+    assert_eq!(
+        FrameProduct::prepass_depth().sampling(),
+        MetadataSampling::PixelCenter
+    );
+    for (product, texture) in [
+        (
+            FrameProduct::opaque_depth(snapshots.samples),
+            &snapshots.depth,
+        ),
+        (
+            FrameProduct::final_depth(snapshots.samples),
+            &snapshots.final_depth,
+        ),
+    ] {
+        assert_eq!(
+            product.sampling(),
+            MetadataSampling::ConservativeResolve(samples),
+            "forward snapshot coverage must retain its source sample count"
+        );
+        assert_eq!(product.sampling().samples(), 1);
+        product.attachment(texture).unwrap();
+    }
+}
+
 #[test]
 fn gpu_sloped_receivers_keep_reflections_at_1x_and_4x_and_water_masks_partial_coverage() {
     let context = context();
@@ -91,6 +117,7 @@ fn gpu_sloped_receivers_keep_reflections_at_1x_and_4x_and_water_masks_partial_co
         let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
         let (ssr, depth) = setup(&context, config);
         let snapshots = Snapshots::new(context.device(), config);
+        assert_snapshot_sampling(&snapshots, samples);
         let source = AttachmentView::new(ResourceRef::new("scene depth"), &depth).unwrap();
         let group = snapshots.source_group(context.device(), &source, true);
         let slope = depth_pipeline(&context, samples, false, u32::MAX);

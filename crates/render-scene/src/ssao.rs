@@ -116,8 +116,7 @@ impl Ssao {
             }],
         });
         let pipelines = prepass_pipelines(device, &layout);
-        let normals = passes::texture(device, size, wgpu::TextureFormat::Rgba16Float);
-        let depth = passes::texture(device, size, wgpu::TextureFormat::Depth32Float);
+        let (normals, depth) = passes::source_textures(device, size)?;
         let passes = passes::ScreenPasses::new(device, size, &uniform, &depth, &normals);
         let ambient = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("filtered ambient occlusion"),

@@ -23,6 +23,8 @@ pub struct InstanceHandle {
 /// An instance edit was rejected without changing the scene.
 #[derive(Debug, thiserror::Error)]
 pub enum InstanceError {
+    #[error("stock instance shading does not support authored tint")]
+    UnsupportedTint,
     /// The handle belongs to another resident scene.
     #[error("instance handle belongs to another scene")]
     ForeignHandle,
@@ -106,6 +108,9 @@ impl Instances {
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
         object.transform().validate()?;
+        if object.tint() != worldrunner_render_plan::SceneTint::WHITE {
+            return Err(InstanceError::UnsupportedTint);
+        }
         let mesh = usize::try_from(object.mesh().raw()).expect("u32 table index fits usize");
         let material =
             usize::try_from(object.material().raw()).expect("u32 table index fits usize");

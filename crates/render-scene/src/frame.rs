@@ -24,6 +24,8 @@
 //! shadows where ambient light is the only contribution and is therefore most
 //! visible.
 
+pub mod metadata;
+
 use crate::view::SceneView;
 use glam::{Mat3, Mat4, Vec3};
 use thiserror::Error;
@@ -200,6 +202,16 @@ pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), Frame
         || effects.grading().saturation_micro != 1_000_000
     {
         return Err(FrameError::UnsupportedEffect("color grading"));
+    }
+    if let Some(settings) = effects.water_settings() {
+        if settings.refraction_millimeters.is_some() {
+            return Err(FrameError::UnsupportedEffect("water refraction bound"));
+        }
+        if settings != worldrunner_render_plan::SceneWaterSettings::STOCK {
+            return Err(FrameError::UnsupportedEffect(
+                "water geometry and sampled surface inputs",
+            ));
+        }
     }
     if let Some(settings) = effects.ssao() {
         crate::ssao::validate_settings(settings)

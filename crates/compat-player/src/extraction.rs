@@ -145,7 +145,13 @@ fn camera_view(
         viewport,
     )
     .map_err(|error| error.to_string())?;
-    Ok((view, array(&fields["background"])?))
+    Ok((view, screen_clear(array(&fields["background"])?)))
+}
+
+/// A camera that renders to the screen clears an opaque backbuffer: Unity ignores the
+/// background alpha there, so a transparent background shows its RGB on the display.
+fn screen_clear([r, g, b, _]: [f64; 4]) -> [f64; 4] {
+    [r, g, b, 1.0]
 }
 
 impl AssetTable {
@@ -344,6 +350,22 @@ fn decode_jpeg(path: &Path) -> Result<([u32; 2], Vec<u8>), String> {
         pixels::expand_l8(&pixels, expected)?
     };
     Ok((size, rgba))
+}
+
+#[cfg(test)]
+mod camera_tests {
+    #[test]
+    fn screen_camera_background_clears_opaque_and_keeps_its_colour() {
+        let bits = |colour: [f64; 4]| colour.map(f64::to_bits);
+        assert_eq!(
+            bits(super::screen_clear([0.0; 4])),
+            bits([0.0, 0.0, 0.0, 1.0])
+        );
+        assert_eq!(
+            bits(super::screen_clear([0.2, 0.4, 0.6, 0.5])),
+            bits([0.2, 0.4, 0.6, 1.0])
+        );
+    }
 }
 
 #[cfg(test)]

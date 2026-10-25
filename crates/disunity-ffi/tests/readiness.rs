@@ -4,6 +4,8 @@ mod boundaries;
 mod cleanup;
 #[path = "readiness/failures.rs"]
 mod failures;
+#[path = "support/response_table.rs"]
+mod response_table;
 mod support;
 use serde_json::{Value, json};
 use support::World;
@@ -97,6 +99,7 @@ fn dynamic(w: &World, host: &Value, frame: u64, action: impl FnOnce(&Value)) {
 
 #[test]
 fn lifecycle_once_flags_attempts_and_fresh_peer_eligibility() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, a) = script(&w, &c, json!(["Awake", "OnEnable", "Start", "Update"]));
@@ -129,6 +132,7 @@ fn lifecycle_once_flags_attempts_and_fresh_peer_eligibility() {
 }
 #[test]
 fn exact_context_linear_entry_and_idempotent_completion() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     script(&w, &c, json!(["Awake"]));
@@ -183,6 +187,7 @@ fn exact_context_linear_entry_and_idempotent_completion() {
 }
 #[test]
 fn paused_native_scaled_and_unscaled_waits() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));
@@ -217,6 +222,7 @@ fn paused_native_scaled_and_unscaled_waits() {
 }
 #[test]
 fn cancellation_disposal_and_join_cycles_are_native() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (o, s) = script(&w, &c, json!([]));
@@ -238,6 +244,7 @@ fn cancellation_disposal_and_join_cycles_are_native() {
 }
 #[test]
 fn primitive_requests_reject_replay_nested_controls_and_unknown_fields() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));
@@ -255,6 +262,7 @@ fn primitive_requests_reject_replay_nested_controls_and_unknown_fields() {
 
 #[test]
 fn stale_selection_is_revoked_before_enter_and_peer_mutation_is_preserved() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (o, _) = script(&w, &c, json!(["Awake"]));
@@ -276,6 +284,7 @@ fn stale_selection_is_revoked_before_enter_and_peer_mutation_is_preserved() {
 }
 #[test]
 fn disposal_precedes_peer_updates_and_destroy_callback() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (o, s) = script(&w, &c, json!(["OnDisable", "OnDestroy"]));
@@ -310,6 +319,7 @@ fn disposal_precedes_peer_updates_and_destroy_callback() {
 }
 #[test]
 fn joins_require_next_dynamic_frame_and_disposal_and_reject_cycles() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));
@@ -368,6 +378,7 @@ fn joins_require_next_dynamic_frame_and_disposal_and_reject_cycles() {
 }
 #[test]
 fn caller_cannot_supply_internal_wait_deadline_or_frame() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));

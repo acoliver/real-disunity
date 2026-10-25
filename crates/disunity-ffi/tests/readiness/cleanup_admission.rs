@@ -38,6 +38,7 @@ fn reject_at_byte_limit(w: &World, fill: &[u8], request: Value) {
 
 #[test]
 fn cleanup_full_generation_byte_quota_rolls_back_all_ticket_transitions() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     ok(
         &w,

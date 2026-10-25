@@ -25,6 +25,7 @@ fn suspended(w: &World, c: &Value, a: &Value) {
 
 #[test]
 fn depth_32_rejects_without_mutation_and_unwinds_lifo() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -60,6 +61,7 @@ fn depth_32_rejects_without_mutation_and_unwinds_lifo() {
 
 #[test]
 fn current_and_dispose_starts_reject_before_registration_or_revision_changes() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -91,6 +93,7 @@ fn current_and_dispose_starts_reject_before_registration_or_revision_changes() {
 
 #[test]
 fn active_ancestor_and_self_join_reject_then_valid_suspend_restores_parent() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -123,6 +126,7 @@ fn active_ancestor_and_self_join_reject_then_valid_suspend_restores_parent() {
 
 #[test]
 fn cancelled_child_selection_cannot_escape_to_peer_and_disposes_once() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -145,6 +149,7 @@ fn cancelled_child_selection_cannot_escape_to_peer_and_disposes_once() {
 
 #[test]
 fn response_admission_rolls_back_nested_registration_and_restores_parent() {
+    let _table = crate::response_table::exclusive();
     use worldrunner_disunity_ffi::response::{MAX_RESPONSES, request_bytes, response_free};
 
     let (w, c, s) = setup();
@@ -176,6 +181,7 @@ fn response_admission_rolls_back_nested_registration_and_restores_parent() {
 }
 #[test]
 fn conservative_child_reservation_preserves_4096_root_claim_limit() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -199,6 +205,7 @@ fn conservative_child_reservation_preserves_4096_root_claim_limit() {
 
 #[test]
 fn selection_requires_fresh_world_and_keeps_old_profile_single_ticket() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     ok(&w, json!({"op":"object.create"}));
     rejected(

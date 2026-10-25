@@ -1,5 +1,6 @@
 #[test]
 fn nonclearing_events_are_available_before_contacts_claim_without_draining() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     ok(&w, json!({"op":"physics.configure","gravity":[0,0]}));
@@ -55,6 +56,7 @@ fn tail(w: &World, host: &Value, frame: u64, tick: u64) {
 }
 #[test]
 fn multiple_fixed_ticks_keep_edges_until_solver_and_do_not_repeat_them() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     ok(
@@ -106,6 +108,7 @@ fn multiple_fixed_ticks_keep_edges_until_solver_and_do_not_repeat_them() {
 }
 #[test]
 fn native_schedule_rejects_phase_skips_stale_frames_invalid_time_and_unclaimed_finish() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     reject_unchanged(
@@ -160,6 +163,7 @@ fn native_schedule_rejects_phase_skips_stale_frames_invalid_time_and_unclaimed_f
 }
 #[test]
 fn normal_callback_transactions_are_atomic_and_strict_controls_cannot_be_staged() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let context = phase(&w, &host, "Initialize", 0, 0);
@@ -190,6 +194,7 @@ fn normal_callback_transactions_are_atomic_and_strict_controls_cannot_be_staged(
 }
 #[test]
 fn request_capacity_failure_does_not_consume_a_phase_claim() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let context = phase(&w, &host, "Initialize", 0, 0);
@@ -218,6 +223,7 @@ fn request_capacity_failure_does_not_consume_a_phase_claim() {
 }
 #[test]
 fn copied_contexts_fail_across_strict_worlds_and_retired_generations() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let other = World::new();
     let host = open(&w);
@@ -248,6 +254,7 @@ fn copied_contexts_fail_across_strict_worlds_and_retired_generations() {
 
 #[test]
 fn cancelled_contact_scope_restores_delta_projection() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     run(&w, &host, "Initialize", 0, 0);
@@ -272,6 +279,7 @@ fn cancelled_contact_scope_restores_delta_projection() {
 
 #[test]
 fn strict_session_rejects_an_already_open_legacy_lifetime_without_clock_change() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     ok(&w, json!({"op":"lifetime.begin"}));
     reject_unchanged(
@@ -284,6 +292,7 @@ fn strict_session_rejects_an_already_open_legacy_lifetime_without_clock_change()
 
 #[test]
 fn strict_callback_response_overflow_rolls_back_gameplay_rng_and_lease_state() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let context = phase(&w, &host, "Initialize", 0, 0);
@@ -319,6 +328,7 @@ fn strict_callback_response_overflow_rolls_back_gameplay_rng_and_lease_state() {
 
 #[test]
 fn fixed_callback_body_command_precedes_actual_solver_contacts() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     ok(&w, json!({"op":"physics.configure","gravity":[0,0]}));
@@ -368,6 +378,7 @@ fn fixed_callback_body_command_precedes_actual_solver_contacts() {
 
 #[test]
 fn contacts_use_committed_tick_fixed_delta_until_dynamic_update_opens() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     run(&w, &host, "Initialize", 0, 0);

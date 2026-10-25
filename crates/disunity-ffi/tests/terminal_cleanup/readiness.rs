@@ -27,6 +27,7 @@ fn setup(w: &World, c: &Value, callbacks: Value) -> (Value, Value) {
 
 #[test]
 fn recovery_abandons_iterator_pipeline_and_never_retries_entered_dispose() {
+    let _table = crate::response_table::exclusive();
     for kind in ["MoveNext", "Current", "Dispose", "Suspend", "Terminal"] {
         exercise_pipeline(kind, false);
         exercise_pipeline(kind, true);
@@ -84,6 +85,7 @@ fn exercise_pipeline(kind: &str, entered: bool) {
 
 #[test]
 fn recovery_preserves_entered_lifecycle_once_flags_and_tombstones() {
+    let _table = crate::response_table::exclusive();
     for kind in ["Awake", "OnEnable", "OnDisable", "OnDestroy"] {
         let w = World::new();
         let h = open(&w);

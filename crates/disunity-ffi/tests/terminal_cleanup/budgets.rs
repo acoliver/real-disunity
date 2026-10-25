@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn terminal_readiness_budget_exhaustion_keeps_truthful_obligations_until_close() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let h = open(&w);
     let old = issue(&w, &h, "Initialize");
@@ -58,6 +59,7 @@ fn terminal_readiness_budget_exhaustion_keeps_truthful_obligations_until_close()
 
 #[test]
 fn recovery_gets_a_fresh_readiness_budget_after_exhausted_gameplay_tickets() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let h = open(&w);
     let old = issue(&w, &h, "Initialize");

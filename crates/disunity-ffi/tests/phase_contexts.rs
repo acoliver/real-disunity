@@ -1,5 +1,7 @@
 #[path = "phase_contexts/cleanup.rs"]
 mod cleanup;
+#[path = "support/response_table.rs"]
+mod response_table;
 #[path = "phase_contexts/schedule.rs"]
 mod schedule;
 mod support;
@@ -38,6 +40,7 @@ fn open(w: &World) -> Value {
 }
 #[test]
 fn desktop_exact_time_and_prescript_fixed_input_combined() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     ok(
         &w,
@@ -93,6 +96,7 @@ fn desktop_exact_time_and_prescript_fixed_input_combined() {
 }
 #[test]
 fn strict_session_claim_is_linear_and_controls_native_advance() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let context = phase(&w, &host, "Initialize", 0, 0);
@@ -113,6 +117,7 @@ fn strict_session_claim_is_linear_and_controls_native_advance() {
 
 #[test]
 fn cancelled_unclaimed_fixed_scope_restores_input_and_clock() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     ok(
@@ -147,12 +152,7 @@ fn cancelled_unclaimed_fixed_scope_restores_input_and_clock() {
     );
 }
 
-#[test]
-fn all_context_fields_and_outer_phase_are_native_assertions() {
-    let w = World::new();
-    let other = World::new();
-    let host = open(&w);
-    let context = phase(&w, &host, "Initialize", 0, 0);
+fn rejects_every_altered_context_field(w: &World, other: &World, context: &Value) {
     let before = w.snapshot();
     for (key, value) in [
         ("world", json!(other.0)),
@@ -171,6 +171,16 @@ fn all_context_fields_and_outer_phase_are_native_assertions() {
         );
         assert_eq!(w.snapshot(), before);
     }
+}
+
+#[test]
+fn all_context_fields_and_outer_phase_are_native_assertions() {
+    let _table = crate::response_table::exclusive();
+    let w = World::new();
+    let other = World::new();
+    let host = open(&w);
+    let context = phase(&w, &host, "Initialize", 0, 0);
+    rejects_every_altered_context_field(&w, &other, &context);
     let mut missing = context.clone();
     missing.as_object_mut().unwrap().remove("token");
     assert_eq!(
@@ -213,6 +223,7 @@ fn all_context_fields_and_outer_phase_are_native_assertions() {
 
 #[test]
 fn direct_legacy_advance_and_transaction_cannot_bypass_authority() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let context = phase(&w, &host, "Initialize", 0, 0);
@@ -256,6 +267,7 @@ fn direct_legacy_advance_and_transaction_cannot_bypass_authority() {
 
 #[test]
 fn strict_control_credentials_affinity_pure_reads_and_snapshot_redaction() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let context = phase(&w, &host, "Initialize", 0, 0);

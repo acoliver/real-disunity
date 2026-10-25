@@ -1,7 +1,10 @@
+#[path = "support/response_table.rs"]
+mod response_table;
 use serde_json::json;
 use worldrunner_disunity_ffi::{abi::*, request_value, response::*};
 #[test]
 fn exhausted_response_budget_rejects_before_mutating_and_recovers_after_free() {
+    let _table = crate::response_table::exclusive();
     let mut world = 0;
     assert_eq!(unsafe { disunity_world_create(&mut world) }.code, 0);
     let mut responses = Vec::new();

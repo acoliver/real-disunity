@@ -6,8 +6,18 @@ use nested_support::{config, fixture};
 use serde_json::{Value, json};
 use worldrunner_disunity_runtime::CompatibilityHost;
 
+/// A process admits one live `CompatibilityHost`, and each test here boots its own.
+static ONE_HOST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn one_host_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    ONE_HOST
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[test]
 fn actual_cdecl_nested_host_matches_before_initialize_and_drains() {
+    let _host_slot = one_host_at_a_time();
     let mut host = CompatibilityHost::boot(&config()).unwrap();
     let world = host.create_world().unwrap();
     host.select_byte_profile(world).unwrap();
@@ -41,6 +51,7 @@ fn actual_cdecl_nested_host_matches_before_initialize_and_drains() {
 
 #[test]
 fn actual_cdecl_nested_claim_budget_is_shared_and_recovery_drains() {
+    let _host_slot = one_host_at_a_time();
     let mut host = CompatibilityHost::boot(&config()).unwrap();
     let world = host.create_world().unwrap();
     host.select_byte_profile(world).unwrap();
@@ -61,6 +72,7 @@ fn actual_cdecl_nested_claim_budget_is_shared_and_recovery_drains() {
 
 #[test]
 fn actual_cdecl_nested_claim_peer_exhaustion_closes_without_root_bypass() {
+    let _host_slot = one_host_at_a_time();
     let mut host = CompatibilityHost::boot(&config()).unwrap();
     let world = host.create_world().unwrap();
     host.select_byte_profile(world).unwrap();

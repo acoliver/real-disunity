@@ -1,3 +1,5 @@
+#[path = "support/response_table.rs"]
+mod response_table;
 mod support;
 use serde_json::{Value, json};
 use support::World;
@@ -57,6 +59,7 @@ fn child(w: &World, c: &Value, s: u64) -> Value {
 
 #[test]
 fn child_suspension_restores_entered_parent_before_peer_selection() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -92,6 +95,7 @@ fn child_suspension_restores_entered_parent_before_peer_selection() {
 
 #[test]
 fn nested_movenext_restores_parent_current_pipeline_after_child_disposal() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -121,6 +125,7 @@ fn nested_movenext_restores_parent_current_pipeline_after_child_disposal() {
 
 #[test]
 fn nested_profile_descriptor_is_additive_and_native_only() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let before = w.snapshot();
     let d = ok(&w, json!({"op":"describe"}));

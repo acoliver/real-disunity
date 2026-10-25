@@ -56,6 +56,7 @@ fn claim(w: &World, host: &Value, phase: &str, frame: u64) -> Value {
 
 #[test]
 fn clone_lifecycle_is_synchronous_inside_start_and_restores_parent() {
+    let _table = crate::response_table::exclusive();
     let (w, c, parent) = entered_start();
     let s = add(&w, &c, &object(&w), json!(["Awake", "OnEnable", "Start"]));
     attempt(&w, &c, &s, "Awake", "ok");
@@ -72,6 +73,7 @@ fn clone_lifecycle_is_synchronous_inside_start_and_restores_parent() {
 
 #[test]
 fn hierarchy_awakes_precede_enables_in_native_hierarchy_order() {
+    let _table = crate::response_table::exclusive();
     let (w, c, parent) = entered_start();
     let leaf = object(&w);
     let root = object(&w);
@@ -109,6 +111,7 @@ fn hierarchy_awakes_precede_enables_in_native_hierarchy_order() {
 
 #[test]
 fn failed_clone_awake_is_consumed_and_parent_continues() {
+    let _table = crate::response_table::exclusive();
     let (w, c, parent) = entered_start();
     let a = add(&w, &c, &object(&w), json!(["Awake", "OnEnable"]));
     let b = add(&w, &c, &object(&w), json!(["Awake", "OnEnable"]));
@@ -124,6 +127,7 @@ fn failed_clone_awake_is_consumed_and_parent_continues() {
 
 #[test]
 fn unrelated_ready_routine_is_not_selected_by_reentrant_next() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let queued = child(&w, &c, s);
     assert!(queued.get("immediate").is_none());
@@ -140,6 +144,7 @@ fn unrelated_ready_routine_is_not_selected_by_reentrant_next() {
 
 #[test]
 fn lifecycle_depth_budget_rejects_registration_and_restores_every_ancestor() {
+    let _table = crate::response_table::exclusive();
     let (w, c, _) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -176,6 +181,7 @@ fn lifecycle_depth_budget_rejects_registration_and_restores_every_ancestor() {
 
 #[test]
 fn lifecycle_claim_budget_rejects_registration_without_losing_parent() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let parent = next(&w, &c);
     enter(&w, &c, &parent);
@@ -215,6 +221,7 @@ fn lifecycle_claim_budget_rejects_registration_without_losing_parent() {
 
 #[test]
 fn cloned_scripts_inside_movenext_do_not_run_a_queued_peer() {
+    let _table = crate::response_table::exclusive();
     let (w, c, s) = setup();
     let awake = next(&w, &c);
     enter(&w, &c, &awake);
@@ -240,6 +247,7 @@ fn cloned_scripts_inside_movenext_do_not_run_a_queued_peer() {
 
 #[test]
 fn invalidated_child_entry_restores_parent_and_missing_awake_is_native_consumed() {
+    let _table = crate::response_table::exclusive();
     let (w, c, parent) = entered_start();
     let owner = object(&w);
     let s = add(&w, &c, &owner, json!(["OnEnable"]));
@@ -261,6 +269,7 @@ fn invalidated_child_entry_restores_parent_and_missing_awake_is_native_consumed(
 
 #[test]
 fn disabled_clone_awakes_without_enabling_and_inactive_clone_stays_deferred() {
+    let _table = crate::response_table::exclusive();
     let (w, c, parent) = entered_start();
     let active = object(&w);
     let disabled = ok(
@@ -302,6 +311,7 @@ fn disabled_clone_awakes_without_enabling_and_inactive_clone_stays_deferred() {
 
 #[test]
 fn lifecycle_and_coroutine_children_share_the_same_parent_restore_stack() {
+    let _table = crate::response_table::exclusive();
     let (w, c, parent) = entered_start();
     let clone = add(&w, &c, &object(&w), json!(["Awake", "OnEnable"]));
     let awake = next(&w, &c);

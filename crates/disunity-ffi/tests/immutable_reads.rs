@@ -1,3 +1,5 @@
+#[path = "support/response_table.rs"]
+mod response_table;
 use serde_json::{Value, json};
 use worldrunner_disunity_ffi::{abi::*, request_value, response::*};
 
@@ -27,6 +29,7 @@ impl Drop for World {
 
 #[test]
 fn both_query_transports_preserve_state_and_reject_invalid_handles_and_fields() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let object = w.value(json!({"op":"object.create","name":"query"}))["data"]["handle"]
         .as_u64()
@@ -70,6 +73,7 @@ fn both_query_transports_preserve_state_and_reject_invalid_handles_and_fields() 
 
 #[test]
 fn query_failures_do_not_advance_random_or_drain_contact_events() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     for _ in 0..2 {
         let object = w.value(json!({"op":"object.create"}))["data"]["handle"]
@@ -99,6 +103,7 @@ fn query_failures_do_not_advance_random_or_drain_contact_events() {
 
 #[test]
 fn oversized_read_response_and_mutation_response_preserve_world_state() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let object = w.value(json!({"op":"object.create","name":"original"}))["data"]["handle"]
         .as_u64()
@@ -126,6 +131,7 @@ fn oversized_read_response_and_mutation_response_preserve_world_state() {
 
 #[test]
 fn repeated_invalid_reads_release_responses_and_preserve_full_response_capacity() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let other = World::new();
     let foreign = other.value(json!({"op":"object.create"}))["data"]["handle"]

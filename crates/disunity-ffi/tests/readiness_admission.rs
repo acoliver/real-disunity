@@ -1,3 +1,5 @@
+#[path = "support/response_table.rs"]
+mod response_table;
 mod support;
 use serde_json::{Value, json};
 use support::World;
@@ -8,6 +10,7 @@ fn ok(w: &World, r: Value) -> Value {
 }
 #[test]
 fn response_admission_cannot_consume_callback_entry() {
+    let _table = crate::response_table::exclusive();
     use worldrunner_disunity_ffi::response::{MAX_RESPONSES, request_bytes, response_free};
     let w = World::new();
     let h = ok(

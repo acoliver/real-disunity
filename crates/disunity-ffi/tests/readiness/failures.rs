@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn cleanup_cannot_close_with_undisposed_native_routines() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));
@@ -21,6 +22,7 @@ fn cleanup_cannot_close_with_undisposed_native_routines() {
 }
 #[test]
 fn rational_deadline_overflow_is_atomic_and_suspend_remains_available() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));
@@ -50,6 +52,7 @@ fn rational_deadline_overflow_is_atomic_and_suspend_remains_available() {
 }
 #[test]
 fn cancelled_entered_iterator_finishes_attempt_then_disposes_once() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));
@@ -80,6 +83,7 @@ fn cancelled_entered_iterator_finishes_attempt_then_disposes_once() {
 }
 #[test]
 fn routine_cancellation_latches_an_owner_inactivation_before_reactivation() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (o, s) = script(&w, &c, json!([]));

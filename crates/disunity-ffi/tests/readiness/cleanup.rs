@@ -15,6 +15,7 @@ fn setup(w: &World) -> (Value, Value, Vec<u64>) {
 
 #[test]
 fn cleanup_mutation_before_peer_preserves_failed_writes_and_once_only_attempts() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c, components) = setup(&w);
     let t = next(&w, &c);
@@ -57,6 +58,7 @@ fn cleanup_mutation_before_peer_preserves_failed_writes_and_once_only_attempts()
 
 #[test]
 fn cleanup_unknown_binding_and_wrong_context_leave_current_ticket_available() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c, components) = setup(&w);
     let t = next(&w, &c);
@@ -117,6 +119,7 @@ fn reject_at_handle_limit(w: &World, request: Value) {
 
 #[test]
 fn cleanup_response_admission_rolls_back_selection_entry_completion_and_close() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c, _) = setup(&w);
     reject_at_handle_limit(&w, json!({"op":"readiness.next","context":c}));

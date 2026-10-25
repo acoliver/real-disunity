@@ -17,6 +17,7 @@ fn claim_cleanup(w: &World, host: &Value, frame: u64, tick: u64) -> Value {
 
 #[test]
 fn cleanup_from_idle_grants_writes_once_then_closes_without_advancing_time() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let object = ok(&w, json!({"op":"object.create","name":"cleanup target"}))["handle"].clone();
@@ -59,6 +60,7 @@ fn cleanup_from_idle_grants_writes_once_then_closes_without_advancing_time() {
 
 #[test]
 fn cleanup_can_dispose_preinitialize_setup_without_initializing() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let context = claim_cleanup(&w, &host, 0, 0);
@@ -75,6 +77,7 @@ fn cleanup_can_dispose_preinitialize_setup_without_initializing() {
 
 #[test]
 fn cancelling_cleanup_restores_origin_and_revokes_context() {
+    let _table = crate::response_table::exclusive();
     for initialized in [false, true] {
         let w = World::new();
         let host = open(&w);
@@ -101,6 +104,7 @@ fn cancelling_cleanup_restores_origin_and_revokes_context() {
 
 #[test]
 fn cleanup_rejects_live_roots_and_active_frames_without_effects() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     let request = json!({"op":"phase.open","host":host,"phase":"Cleanup","frame":0,"fixed_tick":0});
@@ -132,6 +136,7 @@ fn cleanup_rejects_live_roots_and_active_frames_without_effects() {
 
 #[test]
 fn cleanup_uses_committed_frame_and_tick_after_real_fixed_work() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let host = open(&w);
     run(&w, &host, "Initialize", 0, 0);
@@ -172,6 +177,7 @@ fn cleanup_uses_committed_frame_and_tick_after_real_fixed_work() {
 
 #[test]
 fn cleanup_requires_authentic_identity_and_cannot_be_transactional_or_replayed() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let other = World::new();
     let host = open(&w);

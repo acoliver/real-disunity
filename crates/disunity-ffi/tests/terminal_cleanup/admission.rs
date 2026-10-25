@@ -3,6 +3,7 @@ use worldrunner_disunity_ffi::{request_value, response::*};
 
 #[test]
 fn terminal_authentication_linear_admission_and_permanent_close() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let other = World::new();
     let h = open(&w);
@@ -50,6 +51,7 @@ fn terminal_authentication_linear_admission_and_permanent_close() {
 
 #[test]
 fn terminal_rejects_claimed_cleanup_but_takes_over_unclaimed_cleanup() {
+    let _table = crate::response_table::exclusive();
     for claimed in [false, true] {
         let w = World::new();
         let h = open(&w);
@@ -77,6 +79,7 @@ fn terminal_rejects_claimed_cleanup_but_takes_over_unclaimed_cleanup() {
 
 #[test]
 fn terminal_only_writes_and_transactions_cannot_reopen_gameplay() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let h = open(&w);
     let o = ok(&w, json!({"op":"object.create"}))["handle"].clone();
@@ -135,6 +138,7 @@ fn terminal_response_admission_is_atomic_at_handle_and_byte_limits() {
     );
     for r in held.drain(..) {
         response_free(r).unwrap();
+    let _table = crate::response_table::exclusive();
     }
     let get = serde_json::to_vec(&json!({"op":"object.get","object":o})).unwrap();
     while let Ok(r) = request_bytes(w.0, &get) {
@@ -172,6 +176,7 @@ fn terminal_transition_stales_current_snapshot_and_preserves_historical_bytes() 
     );
     assert_eq!(
         ok(
+    let _table = crate::response_table::exclusive();
             &w,
             json!({"op":"snapshot.validate","host":h,"stamp":capture["stamp"],"require_current":false})
         )["current"],

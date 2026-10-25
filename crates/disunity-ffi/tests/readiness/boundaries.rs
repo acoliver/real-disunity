@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn fixed_waits_use_admitted_cutoff_and_end_frame_has_its_own_lane() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, s) = script(&w, &c, json!([]));
@@ -61,6 +62,7 @@ fn fixed_waits_use_admitted_cutoff_and_end_frame_has_its_own_lane() {
 }
 #[test]
 fn script_generations_kind_registration_and_cross_world_routines_are_checked() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (o, s) = script(&w, &c, json!([]));
@@ -107,6 +109,7 @@ fn script_generations_kind_registration_and_cross_world_routines_are_checked() {
 }
 #[test]
 fn disabled_component_retains_routine_but_ancestor_inactivity_cancels_it() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     let (o, s) = script(&w, &c, json!([]));
@@ -138,6 +141,7 @@ fn disabled_component_retains_routine_but_ancestor_inactivity_cancels_it() {
 }
 #[test]
 fn native_readiness_owner_affinity_and_private_context_redaction() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (_, c) = open(&w);
     script(&w, &c, json!(["Awake"]));
@@ -159,6 +163,7 @@ fn native_readiness_owner_affinity_and_private_context_redaction() {
 }
 #[test]
 fn callback_created_script_start_and_missing_methods_are_once_only() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, s) = script(&w, &c, json!(["Start", "Update"]));
@@ -191,6 +196,7 @@ fn callback_created_script_start_and_missing_methods_are_once_only() {
 }
 #[test]
 fn bounded_claim_failure_preserves_native_flags_rng_time_and_ticket() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let (host, c) = open(&w);
     let (_, s) = script(&w, &c, json!(["OnEnable", "OnDisable"]));
@@ -226,6 +232,7 @@ fn bounded_claim_failure_preserves_native_flags_rng_time_and_ticket() {
 }
 #[test]
 fn native_only_capability_is_independent_and_bounded() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let d = ok(&w, json!({"op":"describe"}));
     let caps = d["capabilities"].as_array().unwrap();

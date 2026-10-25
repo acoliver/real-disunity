@@ -4,6 +4,8 @@ mod admission;
 mod budgets;
 #[path = "terminal_cleanup/readiness.rs"]
 mod readiness;
+#[path = "support/response_table.rs"]
+mod response_table;
 mod support;
 use serde_json::{Value, json};
 use support::World;
@@ -108,6 +110,7 @@ fn at_stage(w: &World, h: &Value, stage: &str) -> Option<Value> {
 
 #[test]
 fn terminal_freezes_actual_projections_at_every_open_stage() {
+    let _table = crate::response_table::exclusive();
     for stage in [
         "preinit",
         "Initialize",
@@ -160,6 +163,7 @@ fn terminal_freezes_actual_projections_at_every_open_stage() {
 
 #[test]
 fn terminal_preserves_effects_rng_body_intent_and_flushes_deferred_lifetime() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let h = open(&w);
     let o = ok(&w, json!({"op":"object.create","name":"accepted"}))["handle"].clone();
@@ -201,6 +205,7 @@ fn terminal_preserves_effects_rng_body_intent_and_flushes_deferred_lifetime() {
 
 #[test]
 fn terminal_descriptor_is_explicitly_native_only() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let d = ok(&w, json!({"op":"describe"}));
     assert!(

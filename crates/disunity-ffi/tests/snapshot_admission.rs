@@ -1,3 +1,5 @@
+#[path = "support/response_table.rs"]
+mod response_table;
 mod support;
 use serde_json::{Value, json};
 use support::World;
@@ -10,6 +12,7 @@ fn ok(w: &World, request: Value) -> Value {
 }
 #[test]
 fn handle_and_live_byte_admission_cannot_issue_a_receipt() {
+    let _table = crate::response_table::exclusive();
     let w = World::new();
     let h = ok(
         &w,

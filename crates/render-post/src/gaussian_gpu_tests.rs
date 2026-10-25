@@ -260,3 +260,30 @@ fn gpu_gaussian_kernel_without_bloom_schedules_only_output() {
     assert_eq!(c.configured[0].stages.len(), 1);
     assert!(c.configured[0].resources.textures.is_empty());
 }
+
+#[test]
+fn gpu_disabled_gaussian_kernel_preserves_other_effects_output() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let render = |bloom_kernel| {
+        let policy = HdrPostSettings {
+            bloom: None,
+            bloom_kernel,
+            fxaa: Some(0.0),
+            ..HdrPostSettings::default()
+        };
+        let c = chain(&device, policy, [9, 7]);
+        let out = step(
+            &device,
+            &queue,
+            &c,
+            0,
+            "let v=select(1.0,bitcast<f32>(0x7fc00000u),u32(p.x)==4u && u32(p.y)==3u);return vec4<f32>(v,v,v,1.0);",
+            false,
+        );
+        pixels(&device, &queue, &out)
+    };
+    assert_eq!(
+        render(BloomKernel::Tent),
+        render(settings(44, 6).bloom_kernel)
+    );
+}

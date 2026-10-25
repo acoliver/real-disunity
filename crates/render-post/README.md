@@ -142,11 +142,11 @@ The first sample can include driver warm-up. These timings have no performance
 threshold and exclude scene rendering. Linux CI selects Mesa lavapipe with
 `VK_ICD_FILENAMES` and `WGPU_BACKEND=vulkan`.
 
-### Separable Gaussian pyramid
+## Separable Gaussian bloom
 
 Set `HdrPostSettings::bloom_kernel` to `BloomKernel::SeparablePyramid` to
 select Gaussian bloom. `BloomKernel::Tent` remains the default and retains the
-existing 13-tap/tent schedule. `bloom: None` schedules no bloom passes for either
+existing binomial reduction and tent reconstruction. `bloom: None` schedules no bloom passes for either
 kernel. The shared `Bloom` parameters control threshold, quadratic knee, level
 count (1 through 8), and final intensity. The Gaussian option supplies eight
 `GaussianLevel` entries; only the requested prefix is read. Each entry specifies

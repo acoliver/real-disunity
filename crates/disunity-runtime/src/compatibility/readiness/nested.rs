@@ -39,10 +39,6 @@ pub(in crate::compatibility) fn validate_selection(
     world: u64,
     fixture: &Value,
 ) -> Result<(), HostError> {
-    super::super::callback_batches::validate_selection(host, world, fixture)?;
-    if super::super::callback_batches::selected(host, world)? {
-        return Ok(());
-    }
     let status = host.request(world, &json!({"op":"session.status"}))?;
     let selected = status["profile"] == PROFILE;
     let required = fixture["requirements"]["scheduler_profile"] == PROFILE;

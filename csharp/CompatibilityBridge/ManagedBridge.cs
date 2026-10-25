@@ -56,19 +56,13 @@ public static unsafe partial class ManagedBridge
             _session = terminal ? new ScriptSession(root, pending => { _session = pending; _cleanupPending = true; }) : new ScriptSession(root);
             if (strict) _session.InitializeClaimed();
             else _session.Initialize();
-            _contextualThread = _session.Contextual ? Environment.CurrentManagedThreadId : 0;
             _loaded = true;
             _cleanupPending = false;
             return 0;
         }
         catch (Exception primary)
         {
-            if (_session?.RequiresContextualCleanup == true)
-            {
-                _cleanupPending = true;
-                _contextualThread = Environment.CurrentManagedThreadId;
-            }
-            else if (!terminal)
+            if (!terminal)
             {
                 try { _session?.Dispose(); }
                 catch (Exception cleanup) { throw new AggregateException(primary, cleanup); }
@@ -82,7 +76,6 @@ public static unsafe partial class ManagedBridge
     [UnmanagedCallersOnly(EntryPoint = "DispatchPhase", CallConvs = [typeof(CallConvCdecl)])]
     public static int DispatchPhase(byte* phase, nuint length) => Guard(() =>
     {
-        if (TryContextualDispatch(phase, length)) return 0;
         using var json = JsonDocument.Parse(ReadUtf8(phase, length));
         var root = json.RootElement;
         if (!root.TryGetProperty("phase", out var phaseNode) || phaseNode.ValueKind != JsonValueKind.String)
@@ -118,7 +111,6 @@ public static unsafe partial class ManagedBridge
     public static int InvokeContact(byte* contact, nuint length) => Guard(() =>
     {
         EnsureLoaded();
-        if (_session!.Contextual) throw new NotSupportedException("contextual Cleanup does not support contacts");
         using var json = JsonDocument.Parse(ReadUtf8(contact, length));
         if (_session!.Strict)
         {
@@ -193,12 +185,6 @@ public static unsafe partial class ManagedBridge
     [UnmanagedCallersOnly(EntryPoint = "Unload", CallConvs = [typeof(CallConvCdecl)])]
     public static int Unload() => Guard(() =>
     {
-        if (_session is { Contextual: true })
-        {
-            _session.FinalizeContextual();
-            NativeWorld.Detach(); ByteTransportProfile.Active = false; _loaded = false; _cleanupPending = false; _contextualThread = 0;
-            return 0;
-        }
         if (_session is { Strict: true, ScriptCount: > 0 } && NativePhaseScope.Phase is null)
             throw new InvalidOperationException("strict unload requires a native claimed cleanup phase");
         try { _session?.Dispose(); }

@@ -9,7 +9,6 @@ pub(crate) use schedule::phases as supported_phases;
 pub(crate) use schedule::{Phase, Stage};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-pub(crate) const BATCH_PROFILE: &str = "native_contextual_lifecycle_batch_v1";
 pub(crate) const PROFILE: &str = "native_phase_context_v1";
 pub(crate) const MAX_CLAIMS: u32 = 4096;
 
@@ -173,9 +172,3 @@ pub(crate) fn snapshot_idle(w: &DisunityWorld) -> Result<(), String> {
 pub(crate) use terminal::{begin_cleanup, is_terminal};
 
 pub(crate) use terminal::CleanupReason;
-
-pub(crate) fn batch_profile(w: &DisunityWorld) -> bool {
-    w.strict
-        .as_ref()
-        .is_some_and(|a| a.profile == BATCH_PROFILE)
-}

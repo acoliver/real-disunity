@@ -1,5 +1,7 @@
 #[path = "readiness/boundaries.rs"]
 mod boundaries;
+#[path = "readiness/cleanup.rs"]
+mod cleanup;
 #[path = "readiness/failures.rs"]
 mod failures;
 mod support;

@@ -15,8 +15,7 @@ internal static class HostIdleMutationProfile
                 throw BridgeProtocol.Invalid("host Idle rename requires one " + field);
         if (requirements.GetProperty("host_mutation_profile").GetString() != Name
             || requirements.GetProperty("execution_profile").GetString() != PhaseContexts.Profile
-            || requirements.TryGetProperty("scheduler_profile", out _)
-            || requirements.TryGetProperty("callback_profile", out _))
+            || requirements.TryGetProperty("scheduler_profile", out _))
             throw BridgeProtocol.Invalid("host Idle rename requires exact profile and managed scheduling");
         if (!native.GetProperty("capabilities").EnumerateArray().Any(value => value.GetString() == Name))
             throw BridgeProtocol.Invalid("native host Idle rename provider is unavailable");

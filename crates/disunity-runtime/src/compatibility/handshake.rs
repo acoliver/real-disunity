@@ -147,14 +147,7 @@ impl Negotiation {
                     super::idle_mutation::validate(&self.native, &self.bridge, required)?;
                 }
                 "scheduler_profile" => {
-                    if value == super::callback_batches::PROFILE {
-                        super::callback_batches::validate(&self.native, &self.bridge, required)?;
-                    } else {
-                        super::readiness::validate(&self.native, &self.bridge, required)?;
-                    }
-                }
-                "callback_profile" => {
-                    super::callback_batches::validate(&self.native, &self.bridge, required)?;
+                    super::readiness::validate(&self.native, &self.bridge, required)?;
                 }
                 "native_capabilities" => capabilities(value, &self.native)?,
                 "bridge_capabilities" => capabilities(value, &self.bridge)?,
@@ -215,26 +208,10 @@ mod tests {
     }
 
     #[test]
-    fn contextual_requirements_do_not_authorize_an_older_provider() {
-        let negotiation = negotiation();
-        let requirements = json!({
-            "execution_profile": "native_phase_context_v1",
-            "scheduler_profile": "native_contextual_lifecycle_batch_v1",
-            "callback_profile": "contextual_lifecycle_batch_v1"
-        });
-        assert!(
-            negotiation
-                .manifest(&json!({"world": 1, "requirements": requirements}))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn incomplete_callback_selection_and_unknown_requirements_reject() {
+    fn unknown_profiles_and_requirements_reject() {
         let negotiation = negotiation();
         for requirements in [
-            json!({"callback_profile": "contextual_lifecycle_batch_v1"}),
-            json!({"scheduler_profile": "native_contextual_lifecycle_batch_v1"}),
+            json!({"scheduler_profile": "unknown"}),
             json!({"unrecognized_requirement": true}),
         ] {
             assert!(

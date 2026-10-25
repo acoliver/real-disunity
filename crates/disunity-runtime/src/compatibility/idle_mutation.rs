@@ -24,7 +24,6 @@ pub(super) fn validate(native: &Value, bridge: &Value, required: &Value) -> Resu
     if required["host_mutation_profile"] != PROFILE
         || required["execution_profile"] != super::phase::PROFILE
         || required.get("scheduler_profile").is_some()
-        || required.get("callback_profile").is_some()
     {
         return Err(invalid());
     }

@@ -16,7 +16,7 @@ pub(crate) fn open(
     if w.destruction.is_active()
         || !matches!(
             profile,
-            PROFILE | crate::readiness::NESTED_PROFILE | super::BATCH_PROFILE | super::IDLE_PROFILE
+            PROFILE | crate::readiness::NESTED_PROFILE | super::IDLE_PROFILE
         )
         || (profile != PROFILE && w.content_revision != 1)
         || w.strict.is_some()
@@ -32,8 +32,6 @@ pub(crate) fn open(
         world,
         profile: if profile == super::IDLE_PROFILE {
             super::IDLE_PROFILE
-        } else if profile == super::BATCH_PROFILE {
-            super::BATCH_PROFILE
         } else if profile == crate::readiness::NESTED_PROFILE {
             crate::readiness::NESTED_PROFILE
         } else {
@@ -52,16 +50,11 @@ pub(crate) fn open(
         terminal: None,
     };
     let result = json!({"session":a.session,"host_key":a.host_key,"profile":a.profile,
-        "supported_phases":if profile == super::BATCH_PROFILE {
-            vec![Phase::Initialize, Phase::Cleanup]
-        } else { super::schedule::phases().to_vec() }});
+        "supported_phases":super::schedule::phases()});
     w.strict = Some(a);
     Ok(result)
 }
 pub(crate) fn begin(w: &mut DisunityWorld, host: &Host, dt: Ratio) -> Result<Value, String> {
-    if super::batch_profile(w) {
-        return Err("frame advancement unsupported by Cleanup batch profile".into());
-    }
     let a = auth(w, host)?;
     a.idle_lease()?;
     if a.stage != Stage::Idle {

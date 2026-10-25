@@ -19,7 +19,6 @@ fn explicit_selection_is_immutable_and_effective_query_is_readonly() {
         OUTSTANDING
     );
     assert_eq!(selected["data"]["managed_integration"], false);
-    assert_eq!(selected["data"]["callback_batch_attestation"], false);
     assert_eq!(world.call(json!({"op":"snapshot"})), before);
     assert_eq!(world.select()["ok"], false);
     assert_eq!(

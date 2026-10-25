@@ -1,4 +1,3 @@
-pub(crate) mod batches;
 mod callbacks;
 mod nested;
 pub(crate) const NESTED_PROFILE: &str = "native_readiness_nested_start_v1";
@@ -25,8 +24,6 @@ pub(crate) struct NativeReadinessState {
     ticket: Option<tickets::Ticket>,
     children: Vec<nested::Scope>,
     completed: Option<(u64, Outcome)>,
-    batch: Option<batches::Pending>,
-    batch_issues: usize,
 }
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) enum Callback {
@@ -85,7 +82,6 @@ impl ReadinessRequest {
         strict::authorize(w, world, context)?;
         let phase = context.phase();
         let root = context.sequence();
-        profile_guard(w, &self, phase)?;
         reset_root(w, root);
         match self {
             Self::Register { .. } if strict::is_terminal(w) => {
@@ -95,23 +91,12 @@ impl ReadinessRequest {
                 component,
                 callbacks,
                 ..
-            } => {
-                let result = callbacks::register(w, component, callbacks)?;
-                Ok(if strict::batch_profile(w) {
-                    batches::binding(component)
-                } else {
-                    result
-                })
-            }
+            } => callbacks::register(w, component, callbacks),
             Self::Next { .. } => tickets::next(w, phase),
             Self::Enter { ticket, .. } => tickets::enter(w, phase, ticket),
             Self::Complete {
                 ticket, outcome, ..
-            } => {
-                let value = tickets::complete(w, ticket, outcome)?;
-                batches::complete(w, ticket);
-                Ok(value)
-            }
+            } => tickets::complete(w, ticket, outcome),
             Self::Start { component, .. } => routines::start(w, component, phase),
             Self::Suspend { routine, wait, .. } => waits::suspend(w, routine, wait, phase),
             Self::Cancel { routine, .. } => routines::cancel(w, routine),
@@ -132,8 +117,7 @@ impl ReadinessRequest {
     }
 }
 pub(crate) fn require_drained(w: &DisunityWorld, phase: Phase) -> Result<(), String> {
-    if w.readiness.batch.is_some()
-        || w.readiness.ticket.is_some()
+    if w.readiness.ticket.is_some()
         || !w.readiness.children.is_empty()
         || w.readiness.routines.values().any(|r| r.state.is_inflight())
     {
@@ -186,8 +170,6 @@ fn empty() -> Value {
 }
 
 pub(crate) fn begin_cleanup(w: &mut DisunityWorld, root: u64) -> u32 {
-    w.readiness.batch = None;
-    w.readiness.batch_issues = 0;
     let unknown = tickets::abandon(w);
     routines::refresh(w, Phase::Cleanup);
     w.readiness.root = root;
@@ -210,48 +192,5 @@ fn reset_root(w: &mut DisunityWorld, root: u64) {
         w.readiness.root = root;
         w.readiness.claims = 0;
         w.readiness.completed = None;
-        w.readiness.batch_issues = 0;
     }
-}
-fn profile_guard(w: &DisunityWorld, r: &ReadinessRequest, phase: Phase) -> Result<(), String> {
-    if !strict::batch_profile(w) {
-        return Ok(());
-    }
-    match r {
-        ReadinessRequest::Register { callbacks, .. } => {
-            if phase != Phase::Initialize
-                || callbacks.iter().any(|cb| {
-                    !matches!(
-                        cb,
-                        Callback::Awake
-                            | Callback::OnEnable
-                            | Callback::OnDisable
-                            | Callback::OnDestroy
-                    )
-                })
-            {
-                return Err(
-                    "Cleanup batch profile only registers Initialize lifecycle metadata".into(),
-                );
-            }
-        }
-        ReadinessRequest::Start { .. }
-        | ReadinessRequest::Suspend { .. }
-        | ReadinessRequest::Cancel { .. }
-        | ReadinessRequest::Release { .. } => {
-            return Err("routines unsupported by Cleanup batch profile".into());
-        }
-        ReadinessRequest::Next { .. } | ReadinessRequest::Enter { .. }
-            if phase == Phase::Cleanup =>
-        {
-            return Err("Cleanup requires callbacks batch entry".into());
-        }
-        ReadinessRequest::Complete {
-            ticket, outcome, ..
-        } if phase == Phase::Cleanup => {
-            batches::completion_allowed(w, *ticket, *outcome)?;
-        }
-        _ => {}
-    }
-    Ok(())
 }

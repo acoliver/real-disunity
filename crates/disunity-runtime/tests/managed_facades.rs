@@ -55,10 +55,6 @@ fn run(arguments: &[&str]) -> String {
 #[test]
 fn managed_profile_codec_and_fault_suites_use_current_artifacts() {
     for suite in [
-        "--contextual-metadata-only",
-        "--contextual-bounded-codec-only",
-        "--contextual-codec-only",
-        "--contextual-cleanup-only",
         "--nested-movenext-only",
         "--nested-authored-breakout",
         "--nested-original-breakout",
@@ -87,5 +83,4 @@ fn managed_profile_codec_and_fault_suites_use_current_artifacts() {
         );
     }
     assert!(run(&["--nested-scenario", "0", "3"]).contains("PASS"));
-    assert!(run(&["--contextual-cleanup-only", "--mutation"]).contains("PASS"));
 }

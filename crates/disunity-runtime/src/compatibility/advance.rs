@@ -77,7 +77,6 @@ impl CompatibilityHost {
                 "strict advance requires the loaded explicit session".into(),
             ));
         }
-        self.reject_unsupported_contextual(world)?;
         let admitted =
             self.control(world, json!({"op":"frame.open","dt":{"num":num,"den":den}}))?;
         let stamp = match self.advance_admitted(world, &admitted, report) {

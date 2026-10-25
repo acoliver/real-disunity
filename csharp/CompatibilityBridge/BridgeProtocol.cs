@@ -6,7 +6,7 @@ internal static class BridgeProtocol
 {
     internal const int RequestLimit = 1 << 20;
     internal const int ResponseLimit = 16 << 20;
-    private static readonly string[] Capabilities = ["describe_bridge", "fixture_manifest_v1", "cdecl_utf8", "private_callbacks", "public_observation", "native_phase_context_v1", "strict_contact_envelope_native_json_v1", NativeReadinessProfile.Name, TerminalCleanupProfile.Managed, ByteTransportProfile.Consumer, NestedStartProfile.Consumer, ContextualCleanupProfile.Consumer, HostIdleMutationProfile.Consumer];
+    private static readonly string[] Capabilities = ["describe_bridge", "fixture_manifest_v1", "cdecl_utf8", "private_callbacks", "public_observation", "native_phase_context_v1", "strict_contact_envelope_native_json_v1", NativeReadinessProfile.Name, TerminalCleanupProfile.Managed, ByteTransportProfile.Consumer, NestedStartProfile.Consumer, HostIdleMutationProfile.Consumer];
     internal static byte[] Describe() => JsonSerializer.SerializeToUtf8Bytes(new
     {
         descriptor_version = 1, bridge_revision = 1,
@@ -18,7 +18,7 @@ internal static class BridgeProtocol
         transport_profiles = new[] { new { transport_profile = ByteTransportProfile.Name,
             consumer_capability = ByteTransportProfile.Consumer, max_request_bytes = RequestLimit,
             max_response_bytes = ByteTransportProfile.ReplyLimit, native_outstanding_bytes = 16 << 20,
-            outstanding_scope = "native_world_generation_owned_response_bytes", callback_batch_attestation = false } },
+            outstanding_scope = "native_world_generation_owned_response_bytes" } },
         native_scheduler = false, coroutine_readiness = "managed",
         scheduler_profiles = new[] { NativeReadinessProfile.Describe(), NestedStartProfile.Describe() }
     });
@@ -74,7 +74,6 @@ internal static class BridgeProtocol
                 case "host_mutation_profile": HostIdleMutationProfile.Validate(requirements, native); break;
                 case "transport_profile": ByteTransportProfile.ValidateRequirement(requirements, native); break;
                 case "scheduler_profile": NativeReadinessProfile.Validate(requirements, native); break;
-                case "callback_profile": ContextualCleanupProfile.Validate(requirements, native); break;
                 case "native_capabilities": RequireCapabilities(item.Value, native.GetProperty("capabilities")); break;
                 case "bridge_capabilities":
                     using (var bridge = JsonDocument.Parse(Describe())) RequireCapabilities(item.Value, bridge.RootElement.GetProperty("capabilities"));

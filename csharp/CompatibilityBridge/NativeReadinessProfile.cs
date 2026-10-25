@@ -14,8 +14,6 @@ internal static class NativeReadinessProfile
     }
     internal static void Validate(JsonElement requirements, JsonElement native)
     {
-        if (requirements.GetProperty("scheduler_profile").GetString() == ContextualCleanupProfile.Name)
-        { ContextualCleanupProfile.Validate(requirements, native); return; }
         foreach (var field in new[] { "scheduler_profile", "execution_profile" })
             if (requirements.EnumerateObject().Count(value => value.Name == field) != 1)
                 throw BridgeProtocol.Invalid("bounded readiness requires one " + field);

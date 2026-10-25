@@ -6,9 +6,6 @@ use crate::HostError;
 impl CompatibilityHost {
     pub(super) fn unload_strict(&mut self, world: u64) -> Result<(), HostError> {
         self.bridge.require_idle()?;
-        if super::callback_batches::selected(self, world)? {
-            return self.cleanup_contextual(world);
-        }
         let before = self.callback_failures(0)?.total;
         let result = if self.measured_empty()? {
             // SAFETY: an empty bridge has no user callbacks or iterator disposal to execute.

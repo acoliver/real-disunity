@@ -11,7 +11,6 @@ use serde_json::Value;
 use crate::{DisunityResult, HostClaim, HostError, ManagedHostConfig, bridge, load_ffi_image};
 
 mod advance;
-mod callback_batches;
 mod cleanup;
 mod dispatch;
 mod exact;
@@ -231,7 +230,6 @@ impl CompatibilityHost {
         self.validate_world(world)?;
         self.require_resolved_idle(world)?;
         idle_mutation::validate_selection(self, world, fixture)?;
-        callback_batches::validate_selection(self, world, fixture)?;
         self.validate_byte_manifest(world, fixture)?;
         self.worlds.insert(world);
         if self.strict.contains_key(&world) {
@@ -248,18 +246,12 @@ impl CompatibilityHost {
 
     pub fn dispatch_phase(&mut self, phase: &Value) -> Result<(), HostError> {
         self.require_loaded()?;
-        if let Some(world) = self.loaded_world {
-            self.reject_unsupported_contextual(world)?;
-        }
         self.bridge.invoke(self.bridge.phase, phase)?;
         self.ensure_no_callback_failures()
     }
 
     pub fn invoke_contact(&mut self, contact: &Value) -> Result<(), HostError> {
         self.require_loaded()?;
-        if let Some(world) = self.loaded_world {
-            self.reject_unsupported_contextual(world)?;
-        }
         self.bridge.invoke(self.bridge.contact, contact)?;
         self.ensure_no_callback_failures()
     }

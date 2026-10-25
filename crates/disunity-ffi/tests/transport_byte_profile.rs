@@ -38,10 +38,6 @@ fn advertises_byte_profile_separately_without_claiming_managed_callback_integrat
         false
     );
     assert_eq!(
-        data["transport_byte_limits_v1"]["callback_batch_attestation"],
-        false
-    );
-    assert_eq!(
         data["transport_byte_limits_v1"]["limits"]["max_request_bytes"],
         1 << 20
     );

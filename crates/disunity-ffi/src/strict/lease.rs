@@ -9,9 +9,6 @@ pub(crate) fn issue(
     identity: (u64, u64),
     token: String,
 ) -> Result<Value, String> {
-    if super::batch_profile(w) && !matches!(phase, Phase::Initialize | Phase::Cleanup) {
-        return Err("phase unsupported by Cleanup batch profile".into());
-    }
     let a = w.strict.as_ref().ok_or("strict session is not open")?;
     a.authenticate(host)?;
     a.idle_lease()?;

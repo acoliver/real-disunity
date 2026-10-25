@@ -141,18 +141,6 @@ pub(super) fn cleanup_count(w: &DisunityWorld) -> usize {
         .count()
 }
 
-pub(super) fn reservation(w: &DisunityWorld) -> Vec<(u64, Callback)> {
-    (0..5)
-        .flat_map(|lane| {
-            w.readiness.scripts.iter().filter_map(move |(c, s)| {
-                let cb = candidate(w, *c, Phase::Cleanup, lane)?;
-                (s.mask & cb.bit() != 0).then_some((*c, cb))
-            })
-        })
-        .take(LIMIT)
-        .collect()
-}
-
 pub(super) fn immediate(
     w: &mut DisunityWorld,
     phase: Phase,

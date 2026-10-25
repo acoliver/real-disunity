@@ -64,7 +64,6 @@ pub fn request_bytes(world: u64, request: &[u8]) -> Result<u64, i32> {
     if request.len() > MAX_REQUEST_BYTES {
         return Err(result_code::BUDGET);
     }
-    crate::readiness::batches::raw::preflight(request)?;
     let value = serde_json::from_slice(request).map_err(|_| result_code::INVALID_ARGUMENT)?;
     let parsed = crate::protocol::Envelope::parse(value);
     let mut responses = RESPONSES.lock().unwrap();

@@ -42,7 +42,6 @@ impl Profile {
             "max_retained_bytes":self.retained_limit(),
             "retention_response_reservation_bytes":self.reply_limit()},
             "outstanding_scope":scope,"managed_integration":false,
-            "callback_batch_attestation":false,"callback_records_limit_qualified":false,
             "target_bytes_share_legacy_pool":false})
     }
 }

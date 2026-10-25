@@ -36,10 +36,6 @@ catch (NativeWorldException exception)
 }
 NativeWorld.Detach();
 BridgeBehavior.BeforeLoad();
-if (args.Contains("--contextual-metadata-only")) { ContextualMetadataBehavior.Run(); return; }
-if (args.Contains("--contextual-bounded-codec-only")) { ContextualCleanupCodecBehavior.Run(); return; }
-if (args.Contains("--contextual-codec-only")) { ContextualCodecBehavior.Run(); return; }
-if (args.Contains("--contextual-cleanup-only")) { ContextualCleanupBehavior.Run(TestArtifacts.Native, args.Contains("--mutation")); return; }
 if (args.Contains("--nested-movenext-only")) { NestedStartBehavior.Run(TestArtifacts.Native, true); return; }
 if (args.Contains("--nested-scenario")) { NestedScenarioBehavior.Run(TestArtifacts.Native, int.Parse(args[1]), args.Length > 2 ? int.Parse(args[2]) : 1); return; }
 if (args.Contains("--nested-authored-breakout")) { NestedOriginalBehavior.Breakout(TestArtifacts.Native, TestArtifacts.Repository, true); return; }

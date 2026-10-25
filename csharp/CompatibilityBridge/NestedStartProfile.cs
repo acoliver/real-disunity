@@ -32,7 +32,6 @@ internal static class NestedStartProfile
         native_capability = Name, max_child_depth = 32, max_claims_per_root = 4096,
         claim_reservation_per_child_scope = 3, immediate_start_inside_ticket = true,
         lifecycle_eligibility = "native", wait_readiness = "native_relative_descriptors",
-        nested_stacks = false, predicates = false, start_inside_current = false, start_inside_dispose = false,
-        callback_batch_attestation = false
+        nested_stacks = false, predicates = false, start_inside_current = false, start_inside_dispose = false
     };
 }

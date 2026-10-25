@@ -19,7 +19,7 @@ internal sealed partial class NativeReadiness(
     internal void Register(MonoBehaviour script)
     {
         if (_registered.Contains(script.NativeHandle)) return;
-        var callbacks = Callbacks.Where(name => SerializedFields.FindMethod(script.GetType(), name, Type.EmptyTypes) is not null).ToArray();
+        var callbacks = Callbacks.Where(name => ScriptMessages.FindCallback(script.GetType(), name) is not null).ToArray();
         Request("register", ("component", script.NativeHandle), ("callbacks", callbacks));
         _registered.Add(script.NativeHandle);
     }

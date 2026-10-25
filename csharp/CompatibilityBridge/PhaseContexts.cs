@@ -13,11 +13,9 @@ internal static class PhaseContexts
         {
             using var status = NativeDescription.Read(path, world, status: true);
             var selectedProfile = status.RootElement.GetProperty("data").GetProperty("profile").GetString();
-            selected = selectedProfile is Profile or NestedStartProfile.Name or ContextualCleanupProfile.Name or HostIdleMutationProfile.Name;
+            selected = selectedProfile is Profile or NestedStartProfile.Name or HostIdleMutationProfile.Name;
             if ((selectedProfile == HostIdleMutationProfile.Name) != HostIdleMutationProfile.Required(manifest))
                 throw BridgeProtocol.Invalid("manifest host_mutation_profile must match native selected session");
-            if ((selectedProfile == ContextualCleanupProfile.Name) != ContextualCleanupProfile.Required(manifest))
-                throw BridgeProtocol.Invalid("manifest contextual profile must match native selected session");
             if ((selectedProfile == NestedStartProfile.Name) != NestedStartProfile.Required(manifest))
                 throw BridgeProtocol.Invalid("manifest scheduler_profile must match native selected session");
         }

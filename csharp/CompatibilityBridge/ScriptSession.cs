@@ -37,11 +37,10 @@ public sealed partial class ScriptSession : IScriptRuntime, IDisposable
         if (NativeWorld.Data(description).GetProperty("capabilities").EnumerateArray().Any(c => c.GetString() == "native_phase_context_native_v1"))
         {
             using var status = NativeWorld.Request("session.status");
-            _strict = NativeWorld.Data(status).GetProperty("profile").GetString() is PhaseContexts.Profile or NestedStartProfile.Name or ContextualCleanupProfile.Name or HostIdleMutationProfile.Name;
+            _strict = NativeWorld.Data(status).GetProperty("profile").GetString() is PhaseContexts.Profile or NestedStartProfile.Name or HostIdleMutationProfile.Name;
         }
-        _contextual = ContextualCleanupProfile.Required(payload);
         if (_strict && NativePhaseScope.Phase != "Initialize") throw new InvalidOperationException("strict binding requires a claimed Initialize context");
-        if (!_contextual && NativeReadinessProfile.Selected(payload, NativeWorld.Data(description)))
+        if (NativeReadinessProfile.Selected(payload, NativeWorld.Data(description)))
         {
             if (!_strict) throw BridgeProtocol.Invalid("native readiness requires a selected native phase session");
             _readiness = new NativeReadiness(
@@ -54,11 +53,6 @@ public sealed partial class ScriptSession : IScriptRuntime, IDisposable
         _fields = new SerializedFields(ResolveReference, payload.TryGetProperty("profile", out var profile) ? profile.Clone() : default, _diagnostics);
         publish?.Invoke(this);
         _assemblies.LoadPaths(payload.GetProperty("assemblies"));
-        if (_contextual)
-        {
-            try { ContextualMetadata.Validate(payload.GetProperty("graph"), _assemblies); }
-            catch { _assemblies.Dispose(); throw; }
-        }
         NativeIdentity.Runtime = this;
         SpriteRenderer.ResolveSprite = value => (Sprite)ResolveReference(value);
         try { BindGraph(payload.GetProperty("graph"), payload.GetProperty("handles")); }
@@ -66,7 +60,7 @@ public sealed partial class ScriptSession : IScriptRuntime, IDisposable
         {
             if (publish is null)
             {
-                try { if (_readiness is not null || _contextual) ClearBindings(); else Dispose(); }
+                try { if (_readiness is not null) ClearBindings(); else Dispose(); }
                 catch (Exception cleanup) { throw new AggregateException(primary, cleanup); }
             }
             throw;
@@ -125,7 +119,6 @@ public sealed partial class ScriptSession : IScriptRuntime, IDisposable
     {
         RequireStrictScope();
         if (!_initialized || _reconciling || _disposed) return;
-        if (_contextual) { ReconcileContextual(); return; }
         if (_readiness is not null)
         {
             foreach (var state in _scripts.Values.ToArray()) _readiness.Register(state.Instance);
@@ -222,7 +215,7 @@ public sealed partial class ScriptSession : IScriptRuntime, IDisposable
     public void Destroying(UObject target)
     {
         RequireStrictScope();
-        if (_contextual || _readiness is not null) return;
+        if (_readiness is not null) return;
         var owners = new HashSet<ulong>();
         if (target is GameObject go) CollectOwners(go, owners);
         var failures = new CleanupFailures();
@@ -238,7 +231,6 @@ public sealed partial class ScriptSession : IScriptRuntime, IDisposable
     public Coroutine StartCoroutine(MonoBehaviour owner, IEnumerator routine)
     {
         RequireStrictScope();
-        if (_contextual) throw new NotSupportedException("contextual Cleanup does not support routines");
         if (NativePhaseScope.Phase == "Cleanup") throw new InvalidOperationException("cleanup cannot start routines");
         return _readiness is not null ? _readiness.Start(owner, routine) : _coroutines.Start(owner, routine);
     }
@@ -249,7 +241,6 @@ public sealed partial class ScriptSession : IScriptRuntime, IDisposable
     {
         if (_cleanupComplete) return;
         RequireStrictScope();
-        if (_contextual) throw new InvalidOperationException("contextual Cleanup requires a drained native batch");
         if (_readiness is not null)
         {
             if (NativePhaseScope.Phase != "Cleanup") throw new InvalidOperationException("native readiness disposal requires Cleanup");

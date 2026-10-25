@@ -28,7 +28,6 @@ pub(crate) enum Request {
     Transport(crate::transport::Request),
     Strict(strict::StrictRequest),
     Readiness(crate::readiness::ReadinessRequest),
-    Callbacks(crate::readiness::batches::Request),
     Snapshot(crate::snapshots::SnapshotRequest),
     Transaction(transaction::Transaction),
     Object(ObjectRequest),
@@ -50,11 +49,7 @@ impl Request {
     pub(crate) fn is_linear(&self) -> bool {
         matches!(
             self,
-            Self::Strict(_)
-                | Self::Readiness(_)
-                | Self::Callbacks(_)
-                | Self::Snapshot(_)
-                | Self::Transport(_)
+            Self::Strict(_) | Self::Readiness(_) | Self::Snapshot(_) | Self::Transport(_)
         )
     }
     pub(crate) fn global_descriptor(&self) -> Option<Value> {
@@ -69,7 +64,6 @@ impl Request {
             | Self::Transport(_)
             | Self::Snapshot(_)
             | Self::Physics(PhysicsRequest::Events { clear: false }) => Ok(false),
-            Self::Callbacks(r) => Ok(r.changes_content()),
             Self::Transaction(r) => r.changes_content(),
             Self::Strict(_)
             | Self::Readiness(_)
@@ -99,7 +93,6 @@ impl Request {
             Self::Transaction(r) => r.execute(w, world, limit),
             Self::Strict(r) => r.execute(w, world),
             Self::Readiness(r) => r.execute(w, world),
-            Self::Callbacks(r) => r.execute(w, world),
             Self::Snapshot(r) => r.execute(w, world),
             Self::Object(r) => r.execute(w),
             Self::Lifetime(r) => r.execute(w),

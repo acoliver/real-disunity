@@ -38,5 +38,15 @@ internal sealed class ScriptMessages
         }
         finally { completed?.Invoke(); }
     }
+    internal static MethodInfo? FindCallback(Type type, string name)
+    {
+        var method = SerializedFields.FindMethod(type, name, Type.EmptyTypes);
+        var iteratorStart = name == "Start" && method is not null
+            && typeof(System.Collections.IEnumerator).IsAssignableFrom(method.ReturnType);
+        if (method is not null && (method.ContainsGenericParameters || method.IsAbstract
+            || (method.ReturnType != typeof(void) && !iteratorStart)))
+            throw new InvalidDataException("callback requires a closed parameterless instance method with a supported return type: " + type.FullName + "." + name);
+        return method;
+    }
     public void Clear() => _cache.Clear();
 }

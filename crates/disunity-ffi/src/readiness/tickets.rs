@@ -34,7 +34,6 @@ pub(super) fn next(w: &mut DisunityWorld, phase: Phase) -> Result<Value, String>
         None => Ok(Value::Null),
     }
 }
-#[derive(PartialEq, Eq)]
 struct TicketSelection {
     component: u64,
     routine: Option<u64>,
@@ -192,28 +191,4 @@ pub(super) fn immediate(w: &mut DisunityWorld, id: u64) -> Result<Value, String>
         _ => return Err("immediate child requires suspension or disposal".into()),
     };
     issue(w, r.owner, Some(id), kind)
-}
-
-pub(super) fn reselect(w: &mut DisunityWorld, phase: Phase) -> Result<(), String> {
-    let Some(t) = &w.readiness.ticket else {
-        return next(w, phase).map(|_| ());
-    };
-    if t.entered || !w.readiness.children.is_empty() {
-        return Err("batch selection requires one unentered root ticket".into());
-    }
-    let previous = TicketSelection {
-        component: t.component,
-        routine: t.routine,
-        kind: t.kind,
-    };
-    routines::refresh(w, phase);
-    let choice = select(w, phase)?;
-    if choice.as_ref() == Some(&previous) {
-        return Ok(());
-    }
-    w.readiness.ticket = None;
-    if let Some(selection) = choice {
-        issue(w, selection.component, selection.routine, selection.kind)?;
-    }
-    Ok(())
 }

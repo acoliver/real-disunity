@@ -29,10 +29,9 @@ pub(crate) fn begin_cleanup(
     let a = w.strict.as_ref().ok_or("strict session is not open")?;
     a.authenticate(host)?;
     if a.terminal.is_some()
-        || (!super::batch_profile(w)
-            && a.active
-                .as_ref()
-                .is_some_and(|l| l.claimed && l.context.phase == Phase::Cleanup))
+        || a.active
+            .as_ref()
+            .is_some_and(|l| l.claimed && l.context.phase == Phase::Cleanup)
     {
         return Err("Cleanup execution already issued or claimed".into());
     }

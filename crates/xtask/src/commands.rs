@@ -45,6 +45,10 @@ pub enum Profile {
     Managed,
 }
 
+/// The compatibility harness supervises workers as Unix process groups and confines
+/// paths by device and inode, so CPU CI covers it on Unix hosts only.
+const UNIX_PROCESS_HARNESS: &str = "compat-kit";
+
 pub fn selection(data: &metadata::Metadata, profile: Profile) -> Result<Vec<String>, String> {
     if profile == Profile::Full {
         return Ok(vec!["--workspace".into(), "--all-features".into()]);
@@ -55,10 +59,8 @@ pub fn selection(data: &metadata::Metadata, profile: Profile) -> Result<Vec<Stri
         let include = match profile {
             Profile::Cpu => {
                 layer.cpu()
-                    || matches!(
-                        package.as_str(),
-                        "xtask" | "worldrunner-content-tool" | "compat-kit"
-                    )
+                    || matches!(package.as_str(), "xtask" | "worldrunner-content-tool")
+                    || (package == UNIX_PROCESS_HARNESS && cfg!(unix))
             }
             Profile::Gpu => layer != layers::Layer::Managed,
             Profile::Managed => {

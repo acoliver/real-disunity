@@ -228,7 +228,7 @@ fn process_harness_has_cpu_coverage_while_player_requires_graphics() {
     package(&dir, "crates/player", "compat-player", "");
     let data = graph(&dir);
     let cpu = selection(&data, Profile::Cpu).unwrap();
-    assert!(cpu.contains(&"compat-kit".into()));
+    assert_eq!(cpu.contains(&"compat-kit".into()), cfg!(unix));
     assert!(!cpu.contains(&"compat-player".into()));
     let gpu = selection(&data, Profile::Gpu).unwrap();
     assert!(gpu.contains(&"compat-kit".into()));

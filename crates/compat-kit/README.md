@@ -25,7 +25,7 @@ Each fixture names an original game with `"game": "snake"`, `"breakout"` or `"po
 
 ## Worker protocol
 
-A fixture selects `worker: {"program":"/selected/worker", "args":[]}` or leaves it null to report blocked. Arguments are passed directly without shell expansion. Literal `{root}`, `{source}` and `{output}` substitutions are supported. Only trusted programs should be configured. Linux process-group supervision requires workers to remain in their group and never daemonize. There is no OS sandbox in this crate.
+A fixture selects `worker: {"program":"/selected/worker", "args":[]}` or leaves it null to report blocked. Arguments are passed directly without shell expansion. Literal `{root}`, `{source}` and `{output}` substitutions are supported. Only trusted programs should be configured. Workers run in their own Unix process group, so they must stay in that group and never daemonize. The harness supports Linux and macOS; Windows lacks the process-group and inode identity primitives it relies on. There is no OS sandbox in this crate.
 
 The child receives absolute `COMPAT_ROOT`, `COMPAT_REQUEST`, `COMPAT_RESPONSE` and `COMPAT_ARTIFACTS` paths. `RunRequest` contains schema version 1, run/fixture/profile identifiers, desktop selection, seed, authored timeline/assertions, the resolved absolute `source_root`, artifact root and metadata. Unknown request fields are rejected. Per-file source hashes and source snapshots are absent; the original-games checkout verifies the pin before execution. Workers compile the supplied checkout without editing it.
 
@@ -69,7 +69,7 @@ Reporting groups summarize fixture/profile, evidence label, case/game, mode and 
 
 ## Storage and HTTP security
 
-Storage measures a 500 GB hard worktree budget and prunes idle owned runs at 450 GB. Persistent kernel lease files protect active runs. Only owned immediate run directories are eligible. Original-game checkouts live outside `.work`; unmarked directories and trees containing symlinks or special files remain protected. Live traversal retries only complete scans after transient descendant disappearance, with a bounded attempt count. Final artifact scans remain strict.
+Retained run directories are measured in-process. Above 16 GiB the oldest idle owned runs are pruned, and above 20 GiB after pruning new runs are refused. Persistent kernel lease files protect active runs. Only owned immediate run directories are eligible. Original-game checkouts live outside `.work`; unmarked directories and trees containing symlinks or special files remain protected. Live traversal retries only complete scans after transient descendant disappearance, with a bounded attempt count. Final artifact scans remain strict.
 
 `serve` binds IPv4 loopback and announces its URL. Routes are `GET /`, `GET /api/state`, `POST /api/run`, `POST /api/stop`, and validated capture URLs under `/files/`. Run accepts fixture/profile/desktop; Stop accepts the task ID. Removed routes return 404 after normal security checks.
 

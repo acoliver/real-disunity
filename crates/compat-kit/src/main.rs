@@ -7,7 +7,6 @@ use serde_json::{Value, json};
 use std::{
     env,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 fn main() {
@@ -78,19 +77,9 @@ fn doctor(root: &Path) -> Result<Value> {
         });
         checks.push(json!({"fixture":fixture.name,"source":source,"worker":worker,"worker_available":executable,"status":if executable {"inconclusive"} else {"blocked"}}));
     }
-    let storage = Command::new("du")
-        .args(["-sb"])
-        .arg(root)
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| {
-            s.split_whitespace()
-                .next()
-                .and_then(|n| n.parse::<u64>().ok())
-        });
+    let storage = compat_kit::storage::run_storage_bytes(root).ok();
     Ok(
-        json!({"schema_version":1,"root":root,"worktree_bytes":storage,"budget_bytes":500_000_000_000_u64,"within_budget":storage.map(|n|n<=500_000_000_000),"fixtures":checks,"note":"Tool/source checks establish prerequisites only. Game compatibility requires facade-backed worker observations and assertions."}),
+        json!({"schema_version":1,"root":root,"run_storage_bytes":storage,"fixtures":checks,"note":"Tool/source checks establish prerequisites only. Game compatibility requires facade-backed worker observations and assertions."}),
     )
 }
 

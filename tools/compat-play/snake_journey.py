@@ -682,14 +682,6 @@ def main():
     summary = {"status": "inconclusive", "output": str(output), "profile": args.profile,
                "evidence_label": LABEL, "desktop_status": "not-run", "behavioral_checks": []}
     try:
-        # The harness also enforces the 500GB worktree budget before canonical runs.
-        usage = subprocess.run(["du", "-sb", str(ROOT)], capture_output=True, text=True)
-        require(bool(usage.stdout.split()), f"cannot inspect worktree budget: {usage.stderr}")
-        require(usage.returncode == 0 or all("No such file or directory" in line for line in usage.stderr.splitlines()),
-                f"cannot inspect worktree budget: {usage.stderr}")
-        summary["budget_scan_concurrent_file_removals"] = usage.returncode != 0
-        summary["worktree_bytes"] = int(usage.stdout.split()[0])
-        require(summary["worktree_bytes"] <= 500_000_000_000, "500GB hard worktree budget exceeded")
         runner = Worker(ROOT, output, args.worker.resolve(), metadata(ROOT), checkout("snake"), args.harness.resolve())
         if args.mode == "probe":
             timeline = [action(0, "load"), action(1, "advance", dt=0.125001),

@@ -7,11 +7,12 @@ use std::{
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
-    process::Command,
 };
 
-const SOFT_LIMIT: u64 = 450_000_000_000;
-const HARD_LIMIT: u64 = 500_000_000_000;
+/// Run storage above this size prunes the oldest unleased run directories.
+const SOFT_LIMIT: u64 = 16 << 30;
+/// Run storage above this size after pruning refuses new runs.
+const HARD_LIMIT: u64 = 20 << 30;
 
 #[derive(Deserialize, Serialize)]
 struct Owner {
@@ -53,8 +54,10 @@ pub fn allocate(root: &Path) -> Result<OwnedDirectory> {
     file.lock_shared().map_err(io)?;
     Ok(OwnedDirectory { path, _lease: file })
 }
-fn usage(root: &Path) -> Result<u64> {
-    retry_measurement(|| measure(root))
+/// Bytes held by retained run directories, the storage this harness owns.
+pub fn run_storage_bytes(root: &Path) -> Result<u64> {
+    let runs = files::runs_root(root)?;
+    retry_measurement(|| measure(&runs))
 }
 fn retry_measurement(mut measure: impl FnMut() -> Result<u64>) -> Result<u64> {
     let mut last = String::new();
@@ -66,25 +69,21 @@ fn retry_measurement(mut measure: impl FnMut() -> Result<u64>) -> Result<u64> {
     }
     Err(last)
 }
-fn measure(root: &Path) -> Result<u64> {
-    let output = Command::new("du")
-        .arg("-sb")
-        .arg(root)
-        .output()
-        .map_err(io)?;
-    if !output.status.success() {
-        return Err(format!(
-            "worktree storage budget could not be measured: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+fn measure(path: &Path) -> Result<u64> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        // A run removed during measurement no longer holds storage.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(io(error)),
+    };
+    if !metadata.is_dir() {
+        return Ok(metadata.len());
     }
-    std::str::from_utf8(&output.stdout)
-        .map_err(io)?
-        .split_whitespace()
-        .next()
-        .ok_or("missing storage size")?
-        .parse()
-        .map_err(io)
+    let mut total = 0;
+    for entry in fs::read_dir(path).map_err(io)? {
+        total += measure(&entry.map_err(io)?.path())?;
+    }
+    Ok(total)
 }
 fn eligible(root: &Path, owner: &Owner) -> Result<bool> {
     if owner.schema_version != 1 {
@@ -118,7 +117,7 @@ pub fn prune(root: &Path, soft_limit: u64) -> Result<Vec<PathBuf>> {
     owners.sort_by_key(|(_, owner)| owner.created_ms);
     let mut removed = Vec::new();
     for (marker, owner) in owners {
-        if usage(root)? < soft_limit {
+        if run_storage_bytes(root)? < soft_limit {
             break;
         }
         let Some(_guard) = lease::exclusive(&marker)? else {
@@ -134,11 +133,11 @@ pub fn prune(root: &Path, soft_limit: u64) -> Result<Vec<PathBuf>> {
     Ok(removed)
 }
 pub fn check_budget(root: &Path) -> Result<()> {
-    if usage(root)? >= SOFT_LIMIT {
+    if run_storage_bytes(root)? >= SOFT_LIMIT {
         prune(root, SOFT_LIMIT)?;
     }
-    if usage(root)? > HARD_LIMIT {
-        return Err("worktree 500 GB storage cap exceeded".into());
+    if run_storage_bytes(root)? > HARD_LIMIT {
+        return Err("run storage limit exceeded after pruning unleased runs".into());
     }
     Ok(())
 }
@@ -152,7 +151,7 @@ mod measurement_tests {
         let result = retry_measurement(|| {
             attempts += 1;
             if attempts < 3 {
-                Err("du: file disappeared".into())
+                Err("run directory disappeared".into())
             } else {
                 Ok(512)
             }
@@ -175,9 +174,9 @@ mod measurement_tests {
         let mut attempts = 0;
         let result = retry_measurement(|| {
             attempts += 1;
-            Ok(500_000_000_001)
+            Ok(HARD_LIMIT + 1)
         });
-        assert_eq!(result, Ok(500_000_000_001));
+        assert_eq!(result, Ok(HARD_LIMIT + 1));
         assert_eq!(attempts, 1);
     }
 }

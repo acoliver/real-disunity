@@ -39,6 +39,10 @@ impl PreparedFeature for SceneFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        if context.slot == PassSlot::Celestial {
+            self.gpu.draw_celestial(pass);
+            return;
+        }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
@@ -96,6 +100,18 @@ pub fn encode_scene(
             crate::ssr::geometry_declaration(&mut declaration);
         }
     }
+    let mut passes = vec![opaque];
+    let mut views = vec![
+        color.with_resource(color_id)?,
+        depth.with_resource(depth_id)?,
+    ];
+    gpu.plan_celestial(
+        device,
+        color.size(),
+        &mut passes,
+        &mut views,
+        &mut declaration,
+    );
     let mut feature = SceneFeature {
         publications: crate::draw::DrawPublications::default(),
         screen: renderer.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
@@ -106,13 +122,7 @@ pub fn encode_scene(
     renderer.encode_frame(
         device,
         encoder,
-        (
-            &[opaque],
-            &[
-                color.with_resource(color_id)?,
-                depth.with_resource(depth_id)?,
-            ],
-        ),
+        (&passes, &views),
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut feature,

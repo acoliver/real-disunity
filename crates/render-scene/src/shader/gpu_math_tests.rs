@@ -146,6 +146,7 @@ fn configured_frame(
     .prepare()
     .unwrap();
     crate::frame::FrameUniform {
+        height_fog: None,
         unlit: false,
         animation_time_milliseconds: 0,
         view: glam::Mat4::IDENTITY,

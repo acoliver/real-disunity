@@ -86,3 +86,6 @@ mod tests;
 
 #[cfg(test)]
 mod math_parity_gpu_tests;
+
+pub mod atmosphere;
+pub mod ibl;

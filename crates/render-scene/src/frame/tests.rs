@@ -300,6 +300,25 @@ fn a_dome_sky_cannot_supply_hemispheric_ambient() {
     assert_eq!(error, FrameError::AmbientFromDomeTexture);
 }
 
+#[test]
+fn dome_sky_with_explicitly_zero_ambient_builds_a_frame() {
+    let dome = effects(
+        SceneSky::DomeTexture {
+            texture: worldrunner_render_plan::TextureHandle::from_raw(0),
+        },
+        SceneSun {
+            direction: east(),
+            irradiance_micro: 0,
+        },
+        SceneAmbient {
+            sky_irradiance_micro: 0,
+            ground_irradiance_micro: 0,
+        },
+    );
+    let frame = FrameUniform::new(&view(), Some(&dome)).unwrap();
+    assert_eq!(frame.ambient_sky, Vec3::ZERO);
+    assert_eq!(frame.ambient_ground, Vec3::ZERO);
+}
 fn water_effects() -> SceneEffects {
     let base = effects(
         procedural(grey(255), grey(255)),
@@ -363,4 +382,31 @@ fn authored_refraction_bounds_are_rejected_before_upload() {
             "authored bound {bound} must not be silently ignored"
         );
     }
+}
+
+#[test]
+fn atmospheric_packing_preserves_the_disabled_abi() {
+    let mut frame = lit();
+    let original = frame.to_bytes();
+    for offset in [76, 92, 108, 124, 140, 156] {
+        assert_eq!(&original[offset..offset + 4], &[0; 4]);
+    }
+    frame.height_fog = Some(
+        worldrunner_render_lighting::atmosphere::HeightFog::new(
+            0.01,
+            0.2,
+            0.0,
+            10.0,
+            Vec3::new(2.0, 4.0, 8.0),
+        )
+        .unwrap(),
+    );
+    let bytes = frame.to_bytes();
+    assert!((read_f32(&bytes, 76) - (0.01f32.ln() - 0.2 * frame.camera_position.z)).abs() < 1e-6);
+    assert!((read_f32(&bytes, 92) + 1.2).abs() < 1e-6);
+    for (offset, value) in [(108, 10.0f32), (124, 2.0), (140, 4.0), (156, 8.0)] {
+        assert_eq!(read_f32(&bytes, offset).to_bits(), value.to_bits());
+    }
+    frame.height_fog = None;
+    assert_eq!(frame.to_bytes(), original);
 }

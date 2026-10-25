@@ -22,6 +22,7 @@ fn context() -> GpuContext {
 }
 fn frame() -> FrameUniform {
     FrameUniform {
+        height_fog: None,
         view: glam::Mat4::IDENTITY,
         view_projection: glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 200.0),
         camera_position: glam::Vec3::ZERO,

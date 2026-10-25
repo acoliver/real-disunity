@@ -101,4 +101,5 @@ pub mod ui;
 #[cfg(feature = "simulation")]
 pub mod simulation;
 
+pub use scene::{SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, SceneHeightFog};
 pub use worldrunner_material::BuiltinMaterial;

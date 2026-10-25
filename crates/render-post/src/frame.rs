@@ -13,6 +13,7 @@ pub enum PassSlot {
     Ssao,
     SsaoBlurHorizontal,
     SsaoBlur,
+    Celestial,
     Opaque,
     AfterOpaqueSnapshot,
     AfterOpaqueDepth,

@@ -79,7 +79,7 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
 
     // Emission is summed before exposure so that a glowing surface is scaled by
     // the same camera exposure as the sunlight beside it.
-    return vec4<f32>(apply_exposure(colour), albedo_sample.a);
+    return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);
 }
 
 @fragment

@@ -202,3 +202,36 @@ fn assert_parity(values: &[f32]) {
         "retired/current max abs error={max_abs:.9e}, max relative error={max_relative:.9e}; bound=2e-6 absolute + 2e-6 relative"
     );
 }
+
+#[test]
+fn height_fog_matches_cpu_at_horizon_and_altitude_extremes() {
+    use crate::atmosphere::HeightFog;
+    use glam::Vec3;
+    use std::fmt::Write;
+    let fog = HeightFog::new(0.01, 0.2, 0.0, 10.0, Vec3::ONE).unwrap();
+    let cases = [
+        (0.0, Vec3::new(100.0, 0.0, -0.0001)),
+        (0.0, Vec3::new(100.0, 0.0, 0.0)),
+        (0.0, Vec3::new(100.0, 0.0, 0.0001)),
+        (10.0, Vec3::new(100.0, 0.0, 0.0)),
+        (1000.0, Vec3::new(0.0, 0.0, -1000.0)),
+        (0.0, Vec3::new(0.0, 0.0, 1000.0)),
+    ];
+    let mut source = format!(
+        "{WGSL}\n@group(0) @binding(0) var<storage, read_write> output: array<vec4<f32>>;\n@compute @workgroup_size(1) fn compare() {{\n"
+    );
+    for (index, (altitude, offset)) in cases.iter().enumerate() {
+        let log_density = fog.density.ln() - fog.falloff * altitude;
+        writeln!(source, "output[{index}] = vec4(rd_height_fog_transmittance({log_density:?}, 0.2, 10.0, vec3({:?}, {:?}, {:?}), vec3(0.0, 0.0, 1.0)), 0.0, 0.0, 0.0);", offset.x, offset.y, offset.z).unwrap();
+    }
+    source.push('}');
+    let values = evaluate(source);
+    for (index, (altitude, offset)) in cases.iter().enumerate() {
+        let expected = fog.transmittance(Vec3::Z * *altitude, *offset, Vec3::Z);
+        assert!(
+            (values[index * 4] - expected).abs() < 2e-5,
+            "case {index}: {} != {expected}",
+            values[index * 4]
+        );
+    }
+}

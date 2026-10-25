@@ -339,5 +339,5 @@ fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
     // Terrain has no emissive term, so its total outgoing radiance is exactly
     // what surface_lighting returned; exposure still goes through the shared
     // function so terrain and the props standing on it cannot drift apart.
-    return vec4<f32>(apply_exposure(colour), 1.0);
+    return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);
 }

@@ -81,6 +81,8 @@ pub enum FrameError {
 /// Per-frame data, including the uniform block and CPU selection coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameUniform {
+    /// Optional exponential height fog. Packed into previously zero uniform lanes.
+    pub height_fog: Option<worldrunner_render_lighting::atmosphere::HeightFog>,
     /// Clip-from-scene transform; the only field that leaves scene space.
     pub view_projection: Mat4,
     /// World-to-view rotation/translation for screen-space geometry. Not part of the legacy ABI.
@@ -141,6 +143,10 @@ impl FrameUniform {
         }
         .prepare()?;
         Ok(Self {
+            height_fog: effects
+                .atmosphere()
+                .and_then(|sky| sky.fog)
+                .map(crate::sky::height_fog),
             view_projection: view.view_projection_matrix(),
             view: view.view_matrix(),
             camera_position: view.eye_meters(),
@@ -157,6 +163,7 @@ impl FrameUniform {
 
     pub fn unlit(view: &SceneView) -> Self {
         Self {
+            height_fog: None,
             view_projection: view.view_projection_matrix(),
             view: view.view_matrix(),
             camera_position: view.eye_meters(),
@@ -179,23 +186,41 @@ impl FrameUniform {
         for column in self.view_projection.to_cols_array() {
             write_f32(&mut bytes, &mut offset, column);
         }
-        for vector in [
+        let fog = self.height_fog.map_or([0.0; 6], |fog| {
+            if fog.density == 0.0 {
+                return [0.0; 6];
+            }
+            let log_density =
+                fog.density.ln() - fog.falloff * (self.camera_position.z - fog.base_height);
+            [
+                log_density,
+                -(fog.falloff + 1.0),
+                fog.start_distance,
+                fog.radiance.x,
+                fog.radiance.y,
+                fog.radiance.z,
+            ]
+        });
+        for (vector, extra) in [
             self.camera_position,
             self.sun_direction,
             self.sun_irradiance,
             self.ambient_sky,
             self.ambient_ground,
-        ] {
+        ]
+        .into_iter()
+        .zip(fog)
+        {
             write_f32(&mut bytes, &mut offset, vector.x);
             write_f32(&mut bytes, &mut offset, vector.y);
             write_f32(&mut bytes, &mut offset, vector.z);
-            write_f32(&mut bytes, &mut offset, 0.0);
+            write_f32(&mut bytes, &mut offset, extra);
         }
         write_f32(&mut bytes, &mut offset, self.exposure);
         write_f32(&mut bytes, &mut offset, f32::from(u8::from(self.unlit)));
         bytes[offset..offset + 4].copy_from_slice(&self.animation_time_milliseconds.to_le_bytes());
         offset += 4;
-        write_f32(&mut bytes, &mut offset, 0.0);
+        write_f32(&mut bytes, &mut offset, fog[5]);
         debug_assert_eq!(offset, FRAME_UNIFORM_BYTES, "the block is written in full");
         bytes
     }
@@ -249,6 +274,11 @@ fn ambient_radiance(sky: SceneSky, ambient: &SceneAmbient) -> Result<(Vec3, Vec3
             linear_color(zenith) * micro_to_unit(ambient.sky_irradiance_micro),
             linear_color(horizon) * micro_to_unit(ambient.ground_irradiance_micro),
         )),
+        SceneSky::DomeTexture { .. }
+            if ambient.sky_irradiance_micro == 0 && ambient.ground_irradiance_micro == 0 =>
+        {
+            Ok((Vec3::ZERO, Vec3::ZERO))
+        }
         SceneSky::DomeTexture { .. } => Err(FrameError::AmbientFromDomeTexture),
     }
 }

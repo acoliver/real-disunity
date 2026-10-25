@@ -184,6 +184,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
     let ssao = SceneMetadata::new(context.device(), [6, 1], settings()).unwrap();
     let projection = glam::Mat4::IDENTITY;
     let frame = FrameUniform {
+        height_fog: None,
         view: projection,
         view_projection: projection,
         camera_position: glam::Vec3::ZERO,

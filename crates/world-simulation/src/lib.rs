@@ -12,6 +12,7 @@
 mod components;
 mod edits;
 mod handles;
+pub mod physics2d;
 pub use edits::ObjectEdit;
 mod clone;
 mod fields;
@@ -80,4 +81,6 @@ pub enum WorldError {
     NotScript,
     #[error("lifecycle mutation does not belong to this world")]
     WrongMutation,
+    #[error("physics: {0}")]
+    Physics(#[from] physics2d::PhysicsError),
 }

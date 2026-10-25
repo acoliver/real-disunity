@@ -4,6 +4,8 @@ pub mod abi;
 #[cfg(test)]
 mod allocation;
 mod commands;
+#[cfg(test)]
+mod physics_tests;
 mod store;
 mod views;
 

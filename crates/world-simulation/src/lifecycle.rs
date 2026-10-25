@@ -40,7 +40,7 @@ impl Default for ScriptState {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Lifecycle {
     pub scripts: BTreeMap<ComponentHandle, ScriptState>,
     mutations: BTreeMap<usize, Vec<LifecycleWork>>,

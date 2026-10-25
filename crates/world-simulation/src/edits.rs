@@ -13,6 +13,26 @@ pub enum ObjectEdit {
 }
 
 impl World {
+    /// Publishes edits and physics as one completed native state. Failure retains
+    /// all prior state; the caller retains ownership of the submitted edits.
+    pub fn step_with_edits(&mut self, edits: &[ObjectEdit], dt: f32) -> Result<(), WorldError> {
+        if edits.is_empty() {
+            return self.step_physics(dt);
+        }
+        let mut staged = Self {
+            identity: self.identity,
+            objects: self.objects.clone(),
+            components: self.components.clone(),
+            physics: self.physics.clone(),
+            lifetime: self.lifetime.clone(),
+            lifecycle: self.lifecycle.clone(),
+        };
+        staged.apply_edits(edits)?;
+        staged.step_physics(dt)?;
+        *self = staged;
+        Ok(())
+    }
+
     pub fn apply_edits(&mut self, edits: &[ObjectEdit]) -> Result<(), WorldError> {
         self.validate_edits(edits)?;
         for edit in edits {

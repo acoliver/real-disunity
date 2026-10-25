@@ -44,6 +44,8 @@ impl LocalTransform {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ComponentDesc {
     Transform(LocalTransform),
+    Body2d(crate::physics2d::Body2d),
+    Collider2d(crate::physics2d::Collider2d),
     Renderer { material_slot: u32 },
     Script { assembly: String, type_name: String },
 }
@@ -52,6 +54,8 @@ impl ComponentDesc {
     pub(crate) fn validate(&self) -> Result<(), WorldError> {
         match self {
             Self::Transform(value) => value.validate(),
+            Self::Body2d(value) => value.validate().map_err(WorldError::from),
+            Self::Collider2d(value) => value.validate().map_err(WorldError::from),
             Self::Renderer { .. } => Ok(()),
             Self::Script {
                 assembly,

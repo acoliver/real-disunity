@@ -9,7 +9,7 @@ pub enum DestroyWhen {
     EndOfFrame,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Lifetime {
     pub objects: BTreeSet<ObjectHandle>,
     pub components: BTreeSet<ComponentHandle>,
@@ -33,7 +33,9 @@ impl World {
                     .expect("live component owner")
                     .renderer = None;
             }
-            ComponentDesc::Script { .. } => {}
+            ComponentDesc::Script { .. }
+            | ComponentDesc::Body2d(_)
+            | ComponentDesc::Collider2d(_) => {}
         }
         self.queue_script_cleanup(handle);
         self.lifetime.components.insert(handle);

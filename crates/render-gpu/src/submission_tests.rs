@@ -10,6 +10,68 @@ fn context() -> (wgpu::Device, wgpu::Queue) {
 }
 
 #[test]
+fn frame_identity_excludes_cancelled_and_unrelated_preparations() {
+    let (device, queue) = context();
+    let authority = SubmissionAuthority::new(queue);
+    let mut first = None;
+    let prepared = authority
+        .prepare(&device, |_, edits| {
+            assert!(edits.same_frame(edits));
+            first = Some(edits.clone());
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+    prepared.cancel();
+    let first = first.unwrap();
+    assert!(!first.same_frame(&first));
+    let next = authority
+        .prepare(&device, |_, edits| {
+            assert!(!first.same_frame(edits));
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+    drop(next);
+}
+
+#[test]
+fn frame_identity_spans_only_the_owned_live_capture() {
+    let (device, queue) = context();
+    let authority = SubmissionAuthority::new(queue);
+    let mut first = None;
+    let prefix = authority
+        .begin_capture(
+            &device,
+            capture::CaptureWrites::new([], [], []).unwrap(),
+            (),
+            |_, edits, ()| {
+                first = Some(edits.clone());
+                Ok::<_, ()>(())
+            },
+        )
+        .unwrap();
+    let continuation = prefix.submit().unwrap();
+    let first = first.unwrap();
+    let suffix = continuation
+        .resume(
+            &device,
+            |_, _| Ok::<_, ()>(()),
+            |_, edits, (), ()| {
+                assert!(!first.same_transaction(edits));
+                assert!(first.same_frame(edits));
+                Ok::<_, ()>(())
+            },
+        )
+        .unwrap();
+    suffix
+        .submit()
+        .unwrap()
+        .finish(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap();
+    authority.drain_captures(&device).unwrap();
+    assert!(!first.same_frame(&first));
+}
+
+#[test]
 fn failure_cancel_busy_and_next_frame_publication() {
     let (device, queue) = context();
     let authority = SubmissionAuthority::new(queue.clone());

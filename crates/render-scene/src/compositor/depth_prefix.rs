@@ -22,7 +22,7 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
         scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
         frame: crate::frame::FrameUniform,
-        source: &crate::ssao::Ssao,
+        source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
         let (gpu, pipelines) = scene;
         gpu.prepare_depth_prefix_pages(device, encoder, frame, source.size)?;

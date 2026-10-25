@@ -477,7 +477,7 @@ pub fn capture_scene_shadowed(
 
 struct ShadowFeature<'a> {
     publications: crate::draw::DrawPublications,
-    screen: Option<crate::ssao::Geometry>,
+    screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
     depth_pipelines: &'a [wgpu::RenderPipeline; 4],
@@ -521,6 +521,8 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        #[cfg(test)]
+        crate::scene_metadata::record_pass(context.slot);
         if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
             let screen = self.screen.as_ref().expect("declared metadata");
             self.publications.record(self.gpu.draw_prepass(

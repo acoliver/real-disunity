@@ -129,7 +129,7 @@ fn settings_validate_enabled_and_disabled_requests() {
 fn gpu_reflection_resources_compile_and_half_resolution_includes_odd_edges() {
     let context = context();
     for size in [[65, 49], [1, 7], [7, 1]] {
-        let mut screen = Ssao::new(context.device(), size, neutral_ao()).unwrap();
+        let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
         let ssr = Ssr::new(
             context.device(),
             FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 4),
@@ -293,7 +293,7 @@ fn trace_fixture_normal(
     target_normal: [f32; 4],
 ) -> Vec<u8> {
     let size = [65, 65];
-    let mut screen = Ssao::new(context.device(), size, neutral_ao()).unwrap();
+    let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
     let ssr = Ssr::new(
         context.device(),
         FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1),
@@ -363,7 +363,7 @@ fn renderer(context: &GpuContext) -> crate::compositor::FrameRenderer {
         None,
     )
     .unwrap();
-    renderer.ssao = Some(Ssao::new(context.device(), [65, 65], neutral_ao()).unwrap());
+    renderer.ssao = Some(SceneMetadata::new(context.device(), [65, 65], neutral_ao()).unwrap());
     renderer.ssr = Some(
         Ssr::new(
             context.device(),

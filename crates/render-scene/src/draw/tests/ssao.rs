@@ -84,6 +84,8 @@ fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
 
 fn settings(intensity: u64) -> SceneSsao {
     SceneSsao {
+        kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         radius_millimeters: 2000,
         intensity_micro: intensity,
         sample_count: 64,
@@ -92,8 +94,27 @@ fn settings(intensity: u64) -> SceneSsao {
     }
 }
 fn source(intensity: u64, ambient: bool, alpha: u8) -> RenderScene {
+    source_with_policy(
+        intensity,
+        ambient,
+        alpha,
+        worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
+    )
+}
+fn source_with_policy(
+    intensity: u64,
+    ambient: bool,
+    alpha: u8,
+    kernel: worldrunner_render_plan::SceneSsaoKernel,
+    filter: worldrunner_render_plan::SceneSsaoFilter,
+) -> RenderScene {
     let mut parts = effect_parts();
-    parts.ssao = Some(settings(intensity));
+    parts.ssao = Some(SceneSsao {
+        kernel,
+        filter,
+        ..settings(intensity)
+    });
     parts.sun.irradiance_micro = if ambient { 0 } else { 500_000 };
     parts.ambient.sky_irradiance_micro = if ambient { 500_000 } else { 0 };
     parts.ambient.ground_irradiance_micro = parts.ambient.sky_irradiance_micro;
@@ -259,4 +280,28 @@ fn read_texture(context: &GpuContext, size: [u32; 2], texture: &wgpu::Texture) -
     .unwrap()
     .read(context.device(), context.submission(), texture)
     .unwrap()
+}
+
+#[test]
+fn gpu_spiral_bilateral_coverage_and_composition_at_1x_and_4x() {
+    let context = context();
+    for samples in [1, 4] {
+        let scene = |intensity, alpha| {
+            source_with_policy(
+                intensity,
+                true,
+                alpha,
+                worldrunner_render_plan::SceneSsaoKernel::Spiral,
+                worldrunner_render_plan::SceneSsaoFilter::SeparableBilateral,
+            )
+        };
+        let (baseline, normals, _) = capture(&context, &scene(0, 255), samples);
+        let (shaded, ao_normals, ao) = capture(&context, &scene(2_000_000, 255), samples);
+        assert_eq!(normals, ao_normals);
+        assert!(ao.iter().any(|value| *value < 0.99));
+        assert_ne!(baseline, shaded);
+        let (_, hidden, ao) = capture(&context, &scene(2_000_000, 100), samples);
+        assert!(hidden.iter().all(|byte| *byte == 0));
+        assert!(ao.iter().all(|value| value.to_bits() == 1.0f32.to_bits()));
+    }
 }

@@ -293,14 +293,12 @@ pub(super) fn geometry_sources() -> [String; 4] {
         .replace("fn fs_masked(", "fn unused_masked(");
     let prepass = format!(
         "{base}\n{}",
-        include_str!("../../ssao/prepass.wgsl").replace(
-            "screen.view",
-            "mat4x4<f32>(1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0)"
-        )
+        include_str!("../../scene_metadata/geometry.wgsl")
+            .replace("METADATA_OUTPUT", "vec4<f32>(normal, 1.0)")
     );
     let metadata = format!(
         "{base}\n{}",
-        include_str!("../../ssr/metadata.wgsl")
+        include_str!("../../scene_metadata/geometry.wgsl")
             .replace("METADATA_OUTPUT", "vec4<f32>(normal, roughness)")
     );
     let shadow = format!(

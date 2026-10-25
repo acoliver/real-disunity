@@ -267,10 +267,64 @@ fn assert_fitted_pixels(
 fn gpu_stock_sdsm_capture_reuses_hdr_ssao_and_reflection_metadata() {
     use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
     let context = context();
+    let (mut frame, mut renderer) = screen_renderers(&context);
+    for adoption in [
+        AdoptionPolicy::SameFrameCapture,
+        AdoptionPolicy::Interactive {
+            latency_frames: 2,
+            contraction_frames: 0,
+        },
+    ] {
+        renderer
+            .set_depth_fitting(
+                &context,
+                Some(SdsmSettings {
+                    policy: adoption,
+                    range: policy(),
+                }),
+            )
+            .unwrap();
+        let color = AttachmentView::new(
+            ResourceRef::new("scene color"),
+            frame.targets().scene().texture(),
+        )
+        .unwrap();
+        let depth = AttachmentView::new(
+            ResourceRef::new("scene depth"),
+            frame.targets().depth().texture(),
+        )
+        .unwrap();
+        let source_before = frame.depth_statistics_source().unwrap().unwrap();
+        crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
+        let fit = renderer
+            .render_depth_fitted_with(&context, &view(), (&color, &depth), 3, &mut frame)
+            .unwrap();
+        if adoption == AdoptionPolicy::SameFrameCapture {
+            assert_eq!(fit.unwrap().source_frame, 3);
+        }
+        crate::scene_metadata::EXECUTED_PASSES.with_borrow(|passes| {
+            for slot in [
+                worldrunner_render_post::PassSlot::DepthNormalPrepass,
+                worldrunner_render_post::PassSlot::DepthPyramid(0),
+            ] {
+                assert_eq!(
+                    passes.iter().filter(|&&pass| pass == slot).count(),
+                    1,
+                    "duplicate producer: {slot:?}"
+                );
+            }
+        });
+        let source_after = frame.depth_statistics_source().unwrap().unwrap();
+        assert_eq!(source_before.0.texture(), source_after.0.texture());
+        assert_eq!(source_before.1.texture(), source_after.1.texture());
+    }
+}
+
+fn screen_renderers(context: &GpuContext) -> (crate::compositor::FrameRenderer, ShadowedScene) {
     let source = screen_source();
     let size = [view().viewport().width, view().viewport().height];
-    let mut frame = crate::compositor::FrameRenderer::hdr(
-        &context,
+    let frame = crate::compositor::FrameRenderer::hdr(
+        context,
         size,
         OffscreenTarget::COLOR_FORMAT,
         1,
@@ -278,48 +332,23 @@ fn gpu_stock_sdsm_capture_reuses_hdr_ssao_and_reflection_metadata() {
         source.effects(),
     )
     .unwrap();
-    let mut renderer = ShadowedScene::with_target(
-        &context,
+    let renderer = ShadowedScene::with_target(
+        context,
         &source,
         settings(),
         wgpu::TextureFormat::Rgba16Float,
         1,
     )
     .unwrap();
-    renderer
-        .set_depth_fitting(
-            &context,
-            Some(SdsmSettings {
-                policy: AdoptionPolicy::SameFrameCapture,
-                range: policy(),
-            }),
-        )
-        .unwrap();
-    let color = AttachmentView::new(
-        ResourceRef::new("scene color"),
-        frame.targets().scene().texture(),
-    )
-    .unwrap();
-    let depth = AttachmentView::new(
-        ResourceRef::new("scene depth"),
-        frame.targets().depth().texture(),
-    )
-    .unwrap();
-    let source_before = frame.depth_statistics_source().unwrap().unwrap();
-    let fit = renderer
-        .render_depth_fitted_with(&context, &view(), (&color, &depth), 3, &mut frame)
-        .unwrap()
-        .unwrap();
-    assert_eq!(fit.source_frame, 3);
-    let source_after = frame.depth_statistics_source().unwrap().unwrap();
-    assert_eq!(source_before.0.texture(), source_after.0.texture());
-    assert_eq!(source_before.1.texture(), source_after.1.texture());
+    (frame, renderer)
 }
 
 fn screen_source() -> RenderScene {
     let base = scene(&[[0, 0, 1000]], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
     parts.ssao = Some(SceneSsao {
+        kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         radius_millimeters: 2000,
         intensity_micro: 1_000_000,
         sample_count: 16,

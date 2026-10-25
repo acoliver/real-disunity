@@ -9,7 +9,7 @@ pub(crate) struct SceneFeature<'a> {
     pub gpu: &'a mut crate::draw::SceneGpu,
     pub pipelines: &'a crate::renderer::ScenePipelines,
     pub frame: crate::frame::FrameUniform,
-    pub screen: Option<crate::ssao::Geometry>,
+    pub screen: Option<crate::scene_metadata::Geometry>,
 }
 impl SceneFeature<'_> {
     pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
@@ -39,6 +39,8 @@ impl PreparedFeature for SceneFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        #[cfg(test)]
+        crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
             if context.slot == PassSlot::ReflectionMaterial {
                 self.publications.record(self.gpu.draw_prepass(

@@ -1,3 +1,6 @@
+#[path = "geometry_prefix.rs"]
+mod geometry_prefix;
+
 use wgpu::util::DeviceExt;
 
 use crate::{FrameConfig, FrameTargets, PostError, fullscreen_pass_timed};
@@ -271,6 +274,7 @@ pub struct PostChain<F> {
     features: Vec<crate::frame::RegisteredFeature>,
     upload_slots: [Vec<wgpu::Buffer>; 3],
     capture_resources: Option<crate::contracts::ResourceRegistry>,
+    geometry_prefix: Option<geometry_prefix::GeometryPrefix>,
     frame_slot: usize,
     timing: std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>,
 }
@@ -292,6 +296,7 @@ impl<F: StageFactory> PostChain<F> {
             configured,
             features: Vec::new(),
             capture_resources: None,
+            geometry_prefix: None,
             upload_slots: std::array::from_fn(|_| Vec::new()),
             frame_slot: 0,
             timing: std::rc::Rc::new(std::cell::RefCell::new(None)),
@@ -328,6 +333,7 @@ impl<F: StageFactory> PostChain<F> {
     }
     pub fn clear_capture_resources(&mut self) {
         self.capture_resources = None;
+        self.geometry_prefix = None;
     }
 
     /// Build replacements before switching; fixed history remains unchanged on resize/failure.
@@ -370,6 +376,7 @@ impl<F: StageFactory> PostChain<F> {
         for feature in &mut self.features {
             feature.prepared = None;
         }
+        self.geometry_prefix = None;
         self.targets = targets;
         self.configured = configured;
         Ok(())
@@ -485,6 +492,7 @@ impl<F: StageFactory> PostChain<F> {
     pub fn reconfigure(&mut self, device: &wgpu::Device, factory: F) -> Result<(), PostError> {
         factory.validate_config(device, self.targets.config())?;
         let configured = build_slots(&factory, device, &self.targets, &self.persistent)?;
+        self.geometry_prefix = None;
         self.factory = factory;
         self.configured = configured;
         Ok(())
@@ -594,9 +602,14 @@ impl<F: StageFactory> PostChain<F> {
         plan: &crate::FramePlan<'_>,
         borrowed: &mut [crate::BorrowedFeature<'_>],
     ) -> Result<(), crate::FrameError> {
+        self.geometry_prefix = None;
         let retained = std::mem::take(&mut self.features);
         let result = self.encode_geometry(device, encoder, plan, borrowed);
         self.features = retained;
+        if result.is_ok() {
+            let frame = worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+            self.geometry_prefix = Some(geometry_prefix::GeometryPrefix::new(frame, plan));
+        }
         result
     }
 
@@ -625,6 +638,7 @@ impl<F: StageFactory> PostChain<F> {
             .collect();
         crate::validate_frame(passes, &declarations, requested)?;
         crate::frame::validate_views(passes, views)?;
+        let completed = self.completed_geometry_prefix(encoder, plan)?;
         let mut local_registry = crate::contracts::ResourceRegistry::default();
         let registry = self
             .capture_resources
@@ -634,6 +648,9 @@ impl<F: StageFactory> PostChain<F> {
             crate::contracts::stock::compile(device, passes, views, &declarations, registry)?;
         self.prepare_features(device, encoder, borrowed, views)?;
         for (index, declaration) in passes.iter().enumerate() {
+            if completed.contains(&declaration.slot) {
+                continue;
+            }
             let context = crate::DrawContext {
                 slot: declaration.slot,
             };

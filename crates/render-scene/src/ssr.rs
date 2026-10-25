@@ -4,7 +4,7 @@ mod gpu;
 mod metadata;
 #[cfg(test)]
 mod tests;
-use crate::{frame::FrameUniform, ssao::Ssao};
+use crate::{frame::FrameUniform, scene_metadata::SceneMetadata};
 use worldrunner_render_plan::{SceneSsao, SceneSsr};
 use worldrunner_render_post::{
     AttachmentLoad, AttachmentView, FeatureDeclaration, FeaturePass, FrameConfig, FrameError,
@@ -18,6 +18,8 @@ pub(crate) fn validate_settings(settings: &SceneSsr) -> Result<(), FrameError> {
 }
 pub(crate) const fn neutral_ao() -> SceneSsao {
     SceneSsao {
+        kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         sample_count: 1,
         bias_millimeters: 0,
         radius_millimeters: 1,
@@ -62,13 +64,11 @@ impl Ssr {
         device: &wgpu::Device,
         config: FrameConfig,
         settings: SceneSsr,
-        screen: &mut Ssao,
+        screen: &mut SceneMetadata,
     ) -> Result<Self, FrameError> {
         validate_settings(&settings)?;
-        let (pipelines, group) = metadata::pipelines(device, &screen.uniform, false);
-        screen.geometry.pipelines = pipelines;
-        screen.geometry.group = group;
-        screen.geometry.reflection = Some(metadata::pipelines(device, &screen.uniform, true).0);
+        screen.geometry.reflection =
+            Some(crate::scene_metadata::pipelines(device, &screen.uniform, true).0);
         // All geometry pipelines use the same explicit group layout as the normal prepass.
 
         let material = metadata::material_texture(device, config.size, screen)?;

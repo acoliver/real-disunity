@@ -149,8 +149,12 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
         super::super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     enable_pages(&context, &mut renderer, 5);
-    let metadata =
-        crate::ssao::Ssao::new(context.device(), [96, 96], crate::ssr::neutral_ao()).unwrap();
+    let metadata = crate::scene_metadata::SceneMetadata::new(
+        context.device(),
+        [96, 96],
+        crate::ssr::neutral_ao(),
+    )
+    .unwrap();
     let frame = FrameUniform::new(&view(), Some(&renderer.effects)).unwrap();
     let prepared = context
         .submission()

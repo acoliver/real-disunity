@@ -9,7 +9,9 @@ pub enum PassSlot {
     DepthNormalPrepass,
     ReflectionMaterial,
     DepthPyramid(u32),
+    OcclusionMetadata(u32),
     Ssao,
+    SsaoBlurHorizontal,
     SsaoBlur,
     Opaque,
     AfterOpaqueSnapshot,
@@ -48,7 +50,7 @@ pub enum AttachmentLoad {
     ClearDepth(f32),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AttachmentDeclaration {
     pub resource: ResourceRef,
     pub format: wgpu::TextureFormat,

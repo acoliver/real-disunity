@@ -88,6 +88,8 @@ fn gpu_upload_rejects_requested_ssao_before_uploading_resources() {
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let mut parts = effect_parts();
     parts.ssao = Some(SceneSsao {
+        kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         sample_count: 16,
         bias_millimeters: 10,
         radius_millimeters: 500,
@@ -112,6 +114,8 @@ fn gpu_upload_rejects_requested_ssao_before_uploading_resources() {
 fn stock_frame_lighting_accepts_supported_ssao_settings() {
     let mut parts = effect_parts();
     parts.ssao = Some(SceneSsao {
+        kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+        filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         radius_millimeters: 500,
         intensity_micro: 1_000_000,
         horizon_angle_millidegrees: 90_000,

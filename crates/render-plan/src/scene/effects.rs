@@ -8,6 +8,7 @@
 //! SSAO are optional; sky, sun, ambient, cascades, camera, grading, the post
 //! stack, and the anti-aliasing choice are explicit.
 
+use super::SceneWaterBody;
 use crate::scene::direction::SceneDirection;
 use crate::scene::error::SceneValidationError;
 use crate::scene::resource::TextureHandle;
@@ -430,62 +431,11 @@ impl SceneAntiAlias {
     }
 }
 
-/// One axis-aligned water plane rectangle in the east/north plane.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SceneWaterPlane {
-    /// Surface elevation in scene millimetres.
-    pub height_millimeters: i64,
-    /// Linear scattering colour, in millionths per channel.
-    pub color_micro: [u32; 3],
-    /// Beer absorption coefficients per metre, in millionths.
-    pub absorption_micro: [u32; 3],
-    /// Surface roughness in millionths.
-    pub roughness_micro: u32,
-
-    /// Signed minimum east corner in millimeters.
-    pub east_min_millimeters: i64,
-    /// Signed minimum north corner in millimeters.
-    pub north_min_millimeters: i64,
-    /// Strictly positive east extent in millimeters.
-    pub east_extent_millimeters: u64,
-    /// Strictly positive north extent in millimeters.
-    pub north_extent_millimeters: u64,
-}
-
-impl SceneWaterPlane {
-    /// Validates extents and corner arithmetic.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SceneValidationError`] when an extent is zero or a maximum
-    /// corner computation overflows.
-    pub fn validate(&self) -> Result<(), SceneValidationError> {
-        require_extent(
-            self.east_extent_millimeters,
-            "water east_extent_millimeters",
-        )?;
-        require_extent(
-            self.north_extent_millimeters,
-            "water north_extent_millimeters",
-        )?;
-        checked_corner(
-            self.east_min_millimeters,
-            self.east_extent_millimeters,
-            "water east corner",
-        )?;
-        checked_corner(
-            self.north_min_millimeters,
-            self.north_extent_millimeters,
-            "water north corner",
-        )
-    }
-}
-
 /// Authored parts adopted by [`SceneEffects::new`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffectsParts {
     /// Optional water surface rectangle.
-    pub water: Option<SceneWaterPlane>,
+    pub water: Option<SceneWaterBody>,
     /// Mandatory sky model.
     pub sky: SceneSky,
     /// Mandatory directional light.
@@ -512,9 +462,10 @@ pub struct SceneEffectsParts {
 /// and SSAO may be absent within a profile; the other fields are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffects {
+    water_settings: Option<super::SceneWaterSettings>,
     hdr_post: Option<super::SceneHdrPost>,
     ssr: Option<super::SceneSsr>,
-    water: Option<SceneWaterPlane>,
+    water: Option<SceneWaterBody>,
     sky: SceneSky,
     sun: SceneSun,
     ambient: SceneAmbient,
@@ -527,6 +478,22 @@ pub struct SceneEffects {
 }
 
 impl SceneEffects {
+    pub fn with_water_settings(
+        mut self,
+        settings: super::SceneWaterSettings,
+    ) -> Result<Self, SceneValidationError> {
+        if self.water.is_none() {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "water settings require a body",
+            });
+        }
+        self.water_settings = Some(settings);
+        Ok(self)
+    }
+    pub const fn water_settings(&self) -> Option<super::SceneWaterSettings> {
+        self.water_settings
+    }
+
     /// Installs a complete optional HDR post policy.
     pub fn with_hdr_post(
         mut self,
@@ -558,6 +525,7 @@ impl SceneEffects {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn new(parts: SceneEffectsParts) -> Result<Self, SceneValidationError> {
         let effects = Self {
+            water_settings: None,
             hdr_post: None,
             ssr: None,
             water: parts.water,
@@ -577,7 +545,7 @@ impl SceneEffects {
 
     /// Returns the authored water rectangle, when the scene carries one.
     #[must_use]
-    pub const fn water(&self) -> Option<&SceneWaterPlane> {
+    pub const fn water(&self) -> Option<&SceneWaterBody> {
         self.water.as_ref()
     }
 
@@ -666,7 +634,7 @@ impl SceneEffects {
 }
 
 /// Requires one inclusive integer range.
-fn require_range(
+pub(super) fn require_range(
     part: &'static str,
     observed: u64,
     minimum: u64,
@@ -684,226 +652,9 @@ fn require_range(
     }
 }
 
-/// Requires one strictly positive extent.
-fn require_extent(extent: u64, part: &'static str) -> Result<(), SceneValidationError> {
-    require_range(part, extent, 1, u64::MAX)
-}
-
-/// Requires one minimum corner plus extent to stay inside `i64`.
-fn checked_corner(
-    minimum: i64,
-    extent: u64,
-    part: &'static str,
-) -> Result<(), SceneValidationError> {
-    let extent =
-        i64::try_from(extent).map_err(|_| SceneValidationError::ArithmeticOverflow { part })?;
-    minimum
-        .checked_add(extent)
-        .ok_or(SceneValidationError::ArithmeticOverflow { part })?;
-    Ok(())
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::scene::direction::SceneDirection;
-
-    fn parts() -> SceneEffectsParts {
-        SceneEffectsParts {
-            water: Some(SceneWaterPlane {
-                height_millimeters: 0,
-                color_micro: [50_000, 200_000, 250_000],
-                absorption_micro: [300_000, 100_000, 50_000],
-                roughness_micro: 200_000,
-                east_min_millimeters: -1_000,
-                north_min_millimeters: -1_000,
-                east_extent_millimeters: 2_000,
-                north_extent_millimeters: 2_000,
-            }),
-            sky: SceneSky::ProceduralHemisphere {
-                zenith: SceneColor {
-                    red: 96,
-                    green: 148,
-                    blue: 220,
-                },
-                horizon: SceneColor {
-                    red: 208,
-                    green: 226,
-                    blue: 240,
-                },
-            },
-            sun: SceneSun {
-                direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
-                irradiance_micro: 800_000,
-            },
-            ambient: SceneAmbient {
-                sky_irradiance_micro: 200_000,
-                ground_irradiance_micro: 80_000,
-            },
-            shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
-                .expect("synthetic cascades validate"),
-            ssao: Some(SceneSsao {
-                sample_count: 16,
-                bias_millimeters: 10,
-                radius_millimeters: 1_200,
-                intensity_micro: 1_000_000,
-                horizon_angle_millidegrees: 90_000,
-            }),
-            camera: SceneCamera {
-                vertical_fov_millidegrees: 60_000,
-                near_plane_millimeters: 100,
-                far_plane_millimeters: 2_000_000,
-            },
-            grading: SceneColorGrading {
-                exposure_micro: 1_000_000,
-                contrast_micro: 1_000_000,
-                saturation_micro: 1_000_000,
-            },
-            post: vec![ScenePostStage::Bloom {
-                threshold_micro: 900_000,
-                intensity_micro: 250_000,
-            }],
-            anti_alias: SceneAntiAlias::Fxaa {
-                subpixel_micro: 250_000,
-            },
-        }
-    }
-
-    #[test]
-    fn nonneutral_grading_cannot_construct_scene_effects() {
-        for (contrast, saturation, part, observed) in [
-            (999_999, 1_000_000, "grading contrast_micro", 999_999),
-            (1_000_000, 1_000_001, "grading saturation_micro", 1_000_001),
-            (0, 2_000_000, "grading contrast_micro", 0),
-        ] {
-            let mut staged = parts();
-            staged.grading.contrast_micro = contrast;
-            staged.grading.saturation_micro = saturation;
-            assert_eq!(
-                SceneEffects::new(staged),
-                Err(SceneValidationError::UnsupportedColorGrading {
-                    part,
-                    observed,
-                    neutral: EFFECTS_MICRO_SCALE,
-                })
-            );
-        }
-    }
-
-    #[test]
-    fn grading_quantity_bounds_still_fail_before_capability_checks() {
-        for (contrast, saturation, part) in [
-            (2_000_001, 1_000_000, "grading contrast_micro"),
-            (1_000_000, u32::MAX, "grading saturation_micro"),
-        ] {
-            let mut staged = parts();
-            staged.grading.contrast_micro = contrast;
-            staged.grading.saturation_micro = saturation;
-            assert!(matches!(
-                SceneEffects::new(staged),
-                Err(SceneValidationError::RangeViolation { part: actual, .. }) if actual == part
-            ));
-        }
-    }
-
-    #[test]
-    fn neutral_grading_preserves_the_exposure_domain() {
-        for exposure in [0, 1_000_000, 1_750_000, 4_000_000] {
-            let mut staged = parts();
-            staged.grading.exposure_micro = exposure;
-            let expected = staged.grading;
-            let effects = SceneEffects::new(staged).expect("neutral grading is supported");
-            assert_eq!(*effects.grading(), expected);
-        }
-        let mut staged = parts();
-        staged.grading.exposure_micro = 4_000_001;
-        assert!(matches!(
-            SceneEffects::new(staged),
-            Err(SceneValidationError::RangeViolation {
-                part: "grading exposure_micro",
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn valid_effects_compose_with_water() {
-        let effects = SceneEffects::new(parts()).expect("synthetic effects validate");
-        assert!(effects.water().is_some());
-        assert_eq!(effects.shadows().extents_millimeters(), &[8_000, 32_000]);
-        assert_eq!(effects.post().len(), 1);
-    }
-
-    #[test]
-    fn cascade_extents_must_strictly_increase() {
-        assert!(matches!(
-            SceneShadowCascades::new(vec![8_000, 8_000], 0),
-            Err(SceneValidationError::CascadeNotIncreasing { position: 1, .. })
-        ));
-        assert!(matches!(
-            SceneShadowCascades::new(Vec::new(), 0),
-            Err(SceneValidationError::EmptyCollection { .. })
-        ));
-    }
-
-    #[test]
-    fn camera_planes_must_be_ordered() {
-        let mut staged = parts();
-        staged.camera.far_plane_millimeters = staged.camera.near_plane_millimeters;
-        assert!(matches!(
-            SceneEffects::new(staged),
-            Err(SceneValidationError::PlaneOrdering { .. })
-        ));
-    }
-
-    #[test]
-    fn quantity_bounds_fail_closed() {
-        // The sun carries its own, higher ceiling; see
-        // MAXIMUM_SUN_IRRADIANCE_MICRO for why it is not a unit ratio.
-        let mut staged = parts();
-        staged.sun.irradiance_micro = MAXIMUM_SUN_IRRADIANCE_MICRO + 1;
-        assert!(matches!(
-            SceneEffects::new(staged),
-            Err(SceneValidationError::RangeViolation {
-                observed: 10_000_001,
-                ..
-            })
-        ));
-        let mut staged = parts();
-        staged.anti_alias = SceneAntiAlias::Taa {
-            history_micro: 1_000_001,
-        };
-        assert!(matches!(
-            SceneEffects::new(staged),
-            Err(SceneValidationError::RangeViolation { .. })
-        ));
-        let mut staged = parts();
-        staged.water = Some(SceneWaterPlane {
-            height_millimeters: 0,
-            color_micro: [50_000, 200_000, 250_000],
-            absorption_micro: [300_000, 100_000, 50_000],
-            roughness_micro: 200_000,
-            east_min_millimeters: i64::MAX,
-            north_min_millimeters: 0,
-            east_extent_millimeters: 2_000,
-            north_extent_millimeters: 2_000,
-        });
-        assert!(matches!(
-            SceneEffects::new(staged),
-            Err(SceneValidationError::ArithmeticOverflow { .. })
-        ));
-    }
-
-    #[test]
-    fn water_and_ssao_can_be_omitted_within_a_profile() {
-        let mut staged = parts();
-        staged.water = None;
-        staged.ssao = None;
-        let effects = SceneEffects::new(staged).expect("waterless effects validate");
-        assert!(effects.water().is_none());
-        assert!(effects.ssao().is_none());
-    }
-}
+#[path = "effects_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "cascade_tests.rs"]

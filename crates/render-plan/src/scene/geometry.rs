@@ -76,6 +76,7 @@ pub enum BillboardPolicy {
 /// One owned mesh level-of-detail with its geometry payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneMeshLod {
+    card: Option<super::SceneCard>,
     level_index: u8,
     vertices: Box<[SceneVertex]>,
     indices: Box<[u32]>,
@@ -83,6 +84,19 @@ pub struct SceneMeshLod {
 }
 
 impl SceneMeshLod {
+    pub fn with_card(mut self, card: super::SceneCard) -> Result<Self, SceneValidationError> {
+        if self.billboard != Some(card.policy()) {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "card policy differs from LOD billboard",
+            });
+        }
+        self.card = Some(card);
+        Ok(self)
+    }
+    pub const fn card(&self) -> Option<&super::SceneCard> {
+        self.card.as_ref()
+    }
+
     /// Adopts one level after validating its index buffer closure.
     ///
     /// # Errors
@@ -97,6 +111,7 @@ impl SceneMeshLod {
         billboard: Option<BillboardPolicy>,
     ) -> Result<Self, SceneValidationError> {
         let level = Self {
+            card: None,
             level_index,
             vertices: vertices.into_boxed_slice(),
             indices: indices.into_boxed_slice(),
@@ -364,12 +379,22 @@ impl SceneTransform {
 /// One ordered scene object: canonical placement plus dense resource handles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneObject {
+    tint: super::SceneTint,
     transform: SceneTransform,
     mesh: MeshHandle,
     material: MaterialHandle,
 }
 
 impl SceneObject {
+    #[must_use]
+    pub const fn with_tint(mut self, tint: super::SceneTint) -> Self {
+        self.tint = tint;
+        self
+    }
+    pub const fn tint(&self) -> super::SceneTint {
+        self.tint
+    }
+
     /// Adopts one object placement and its resource handles.
     #[must_use]
     pub const fn new(
@@ -378,6 +403,7 @@ impl SceneObject {
         material: MaterialHandle,
     ) -> Self {
         Self {
+            tint: super::SceneTint::WHITE,
             transform,
             mesh,
             material,

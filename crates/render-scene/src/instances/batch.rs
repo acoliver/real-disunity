@@ -44,7 +44,7 @@ impl InstanceBatch {
     pub fn set_transform(&mut self, position: usize, transform: SceneTransform) {
         let (object, visible) = self.get(position);
         self.placements[position] = Some((
-            SceneObject::new(transform, object.mesh(), object.material()),
+            SceneObject::new(transform, object.mesh(), object.material()).with_tint(object.tint()),
             visible,
         ));
         self.pack(position);

@@ -1,3 +1,4 @@
+use crate::frame::metadata::FrameProduct;
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, FeaturePass, FrameError, PassDeclaration, PassSlot,
     PreparedFeature, ResourceRef,
@@ -104,10 +105,7 @@ pub(crate) struct ScreenPasses {
     pub filtered: wgpu::Texture,
 }
 fn level(index: u32) -> ResourceRef {
-    ResourceRef {
-        version: index,
-        ..ResourceRef::new("linear camera depth")
-    }
+    FrameProduct::linear_depth(index).resource()
 }
 impl ScreenPasses {
     pub(crate) fn depth_levels(&self) -> Vec<&wgpu::Texture> {
@@ -135,7 +133,7 @@ impl ScreenPasses {
                     include_str!("linear.wgsl"),
                     depth,
                     Some(uniform),
-                    vec![ResourceRef::new("prepass depth")],
+                    vec![FrameProduct::prepass_depth().resource()],
                 )
             } else {
                 (
@@ -171,7 +169,7 @@ impl ScreenPasses {
             pipeline: ao,
             group: ao_group,
             target: raw,
-            reads: vec![level(0), ResourceRef::new("prepass normals")],
+            reads: vec![level(0), FrameProduct::normals().resource()],
         });
         stages.push(ScreenPass {
             slot: PassSlot::SsaoBlur,
@@ -252,8 +250,8 @@ pub(crate) fn prepass(
     passes: &mut Vec<PassDeclaration>,
     views: &mut Vec<AttachmentView>,
 ) -> Result<(), FrameError> {
-    let normals = AttachmentView::new(ResourceRef::new("prepass normals"), &ssao.normals)?;
-    let depth = AttachmentView::new(ResourceRef::new("prepass depth"), &ssao.depth)?;
+    let normals = FrameProduct::normals().attachment(&ssao.normals)?;
+    let depth = FrameProduct::prepass_depth().attachment(&ssao.depth)?;
     let mut pass = PassDeclaration::new(PassSlot::DepthNormalPrepass);
     pass.color = Some(crate::compositor::attachment(
         normals.resource(),
@@ -315,4 +313,21 @@ impl ScreenFeature<'_> {
 
         Ok(declaration)
     }
+}
+
+pub(super) fn source_textures(
+    device: &wgpu::Device,
+    size: [u32; 2],
+) -> Result<(wgpu::Texture, wgpu::Texture), FrameError> {
+    let normals = texture(device, size, wgpu::TextureFormat::Rgba16Float);
+    let depth = texture(device, size, wgpu::TextureFormat::Depth32Float);
+    crate::frame::metadata::validate_inputs(
+        &depth,
+        &normals,
+        None,
+        None,
+        crate::frame::metadata::MetadataSampling::PixelCenter,
+    )
+    .map_err(|_| FrameError::SsaoSettings("source metadata contract"))?;
+    Ok((normals, depth))
 }

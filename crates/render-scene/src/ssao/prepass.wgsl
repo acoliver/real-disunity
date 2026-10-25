@@ -7,6 +7,6 @@ fn prepass_normal(input: VertexOutput, front: bool) -> vec4<f32> {
 }
 @fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let alpha = textureSample(albedo_texture, material_sampler, input.texcoord).a;
-    if alpha < material.alpha_cutoff { discard; }
+    if !scene_alpha_covered(alpha) { discard; }
     return prepass_normal(input, front);
 }

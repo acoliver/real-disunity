@@ -11,13 +11,22 @@ mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
 mod composition;
 mod effects;
+mod water;
+mod water_settings;
+pub use water::SceneWaterBody;
+pub use water_settings::{SceneWaterGeometry, SceneWaterSettings};
 mod post;
 pub use post::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
 mod ssr;
 pub use ssr::SceneSsr;
 mod error;
 mod geometry;
+mod material_features;
 mod resource;
+pub use material_features::{
+    SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,
+    SceneTint, SceneWind,
+};
 mod terrain;
 
 pub use composition::{
@@ -27,7 +36,7 @@ pub use composition::{
 pub use effects::{
     EFFECTS_MICRO_SCALE, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
     SceneEffects, SceneEffectsParts, ScenePostStage, SceneShadowCascades, SceneSky, SceneSsao,
-    SceneSun, SceneWaterPlane,
+    SceneSun,
 };
 pub use error::SceneValidationError;
 pub use geometry::{
@@ -177,6 +186,12 @@ impl RenderScene {
         }
         let material_limit = table_limit(self.resources.materials().len(), "materials")?;
         let mesh_limit = table_limit(self.geometry.meshes().len(), "meshes")?;
+        if let Some(settings) = self.effects.as_ref().and_then(SceneEffects::water_settings) {
+            settings.validate_handles(
+                table_limit(self.resources.textures().len(), "textures")?,
+                mesh_limit,
+            )?;
+        }
         for object in self.geometry.objects() {
             require_handle("scene object", object.mesh().raw(), "mesh", mesh_limit)?;
             require_handle(

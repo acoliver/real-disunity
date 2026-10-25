@@ -22,6 +22,7 @@ use crate::upload::{
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
+mod descriptors;
 mod dynamic;
 mod publication;
 mod retained;
@@ -148,7 +149,7 @@ pub struct SceneGpu {
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
-    pub(crate) water: Option<worldrunner_render_plan::SceneWaterPlane>,
+    pub(crate) water: Option<worldrunner_render_plan::SceneWaterBody>,
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
@@ -469,6 +470,7 @@ mod resources;
 mod tests;
 
 fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(), DrawError> {
+    descriptors::validate(scene)?;
     if let Some(effects) = scene.effects() {
         crate::frame::validate_stock_effects(effects)?;
         if crate::post::requested(effects)

@@ -37,3 +37,40 @@ fn handle_slot_reuse_increments_generation_and_keeps_scene_identity() {
         Err(InstanceError::StaleHandle)
     ));
 }
+
+#[test]
+fn runtime_instance_edits_cannot_silently_ignore_tint() {
+    let scene = RenderScene::new(SceneParts {
+        resources: SceneResources::new(vec![], vec![]).unwrap(),
+        geometry: SceneGeometry::new(vec![], vec![]).unwrap(),
+        terrain: None,
+        effects: None,
+    })
+    .unwrap();
+    let mut instances = Instances::new(&scene);
+    let object = SceneObject::new(
+        SceneTransform {
+            position_millimeters: [0; 3],
+            rotation: SceneRotation::IDENTITY,
+            scale_millionths: 1_000_000,
+        },
+        MeshHandle::from_raw(0),
+        MaterialHandle::from_raw(0),
+    )
+    .with_tint(worldrunner_render_plan::SceneTint::new([0; 3]).unwrap());
+    assert!(matches!(
+        instances.add(object, true),
+        Err(InstanceError::UnsupportedTint)
+    ));
+    assert_eq!(instances.handles().count(), 0);
+    let mut batch = batch::InstanceBatch::default();
+    let slot = batch.add(object, true);
+    batch.set_transform(
+        slot,
+        SceneTransform {
+            position_millimeters: [1, 2, 3],
+            ..*object.transform()
+        },
+    );
+    assert_eq!(batch.get(slot).0.tint(), object.tint());
+}

@@ -60,7 +60,7 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
 #[test]
 fn stock_water_and_non_neutral_grading_are_explicit_errors() {
     let mut water = fixture::effects_parts(600_000);
-    water.water = Some(SceneWaterPlane {
+    water.water = Some(SceneWaterBody {
         height_millimeters: 0,
         color_micro: [50_000, 200_000, 250_000],
         absorption_micro: [300_000, 100_000, 50_000],

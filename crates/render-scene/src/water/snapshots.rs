@@ -1,4 +1,5 @@
 use crate::frame::FrameUniform;
+use crate::frame::metadata::FrameProduct;
 use worldrunner_render_post::{DrawContext, PrepareContext, PreparedFeature};
 
 pub(crate) struct SnapshotFeature {
@@ -153,7 +154,15 @@ impl Snapshots {
                 continue;
             }
             let resource = ResourceRef::new(name);
-            let view = AttachmentView::new(resource, texture)?;
+            let view = match name {
+                "opaque snapshot depth" => {
+                    FrameProduct::opaque_depth(self.samples).attachment(texture)?
+                }
+                "post-water depth" => {
+                    FrameProduct::final_depth(self.samples).attachment(texture)?
+                }
+                _ => AttachmentView::new(resource, texture)?,
+            };
             let mut pass = PassDeclaration::new(slot);
             pass.color = Some(crate::compositor::attachment(resource, &view, false));
             passes.push(pass);

@@ -10,8 +10,8 @@ use crate::{CameraPose, SceneView, Viewport, device::GpuContext};
 use worldrunner_render_plan::SceneCamera;
 use worldrunner_render_post::{FrameConfig, Readback, ToneMap};
 
-fn settings() -> SceneWaterPlane {
-    SceneWaterPlane {
+fn settings() -> SceneWaterBody {
+    SceneWaterBody {
         height_millimeters: 0,
         east_min_millimeters: -10000,
         north_min_millimeters: -10000,
@@ -32,14 +32,14 @@ fn absorption_increases_with_distance_and_foreground_is_rejected() {
     assert_eq!(refraction_pixel([3, 4], [5, 6], 2.0, 3.0), [3, 4]);
     assert_eq!(refraction_pixel([3, 4], [5, 6], 4.0, 3.0), [5, 6]);
     assert!(matches!(
-        validate_settings(&SceneWaterPlane {
+        validate_settings(&SceneWaterBody {
             roughness_micro: 1_000_001,
             ..settings()
         }),
         Err(FrameError::WaterSettings(_))
     ));
     assert!(matches!(
-        validate_settings(&SceneWaterPlane {
+        validate_settings(&SceneWaterBody {
             absorption_micro: [u32::MAX; 3],
             ..settings()
         }),

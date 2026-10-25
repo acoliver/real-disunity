@@ -9,7 +9,7 @@ fn reflection_metadata(input: VertexOutput, front: bool, masked: bool) -> vec4<f
         roughness *= rm.g;
         metalness *= rm.b;
     }
-    if masked && albedo.a < material.alpha_cutoff { discard; }
+    if masked && !scene_alpha_covered(albedo.a) { discard; }
     return METADATA_OUTPUT;
 }
 @fragment fn fs_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {

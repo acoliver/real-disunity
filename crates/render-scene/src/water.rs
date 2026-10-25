@@ -6,7 +6,7 @@ mod tests;
 
 use crate::frame::FrameUniform;
 use snapshots::Snapshots;
-use worldrunner_render_plan::SceneWaterPlane;
+use worldrunner_render_plan::SceneWaterBody;
 use worldrunner_render_post::{
     AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError, PassDeclaration, PassSlot,
     PreparedFeature, ResourceRef,
@@ -89,7 +89,7 @@ impl PreparedFeature for WaterPrepared {
 }
 
 /// Validates the bounded stock water model before allocating GPU resources.
-pub fn validate_settings(settings: &SceneWaterPlane) -> Result<(), FrameError> {
+pub fn validate_settings(settings: &SceneWaterBody) -> Result<(), FrameError> {
     if settings.roughness_micro > 1_000_000 {
         return Err(FrameError::WaterSettings("roughness must be 0..=1000000"));
     }
@@ -130,7 +130,7 @@ pub fn refraction_pixel(
 
 #[derive(Clone, Debug)]
 pub(crate) struct Water {
-    pub settings: SceneWaterPlane,
+    pub settings: SceneWaterBody,
     pub snapshots: [Snapshots; 3],
     pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -140,7 +140,7 @@ impl Water {
     pub fn new(
         device: &wgpu::Device,
         config: worldrunner_render_post::FrameConfig,
-        settings: SceneWaterPlane,
+        settings: SceneWaterBody,
     ) -> Result<Self, FrameError> {
         validate_settings(&settings)?;
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

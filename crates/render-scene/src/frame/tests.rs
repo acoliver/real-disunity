@@ -299,3 +299,68 @@ fn a_dome_sky_cannot_supply_hemispheric_ambient() {
     .expect_err("a dome sky is reported");
     assert_eq!(error, FrameError::AmbientFromDomeTexture);
 }
+
+fn water_effects() -> SceneEffects {
+    let base = effects(
+        procedural(grey(255), grey(255)),
+        SceneSun {
+            direction: east(),
+            irradiance_micro: 1_000_000,
+        },
+        SceneAmbient {
+            sky_irradiance_micro: 1_000_000,
+            ground_irradiance_micro: 1_000_000,
+        },
+    );
+    SceneEffects::new(SceneEffectsParts {
+        water: Some(worldrunner_render_plan::SceneWaterBody {
+            height_millimeters: 0,
+            color_micro: [500_000; 3],
+            absorption_micro: [1_000_000; 3],
+            roughness_micro: 500_000,
+            east_min_millimeters: 0,
+            north_min_millimeters: 0,
+            east_extent_millimeters: 1000,
+            north_extent_millimeters: 1000,
+        }),
+        sky: *base.sky(),
+        sun: *base.sun(),
+        ambient: *base.ambient(),
+        shadows: base.shadows().clone(),
+        ssao: None,
+        camera: *base.camera(),
+        grading: *base.grading(),
+        post: Vec::new(),
+        anti_alias: *base.anti_alias(),
+    })
+    .unwrap()
+}
+
+#[test]
+fn stock_water_is_admitted_without_an_authored_refraction_bound() {
+    let effects = water_effects();
+    assert!(FrameUniform::new(&view(), Some(&effects)).is_ok());
+    let explicit_stock = effects
+        .with_water_settings(worldrunner_render_plan::SceneWaterSettings::STOCK)
+        .unwrap();
+    assert!(FrameUniform::new(&view(), Some(&explicit_stock)).is_ok());
+}
+
+#[test]
+fn authored_refraction_bounds_are_rejected_before_upload() {
+    for bound in [0, 125] {
+        let effects = water_effects()
+            .with_water_settings(worldrunner_render_plan::SceneWaterSettings {
+                refraction_millimeters: Some(bound),
+                ..worldrunner_render_plan::SceneWaterSettings::STOCK
+            })
+            .unwrap();
+        assert!(
+            matches!(
+                FrameUniform::new(&view(), Some(&effects)),
+                Err(FrameError::UnsupportedEffect("water refraction bound"))
+            ),
+            "authored bound {bound} must not be silently ignored"
+        );
+    }
+}

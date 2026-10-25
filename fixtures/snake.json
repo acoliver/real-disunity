@@ -21,14 +21,7 @@
     "capture_count": 32
   },
   "metadata": {
-    "upstream": "https://github.com/eguldali/Optimized-Snake-Game",
-    "source_editor_observed": "6000.3.7f1",
     "scene": "Assets/Scenes/GameScene.unity",
-    "source_scripts": "original",
-    "visual_assets": "original scene plus explicitly authored missing-sprite replacement",
-    "visual_sidecars": [
-      "crates/compat-content/overlays/snake.json"
-    ],
     "compatibility_sidecar": {
       "field_overrides": [],
       "reference_substitutions": [
@@ -79,7 +72,6 @@
         }
       ]
     },
-    "observation_contract": "world.snapshot is native JSON snapshot data; selector uses unchanged authored object names",
     "evidence_label": "original-source/authored-missing-sprite",
     "script_count": 8,
     "import_profile": {
@@ -94,8 +86,7 @@
       "ignored_components": {
         "AudioListener": "Audio is outside this native 2D admission profile."
       }
-    },
-    "coverage": "Movement/capture/reload smoke only. Complete food/growth/death/reset acceptance is separate."
+    }
   },
   "timeline": [
     {

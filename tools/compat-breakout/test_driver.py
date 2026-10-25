@@ -7,7 +7,7 @@ class ReplayTests(unittest.TestCase):
     def test_export_preserves_keyboard_timeline_and_appends_unload(self):
         fixture = {'metadata': {}, 'timeline': [], 'assertions': []}
         timeline = [dict(frame=0, phase='load', action='load')] + steps(1, ['A'])
-        frozen = replay_fixture(fixture, timeline, 1, 'wide', {})
+        frozen = replay_fixture(fixture, timeline, 1, 'wide')
         self.assertEqual(frozen['timeline'][:4], timeline)
         self.assertEqual(frozen['timeline'][-1]['action'], 'unload')
         self.assertEqual(frozen['limits']['deadline_ms'], 120000)
@@ -16,7 +16,7 @@ class ReplayTests(unittest.TestCase):
     def test_frozen_replay_retains_requested_animation_and_loss_observations(self):
         timeline = [dict(frame=0, phase='load', action='load')]
         timeline += steps(1, []) + steps(2, ['D'])
-        frozen = replay_fixture({'metadata': {}}, timeline, 2, 'samples', {}, sample_frames=[1, 2])
+        frozen = replay_fixture({'metadata': {}}, timeline, 2, 'samples', sample_frames=[1, 2])
         samples = [a for a in frozen['timeline'] if a['action'] == 'observe']
         self.assertEqual([(a['frame'], a['selector']) for a in samples],
                          [(1, 'world.snapshot'), (1, 'events'),
@@ -25,7 +25,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual([a['frame'] for a in frozen['timeline']],
                          sorted(a['frame'] for a in frozen['timeline']))
         with self.assertRaises(ValueError):
-            replay_fixture({'metadata': {}}, timeline, 2, 'bad', {}, sample_frames=[3])
+            replay_fixture({'metadata': {}}, timeline, 2, 'bad', sample_frames=[3])
 
     def test_presentation_compaction_preserves_native_stimuli_and_assertions(self):
         from driver import compact_presentation
@@ -57,7 +57,7 @@ class ReplayTests(unittest.TestCase):
                         dict(frame=1, action='input', keys=['Space'], axes={})]:
             with self.subTest(action=invalid):
                 with self.assertRaises(ValueError):
-                    replay_fixture(fixture, [invalid], 1, 'bad', {})
+                    replay_fixture(fixture, [invalid], 1, 'bad')
 
     def test_tracking_uses_current_observed_position_and_direction(self):
         self.assertEqual(tracking_keys(0, [(2, -2, -1)], .5), ['D'])

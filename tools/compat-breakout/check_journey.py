@@ -106,7 +106,7 @@ def main():
             assert fixture['limits']['deadline_ms'] == 120000
             # Revalidate the public stimulus contract without changing the frozen file.
             replay_fixture(fixture, fixture['timeline'][:-1],
-                           fixture['timeline'][-1]['frame'], scenario, {})
+                           fixture['timeline'][-1]['frame'], scenario)
             folder = args.replays / fixture_path.stem
             record_path = folder / (label + '.json')
             if not record_path.exists():

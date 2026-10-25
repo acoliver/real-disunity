@@ -20,14 +20,7 @@
     "capture_count": 32
   },
   "metadata": {
-    "upstream": "https://github.com/admtrv/Breakout",
-    "source_editor_observed": "6000.3.5f2",
     "scene": "Assets/Scenes/SampleScene.unity",
-    "source_scripts": "original",
-    "visual_assets": "original sprites with declared material/font translations",
-    "visual_sidecars": [
-      "crates/compat-content/overlays/breakout.json"
-    ],
     "compatibility_sidecar": {
       "field_overrides": [],
       "reference_substitutions": [
@@ -84,36 +77,8 @@
         "073797afb82c5a1438f328866b10b3f0:11500000": "Unavailable original 2D light extension. Explicit unlit render admission retains original record and diagnostics."
       }
     },
-    "coverage": {
-      "status": "partial",
-      "checkpoints": [
-        "initial",
-        "brick-disabled",
-        "brick-animation",
-        "two-balls",
-        "first-ball-lost",
-        "survivor-before-last-loss",
-        "fresh-last-ball-launch",
-        "replacement-launched"
-      ],
-      "complete_journey": false
-    },
     "managed_profile": {
       "unknown_fields": "reject"
-    },
-    "ignored_stale_serialized_fields": {
-      "Brick.powerUpChance": "Source-selected importer exclusion with diagnostic; current original Brick.cs lacks this field.",
-      "Brick.widePlatformDuration": "Source-selected importer exclusion with diagnostic; current original Brick.cs lacks this field."
-    },
-    "collision_fidelity": "sprite_bounds from original sprite rect, pixels-per-unit and pivot; original physicsShape is empty. No alpha tracing or authored polygon fidelity claim.",
-    "source_sha256": {
-      "Assets/Scripts/Ball.cs": "48a403fffa720347492e21fa9a3639dce49b6a0c9b115cc44107dcae76fcdaa0",
-      "Assets/Scripts/BallSpawner.cs": "8bab08852b7ba05f41185de8ef584f7edf1acfa31a7112d51ddea11b05215185",
-      "Assets/Scripts/Brick.cs": "15b442a0adcbb4cca47c9174f76f211360892b260074be73dfeb369e64c2c6b1",
-      "Assets/Scripts/BrickSpawner.cs": "3700df2409b2becb0b36bacfe51e5e4bc70e34b78c04a8946a642ac5c6b70a30",
-      "Assets/Scripts/DeathZone.cs": "517e70adeb8679ec642b3e8731d879a117028123fd226011afb0b6d1972e5bf2",
-      "Assets/Scripts/Platform.cs": "e2e61e25dacbabc32246854a7c53dff61714de6063f39f37ec48a67594ecd771",
-      "Assets/Scripts/PowerUp.cs": "5dc383e7950797c5ac4a7bd121133a48ba8c96b5e76cde327eeca775a07358b5"
     },
     "journey_checkpoints": [
       {

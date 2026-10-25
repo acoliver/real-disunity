@@ -126,13 +126,7 @@ def metadata(root):
             "import_profile": read_json(root / "crates/compat-content/profiles/snake-source.json"),
             "admission_policy": read_json(root / "crates/compat-content/profiles/snake-admission.json"),
             "compatibility_sidecar": read_json(root / "crates/compat-content/overlays/snake.json"),
-            "viewport": [960, 720], "evidence_label": LABEL,
-            "source_scripts": "original, eight unchanged Assets/Scripts C# files",
-            "visual_variant": "authored-missing-sprite", "reset_mechanism": "fixture-reload",
-            "native_update_contract": (
-                "Each logical tick duration is subdivided into 1/60-second native Updates plus a final remainder. "
-                "Logical frame labels retain input/observation/capture boundaries."),
-            "qualification": "facade-backed source execution; no Unity compiler/editor certification"}
+            "viewport": [960, 720], "evidence_label": LABEL}
 
 
 def action(frame, name, **values):

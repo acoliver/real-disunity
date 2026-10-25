@@ -21,14 +21,7 @@
     "capture_count": 32
   },
   "metadata": {
-    "upstream": "https://github.com/mcrvaz/pong-tdd",
-    "source_editor_observed": "2017.1.0f3",
     "scene": "Assets/Scenes/Main.unity",
-    "source_scripts": "original",
-    "visual_assets": "original sprites with declared material/font translations",
-    "visual_sidecars": [
-      "crates/compat-content/overlays/pong.json"
-    ],
     "compatibility_sidecar": {
       "field_overrides": [
         {
@@ -110,7 +103,6 @@
         "f70555f144d8491a825f0804e09c671c:1301386320": "Legacy UI graphic raycasting remains unsupported; no pointer-driven interaction is admitted."
       }
     },
-    "coverage": "Movement/capture/reload smoke only. Complete gameplay journey assertions are separate.",
     "fonts": {
       "host.builtin-font": "fixtures/fonts/DejaVuSans.ttf"
     },

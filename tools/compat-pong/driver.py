@@ -53,7 +53,6 @@ class Planner:
         self.fixture = json.loads((ROOT / 'fixtures/pong.json').read_text())
         self.fixture['name'] = 'pong-journey'
         self.source = source
-        self.fixture['metadata']['coverage'] = 'Keyboard-only physical paddle contacts, both goals, reset/wait/relaunch, repeated scoring and reload.'
         self.timeline = [action(0, 'load')]
         self.frame = 0
         self.serial = 0

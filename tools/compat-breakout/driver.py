@@ -42,7 +42,7 @@ def compact_presentation(fixture, ticks_per_frame=10):
     return compact
 
 
-def replay_fixture(fixture, timeline, frame, case, evidence, sample_frames=()):
+def replay_fixture(fixture, timeline, frame, case, sample_frames=()):
     from itertools import groupby
     requested = set(sample_frames)
     advanced = {a['frame'] for a in timeline if a['action'] == 'advance'}
@@ -74,7 +74,6 @@ def replay_fixture(fixture, timeline, frame, case, evidence, sample_frames=()):
                   timeline=copy.deepcopy(timeline) + [action(frame, 'unload')], assertions=[],
                   limits=dict(deadline_ms=120000, log_bytes=1048576,
                               artifact_bytes=268435456, capture_count=32))
-    frozen['metadata']['coverage'] = evidence
     return frozen
 
 
@@ -247,8 +246,7 @@ class Planner:
 
     def export(self, name, sample_frames=(), compact=False):
         fixture = replay_fixture(self.fixture, self.timeline, self.frame, name,
-                                 dict(status='partial', checkpoints=[c['label'] for c in self.checkpoints],
-                                      complete_journey=False), sample_frames=sample_frames)
+                                 sample_frames=sample_frames)
         fixture['metadata']['journey_checkpoints'] = [dict(label=c['label'], frame=c['frame'],
             brick_count=len(live(c['snapshot'], 'Brick')), ball_count=len(live(c['snapshot'], 'Ball')))
             for c in self.checkpoints]

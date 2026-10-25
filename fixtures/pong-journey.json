@@ -21,14 +21,7 @@
     "capture_count": 32
   },
   "metadata": {
-    "upstream": "https://github.com/mcrvaz/pong-tdd",
-    "source_editor_observed": "2017.1.0f3",
     "scene": "Assets/Scenes/Main.unity",
-    "source_scripts": "original",
-    "visual_assets": "original sprites with declared material/font translations",
-    "visual_sidecars": [
-      "crates/compat-content/overlays/pong.json"
-    ],
     "compatibility_sidecar": {
       "field_overrides": [
         {
@@ -110,33 +103,10 @@
         "f70555f144d8491a825f0804e09c671c:1301386320": "Legacy UI graphic raycasting remains unsupported; no pointer-driven interaction is admitted."
       }
     },
-    "coverage": "Keyboard-only physical paddle contacts, both goals, reset/wait/relaunch, repeated scoring and reload.",
     "fonts": {
       "host.builtin-font": "fixtures/fonts/DejaVuSans.ttf"
     },
     "font_license": "fixtures/fonts/DejaVu-LICENSE.txt",
-    "source_sha256": {
-      "Assets/Scripts/Ball/Ball.cs": "0770545e155316b53095f84130a3a6b85bccac9c8fe5cb72db13d003767abf4a",
-      "Assets/Scripts/Ball/BallMovement.cs": "0770e3c62d22bc66dd79863295b161f1d2291bea1cb9c8fcc7a75c018483cf49",
-      "Assets/Scripts/Constants/Tags.cs": "701fec35e75026d3d139fa0ecc9d4a7cd00467963049279cb92c004edfc50d58",
-      "Assets/Scripts/Goal/Goal.cs": "23313771c3b1db752a0c64371b71025d8d8a58d48adb64208d4cbc0012ff1b6e",
-      "Assets/Scripts/Interfaces/IInput.cs": "48746b41d71a004d1351bc6cbb05d117d23036b20f529b8ae3dd057b26897124",
-      "Assets/Scripts/Interfaces/IRandom.cs": "d0b0a548e5e290dd5e0249a1f5105d760cd458d8a6ce0586063234fd4657fc3c",
-      "Assets/Scripts/Interfaces/IScoreEvent.cs": "ccfc324b71ee9da950fe781f412fe7aa7a6e72d3112052d125ad31a94e6f9891",
-      "Assets/Scripts/Interfaces/IScoreViewManager.cs": "f47ebeb8109505f52391da15844f012d6ca61efdead74676a968f249ec02f15d",
-      "Assets/Scripts/Interfaces/ITime.cs": "8ee1bd48b026ce858fe39be972374a9a5eafdf739462700a48df676cf5652e5e",
-      "Assets/Scripts/Managers/MatchManager.cs": "c03982abfaaf9e78c0be7ecae36b42d6c9d880aa9ac5a2be932d3528ae76d787",
-      "Assets/Scripts/Player/Player.cs": "020a680f4e8d637bb1f5b384fa750bc9a94f807d7218b37b14e97a504aab5bf0",
-      "Assets/Scripts/Player/PlayerMovement.cs": "70409e1ccfb1f3484689a6df460b056cece1d4d11ff45b720514187333aaaa37",
-      "Assets/Scripts/Proxies/InputProxy.cs": "cc386c54e6920f3ce9e84d3a1b9719e4b246f46525e5c912aad3644b3ce767be",
-      "Assets/Scripts/Proxies/RandomProxy.cs": "40e8ba054ef9729c311b30129cef19e0659075c1a04fc810d77d59e6d4db66d4",
-      "Assets/Scripts/Proxies/TimeProxy.cs": "d540d03076a0c70ac05600f5920eb4252cb3cda4697534d7afd99f6b357ba175",
-      "Assets/Scripts/Score/Players.cs": "61d062ac0d1d710a4543232d41b867bc56cb6a9bddec2aa80b88e311128dc667",
-      "Assets/Scripts/Score/ScoreManager.cs": "2d148256345e16205f11e14abecd91804d02c82d9553d556a5fb17c521e5e16c",
-      "Assets/Scripts/Score/ScoreView.cs": "e903041e3bff25080f6570bea8b6dda5797a825f7eef69681d3809ab9c09532f",
-      "Assets/Scripts/Score/ScoreViewManager.cs": "8420fed4e7687f922e4798f30d1ee55115241dedcc1edc036a45cd9bd824ce99",
-      "Assets/Scripts/Utils/RandomUtils.cs": "45ac6d4afa4aaf96cd05e72bd4be902f9c5ce9e537ebe9a8e7f0eb18745958ef"
-    },
     "journey_checkpoints": [
       {
         "label": "initial",
@@ -206,8 +176,7 @@
         "label": "reload-controls",
         "frame": 691
       }
-    ],
-    "timeline_sha256": "6215d3540a8ffdc6c468761c15345bd4200bfa10e15a380917e851fc1694174e"
+    ]
   },
   "timeline": [
     {

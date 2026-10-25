@@ -158,6 +158,14 @@ fn frame(source: &RenderScene) -> FrameUniform {
     FrameUniform::new(&view, source.effects()).unwrap()
 }
 fn render(context: &GpuContext, source: &RenderScene, samples: u32) -> FrameRenderer {
+    render_with_environment(context, source, samples, &environment(context))
+}
+fn render_with_environment(
+    context: &GpuContext,
+    source: &RenderScene,
+    samples: u32,
+    maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+) -> FrameRenderer {
     let mut renderer = FrameRenderer::hdr(
         context,
         [32, 32],
@@ -167,9 +175,8 @@ fn render(context: &GpuContext, source: &RenderScene, samples: u32) -> FrameRend
         source.effects(),
     )
     .unwrap();
-    let maps = environment(context);
     renderer
-        .set_reflection_environment(context.device(), &maps)
+        .set_reflection_environment(context.device(), maps)
         .unwrap();
     let pipelines =
         ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, samples)
@@ -357,9 +364,11 @@ fn geometric_water_hit_and_offscreen_miss_at_one_and_four_samples() {
 #[test]
 fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
     let context = context();
+    let maps = environment(&context);
+    let reference_factor = prepared_cpu_factor(&context, &maps);
     for samples in [1, 4] {
         let source = source(false, false);
-        let renderer = render(&context, &source, samples);
+        let renderer = render_with_environment(&context, &source, samples, &maps);
         let ssr = renderer.ssr.as_ref().unwrap();
         assert!(
             channel(&context, ssr.textures()[4], 0, 3)
@@ -380,7 +389,7 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
                 let mut covered = 0;
                 for i in 0..32 * 32 {
                     if factor[i] > 0.0 {
-                        let reference = radiance * cpu_factor();
+                        let reference = radiance * reference_factor;
                         let ulp = 2.0f32.powf(published[i].log2().floor() - 10.0);
                         assert!(
                             (published[i] - reference).abs() <= ulp,
@@ -401,6 +410,26 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
             }
         }
     }
+}
+
+fn prepared_cpu_factor(
+    context: &GpuContext,
+    maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+) -> f32 {
+    let (_, lut) = maps.views().unwrap();
+    assert_eq!([lut.texture().width(), lut.texture().height()], [1, 1]);
+    let expected = worldrunner_render_lighting::ibl::brdf_integral(0.5, 0.5, 64);
+    // A one-texel LUT has zero interpolation error at any sub-texel precision.
+    // Use stored coefficients: GPU half conversion need not round like rounded_half.
+    let stored = [0, 1].map(|component| channel(context, lut.texture(), 0, component)[0]);
+    for (value, expected) in stored.into_iter().zip(expected) {
+        let ulp = 2.0f32.powf(expected.log2().floor() - 10.0);
+        assert!(
+            (value - expected).abs() <= ulp,
+            "prepared BRDF coefficient {value} != CPU integral {expected}"
+        );
+    }
+    0.04 * stored[0] + stored[1]
 }
 
 fn rounded_half(value: f32) -> f32 {

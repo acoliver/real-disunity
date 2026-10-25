@@ -9,6 +9,20 @@
 //! # Ok::<(), worldrunner_world_simulation::WorldError>(())
 //! ```
 
+mod clock;
+mod coroutines;
+mod scheduled_contacts;
+pub use scheduled_contacts::ContactId;
+mod input;
+mod ratio;
+mod timeline;
+pub use clock::Clock;
+pub use coroutines::{CoroutineId, WaitCondition};
+pub use input::{AxisBinding, AxisId, InputAction, InputEvent, InputPhase, InputView, KeyCode};
+pub use ratio::{TimeError, TimeSpan};
+pub use timeline::{
+    Advance, CallbackOutcome, CallbackTicket, CallbackWork, FrameSummary, ScriptFailure,
+};
 mod components;
 mod edits;
 mod handles;
@@ -57,6 +71,26 @@ pub enum ComponentError {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum WorldError {
+    #[error("invalid time: {0}")]
+    InvalidTime(#[from] TimeError),
+    #[error("input timestamp order or cutoff violation")]
+    InputOrder,
+    #[error("input capacity exceeded")]
+    InputCapacity,
+    #[error("invalid normalized input")]
+    InvalidInput,
+    #[error("advance already in progress")]
+    AdvanceInProgress,
+    #[error("wrong callback ticket or outcome")]
+    WrongCallback,
+    #[error("script is not ready")]
+    NotReady,
+    #[error("contact work is no longer current")]
+    InvalidContact,
+    #[error("callback failed: {0:?}")]
+    CallbackFailed(ScriptFailure),
+    #[error("world is faulted")]
+    Faulted,
     #[error("handle belongs to another world")]
     WrongWorld,
     #[error("stale object handle: {0:?}")]

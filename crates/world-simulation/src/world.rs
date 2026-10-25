@@ -78,6 +78,10 @@ pub struct WorldSnapshot {
 
 /// The sole owner of live object and component state for a simulation session.
 pub struct World {
+    pub(crate) clock: crate::Clock,
+    pub(crate) input: crate::input::Input,
+    pub(crate) coroutines: crate::coroutines::Coroutines,
+    pub(crate) scheduler: crate::timeline::Scheduler,
     pub(crate) physics: crate::physics2d::Physics,
     pub(crate) identity: u64,
     pub(crate) objects: Arena<Object>,
@@ -89,6 +93,10 @@ pub struct World {
 impl World {
     pub fn new(settings: WorldSettings) -> Result<Self, WorldError> {
         Ok(Self {
+            clock: crate::Clock::default(),
+            input: crate::input::Input::default(),
+            coroutines: crate::coroutines::Coroutines::default(),
+            scheduler: crate::timeline::Scheduler::default(),
             physics: crate::physics2d::Physics::default(),
             identity: next_world()?,
             lifetime: crate::lifetime::Lifetime::default(),
@@ -99,6 +107,7 @@ impl World {
     }
 
     pub fn create_object(&mut self, desc: ObjectDesc) -> Result<ObjectHandle, WorldError> {
+        self.ensure_allocation_allowed()?;
         if desc.name.len() > 1024 || desc.tag.len() > 1024 || desc.layer > 31 {
             return Err(WorldError::InvalidObject);
         }
@@ -170,6 +179,7 @@ impl World {
         object: ObjectHandle,
         desc: ComponentDesc,
     ) -> Result<ComponentHandle, WorldError> {
+        self.ensure_allocation_allowed()?;
         let owner = self.live_object(object)?;
         desc.validate()?;
         let duplicate = match desc {

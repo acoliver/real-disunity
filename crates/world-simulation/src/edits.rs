@@ -20,6 +20,10 @@ impl World {
             return self.step_physics(dt);
         }
         let mut staged = Self {
+            clock: self.clock.clone(),
+            input: self.input.clone(),
+            coroutines: self.coroutines.clone(),
+            scheduler: self.scheduler.clone(),
             identity: self.identity,
             objects: self.objects.clone(),
             components: self.components.clone(),

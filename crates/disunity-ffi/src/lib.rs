@@ -7,6 +7,8 @@ mod commands;
 #[cfg(test)]
 mod physics_tests;
 mod store;
+#[cfg(test)]
+mod time_input_tests;
 mod views;
 
 pub use abi::{DISUNITY_ABI_VERSION, DisunityResult, result_code};

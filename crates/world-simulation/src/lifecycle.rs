@@ -9,6 +9,12 @@ pub struct MutationId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScriptMessage {
+    Start,
+    FixedUpdate,
+    Update,
+    LateUpdate,
+    Coroutine(crate::CoroutineId),
+    Contact2d(crate::ContactId),
     Awake,
     OnEnable,
     OnDisable,
@@ -21,21 +27,38 @@ pub struct LifecycleWork {
     pub message: ScriptMessage,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StartState {
+    Pending,
+    Started,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EnteredState {
+    Dormant,
+    Awake,
+    Enabled,
+}
+
 #[derive(Clone)]
 pub(crate) struct ScriptState {
+    pub start: StartState,
     pub fields: Vec<(String, FieldValue)>,
     pub enabled: bool,
     pub awake: bool,
     pub active: bool,
+    pub entered: EnteredState,
 }
 
 impl Default for ScriptState {
     fn default() -> Self {
         Self {
+            start: StartState::Pending,
             fields: Vec::new(),
             enabled: true,
             awake: false,
             active: false,
+            entered: EnteredState::Dormant,
         }
     }
 }
@@ -43,7 +66,7 @@ impl Default for ScriptState {
 #[derive(Clone, Default)]
 pub(crate) struct Lifecycle {
     pub scripts: BTreeMap<ComponentHandle, ScriptState>,
-    mutations: BTreeMap<usize, Vec<LifecycleWork>>,
+    pub(crate) mutations: BTreeMap<usize, Vec<LifecycleWork>>,
     next_sequence: usize,
     pub cleanup: Vec<LifecycleWork>,
 }
@@ -145,6 +168,9 @@ impl World {
                     });
                 }
                 let eligible = active && state.enabled;
+                if !active {
+                    self.coroutines.cancel_script(script);
+                }
                 if eligible != state.active {
                     state.active = eligible;
                     let message = if eligible {

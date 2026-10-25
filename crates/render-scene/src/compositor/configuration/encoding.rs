@@ -19,6 +19,11 @@ impl FrameRenderer {
     }
 }
 impl ConfiguredFrameRenderer {
+    pub fn set_clear_color(&mut self, color: wgpu::Color) -> Result<(), PostError> {
+        self.state.current_mut().set_clear_color(color)?;
+        self.settings.clear_color = color;
+        Ok(())
+    }
     pub fn encoding(&mut self) -> FrameEncoding<'_> {
         FrameEncoding(self.state.current_mut())
     }

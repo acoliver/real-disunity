@@ -1,4 +1,4 @@
-use glam::{DVec3, Mat4, Vec3};
+use glam::{Mat4, Vec3};
 
 /// Which way a camera's screen-right axis points relative to its forward and up vectors.
 ///
@@ -9,15 +9,6 @@ use glam::{DVec3, Mat4, Vec3};
 pub enum ViewHandedness {
     RightHanded,
     DirectXLeftHanded,
-}
-
-/// Lens and clip parameters shared by both handedness projections.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Lens {
-    pub vertical_fov_radians: f64,
-    pub aspect: f64,
-    pub near: f64,
-    pub far: f64,
 }
 
 impl ViewHandedness {
@@ -45,38 +36,6 @@ impl ViewHandedness {
             Self::RightHanded => right_handed_projection,
             Self::DirectXLeftHanded => {
                 Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)) * right_handed_projection
-            }
-        }
-    }
-
-    /// Builds the view-projection for an eye looking at `target` with the given vertical FOV.
-    pub(crate) fn view_projection(self, eye: DVec3, target: DVec3, lens: Lens) -> Mat4 {
-        let Lens {
-            vertical_fov_radians,
-            aspect,
-            near,
-            far,
-        } = lens;
-        match self {
-            Self::RightHanded => {
-                let view = glam::dcamera::rh::view::look_at_mat4(eye, target, DVec3::Y);
-                let projection = glam::dcamera::rh::proj::directx::perspective(
-                    vertical_fov_radians,
-                    aspect,
-                    near,
-                    far,
-                );
-                (projection * view).as_mat4()
-            }
-            Self::DirectXLeftHanded => {
-                let view = glam::dcamera::lh::view::look_at_mat4(eye, target, DVec3::Y);
-                let projection = glam::dcamera::lh::proj::directx::perspective(
-                    vertical_fov_radians,
-                    aspect,
-                    near,
-                    far,
-                );
-                (projection * view).as_mat4()
             }
         }
     }

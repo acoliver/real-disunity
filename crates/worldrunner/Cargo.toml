@@ -22,6 +22,8 @@ worldrunner-material = { path = "../material", optional = true }
 worldrunner-mesh = { path = "../mesh", optional = true }
 worldrunner-package = { path = "../package", optional = true }
 worldrunner-render-plan = { path = "../render-plan", optional = true }
+worldrunner-render-post = { path = "../render-post", optional = true }
+worldrunner-render-gpu = { path = "../render-gpu", optional = true }
 worldrunner-render-scene = { path = "../render-scene", optional = true }
 worldrunner-scene-viewer = { path = "../scene-viewer", optional = true }
 worldrunner-save = { path = "../save", optional = true }
@@ -44,7 +46,13 @@ assets = [
 ]
 gfx = ["dep:worldrunner-camera", "dep:worldrunner-render-scene"]
 scene-viewer = ["scene", "dep:worldrunner-scene-viewer"]
-scene = ["dep:worldrunner-render-plan", "dep:worldrunner-render-scene"]
+scene = [
+    "dep:worldrunner-camera",
+    "dep:worldrunner-render-plan",
+    "dep:worldrunner-render-post",
+    "dep:worldrunner-render-gpu",
+    "dep:worldrunner-render-scene",
+]
 script = ["dep:worldrunner-script"]
 world = [
     "dep:worldrunner-render-plan",

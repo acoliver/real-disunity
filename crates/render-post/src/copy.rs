@@ -2,8 +2,8 @@ mod checked;
 use std::sync::{Arc, OnceLock};
 
 use crate::{
-    FrameTargets, FullscreenDescriptor, PostError, Resources, Stage, StageFactory, StageSet,
-    StageTarget, fullscreen_pipeline,
+    ExactSrgb8, FrameTargets, FullscreenDescriptor, PostError, Resources, Stage, StageFactory,
+    StageSet, StageTarget, fullscreen_pipeline,
 };
 
 /// No exposure, tone curve, bloom or filtering. The attachment format performs transfer encoding.
@@ -12,6 +12,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct CopyOutput {
     format: wgpu::TextureFormat,
+    exact: bool,
     resources: Result<Arc<OnceLock<CopyResources>>, PostError>,
 }
 
@@ -19,16 +20,30 @@ impl CopyOutput {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         Self {
             format,
+            exact: false,
             resources: validate_output(device, format).map(|()| Arc::new(OnceLock::new())),
         }
     }
-    /// Validate source and destination without creating targets or pipeline storage.
+    /// Deterministic sRGB8 output from linear single-sample f32 composition.
+    /// Supply an `ExactSrgb8::write_view` or an `Rgba8Unorm` output view.
+    pub fn exact_srgb8(device: &wgpu::Device) -> Self {
+        Self {
+            format: ExactSrgb8::WRITE_FORMAT,
+            exact: true,
+            resources: ExactSrgb8::frame_config(device, [1, 1]).map(|_| Arc::new(OnceLock::new())),
+        }
+    }
+
+    /// Validate source and destination before allocating targets or pipeline storage.
     pub fn validate_config(
         &self,
         device: &wgpu::Device,
         config: crate::FrameConfig,
     ) -> Result<(), PostError> {
         self.resources.as_ref().map_err(Clone::clone)?;
+        if self.exact && (config.format != ExactSrgb8::WORKING_FORMAT || config.samples != 1) {
+            return Err(PostError::ExactCompositionFormat);
+        }
         if !is_float(config.format, device.features()) {
             return Err(PostError::CopySourceFormat(config.format));
         }
@@ -43,7 +58,7 @@ struct CopyResources {
 }
 
 impl CopyResources {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, exact: bool) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post copy source"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -59,7 +74,11 @@ impl CopyResources {
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("post copy output"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("copy.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(if exact {
+                concat!(include_str!("copy.wgsl"), include_str!("exact.wgsl")).into()
+            } else {
+                include_str!("copy.wgsl").into()
+            }),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("post copy output"),
@@ -73,7 +92,7 @@ impl CopyResources {
                 layout: &pipeline_layout,
                 module: &module,
                 vertex_entry: "vertex",
-                fragment_entry: "fragment",
+                fragment_entry: if exact { "fragment_exact" } else { "fragment" },
                 format,
                 constants: &[],
             },
@@ -104,6 +123,13 @@ fn is_float(format: wgpu::TextureFormat, features: wgpu::Features) -> bool {
 }
 
 impl StageFactory for CopyOutput {
+    fn validate_config(
+        &self,
+        device: &wgpu::Device,
+        config: crate::FrameConfig,
+    ) -> Result<(), PostError> {
+        Self::validate_config(self, device, config)
+    }
     fn build(
         &self,
         device: &wgpu::Device,
@@ -111,12 +137,10 @@ impl StageFactory for CopyOutput {
         _: &Resources,
     ) -> Result<StageSet, PostError> {
         let resources = self.resources.as_ref().map_err(Clone::clone)?;
-        let format = targets.config().format;
-        if !is_float(format, device.features()) {
-            return Err(PostError::CopySourceFormat(format));
-        }
+        self.validate_config(device, targets.config())?;
         // Validate both formats before allocation; clones and resizes reuse the pipeline.
-        let resources = resources.get_or_init(|| CopyResources::new(device, self.format));
+        let resources =
+            resources.get_or_init(|| CopyResources::new(device, self.format, self.exact));
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("post copy source"),
             layout: &resources.layout,

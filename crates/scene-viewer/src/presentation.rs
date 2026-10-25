@@ -54,6 +54,12 @@ impl Presentation {
             settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
             settings.water = effects.and_then(|effects| effects.water()).copied();
         }
+        let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
+        settings.additional.buffer(
+            "live capture and CPU image",
+            pitch * u64::from(size.height),
+            2,
+        );
         let scheduler =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1024 * 1024 * 1024))
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;
@@ -70,6 +76,13 @@ impl Presentation {
         if self.scheduler.configuration().frame.size != [size.width, size.height] {
             let mut settings = self.scheduler.configuration().clone();
             settings.frame.size = [size.width, size.height];
+            settings.additional = worldrunner_render_gpu::configuration::AllocationSet::default();
+            let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
+            settings.additional.buffer(
+                "live capture and CPU image",
+                pitch * u64::from(size.height),
+                2,
+            );
             self.scheduler
                 .reconfigure(context, settings)
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;

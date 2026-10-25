@@ -19,6 +19,8 @@ pub(super) struct SurfaceExecution {
     instance: wgpu::Instance,
     window: Arc<Window>,
     flight: FrameAdmission,
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) acquisitions: std::collections::VecDeque<wgpu::CurrentSurfaceTexture>,
     _event_thread: PhantomData<Rc<()>>,
 }
 
@@ -35,6 +37,8 @@ impl SurfaceExecution {
             window,
             flight: FrameAdmission::new(capacity)
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?,
+            #[cfg(all(test, target_os = "linux"))]
+            acquisitions: std::collections::VecDeque::new(),
             _event_thread: PhantomData,
         })
     }
@@ -44,13 +48,14 @@ impl SurfaceExecution {
         ready: ReadyFrame,
         prepared: worldrunner_render_gpu::submission::PreparedFrame,
         context: &GpuContext,
-    ) -> Result<(), ViewerError> {
-        self.flight
+    ) -> Result<worldrunner_render_gpu::flight::CompletionTicket, ViewerError> {
+        let ticket = self
+            .flight
             .submit_prepared(ready.admission, prepared)
             .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         self.window.pre_present_notify();
         context.queue().present(ready.frame);
-        Ok(())
+        Ok(ticket)
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, size: [u32; 2]) -> Result<(), ViewerError> {
@@ -169,6 +174,14 @@ impl SurfaceOps for NativeSurface<'_> {
         Ok(())
     }
     fn acquire(&mut self) -> Result<Option<Self::Frame>, ViewerError> {
+        #[cfg(all(test, target_os = "linux"))]
+        if let Some(outcome) = self.execution.acquisitions.pop_front() {
+            self.execution
+                .presenter
+                .handle_acquired(self.context.device(), outcome)
+                .map_err(surface_error)?;
+            return Ok(None);
+        }
         match self
             .execution
             .presenter

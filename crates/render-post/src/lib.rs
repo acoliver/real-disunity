@@ -46,6 +46,12 @@ pub use frame::{
 };
 #[cfg(test)]
 mod copy_gpu_tests;
+mod exact;
+#[cfg(test)]
+mod exact_gpu_tests;
+#[cfg(test)]
+mod exact_tests;
+pub use exact::ExactSrgb8;
 #[cfg(test)]
 mod gpu_tests;
 mod readback;
@@ -87,6 +93,10 @@ pub enum PostError {
     CopySourceFormat(wgpu::TextureFormat),
     #[error("post copy output requires a renderable float color format, got {0:?}")]
     CopyOutputFormat(wgpu::TextureFormat),
+    #[error("exact linear composition requires enabled FLOAT32_BLENDABLE")]
+    ExactCompositionFeatures,
+    #[error("exact output requires single-sample Rgba32Float composition")]
+    ExactCompositionFormat,
     #[error("invalid post resource buffer size {0}")]
     BufferSize(u64),
     #[error("post chain needs exactly one enabled final output stage")]

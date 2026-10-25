@@ -45,6 +45,8 @@
 //! while the near plane is governed in millimetres, and that ratio is exactly
 //! what drives depth fighting on distant coplanar surfaces.
 
+mod unlit;
+
 use std::borrow::Cow;
 
 use wgpu::{
@@ -79,6 +81,7 @@ pub struct ScenePipelines {
     terrain_layout: BindGroupLayout,
     pipelines: [RenderPipeline; 4],
     terrain: RenderPipeline,
+    unlit_alpha: RenderPipeline,
 }
 
 impl ScenePipelines {
@@ -217,7 +220,12 @@ impl ScenePipelines {
             terrain_layout,
             pipelines,
             terrain,
+            unlit_alpha: unlit::build(device, target, &layout, &buffers, &module),
         }
+    }
+
+    pub const fn unlit_alpha(&self) -> &RenderPipeline {
+        &self.unlit_alpha
     }
 
     pub(crate) const fn object_pipelines(&self) -> &[RenderPipeline; 4] {
@@ -287,12 +295,41 @@ pub(crate) fn build(
     samples: u32,
     fragment: FragmentState<'_>,
 ) -> RenderPipeline {
+    build_variant(
+        device,
+        layout,
+        buffers,
+        fragment,
+        ObjectState {
+            key,
+            samples,
+            depth_write: true,
+            vertex_entry: shader::VERTEX_ENTRY_POINT,
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ObjectState {
+    key: PipelineKey,
+    samples: u32,
+    depth_write: bool,
+    vertex_entry: &'static str,
+}
+
+pub(super) fn build_variant(
+    device: &Device,
+    layout: &PipelineLayout,
+    buffers: &[Option<VertexBufferLayout<'_>>],
+    fragment: FragmentState<'_>,
+    state: ObjectState,
+) -> RenderPipeline {
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("environment"),
         layout: Some(layout),
         vertex: VertexState {
             module: fragment.module,
-            entry_point: Some(shader::VERTEX_ENTRY_POINT),
+            entry_point: Some(state.vertex_entry),
             compilation_options: PipelineCompilationOptions::default(),
             buffers,
         },
@@ -300,20 +337,24 @@ pub(crate) fn build(
             topology: PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: FrontFace::Ccw,
-            cull_mode: key.cull_mode(),
+            cull_mode: state.key.cull_mode(),
             unclipped_depth: false,
             polygon_mode: PolygonMode::Fill,
             conservative: false,
         },
         depth_stencil: Some(DepthStencilState {
             format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(CompareFunction::Less),
+            depth_write_enabled: Some(state.depth_write),
+            depth_compare: Some(if state.depth_write {
+                CompareFunction::Less
+            } else {
+                CompareFunction::LessEqual
+            }),
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         }),
         multisample: MultisampleState {
-            count: samples,
+            count: state.samples,
             ..Default::default()
         },
         fragment: Some(fragment),

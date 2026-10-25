@@ -229,6 +229,14 @@ impl StageSet {
 /// Creates bindings and a linear schedule after allocation/resize, never encodes or submits.
 /// Kernel code, exposure ABI, adaptation rules and LUT contents belong to the provider.
 pub trait StageFactory {
+    /// Validate stage-specific working-target constraints before any target allocation.
+    fn validate_config(
+        &self,
+        _device: &wgpu::Device,
+        _config: FrameConfig,
+    ) -> Result<(), PostError> {
+        Ok(())
+    }
     fn frame_slots(&self) -> usize {
         1
     }
@@ -273,6 +281,7 @@ impl<F: StageFactory> PostChain<F> {
         persistent: Resources,
         factory: F,
     ) -> Result<Self, PostError> {
+        factory.validate_config(device, config)?;
         let targets = FrameTargets::new(device, config)?;
         let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
@@ -292,6 +301,13 @@ impl<F: StageFactory> PostChain<F> {
         if self.targets.config().size == size {
             return Ok(false);
         }
+        self.factory.validate_config(
+            device,
+            FrameConfig {
+                size,
+                ..self.targets.config()
+            },
+        )?;
         let targets = FrameTargets::new(
             device,
             FrameConfig {

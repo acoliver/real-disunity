@@ -5,37 +5,59 @@ use std::{
 
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    keyboard::{Key, NamedKey},
     window::{Window, WindowId},
 };
 use worldrunner_render_plan::RenderScene;
+use worldrunner_render_scene::Viewport;
 
-use crate::{OrbitCamera, ViewerError, ViewerOptions, renderer::Renderer};
+use crate::{
+    LiveDriver, LiveOptions, ViewerError, ViewerOptions,
+    renderer::{Renderer, SceneSource},
+};
+
+mod static_scene;
+
+pub(super) trait Content {
+    fn title(&self) -> &str;
+    fn size(&self) -> [u32; 2];
+    fn interval(&self) -> Duration {
+        Duration::from_millis(16)
+    }
+    fn source(&self) -> SceneSource<'_>;
+    fn event(&mut self, event: &WindowEvent, viewport: Option<Viewport>);
+    fn close_immediately(&self) -> bool {
+        true
+    }
+    fn exit_requested(&self) -> bool {
+        false
+    }
+    /// Returns true after the final frame has been presented.
+    fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError>;
+}
 
 pub(super) fn run(
     scene: RenderScene,
     options: ViewerOptions,
     update: crate::SceneUpdate,
 ) -> Result<(), ViewerError> {
-    let camera = OrbitCamera::new(options.pose, options.orbit)?;
+    run_content(Box::new(static_scene::StaticScene::new(
+        scene, options, update,
+    )?))
+}
+
+pub(super) fn run_live(
+    driver: &mut dyn LiveDriver,
+    options: LiveOptions,
+) -> Result<(), ViewerError> {
+    run_content(Box::new(crate::live::Session::new(driver, options)))
+}
+
+fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
     let event_loop = EventLoop::new()?;
-    let mut app = App {
-        update,
-        scene,
-        options,
-        camera,
-        renderer: None,
-        failure: None,
-        dragging: false,
-        cursor: None,
-        occluded: false,
-        suspended: false,
-        next_frame: Instant::now(),
-    };
+    let mut app = App::new(content);
     let result = event_loop.run_app(&mut app);
-    // Drop the surface/window/GPU before returning, including on callback failure.
     cleanup(&mut app.renderer);
     if let Some(error) = app.failure {
         return Err(error);
@@ -48,108 +70,83 @@ pub(super) fn cleanup(renderer: &mut Option<Renderer>) {
     *renderer = None;
 }
 
-struct App {
-    update: crate::SceneUpdate,
-    scene: RenderScene,
-    options: ViewerOptions,
-    camera: OrbitCamera,
+struct App<'a> {
+    content: Box<dyn Content + 'a>,
     renderer: Option<Renderer>,
     failure: Option<ViewerError>,
-    dragging: bool,
-    cursor: Option<[f64; 2]>,
     occluded: bool,
     suspended: bool,
     next_frame: Instant,
 }
 
-impl App {
+impl<'a> App<'a> {
+    fn new(content: Box<dyn Content + 'a>) -> Self {
+        Self {
+            content,
+            renderer: None,
+            failure: None,
+            occluded: false,
+            suspended: false,
+            next_frame: Instant::now(),
+        }
+    }
+
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: ViewerError) {
         self.failure = Some(error);
         event_loop.exit();
     }
 
-    fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: Key) {
-        match key {
-            Key::Named(NamedKey::Escape) => event_loop.exit(),
-            Key::Named(NamedKey::Home) => self.camera.reset(),
-            Key::Character(key) if key.eq_ignore_ascii_case("r") => self.camera.reset(),
-            _ => {}
-        }
-    }
-
-    fn set_occluded(&mut self, value: bool) {
-        self.occluded = value;
-        if !value && let Some(renderer) = &self.renderer {
-            renderer.window.request_redraw();
-        }
-        self.clear_drag();
-    }
-
-    fn clear_drag(&mut self) {
-        self.dragging = false;
-        self.cursor = None;
-    }
-
-    fn redraw(&mut self) -> Result<(), ViewerError> {
-        let Some(renderer) = &mut self.renderer else {
-            return Ok(());
-        };
+    fn redraw(&mut self, event_loop: &ActiveEventLoop) -> Result<(), ViewerError> {
         if self.occluded || self.suspended {
             return Ok(());
         }
-        if let Some(viewport) = renderer.viewport {
-            let view = self.camera.view(self.options.camera, viewport)?;
-            renderer.render(&view, &mut self.update)?;
+        if let Some(renderer) = &mut self.renderer
+            && renderer.viewport.is_some()
+            && self.content.redraw(renderer)?
+        {
+            event_loop.exit();
         }
-        self.next_frame = Instant::now() + Duration::from_millis(16);
+        self.next_frame = Instant::now() + self.content.interval();
         Ok(())
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.suspended = false;
-        if let Some(renderer) = &mut self.renderer {
+        let result = if let Some(renderer) = &mut self.renderer {
             let size = renderer.window.inner_size();
-            if let Err(error) = renderer.resize([size.width, size.height]) {
-                self.fail(event_loop, error);
-                return;
-            }
-            renderer.window.request_redraw();
+            renderer.resize([size.width, size.height])
+        } else {
+            let size = self.content.size();
+            event_loop
+                .create_window(
+                    Window::default_attributes()
+                        .with_title(self.content.title())
+                        .with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1])),
+                )
+                .map_err(ViewerError::from)
+                .and_then(|window| {
+                    pollster::block_on(Renderer::from_source(
+                        event_loop.owned_display_handle(),
+                        Arc::new(window),
+                        self.content.source(),
+                    ))
+                    .map(|renderer| self.renderer = Some(renderer))
+                })
+        };
+        if let Err(error) = result {
+            self.fail(event_loop, error);
             return;
         }
-        let result = event_loop
-            .create_window(
-                Window::default_attributes()
-                    .with_title(&self.options.title)
-                    .with_inner_size(winit::dpi::LogicalSize::new(
-                        self.options.size[0],
-                        self.options.size[1],
-                    )),
-            )
-            .map_err(ViewerError::from)
-            .and_then(|window| {
-                pollster::block_on(Renderer::new(
-                    event_loop.owned_display_handle(),
-                    Arc::new(window),
-                    &self.scene,
-                    self.options.shadows,
-                    self.options.frame_profile,
-                    self.options.frames_in_flight,
-                ))
-            });
-        match result {
-            Ok(renderer) => {
-                renderer.window.request_redraw();
-                self.renderer = Some(renderer);
-            }
-            Err(error) => self.fail(event_loop, error),
+        if let Some(renderer) = &self.renderer {
+            renderer.window.request_redraw();
         }
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
         self.suspended = true;
-        self.clear_drag();
+        self.content.event(&WindowEvent::Focused(false), None);
         if let Some(renderer) = &mut self.renderer
             && let Err(error) = renderer.resize([0, 0])
         {
@@ -164,51 +161,37 @@ impl ApplicationHandler for App {
         if renderer.window.id() != id {
             return;
         }
+        self.content.event(&event, renderer.viewport);
+        if self.content.exit_requested() {
+            event_loop.exit();
+            return;
+        }
         match event {
-            WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
+            WindowEvent::Destroyed => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                if self.content.close_immediately()
+                    || self.occluded
+                    || self.suspended
+                    || renderer.viewport.is_none()
+                {
+                    event_loop.exit();
+                } else {
+                    renderer.window.request_redraw();
+                }
+            }
             WindowEvent::Resized(size) => {
                 if let Err(error) = renderer.resize([size.width, size.height]) {
                     self.fail(event_loop, error);
-                    return;
-                }
-                self.clear_drag();
-            }
-            WindowEvent::Occluded(value) => self.set_occluded(value),
-            WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. } => self.clear_drag(),
-            WindowEvent::MouseInput {
-                state,
-                button: MouseButton::Left,
-                ..
-            } => {
-                self.dragging = state == ElementState::Pressed;
-                if !self.dragging {
-                    self.cursor = None;
                 }
             }
-            WindowEvent::CursorMoved { position, .. } => {
-                let current = [position.x, position.y];
-                if self.dragging
-                    && let (Some(previous), Some(viewport)) = (self.cursor, renderer.viewport)
-                {
-                    self.camera.drag(
-                        [current[0] - previous[0], current[1] - previous[1]],
-                        viewport,
-                    );
+            WindowEvent::Occluded(value) => {
+                self.occluded = value;
+                if !value {
+                    renderer.window.request_redraw();
                 }
-                self.cursor = Some(current);
-            }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let steps = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => f64::from(y),
-                    MouseScrollDelta::PixelDelta(position) => position.y / 40.0,
-                };
-                self.camera.zoom(steps);
-            }
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                self.handle_key(event_loop, event.logical_key);
             }
             WindowEvent::RedrawRequested => {
-                if let Err(error) = self.redraw() {
+                if let Err(error) = self.redraw(event_loop) {
                     self.fail(event_loop, error);
                 }
             }
@@ -229,7 +212,7 @@ impl ApplicationHandler for App {
         } else {
             if Instant::now() >= self.next_frame {
                 renderer.window.request_redraw();
-                self.next_frame = Instant::now() + Duration::from_millis(16);
+                self.next_frame = Instant::now() + self.content.interval();
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
         }

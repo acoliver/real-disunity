@@ -1,5 +1,8 @@
 //! Behavioural claims about the single Z-up to Y-up basis change.
 
+mod gpu;
+mod resolved;
+
 use super::{CameraPose, SceneView, ViewError, Viewport};
 use glam::Vec3;
 use worldrunner_render_plan::SceneCamera;
@@ -274,4 +277,86 @@ fn the_aspect_ratio_widens_the_horizontal_field_of_view() {
         "the authored vertical field of view must not depend on viewport width, \
          but {wide_y} differs from {square_y}"
     );
+}
+
+#[test]
+fn orthographic_lens_preserves_size_at_different_depths_and_maps_clip_planes() {
+    let view = SceneView::orthographic(
+        CameraPose {
+            eye_millimeters: [0, -10_000, 0],
+            target_millimeters: [0, 0, 0],
+        },
+        super::OrthographicLens {
+            vertical_half_extent_meters: 2.0,
+            near_meters: 1.0,
+            far_meters: 21.0,
+        },
+        Viewport {
+            width: 200,
+            height: 100,
+        },
+    )
+    .unwrap();
+    for y in [-8.0, 0.0, 10.0] {
+        let projected = view
+            .view_projection_matrix()
+            .project_point3(Vec3::new(2.0, y, 1.0));
+        assert!(
+            (projected.x - 0.5).abs() < EPSILON,
+            "depth-independent horizontal framing: {projected:?}"
+        );
+        assert!(
+            (projected.y - 0.5).abs() < EPSILON,
+            "vertical framing: {projected:?}"
+        );
+    }
+    for (y, depth) in [(-9.0, 0.0), (11.0, 1.0)] {
+        let projected = view
+            .view_projection_matrix()
+            .project_point3(Vec3::new(0.0, y, 0.0));
+        assert!((projected.z - depth).abs() < EPSILON);
+    }
+}
+
+#[test]
+fn orthographic_lens_rejects_invalid_volumes() {
+    let valid = super::OrthographicLens {
+        vertical_half_extent_meters: 2.0,
+        near_meters: 0.0,
+        far_meters: 10.0,
+    };
+    for lens in [
+        super::OrthographicLens {
+            vertical_half_extent_meters: 0.0,
+            ..valid
+        },
+        super::OrthographicLens {
+            vertical_half_extent_meters: f32::NAN,
+            ..valid
+        },
+        super::OrthographicLens {
+            near_meters: -1.0,
+            ..valid
+        },
+        super::OrthographicLens {
+            far_meters: 0.0,
+            ..valid
+        },
+        super::OrthographicLens {
+            far_meters: f32::INFINITY,
+            ..valid
+        },
+    ] {
+        assert_eq!(
+            SceneView::orthographic(
+                CameraPose {
+                    eye_millimeters: [0, -1000, 0],
+                    target_millimeters: [0, 0, 0]
+                },
+                lens,
+                viewport(),
+            ),
+            Err(ViewError::InvalidOrthographicLens)
+        );
+    }
 }

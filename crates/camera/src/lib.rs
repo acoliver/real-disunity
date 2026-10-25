@@ -2,7 +2,13 @@ use glam::{DQuat, DVec3, Mat4, Vec3};
 use std::f64::consts::{FRAC_PI_2, PI};
 use std::time::Duration;
 
+mod controller_view;
 mod handedness;
+mod resolved;
+pub use resolved::{
+    CameraLens, CameraPose, CameraState, DepthConvention, ResolvedView, ScreenRay, ViewError,
+    resolve,
+};
 pub mod profile;
 pub use handedness::ViewHandedness;
 pub use profile::{
@@ -11,7 +17,6 @@ pub use profile::{
     InteractiveView, RtsTuning, ViewConvention, Viewport,
 };
 
-use handedness::Lens;
 use profile::CameraTuning;
 
 const MIN_PITCH_MARGIN_RADIANS: f64 = 0.001;
@@ -131,46 +136,6 @@ impl FreeFlyCamera {
         let meters = finite_or_zero(meters);
         if meters != 0.0 {
             self.position += self.forward() * meters;
-        }
-    }
-
-    pub fn camera_view(
-        self,
-        aspect: f64,
-        near_plane_meters: f64,
-        far_plane_meters: f64,
-    ) -> CameraView {
-        let aspect = if aspect.is_finite() {
-            aspect.max(0.01)
-        } else {
-            1.0
-        };
-        let near = if near_plane_meters.is_finite() {
-            near_plane_meters.max(MIN_NEAR_PLANE_METERS)
-        } else {
-            0.5
-        };
-        let far = if far_plane_meters.is_finite() {
-            far_plane_meters.max(near + 1.0)
-        } else {
-            near + 1.0
-        };
-        let target = self.position + self.forward();
-        let view_projection = self.handedness.view_projection(
-            self.position,
-            target,
-            Lens {
-                vertical_fov_radians: self
-                    .vertical_fov_radians
-                    .clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS),
-                aspect,
-                near,
-                far,
-            },
-        );
-        CameraView {
-            view_projection,
-            position: self.position.as_vec3(),
         }
     }
 }
@@ -355,38 +320,6 @@ impl RtsCamera {
         DQuat::from_rotation_y(self.yaw_radians)
             * DQuat::from_rotation_x(self.pitch_radians)
             * DVec3::NEG_Z
-    }
-
-    pub fn camera_view(
-        self,
-        aspect: f64,
-        near_plane_meters: f64,
-        far_plane_meters: f64,
-    ) -> CameraView {
-        let aspect = if aspect.is_finite() {
-            aspect.max(0.01)
-        } else {
-            1.0
-        };
-        let near = finite_plane(near_plane_meters, MIN_NEAR_PLANE_METERS);
-        let far = finite_plane(far_plane_meters, near + 1.0).max(near + 1.0);
-        let horizontal_fov = self.horizontal_fov_radians_for_aspect(aspect);
-        let vertical_fov = 2.0 * ((horizontal_fov * 0.5).tan() / aspect).atan();
-        let eye = self.eye();
-        let view_projection = self.handedness.view_projection(
-            eye,
-            self.look_at(),
-            Lens {
-                vertical_fov_radians: vertical_fov.clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS),
-                aspect,
-                near,
-                far,
-            },
-        );
-        CameraView {
-            view_projection,
-            position: eye.as_vec3(),
-        }
     }
 
     pub fn horizontal_fov_radians_for_aspect(self, aspect: f64) -> f64 {

@@ -76,7 +76,10 @@ pub mod world {
 /// ```
 #[cfg(feature = "scene")]
 pub mod scene {
+    pub use worldrunner_camera as camera;
+    pub use worldrunner_render_gpu as resources;
     pub use worldrunner_render_plan as plan;
+    pub use worldrunner_render_post as post;
     pub use worldrunner_render_scene as gpu;
     /// Optional desktop host (engine layer L3).
     #[cfg(feature = "scene-viewer")]

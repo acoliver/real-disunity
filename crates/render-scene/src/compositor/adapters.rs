@@ -39,7 +39,7 @@ pub fn encode_resident(
     let (scene, pipelines) = scene;
     let (color, depth) = attachments;
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
-    pass.color = Some(super::attachment(color.resource(), color, false));
+    pass.color = Some(renderer.color_attachment(color.resource(), color));
     pass.depth = Some(super::attachment(depth.resource(), depth, true));
     let mut feature = Resident {
         scene,

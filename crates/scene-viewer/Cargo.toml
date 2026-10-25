@@ -22,5 +22,9 @@ winit.workspace = true
 name = "callback_failure"
 harness = false
 
+[[test]]
+name = "live_window"
+harness = false
+
 [lints]
 workspace = true

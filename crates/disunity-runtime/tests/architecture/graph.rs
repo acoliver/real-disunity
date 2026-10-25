@@ -93,6 +93,19 @@ fn managed_graph(graph: &Value, consumer: bool) -> Result<(), String> {
     Ok(())
 }
 pub fn assert_managed_graph(root: &Path) {
+    let restore = Command::new("dotnet")
+        .arg("restore")
+        .arg(root.join("csharp/UnityConsumer/UnityConsumer.csproj"))
+        .output()
+        .expect("dotnet installed");
+    assert!(
+        restore.status.success(),
+        "managed restore failed:
+{}
+{}",
+        String::from_utf8_lossy(&restore.stdout),
+        String::from_utf8_lossy(&restore.stderr)
+    );
     for (project, consumer) in [
         ("UnityConsumer/UnityConsumer.csproj", true),
         ("Disunity/Disunity.Engine.csproj", false),

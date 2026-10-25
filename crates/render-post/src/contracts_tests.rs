@@ -1,6 +1,9 @@
 #[path = "contracts_regressions.rs"]
 mod regressions;
 
+#[path = "contracts_view_formats.rs"]
+mod view_formats;
+
 #[test]
 fn mrt_rejects_mixed_samples_and_resolve_semantics() {
     let (device, _) = device();

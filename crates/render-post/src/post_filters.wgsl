@@ -24,46 +24,47 @@ fn linear(t: texture_2d<f32>, uv: vec2<f32>) -> vec4<f32> {
     let q = vec2<i32>(floor(p)); let f = fract(p);
     return mix(mix(load(t,q), load(t,q+vec2<i32>(1,0)), f.x), mix(load(t,q+vec2<i32>(0,1)), load(t,q+vec2<i32>(1)), f.x), f.y);
 }
-@fragment fn prefilter(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
-    let c = load(source, vec2<i32>(p.xy)).rgb;
-    let v = vec3<f32>(clean(c.r), clean(c.g), clean(c.b));
-    let brightness = max(v.r, max(v.g, v.b));
-    let knee = THRESHOLD * KNEE;
-    var soft = clamp(brightness - THRESHOLD + knee, 0.0, 2.0 * knee);
-    soft = soft * soft / max(4.0 * knee, 0.00001);
-    let weight = max(brightness - THRESHOLD, soft) / max(brightness, 0.00001);
-    return vec4<f32>(v * weight, 1.0);
+@fragment fn prefilter(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
+    let incoming = load(source, vec2<i32>(pixel.xy));
+    let rgb = vec3<f32>(clean(incoming.r), clean(incoming.g), clean(incoming.b));
+    let brightness = max(rgb.r, max(rgb.g, rgb.b));
+    let radius = THRESHOLD * KNEE;
+    var extracted = max(brightness - THRESHOLD, 0.0);
+    if radius > 0.0 {
+        let ramp = clamp(brightness - THRESHOLD + radius, 0.0, 2.0 * radius);
+        extracted = max(extracted, ramp * ramp / (4.0 * radius));
+    }
+    var rgb_scale = 0.0;
+    if brightness > 0.0 { rgb_scale = extracted / brightness; }
+    return vec4<f32>(rgb * rgb_scale, 1.0);
 }
-// Normalized 13-tap downsample. Four overlapping boxes plus the inner box.
-@fragment fn downsample(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
-    let uv = (p.xy * 2.0) / vec2<f32>(textureDimensions(source));
-    let d = 1.0 / vec2<f32>(textureDimensions(source));
-    var c = linear(source,uv).rgb * 0.125;
-    for (var y = -2; y <= 2; y += 2) {
-        for (var x = -2; x <= 2; x += 2) {
-            if x == 0 && y == 0 { continue; }
-            let w = select(0.0625, 0.03125, x != 0 && y != 0);
-            c += linear(source,uv + vec2<f32>(f32(x),f32(y))*d).rgb * w;
+
+// The outer product of [1, 2, 1] sums to 16 and preserves constant radiance.
+fn tent_reconstruction(image: texture_2d<f32>, center: vec2<f32>) -> vec3<f32> {
+    let texel = 1.0 / vec2<f32>(textureDimensions(image));
+    var accumulated = vec3<f32>(0.0);
+    for (var row = -1; row <= 1; row += 1) {
+        for (var column = -1; column <= 1; column += 1) {
+            let horizontal_weight = select(1.0, 2.0, column == 0);
+            let vertical_weight = select(1.0, 2.0, row == 0);
+            let location = center + vec2<f32>(f32(column), f32(row)) * texel;
+            accumulated += linear(image, location).rgb * (horizontal_weight * vertical_weight / 16.0);
         }
     }
-    for (var y = -1; y <= 1; y += 2) {
-        for (var x = -1; x <= 1; x += 2) {
-            c += linear(source,uv + vec2<f32>(f32(x),f32(y))*d).rgb * 0.125;
-        }
-    }
-    return vec4<f32>(c, 1.0);
+    return accumulated;
 }
-@fragment fn upsample(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
-    let uv = p.xy / vec2<f32>(textureDimensions(source));
-    let d = 1.0 / vec2<f32>(textureDimensions(lower));
-    var c = vec3<f32>(0.0);
-    for (var y = -1; y <= 1; y++) {
-        for (var x = -1; x <= 1; x++) {
-            let w = f32(select(1,2,x==0)*select(1,2,y==0)) / 16.0;
-            c += linear(lower,uv+vec2<f32>(f32(x),f32(y))*d).rgb*w;
-        }
-    }
-    return vec4<f32>((load(source,vec2<i32>(p.xy)).rgb+c)*0.5,1.0);
+
+@fragment fn downsample(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
+    let extent = (textureDimensions(source) + vec2<u32>(1u)) / 2u;
+    let center = pixel.xy / vec2<f32>(extent);
+    return vec4<f32>(tent_reconstruction(source, center), 1.0);
+}
+
+@fragment fn upsample(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
+    let center = pixel.xy / vec2<f32>(textureDimensions(source));
+    let retained = linear(source, center).rgb;
+    let reconstructed = tent_reconstruction(lower, center);
+    return vec4<f32>((retained + reconstructed) * 0.5, 1.0);
 }
 fn mapped(r: f32, e: f32) -> f32 {
     let b = bitcast<u32>(r);
@@ -85,22 +86,35 @@ fn mapped(r: f32, e: f32) -> f32 {
     if (bitcast<u32>(c.b) & 0x7f800000u) == 0x7f800000u { result.b = base.b; }
     return vec4<f32>(result,c.a);
 }
-fn luma(v: vec3<f32>) -> f32 { return dot(sqrt(max(v,vec3<f32>(0.0))),vec3<f32>(0.299,0.587,0.114)); }
-// Directional FXAA: span 8, reduce 1/8, minimum reduce 1/128, contrast skip 1/32.
-@fragment fn fxaa(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
-    let size = vec2<f32>(textureDimensions(source)); let uv = p.xy/size; let d = 1.0/size;
-    let center = load(source,vec2<i32>(p.xy));
-    let nw=luma(linear(source,uv+vec2<f32>(-1.0,-1.0)*d).rgb);
-    let ne=luma(linear(source,uv+vec2<f32>(1.0,-1.0)*d).rgb);
-    let sw=luma(linear(source,uv+vec2<f32>(-1.0,1.0)*d).rgb);
-    let se=luma(linear(source,uv+vec2<f32>(1.0,1.0)*d).rgb);
-    let m=luma(center.rgb); let lo=min(m,min(min(nw,ne),min(sw,se))); let hi=max(m,max(max(nw,ne),max(sw,se)));
-    if hi-lo < max(1.0/32.0,hi/8.0) { return center; }
-    var dir=vec2<f32>(-((nw+ne)-(sw+se)),(nw+sw)-(ne+se));
-    let reduce=max((nw+ne+sw+se)*(0.25/8.0),1.0/128.0);
-    dir=clamp(dir/(min(abs(dir.x),abs(dir.y))+reduce),vec2<f32>(-8.0),vec2<f32>(8.0))*d;
-    let a=0.5*(linear(source,uv+dir*(-1.0/6.0)).rgb+linear(source,uv+dir*(1.0/6.0)).rgb);
-    let b=a*0.5+0.25*(linear(source,uv+dir*(-0.5)).rgb+linear(source,uv+dir*0.5).rgb);
-    let lb=luma(b); let result=select(b,a,lb<lo || lb>hi);
-    return vec4<f32>(mix(center.rgb,result,FXAA),center.a);
+fn edge_brightness(rgb: vec3<f32>) -> f32 {
+    return (rgb.r + 2.0 * rgb.g + rgb.b) * 0.25;
+}
+
+@fragment fn fxaa(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
+    let extent = vec2<f32>(textureDimensions(source));
+    let center_uv = pixel.xy / extent;
+    let original = load(source, vec2<i32>(pixel.xy));
+    var darkest = edge_brightness(original.rgb);
+    var brightest = darkest;
+    var slope = vec2<f32>(0.0);
+    for (var row = -1; row <= 1; row += 1) {
+        for (var column = -1; column <= 1; column += 1) {
+            let offset = vec2<f32>(f32(column), f32(row));
+            let brightness = edge_brightness(load(source, vec2<i32>(pixel.xy) + vec2<i32>(column, row)).rgb);
+            darkest = min(darkest, brightness);
+            brightest = max(brightest, brightness);
+            slope.x += brightness * offset.x * select(1.0, 2.0, row == 0);
+            slope.y += brightness * offset.y * select(1.0, 2.0, column == 0);
+        }
+    }
+    let major_slope = max(abs(slope.x), abs(slope.y));
+    if brightest - darkest <= max(1.0 / 64.0, brightest / 10.0) || major_slope == 0.0 {
+        return original;
+    }
+    let along_edge = vec2<f32>(-slope.y, slope.x) / major_slope;
+    let reach = along_edge * 1.5 / extent;
+    let before = linear(source, center_uv - reach).rgb;
+    let after = linear(source, center_uv + reach).rgb;
+    let smoothed = original.rgb * 0.5 + (before + after) * 0.25;
+    return vec4<f32>(mix(original.rgb, smoothed, FXAA), original.a);
 }

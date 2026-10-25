@@ -8,7 +8,6 @@ pub(crate) struct GaussianPyramid<'a> {
     set: &'a mut StageSet,
     module: wgpu::ShaderModule,
     sampler: wgpu::Sampler,
-    by_value: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -37,13 +36,7 @@ impl<'a> GaussianPyramid<'a> {
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             }),
-            by_value: false,
         }
-    }
-
-    #[cfg(test)]
-    pub fn use_by_value(&mut self) {
-        self.by_value = true;
     }
 
     pub fn build(
@@ -119,7 +112,6 @@ impl<'a> GaussianPyramid<'a> {
             ("TINT_B", level.tint[2].into()),
             ("WEIGHT", level.weight.into()),
             ("FOLD", f64::from(u8::from(lower.is_some()))),
-            ("BY_VALUE", f64::from(u8::from(self.by_value))),
         ];
         self.pass(Pass {
             entry: "gaussian_horizontal",

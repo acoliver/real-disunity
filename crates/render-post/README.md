@@ -196,15 +196,19 @@ reconfiguration use the existing transactional `PostChain` replacement path.
 Every pass has a stable timestamp identity: `gaussian_bright` at level zero,
 `gaussian_downsample` at subsequent levels, and `gaussian_horizontal` /
 `gaussian_vertical` at each logical level. Enable the existing chain timing API
-to collect these individually. The explicit synthetic comparison runs a
-1600x900 frame with radii 44, 32, 20, 12 and 6, alternates direct storage access
-and a by-value dynamically indexed array, discards five warm-up samples per
-design, and reports per-pass medians over twenty samples:
+to collect these individually. The explicit synthetic probe renders a
+1600x900 frame with radii 44, 32, 20, 12 and 6, discards five warm-up samples
+and reports per-pass medians over twenty samples:
 
 ```sh
 WGPU_BACKEND=vulkan cargo test -p worldrunner-render-post --lib \
-  gaussian_weight_access_timestamp_comparison -- --ignored --nocapture --test-threads=1
+  gaussian_bloom_stage_timestamps -- --ignored --nocapture --test-threads=1
 ```
+
+The shader reads taps directly from the storage buffer. Passing the tap array to
+a helper by value and indexing it dynamically produced the same output but cost
+about 236 ms per frame on an RDNA3 integrated GPU, against about 1.2 ms for direct
+access, so that form is not used.
 
 Numerical tests compare each odd-extent pyramid level to a discrete CPU
 convolution, including centre/edge impulses, radius 0, 1, 4, 44 and 64, threshold,

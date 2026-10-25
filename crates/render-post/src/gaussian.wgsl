@@ -11,7 +11,6 @@ override TINT_G: f32 = 1.0;
 override TINT_B: f32 = 1.0;
 override WEIGHT: f32 = 1.0;
 override FOLD: bool = false;
-override BY_VALUE: bool = false;
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(f32((i << 1u) & 2u) * 2.0 - 1.0, f32(i & 2u) * 2.0 - 1.0, 0.0, 1.0);
 }
@@ -44,14 +43,10 @@ fn sample_pair(uv: vec2<f32>, step: vec2<f32>, tap: vec2<f32>) -> vec3<f32> {
     return (textureSampleLevel(source, linear_sampler, uv + step * tap.x, 0.0).rgb
         + textureSampleLevel(source, linear_sampler, uv - step * tap.x, 0.0).rgb) * tap.y;
 }
-fn by_value(uv: vec2<f32>, step: vec2<f32>, taps: array<vec2<f32>,33>) -> vec3<f32> {
-    var value = textureSampleLevel(source, linear_sampler, uv, 0.0).rgb * taps[0].y;
-    for (var i = 1u; i <= TAPS; i++) { value += sample_pair(uv, step, taps[i]); }
-    return value;
-}
 fn blur(uv: vec2<f32>, direction: vec2<f32>) -> vec3<f32> {
     let step = direction / vec2<f32>(textureDimensions(source));
-    if BY_VALUE { return by_value(uv, step, weights.taps); }
+    // Read taps directly from storage. Copying the array into a by-value parameter and
+    // indexing it dynamically measured about two hundred times slower on one RDNA3 GPU.
     var value = textureSampleLevel(source, linear_sampler, uv, 0.0).rgb * weights.taps[0].y;
     for (var i = 1u; i <= TAPS; i++) { value += sample_pair(uv, step, weights.taps[i]); }
     return value;

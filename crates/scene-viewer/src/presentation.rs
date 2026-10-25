@@ -60,7 +60,8 @@ impl Presentation {
                 .unwrap_or_default();
             settings.ssao = effects.and_then(|effects| effects.ssao()).copied();
             settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
-            settings.water = effects.and_then(|effects| effects.water()).copied();
+            settings.water =
+                effects.map_or_else(Vec::new, |effects| effects.water_bodies().to_vec());
         }
         let scale = if let crate::FrameProfile::HdrUpscaled { scale, upscale, .. } = profile {
             settings.post.upscale = Some(upscale);

@@ -169,7 +169,8 @@ pub struct SceneGpu {
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
-    pub(crate) water: Option<worldrunner_render_plan::SceneWaterBody>,
+    pub(crate) water: Vec<worldrunner_render_plan::SceneWaterBody>,
+    pub(crate) water_inputs: Vec<[Option<TextureView>; 2]>,
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
@@ -216,6 +217,7 @@ impl SceneGpu {
     ) -> Result<Self, DrawError> {
         let queue = authority.queue();
         validate_profile(scene, pipelines)?;
+        crate::water::surface::validate(scene)?;
         let contact_heights = contact::height_buffer(device, queue, scene)?;
         let (textures, views) = upload_textures(device, queue, scene)?;
         let placeholder = placeholder_texture(device, queue);
@@ -245,7 +247,8 @@ impl SceneGpu {
             post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
-            water: scene.effects().and_then(|effects| effects.water()).copied(),
+            water: water_bodies(scene),
+            water_inputs: crate::water::surface::inputs(scene, &views),
             committed_frame_group: std::rc::Rc::new(RefCell::new(frame_group.clone())),
             frame_slots,
             frame_buffer,
@@ -571,4 +574,10 @@ fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(
     }
 
     Ok(())
+}
+
+fn water_bodies(scene: &RenderScene) -> Vec<worldrunner_render_plan::SceneWaterBody> {
+    scene
+        .effects()
+        .map_or_else(Vec::new, |effects| effects.water_bodies().to_vec())
 }

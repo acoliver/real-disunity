@@ -13,6 +13,9 @@ fn camera() -> SceneCamera {
 fn effects(water: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: water.then_some(SceneWaterBody {
+            material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+            surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+            flow_millimeters_per_second: [0; 2],
             height_millimeters: 0,
             color_micro: [50_000, 200_000, 250_000],
             absorption_micro: [300_000, 100_000, 50_000],

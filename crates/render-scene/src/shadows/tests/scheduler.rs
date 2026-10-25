@@ -61,6 +61,9 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
 fn stock_water_and_non_neutral_grading_are_explicit_errors() {
     let mut water = fixture::effects_parts(600_000);
     water.water = Some(SceneWaterBody {
+        material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+        surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
         height_millimeters: 0,
         color_micro: [50_000, 200_000, 250_000],
         absorption_micro: [300_000, 100_000, 50_000],

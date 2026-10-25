@@ -15,8 +15,8 @@ mod composition;
 mod effects;
 mod water;
 mod water_settings;
-pub use water::SceneWaterBody;
-pub use water_settings::{SceneWaterGeometry, SceneWaterSettings};
+pub use water::{SceneWaterBody, SceneWaterSurface};
+pub use water_settings::SceneWaterSettings;
 mod post;
 pub use post::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
 mod ssr;
@@ -204,6 +204,14 @@ impl RenderScene {
                 table_limit(self.resources.textures().len(), "textures")?,
                 mesh_limit,
             )?;
+        }
+        if let Some(effects) = &self.effects {
+            for body in effects.water_bodies() {
+                body.material.validate_handles(
+                    table_limit(self.resources.textures().len(), "textures")?,
+                    mesh_limit,
+                )?;
+            }
         }
         for object in self.geometry.objects() {
             require_handle("scene object", object.mesh().raw(), "mesh", mesh_limit)?;

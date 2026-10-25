@@ -356,6 +356,9 @@ fn screen_source() -> RenderScene {
         horizon_angle_millidegrees: 90_000,
     });
     parts.water = Some(SceneWaterBody {
+        material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+        surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
         height_millimeters: -100,
         color_micro: [50_000, 200_000, 250_000],
         absorption_micro: [300_000, 100_000, 50_000],

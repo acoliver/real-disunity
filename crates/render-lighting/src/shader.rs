@@ -46,6 +46,10 @@ fn rd_irradiance_polynomial(direction: vec3<f32>, c: array<vec3<f32>, 9>) -> vec
     return c[0] + c[1]*x + c[2]*y + c[3]*z + c[4]*(x*y)
         + c[5]*(x*z) + c[6]*(y*z) + c[7]*(x*x-y*y) + c[8]*(z*z);
 }
+// The opaque input already contains camera fog; never invert a dense segment.
+fn rd_compose_water_fog(snapshot: vec3<f32>, transmission: vec3<f32>, scattering: vec3<f32>, specular: vec3<f32>, air: f32, fog: vec3<f32>) -> vec3<f32> {
+    return snapshot * transmission + (scattering * air + fog * (1.0 - air)) * (vec3<f32>(1.0) - transmission) + specular * air;
+}
 // Exponential extinction along a segment, with the horizontal-ray analytic limit.
 // log_density_at_eye is logarithmic extinction per metre; all distances are metres.
 fn rd_height_fog_transmittance(log_density_at_eye:f32,falloff:f32,start_distance:f32,offset:vec3<f32>,up:vec3<f32>)->f32 {

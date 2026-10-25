@@ -82,7 +82,8 @@ pub fn encode_scene(
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
-    renderer.validate_water(gpu.water.as_ref())?;
+    renderer.validate_water(&gpu.water)?;
+    renderer.bind_water_inputs(&gpu.water_inputs);
     renderer.validate_ssr(gpu.ssr.as_ref())?;
     renderer.validate_post(gpu.post)?;
     let frame = renderer.prepare_uniform(frame)?;

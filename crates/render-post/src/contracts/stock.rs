@@ -53,20 +53,21 @@ pub(crate) fn compile(
                     .map(|view| ResourceUse::read(view, UseKind::Sampled))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let color = pass
+        let colors = pass
             .color
-            .as_ref()
+            .iter()
+            .chain(&pass.additional_colors)
             .map(|attachment| {
                 let (view, before) = output(registry, &keys, &mut versions, attachment)?;
-                Ok(ColorAttachment {
+                Ok(Some(ColorAttachment {
                     view,
                     before,
                     load: attachment.load,
                     store: attachment.store,
                     resolve: None,
-                })
+                }))
             })
-            .transpose()?;
+            .collect::<Result<Vec<_>, ContractError>>()?;
         let depth = pass
             .depth
             .as_ref()
@@ -86,7 +87,7 @@ pub(crate) fn compile(
                 StageId::new("stock geometry", 0),
                 u32::try_from(index).expect("bounded pass count"),
             ),
-            colors: color.map_or_else(Vec::new, |color| vec![Some(color)]),
+            colors,
             depth,
             uses,
             bindings: Vec::new(),

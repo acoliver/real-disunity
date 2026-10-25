@@ -3,16 +3,7 @@ use crate::scene::direction::SceneDirection;
 
 fn parts() -> SceneEffectsParts {
     SceneEffectsParts {
-        water: Some(SceneWaterBody {
-            height_millimeters: 0,
-            color_micro: [50_000, 200_000, 250_000],
-            absorption_micro: [300_000, 100_000, 50_000],
-            roughness_micro: 200_000,
-            east_min_millimeters: -1_000,
-            north_min_millimeters: -1_000,
-            east_extent_millimeters: 2_000,
-            north_extent_millimeters: 2_000,
-        }),
+        water: Some(water_body()),
         sky: SceneSky::ProceduralHemisphere {
             zenith: SceneColor {
                 red: 96,
@@ -174,6 +165,9 @@ fn quantity_bounds_fail_closed() {
     ));
     let mut staged = parts();
     staged.water = Some(SceneWaterBody {
+        material: crate::SceneWaterSettings::STOCK,
+        surface: crate::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
         height_millimeters: 0,
         color_micro: [50_000, 200_000, 250_000],
         absorption_micro: [300_000, 100_000, 50_000],
@@ -197,4 +191,44 @@ fn water_and_ssao_can_be_omitted_within_a_profile() {
     let effects = SceneEffects::new(staged).expect("waterless effects validate");
     assert!(effects.water().is_none());
     assert!(effects.ssao().is_none());
+}
+
+fn water_body() -> SceneWaterBody {
+    SceneWaterBody {
+        material: crate::SceneWaterSettings::STOCK,
+        surface: crate::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: 0,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
+        east_min_millimeters: -1_000,
+        north_min_millimeters: -1_000,
+        east_extent_millimeters: 2_000,
+        north_extent_millimeters: 2_000,
+    }
+}
+
+#[test]
+fn water_body_collection_replaces_single_input_and_validates_every_body() {
+    let mut elevated = water_body();
+    elevated.height_millimeters = 4000;
+    let effects = SceneEffects::new(parts())
+        .unwrap()
+        .with_water_bodies(vec![water_body(), elevated.clone()])
+        .unwrap();
+    assert_eq!(effects.water_bodies().len(), 2);
+    assert_eq!(effects.water_bodies()[1], elevated);
+    let empty = effects.clone().with_water_bodies(Vec::new()).unwrap();
+    assert!(empty.water().is_none());
+    elevated.surface = crate::SceneWaterSurface::Basin {
+        columns: 2,
+        rows: 2,
+        bed_millimeters: vec![0; 3].into_boxed_slice(),
+    };
+    assert!(
+        effects
+            .with_water_bodies(vec![water_body(), elevated])
+            .is_err()
+    );
 }

@@ -82,6 +82,9 @@ impl FrameRenderer {
             textures.extend(screen.passes.textures());
             textures.extend([&screen.depth, &screen.normals]);
         }
+        if let Some(water) = &self.water {
+            textures.extend(water.receivers[self.frame_slot].iter());
+        }
         if let Some(ssr) = &self.ssr {
             textures.extend(ssr.textures());
         }

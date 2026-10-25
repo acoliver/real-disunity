@@ -1,9 +1,19 @@
+#[path = "authored_tests.rs"]
+mod authored_tests;
+#[path = "bodies_tests.rs"]
+mod bodies_tests;
 #[path = "contracts.rs"]
 mod contracts;
+#[path = "lighting_tests.rs"]
+mod lighting_tests;
 #[path = "numerical.rs"]
 mod numerical;
 #[path = "regressions.rs"]
 mod regressions;
+#[path = "review_tests.rs"]
+mod review_tests;
+#[path = "shoreline_tests.rs"]
+mod shoreline_tests;
 
 use super::*;
 use crate::{CameraPose, SceneView, Viewport, device::GpuContext};
@@ -12,6 +22,9 @@ use worldrunner_render_post::{FrameConfig, Readback, ToneMap};
 
 fn settings() -> SceneWaterBody {
     SceneWaterBody {
+        material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+        surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
         height_millimeters: 0,
         east_min_millimeters: -10000,
         north_min_millimeters: -10000,
@@ -298,17 +311,33 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
     );
     let mut encoder = context.submission().begin(context.device()).unwrap();
     {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("water refraction probe"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: renderer.targets().scene(),
+        let receiver_views: Vec<_> = water.receivers[slot]
+            .iter()
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
+            .collect();
+        let mut colors = vec![Some(wgpu::RenderPassColorAttachment {
+            view: renderer.targets().scene(),
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })];
+        colors.extend(receiver_views.iter().map(|view| {
+            Some(wgpu::RenderPassColorAttachment {
+                view,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
                 },
-            })],
+            })
+        }));
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("water refraction probe"),
+            color_attachments: &colors,
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: renderer.targets().depth(),
                 depth_ops: Some(wgpu::Operations {

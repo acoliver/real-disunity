@@ -233,14 +233,9 @@ pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), Frame
     {
         return Err(FrameError::UnsupportedEffect("color grading"));
     }
-    if let Some(settings) = effects.water_settings() {
-        if settings.refraction_millimeters.is_some() {
+    for body in effects.water_bodies() {
+        if body.material.refraction_millimeters.is_some() {
             return Err(FrameError::UnsupportedEffect("water refraction bound"));
-        }
-        if settings != worldrunner_render_plan::SceneWaterSettings::STOCK {
-            return Err(FrameError::UnsupportedEffect(
-                "water geometry and sampled surface inputs",
-            ));
         }
     }
     if let Some(settings) = effects.ssao() {

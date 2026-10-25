@@ -41,6 +41,12 @@ pub(super) fn validate_quad(
     if !quad.scale.into_iter().all(f32::is_finite) {
         return Err(invalid("scale"));
     }
+    if quad
+        .corners
+        .is_some_and(|corners| corners.into_iter().flatten().any(|v| !v.is_finite()))
+    {
+        return Err(invalid("corners"));
+    }
     let rotation = Quat::from_array(quad.rotation);
     if !rotation.is_finite() || (rotation.length_squared() - 1.0).abs() > 0.001 {
         return Err(invalid("rotation"));
@@ -73,12 +79,16 @@ pub(super) fn validate_quad(
         rotation.normalize(),
         Vec3::from_array(quad.position),
     );
-    for position in [
-        Vec3::new(quad.rect[0], 0.0, quad.rect[1]),
-        Vec3::new(quad.rect[2], 0.0, quad.rect[1]),
-        Vec3::new(quad.rect[2], 0.0, quad.rect[3]),
-        Vec3::new(quad.rect[0], 0.0, quad.rect[3]),
-    ] {
+    let corners = quad.corners.map_or(
+        [
+            Vec3::new(quad.rect[0], 0.0, quad.rect[1]),
+            Vec3::new(quad.rect[2], 0.0, quad.rect[1]),
+            Vec3::new(quad.rect[2], 0.0, quad.rect[3]),
+            Vec3::new(quad.rect[0], 0.0, quad.rect[3]),
+        ],
+        |points| points.map(Vec3::from_array),
+    );
+    for position in corners {
         if !model.transform_point3(position).is_finite() {
             return Err(invalid("transformed rect"));
         }

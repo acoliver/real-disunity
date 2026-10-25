@@ -13,6 +13,8 @@ pub(crate) enum AllocationError {
 
 pub(crate) struct Session {
     pub native: World,
+    pub presentation:
+        Option<worldrunner_world_simulation::presentation::extraction::WorldRenderPlan>,
     pub fonts: worldrunner_world_simulation::ui::FontBook,
     pub font_ids: BTreeMap<u64, worldrunner_world_simulation::FontId>,
     pub clones: BTreeMap<u64, crate::cloning::PendingClone>,
@@ -102,6 +104,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
         handle,
         session: Session {
             native,
+            presentation: None,
             fonts: worldrunner_world_simulation::ui::FontBook::new(Default::default())
                 .map_err(|e| AllocationError::Native(e.into()))?,
             font_ids: BTreeMap::new(),

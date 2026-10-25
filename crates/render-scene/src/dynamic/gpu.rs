@@ -91,7 +91,7 @@ impl DynamicGpu {
             validate_quad(quad, index, self.textures.len())?;
         }
         let mut ordered: Vec<_> = quads.iter().collect();
-        ordered.sort_by_key(|quad| (quad.sorting_layer, quad.sorting_order));
+        ordered.sort_by_key(|quad| (quad.overlay, quad.sorting_layer, quad.sorting_order));
         let placeholder = bindings
             .placeholder
             .create_view(&TextureViewDescriptor::default());
@@ -109,6 +109,7 @@ impl DynamicGpu {
         };
         for group in ordered.chunk_by(|a, b| {
             a.texture == b.texture
+                && a.corners == b.corners
                 && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
                 && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
         }) {
@@ -211,13 +212,19 @@ fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
     let [left, bottom, right, top] = quad.rect;
     let [u0, v0, u1, v1] = quad.uv_rect;
     let mut bytes = Vec::with_capacity(4 * crate::geometry::VERTEX_BYTES);
-    for (x, z, u, v) in [
+    for (index, (x, z, u, v)) in [
         (left, bottom, u0, v1),
         (right, bottom, u1, v1),
         (right, top, u1, v0),
         (left, top, u0, v0),
-    ] {
-        push_vec3(&mut bytes, Vec3::new(x, 0.0, z));
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let position = quad.corners.map_or(Vec3::new(x, 0., z), |corners| {
+            Vec3::from_array(corners[index])
+        });
+        push_vec3(&mut bytes, position);
         push_vec3(&mut bytes, Vec3::NEG_Y);
         push_f32(&mut bytes, u);
         push_f32(&mut bytes, v);

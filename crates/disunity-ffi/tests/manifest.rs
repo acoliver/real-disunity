@@ -22,7 +22,9 @@ fn declared_exports() -> BTreeSet<String> {
         include_str!("../src/input.rs"),
         include_str!("../src/physics.rs"),
         include_str!("../src/ui.rs"),
-        include_str!("../src/object_api.rs")
+        include_str!("../src/object_api.rs"),
+        include_str!("../src/sprites.rs"),
+        include_str!("../src/presentation.rs")
     );
     let mut names = BTreeSet::new();
     for line in source.lines() {

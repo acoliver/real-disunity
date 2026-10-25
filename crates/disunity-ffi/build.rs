@@ -12,6 +12,8 @@ fn main() {
     for input in [
         "src/abi.rs",
         "src/assets.rs",
+        "src/sprites.rs",
+        "src/presentation.rs",
         "src/lib.rs",
         "src/scheduling.rs",
         "src/buffers.rs",
@@ -62,6 +64,8 @@ fn generate_native_records() {
     for file in [
         "src/abi.rs",
         "src/assets.rs",
+        "src/sprites.rs",
+        "src/presentation.rs",
         "src/lib.rs",
         "src/scheduling.rs",
         "src/buffers.rs",
@@ -108,6 +112,8 @@ fn generate_bindings(generated: &std::path::Path) {
     csbindgen::Builder::default()
         .input_extern_file("src/abi.rs")
         .input_extern_file("src/assets.rs")
+        .input_extern_file("src/sprites.rs")
+        .input_extern_file("src/presentation.rs")
         .input_extern_file("src/lib.rs")
         .input_extern_file("src/scheduling.rs")
         .input_extern_file("src/buffers.rs")

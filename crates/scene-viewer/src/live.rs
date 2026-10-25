@@ -187,3 +187,19 @@ pub trait LiveDriver {
         Ok(())
     }
 }
+
+impl LiveFrame {
+    /// Uses the same prepared native contribution as headless scene rendering.
+    pub fn from_world(
+        contribution: worldrunner_render_scene::simulation::WorldSceneContribution,
+    ) -> Self {
+        Self {
+            view: contribution.view,
+            quads: contribution.quads,
+            textures: Some(contribution.textures),
+            clear: contribution.clear,
+            capture: None,
+            exit: false,
+        }
+    }
+}

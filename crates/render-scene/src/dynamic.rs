@@ -31,6 +31,10 @@ pub(crate) use gpu::{DynamicBindings, DynamicGpu};
 pub struct DynamicQuad {
     /// Canonical translation in metres.
     pub position: [f32; 3],
+    /// Optional local vertices preserving full affine contributions, including shear.
+    pub corners: Option<[[f32; 3]; 4]>,
+    /// Screen overlays follow all world quads, then use their own layer/order keys.
+    pub overlay: bool,
     /// Canonical unit quaternion, x/y/z/w.
     pub rotation: [f32; 4],
     /// Nonuniform canonical scale, x/y/z.
@@ -53,6 +57,8 @@ impl Default for DynamicQuad {
     fn default() -> Self {
         Self {
             position: [0.0; 3],
+            corners: None,
+            overlay: false,
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0; 3],
             rect: [-0.5, -0.5, 0.5, 0.5],

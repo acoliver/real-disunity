@@ -97,9 +97,10 @@ public static partial class DisunityHost
     private static object? CopyField(object? value, Dictionary<object, object> remap, Dictionary<object, object> copied)
     {
         if (value == null) return null;
+        if (value is Sprite or Font) return value;
         if (value is EngineObject) return remap.GetValueOrDefault(value, value);
         var type = value.GetType();
-        if (value is Vector3 or Vector2 or Vector2Int or Quaternion or Rect || type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)) return value;
+        if (value is Vector3 or Vector2 or Vector2Int or Quaternion or Rect or Color or Bounds || type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)) return value;
         if (copied.TryGetValue(value, out var known)) return known;
         if (value is Array array)
         {
@@ -109,13 +110,19 @@ public static partial class DisunityHost
             for (var i = 0; i < array.Length; i++) result.SetValue(CopyField(array.GetValue(i), remap, copied), i);
             return result;
         }
-        var clone = Activator.CreateInstance(type, nonPublic: true)
-            ?? throw new NotSupportedException($"cannot clone serialized field {type}");
+        var fields = SerializedFields(type).ToArray();
+        var isList = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>);
+        if (!isList && (fields.Length == 0 || value is IEnumerable or Delegate))
+            throw new NotSupportedException($"unsupported serialized field type {type}");
+        object clone;
+        try { clone = Activator.CreateInstance(type, nonPublic: true)
+            ?? throw new NotSupportedException($"cannot clone serialized field {type}"); }
+        catch (MissingMethodException error) { throw new NotSupportedException($"cannot clone serialized field {type}", error); }
         copied.Add(value, clone);
-        if (value is IList list)
-            foreach (var item in list) ((IList)clone).Add(CopyField(item, remap, copied));
+        if (isList)
+            foreach (var item in (IList)value) ((IList)clone).Add(CopyField(item, remap, copied));
         else
-            foreach (var field in SerializedFields(type)) field.SetValue(clone, CopyField(field.GetValue(value), remap, copied));
+            foreach (var field in fields) field.SetValue(clone, CopyField(field.GetValue(value), remap, copied));
         return clone;
     }
 }

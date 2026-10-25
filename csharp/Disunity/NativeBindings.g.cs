@@ -168,6 +168,88 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_body_sleeping", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_body_sleeping(ulong world, ulong handle, uint* sleeping);
 
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sprite_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sprite_create(ulong world, ulong @object, ulong* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Value is readable for one sprite record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sprite_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sprite_write(ulong world, ulong handle, DisunitySprite* value);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one sprite record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sprite_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sprite_read(ulong world, ulong handle, DisunitySprite* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one bounds record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sprite_bounds", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sprite_bounds(ulong world, ulong handle, DisunityBounds* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Value is readable for one immutable content descriptor.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sprite_validate", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sprite_validate(DisunitySprite* value);
+
+        /// <summary>
+        ///  Allocates an immutable content identity after validating the descriptor.
+        ///  # Safety
+        ///  Value is readable and writable for one sprite record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sprite_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sprite_register(DisunitySprite* value);
+
+        /// <summary>
+        ///  Creates the supported native orthographic camera with default lens and clear.
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_create(ulong world, ulong @object, ulong* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Both output arrays are writable for capacity records; written is writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_world_export_sprites", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_world_export_sprites(ulong world, DisunitySprite* sprites, DisunityMatrix* matrices, uint capacity, uint* written);
+
+        /// <summary>
+        ///  Extracts one immutable frame from the loaded world's own layout and FontBook.
+        ///  The next prepare or world unload releases the preceding frame.
+        ///  # Safety
+        ///  Output is writable for one presentation header.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_prepare", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_prepare(ulong world, uint width, uint height, ulong next_texture, DisunityPresentation* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one quad. Index addresses the last prepared frame.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_quad", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_quad(ulong world, uint index, DisunityQuad* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Metadata is writable; bytes is writable for capacity, or null when capacity is zero.
+        ///  A zero-capacity query reports the exact required byte length without copying.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_coverage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_coverage(ulong world, uint index, DisunityCoverage* output, byte* bytes, uint capacity);
+
         [DllImport(__DllName, EntryPoint = "disunity_abi_check", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_abi_check(uint revision);
 
@@ -528,6 +610,129 @@ namespace Disunity.Native
     {
         public int code;
         public ulong detail;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunitySprite
+    {
+        public ulong identity;
+        public ulong texture;
+        public uint present;
+        public uint width;
+        public uint height;
+        public float x;
+        public float y;
+        public float w;
+        public float h;
+        public float pivot_x;
+        public float pivot_y;
+        public float pixels_per_unit;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public uint enabled;
+        public uint flip_x;
+        public uint flip_y;
+        public int sorting_layer;
+        public int sorting_order;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityBounds
+    {
+        public float min_x;
+        public float min_y;
+        public float min_z;
+        public float max_x;
+        public float max_y;
+        public float max_z;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMatrix
+    {
+        public float m0;
+        public float m1;
+        public float m2;
+        public float m3;
+        public float m4;
+        public float m5;
+        public float m6;
+        public float m7;
+        public float m8;
+        public float m9;
+        public float m10;
+        public float m11;
+        public float m12;
+        public float m13;
+        public float m14;
+        public float m15;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityPresentation
+    {
+        public uint present;
+        public uint quads;
+        public uint textures;
+        public uint width;
+        public uint height;
+        public double eye_x;
+        public double eye_y;
+        public double eye_z;
+        public double forward_x;
+        public double forward_y;
+        public double forward_z;
+        public double up_x;
+        public double up_y;
+        public double up_z;
+        public double half_height;
+        public double near;
+        public double far;
+        public double r;
+        public double g;
+        public double b;
+        public double a;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityQuad
+    {
+        public ulong texture;
+        public uint textured;
+        public uint overlay;
+        public int sorting_layer;
+        public int sorting_order;
+        public float p0_x;
+        public float p0_y;
+        public float p0_z;
+        public float p1_x;
+        public float p1_y;
+        public float p1_z;
+        public float p2_x;
+        public float p2_y;
+        public float p2_z;
+        public float p3_x;
+        public float p3_y;
+        public float p3_z;
+        public float u0;
+        public float v0;
+        public float u1;
+        public float v1;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityCoverage
+    {
+        public ulong identity;
+        public uint width;
+        public uint height;
+        public uint length;
     }
 
     /// <summary>

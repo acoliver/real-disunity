@@ -12,6 +12,7 @@
 mod assets;
 mod clock;
 mod coroutines;
+pub mod presentation;
 mod scheduled_contacts;
 pub use scheduled_contacts::ContactId;
 mod input;
@@ -64,6 +65,8 @@ pub enum LimitKind {
 pub enum ComponentError {
     #[error("duplicate singleton component")]
     Duplicate,
+    #[error("invalid presentation component")]
+    InvalidPresentation,
     #[error("the object's transform cannot be removed")]
     RequiredTransform,
     #[error("invalid transform: expected finite TRS and unit quaternion")]

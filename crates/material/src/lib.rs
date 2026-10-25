@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use worldrunner_asset_id::{ContentHash, LogicalAssetId};
 
+/// Engine-owned unlit straight-alpha material used by sprite, tile and glyph quads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuiltinMaterial {
+    SpriteUnlit,
+}
+
 const MAGIC: [u8; 8] = *b"RDMATL01";
 const VERSION: u32 = 2;
 const HEADER_BYTES: usize = 52;

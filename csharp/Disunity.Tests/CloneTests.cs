@@ -6,6 +6,10 @@ internal static class CloneTests
     private sealed class Probe : MonoBehaviour
     {
         public Vector3 Spawn = new(1, 2, 3);
+        public Color Tint = new(0.2f, 0.4f, 0.6f, 0.5f);
+        public Bounds Box = new(new(1, 2, 3), new(4, 5, 6));
+        public Color[] Tints = { new(0.3f, 0.5f, 0.7f, 0.9f) };
+        public List<Bounds> Boxes = new() { new(new(2, 3, 4), new(5, 6, 7)) };
         public Probe? Internal;
         public Probe? External;
         public Probe? Child;
@@ -17,6 +21,8 @@ internal static class CloneTests
         public static Action<Probe>? Activation;
         private void Awake() => Activation?.Invoke(this);
     }
+
+    private sealed class Unsupported : MonoBehaviour { public object Value = DateTime.UnixEpoch; }
 
     public static void Run()
     {
@@ -49,6 +55,10 @@ internal static class CloneTests
         };
         var result = UnityEngine.Object.Instantiate(template);
         order.Add("return");
+        if (result.Tint != template.Tint || result.Box != template.Box
+            || result.Tints[0] != template.Tints[0] || result.Boxes[0] != template.Boxes[0]
+            || ReferenceEquals(result.Tints, template.Tints) || ReferenceEquals(result.Boxes, template.Boxes))
+            throw new Exception("Color and Bounds serialized fields and collections must retain values");
         if (ReferenceEquals(template, result) || !order.SequenceEqual(new[] { "awake", "awake", "nested-return", "return" }))
             throw new Exception("nested Instantiate must drain native lifecycle before returning");
         Probe.Activation = null;
@@ -65,6 +75,13 @@ internal static class CloneTests
         try { UnityEngine.Object.Instantiate(template); throw new Exception("constructor failure lost"); }
         catch (System.Reflection.TargetInvocationException error) when (error.InnerException?.Message == "constructor failure") { }
         finally { Probe.FailConstruction = false; }
+        var unsupported = DisunityHost.AddComponent(new Unsupported());
+        foreach (var value in new object[] { DateTime.UnixEpoch, new Dictionary<string, int> { ["a"] = 7 }, new int[2, 2] })
+        {
+            unsupported.Value = value;
+            try { UnityEngine.Object.Instantiate(unsupported); throw new Exception("unsupported serialized type silently cloned"); }
+            catch (NotSupportedException) { }
+        }
         DisunityHost.Step(0);
         DisunityHost.UnloadWorld();
         Console.WriteLine("PASS: native Instantiate, serialized reference remap and nested activation");

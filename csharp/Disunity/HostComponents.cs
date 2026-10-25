@@ -12,7 +12,13 @@ public static partial class DisunityHost
         if (value is MonoBehaviour script) return (T)(Component)Attach(owner, script);
         if (value is not NativeComponent && value is not RectTransform) throw new NotSupportedException($"component {typeof(T)}");
         ulong handle;
-        if (value is Canvas || value is RectTransform)
+        if (value is Camera)
+            ThrowIfError(NativeBindings.disunity_camera_create(WorldHandle, owner.NativeHandle, &handle));
+        else if (value is SpriteRenderer)
+        {
+            ThrowIfError(NativeBindings.disunity_sprite_create(WorldHandle, owner.NativeHandle, &handle));
+        }
+        else if (value is Canvas || value is RectTransform)
         {
             if (value is RectTransform && owner.transform is RectTransform) throw new InvalidOperationException("object already has a RectTransform");
             ThrowIfError(NativeBindings.disunity_ui_create(WorldHandle, owner.NativeHandle, value is Canvas ? 1u : 0u, 0, &handle));

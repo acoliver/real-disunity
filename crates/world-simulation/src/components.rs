@@ -44,6 +44,9 @@ impl LocalTransform {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ComponentDesc {
     Transform(LocalTransform),
+    Sprite(crate::presentation::SpriteRenderer),
+    Tilemap(crate::presentation::Tilemap),
+    Camera(crate::presentation::Camera),
     #[cfg(feature = "ui")]
     RectTransform(crate::ui::RectTransform),
     #[cfg(feature = "ui")]
@@ -65,6 +68,9 @@ impl ComponentDesc {
     pub(crate) fn validate(&self) -> Result<(), WorldError> {
         match self {
             Self::Transform(value) => value.validate(),
+            Self::Sprite(value) => value.validate(),
+            Self::Tilemap(value) => value.validate(),
+            Self::Camera(value) => value.validate(),
             #[cfg(feature = "ui")]
             Self::RectTransform(value) => value.validate().map_err(WorldError::from),
             #[cfg(feature = "ui")]

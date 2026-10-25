@@ -9,6 +9,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Disunity.Tests/SyntheticFont.cs" Link="SyntheticFont.cs" />
     <ProjectReference Include="../Disunity/Disunity.Engine.csproj" />
   </ItemGroup>
 </Project>

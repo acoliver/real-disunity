@@ -157,16 +157,15 @@ unload also retires live assets. Assets do not receive frame-update messages.
 Rigidbody2D.Sleep, IsSleeping and WakeUp use native body state. Sleeping bodies
 skip gravity and integration; collision impulses and explicit wake resume motion.
 
-Missing surface includes Sprite/SpriteRenderer, object constructors, component
-destruction, body forces/constraints, broader colliders/queries,
-Camera/material/resources, tilemaps, application/scene controls,
+Sprite and SpriteRenderer now use native immutable content identities and renderer
+state. Camera creation supports the native default orthographic lens and clear;
+broader managed camera controls remain unavailable. Missing surface includes
+object constructors, component destruction, body forces/constraints, broader
+colliders/queries, materials/resources, managed tilemaps, application/scene controls,
 CanvasScaler/camera binding, Text color/alignment/font reassignment and generic
-AddComponent<Text>. External pinned runtime scripts were compiled unchanged in
-projects outside this repository, with only a Disunity reference. One project
-compiles; the other two currently report only missing Sprite/SpriteRenderer types,
-which belong to the presentation slice. Later diagnostic phases can reveal more
-unsupported members. No game execution or content import is claimed, and no
-placeholder component claims those missing capabilities.
+AddComponent<Text>. Three pinned external runtime-script trees compile unchanged
+against Disunity in projects outside this repository. This establishes source
+compilation, without claiming game execution or content import.
 
 ### Callback failures and dependency checks
 

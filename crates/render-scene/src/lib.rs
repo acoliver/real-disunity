@@ -38,3 +38,5 @@ pub use worldrunner_render_post as executor;
 pub use view::{CameraPose, OrthographicLens, SceneView, ViewError, Viewport};
 
 mod post;
+
+pub mod simulation;

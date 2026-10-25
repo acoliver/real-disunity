@@ -40,7 +40,10 @@ impl World {
             }
             ComponentDesc::Script { .. }
             | ComponentDesc::Body2d(_)
-            | ComponentDesc::Collider2d(_) => {}
+            | ComponentDesc::Collider2d(_)
+            | ComponentDesc::Sprite(_)
+            | ComponentDesc::Tilemap(_)
+            | ComponentDesc::Camera(_) => {}
         }
         self.queue_script_cleanup(handle);
         self.lifetime.components.insert(handle);

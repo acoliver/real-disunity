@@ -33,6 +33,8 @@ pub use timing::{
     FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,
     TimingSupport,
 };
+mod bloom_builder;
+pub use bloom_builder::BloomPyramid;
 mod bloom_policy;
 mod chain;
 mod copy;

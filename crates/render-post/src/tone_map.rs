@@ -52,7 +52,7 @@ impl ToneMapOutput {
     ) -> Result<Self, PostError> {
         settings.validate()?;
         self.post = if settings.enabled() {
-            Some(Box::new(crate::hdr_post::HdrPost::new(device, settings)?))
+            Some(Box::new(crate::hdr_post::HdrPost::new(device, &settings)?))
         } else {
             None
         };
@@ -71,7 +71,7 @@ impl ToneMapOutput {
             retained.settings = settings;
             Some(retained)
         } else if settings.enabled() {
-            Some(Box::new(crate::hdr_post::HdrPost::new(device, settings)?))
+            Some(Box::new(crate::hdr_post::HdrPost::new(device, &settings)?))
         } else {
             None
         };

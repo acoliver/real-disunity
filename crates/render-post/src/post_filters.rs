@@ -29,11 +29,11 @@ impl<'a> Filters<'a> {
     pub fn build(
         &mut self,
         targets: &FrameTargets,
-        settings: HdrPostSettings,
+        settings: &HdrPostSettings,
         exposure: &wgpu::Buffer,
         output: (wgpu::TextureFormat, f64),
     ) {
-        let bloom = self.bloom_source(targets, settings);
+        let bloom = self.bloom_source(targets, settings, exposure, output.1);
         let constants = [
             (
                 "GAUSSIAN",
@@ -124,15 +124,40 @@ impl<'a> Filters<'a> {
     fn bloom_source(
         &mut self,
         targets: &FrameTargets,
-        settings: HdrPostSettings,
+        settings: &HdrPostSettings,
+        exposure: &wgpu::Buffer,
+        fixed: f64,
     ) -> wgpu::TextureView {
         settings.bloom.map_or_else(
             || targets.resolved().clone(),
             |b| match settings.bloom_kernel {
                 crate::BloomKernel::Tent => self.bloom(targets, b),
                 crate::BloomKernel::SeparablePyramid(levels) => {
-                    crate::gaussian_gpu::GaussianPyramid::new(self.device, self.set)
-                        .build(targets, b, &levels)
+                    let fixed_buffer = (settings.adaptive.is_none()
+                        && matches!(b.policies.extraction, crate::BrightExtraction::ToneCurve(_)))
+                    .then(|| {
+                        use wgpu::util::DeviceExt;
+                        self.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("stock fixed bloom exposure"),
+                                contents: &1.0_f32.to_le_bytes(),
+                                usage: wgpu::BufferUsages::STORAGE,
+                            })
+                    });
+                    let view = crate::gaussian_gpu::GaussianPyramid::new(self.device, self.set)
+                        .build(
+                            targets.resolved(),
+                            b,
+                            &levels,
+                            Some((
+                                fixed_buffer.as_ref().unwrap_or(exposure),
+                                if fixed_buffer.is_some() { fixed } else { 1.0 },
+                            )),
+                        );
+                    if let Some(buffer) = fixed_buffer {
+                        self.set.resources.buffers.push(buffer);
+                    }
+                    view
                 }
             },
         )

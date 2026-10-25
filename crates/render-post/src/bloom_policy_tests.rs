@@ -40,6 +40,10 @@ fn tone_policy_validates_all_authored_scalars() {
             assert!(policy.validate().is_err());
         }
     }
+}
+
+#[test]
+fn tone_policy_rejects_zero_and_out_of_range_values() {
     for invalid in [0.0, 65505.0] {
         assert!(
             ToneCurveBright {
@@ -126,7 +130,7 @@ fn level_selection_rejects_inaccessible_outputs() {
 fn every_policy_combination_validates_and_tent_rejects_changes() {
     for curve in [BrightCurve::AcesFilmic, BrightCurve::Reinhard] {
         for reduction in [
-            BloomReduction::BoxBeforeExtraction,
+            BloomReduction::BoxPerTexel,
             BloomReduction::QuarterTexelAfterAverage,
         ] {
             for kernel in [

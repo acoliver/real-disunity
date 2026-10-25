@@ -49,7 +49,7 @@ pub enum BrightExtraction {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BloomReduction {
     #[default]
-    BoxBeforeExtraction,
+    BoxPerTexel,
     /// Four bilinear samples at destination centre +/- one quarter source texel.
     QuarterTexelAfterAverage,
 }

@@ -1,6 +1,4 @@
-use crate::{
-    Bloom, FrameTargets, GaussianLevel, Stage, StageId, StageSet, StageTarget, color_texture,
-};
+use crate::{Bloom, GaussianLevel, Stage, StageId, StageSet, StageTarget, color_texture};
 use wgpu::util::DeviceExt;
 
 pub(crate) struct GaussianPyramid<'a> {
@@ -17,6 +15,8 @@ struct Pass<'a> {
     source: &'a wgpu::TextureView,
     lower: Option<&'a wgpu::TextureView>,
     weights: Option<&'a wgpu::Buffer>,
+    exposure: Option<&'a wgpu::Buffer>,
+    filtered: bool,
     target: &'a wgpu::TextureView,
     constants: &'a [(&'a str, f64)],
 }
@@ -41,97 +41,156 @@ impl<'a> GaussianPyramid<'a> {
 
     pub fn build(
         &mut self,
-        targets: &FrameTargets,
+        source: &wgpu::TextureView,
         bloom: Bloom,
         levels: &[GaussianLevel; 8],
+        exposure: Option<(&wgpu::Buffer, f64)>,
     ) -> wgpu::TextureView {
-        let extents = crate::gaussian_extents(targets.config().size, bloom.levels)
-            .expect("validated Gaussian extents");
+        let extents = crate::gaussian_extents(
+            [source.texture().width(), source.texture().height()],
+            bloom.levels,
+        )
+        .expect("validated Gaussian extents");
         let mut pyramid = Vec::new();
-        let mut source = targets.resolved().clone();
+        let mut source = source.clone();
         for (index, size) in extents.into_iter().enumerate() {
             let target = self.texture(size);
-            let entry = if index == 0 {
-                "gaussian_bright"
-            } else {
-                "gaussian_downsample"
-            };
-            self.pass(Pass {
-                entry,
-                level: u32::try_from(index).unwrap(),
-                source: &source,
-                lower: None,
-                weights: None,
-                target: &target,
-                constants: &[
-                    ("THRESHOLD", bloom.threshold.into()),
-                    ("KNEE", bloom.knee.into()),
-                ],
-            });
+            self.reduce_level(index, &source, &target, bloom, exposure);
             source = target.clone();
             pyramid.push(target);
         }
         let mut lower = None;
-        for (index, target) in pyramid.iter().enumerate().rev() {
+        for (index, target) in
+            pyramid.iter().enumerate().rev().take(
+                usize::try_from(bloom.levels - bloom.policies.selection.first_blurred).unwrap(),
+            )
+        {
             let scratch = self.texture([target.texture().width(), target.texture().height()]);
-            self.blur_level(index, levels[index], target, &scratch, lower.as_ref());
+            self.blur_level(
+                (index, levels[index], bloom.policies),
+                target,
+                &scratch,
+                lower.as_ref(),
+            );
             lower = Some(target.clone());
         }
-        pyramid[0].clone()
+        pyramid[usize::try_from(bloom.policies.selection.output).unwrap()].clone()
+    }
+
+    fn reduce_level(
+        &mut self,
+        index: usize,
+        source: &wgpu::TextureView,
+        target: &wgpu::TextureView,
+        bloom: Bloom,
+        exposure: Option<(&wgpu::Buffer, f64)>,
+    ) {
+        let mut constants = super::bloom_builder::bright_constants(bloom);
+        constants.push(("HOST_EXPOSURE", exposure.map_or(1.0, |(_, scale)| scale)));
+        let filtered = bloom.policies.reduction == crate::BloomReduction::QuarterTexelAfterAverage;
+        let tone = matches!(
+            bloom.policies.extraction,
+            crate::BrightExtraction::ToneCurve(_)
+        );
+        let entry = match (index == 0, filtered, tone) {
+            (true, _, true) => "gaussian_tone_bright",
+            (true, true, false) => "gaussian_filtered_bright",
+            (false, true, _) => "gaussian_filtered_downsample",
+            (true, false, false) => "gaussian_bright",
+            (false, false, _) => "gaussian_downsample",
+        };
+        self.pass(Pass {
+            entry,
+            level: u32::try_from(index).unwrap(),
+            source,
+            target,
+            lower: None,
+            weights: None,
+            exposure: if index == 0 && tone {
+                exposure.map(|(buffer, _)| buffer)
+            } else {
+                None
+            },
+            filtered: filtered || (index == 0 && tone),
+            constants: &constants,
+        });
     }
 
     fn blur_level(
         &mut self,
-        index: usize,
-        level: GaussianLevel,
+        config: (usize, GaussianLevel, crate::BloomPolicies),
         target: &wgpu::TextureView,
         scratch: &wgpu::TextureView,
         lower: Option<&wgpu::TextureView>,
     ) {
-        let weights = crate::gaussian_weights(level.radius).expect("validated Gaussian radius");
+        let (index, level, policies) = config;
+        let weights_for = |extent| {
+            policies
+                .kernel
+                .weights(level.radius, extent)
+                .expect("validated Gaussian radius")
+        };
+        let horizontal = self.weight_buffer(&weights_for(target.texture().width()));
+        let vertical = (policies.kernel != crate::GaussianKernelRule::RadiusThird)
+            .then(|| self.weight_buffer(&weights_for(target.texture().height())));
+        for (entry, extent, source, destination) in [
+            (
+                "gaussian_horizontal",
+                target.texture().width(),
+                target,
+                scratch,
+            ),
+            (
+                "gaussian_vertical",
+                target.texture().height(),
+                scratch,
+                target,
+            ),
+        ] {
+            let weights = policies
+                .kernel
+                .weights(level.radius, extent)
+                .expect("validated Gaussian radius");
+            let buffer = if entry == "gaussian_vertical" {
+                vertical.as_ref().unwrap_or(&horizontal)
+            } else {
+                &horizontal
+            };
+            let constants = blur_constants(
+                level,
+                weights.taps.len(),
+                policies.tint_pass,
+                lower.is_some(),
+            );
+            self.pass(Pass {
+                entry,
+                level: u32::try_from(index).unwrap(),
+                source,
+                lower,
+                weights: Some(buffer),
+                exposure: None,
+                filtered: true,
+                target: destination,
+                constants: &constants,
+            });
+        }
+        self.set.resources.buffers.push(horizontal);
+        self.set.resources.buffers.extend(vertical);
+    }
+
+    fn weight_buffer(&self, weights: &crate::GaussianWeights) -> wgpu::Buffer {
         let mut data = vec![0.0_f32; crate::gaussian::GAUSSIAN_TAP_CAPACITY * 2];
         data[1] = weights.center;
         for (pair, tap) in data[2..].chunks_exact_mut(2).zip(&weights.taps) {
             pair.copy_from_slice(&[tap.offset, tap.weight]);
         }
         let bytes: Vec<_> = data.into_iter().flat_map(f32::to_le_bytes).collect();
-        let buffer = self
-            .device
+        self.device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Gaussian folded weights"),
                 contents: &bytes,
                 usage: wgpu::BufferUsages::STORAGE,
-            });
-        let constants = [
-            (
-                "TAPS",
-                f64::from(u32::try_from(weights.taps.len()).unwrap()),
-            ),
-            ("TINT_R", level.tint[0].into()),
-            ("TINT_G", level.tint[1].into()),
-            ("TINT_B", level.tint[2].into()),
-            ("WEIGHT", level.weight.into()),
-            ("FOLD", f64::from(u8::from(lower.is_some()))),
-        ];
-        self.pass(Pass {
-            entry: "gaussian_horizontal",
-            level: u32::try_from(index).unwrap(),
-            source: target,
-            lower: None,
-            weights: Some(&buffer),
-            target: scratch,
-            constants: &constants,
-        });
-        self.pass(Pass {
-            entry: "gaussian_vertical",
-            level: u32::try_from(index).unwrap(),
-            source: scratch,
-            lower,
-            weights: Some(&buffer),
-            target,
-            constants: &constants,
-        });
-        self.set.resources.buffers.push(buffer);
+            })
     }
 
     fn texture(&mut self, size: [u32; 2]) -> wgpu::TextureView {
@@ -146,9 +205,8 @@ impl<'a> GaussianPyramid<'a> {
         view
     }
 
-    fn pass(&mut self, p: Pass<'_>) {
-        let pipeline = self
-            .device
+    fn pipeline(&self, p: &Pass<'_>) -> wgpu::RenderPipeline {
+        self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(p.entry),
                 layout: None,
@@ -172,18 +230,30 @@ impl<'a> GaussianPyramid<'a> {
                 multisample: wgpu::MultisampleState::default(),
                 multiview_mask: None,
                 cache: None,
-            });
+            })
+    }
+
+    fn pass(&mut self, p: Pass<'_>) {
+        let pipeline = self.pipeline(&p);
         let mut entries = vec![wgpu::BindGroupEntry {
             binding: 0,
             resource: wgpu::BindingResource::TextureView(p.source),
         }];
-        if let Some(buffer) = p.weights {
+        if p.filtered {
             entries.push(wgpu::BindGroupEntry {
                 binding: 1,
                 resource: wgpu::BindingResource::Sampler(&self.sampler),
             });
+        }
+        if let Some(buffer) = p.weights {
             entries.push(wgpu::BindGroupEntry {
                 binding: 3,
+                resource: buffer.as_entire_binding(),
+            });
+        }
+        if let Some(buffer) = p.exposure {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 4,
                 resource: buffer.as_entire_binding(),
             });
         }
@@ -206,4 +276,24 @@ impl<'a> GaussianPyramid<'a> {
             StageTarget::Texture(p.target.clone()),
         ));
     }
+}
+
+fn blur_constants(
+    level: GaussianLevel,
+    tap_count: usize,
+    tint_pass: crate::BloomTintPass,
+    fold: bool,
+) -> [(&'static str, f64); 7] {
+    [
+        ("TAPS", f64::from(u32::try_from(tap_count).unwrap())),
+        ("TINT_R", level.tint[0].into()),
+        ("TINT_G", level.tint[1].into()),
+        ("TINT_B", level.tint[2].into()),
+        ("WEIGHT", level.weight.into()),
+        (
+            "HORIZONTAL_TINT",
+            f64::from(u8::from(tint_pass == crate::BloomTintPass::Horizontal)),
+        ),
+        ("FOLD", f64::from(u8::from(fold))),
+    ]
 }

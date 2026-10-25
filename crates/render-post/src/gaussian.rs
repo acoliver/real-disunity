@@ -57,10 +57,10 @@ pub struct GaussianWeights {
 
 /// Truncated Gaussian with sigma = radius / 3. Radius zero has unit centre weight.
 pub fn gaussian_weights(radius: u32) -> Result<GaussianWeights, PostError> {
-    fold_weights(&discrete_weights(radius)?)
+    Ok(fold_weights(&discrete_weights(radius)?))
 }
 
-fn fold_weights(weights: &[f32]) -> Result<GaussianWeights, PostError> {
+fn fold_weights(weights: &[f32]) -> GaussianWeights {
     let taps = weights[1..]
         .chunks(2)
         .enumerate()
@@ -74,10 +74,10 @@ fn fold_weights(weights: &[f32]) -> Result<GaussianWeights, PostError> {
             }
         })
         .collect();
-    Ok(GaussianWeights {
+    GaussianWeights {
         center: weights[0],
         taps,
-    })
+    }
 }
 
 pub(crate) fn discrete_weights(radius: u32) -> Result<Vec<f32>, PostError> {
@@ -155,6 +155,6 @@ impl crate::GaussianKernelRule {
         if support == 0 {
             return gaussian_weights(0);
         }
-        fold_weights(&normalized_weights(support, sigma))
+        Ok(fold_weights(&normalized_weights(support, sigma)))
     }
 }

@@ -17,7 +17,7 @@ pub(super) fn adaptive() -> AdaptiveExposure {
 }
 pub(super) fn chain(
     device: &wgpu::Device,
-    settings: HdrPostSettings,
+    settings: &HdrPostSettings,
     size: [u32; 2],
 ) -> PostChain<ToneMapOutput> {
     PostChain::new(
@@ -26,7 +26,7 @@ pub(super) fn chain(
         Resources::default(),
         ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)
             .unwrap()
-            .with_effects(device, settings)
+            .with_effects(device, *settings)
             .unwrap(),
     )
     .unwrap()
@@ -156,7 +156,7 @@ fn gpu_histogram_matches_cpu_bins_and_trimmed_exposure() {
     let a = adaptive();
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(a),
             ..HdrPostSettings::default()
         },
@@ -192,7 +192,7 @@ fn gpu_slots_overlap_without_history_races_and_capture_reset_is_deterministic() 
     let (device, queue) = crate::gpu_tests::gpu();
     let mut c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(adaptive()),
             ..HdrPostSettings::default()
         },
@@ -231,7 +231,7 @@ fn gpu_fixed_capture_exposure_ignores_metered_scene() {
     a.fixed_exposure = Some(0.5);
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(a),
             ..HdrPostSettings::default()
         },
@@ -256,7 +256,7 @@ fn gpu_bloom_spreads_energy_and_excludes_nonfinite_fireflies() {
         }),
         ..HdrPostSettings::default()
     };
-    let c = chain(&device, settings, [64, 64]);
+    let c = chain(&device, &settings, [64, 64]);
     step(
         &device,
         &queue,
@@ -304,10 +304,10 @@ fn gpu_bloom_spreads_energy_and_excludes_nonfinite_fireflies() {
 #[test]
 fn gpu_fxaa_smooths_diagonal_preserves_flat_and_disabled_bytes() {
     let (device, queue) = crate::gpu_tests::gpu();
-    let plain = chain(&device, HdrPostSettings::default(), [32, 32]);
+    let plain = chain(&device, &HdrPostSettings::default(), [32, 32]);
     let filtered = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             fxaa: Some(1.0),
             ..HdrPostSettings::default()
         },
@@ -326,7 +326,7 @@ fn gpu_fxaa_smooths_diagonal_preserves_flat_and_disabled_bytes() {
             > 20
     );
     assert_eq!(&a[..8], &b[..8]);
-    let empty = chain(&device, HdrPostSettings::default(), [32, 32]);
+    let empty = chain(&device, &HdrPostSettings::default(), [32, 32]);
     let b = step(&device, &queue, &empty, 0, edge, false);
     assert_eq!(a, pixels(&device, &queue, &b));
     let flat = "return vec4<f32>(0.75,0.75,0.75,1.0);";
@@ -341,7 +341,7 @@ fn gpu_adaptation_converges_at_fixed_asymmetric_rates() {
     let a = adaptive();
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(a),
             ..HdrPostSettings::default()
         },
@@ -370,7 +370,7 @@ fn gpu_nonfinite_inputs_cannot_poison_histogram_or_bloom() {
     let (device, queue) = crate::gpu_tests::gpu();
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(adaptive()),
             bloom: Some(Bloom {
                 policies: crate::BloomPolicies::default(),
@@ -409,7 +409,7 @@ fn gpu_bloom_threshold_and_quadratic_knee_match_exact_reference() {
     let (device, queue) = crate::gpu_tests::gpu();
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             bloom: Some(Bloom {
                 policies: crate::BloomPolicies::default(),
                 threshold: 1.0,

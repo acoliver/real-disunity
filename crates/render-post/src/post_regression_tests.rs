@@ -9,7 +9,7 @@ fn gpu_fixed_delta_overrides_invalid_host_timing_before_validation() {
     let (device, queue) = crate::gpu_tests::gpu();
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(adaptive()),
             ..HdrPostSettings::default()
         },
@@ -40,7 +40,7 @@ fn gpu_odd_bloom_pyramid_preserves_constants() {
     let (device, queue) = crate::gpu_tests::gpu();
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             bloom: Some(Bloom {
                 policies: crate::BloomPolicies::default(),
                 threshold: 0.0,
@@ -75,7 +75,7 @@ fn gpu_odd_bloom_pyramid_keeps_the_final_edge_impulse() {
     let (device, queue) = crate::gpu_tests::gpu();
     let c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             bloom: Some(Bloom {
                 policies: crate::BloomPolicies::default(),
                 threshold: 0.0,
@@ -133,7 +133,7 @@ fn ordered_sequence(
     };
     let mut c = chain(
         device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(a),
             ..HdrPostSettings::default()
         },
@@ -203,7 +203,7 @@ fn gpu_empty_policy_removes_all_stages_and_restores_fixed_bytes() {
     let (device, queue) = crate::gpu_tests::gpu();
     let mut c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(adaptive()),
             bloom: Some(Bloom {
                 policies: crate::BloomPolicies::default(),
@@ -233,7 +233,7 @@ fn gpu_empty_policy_removes_all_stages_and_restores_fixed_bytes() {
         c.configured[0].stages[0].label,
         "fixed exposure and tone mapping"
     );
-    let fresh = chain(&device, HdrPostSettings::default(), [17, 13]);
+    let fresh = chain(&device, &HdrPostSettings::default(), [17, 13]);
     for body in [body, "return vec4<f32>(0.75,0.75,0.75,1.0);"] {
         let actual = step(&device, &queue, &c, 0, body, false);
         let expected = step(&device, &queue, &fresh, 0, body, false);
@@ -254,8 +254,8 @@ fn gpu_invalid_effective_delta_is_typed_and_appends_no_upload() {
         }),
         ..HdrPostSettings::default()
     };
-    let c = chain(&device, settings, [8, 8]);
-    let mut control = chain(&device, settings, [8, 8]);
+    let c = chain(&device, &settings, [8, 8]);
+    let mut control = chain(&device, &settings, [8, 8]);
     for delta in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 10.01] {
         let before = buffer(&device, &queue, c.factory().exposure_buffer(0).unwrap());
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -335,7 +335,7 @@ fn gpu_delta_interval_includes_zero_and_ten() {
     let (device, queue) = crate::gpu_tests::gpu();
     let mut c = chain(
         &device,
-        HdrPostSettings {
+        &HdrPostSettings {
             adaptive: Some(AdaptiveExposure {
                 fixed_delta: None,
                 ..adaptive()

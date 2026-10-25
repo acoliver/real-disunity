@@ -94,6 +94,16 @@ impl HdrPostSettings {
         }) {
             return Err(PostError::UnsupportedProfile("bloom settings"));
         }
+        self.validate_bloom_policies()?;
+        if self
+            .fxaa
+            .is_some_and(|v| !v.is_finite() || !(0.0..=1.0).contains(&v))
+        {
+            return Err(PostError::UnsupportedProfile("FXAA settings"));
+        }
+        Ok(())
+    }
+    fn validate_bloom_policies(self) -> Result<(), PostError> {
         if let Some(bloom) = self.bloom {
             bloom.policies.validate(bloom.levels)?;
             self.bloom_kernel.validate(bloom.levels)?;
@@ -104,12 +114,6 @@ impl HdrPostSettings {
                     "bloom policies require separable pyramid",
                 ));
             }
-        }
-        if self
-            .fxaa
-            .is_some_and(|v| !v.is_finite() || !(0.0..=1.0).contains(&v))
-        {
-            return Err(PostError::UnsupportedProfile("FXAA settings"));
         }
         Ok(())
     }
@@ -130,10 +134,10 @@ pub(crate) struct HdrPost {
     frame: [wgpu::Buffer; 3],
 }
 impl HdrPost {
-    pub fn new(device: &wgpu::Device, settings: HdrPostSettings) -> Result<Self, PostError> {
+    pub fn new(device: &wgpu::Device, settings: &HdrPostSettings) -> Result<Self, PostError> {
         settings.validate()?;
         Ok(Self {
-            settings,
+            settings: *settings,
             device: device.clone(),
             carry: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("queue-ordered exposure carry"),
@@ -214,7 +218,7 @@ impl HdrPost {
         }
         crate::post_filters::Filters::new(device, &mut set).build(
             targets,
-            self.settings,
+            &self.settings,
             exposure,
             (format, initial),
         );

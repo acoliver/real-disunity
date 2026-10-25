@@ -156,7 +156,7 @@ weight must be finite and in 0 through 64. Radius zero is an identity blur.
 ```rust
 use worldrunner_render_post::{Bloom, BloomKernel, GaussianLevel, HdrPostSettings};
 let settings = HdrPostSettings {
-    bloom: Some(Bloom { threshold: 1.0, knee: 0.5, intensity: 0.7, levels: 5 }),
+    bloom: Some(Bloom { threshold: 1.0, knee: 0.5, intensity: 0.7, levels: 5, policies: Default::default() }),
     bloom_kernel: BloomKernel::SeparablePyramid([GaussianLevel {
         radius: 44,
         tint: [1.0, 0.9, 0.8],
@@ -216,3 +216,81 @@ knee, tint and weights. The GPU tolerance is `0.004 * abs(reference) + 0.0001`,
 accounting for half-float stores and hardware bilinear interpolation. CPU folded
 weights preserve normalization and discrete convolution within `1e-6` for every
 supported radius.
+
+### Authored pyramid policies
+
+`Bloom::policies` configures the same separable pyramid through `BloomPolicies`.
+Use `BloomPolicies::default()` when migrating existing `Bloom` literals. Defaults
+retain per-source-texel soft-knee extraction, box reduction, radius/3 kernels,
+vertical tint, all levels blurred and output level zero. Their stage identities
+and arithmetic order remain unchanged. Nondefault policies require
+`BloomKernel::SeparablePyramid`; the tent path rejects them during validation.
+
+- `BrightExtraction::SoftKnee` retains the max-channel quadratic knee.
+  `ToneCurve(ToneCurveBright)` sanitizes and clamps RGB to `maximum`, computes
+  luminance with `luminance` weights, and evaluates
+  `s = max(T(exposure * exposure_scale * luminance) - T(threshold), 0) * contrast`.
+  It returns `rgb * s / max(max_channel(rgb), epsilon)`. `BrightCurve` selects
+  ACES filmic `x*(2.51*x+0.03)/(x*(2.43*x+0.59)+0.14)` or Reinhard `x/(1+x)`.
+  These curves are evaluated without an additional output clamp. Maximum and
+  epsilon must be finite in `(0, 65504]`; exposure scale and contrast must be
+  finite in `[0, 64]`. Luminance coefficients must be finite in `[0, 1]` and sum
+  to one within `0.0001`. Exposure remains a caller-owned GPU value.
+- `BloomReduction::BoxPerTexel` is the legacy mode: extraction runs
+  independently on four integer source texels before averaging. Later levels
+  average four integer texels. `QuarterTexelAfterAverage` averages four bilinear
+  clamp-to-edge samples at destination centre plus/minus one quarter **source**
+  texel on each axis, then extracts brightness on the first reduction. Every
+  later reduction uses those same positions. Destination centres map through
+  normalized coordinates using the ceiling-half target extent, including odd
+  source extents.
+- `GaussianKernelRule::RadiusThird` retains the original radius and sigma.
+  `AxisClampedPairs` computes each axis independently: `r = min(radius,
+  max(axis_extent, 1))`, `N = ceil(r/2)`, support `2*N`, and
+  `sigma = (2*N+0.5)/3`. Radius zero remains identity. Symmetric taps normalize
+  to one and adjacent taps fold into bilinear pairs. Horizontal and vertical
+  passes bind their own immutable storage weights for this rule. The public
+  `parameters` and `weights` methods expose the CPU calculation.
+- `BloomLevelSelection` separates `first_blurred` and `output` from
+  `Bloom::levels`, the number of reductions. Indices begin at zero for half
+  resolution. Validation requires `first_blurred <= output < levels`; levels
+  below `first_blurred` remain bright-only reductions. For six reductions with
+  a bright-only half-resolution level and quarter-resolution output, select
+  `{ first_blurred: 1, output: 1 }`. Coarser blurred levels still fold additively.
+- `BloomTintPass::Vertical` retains the original tint placement.
+  `Horizontal` applies RGB tint before the horizontal half-float store; weight
+  remains in the vertical pass before additive folding. Moving tint changes
+  intermediate half-float rounding, so the two placements can differ slightly.
+
+### Bloom in a caller schedule
+
+`BloomPyramid { bloom, levels }.append(device, set, scene, exposure)` appends
+only the existing bloom passes and retains their textures and weight buffers
+in the caller's `StageSet::resources`. It returns an RGBA16Float output view at
+`selection.output`. The output is folded bloom **before final intensity**; the
+caller multiplies by `Bloom::intensity` in its own composite. No exposure,
+tone-mapping, anti-aliasing or composite stage is scheduled by this builder.
+
+The scene must be a single-sample, single-mip, single-layer, filterable D2 color
+texture view with `TEXTURE_BINDING` usage, covering the complete texture. For
+`ToneCurve`, pass `Some(&exposure_buffer)`: its first four bytes are a native
+f32 nonnegative exposure and its usage includes `STORAGE`. Additional trailing
+bytes are permitted. `SoftKnee` accepts `None`. Invalid settings, extents and
+missing/incompatible exposure buffers return `PostError` before appending any
+stages or resources. The caller must supply matching-device handles and a view
+of the complete texture.
+
+Schedule exposure writes or copies before appending bloom stages, then append
+the caller's composite using the returned view. Keep per-frame updates ordered
+with the host's frame admission and submission contract. Updating the bound
+buffer changes extraction on the next execution without rebuilding pipelines.
+The stock HDR path supplies its admitted-slot exposure when adaptation is
+installed, or its configured fixed exposure otherwise.
+
+Synthetic GPU references exercise both extraction curves, exposure changes
+between frames, both reduction modes, even and odd extents, independently
+clamped axis kernels, tint placement, six reductions with a bright-only first
+level, and a caller-owned exposure-copy and composite schedule. Each RGB channel
+allows `0.006 * abs(reference) + 0.0002` for accumulated half-float stores and
+bilinear interpolation. The existing default-policy comparisons retain their
+original tighter tolerance.

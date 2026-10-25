@@ -35,8 +35,8 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     if settings.adaptive.is_some() {
         set.buffer("histograms", 1024, 3);
     }
-    gaussian_allocations(&mut set, config, settings);
-    tent_allocations(&mut set, config, settings);
+    gaussian_allocations(&mut set, config, &settings);
+    tent_allocations(&mut set, config, &settings);
     let fxaa = settings.fxaa.is_some_and(|weight| weight > 0.0);
     let upscale = settings
         .upscale
@@ -63,7 +63,7 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     }
     set
 }
-fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: HdrPostSettings) {
+fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrPostSettings) {
     if let Some(bloom) = settings
         .bloom
         .filter(|_| matches!(settings.bloom_kernel, crate::BloomKernel::Tent))
@@ -94,24 +94,40 @@ fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: HdrP
         }
     }
 }
-fn gaussian_allocations(set: &mut AllocationSet, config: FrameConfig, settings: HdrPostSettings) {
+fn gaussian_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrPostSettings) {
     if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
         (settings.bloom, settings.bloom_kernel)
         && let Ok(extents) = crate::gaussian_extents(config.size, bloom.levels)
     {
-        for [w, h] in extents {
+        for (index, [w, h]) in extents.into_iter().enumerate() {
+            let blurred = u32::try_from(index).unwrap() >= bloom.policies.selection.first_blurred;
             set.texture(
                 "Gaussian level and scratch",
                 [w, h, 1],
                 wgpu::TextureFormat::Rgba16Float,
                 [1, 1],
-                6,
+                if blurred { 6 } else { 3 },
             );
+            if !blurred {
+                continue;
+            }
             set.buffer(
                 "Gaussian folded weights",
                 u64::try_from(crate::gaussian::GAUSSIAN_WEIGHT_BYTES).unwrap(),
-                3,
+                if bloom.policies.kernel == crate::GaussianKernelRule::RadiusThird {
+                    3
+                } else {
+                    6
+                },
             );
+        }
+        if settings.adaptive.is_none()
+            && matches!(
+                bloom.policies.extraction,
+                crate::BrightExtraction::ToneCurve(_)
+            )
+        {
+            set.buffer("stock fixed bloom exposure", 4, 3);
         }
     }
 }

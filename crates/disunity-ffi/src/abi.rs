@@ -64,6 +64,21 @@ impl DisunityResult {
         }
     }
 }
+pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> DisunityResult {
+    use crate::store::AllocationError;
+    use worldrunner_world_simulation::WorldError;
+    match error {
+        AllocationError::HandleCapacity
+        | AllocationError::Native(WorldError::CapacityExceeded(_)) => DisunityResult::budget(),
+        AllocationError::InvalidWorld
+        | AllocationError::Native(
+            WorldError::WrongWorld | WorldError::StaleObject(_) | WorldError::StaleComponent(_),
+        ) => DisunityResult::invalid_handle(),
+        AllocationError::Native(WorldError::InvalidComponent(_) | WorldError::InvalidObject) => {
+            DisunityResult::invalid_argument()
+        }
+    }
+}
 
 /// The ABI version of this library; see `disunity_interface.json`.
 pub const DISUNITY_ABI_VERSION: u32 = 1;
@@ -98,8 +113,13 @@ pub unsafe extern "C" fn disunity_world_create(out_world: *mut u64) -> DisunityR
         return DisunityResult::invalid_argument();
     }
     let mut store = crate::lock_store();
-    unsafe { *out_world = crate::create_world(&mut store) };
-    DisunityResult::ok()
+    match crate::create_world(&mut store) {
+        Ok(handle) => {
+            unsafe { *out_world = handle };
+            DisunityResult::ok()
+        }
+        Err(error) => allocation_failure(error),
+    }
 }
 
 /// Destroys a world and every object in it.
@@ -134,7 +154,7 @@ pub unsafe extern "C" fn disunity_gameobject_create(
             unsafe { *out_object = handle };
             DisunityResult::ok()
         }
-        Err(_) => DisunityResult::invalid_handle(),
+        Err(error) => allocation_failure(error),
     }
 }
 
@@ -273,7 +293,7 @@ pub unsafe extern "C" fn disunity_error_message(
     if buffer.is_null() || out_len.is_null() {
         return DisunityResult::invalid_argument();
     }
-    let message = crate::with_world(world, |world| world.last_error.clone());
+    let message = crate::store::last_error(world);
     match message {
         Err(_) => DisunityResult::invalid_handle(),
         Ok(None) => {
@@ -340,7 +360,7 @@ pub unsafe extern "C" fn disunity_world_export_objects(
     };
     unsafe {
         crate::export_object_states(world, buffer, &mut *written).map_or_else(
-            |reason| translate_error(Some(world), reason),
+            |reason| translate_error(Some(world), &reason),
             |()| DisunityResult::ok(),
         )
     }

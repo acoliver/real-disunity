@@ -3818,6 +3818,7 @@ dependencies = [
  "worldrunner-world-model",
  "worldrunner-world-runtime",
  "worldrunner-world-schema",
+ "worldrunner-world-simulation",
 ]
 
 [[package]]
@@ -3864,7 +3865,9 @@ name = "worldrunner-disunity-ffi"
 version = "0.1.0"
 dependencies = [
  "csbindgen",
+ "glam",
  "serde_json",
+ "worldrunner-world-simulation",
 ]
 
 [[package]]
@@ -4087,6 +4090,14 @@ dependencies = [
  "uuid",
  "worldrunner-asset-id",
  "worldrunner-core-types",
+]
+
+[[package]]
+name = "worldrunner-world-simulation"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

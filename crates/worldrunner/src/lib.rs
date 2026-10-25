@@ -62,6 +62,10 @@ pub mod world {
     pub use worldrunner_world_schema;
 }
 
+/// CPU-only live world storage, independent of document preparation and GPU services.
+#[cfg(feature = "simulation")]
+pub use worldrunner_world_simulation as simulation;
+
 /// Pathless scene planning and GPU capture, without asset lookup or an application host.
 ///
 /// ```no_run

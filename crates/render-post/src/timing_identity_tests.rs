@@ -50,6 +50,7 @@ fn unread_post_ids_survive_resize_and_reconfiguration() {
     .unwrap();
     let settings = HdrPostSettings {
         bloom: Some(Bloom {
+            policies: crate::BloomPolicies::default(),
             threshold: 1.0,
             knee: 0.5,
             intensity: 0.25,

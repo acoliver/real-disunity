@@ -57,7 +57,10 @@ pub struct GaussianWeights {
 
 /// Truncated Gaussian with sigma = radius / 3. Radius zero has unit centre weight.
 pub fn gaussian_weights(radius: u32) -> Result<GaussianWeights, PostError> {
-    let weights = discrete_weights(radius)?;
+    fold_weights(&discrete_weights(radius)?)
+}
+
+fn fold_weights(weights: &[f32]) -> Result<GaussianWeights, PostError> {
     let taps = weights[1..]
         .chunks(2)
         .enumerate()
@@ -85,6 +88,10 @@ pub(crate) fn discrete_weights(radius: u32) -> Result<Vec<f32>, PostError> {
         return Ok(vec![1.0]);
     }
     let sigma = f32::from(u16::try_from(radius).unwrap()) / 3.0;
+    Ok(normalized_weights(radius, sigma))
+}
+
+fn normalized_weights(radius: u32, sigma: f32) -> Vec<f32> {
     let mut weights: Vec<_> = (0..=radius)
         .map(|i| {
             let distance = f32::from(u16::try_from(i).unwrap()) / sigma;
@@ -95,7 +102,7 @@ pub(crate) fn discrete_weights(radius: u32) -> Result<Vec<f32>, PostError> {
     for weight in &mut weights {
         *weight /= sum;
     }
-    Ok(weights)
+    weights
 }
 
 /// Ceiling-half extents beginning at half resolution, with one terminal 1x1 level.
@@ -123,3 +130,31 @@ pub fn gaussian_extents(size: [u32; 2], count: u32) -> Result<Vec<[u32; 2]>, Pos
 #[cfg(test)]
 #[path = "gaussian_tests.rs"]
 mod tests;
+
+impl crate::GaussianKernelRule {
+    /// Discrete support and sigma for one axis. Radius zero is an identity.
+    pub fn parameters(self, radius: u32, extent: u32) -> Result<(u32, f32), PostError> {
+        if radius > MAX_GAUSSIAN_RADIUS {
+            return Err(PostError::UnsupportedProfile("Gaussian bloom radius"));
+        }
+        let (support, sigma) = match self {
+            Self::RadiusThird => (radius, f32::from(u16::try_from(radius).unwrap()) / 3.0),
+            Self::AxisClampedPairs => {
+                let pairs = radius.min(extent.max(1)).div_ceil(2);
+                let support = 2 * pairs;
+                (
+                    support,
+                    (f32::from(u16::try_from(support).unwrap()) + 0.5) / 3.0,
+                )
+            }
+        };
+        Ok((support, if radius == 0 { 0.0 } else { sigma }))
+    }
+    pub fn weights(self, radius: u32, extent: u32) -> Result<GaussianWeights, PostError> {
+        let (support, sigma) = self.parameters(radius, extent)?;
+        if support == 0 {
+            return gaussian_weights(0);
+        }
+        fold_weights(&normalized_weights(support, sigma))
+    }
+}

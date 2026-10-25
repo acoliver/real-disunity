@@ -14,6 +14,7 @@ pub struct AdaptiveExposure {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bloom {
+    pub policies: crate::BloomPolicies,
     pub threshold: f32,
     pub knee: f32,
     pub intensity: f32,
@@ -94,7 +95,15 @@ impl HdrPostSettings {
             return Err(PostError::UnsupportedProfile("bloom settings"));
         }
         if let Some(bloom) = self.bloom {
+            bloom.policies.validate(bloom.levels)?;
             self.bloom_kernel.validate(bloom.levels)?;
+            if self.bloom_kernel == crate::BloomKernel::Tent
+                && bloom.policies != crate::BloomPolicies::default()
+            {
+                return Err(PostError::UnsupportedProfile(
+                    "bloom policies require separable pyramid",
+                ));
+            }
         }
         if self
             .fxaa

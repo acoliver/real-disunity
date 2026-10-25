@@ -24,6 +24,7 @@ impl StageFactory for BenchmarkFactory {
         gaussian.build(
             targets,
             Bloom {
+                policies: crate::BloomPolicies::default(),
                 threshold: 1.0,
                 knee: 0.5,
                 intensity: 1.0,

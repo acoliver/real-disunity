@@ -20,6 +20,7 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
             fixed_exposure: a.fixed_exposure_micro.map(micro),
         });
         out.bloom = post.bloom.map(|b| Bloom {
+            policies: worldrunner_render_post::BloomPolicies::default(),
             threshold: micro(b.threshold_micro),
             knee: micro(b.soft_knee_micro),
             intensity: micro(b.intensity_micro),
@@ -34,6 +35,7 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
                 intensity_micro,
             } if out.bloom.is_none() => {
                 out.bloom = Some(Bloom {
+                    policies: worldrunner_render_post::BloomPolicies::default(),
                     threshold: micro(threshold_micro),
                     intensity: micro(intensity_micro),
                     knee: 0.5,

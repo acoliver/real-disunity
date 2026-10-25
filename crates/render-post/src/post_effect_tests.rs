@@ -248,6 +248,7 @@ fn gpu_bloom_spreads_energy_and_excludes_nonfinite_fireflies() {
     let (device, queue) = crate::gpu_tests::gpu();
     let settings = HdrPostSettings {
         bloom: Some(Bloom {
+            policies: crate::BloomPolicies::default(),
             threshold: 0.0,
             knee: 0.5,
             intensity: 1.0,
@@ -372,6 +373,7 @@ fn gpu_nonfinite_inputs_cannot_poison_histogram_or_bloom() {
         HdrPostSettings {
             adaptive: Some(adaptive()),
             bloom: Some(Bloom {
+                policies: crate::BloomPolicies::default(),
                 threshold: 0.0,
                 knee: 0.5,
                 intensity: 1.0,
@@ -409,6 +411,7 @@ fn gpu_bloom_threshold_and_quadratic_knee_match_exact_reference() {
         &device,
         HdrPostSettings {
             bloom: Some(Bloom {
+                policies: crate::BloomPolicies::default(),
                 threshold: 1.0,
                 knee: 0.5,
                 intensity: 1.0,

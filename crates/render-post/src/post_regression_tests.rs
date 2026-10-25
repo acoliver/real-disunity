@@ -42,6 +42,7 @@ fn gpu_odd_bloom_pyramid_preserves_constants() {
         &device,
         HdrPostSettings {
             bloom: Some(Bloom {
+                policies: crate::BloomPolicies::default(),
                 threshold: 0.0,
                 knee: 0.0,
                 intensity: 1.0,
@@ -76,6 +77,7 @@ fn gpu_odd_bloom_pyramid_keeps_the_final_edge_impulse() {
         &device,
         HdrPostSettings {
             bloom: Some(Bloom {
+                policies: crate::BloomPolicies::default(),
                 threshold: 0.0,
                 knee: 0.0,
                 intensity: 1.0,
@@ -204,6 +206,7 @@ fn gpu_empty_policy_removes_all_stages_and_restores_fixed_bytes() {
         HdrPostSettings {
             adaptive: Some(adaptive()),
             bloom: Some(Bloom {
+                policies: crate::BloomPolicies::default(),
                 threshold: 0.0,
                 knee: 0.5,
                 intensity: 1.0,

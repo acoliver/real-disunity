@@ -7,6 +7,7 @@ mod reference;
 pub(super) fn settings(radius: u32, count: u32) -> HdrPostSettings {
     HdrPostSettings {
         bloom: Some(Bloom {
+            policies: crate::BloomPolicies::default(),
             threshold: 0.0,
             knee: 0.0,
             intensity: 1.0,

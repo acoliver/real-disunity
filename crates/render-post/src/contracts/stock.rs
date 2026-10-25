@@ -40,11 +40,7 @@ pub(crate) fn compile(
     registry: &mut ResourceRegistry,
 ) -> Result<CompiledRaster, ContractError> {
     let keys = import_views(registry, views)?;
-    let mut versions: BTreeMap<ResourceRef, u32> = views
-        .iter()
-        .filter(|view| view.retained())
-        .map(|view| (view.resource(), 0))
-        .collect();
+    let mut versions = initial_versions(views);
     let mut raster = Vec::new();
     for (index, pass) in passes.iter().enumerate() {
         let uses = features
@@ -98,6 +94,20 @@ pub(crate) fn compile(
     }
     registry.compile(device, &raster)
 }
+fn initial_versions(views: &[AttachmentView]) -> BTreeMap<ResourceRef, u32> {
+    // Initialization belongs to the allocation. Newly written sibling layers
+    // must advance beyond its initial version even when they clear their contents.
+    views
+        .iter()
+        .filter(|view| {
+            views
+                .iter()
+                .any(|other| other.texture() == view.texture() && other.retained())
+        })
+        .map(|view| (view.resource(), 0))
+        .collect()
+}
+
 fn checked_view(
     registry: &ResourceRegistry,
     keys: &BTreeMap<ResourceRef, super::AllocationKey>,

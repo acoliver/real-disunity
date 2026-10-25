@@ -176,16 +176,8 @@ fn gpu_camera_motion_refreshes_and_uploads_map_consistent_matrices() {
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     let initial = renderer.cascade_refresh_states();
-    for (frame, shift) in [(1, 1), (2, 2_000)] {
-        let moved = SceneView::new(
-            crate::CameraPose {
-                eye_millimeters: [shift, -4_000, 6_500],
-                target_millimeters: [shift, 0, 0],
-            },
-            *source.effects().unwrap().camera(),
-            view().viewport(),
-        )
-        .unwrap();
+    for (frame, shift) in [(1, 100), (2, 2_000)] {
+        let moved = translated_view(shift, view().viewport());
         render_target(&mut renderer, &context, &moved, &target).unwrap();
         let states = renderer.cascade_refresh_states();
         if frame == 1 {
@@ -208,4 +200,77 @@ fn gpu_camera_motion_refreshes_and_uploads_map_consistent_matrices() {
             );
         }
     }
+}
+
+#[test]
+fn gpu_sun_depth_settings_and_resize_force_refresh() {
+    use worldrunner_render_shadow::RefreshReason;
+    let context = context();
+    let source = scene(&[[0, 0, 1_000]], 600_000, None);
+    let configured = DirectionalShadowSettings {
+        refresh_policy: policy(),
+        ..settings()
+    };
+    let mut renderer = ShadowedScene::new(&context, &source, configured).unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
+    let (object, _) = renderer.scene_mut().instance(caster).unwrap();
+    let mut transform = *object.transform();
+    transform.position_millimeters = [6_000, 0, 8_000];
+    renderer
+        .scene_mut()
+        .set_instance_transform(caster, transform)
+        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        renderer.cascade_refresh_states()[0].last_reason(),
+        Some(RefreshReason::DepthRange)
+    );
+    renderer.set_effects(&fixture::effects(-600_000)).unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        renderer.cascade_refresh_states()[0].last_reason(),
+        Some(RefreshReason::Light)
+    );
+    renderer
+        .set_settings(
+            &context,
+            DirectionalShadowSettings {
+                normal_bias_meters: 0.02,
+                ..configured
+            },
+        )
+        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        renderer.cascade_refresh_states()[0].last_reason(),
+        Some(RefreshReason::Invalidated)
+    );
+    let resized = translated_view(
+        0,
+        crate::Viewport {
+            width: 200,
+            height: 180,
+        },
+    );
+    let target = OffscreenTarget::new(context.device(), resized.viewport()).unwrap();
+    render_target(&mut renderer, &context, &resized, &target).unwrap();
+    assert_eq!(renderer.cascade_refresh_states()[0].last_frame(), Some(4));
+    assert_eq!(
+        renderer.cascade_refresh_states()[0].last_reason(),
+        Some(RefreshReason::Invalidated)
+    );
+}
+
+fn translated_view(shift: i64, viewport: crate::Viewport) -> SceneView {
+    SceneView::new(
+        crate::CameraPose {
+            eye_millimeters: [0, -4_000 + shift, 6_500],
+            target_millimeters: [0, shift, 0],
+        },
+        *fixture::effects(600_000).camera(),
+        viewport,
+    )
+    .unwrap()
 }

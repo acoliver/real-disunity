@@ -78,3 +78,66 @@ blends that result with the original pixel. An Rgba32Float LDR intermediate
 preserves flat-region precision. Only the final sRGB attachment applies output
 transfer; alpha is preserved. See the [post-filter derivation](../../docs/post-filter-design.md)
 for the bloom and FXAA equations.
+
+## Reduced internal resolution
+
+`FrameConfig::size` is the internal scene extent. Construct a configuration with
+its presentation extent, then call `with_render_extent([render_width, render_height])`.
+`output_extent()` returns the presentation extent. Both dimensions must be
+nonzero, within device limits, and the output must contain the render extent.
+`RenderScale::new` accepts 500000 through 1000000 millionths (0.5 through 1.0).
+Its `extent` method rounds to nearest, with halfway values rounded up.
+
+`SpatialUpscale` is a retained `StageFactory` for display-referred inputs.
+Select `UpscaleMode::Bilinear` or `UpscaleMode::Easu`. Set `sharpness` to
+`Some(stops)` for RCAS, from zero (maximum sharpening) through two stops.
+`None` is the exact off value and omits the RCAS pass. With RCAS enabled, the
+reconstruction pass writes an Rgba16Float intermediate: its display-referred
+values need no more precision, and on an integrated GPU at 1600x900 output it
+measured about half the reconstruction and RCAS time of an Rgba32Float
+intermediate. The WGSL port uses full
+precision reciprocals and square roots, with clamped border loads. EASU clamps
+each reconstructed RGB channel to the nearest four source samples. Alpha uses
+bilinear interpolation and passes unchanged through RCAS.
+
+For HDR, set `HdrPostSettings::upscale` and provide the two extents in
+`FrameConfig`. Exposure and bloom run at the render extent before tone mapping.
+FXAA runs after tone mapping at the render extent, then EASU/bilinear and RCAS
+run before final attachment transfer and format conversion. At equal extents,
+the HDR path omits reconstruction and RCAS, preserving the native pass count.
+Use `PostChain::resize_extents` to replace both extents and their dependent
+bindings transactionally. `resize` changes the internal extent; an explicit
+presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
+
+### Third-party license
+
+`src/upscale.wgsl` ports EASU and RCAS from
+[AMD FidelityFX Super Resolution 1, ffx_fsr1.h](https://github.com/GPUOpen-Effects/FidelityFX-FSR).
+Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License. The full copyright, permission and warranty
+notice is preserved in the shader file.
+
+### Numerical checks and informational timing
+
+The scalar f64 reference and f32 GPU kernels are compared with an absolute
+per-channel tolerance of 0.0001. Reconstruction is compared without RCAS. RCAS is
+compared against the half-float reconstruction it reads, captured by rendering
+the same reconstruction into an Rgba16Float target, so the check does not depend
+on the driver's rounding for that store. HDR composition allows one 8-bit code step
+for attachment transfer and quantization. Fixtures cover constant fields,
+vertical and 45-degree edges, a steeper rasterized edge, full-range and
+mid-range checkerboards, single-pixel inputs, and odd extents. The EASU
+nearest-four clamp bounds each result; arbitrary rasterized slopes can have
+small reversals within those bounds.
+
+Run the informational timing test on the selected Vulkan device:
+
+```sh
+cargo test -p worldrunner-render-post gpu_post_chain_scale_timings_are_informational -- --nocapture
+```
+
+It reports three post-chain GPU samples for each of 0.5, 0.77 and 1.0 scale at
+320x180 output. Samples include tone mapping and enabled reconstruction/RCAS.
+The first sample can include driver warm-up. These timings have no performance
+threshold and exclude scene rendering. Linux CI selects Mesa lavapipe with
+`VK_ICD_FILENAMES` and `WGPU_BACKEND=vulkan`.

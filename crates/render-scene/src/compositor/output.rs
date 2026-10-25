@@ -12,7 +12,7 @@ impl StageFactory for FrameOutput {
     fn validate_config(&self, device: &wgpu::Device, config: FrameConfig) -> Result<(), PostError> {
         match self {
             Self::Copy(factory) => factory.validate_config(device, config),
-            Self::Hdr(_) => Ok(()),
+            Self::Hdr(factory) => factory.validate_config(device, config),
         }
     }
     fn frame_slots(&self) -> usize {
@@ -47,7 +47,7 @@ impl StageFactory for FrameOutput {
 }
 
 /// Opt-in attachment and output policy. Scene anti-aliasing effects remain independent.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum FrameProfile {
     #[default]
     Legacy,
@@ -55,12 +55,20 @@ pub enum FrameProfile {
         samples: u32,
         tone_map: worldrunner_render_post::ToneMap,
     },
+    HdrUpscaled {
+        samples: u32,
+        tone_map: worldrunner_render_post::ToneMap,
+        scale: worldrunner_render_post::RenderScale,
+        upscale: worldrunner_render_post::UpscaleSettings,
+    },
 }
 impl FrameProfile {
     pub const fn target(self) -> (wgpu::TextureFormat, u32) {
         match self {
             Self::Legacy => (wgpu::TextureFormat::Rgba8UnormSrgb, 1),
-            Self::Hdr { samples, .. } => (wgpu::TextureFormat::Rgba16Float, samples),
+            Self::Hdr { samples, .. } | Self::HdrUpscaled { samples, .. } => {
+                (wgpu::TextureFormat::Rgba16Float, samples)
+            }
         }
     }
 }

@@ -229,18 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         scene(terrain),
         ViewerOptions {
             frames_in_flight: 2,
-            frame_profile: if std::env::args().any(|arg| arg == "--hdr" || arg == "--water") {
-                worldrunner::scene::viewer::FrameProfile::Hdr {
-                    samples: if std::env::args().any(|arg| arg == "--msaa") {
-                        4
-                    } else {
-                        1
-                    },
-                    tone_map: worldrunner::scene::viewer::ToneMap::Reinhard,
-                }
-            } else {
-                worldrunner::scene::viewer::FrameProfile::Legacy
-            },
+            frame_profile: frame_profile(),
             camera: SceneCamera {
                 vertical_fov_millidegrees: 60_000,
                 near_plane_millimeters: 100,
@@ -266,4 +255,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     )?;
     Ok(())
+}
+
+fn frame_profile() -> worldrunner::scene::viewer::FrameProfile {
+    use worldrunner::scene::viewer::{
+        FrameProfile, RenderScale, ToneMap, UpscaleMode, UpscaleSettings,
+    };
+    let samples = if std::env::args().any(|arg| arg == "--msaa") {
+        4
+    } else {
+        1
+    };
+    if let Some(value) =
+        std::env::args().find_map(|arg| arg.strip_prefix("--render-scale=").map(str::to_owned))
+    {
+        let millionths = value
+            .parse()
+            .expect("render scale is an integer in millionths");
+        return FrameProfile::HdrUpscaled {
+            samples,
+            tone_map: ToneMap::Reinhard,
+            scale: RenderScale::new(millionths).expect("render scale must be 500000..=1000000"),
+            upscale: UpscaleSettings {
+                mode: if std::env::args().any(|arg| arg == "--bilinear") {
+                    UpscaleMode::Bilinear
+                } else {
+                    UpscaleMode::Easu
+                },
+                sharpness: std::env::args().any(|arg| arg == "--rcas").then_some(0.0),
+            },
+        };
+    }
+    if std::env::args().any(|arg| arg == "--hdr" || arg == "--water") {
+        FrameProfile::Hdr {
+            samples,
+            tone_map: ToneMap::Reinhard,
+        }
+    } else {
+        FrameProfile::Legacy
+    }
 }

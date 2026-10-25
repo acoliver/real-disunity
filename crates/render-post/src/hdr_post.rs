@@ -24,9 +24,24 @@ pub struct HdrPostSettings {
     pub adaptive: Option<AdaptiveExposure>,
     pub bloom: Option<Bloom>,
     pub fxaa: Option<f32>,
+    pub upscale: Option<crate::UpscaleSettings>,
 }
 impl HdrPostSettings {
+    /// Validate the HDR display path before allocating frame targets.
+    pub fn validate_frame(self, config: crate::FrameConfig) -> Result<(), PostError> {
+        self.validate()?;
+        if config.size != config.output_extent() && self.upscale.is_none() {
+            return Err(PostError::UnsupportedProfile(
+                "reduced HDR extent requires an upscale mode",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate(self) -> Result<(), PostError> {
+        if let Some(upscale) = self.upscale {
+            upscale.validate()?;
+        }
         if let Some(a) = self.adaptive {
             let values = [
                 a.log_range[0],
@@ -80,7 +95,10 @@ impl HdrPostSettings {
         Ok(())
     }
     pub fn enabled(self) -> bool {
-        self.adaptive.is_some() || self.bloom.is_some() || self.fxaa.is_some()
+        self.adaptive.is_some()
+            || self.bloom.is_some()
+            || self.fxaa.is_some()
+            || self.upscale.is_some()
     }
 }
 

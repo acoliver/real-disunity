@@ -47,6 +47,21 @@ cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --ter
 
 Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. The retained frame scheduler renders four directional shadow cascades into independent depth-array layers. Scene extents specify light-space coverage half-widths about the caller-supplied focus; overlapping terrain and mesh casters extend each cascade toward the light. Optional blend bands cross-fade to the next cascade near coverage edges. Water requires the HDR profile described below. Omit `--terrain` for the mesh-only example.
 
+## Reduced-resolution HDR rendering
+
+The viewer accepts `--render-scale=770000` to render internally at 77% of each
+output dimension and reconstruct with FSR 1 EASU. Values are integer millionths
+from 500000 through 1000000. Add `--bilinear` for bilinear reconstruction or
+`--rcas` for maximum RCAS sharpening. These flags select the HDR profile and
+compose with `--msaa`, `--terrain`, and `--shadows`.
+
+```sh
+cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --render-scale=770000 --rcas
+```
+
+See [render-post](crates/render-post/README.md#reduced-internal-resolution) for
+explicit extents, filter ordering, sharpness units, tests, and the AMD license.
+
 ## Frame admission and surface lifecycle
 
 The viewer selects two frames in flight in its example. `ViewerOptions::frames_in_flight`

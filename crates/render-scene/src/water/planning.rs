@@ -53,7 +53,7 @@ pub(crate) fn opaque_source<'a>(
 pub(crate) fn snapshot_feature(
     device: &wgpu::Device,
     slots: &mut Option<[Snapshots; 3]>,
-    input: (FrameConfig, FrameUniform, usize),
+    input: (FrameConfig, &FrameUniform, usize),
     plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
     reads: &[ResourceRef],
     water: bool,
@@ -104,7 +104,7 @@ pub(crate) fn snapshot_feature(
             declaration,
             SnapshotFeature {
                 snapshots: snapshot.clone(),
-                frame,
+                frame: *frame,
                 color_source,
                 depth_source,
             },

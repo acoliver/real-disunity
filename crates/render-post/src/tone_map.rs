@@ -122,6 +122,20 @@ impl ToneMapOutput {
     }
 }
 impl StageFactory for ToneMapOutput {
+    fn validate_config(
+        &self,
+        _: &wgpu::Device,
+        config: crate::FrameConfig,
+    ) -> Result<(), PostError> {
+        if config.format != wgpu::TextureFormat::Rgba16Float {
+            return Err(PostError::CopySourceFormat(config.format));
+        }
+        self.post
+            .as_ref()
+            .map_or_else(crate::HdrPostSettings::default, |post| post.settings)
+            .validate_frame(config)
+    }
+
     fn frame_slots(&self) -> usize {
         if self.post.is_some() { 3 } else { 1 }
     }
@@ -132,9 +146,7 @@ impl StageFactory for ToneMapOutput {
         persistent: &Resources,
         slot: usize,
     ) -> Result<StageSet, PostError> {
-        if targets.config().format != wgpu::TextureFormat::Rgba16Float {
-            return Err(PostError::CopySourceFormat(targets.config().format));
-        }
+        self.validate_config(device, targets.config())?;
         if let Some(post) = &self.post {
             Ok(post.build(device, targets, slot, self.format, self.exposure))
         } else {
@@ -147,9 +159,7 @@ impl StageFactory for ToneMapOutput {
         targets: &FrameTargets,
         _: &Resources,
     ) -> Result<StageSet, PostError> {
-        if targets.config().format != wgpu::TextureFormat::Rgba16Float {
-            return Err(PostError::CopySourceFormat(targets.config().format));
-        }
+        self.validate_config(device, targets.config())?;
         if let Some(post) = &self.post {
             return Ok(post.build(device, targets, 0, self.format, self.exposure));
         }

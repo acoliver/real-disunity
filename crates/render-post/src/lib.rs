@@ -38,10 +38,12 @@ mod copy;
 mod hdr_post;
 mod post_filters;
 mod tone_map;
+mod upscale;
 pub use hdr_post::{
     AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,
 };
 pub use tone_map::{ToneMap, ToneMapOutput};
+pub use upscale::{RenderScale, SpatialUpscale, UpscaleMode, UpscaleSettings};
 mod frame;
 #[cfg(test)]
 mod frame_tests;
@@ -85,6 +87,8 @@ pub enum PostError {
     Frame(#[from] FrameError),
     #[error("post target extent is empty")]
     EmptyExtent,
+    #[error("output extent must contain the render extent")]
+    RenderExtent,
     #[error("post extent {size:?} exceeds texture limit {limit}")]
     TextureLimit { size: [u32; 2], limit: u32 },
     #[error("invalid post sample count {0}")]
@@ -253,3 +257,9 @@ mod tone_map_gpu_tests;
 fn test_authority(queue: &wgpu::Queue) -> worldrunner_render_gpu::submission::SubmissionAuthority {
     worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
 }
+
+#[cfg(test)]
+mod upscale_tests;
+
+#[cfg(test)]
+mod upscale_hdr_tests;

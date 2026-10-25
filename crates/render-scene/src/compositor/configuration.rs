@@ -121,6 +121,7 @@ impl RendererConfiguration {
             return Err(PostError::UnsupportedProfile("effects require HDR"));
         }
         if let Some((exposure, tone)) = self.hdr {
+            self.post.validate_frame(self.frame)?;
             ToneMapOutput::new(self.output_format, exposure, tone)?;
             if self.frame.format != wgpu::TextureFormat::Rgba16Float {
                 return Err(PostError::CopySourceFormat(self.frame.format));

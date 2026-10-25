@@ -239,8 +239,10 @@ impl FrameRenderer {
 
     pub(crate) fn validate_post(
         &self,
-        requested: worldrunner_render_post::HdrPostSettings,
+        mut requested: worldrunner_render_post::HdrPostSettings,
     ) -> Result<(), FrameError> {
+        // Scene effects never carry reconstruction; the frame profile owns it.
+        requested.upscale = self.post_requested.upscale;
         if self.post_requested != requested {
             return Err(FrameError::UnsupportedEffect(
                 "post resident/profile settings mismatch",
@@ -597,7 +599,7 @@ impl FrameRenderer {
         let result = crate::water::planning::snapshot_feature(
             device,
             snapshots,
-            (config, frame, slot),
+            (config, &frame, slot),
             plan,
             &reads,
             water,

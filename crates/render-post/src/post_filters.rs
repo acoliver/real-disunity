@@ -45,17 +45,11 @@ impl<'a> Filters<'a> {
             ),
         ];
         let fxaa = settings.fxaa.filter(|weight| *weight > 0.0);
-        let ldr = fxaa.map(|_| {
-            let texture = color_texture(
-                self.device,
-                "display-linear FXAA source",
-                targets.config().size,
-                wgpu::TextureFormat::Rgba32Float,
-            );
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.set.resources.textures.push(texture);
-            view
-        });
+        let upscale = settings
+            .upscale
+            .filter(|_| targets.config().size != targets.config().output_extent());
+        let ldr = (fxaa.is_some() || upscale.is_some())
+            .then(|| self.display_texture(targets.config().size));
         self.pass(FilterPass {
             entry: "tone",
             level: 0,
@@ -63,27 +57,64 @@ impl<'a> Filters<'a> {
             lower: Some(&bloom),
             exposure: Some(exposure),
             constants: &constants,
-            format: if fxaa.is_some() {
-                wgpu::TextureFormat::Rgba32Float
-            } else {
-                output.0
-            },
+            format: ldr
+                .as_ref()
+                .map_or(output.0, |_| wgpu::TextureFormat::Rgba32Float),
             target: ldr
                 .as_ref()
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
         });
+        self.finish(targets, fxaa, upscale, ldr.as_ref(), output.0);
+    }
+    fn finish(
+        &mut self,
+        targets: &FrameTargets,
+        fxaa: Option<f32>,
+        upscale: Option<crate::UpscaleSettings>,
+        ldr: Option<&wgpu::TextureView>,
+        format: wgpu::TextureFormat,
+    ) {
+        let filtered = (fxaa.is_some() && upscale.is_some())
+            .then(|| self.display_texture(targets.config().size));
         if let Some(weight) = fxaa {
             self.pass(FilterPass {
                 entry: "fxaa",
                 level: 0,
-                source: ldr.as_ref().unwrap(),
+                source: ldr.unwrap(),
                 lower: None,
                 exposure: None,
                 constants: &[("FXAA", weight.into())],
-                format: output.0,
-                target: StageTarget::Output,
+                format: filtered
+                    .as_ref()
+                    .map_or(format, |_| wgpu::TextureFormat::Rgba32Float),
+                target: filtered
+                    .as_ref()
+                    .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
             });
         }
+        if let Some(settings) = upscale {
+            crate::upscale::append(
+                self.device,
+                self.set,
+                filtered.as_ref().or(ldr).unwrap(),
+                targets.config().output_extent(),
+                &crate::SpatialUpscale {
+                    settings,
+                    output_format: format,
+                },
+            );
+        }
+    }
+    fn display_texture(&mut self, size: [u32; 2]) -> wgpu::TextureView {
+        let texture = color_texture(
+            self.device,
+            "display-linear post input",
+            size,
+            wgpu::TextureFormat::Rgba32Float,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.set.resources.textures.push(texture);
+        view
     }
     fn bloom(&mut self, targets: &FrameTargets, b: crate::Bloom) -> wgpu::TextureView {
         let mut levels = Vec::new();

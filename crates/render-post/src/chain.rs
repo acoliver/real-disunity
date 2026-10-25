@@ -301,27 +301,44 @@ impl<F: StageFactory> PostChain<F> {
         if self.targets.config().size == size {
             return Ok(false);
         }
-        self.factory.validate_config(
-            device,
-            FrameConfig {
-                size,
-                ..self.targets.config()
-            },
-        )?;
-        let targets = FrameTargets::new(
-            device,
-            FrameConfig {
-                size,
-                ..self.targets.config()
-            },
-        )?;
+        let config = FrameConfig {
+            size,
+            ..self.targets.config()
+        };
+        self.replace_targets(device, config)?;
+        Ok(true)
+    }
+
+    /// Replace both extents atomically. Failed validation preserves targets and bindings.
+    pub fn resize_extents(
+        &mut self,
+        device: &wgpu::Device,
+        render: [u32; 2],
+        output: [u32; 2],
+    ) -> Result<(), PostError> {
+        let config = FrameConfig {
+            size: render,
+            output_size: Some(output),
+            ..self.targets.config()
+        };
+        self.replace_targets(device, config)
+    }
+
+    fn replace_targets(
+        &mut self,
+        device: &wgpu::Device,
+        config: FrameConfig,
+    ) -> Result<(), PostError> {
+        config.validate(&device.limits())?;
+        self.factory.validate_config(device, config)?;
+        let targets = FrameTargets::new(device, config)?;
         let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
         for feature in &mut self.features {
             feature.prepared = None;
         }
         self.targets = targets;
         self.configured = configured;
-        Ok(true)
+        Ok(())
     }
 
     /// Select only a reserved slot whose preceding submission has completed.
@@ -432,6 +449,7 @@ impl<F: StageFactory> PostChain<F> {
 
     /// Reconfigure shaders/options and all dependent bindings without resetting fixed history.
     pub fn reconfigure(&mut self, device: &wgpu::Device, factory: F) -> Result<(), PostError> {
+        factory.validate_config(device, self.targets.config())?;
         let configured = build_slots(&factory, device, &self.targets, &self.persistent)?;
         self.factory = factory;
         self.configured = configured;

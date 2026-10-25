@@ -61,12 +61,26 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
             }
         }
     }
-    if settings.fxaa.is_some_and(|weight| weight > 0.0) {
+    let fxaa = settings.fxaa.is_some_and(|weight| weight > 0.0);
+    let upscale = settings
+        .upscale
+        .filter(|_| config.size != config.output_extent());
+    for _ in 0..usize::from(fxaa) + usize::from(upscale.is_some()) {
         let [w, h] = config.size;
         set.texture(
-            "FXAA input",
+            "display-linear post input",
             [w, h, 1],
             wgpu::TextureFormat::Rgba32Float,
+            [1, 1],
+            3,
+        );
+    }
+    if upscale.is_some_and(|settings| settings.sharpness.is_some()) {
+        let [w, h] = config.output_extent();
+        set.texture(
+            "RCAS input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba16Float,
             [1, 1],
             3,
         );

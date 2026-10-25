@@ -210,6 +210,7 @@ fn gpu_empty_policy_removes_all_stages_and_restores_fixed_bytes() {
                 levels: 3,
             }),
             fxaa: Some(1.0),
+            upscale: None,
         },
         [17, 13],
     );

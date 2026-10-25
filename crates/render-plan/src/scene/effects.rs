@@ -490,7 +490,7 @@ pub struct SceneEffects {
     water_settings: Option<super::SceneWaterSettings>,
     hdr_post: Option<super::SceneHdrPost>,
     ssr: Option<super::SceneSsr>,
-    water: Option<SceneWaterBody>,
+    water: Box<[SceneWaterBody]>,
     sky: SceneSky,
     sun: SceneSun,
     ambient: SceneAmbient,
@@ -520,10 +520,14 @@ impl SceneEffects {
         mut self,
         settings: super::SceneWaterSettings,
     ) -> Result<Self, SceneValidationError> {
-        if self.water.is_none() {
+        if self.water.is_empty() {
             return Err(SceneValidationError::UnsupportedInput {
                 part: "water settings require a body",
             });
+        }
+        for body in &mut self.water {
+            body.material = settings;
+            body.validate()?;
         }
         self.water_settings = Some(settings);
         Ok(self)
@@ -567,7 +571,7 @@ impl SceneEffects {
             water_settings: None,
             hdr_post: None,
             ssr: None,
-            water: parts.water,
+            water: parts.water.into_iter().collect(),
             sky: parts.sky,
             sun: parts.sun,
             ambient: parts.ambient,
@@ -582,10 +586,31 @@ impl SceneEffects {
         Ok(effects)
     }
 
-    /// Returns the authored water rectangle, when the scene carries one.
+    /// Returns the first body of any surface type. Use `water_bodies()` for all bodies.
     #[must_use]
-    pub const fn water(&self) -> Option<&SceneWaterBody> {
-        self.water.as_ref()
+    pub fn water(&self) -> Option<&SceneWaterBody> {
+        self.water.first()
+    }
+
+    /// Replaces the complete body set. Empty sets disable water.
+    pub fn with_water_bodies(
+        mut self,
+        bodies: Vec<SceneWaterBody>,
+    ) -> Result<Self, SceneValidationError> {
+        for body in &bodies {
+            body.validate()?;
+        }
+        if bodies.is_empty() && self.water_settings.is_some() {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "water settings require a body",
+            });
+        }
+        self.water = bodies.into_boxed_slice();
+        Ok(self)
+    }
+
+    pub fn water_bodies(&self) -> &[SceneWaterBody] {
+        &self.water
     }
 
     /// Returns the mandatory sky model.
@@ -651,7 +676,7 @@ impl SceneEffects {
         if let Some(atmosphere) = &self.atmosphere {
             atmosphere.validate()?;
         }
-        if let Some(water) = self.water {
+        for water in &self.water {
             water.validate()?;
         }
         if let Some(post) = self.hdr_post {

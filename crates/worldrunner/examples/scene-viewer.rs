@@ -31,6 +31,9 @@ fn effects(terrain: bool) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: std::env::args().any(|arg| arg == "--water").then_some(
             worldrunner_render_plan::SceneWaterBody {
+                material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+                surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+                flow_millimeters_per_second: [0; 2],
                 height_millimeters: 100,
                 east_min_millimeters: -900,
                 north_min_millimeters: -900,

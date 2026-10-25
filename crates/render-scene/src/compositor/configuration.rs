@@ -22,7 +22,7 @@ pub struct RendererConfiguration {
     pub post: HdrPostSettings,
     pub ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
-    pub water: Option<worldrunner_render_plan::SceneWaterBody>,
+    pub water: Vec<worldrunner_render_plan::SceneWaterBody>,
     pub frame_slots: usize,
     pub timing: TimingMode,
     /// Host-owned persistent storage, staging, readbacks and CPU accumulation.
@@ -38,7 +38,7 @@ impl RendererConfiguration {
             post: HdrPostSettings::default(),
             ssao: None,
             ssr: None,
-            water: None,
+            water: Vec::new(),
             frame_slots: 3,
             timing: TimingMode::Disabled,
             additional: AllocationSet::default(),
@@ -50,7 +50,7 @@ impl RendererConfiguration {
             self.frame, self.post,
         ));
         screen_allocations(self, &mut set);
-        if self.water.is_some() || self.ssr.is_some_and(|ssr| ssr.enabled) {
+        if !self.water.is_empty() || self.ssr.is_some_and(|ssr| ssr.enabled) {
             let [w, h] = self.frame.size;
             set.texture(
                 "snapshot color",
@@ -68,8 +68,33 @@ impl RendererConfiguration {
             );
             set.buffer("snapshot uniforms", 304, 3);
             set.buffer("snapshot staging", 192, 3);
-            if self.water.is_some() {
-                set.buffer("water staging", 304, 3);
+            if !self.water.is_empty() {
+                set.texture(
+                    "water receivers",
+                    [w, h, 1],
+                    wgpu::TextureFormat::Rgba16Float,
+                    [1, self.frame.samples],
+                    9,
+                );
+                set.texture(
+                    "empty water environment",
+                    [1, 1, 6],
+                    wgpu::TextureFormat::Rgba16Float,
+                    [1, 1],
+                    1,
+                );
+                set.texture(
+                    "empty water BRDF",
+                    [1, 1, 1],
+                    wgpu::TextureFormat::Rgba16Float,
+                    [1, 1],
+                    1,
+                );
+            }
+            for water in &self.water {
+                set.buffer("water staging", 480, 3);
+                set.buffer("water body uniforms", 672, 3);
+                set.buffer("water surface vertices", water_vertex_bytes(water), 1);
             }
         }
         if self.timing != TimingMode::Disabled {
@@ -116,7 +141,7 @@ impl RendererConfiguration {
             && (self.post.enabled()
                 || self.ssao.is_some()
                 || self.ssr.is_some()
-                || self.water.is_some())
+                || !self.water.is_empty())
         {
             return Err(PostError::UnsupportedProfile("effects require HDR"));
         }
@@ -133,7 +158,7 @@ impl RendererConfiguration {
         if let Some(ssr) = &self.ssr {
             crate::ssr::validate_settings(ssr)?;
         }
-        if let Some(water) = &self.water {
+        for water in &self.water {
             crate::water::validate_settings(water)?;
         }
         Ok(())
@@ -390,9 +415,11 @@ impl ConfiguredFrameRenderer {
         let elapsed = previous.elapsed_seconds;
         let delta = previous.frame_delta;
         let history_bank = self.history.as_ref();
+        let water = previous.water.clone();
         self.state
             .replace(&context.device().limits(), allocations, || {
                 let mut next = allocate(context, &settings, history_bank, Some(timing))?;
+                retain_water_inputs(&mut next, water.as_ref());
                 next.post_time = post_time;
                 next.exposure_reset = reset;
                 next.elapsed_seconds = elapsed;
@@ -473,9 +500,7 @@ fn build(
         ssr_requested: settings.ssr,
     };
     renderer.install_reflections(device, settings.frame.size)?;
-    if let Some(water) = settings.water {
-        renderer.install_water(device, water)?;
-    }
+    renderer.install_water_bodies(device, settings.water.clone())?;
     if renderer.ssr.is_some() && renderer.snapshots.is_none() {
         renderer.snapshots = Some(std::array::from_fn(|_| {
             crate::water::snapshots::Snapshots::new(device, settings.frame)
@@ -494,3 +519,27 @@ fn build(
 #[cfg(test)]
 #[path = "configuration_tests.rs"]
 mod tests;
+
+fn water_vertex_bytes(body: &worldrunner_render_plan::SceneWaterBody) -> u64 {
+    use worldrunner_render_plan::SceneWaterSurface;
+    let vertices = match &body.surface {
+        SceneWaterSurface::Rectangle => 6,
+        SceneWaterSurface::Mesh { indices, .. } => {
+            u64::try_from(indices.len()).expect("bounded geometry")
+        }
+        // Each bed triangle clips to at most two surface triangles.
+        SceneWaterSurface::Basin { columns, rows, .. } => u64::from(columns.saturating_sub(1))
+            .saturating_mul(u64::from(rows.saturating_sub(1)))
+            .saturating_mul(12),
+    };
+    vertices.saturating_mul(12).max(12)
+}
+
+fn retain_water_inputs(next: &mut FrameRenderer, previous: Option<&crate::water::Water>) {
+    if let (Some(next), Some(previous)) = (&mut next.water, previous) {
+        next.environment.clone_from(&previous.environment);
+        if next.settings == previous.settings {
+            next.surface_inputs.clone_from(&previous.surface_inputs);
+        }
+    }
+}

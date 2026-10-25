@@ -130,6 +130,9 @@ fn instance_tint_and_card_round_trip_without_basis_changes() {
 #[test]
 fn water_body_validates_material_quantities_at_ingress() {
     let mut body = SceneWaterBody {
+        material: crate::SceneWaterSettings::STOCK,
+        surface: crate::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
         height_millimeters: -500,
         color_micro: [0, 500_000, 1_000_000],
         absorption_micro: [0, 1_000_000, 10_000_000],

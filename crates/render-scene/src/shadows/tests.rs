@@ -348,16 +348,7 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
     let context = context();
     let source = scene(&[], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
-    parts.water = Some(SceneWaterBody {
-        height_millimeters: 0,
-        color_micro: [50_000, 200_000, 250_000],
-        absorption_micro: [300_000, 100_000, 50_000],
-        roughness_micro: 200_000,
-        east_min_millimeters: 0,
-        north_min_millimeters: 0,
-        east_extent_millimeters: 1_000,
-        north_extent_millimeters: 1_000,
-    });
+    parts.water = Some(unsupported_water_body());
     let water = RenderScene::new(SceneParts {
         resources: source.resources().clone(),
         geometry: source.geometry().clone(),
@@ -473,3 +464,19 @@ fn render_target(
 }
 
 mod refresh;
+
+fn unsupported_water_body() -> SceneWaterBody {
+    SceneWaterBody {
+        material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+        surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: 0,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
+        east_min_millimeters: 0,
+        north_min_millimeters: 0,
+        east_extent_millimeters: 1_000,
+        north_extent_millimeters: 1_000,
+    }
+}

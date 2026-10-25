@@ -1,4 +1,35 @@
 #[test]
+fn multiple_color_outputs_validate_shapes_hazards_and_producers() {
+    let mut pass = PassDeclaration::new(PassSlot::Opaque);
+    let color = attachment(
+        AttachmentLoad::ClearColor(wgpu::Color::TRANSPARENT),
+        wgpu::StoreOp::Store,
+    );
+    pass.color = Some(color.clone());
+    let mut receiver = color;
+    receiver.resource = ResourceRef::new("receiver");
+    pass.additional_colors.push(receiver);
+    assert!(validate_frame(&[pass.clone()], &[], &[]).is_ok());
+    let mut consumer = PassDeclaration::new(PassSlot::TransparentWater);
+    consumer.color = pass.color.clone();
+    consumer.color.as_mut().unwrap().load = AttachmentLoad::Load;
+    let mut feature = FeatureDeclaration::new(PassSlot::TransparentWater);
+    feature.passes[0].reads.push(ResourceRef::new("receiver"));
+    assert!(validate_frame(&[pass.clone(), consumer], &[feature], &[]).is_ok());
+    pass.additional_colors[0].samples = 4;
+    assert!(matches!(
+        validate_frame(&[pass.clone()], &[], &[]),
+        Err(FrameError::AttachmentContract(_))
+    ));
+    pass.additional_colors[0].samples = 1;
+    pass.additional_colors[0].resource = ResourceRef::new("color");
+    assert!(matches!(
+        validate_frame(&[pass], &[], &[]),
+        Err(FrameError::AttachmentHazard(_))
+    ));
+}
+
+#[test]
 fn stock_slots_accept_both_authored_shadow_prepass_orders() {
     let mut shadow = PassDeclaration::new(PassSlot::ShadowCasters(0));
     shadow.color = Some(attachment(

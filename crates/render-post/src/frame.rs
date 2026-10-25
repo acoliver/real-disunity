@@ -65,6 +65,8 @@ pub struct AttachmentDeclaration {
 pub struct PassDeclaration {
     pub slot: PassSlot,
     pub color: Option<AttachmentDeclaration>,
+    /// Additional indexed color outputs after location zero.
+    pub additional_colors: Vec<AttachmentDeclaration>,
     pub depth: Option<AttachmentDeclaration>,
 }
 impl PassDeclaration {
@@ -72,6 +74,7 @@ impl PassDeclaration {
         Self {
             slot,
             color: None,
+            additional_colors: Vec::new(),
             depth: None,
         }
     }
@@ -205,7 +208,12 @@ pub(crate) fn validate_frame_inputs(
         })
         .collect();
     for pass in passes {
-        let attachments: Vec<_> = pass.color.iter().chain(&pass.depth).collect();
+        let attachments: Vec<_> = pass
+            .color
+            .iter()
+            .chain(&pass.additional_colors)
+            .chain(&pass.depth)
+            .collect();
         validate_attachments(pass, &produced)?;
         for feature in features
             .iter()
@@ -242,18 +250,16 @@ fn validate_attachments(
     pass: &PassDeclaration,
     produced: &BTreeMap<ResourceRef, AttachmentDeclaration>,
 ) -> Result<(), FrameError> {
-    let attachments: Vec<_> = pass.color.iter().chain(&pass.depth).collect();
+    let attachments: Vec<_> = pass
+        .color
+        .iter()
+        .chain(&pass.additional_colors)
+        .chain(&pass.depth)
+        .collect();
     if attachments.is_empty() {
         return Err(FrameError::AttachmentContract(pass.slot));
     }
-    if let (Some(color), Some(depth)) = (&pass.color, &pass.depth) {
-        if color.resource == depth.resource {
-            return Err(FrameError::AttachmentHazard(color.resource));
-        }
-        if color.size != depth.size || color.samples != depth.samples {
-            return Err(FrameError::AttachmentContract(pass.slot));
-        }
-    }
+    validate_attachment_shapes(pass, &attachments)?;
     for attachment in &attachments {
         let depth = pass
             .depth
@@ -302,6 +308,24 @@ fn validate_attachments(
     }
     Ok(())
 }
+fn validate_attachment_shapes(
+    pass: &PassDeclaration,
+    attachments: &[&AttachmentDeclaration],
+) -> Result<(), FrameError> {
+    for (index, attachment) in attachments.iter().enumerate() {
+        if attachments[..index]
+            .iter()
+            .any(|other| other.resource == attachment.resource)
+        {
+            return Err(FrameError::AttachmentHazard(attachment.resource));
+        }
+        if attachment.size != attachments[0].size || attachment.samples != attachments[0].samples {
+            return Err(FrameError::AttachmentContract(pass.slot));
+        }
+    }
+    Ok(())
+}
+
 fn validate_feature(
     pass: &PassDeclaration,
     feature: &FeaturePass,
@@ -554,10 +578,12 @@ pub(crate) fn validate_views(
             return Err(FrameError::AttachmentHazard(view.resource));
         }
     }
-    for attachment in passes
-        .iter()
-        .flat_map(|pass| pass.color.iter().chain(&pass.depth))
-    {
+    for attachment in passes.iter().flat_map(|pass| {
+        pass.color
+            .iter()
+            .chain(&pass.additional_colors)
+            .chain(&pass.depth)
+    }) {
         let view = views
             .iter()
             .find(|view| view.resource == attachment.resource)

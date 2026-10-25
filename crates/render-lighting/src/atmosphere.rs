@@ -1,6 +1,22 @@
 //! Scene-linear sky radiance and the Beer-Lambert integral of exponential height fog.
 use glam::Vec3;
 
+/// Compose a water medium with an already fogged opaque snapshot. The camera
+/// segment is applied only to newly added radiance, including when opaque.
+pub fn compose_water_fog(
+    snapshot: Vec3,
+    medium_transmission: Vec3,
+    scattering: Vec3,
+    specular: Vec3,
+    camera_transmission: f32,
+    fog_radiance: Vec3,
+) -> Vec3 {
+    snapshot * medium_transmission
+        + (scattering * camera_transmission + fog_radiance * (1.0 - camera_transmission))
+            * (Vec3::ONE - medium_transmission)
+        + specular * camera_transmission
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AtmosphereError;
 impl std::fmt::Display for AtmosphereError {

@@ -261,7 +261,7 @@ impl ShadowedScene {
             )
             .into());
         }
-        if self.effects.water() != effects.water() {
+        if self.effects.water_bodies() != effects.water_bodies() {
             return Err(worldrunner_render_post::FrameError::WaterSettings(
                 "water settings are immutable; rebuild the profile and resident",
             )
@@ -328,7 +328,7 @@ impl ShadowedScene {
         effects: &SceneEffects,
     ) -> Result<(), ShadowError> {
         scheduler.validate_ssao(pipelines, effects.ssao())?;
-        scheduler.validate_water(effects.water())?;
+        scheduler.validate_water(effects.water_bodies())?;
         scheduler.validate_ssr(effects.ssr())?;
         scheduler.validate_post(
             crate::post::settings(effects)
@@ -413,6 +413,7 @@ impl ShadowedScene {
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
+        scheduler.bind_water_inputs(&self.gpu.water_inputs);
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_terrain_pages(context.device(), encoder, frame, color.size())?;

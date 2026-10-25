@@ -68,8 +68,8 @@ pub use scene::{
     SceneParts, ScenePlacement, ScenePostStage, SceneResources, SceneRotation, SceneShadowCascades,
     SceneSky, SceneSsao, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, SceneSun, SceneTerrain,
     SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform,
-    SceneValidationError, SceneVertex, SceneWaterBody, TerrainLodPolicy, TexelFormat,
-    TextureColorSpace, TextureEncoding, TextureHandle,
+    SceneValidationError, SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy,
+    TexelFormat, TextureColorSpace, TextureEncoding, TextureHandle,
 };
 pub use scene::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 
@@ -93,7 +93,7 @@ pub use scene::{
     SceneTerrainContact, SceneTint, SceneWind,
 };
 
-pub use scene::{SceneWaterGeometry, SceneWaterSettings};
+pub use scene::SceneWaterSettings;
 
 #[cfg(feature = "ui")]
 pub mod ui;

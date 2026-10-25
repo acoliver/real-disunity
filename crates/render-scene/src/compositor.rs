@@ -163,8 +163,8 @@ impl FrameRenderer {
             )?,
         };
         renderer.install_reflections(context.device(), size)?;
-        if let Some(settings) = effects.and_then(|effects| effects.water()) {
-            renderer.install_water(context.device(), *settings)?;
+        if let Some(effects) = effects {
+            renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
         }
         Ok(renderer)
     }
@@ -189,11 +189,28 @@ impl FrameRenderer {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn install_water(
         &mut self,
         device: &wgpu::Device,
         settings: worldrunner_render_plan::SceneWaterBody,
     ) -> Result<(), FrameError> {
+        self.install_water_bodies(device, vec![settings])
+    }
+
+    /// Installs independent water surfaces in the existing transparent pass.
+    /// An empty set leaves the feature disabled. Replacing a resident set requires a rebuild.
+    pub fn install_water_bodies(
+        &mut self,
+        device: &wgpu::Device,
+        settings: Vec<worldrunner_render_plan::SceneWaterBody>,
+    ) -> Result<(), FrameError> {
+        if self.water.is_some() {
+            return Err(FrameError::WaterSettings("water is already installed"));
+        }
+        if settings.is_empty() {
+            return Ok(());
+        }
         let water = crate::water::Water::new(device, self.targets().config(), settings)?;
         *self.snapshot_ready.borrow_mut() = Default::default();
         self.snapshots = Some(water.snapshots.clone());
@@ -291,14 +308,24 @@ impl FrameRenderer {
     }
     pub(crate) fn validate_water(
         &self,
-        requested: Option<&worldrunner_render_plan::SceneWaterBody>,
+        requested: &[worldrunner_render_plan::SceneWaterBody],
     ) -> Result<(), FrameError> {
-        if self.water.as_ref().map(|water| &water.settings) != requested {
+        if self
+            .water
+            .as_ref()
+            .map_or(&[][..], |water| water.settings.as_ref())
+            != requested
+        {
             return Err(FrameError::WaterSettings(
                 "resident/profile settings mismatch; water requires HDR",
             ));
         }
         Ok(())
+    }
+    pub(crate) fn bind_water_inputs(&mut self, inputs: &[[Option<wgpu::TextureView>; 2]]) {
+        if let Some(water) = &mut self.water {
+            water.surface_inputs = inputs.to_vec();
+        }
     }
     /// Opaque-only read inputs for the currently selected admitted frame slot.
     /// Returns both views only when both were produced by the last successful encode
@@ -334,6 +361,35 @@ impl FrameRenderer {
                     .final_depth
                     .create_view(&wgpu::TextureViewDescriptor::default())
             })
+    }
+    /// Submitted per-sample water receivers: view normal and water flag (alpha),
+    /// dielectric F0 and roughness, and replaceable linear environment specular.
+    pub fn water_receivers(
+        &self,
+    ) -> Option<(wgpu::TextureView, wgpu::TextureView, wgpu::TextureView)> {
+        self.water
+            .as_ref()
+            .filter(|_| self.snapshot_ready.borrow()[self.frame_slot].final_depth)
+            .map(|water| {
+                let [normal, material, specular] = &water.receivers[self.frame_slot];
+                (
+                    normal.create_view(&wgpu::TextureViewDescriptor::default()),
+                    material.create_view(&wgpu::TextureViewDescriptor::default()),
+                    specular.create_view(&wgpu::TextureViewDescriptor::default()),
+                )
+            })
+    }
+    /// Install R7's submitted, prefiltered cube and integrated BRDF LUT.
+    pub fn set_water_environment(
+        &mut self,
+        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+    ) -> Result<(), crate::sky::preparation::PreparationError> {
+        let (cube, lut) = maps.views()?;
+        self.water
+            .as_mut()
+            .expect("water must be installed")
+            .environment = [cube, lut];
+        Ok(())
     }
     /// Existing pixel-centre linear metre depth and normal coverage for shadow
     /// statistics. Callers rebind after resize; no additional prepass is allocated.
@@ -378,13 +434,12 @@ impl FrameRenderer {
             .as_ref()
             .filter(|water| water.snapshots[0].size != size)
             .map(|water| {
-                crate::water::Water::new(
+                water.resized(
                     device,
-                    FrameConfig {
+                    worldrunner_render_post::FrameConfig {
                         size,
                         ..self.targets().config()
                     },
-                    water.settings,
                 )
             })
             .transpose()?;
@@ -524,6 +579,9 @@ impl FrameRenderer {
         features: &mut [BorrowedFeature<'_>],
         input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
     ) -> Result<(), FrameError> {
+        if let Some(water) = &self.water {
+            crate::water::surface::validate_inputs(water)?;
+        }
         let config = self.targets().config();
         let (frame, shadow) = input;
         let (passes, views) = plan;
@@ -570,14 +628,11 @@ impl FrameRenderer {
             });
         }
         passes.sort_by_key(|pass| pass.slot);
-        self.chain.encode_geometry(
+        encode_planned(
+            &mut self.chain,
             device,
             encoder,
-            &worldrunner_render_post::FramePlan {
-                passes: &passes,
-                views: &views,
-                requested: &[],
-            },
+            (&passes, &views),
             &mut combined,
         )?;
         self.publish_snapshots(encoder, request);
@@ -715,4 +770,23 @@ pub(super) fn validate_clear(color: wgpu::Color) -> Result<(), PostError> {
         ));
     }
     Ok(())
+}
+
+fn encode_planned(
+    chain: &mut PostChain<FrameOutput>,
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    plan: (&[PassDeclaration], &[AttachmentView]),
+    features: &mut [BorrowedFeature<'_>],
+) -> Result<(), FrameError> {
+    chain.encode_geometry(
+        device,
+        encoder,
+        &worldrunner_render_post::FramePlan {
+            passes: plan.0,
+            views: plan.1,
+            requested: &[],
+        },
+        features,
+    )
 }

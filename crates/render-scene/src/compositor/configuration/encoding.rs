@@ -27,6 +27,18 @@ impl ConfiguredFrameRenderer {
     pub fn encoding(&mut self) -> FrameEncoding<'_> {
         FrameEncoding(self.state.current_mut())
     }
+    /// Retains submitted, host-budgeted environment map views without allocating storage.
+    pub fn set_water_environment(
+        &mut self,
+        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+    ) -> Result<(), crate::sky::preparation::PreparationError> {
+        self.state.current_mut().set_water_environment(maps)
+    }
+    pub fn water_receivers(
+        &self,
+    ) -> Option<(wgpu::TextureView, wgpu::TextureView, wgpu::TextureView)> {
+        self.state.current().water_receivers()
+    }
     pub fn targets(&self) -> &worldrunner_render_post::FrameTargets {
         self.state.current().targets()
     }

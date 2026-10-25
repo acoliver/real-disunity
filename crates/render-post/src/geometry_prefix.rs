@@ -29,10 +29,18 @@ impl GeometryPrefix {
             let Some(pass) = plan.passes.iter().find(|pass| pass.slot == produced.slot) else {
                 continue;
             };
-            if pass.color != produced.color || pass.depth != produced.depth {
+            if pass.color != produced.color
+                || pass.additional_colors != produced.additional_colors
+                || pass.depth != produced.depth
+            {
                 return Err(FrameError::AttachmentContract(pass.slot));
             }
-            for attachment in pass.color.iter().chain(&pass.depth) {
+            for attachment in pass
+                .color
+                .iter()
+                .chain(&pass.additional_colors)
+                .chain(&pass.depth)
+            {
                 let old = self
                     .views
                     .iter()

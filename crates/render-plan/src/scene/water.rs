@@ -2,9 +2,32 @@
 use super::SceneValidationError;
 use super::effects::require_range;
 
-/// One axis-aligned water plane rectangle in the east/north plane.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Surface coverage in the scene east/north plane. Mesh positions are absolute;
+/// all surfaces receive the body's elevation in the scene Z-up basis.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SceneWaterSurface {
+    Rectangle,
+    /// Regular bed samples over the body bounds, row-major from the minimum corner.
+    /// Surface triangles are clipped where the linearly interpolated bed is dry.
+    Basin {
+        columns: u32,
+        rows: u32,
+        bed_millimeters: Box<[i64]>,
+    },
+    /// Authored planar triangles; indices must form complete triangles.
+    Mesh {
+        positions_millimeters: Box<[[i64; 2]]>,
+        indices: Box<[u32]>,
+    },
+}
+
+/// One water body with independent coverage, elevation and optical material.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneWaterBody {
+    pub surface: SceneWaterSurface,
+    pub material: super::SceneWaterSettings,
+    /// East/north flow in millimetres per second, applied to procedural waves.
+    pub flow_millimeters_per_second: [i32; 2],
     /// Surface elevation in scene millimetres.
     pub height_millimeters: i64,
     /// Linear scattering colour, in millionths per channel.
@@ -33,6 +56,12 @@ impl SceneWaterBody {
     /// Returns [`SceneValidationError`] when an optical quantity is out of range,
     /// an extent is zero or a maximum corner computation overflows.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        self.validate_surface()?;
+        if self.material.tile_millimeters.contains(&0) {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "water tile extent",
+            });
+        }
         for value in self.color_micro {
             require_range("water color", u64::from(value), 0, 1_000_000)?;
         }
@@ -63,6 +92,43 @@ impl SceneWaterBody {
             self.north_extent_millimeters,
             "water north corner",
         )
+    }
+    fn validate_surface(&self) -> Result<(), SceneValidationError> {
+        let invalid = || SceneValidationError::UnsupportedInput {
+            part: "water surface geometry",
+        };
+        match &self.surface {
+            SceneWaterSurface::Rectangle => {}
+            SceneWaterSurface::Basin {
+                columns,
+                rows,
+                bed_millimeters,
+            } => {
+                let count = u64::from(*columns) * u64::from(*rows);
+                if *columns < 2
+                    || *rows < 2
+                    || count > 1_000_000
+                    || usize::try_from(count).ok() != Some(bed_millimeters.len())
+                {
+                    return Err(invalid());
+                }
+            }
+            SceneWaterSurface::Mesh {
+                positions_millimeters,
+                indices,
+            } => {
+                if positions_millimeters.len() > 1_000_000
+                    || indices.len() > 6_000_000
+                    || indices.len() % 3 != 0
+                    || indices.iter().any(|i| {
+                        usize::try_from(*i).map_or(true, |i| i >= positions_millimeters.len())
+                    })
+                {
+                    return Err(invalid());
+                }
+            }
+        }
+        Ok(())
     }
 }
 

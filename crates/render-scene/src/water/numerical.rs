@@ -144,7 +144,7 @@ fn assert_sample_reduction(
     );
 }
 
-fn positive_half(bytes: &[u8]) -> f32 {
+pub(super) fn positive_half(bytes: &[u8]) -> f32 {
     let bits = u16::from_le_bytes(bytes.try_into().unwrap());
     assert_eq!(bits & 0x8000, 0);
     let exponent = i32::from((bits >> 10) & 31);
@@ -163,7 +163,9 @@ fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_sam
         let mut settings = settings();
         settings.roughness_micro = 1_000_000;
         settings.absorption_micro = [3000, 1000, 500];
-        renderer.install_water(context.device(), settings).unwrap();
+        renderer
+            .install_water(context.device(), settings.clone())
+            .unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),
@@ -217,7 +219,9 @@ fn animation_changes_refraction_with_identical_scene_and_frame_slot() {
         let mut settings = settings();
         settings.absorption_micro = [0; 3];
         settings.roughness_micro = 0;
-        renderer.install_water(context.device(), settings).unwrap();
+        renderer
+            .install_water(context.device(), settings.clone())
+            .unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),

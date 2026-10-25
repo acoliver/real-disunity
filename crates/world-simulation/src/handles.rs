@@ -32,11 +32,13 @@ pub struct ObjectHandle(pub(crate) Identity);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ComponentHandle(pub(crate) Identity);
 
+#[derive(Clone)]
 pub(crate) struct Slot<T> {
     generation: u32,
     value: Option<T>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Arena<T> {
     slots: Vec<Slot<T>>,
     limit: u32,

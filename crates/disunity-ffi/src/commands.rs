@@ -58,16 +58,18 @@ pub(crate) fn step_world(
     if !dt.is_finite() || dt < 0.0 {
         return Err("delta must be finite and non-negative".into());
     }
-    let pending = std::mem::take(&mut session.pending_commands);
-    let edits: Vec<_> = pending
+    let edits: Vec<_> = session
+        .pending_commands
         .iter()
         .map(|&command| decode(session, command))
         .collect::<Result<_, _>>()?;
     session
         .native
-        .apply_edits(&edits)
+        .step_with_edits(&edits, dt)
         .map_err(|error| error.to_string())?;
     session.native.finish_phase();
-    session.applied_commands.extend(pending);
+    session
+        .applied_commands
+        .append(&mut session.pending_commands);
     Ok(())
 }

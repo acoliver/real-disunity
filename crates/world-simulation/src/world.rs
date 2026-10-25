@@ -40,6 +40,7 @@ impl Default for ObjectDesc {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Object {
     name: String,
     tag: String,
@@ -77,6 +78,7 @@ pub struct WorldSnapshot {
 
 /// The sole owner of live object and component state for a simulation session.
 pub struct World {
+    pub(crate) physics: crate::physics2d::Physics,
     pub(crate) identity: u64,
     pub(crate) objects: Arena<Object>,
     pub(crate) lifetime: crate::lifetime::Lifetime,
@@ -87,6 +89,7 @@ pub struct World {
 impl World {
     pub fn new(settings: WorldSettings) -> Result<Self, WorldError> {
         Ok(Self {
+            physics: crate::physics2d::Physics::default(),
             identity: next_world()?,
             lifetime: crate::lifetime::Lifetime::default(),
             lifecycle: crate::lifecycle::Lifecycle::default(),
@@ -172,7 +175,12 @@ impl World {
         let duplicate = match desc {
             ComponentDesc::Transform(_) => true,
             ComponentDesc::Renderer { .. } => owner.renderer.is_some(),
-            ComponentDesc::Script { .. } => false,
+            ComponentDesc::Script { .. } | ComponentDesc::Collider2d(_) => false,
+            ComponentDesc::Body2d(_) => self.components.iter(self.identity).any(|(_, c)| {
+                c.object == object
+                    && !self.lifetime.components.contains(&c.handle)
+                    && matches!(c.desc, ComponentDesc::Body2d(_))
+            }),
         };
         if duplicate {
             return Err(WorldError::InvalidComponent(ComponentError::Duplicate));

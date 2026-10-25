@@ -82,7 +82,8 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
             | WorldError::NonRepresentableLocalTransform
             | WorldError::InvalidFields
             | WorldError::NotScript
-            | WorldError::WrongMutation,
+            | WorldError::WrongMutation
+            | WorldError::Physics(_),
         ) => DisunityResult::invalid_argument(),
     }
 }

@@ -1,0 +1,25 @@
+# Native 2D physics
+
+`worldrunner::world::simulation::World` owns physics alongside its object and component arenas. Add `ComponentDesc::Body2d` and `ComponentDesc::Collider2d` to existing objects. Rust applications need no managed runtime, renderer or serialization dependency.
+
+`World::step_physics(delta_seconds)` is the fixed-step entry point. The existing ABI world-step uses `World::step_with_edits` to stage queued edits and physics in one temporary native transaction before retiring deferred destruction. A failed call retains queued commands for resubmission and leaves command history and completed native state unchanged. Native callers own the fixed-step schedule; timeline accumulation is separate work. A failed physics step does not publish body, transform or contact changes.
+
+## Coordinates and shapes
+
+`PhysicsSettings` selects `PhysicsPlane::Xy` or `PhysicsPlane::Xz`, gravity and an iteration budget. Configure it with `World::set_physics_settings`. Distances are metres and angles, including angular velocity, are radians. Plane methods convert positions, directions and rotations explicitly. XY is the default plane. XZ projects native X and Z onto the two physics axes, so negative second-axis gravity points down in the engine's Z-up coordinates.
+
+Static bodies do not integrate. Kinematic bodies follow prescribed velocity and do not receive impulses. Dynamic bodies integrate gravity and receive contact impulses according to mass and restitution. Frozen rotation suppresses prescribed angular velocity and angular impulses. A translation-only body keeps its stored quaternion unchanged unless an independently rotating parent requires local counter-rotation.
+
+A collider contains one or more boxes, circles or strictly convex polygons. The nearest ancestor body owns child colliders, and colliders attached to the same body cannot collide with one another. Colliders without a body are static. A static collider beneath an independently simulated ancestor body is rejected with `PhysicsError::UnsupportedHierarchy` before advancement; static bodies do not inherit simulated parent motion. Collider geometry uses the full object world matrix. Nonplanar, singular or numerically collapsed computed geometry fails. Boxes and polygons must retain representable nonzero edges and area after world transformation. Circle intersections use double-precision products and a cancellation-resistant root calculation, including ray and vertex queries. A transformed circle must remain a circle; nonuniform or sheared circle transforms fail rather than approximate an ellipse.
+
+`TileGrid::shapes` creates explicit convex collider shapes. Grid cells use authored size and gap. Convex cells use cell-local metre coordinates. Empty cells remain empty, and malformed convex shapes fail. Cell coordinates are bounded to signed 16-bit values; grids and compound descriptions allow at most 4,096 shapes, with 8,192 world shapes. No missing shape is replaced with a rectangle.
+
+Continuous translational collision uses convex sweeps, including circle-edge and circle-vertex hits. Angular motion uses conservative advancement bounded by separating-axis clearance, projected point velocities and rotational acceleration. It evaluates the angular trajectory between poses and resolves at the impact pose for both offset circles and convex bodies. The solver fails with `PhysicsError::IterationLimit` if the configured budget cannot complete a step. It does not silently discard the remaining delta. Friction, joints and concave shapes are outside this subset.
+
+## Contacts and queries
+
+Each successful step replaces `World::contacts()` with typed `ContactEvent` observations sorted by collider identity pair and then phase. Persistent overlaps produce enter, stay and exit. A trigger swept completely through another collider produces enter and exit within the same step. Contact identities are generation-checked component handles; events also identify objects and attached bodies. Normals point from A to B in the selected plane. Exit observations preserve the identities of the ended pair, even after retirement.
+
+Use `World::next_contact()` for consuming delivery. Before returning an event, it checks both colliders, both attached bodies and active hierarchy state. Disabling or destroying an endpoint during dispatch suppresses its remaining records. Historical exit observations remain available through `contacts()`. Deferred destruction immediately invalidates the exact object and component identities. Storage is retired by the existing phase cleanup, and reuse cannot revive old handles.
+
+`raycast`, `overlap_point` and `overlap_shape` read the same world geometry. `QueryFilter` selects layers and trigger inclusion. Ray hits are sorted by distance, with collider identity breaking ties; compound shapes yield one closest hit per collider. Overlap results are unique collider handles in deterministic order. Collider masks and the symmetric world layer matrix govern simulation pairs. Query masks are independent of the simulation matrix.

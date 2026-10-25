@@ -184,6 +184,14 @@ impl World {
         desc.validate()?;
         let duplicate = match desc {
             ComponentDesc::Transform(_) => true,
+            #[cfg(feature = "ui")]
+            ComponentDesc::RectTransform(_) | ComponentDesc::Canvas(_) | ComponentDesc::Text(_) => {
+                self.components.iter(self.identity).any(|(_, c)| {
+                    c.object == object
+                        && !self.lifetime.components.contains(&c.handle)
+                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(&desc)
+                })
+            }
             ComponentDesc::Renderer { .. } => owner.renderer.is_some(),
             ComponentDesc::Script { .. } | ComponentDesc::Collider2d(_) => false,
             ComponentDesc::Body2d(_) => self.components.iter(self.identity).any(|(_, c)| {

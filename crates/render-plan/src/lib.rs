@@ -94,3 +94,6 @@ pub use scene::{
 };
 
 pub use scene::{SceneWaterGeometry, SceneWaterSettings};
+
+#[cfg(feature = "ui")]
+pub mod ui;

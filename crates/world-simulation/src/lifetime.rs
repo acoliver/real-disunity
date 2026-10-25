@@ -35,6 +35,9 @@ impl World {
                     .expect("live component owner")
                     .renderer = None;
             }
+            #[cfg(feature = "ui")]
+            ComponentDesc::RectTransform(_) | ComponentDesc::Canvas(_) | ComponentDesc::Text(_) => {
+            }
             ComponentDesc::Script { .. }
             | ComponentDesc::Body2d(_)
             | ComponentDesc::Collider2d(_) => {}

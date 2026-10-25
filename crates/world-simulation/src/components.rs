@@ -44,16 +44,33 @@ impl LocalTransform {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ComponentDesc {
     Transform(LocalTransform),
+    #[cfg(feature = "ui")]
+    RectTransform(crate::ui::RectTransform),
+    #[cfg(feature = "ui")]
+    Canvas(crate::ui::Canvas),
+    #[cfg(feature = "ui")]
+    Text(crate::ui::TextRun),
     Body2d(crate::physics2d::Body2d),
     Collider2d(crate::physics2d::Collider2d),
-    Renderer { material_slot: u32 },
-    Script { assembly: String, type_name: String },
+    Renderer {
+        material_slot: u32,
+    },
+    Script {
+        assembly: String,
+        type_name: String,
+    },
 }
 
 impl ComponentDesc {
     pub(crate) fn validate(&self) -> Result<(), WorldError> {
         match self {
             Self::Transform(value) => value.validate(),
+            #[cfg(feature = "ui")]
+            Self::RectTransform(value) => value.validate().map_err(WorldError::from),
+            #[cfg(feature = "ui")]
+            Self::Canvas(value) => value.validate().map_err(WorldError::from),
+            #[cfg(feature = "ui")]
+            Self::Text(value) => value.validate().map_err(WorldError::from),
             Self::Body2d(value) => value.validate().map_err(WorldError::from),
             Self::Collider2d(value) => value.validate().map_err(WorldError::from),
             Self::Renderer { .. } => Ok(()),

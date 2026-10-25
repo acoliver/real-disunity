@@ -27,6 +27,10 @@ mod components;
 mod edits;
 mod handles;
 pub mod physics2d;
+mod ui_error;
+pub use ui_error::{FontId, UiError};
+#[cfg(feature = "ui")]
+pub mod ui;
 pub use edits::ObjectEdit;
 mod clone;
 mod fields;
@@ -71,6 +75,8 @@ pub enum ComponentError {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum WorldError {
+    #[error("UI: {0}")]
+    Ui(UiError),
     #[error("invalid time: {0}")]
     InvalidTime(#[from] TimeError),
     #[error("input timestamp order or cutoff violation")]

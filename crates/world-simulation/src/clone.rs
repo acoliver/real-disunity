@@ -83,6 +83,16 @@ impl World {
                 remap.insert(old.handle, new);
             }
         }
+        #[cfg(feature = "ui")]
+        for old in source {
+            if let ComponentDesc::Canvas(mut canvas) = old.desc {
+                if let crate::ui::CanvasMode::ScreenSpaceCamera { ref mut camera, .. } = canvas.mode
+                {
+                    *camera = objects.get(camera).copied().unwrap_or(*camera);
+                }
+                self.set_component(remap[&old.handle], ComponentDesc::Canvas(canvas))?;
+            }
+        }
         for old in source {
             if let Some(state) = self.lifecycle.scripts.get(&old.handle) {
                 let mut state = state.clone();

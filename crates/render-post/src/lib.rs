@@ -7,6 +7,12 @@ pub mod contracts;
 #[cfg(test)]
 mod contracts_tests;
 #[cfg(test)]
+mod filter_hand_computed_gpu_tests;
+#[cfg(test)]
+mod filter_reference;
+#[cfg(test)]
+mod filter_reference_gpu_tests;
+#[cfg(test)]
 mod operations_buffer_scope_tests;
 #[cfg(test)]
 mod operations_compute_tests;

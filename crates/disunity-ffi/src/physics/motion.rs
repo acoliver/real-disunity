@@ -67,16 +67,15 @@ impl DisunityWorld {
                 depth += 1;
                 parent = self.metadata[&h].parent;
             }
-            poses.push((
-                depth,
-                m.object,
-                p + m.velocity.extend(0.0) * dt,
-                Quat::from_rotation_z(m.angular * dt) * r,
-            ));
+            // A body without angular motion keeps its stored rotation untouched: writing back
+            // the decomposed world rotation would renormalize it and drift frozen bodies.
+            let rotation =
+                (m.angular != 0.0).then(|| (Quat::from_rotation_z(m.angular * dt) * r).to_array());
+            poses.push((depth, m.object, p + m.velocity.extend(0.0) * dt, rotation));
         }
         poses.sort_by_key(|v| v.0);
         for (_, h, p, r) in poses {
-            self.set_trs(h, Some(p.to_array()), Some(r.to_array()), None, "world")?;
+            self.set_trs(h, Some(p.to_array()), r, None, "world")?;
         }
         Ok(())
     }

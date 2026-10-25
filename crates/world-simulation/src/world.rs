@@ -200,13 +200,21 @@ impl World {
     pub fn add_component(
         &mut self,
         object: ObjectHandle,
-        desc: ComponentDesc,
+        mut desc: ComponentDesc,
     ) -> Result<ComponentHandle, WorldError> {
         self.ensure_allocation_allowed()?;
         let owner = self.live_object(object)?;
         desc.validate()?;
+        desc.register_presentation()?;
         let duplicate = match desc {
             ComponentDesc::Transform(_) => true,
+            ComponentDesc::Sprite(_) | ComponentDesc::Tilemap(_) | ComponentDesc::Camera(_) => {
+                self.components.iter(self.identity).any(|(_, c)| {
+                    c.object == object
+                        && !self.lifetime.components.contains(&c.handle)
+                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(&desc)
+                })
+            }
             #[cfg(feature = "ui")]
             ComponentDesc::RectTransform(_) | ComponentDesc::Canvas(_) | ComponentDesc::Text(_) => {
                 self.components.iter(self.identity).any(|(_, c)| {
@@ -253,10 +261,11 @@ impl World {
     pub fn set_component(
         &mut self,
         handle: ComponentHandle,
-        desc: ComponentDesc,
+        mut desc: ComponentDesc,
     ) -> Result<(), WorldError> {
         let old = self.component(handle)?;
         desc.validate()?;
+        desc.register_presentation()?;
         if std::mem::discriminant(&old.desc) != std::mem::discriminant(&desc) {
             return Err(WorldError::InvalidComponent(ComponentError::KindMismatch));
         }

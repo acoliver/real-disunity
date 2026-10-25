@@ -3802,6 +3802,7 @@ dependencies = [
  "worldrunner-camera",
  "worldrunner-catalog",
  "worldrunner-core-types",
+ "worldrunner-disunity-runtime",
  "worldrunner-import-schema",
  "worldrunner-material",
  "worldrunner-mesh",
@@ -3867,6 +3868,7 @@ dependencies = [
  "csbindgen",
  "glam",
  "serde_json",
+ "worldrunner-camera",
  "worldrunner-world-simulation",
 ]
 
@@ -3874,10 +3876,13 @@ dependencies = [
 name = "worldrunner-disunity-runtime"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "libloading",
  "netcorehost",
  "serde_json",
  "thiserror 2.0.21",
+ "worldrunner-camera",
+ "worldrunner-world-simulation",
 ]
 
 [[package]]
@@ -3946,11 +3951,13 @@ dependencies = [
 name = "worldrunner-render-plan"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "worldrunner-asset-id",
+ "worldrunner-camera",
  "worldrunner-material",
  "worldrunner-mesh",
  "worldrunner-package",
@@ -3987,6 +3994,7 @@ dependencies = [
  "worldrunner-render-plan",
  "worldrunner-render-post",
  "worldrunner-render-shadow",
+ "worldrunner-world-simulation",
 ]
 
 [[package]]
@@ -4102,6 +4110,7 @@ dependencies = [
  "glam",
  "thiserror 2.0.21",
  "ttf-parser",
+ "worldrunner-camera",
 ]
 
 [[package]]

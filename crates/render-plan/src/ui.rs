@@ -4,10 +4,8 @@
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
 use crate::{SceneTexture, TexelFormat, TextureColorSpace};
-use worldrunner_world_simulation::ui::{
-    CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout,
-};
-use worldrunner_world_simulation::{ComponentDesc, ObjectHandle, World, WorldError};
+use worldrunner_world_simulation::ui::{FontBook, UiLayout};
+use worldrunner_world_simulation::{ObjectHandle, World, WorldError};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiGlyphQuad {
@@ -41,131 +39,90 @@ pub fn extract_ui(
     fonts: &FontBook,
     viewport: [u32; 2],
 ) -> Result<UiRenderPlan, WorldError> {
-    let layout = world.ui_layout(viewport.into())?;
-    let snapshot = world.snapshot();
-    let mut texts = Vec::new();
-    let mut budget = FrameBudget::default();
-    for component in &snapshot.components {
-        let ComponentDesc::Text(run) = &component.desc else {
-            continue;
-        };
-        if !run.enabled {
-            continue;
-        }
-        let Some(rect) = layout.rect(component.object) else {
-            validate_hidden_text(world, component.object, &snapshot.components)?;
-            continue;
-        };
-        let text = fonts.layout(run, rect.size)?;
-        budget.add(
-            run.text.chars().filter(|c| *c != '\r').count(),
-            text.atlas.alpha.len(),
-            fonts.limits(),
-        )?;
-        let overlay = snapshot.components.iter().any(|c| c.object == rect.canvas && matches!(c.desc, ComponentDesc::Canvas(canvas) if canvas.mode == CanvasMode::ScreenSpaceOverlay));
-        texts.push(contribution(rect, text, overlay, run.color));
-    }
-    texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.object));
-    Ok(UiRenderPlan { layout, texts })
+    let native =
+        worldrunner_world_simulation::ui::contribution::extract_ui(world, fonts, viewport)?;
+    Ok(UiRenderPlan {
+        layout: native.layout,
+        texts: native
+            .texts
+            .into_iter()
+            .map(|t| UiTextContribution {
+                object: t.object,
+                canvas: t.canvas,
+                overlay: t.overlay,
+                sorting_layer: t.sorting_layer,
+                sorting_order: t.sorting_order,
+                color: t.color,
+                texture: t.texture.map(|t| SceneTexture::Texels {
+                    format: TexelFormat::R8Unorm,
+                    color_space: TextureColorSpace::Linear,
+                    width: t.width,
+                    height: t.height,
+                    mips: 1,
+                    bytes: t.bytes,
+                }),
+                quads: t
+                    .quads
+                    .into_iter()
+                    .map(|q| UiGlyphQuad {
+                        corners: q.corners,
+                        uv: q.uv,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    })
 }
 
-fn contribution(
-    rect: &RectLayout,
-    text: TextLayout,
-    overlay: bool,
-    color: [f32; 4],
-) -> UiTextContribution {
-    let atlas_size = text.atlas.size.as_vec2();
-    let mut quads = Vec::new();
-    for glyph in text.glyphs {
-        let min = glyph.rect_min - rect.pivot * rect.size;
-        let max = glyph.rect_max - rect.pivot * rect.size;
-        let positions = [min, [max.x, min.y].into(), max, [min.x, max.y].into()];
-        let corners = positions.map(|p| {
-            rect.local_to_world
-                .transform_point3(p.extend(0.))
-                .to_array()
-        });
-        let uv_min = glyph.atlas_min.as_vec2() / atlas_size;
-        let uv_max = (glyph.atlas_min + glyph.atlas_size).as_vec2() / atlas_size;
-        let uv = [
-            [uv_min.x, uv_max.y],
-            [uv_max.x, uv_max.y],
-            [uv_max.x, uv_min.y],
-            [uv_min.x, uv_min.y],
-        ];
-        quads.push(UiGlyphQuad { corners, uv });
-    }
-    let texture = if text.atlas.alpha.is_empty() {
-        None
-    } else {
-        Some(SceneTexture::Texels {
-            format: TexelFormat::R8Unorm,
-            color_space: TextureColorSpace::Linear,
-            width: text.atlas.size.x,
-            height: text.atlas.size.y,
-            mips: 1,
-            bytes: text.atlas.alpha.into_boxed_slice(),
+pub(crate) fn into_native(
+    ui: UiRenderPlan,
+) -> Result<
+    worldrunner_world_simulation::ui::contribution::UiRenderPlan,
+    worldrunner_camera::ViewError,
+> {
+    use worldrunner_world_simulation::{presentation::CoverageTexture, ui::contribution as n};
+    let texts = ui
+        .texts
+        .into_iter()
+        .map(|t| {
+            let texture = t
+                .texture
+                .map(|texture| match texture {
+                    SceneTexture::Texels {
+                        format: TexelFormat::R8Unorm,
+                        width,
+                        height,
+                        bytes,
+                        ..
+                    } => Ok(CoverageTexture {
+                        width,
+                        height,
+                        bytes,
+                    }),
+                    _ => Err(worldrunner_camera::ViewError::InvalidWorldPoint),
+                })
+                .transpose()?;
+            Ok(n::UiTextContribution {
+                object: t.object,
+                canvas: t.canvas,
+                overlay: t.overlay,
+                sorting_layer: t.sorting_layer,
+                sorting_order: t.sorting_order,
+                color: t.color,
+                texture,
+                quads: t
+                    .quads
+                    .into_iter()
+                    .map(|q| n::UiGlyphQuad {
+                        corners: q.corners,
+                        uv: q.uv,
+                    })
+                    .collect(),
+            })
         })
-    };
-    UiTextContribution {
-        object: rect.object,
-        canvas: rect.canvas,
-        overlay,
-        sorting_layer: rect.sorting_layer,
-        sorting_order: rect.sorting_order,
-        color,
-        texture,
-        quads,
-    }
-}
-
-fn validate_hidden_text(
-    world: &World,
-    object: ObjectHandle,
-    components: &[worldrunner_world_simulation::ComponentSnapshot],
-) -> Result<(), WorldError> {
-    if !world.active_in_hierarchy(object)? {
-        return Ok(());
-    }
-    if !components
-        .iter()
-        .any(|c| c.object == object && matches!(c.desc, ComponentDesc::RectTransform(_)))
-    {
-        return Err(UiError::MissingLayout.into());
-    }
-    let mut current = Some(object);
-    while let Some(node) = current {
-        if components.iter().any(|c| {
-            c.object == node && matches!(c.desc, ComponentDesc::Canvas(canvas) if !canvas.enabled)
-        }) {
-            return Ok(());
-        }
-        current = world.parent(node)?;
-    }
-    Err(UiError::MissingLayout.into())
-}
-
-#[derive(Default)]
-struct FrameBudget {
-    glyphs: usize,
-    pixels: usize,
-}
-impl FrameBudget {
-    fn add(
-        &mut self,
-        glyphs: usize,
-        pixels: usize,
-        limits: worldrunner_world_simulation::ui::UiLimits,
-    ) -> Result<(), UiError> {
-        self.glyphs = self.glyphs.checked_add(glyphs).ok_or(UiError::GlyphLimit)?;
-        self.pixels = self.pixels.checked_add(pixels).ok_or(UiError::AtlasLimit)?;
-        if self.glyphs > limits.max_glyphs {
-            return Err(UiError::GlyphLimit);
-        }
-        if self.pixels > limits.max_atlas_pixels {
-            return Err(UiError::AtlasLimit);
-        }
-        Ok(())
-    }
+        .collect::<Result<Vec<_>, worldrunner_camera::ViewError>>()?;
+    Ok(n::UiRenderPlan {
+        layout: ui.layout,
+        texts,
+    })
 }

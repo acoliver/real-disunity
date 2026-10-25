@@ -38,6 +38,36 @@ impl SceneGpu {
         )
     }
 
+    /// Atomically replaces the texture table and geometry of one native frame.
+    pub fn set_dynamic_contribution(
+        &mut self,
+        device: &Device,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+        pipelines: &ScenePipelines,
+        textures: &[worldrunner_render_plan::SceneTexture],
+        quads: &[crate::dynamic::DynamicQuad],
+    ) -> Result<(), crate::dynamic::DynamicError> {
+        let mut staged = crate::dynamic::DynamicGpu::default();
+        staged.set_textures(device, authority.queue(), textures)?;
+        staged.set_quads(
+            device,
+            authority.queue(),
+            crate::dynamic::DynamicBindings {
+                pipelines,
+                placeholder: &self.retained.placeholder,
+                sampler: &self.retained.sampler,
+            },
+            quads,
+        )?;
+        self.dynamic = staged;
+        Ok(())
+    }
+
+    /// Releases every runtime texture, draw buffer and retained quad index buffer on unload.
+    pub fn clear_dynamic(&mut self) {
+        self.dynamic = crate::dynamic::DynamicGpu::default();
+    }
+
     /// Replaces runtime textures and clears runtime geometry on success.
     pub fn set_dynamic_textures(
         &mut self,

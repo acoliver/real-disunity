@@ -75,6 +75,7 @@ name = "scene-viewer"
 required-features = ["scene-viewer"]
 
 [dev-dependencies]
+worldrunner-disunity-runtime = { path = "../disunity-runtime" }
 pollster.workspace = true
 
 [[example]]

@@ -12,6 +12,7 @@ default = []
 ui = ["dep:ab_glyph", "dep:ttf-parser", "glam/u32"]
 
 [dependencies]
+worldrunner-camera = { path = "../camera" }
 ab_glyph = { version = "0.2.32", optional = true }
 glam = { version = "0.33.2", default-features = false, features = ["std"] }
 ttf-parser = { version = "0.25.1", optional = true }

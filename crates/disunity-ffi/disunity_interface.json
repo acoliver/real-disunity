@@ -3,322 +3,22 @@
   "description": "Disunity revision 2: one native advancement model; generated C declarations and explicit revision admission.",
   "functions": [
     {
-      "name": "disunity_abi_version",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_create",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_destroy",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_gameobject_create",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_gameobject_destroy",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_transform_set_position",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_transform_set_rotation_y",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_command_buffer_submit",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_error_message",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_store_statistics",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_export_objects",
-      "since": "1.0.0",
-      "rets": "DisunityResult"
-    },
-    {
       "name": "disunity_abi_check",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_script_register",
+      "name": "disunity_abi_version",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_asset_activate",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_world_activate",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_advance",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_resume",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_clock",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_error_take",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_buffer_copy",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_buffer_free",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_gameobject_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_clone_create",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_clone_copy",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_clone_bind",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_clone_activate",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_clone_abort",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_transform_parent",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_transform_get_parent",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_gameobject_set_active",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_callback_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_callback_wait",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_coroutine_start",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_coroutine_stop",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_coroutine_cancelled",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_input_push",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_input_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_physics_create",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_body_write",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_body_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_collider_write",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_collider_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_physics_raycast",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_physics_overlap_circle",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_font_register",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_ui_create",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_rect_write",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_rect_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_canvas_write",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_canvas_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_text_write",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_text_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_ui_rect",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_script_enabled",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_script_set_enabled",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_coroutine_ready",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_transform_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_transform_write",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_object_text_write",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_object_text_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_object_flags",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_fixed_delta",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_body_move_position",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_rotation_read",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_rotation_write",
+      "name": "disunity_asset_alive",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
@@ -333,12 +33,12 @@
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_asset_alive",
+      "name": "disunity_body_move_position",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_asset_activate",
+      "name": "disunity_body_read",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
@@ -353,7 +53,17 @@
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_object_alive",
+      "name": "disunity_body_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_buffer_copy",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_buffer_free",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
@@ -363,7 +73,352 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_callback_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_callback_wait",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_clone_abort",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_clone_activate",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_clone_bind",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_clone_copy",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_clone_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_collider_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_collider_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_command_buffer_submit",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_coroutine_cancelled",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_coroutine_ready",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_coroutine_start",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_coroutine_stop",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_error_message",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_error_take",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_font_register",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gameobject_create",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gameobject_destroy",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gameobject_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gameobject_set_active",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_input_push",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_input_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_object_alive",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_object_flags",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_object_text_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_object_text_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_physics_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_physics_overlap_circle",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_physics_raycast",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_coverage",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_prepare",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_quad",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_rect_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_rect_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_rotation_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_rotation_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_script_enabled",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_script_register",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_script_retained",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_script_set_enabled",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sprite_bounds",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sprite_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sprite_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sprite_register",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sprite_validate",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sprite_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_store_statistics",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_text_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_text_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_get_parent",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_parent",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_set_position",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_set_rotation_y",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_ui_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_ui_rect",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_activate",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_advance",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_clock",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_create",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_destroy",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_export_objects",
+      "since": "1.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_export_sprites",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_fixed_delta",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_resume",
       "since": "2.0.0",
       "rets": "DisunityResult"
     }

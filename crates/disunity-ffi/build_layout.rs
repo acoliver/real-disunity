@@ -16,6 +16,8 @@ pub fn generate(out: &Path) {
         ("callbacks", "crate::callbacks"),
         ("physics", "crate::physics"),
         ("ui", "crate::ui"),
+        ("sprites", "crate::sprites"),
+        ("presentation", "crate::presentation"),
         ("object_api", "crate::object_api"),
     ] {
         let source = std::fs::read_to_string(format!("src/{file}.rs")).expect("ABI source");
@@ -56,6 +58,8 @@ fn append_record(record: &str, module: &str, managed: &mut String, native: &mut 
     let mut offset: usize = 0;
     let mut alignment = 1;
     let mut count = 0;
+    let mut actual_offsets = Vec::new();
+    let mut expected_offsets = Vec::new();
     for line in fields
         .lines()
         .map(str::trim)
@@ -74,14 +78,18 @@ fn append_record(record: &str, module: &str, managed: &mut String, native: &mut 
         alignment = alignment.max(size);
         offset = offset.div_ceil(size) * size;
         writeln!(managed, "        if (Marshal.OffsetOf<{name}>(\"{field}\").ToInt32() != {offset}) throw new InvalidOperationException(\"{name}.{field} offset\");").unwrap();
-        writeln!(
-            native,
-            "    assert_eq!(std::mem::offset_of!({module}::{name}, {field}), {offset});"
-        )
-        .unwrap();
+        actual_offsets.push(format!("std::mem::offset_of!({module}::{name}, {field})"));
+        expected_offsets.push(offset.to_string());
         offset += size;
         count += 1;
     }
+    writeln!(
+        native,
+        "    assert_eq!([{}], [{}]);",
+        actual_offsets.join(", "),
+        expected_offsets.join(", ")
+    )
+    .unwrap();
     let size = offset.div_ceil(alignment) * alignment;
     writeln!(managed, "        if (Marshal.SizeOf<{name}>() != {size} || typeof({name}).GetFields().Length != {count}) throw new InvalidOperationException(\"{name} layout\");").unwrap();
     writeln!(native, "    assert_eq!(std::mem::size_of::<{module}::{name}>(), {size});\n    assert_eq!(std::mem::align_of::<{module}::{name}>(), {alignment});").unwrap();

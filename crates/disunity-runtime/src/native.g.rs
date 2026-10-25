@@ -8,6 +8,129 @@ pub struct DisunityResult {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunitySprite {
+    pub identity: u64,
+    pub texture: u64,
+    pub present: u32,
+    pub width: u32,
+    pub height: u32,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub pivot_x: f32,
+    pub pivot_y: f32,
+    pub pixels_per_unit: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub enabled: u32,
+    pub flip_x: u32,
+    pub flip_y: u32,
+    pub sorting_layer: i32,
+    pub sorting_order: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityBounds {
+    pub min_x: f32,
+    pub min_y: f32,
+    pub min_z: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+    pub max_z: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityMatrix {
+    pub m0: f32,
+    pub m1: f32,
+    pub m2: f32,
+    pub m3: f32,
+    pub m4: f32,
+    pub m5: f32,
+    pub m6: f32,
+    pub m7: f32,
+    pub m8: f32,
+    pub m9: f32,
+    pub m10: f32,
+    pub m11: f32,
+    pub m12: f32,
+    pub m13: f32,
+    pub m14: f32,
+    pub m15: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityPresentation {
+    pub present: u32,
+    pub quads: u32,
+    pub textures: u32,
+    pub width: u32,
+    pub height: u32,
+    pub eye_x: f64,
+    pub eye_y: f64,
+    pub eye_z: f64,
+    pub forward_x: f64,
+    pub forward_y: f64,
+    pub forward_z: f64,
+    pub up_x: f64,
+    pub up_y: f64,
+    pub up_z: f64,
+    pub half_height: f64,
+    pub near: f64,
+    pub far: f64,
+    pub r: f64,
+    pub g: f64,
+    pub b: f64,
+    pub a: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityQuad {
+    pub texture: u64,
+    pub textured: u32,
+    pub overlay: u32,
+    pub sorting_layer: i32,
+    pub sorting_order: i32,
+    pub p0_x: f32,
+    pub p0_y: f32,
+    pub p0_z: f32,
+    pub p1_x: f32,
+    pub p1_y: f32,
+    pub p1_z: f32,
+    pub p2_x: f32,
+    pub p2_y: f32,
+    pub p2_z: f32,
+    pub p3_x: f32,
+    pub p3_y: f32,
+    pub p3_z: f32,
+    pub u0: f32,
+    pub v0: f32,
+    pub u1: f32,
+    pub v1: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityCoverage {
+    pub identity: u64,
+    pub width: u32,
+    pub height: u32,
+    pub length: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DisunityCommand {
     pub object: u64,

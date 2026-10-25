@@ -146,16 +146,21 @@ impl Resident {
             return Err(ViewerError::UnsupportedScene("dynamic shadow host"));
         };
         if let Some(textures) = upload.textures {
-            plain
-                .gpu
-                .set_dynamic_textures(context.device(), context.submission(), &textures)?;
+            plain.gpu.set_dynamic_contribution(
+                context.device(),
+                context.submission(),
+                &plain.pipelines,
+                &textures,
+                &upload.quads,
+            )?;
+        } else {
+            plain.gpu.set_dynamic_quads(
+                context.device(),
+                context.submission(),
+                &plain.pipelines,
+                &upload.quads,
+            )?;
         }
-        plain.gpu.set_dynamic_quads(
-            context.device(),
-            context.submission(),
-            &plain.pipelines,
-            &upload.quads,
-        )?;
         plain.clear = Some(upload.clear);
         Ok(())
     }

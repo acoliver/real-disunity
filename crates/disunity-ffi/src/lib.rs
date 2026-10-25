@@ -19,7 +19,9 @@ pub mod object_api;
 pub mod physics;
 #[cfg(test)]
 mod physics_tests;
+pub mod presentation;
 pub mod scheduling;
+pub mod sprites;
 mod store;
 #[cfg(test)]
 mod time_input_tests;

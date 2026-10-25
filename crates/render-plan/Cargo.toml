@@ -9,9 +9,12 @@ publish.workspace = true
 
 [features]
 default = []
-ui = ["dep:worldrunner-world-simulation", "worldrunner-world-simulation/ui"]
+simulation = ["dep:worldrunner-world-simulation", "dep:worldrunner-camera", "dep:glam"]
+ui = ["simulation", "dep:worldrunner-world-simulation", "worldrunner-world-simulation/ui"]
 
 [dependencies]
+worldrunner-camera = { path = "../camera", optional = true }
+glam = { workspace = true, optional = true }
 worldrunner-world-simulation = { path = "../world-simulation", optional = true }
 serde.workspace = true
 serde_json.workspace = true

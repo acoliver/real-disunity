@@ -125,7 +125,18 @@ CheckImport("disunity_body_sleeping", u64, u64, u32.MakePointerType());
 CheckImport("disunity_object_alive", u64, u64, u32.MakePointerType());
 CheckImport("disunity_callback_check", u64, u64);
 CheckImport("disunity_script_retained", u64, u64, u32.MakePointerType());
-Require(bindings.GetMethods(Imports).Length == 73, "unexpected native import count");
+CheckImport("disunity_sprite_create", u64, u64, u64.MakePointerType());
+CheckImport("disunity_sprite_read", u64, u64, AbiType("DisunitySprite").MakePointerType());
+CheckImport("disunity_sprite_write", u64, u64, AbiType("DisunitySprite").MakePointerType());
+CheckImport("disunity_sprite_bounds", u64, u64, AbiType("DisunityBounds").MakePointerType());
+CheckImport("disunity_sprite_validate", AbiType("DisunitySprite").MakePointerType());
+CheckImport("disunity_world_export_sprites", u64, AbiType("DisunitySprite").MakePointerType(), AbiType("DisunityMatrix").MakePointerType(), u32, u32.MakePointerType());
+CheckImport("disunity_sprite_register", AbiType("DisunitySprite").MakePointerType());
+CheckImport("disunity_camera_create", u64, u64, u64.MakePointerType());
+CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
+CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
+CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
+Require(bindings.GetMethods(Imports).Length == 84, "unexpected native import count");
 AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
 
 CheckLayout(result, 16, ("code", typeof(int), 0), ("detail", u64, 8));
@@ -136,7 +147,7 @@ CheckLayout(state, 32, ("object", u64, 0), ("x", f32, 8), ("y", f32, 12),
 CheckLayout(advance, 32, ("kind", u32, 0), ("message", u32, 4), ("ticket", u64, 8), ("script", u64, 16), ("frame", u64, 24));
 CheckLayout(clock, 24, ("delta", typeof(double), 0), ("time", typeof(double), 8), ("frame", u64, 16));
 CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
-Console.WriteLine("PASS: all 73 native import signatures and generated ABI layout expectations");
+Console.WriteLine("PASS: all 84 native import signatures and generated ABI layout expectations");
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
 LifecycleTests.Run(args[0]);
 
@@ -149,6 +160,7 @@ CoroutineInputTests.Run();
 PhysicsTests.Run();
 
 UiTests.Run();
+SpriteTests.Run();
 
 EnabledTests.Run();
 

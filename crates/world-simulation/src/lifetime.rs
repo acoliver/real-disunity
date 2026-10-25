@@ -2,15 +2,17 @@ use crate::{
     ComponentDesc, ComponentError, ComponentHandle, LifecycleWork, ObjectHandle, ScriptMessage,
     World, WorldError,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DestroyWhen {
     EndOfFrame,
+    AfterScaled(crate::TimeSpan),
 }
 
 #[derive(Clone, Default)]
 pub(crate) struct Lifetime {
+    pub delayed: BTreeMap<ObjectHandle, crate::TimeSpan>,
     pub objects: BTreeSet<ObjectHandle>,
     pub components: BTreeSet<ComponentHandle>,
 }
@@ -51,10 +53,21 @@ impl World {
     }
 
     /// Invalidates the entire live subtree now; storage remains occupied until cleanup.
-    pub fn destroy(&mut self, object: ObjectHandle, _when: DestroyWhen) -> Result<(), WorldError> {
+    pub fn destroy(&mut self, object: ObjectHandle, when: DestroyWhen) -> Result<(), WorldError> {
         if self.lifetime.objects.contains(&object) {
             return Ok(());
         }
+        if let DestroyWhen::AfterScaled(delay) = when {
+            self.live_object(object)?;
+            let deadline = self.clock.time.checked_add(delay)?;
+            self.lifetime
+                .delayed
+                .entry(object)
+                .and_modify(|old| *old = (*old).min(deadline))
+                .or_insert(deadline);
+            return Ok(());
+        }
+        self.lifetime.delayed.remove(&object);
         let nodes = self.subtree(object)?;
         let components: Vec<_> = self
             .components
@@ -74,6 +87,7 @@ impl World {
 
     fn queue_script_cleanup(&mut self, script: ComponentHandle) {
         if let Some(state) = self.lifecycle.scripts.get_mut(&script) {
+            self.coroutines.cancel_script(script);
             if state.active {
                 self.lifecycle.cleanup.push(LifecycleWork {
                     script,
@@ -88,6 +102,20 @@ impl World {
             }
             state.active = false;
         }
+    }
+
+    pub(crate) fn expire_destruction(&mut self) -> Result<(), WorldError> {
+        let due: Vec<_> = self
+            .lifetime
+            .delayed
+            .iter()
+            .filter(|(_, deadline)| **deadline <= self.clock.time)
+            .map(|(&object, _)| object)
+            .collect();
+        for object in due {
+            self.destroy(object, DestroyWhen::EndOfFrame)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn retire_component(&mut self, component: ComponentHandle) {
@@ -115,6 +143,7 @@ impl World {
             self.retire_component(component);
         }
         for object in nodes {
+            self.lifetime.delayed.remove(&object);
             self.lifetime.objects.remove(&object);
             self.objects.remove(object.0);
         }
@@ -126,6 +155,7 @@ impl World {
             self.retire_component(component);
         }
         for object in std::mem::take(&mut self.lifetime.objects) {
+            self.lifetime.delayed.remove(&object);
             self.objects.remove(object.0);
         }
     }

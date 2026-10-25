@@ -52,7 +52,7 @@ impl World {
         }
         None
     }
-    fn contact_eligible(&self, c: &ContactEvent) -> bool {
+    pub(crate) fn contact_eligible(&self, c: &ContactEvent) -> bool {
         [c.collider_a, c.collider_b].iter().all(|h| {
             self.component(*h).is_ok_and(|c| {
                 matches!(&c.desc, ComponentDesc::Collider2d(d) if d.enabled)

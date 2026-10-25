@@ -18,6 +18,7 @@ impl World {
         template: ObjectHandle,
         parent: Option<ObjectHandle>,
     ) -> Result<Instantiation, WorldError> {
+        self.ensure_allocation_allowed()?;
         let source = self.subtree(template)?;
         if let Some(parent) = parent {
             self.live_object(parent)?;
@@ -85,8 +86,10 @@ impl World {
         for old in source {
             if let Some(state) = self.lifecycle.scripts.get(&old.handle) {
                 let mut state = state.clone();
+                state.start = crate::lifecycle::StartState::Pending;
                 state.awake = false;
                 state.active = false;
+                state.entered = crate::lifecycle::EnteredState::Dormant;
                 for (_, value) in &mut state.fields {
                     value.remap(objects, remap);
                 }

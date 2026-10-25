@@ -83,7 +83,17 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
             | WorldError::InvalidFields
             | WorldError::NotScript
             | WorldError::WrongMutation
-            | WorldError::Physics(_),
+            | WorldError::Physics(_)
+            | WorldError::InvalidTime(_)
+            | WorldError::InputOrder
+            | WorldError::InputCapacity
+            | WorldError::InvalidInput
+            | WorldError::AdvanceInProgress
+            | WorldError::WrongCallback
+            | WorldError::InvalidContact
+            | WorldError::NotReady
+            | WorldError::CallbackFailed(_)
+            | WorldError::Faulted,
         ) => DisunityResult::invalid_argument(),
     }
 }

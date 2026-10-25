@@ -12,6 +12,7 @@ mod selection;
 mod ssao;
 mod subresources;
 mod terrain;
+mod timing_probe;
 mod validation;
 
 use glam::{Vec3, Vec4};

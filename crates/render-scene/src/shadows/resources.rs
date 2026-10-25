@@ -243,7 +243,11 @@ pub(super) fn uniform_bytes(
     }
     values.extend([0.0, settings.normal_bias_meters, 1.0, 0.0]);
     values.extend([
-        f32::from(u16::try_from(cascades.matrices.len()).expect("four cascades")),
+        if cascades.no_receivers {
+            0.0
+        } else {
+            f32::from(u16::try_from(cascades.matrices.len()).expect("four cascades"))
+        },
         cascades.blend,
         f32::from(u8::from(cascades.camera_splits)),
         cascades.near,

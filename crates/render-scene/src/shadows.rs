@@ -1,7 +1,8 @@
 //! Opt-in cascaded directional shadows for generic environment geometry.
 //!
 //! A retained [`ShadowedScene`] uploads geometry once and submits cascade depth passes
-//! followed by a lit pass, without readback or filesystem policy. Alpha masks,
+//! followed by a lit pass. Depth fitting is opt-in and adds GPU readback according
+//! to its adoption policy; the default performs no readback. Alpha masks,
 //! double-sided materials, instancing and camera-facing billboards use the same
 //! geometry/material code in both passes. Terrain casts and receives through the
 //! same scheduler, including planar water receivers.
@@ -34,6 +35,7 @@ mod resources;
 mod schedule;
 mod settings;
 
+pub mod sdsm;
 pub(crate) fn water_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     resources::layout(device)
 }
@@ -56,6 +58,8 @@ use resources::ShadowMap;
 pub enum ShadowError {
     #[error(transparent)]
     Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
+    #[error(transparent)]
+    DepthFitting(#[from] sdsm::SdsmError),
     /// Settings must describe a finite, representable coverage box and biases.
     #[error("invalid directional shadow fit or bias settings")]
     InvalidSettings,
@@ -109,6 +113,7 @@ pub struct ShadowedScene {
     shadow_layout: wgpu::BindGroupLayout,
     map: ShadowMap,
     settings: DirectionalShadowSettings,
+    depth_fitting: Option<sdsm::scene::SceneDepthFitting>,
     effects: SceneEffects,
     scheduler: crate::compositor::FrameRenderer,
 }
@@ -177,6 +182,7 @@ impl ShadowedScene {
             depth_slots,
             depth_frames,
             frame_slot: 0,
+            depth_fitting: None,
             shadow_layout,
             map,
             settings,
@@ -231,7 +237,9 @@ impl ShadowedScene {
     }
 
     /// Changes lighting and cascade policy without uploading geometry again.
-    /// Changed layer counts are allocated at the next encode.
+    /// Changed layer counts are allocated at the next ordinary encode. When depth
+    /// fitting is enabled, rendering instead returns [`sdsm::SdsmError::CascadeLayers`]
+    /// before encoding. Rebuild the renderer or disable fitting to change layer counts.
     pub fn set_effects(&mut self, effects: &SceneEffects) -> Result<(), ShadowError> {
         settings::validate_effects(effects)?;
         if effects.ssao().is_some() != self.pipelines.ssao {
@@ -262,7 +270,9 @@ impl ShadowedScene {
 
     /// Submits cascade depth and colour passes, clearing colour to black and depth to one.
     /// Each view reuses its host-side visible-range storage after warmup.
-    /// No readback occurs. Use the same device as construction.
+    /// Without depth fitting no readback occurs. Interactive fitting polls readback
+    /// without waiting; same-frame capture waits for metadata reduction before
+    /// submitting fitted shadows and colour. Use the same device as construction.
     pub fn render(
         &mut self,
         context: &GpuContext,
@@ -270,6 +280,11 @@ impl ShadowedScene {
         color: &AttachmentView,
         depth: &AttachmentView,
     ) -> Result<(), ShadowError> {
+        if let Some(fitting) = &self.depth_fitting {
+            let frame = fitting.next_frame;
+            self.render_depth_fitted(context, view, (color, depth), frame)?;
+            return Ok(());
+        }
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
@@ -320,18 +335,65 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
+        self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+    }
+
+    /// Encode with completed depth evidence. Empty depth clears all maps and disables
+    /// receiver sampling. The ordinary encode path retains its original schedule.
+    pub fn encode_depth_fitted(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        attachments: (&AttachmentView, &AttachmentView),
+        encoder: &mut wgpu::CommandEncoder,
+        fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
+    ) -> Result<(), ShadowError> {
+        self.encode_fitted(
+            context,
+            view,
+            attachments,
+            encoder,
+            (None, Some((fitting.0.depth, fitting.1))),
+        )
+    }
+
+    fn prepare_cascades(
+        scene: (&SceneGpu, &SceneEffects, DirectionalShadowSettings),
+        view: &SceneView,
+        sun: glam::Vec3,
+        fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
+    ) -> Result<cascades::CascadeViews, ShadowError> {
+        let (gpu, effects, settings) = scene;
+        let mut cascades = cascades::CascadeViews::new(gpu, view, effects, settings, sun)?;
+        if let Some(fitting) = fitting {
+            cascades.refit_depth(gpu, view, settings, sun, fitting)?;
+        }
+        Ok(cascades)
+    }
+
+    fn encode_fitted(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        attachments: (&AttachmentView, &AttachmentView),
+        encoder: &mut wgpu::CommandEncoder,
+        input: (
+            Option<&mut crate::compositor::FrameRenderer>,
+            Option<(sdsm::DepthRange, sdsm::RangeFit)>,
+        ),
+    ) -> Result<(), ShadowError> {
+        let (scheduler, fitting) = input;
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_terrain_pages(context.device(), encoder, frame, color.size())?;
-        let cascades = cascades::CascadeViews::new(
-            &self.gpu,
+        let cascades = Self::prepare_cascades(
+            (&self.gpu, &self.effects, self.settings),
             view,
-            &self.effects,
-            self.settings,
             frame.sun_direction,
+            fitting,
         )?;
         let count = u32::try_from(cascades.matrices.len()).expect("four cascades");
         let mut replacement = if self.map.depth.layers() == count {
@@ -473,6 +535,9 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                     .draw_prepass(pass, &screen.pipelines, &screen.group),
             );
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
+            if self.cascades.no_receivers {
+                return;
+            }
             let matrix = self.cascades.matrices[index as usize];
             let group = &self.depth_frames[index as usize].1;
             self.publications.record(self.gpu.draw_objects(
@@ -499,3 +564,9 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
 
 #[cfg(test)]
 mod tests;
+
+impl From<std::convert::Infallible> for ShadowError {
+    fn from(value: std::convert::Infallible) -> Self {
+        match value {}
+    }
+}

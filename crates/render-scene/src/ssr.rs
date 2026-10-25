@@ -52,6 +52,12 @@ pub(crate) struct Ssr {
     resolve: wgpu::RenderPipeline,
 }
 impl Ssr {
+    pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
+        let mut textures = vec![&self.material, &self.material_depth];
+        textures.extend(self.reflections.iter());
+        textures
+    }
+
     pub fn new(
         device: &wgpu::Device,
         config: FrameConfig,

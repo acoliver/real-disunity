@@ -70,7 +70,7 @@ pub(crate) struct Geometry {
     pub reflection: Option<ScenePipelines>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Ssao {
     pub settings: SceneSsao,
     pub size: [u32; 2],

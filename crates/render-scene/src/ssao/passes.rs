@@ -91,7 +91,7 @@ pub(super) fn group(
     })
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct ScreenPass {
     slot: PassSlot,
     pipeline: wgpu::RenderPipeline,
@@ -99,7 +99,7 @@ struct ScreenPass {
     target: wgpu::Texture,
     reads: Vec<ResourceRef>,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ScreenPasses {
     stages: Vec<ScreenPass>,
     pub filtered: wgpu::Texture,
@@ -108,6 +108,31 @@ fn level(index: u32) -> ResourceRef {
     FrameProduct::linear_depth(index).resource()
 }
 impl ScreenPasses {
+    pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
+        self.stages.iter().map(|stage| &stage.target).collect()
+    }
+
+    pub(crate) fn schedule_metadata(
+        &self,
+        passes: &mut Vec<PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<FeatureDeclaration, FrameError> {
+        let stage = &self.stages[0];
+        let resource = Self::resource(stage.slot);
+        let view = AttachmentView::new(resource, &stage.target)?;
+        let mut pass = PassDeclaration::new(stage.slot);
+        pass.color = Some(crate::compositor::attachment(resource, &view, false));
+        passes.push(pass);
+        views.push(view);
+        let mut feature = FeaturePass::new(stage.slot);
+        feature.color_format = Some(wgpu::TextureFormat::R32Float);
+        feature.reads.clone_from(&stage.reads);
+        Ok(FeatureDeclaration {
+            passes: vec![feature],
+            effects: vec![],
+        })
+    }
+
     pub(crate) fn depth_levels(&self) -> Vec<&wgpu::Texture> {
         self.stages
             .iter()

@@ -40,6 +40,9 @@ pub(crate) struct ScenePages {
     pub tables: Vec<wgpu::Buffer>,
     pub groups: Vec<wgpu::BindGroup>,
     pub frame_slot: usize,
+    capture_uploads: Option<capture::CaptureUploads>,
+    draw_pending: bool,
+    prepared_view: Option<(glam::Mat4, [u32; 2])>,
 }
 impl std::fmt::Debug for ScenePages {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -110,6 +113,9 @@ impl ScenePages {
             tables,
             groups: Vec::new(),
             frame_slot: 0,
+            capture_uploads: None,
+            draw_pending: false,
+            prepared_view: None,
         })
     }
 
@@ -120,6 +126,43 @@ impl ScenePages {
         matrix: glam::Mat4,
         viewport: [u32; 2],
     ) -> Result<(), FrameError> {
+        let transaction = worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        if self.draw_pending
+            && self.prepared_view == Some((matrix, viewport))
+            && self
+                .draw_transaction
+                .as_ref()
+                .is_some_and(|prepared| transaction.same_transaction(prepared))
+        {
+            // The metadata prefix already uploaded this selection. Keep its draw
+            // table, including pending pages, until this transaction submits.
+            return Ok(());
+        }
+        self.prepare_inner(device, encoder, matrix, viewport, false)
+    }
+
+    pub fn prepare_depth_prefix(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        matrix: glam::Mat4,
+        viewport: [u32; 2],
+    ) -> Result<(), FrameError> {
+        self.prepare_inner(device, encoder, matrix, viewport, true)
+    }
+
+    fn prepare_inner(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        matrix: glam::Mat4,
+        viewport: [u32; 2],
+        draw_pending: bool,
+    ) -> Result<(), FrameError> {
+        self.draw_pending = draw_pending;
+        if let Some(uploads) = &mut self.capture_uploads {
+            uploads.reset();
+        }
         self.select(matrix, viewport);
         let selection = self.selection.as_ref().expect("selected").clone();
         let mut required = std::collections::BTreeSet::from([PageKey::ROOT]);
@@ -152,11 +195,31 @@ impl ScenePages {
             };
             let image = compose_page(self.cache.settings(), key, &self.sample)
                 .map_err(preparation_error)?;
-            self.writer
-                .encode(device, encoder, &self.cache, pending, &image)
-                .map_err(preparation_error)?;
+            if let Some(uploads) = &mut self.capture_uploads {
+                uploads.encode(
+                    &self.writer,
+                    device,
+                    encoder,
+                    &self.cache,
+                    (pending, &image),
+                )?;
+            } else {
+                self.writer
+                    .encode(device, encoder, &self.cache, pending, &image)
+                    .map_err(preparation_error)?;
+            }
         }
-        self.selection = Some(selection);
+        self.prepare_draw(device, encoder, &protected)?;
+        self.prepared_view = Some((matrix, viewport));
+        Ok(())
+    }
+
+    fn prepare_draw(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        protected: &[PageKey],
+    ) -> Result<(), FrameError> {
         worldrunner_render_gpu::submission::Publications::retain_lease(
             encoder,
             &self.cache.storage().owner.lease(),
@@ -164,14 +227,20 @@ impl ScenePages {
         .map_err(preparation_error)?;
         self.draw_residents = protected
             .iter()
-            .filter_map(|key| self.cache.lookup(*key, 0).filter(|page| page.key() == *key))
+            .filter_map(|key| {
+                if self.draw_pending {
+                    self.cache.lookup_for_drawing(*key)
+                } else {
+                    self.cache.lookup(*key, 0).filter(|page| page.key() == *key)
+                }
+            })
             .collect();
         self.draw_transaction =
             Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
         table::upload(self, device, encoder)?;
         let destination = self.published_selection.clone();
         let selection = self.selection.clone();
-        worldrunner_render_gpu::submission::Publications::publish(encoder, move || {
+        crate::compositor::publication::encode(encoder, &destination.clone(), move || {
             *destination.borrow_mut() = selection;
         })?;
         Ok(())
@@ -204,9 +273,13 @@ impl ScenePages {
             "prepare material pages before drawing"
         );
         assert!(
-            self.draw_residents
-                .iter()
-                .all(|page| self.cache.is_current(*page)),
+            self.draw_residents.iter().all(|page| {
+                if self.draw_pending {
+                    self.cache.lookup_for_drawing(page.key()) == Some(*page)
+                } else {
+                    self.cache.is_current(*page)
+                }
+            }),
             "material pages changed after draw preparation"
         );
         self.draw_residents

@@ -7,6 +7,7 @@ mod hdr;
 mod receiver;
 mod retained;
 mod scheduler;
+mod sdsm;
 mod selection;
 mod ssao;
 mod subresources;

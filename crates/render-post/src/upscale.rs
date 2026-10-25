@@ -58,8 +58,13 @@ pub struct SpatialUpscale {
     pub output_format: wgpu::TextureFormat,
 }
 impl StageFactory for SpatialUpscale {
-    fn validate_config(&self, _: &wgpu::Device, _: crate::FrameConfig) -> Result<(), PostError> {
-        self.settings.validate()
+    fn validate_config(
+        &self,
+        device: &wgpu::Device,
+        config: crate::FrameConfig,
+    ) -> Result<(), PostError> {
+        self.settings.validate()?;
+        crate::CopyOutput::new(device, self.output_format).validate_config(device, config)
     }
     fn build(
         &self,
@@ -67,7 +72,7 @@ impl StageFactory for SpatialUpscale {
         targets: &FrameTargets,
         _: &Resources,
     ) -> Result<StageSet, PostError> {
-        self.settings.validate()?;
+        self.validate_config(device, targets.config())?;
         let mut set = StageSet::default();
         append(
             device,
@@ -146,19 +151,7 @@ fn pass(device: &wgpu::Device, set: &mut StageSet, source: &wgpu::TextureView, p
         label: Some("FSR 1 spatial reconstruction"),
         source: wgpu::ShaderSource::Wgsl(include_str!("upscale.wgsl").into()),
     });
-    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some(p.entry),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        }],
-    });
+    let layout = source_layout(device, p.entry);
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(p.entry),
         bind_group_layouts: &[Some(&layout)],
@@ -194,6 +187,22 @@ fn pass(device: &wgpu::Device, set: &mut StageSet, source: &wgpu::TextureView, p
         &[&group],
         p.target,
     ));
+}
+
+fn source_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(label),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }],
+    })
 }
 
 #[cfg(test)]

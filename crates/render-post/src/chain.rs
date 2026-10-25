@@ -449,6 +449,7 @@ impl<F: StageFactory> PostChain<F> {
 
     /// Reconfigure shaders/options and all dependent bindings without resetting fixed history.
     pub fn reconfigure(&mut self, device: &wgpu::Device, factory: F) -> Result<(), PostError> {
+        factory.validate_config(device, self.targets.config())?;
         let configured = build_slots(&factory, device, &self.targets, &self.persistent)?;
         self.factory = factory;
         self.configured = configured;

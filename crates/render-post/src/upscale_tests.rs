@@ -20,6 +20,14 @@ pub(super) fn fixture(size: [i32; 2], pattern: u32) -> Image {
                     }
                 }
                 2 => {
+                    if x < y + (size[0] - size[1]) / 2 {
+                        0.125
+                    } else {
+                        0.875
+                    }
+                }
+                4 => f64::from((x + y) % 2),
+                5 => {
                     if x * size[1] < y * size[0] {
                         0.125
                     } else {
@@ -46,8 +54,9 @@ pub(super) fn paint(
     pattern: u32,
 ) {
     let shader = format!(
-        "@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4<f32>{{return vec4<f32>(f32((i<<1u)&2u)*2.0-1.0,f32(i&2u)*2.0-1.0,0.0,1.0);}} @fragment fn fs(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32>{{let x=i32(p.x);let y=i32(p.y);var v=0.375;switch {pattern}u {{case 1u:{{v=select(0.875,0.125,x<{});}}case 2u:{{v=select(0.875,0.125,x*{}<y*{});}}case 3u:{{v=select(0.875,0.125,(x+y)%2==0);}}default:{{}}}}return vec4<f32>(v,v*0.5,1.0-v,0.75);}}",
+        "@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4<f32>{{return vec4<f32>(f32((i<<1u)&2u)*2.0-1.0,f32(i&2u)*2.0-1.0,0.0,1.0);}} @fragment fn fs(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32>{{let x=i32(p.x);let y=i32(p.y);var v=0.375;switch {pattern}u {{case 1u:{{v=select(0.875,0.125,x<{});}}case 2u:{{v=select(0.875,0.125,x<y+{});}}case 3u:{{v=select(0.875,0.125,(x+y)%2==0);}}case 4u:{{v=f32((x+y)%2);}}case 5u:{{v=select(0.875,0.125,x*{}<y*{});}}default:{{}}}}return vec4<f32>(v,v*0.5,1.0-v,0.75);}}",
         texture.width() / 2,
+        (texture.width() - texture.height()) / 2,
         texture.height(),
         texture.width()
     );
@@ -160,26 +169,11 @@ fn compare(actual: &[[f64; 4]], expected: &Image) {
 #[test]
 fn gpu_spatial_kernels_match_scalar_reference() {
     let (device, queue) = crate::gpu_tests::gpu();
-    for (input, output) in [([2, 2], [4, 4]), ([33, 17], [50, 26])] {
-        for pattern in 0..4 {
+    for (input, output) in [([1, 1], [2, 2]), ([2, 2], [4, 4]), ([33, 17], [50, 26])] {
+        for pattern in 0..6 {
             let image = fixture(input, pattern);
             for mode in [UpscaleMode::Bilinear, UpscaleMode::Easu] {
-                let expected = image.reconstruct(output, mode == UpscaleMode::Easu);
-                for sharpness in [None, Some(0.0), Some(2.0)] {
-                    let chain = chain(
-                        &device,
-                        input.map(|v| u32::try_from(v).unwrap()),
-                        output.map(|v| u32::try_from(v).unwrap()),
-                        UpscaleSettings { mode, sharpness },
-                    );
-                    paint(&device, &queue, chain.targets().texture(), pattern);
-                    let reference = sharpness
-                        .map_or_else(|| expected.clone(), |s| expected.sharpen(f64::from(s)));
-                    eprintln!(
-                        "reference input={input:?} pattern={pattern} mode={mode:?} sharpness={sharpness:?}"
-                    );
-                    compare(&render(&device, &queue, &chain), &reference);
-                }
+                verify_reconstruction(&device, &queue, &image, output, pattern, mode);
             }
         }
     }
@@ -246,7 +240,43 @@ fn gpu_rcas_strength_increases_edge_contrast() {
         let actual = render(&device, &queue, &chain);
         let expected = sharpness.map_or_else(|| image.clone(), |s| image.sharpen(f64::from(s)));
         compare(&actual, &expected);
+        if sharpness.is_none() {
+            assert_eq!(actual, image.pixels);
+        }
         results.push(actual[12][0] - actual[11][0]);
     }
     assert!(results[2] > results[1] && results[1] > results[0]);
+}
+
+fn verify_reconstruction(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &Image,
+    output: [i32; 2],
+    pattern: u32,
+    mode: UpscaleMode,
+) {
+    let expected = image.reconstruct(output, mode == UpscaleMode::Easu);
+    for sharpness in [None, Some(0.0), Some(2.0)] {
+        let chain = chain(
+            device,
+            image.size.map(|v| u32::try_from(v).unwrap()),
+            output.map(|v| u32::try_from(v).unwrap()),
+            UpscaleSettings { mode, sharpness },
+        );
+        paint(device, queue, chain.targets().texture(), pattern);
+        let reference =
+            sharpness.map_or_else(|| expected.clone(), |s| expected.sharpen(f64::from(s)));
+        eprintln!(
+            "reference input={:?} pattern={pattern} mode={mode:?} sharpness={sharpness:?}",
+            image.size
+        );
+        let actual = render(device, queue, &chain);
+        compare(&actual, &reference);
+        if sharpness.is_none() && matches!(pattern, 1 | 2) {
+            for row in actual.chunks_exact(usize::try_from(output[0]).unwrap()) {
+                assert!(row.windows(2).all(|p| p[0][0] <= p[1][0] + 0.000_03));
+            }
+        }
+    }
 }

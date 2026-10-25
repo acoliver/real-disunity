@@ -27,6 +27,17 @@ pub struct HdrPostSettings {
     pub upscale: Option<crate::UpscaleSettings>,
 }
 impl HdrPostSettings {
+    /// Validate the HDR display path before allocating frame targets.
+    pub fn validate_frame(self, config: crate::FrameConfig) -> Result<(), PostError> {
+        self.validate()?;
+        if config.size != config.output_extent() && self.upscale.is_none() {
+            return Err(PostError::UnsupportedProfile(
+                "reduced HDR extent requires an upscale mode",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate(self) -> Result<(), PostError> {
         if let Some(upscale) = self.upscale {
             upscale.validate()?;

@@ -176,7 +176,10 @@ fn gpu_hdr_reduced_extent_requires_explicit_reconstruction() {
     let (device, _) = crate::gpu_tests::gpu();
     let config = FrameConfig::new([50, 26], wgpu::TextureFormat::Rgba16Float, 1)
         .with_render_extent([33, 17]);
-    let plain = ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap();
-    assert!(matches!(PostChain::new(&device, config, Resources::default(), plain),
-        Err(PostError::UnsupportedProfile(_))));
+    let plain =
+        ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap();
+    assert!(matches!(
+        PostChain::new(&device, config, Resources::default(), plain),
+        Err(PostError::UnsupportedProfile(_))
+    ));
 }

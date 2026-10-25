@@ -36,6 +36,34 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
         set.buffer("histograms", 1024, 3);
     }
     gaussian_allocations(&mut set, config, settings);
+    tent_allocations(&mut set, config, settings);
+    let fxaa = settings.fxaa.is_some_and(|weight| weight > 0.0);
+    let upscale = settings
+        .upscale
+        .filter(|_| config.size != config.output_extent());
+    for _ in 0..usize::from(fxaa) + usize::from(upscale.is_some()) {
+        let [w, h] = config.size;
+        set.texture(
+            "display-linear post input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba32Float,
+            [1, 1],
+            3,
+        );
+    }
+    if upscale.is_some_and(|settings| settings.sharpness.is_some()) {
+        let [w, h] = config.output_extent();
+        set.texture(
+            "RCAS input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            3,
+        );
+    }
+    set
+}
+fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: HdrPostSettings) {
     if let Some(bloom) = settings
         .bloom
         .filter(|_| matches!(settings.bloom_kernel, crate::BloomKernel::Tent))
@@ -65,31 +93,6 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
             }
         }
     }
-    let fxaa = settings.fxaa.is_some_and(|weight| weight > 0.0);
-    let upscale = settings
-        .upscale
-        .filter(|_| config.size != config.output_extent());
-    for _ in 0..usize::from(fxaa) + usize::from(upscale.is_some()) {
-        let [w, h] = config.size;
-        set.texture(
-            "display-linear post input",
-            [w, h, 1],
-            wgpu::TextureFormat::Rgba32Float,
-            [1, 1],
-            3,
-        );
-    }
-    if upscale.is_some_and(|settings| settings.sharpness.is_some()) {
-        let [w, h] = config.output_extent();
-        set.texture(
-            "RCAS input",
-            [w, h, 1],
-            wgpu::TextureFormat::Rgba16Float,
-            [1, 1],
-            3,
-        );
-    }
-    set
 }
 fn gaussian_allocations(set: &mut AllocationSet, config: FrameConfig, settings: HdrPostSettings) {
     if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =

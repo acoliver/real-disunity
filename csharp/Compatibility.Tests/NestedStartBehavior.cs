@@ -6,6 +6,12 @@ internal static class NestedStartBehavior
 {
     internal static void Run(string path, bool moveNext = false)
     {
+        RunRoutine(path, moveNext);
+        NestedLifecycleBehavior.Run(path, moveNext, throwing: false);
+        NestedLifecycleBehavior.Run(path, moveNext, throwing: true);
+    }
+    private static void RunRoutine(string path, bool moveNext)
+    {
         using var world = new ReadinessWorld(path, nestedSession: true);
         var manifest = world.Manifest([
             new("parent", new GameObject("nested-parent"), nameof(NestedStartProbe), new { moveNext }),

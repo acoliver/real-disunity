@@ -26,6 +26,11 @@ internal sealed partial class NativeReadiness(
     internal void Drain()
     {
         NativePhaseScope.Require();
+        if (_entered)
+        {
+            if (immediateStarts) while (Next() is { } child) Execute(child);
+            return;
+        }
         if (_draining) return;
         _draining = true;
         try

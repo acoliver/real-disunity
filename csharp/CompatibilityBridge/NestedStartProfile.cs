@@ -21,7 +21,7 @@ internal static class NestedStartProfile
         foreach (var (field, expected) in new[] { ("max_child_depth", 32), ("max_claims_per_root", 4096), ("claim_reservation_per_child_scope", 3) })
             if (descriptor.GetProperty(field).GetInt32() != expected)
                 throw BridgeProtocol.Invalid("incompatible native nested-start " + field);
-        foreach (var field in new[] { "immediate_child_starts", "start_inside_lifecycle", "start_inside_movenext" })
+        foreach (var field in new[] { "immediate_child_starts", "immediate_lifecycle_children", "start_inside_lifecycle", "start_inside_movenext" })
             if (!descriptor.GetProperty(field).GetBoolean()) throw BridgeProtocol.Invalid("native nested-start unavailable: " + field);
         foreach (var field in new[] { "start_inside_current", "start_inside_dispose", "yielded_ienumerator", "predicates" })
             if (descriptor.GetProperty(field).GetBoolean()) throw BridgeProtocol.Invalid("incompatible native nested-start " + field);

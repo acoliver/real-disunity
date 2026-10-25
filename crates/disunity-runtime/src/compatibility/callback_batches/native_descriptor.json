@@ -115,6 +115,7 @@
     "claim_reservation_per_child_scope": 3,
     "completion_replay": "last_completion_in_current_root",
     "immediate_child_starts": true,
+    "immediate_lifecycle_children": true,
     "managed_integration": false,
     "max_child_depth": 32,
     "max_claims_per_root": 4096,

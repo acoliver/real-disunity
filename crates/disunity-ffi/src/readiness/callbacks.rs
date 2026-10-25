@@ -6,6 +6,7 @@ pub(super) struct Script {
     mask: u16,
     flags: u8,
     last_phase: u64,
+    immediate_parent: Option<u64>,
 }
 const AWAKE: u8 = 1;
 const ENABLED: u8 = 2;
@@ -41,12 +42,14 @@ pub(super) fn register(
     if w.readiness.scripts.len() >= LIMIT {
         return Err("script readiness budget exceeded".into());
     }
+    let immediate_parent = super::nested::registration_parent(w, c)?;
     w.readiness.scripts.insert(
         c,
         Script {
             mask,
             flags: 0,
             last_phase: 0,
+            immediate_parent,
         },
     );
     Ok(super::empty())
@@ -148,4 +151,47 @@ pub(super) fn reservation(w: &DisunityWorld) -> Vec<(u64, Callback)> {
         })
         .take(LIMIT)
         .collect()
+}
+
+pub(super) fn immediate(
+    w: &mut DisunityWorld,
+    phase: Phase,
+    parent: u64,
+) -> Result<Option<(u64, Callback)>, String> {
+    loop {
+        let found = (0..2).find_map(|lane| {
+            w.readiness
+                .scripts
+                .iter()
+                .filter(|(_, s)| s.immediate_parent == Some(parent))
+                .filter_map(|(c, _)| {
+                    let cb = candidate(w, *c, phase, lane)?;
+                    matches!(cb, Callback::Awake | Callback::OnEnable)
+                        .then(|| (hierarchy_key(w, *c), *c, cb))
+                })
+                .min_by(|a, b| a.0.cmp(&b.0))
+                .map(|(_, c, cb)| (c, cb))
+        });
+        let Some((c, cb)) = found else {
+            return Ok(None);
+        };
+        super::nested::admit(w)?;
+        if w.readiness.scripts[&c].mask & cb.bit() != 0 {
+            return Ok(Some((c, cb)));
+        }
+        spend(w)?;
+        consume(w, c, cb);
+    }
+}
+
+fn hierarchy_key(w: &DisunityWorld, component: u64) -> (Vec<u64>, u64) {
+    let c = live_script(w, component).unwrap();
+    let mut path = Vec::new();
+    let mut object = Some(c.object);
+    while let Some(id) = object {
+        path.push(id);
+        object = w.metadata[&id].parent;
+    }
+    path.reverse();
+    (path, component & 0xffff_ffff)
 }

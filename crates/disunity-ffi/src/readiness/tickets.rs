@@ -23,7 +23,7 @@ pub(super) struct Ticket {
 }
 pub(super) fn next(w: &mut DisunityWorld, phase: Phase) -> Result<Value, String> {
     if w.readiness.ticket.is_some() {
-        return Err("readiness ticket is nonreentrant".into());
+        return super::nested::lifecycle(w, phase);
     }
     routines::refresh(w, phase);
     if let Some(id) = super::nested::active(w) {
@@ -125,6 +125,7 @@ pub(super) fn enter(w: &mut DisunityWorld, phase: Phase, id: u64) -> Result<Valu
     };
     if !eligible {
         w.readiness.ticket = None;
+        super::nested::restore(w);
         return Ok(json!({"execute":false}));
     }
     spend(w)?;

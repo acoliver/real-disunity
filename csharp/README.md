@@ -27,6 +27,20 @@ After an intentional ABI change:
 No environment switch bypasses the comparison or regenerates tracked files.
 All blittable C# ABI structs are generated from Rust, not hand-maintained copies.
 
+## Unity compatibility assemblies
+
+[UnityCompat](UnityCompat) defines the selected UnityEngine-shaped API surface on
+.NET 8. Stateful facade calls use the attached native world. The independent
+[CompatibilityBridge](CompatibilityBridge) loads game assemblies, binds serialized
+fields and references, dispatches lifecycle messages and contacts, and exposes
+managed observations and root counts through Cdecl entries.
+
+The [compatibility player](../crates/compat-player/README.md) compiles original game
+scripts against this facade. Tests fetch pinned originals through
+[worldrunner-original-games](../crates/original-games/README.md) and build their own
+native and managed artifacts. The [architecture overview](../docs/unity-compatibility-kit-architecture.md)
+describes session ownership and explicitly selected execution profiles.
+
 ## Portable managed verification
 
 With Rust and the .NET 8 SDK available to the invoking command, run

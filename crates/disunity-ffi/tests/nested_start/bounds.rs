@@ -45,9 +45,13 @@ fn depth_32_rejects_without_mutation_and_unwinds_lifo() {
     for a in scopes.into_iter().rev() {
         complete(&w, &c, &a["immediate"], "done");
         dispose(&w, &c, &a["routine"]);
-        assert_eq!(
-            w.call(json!({"op":"readiness.next","context":c}))["ok"],
-            false
+        assert!(
+            next(&w, &c).is_null(),
+            "restored ancestor cannot select peers"
+        );
+        rejected(
+            &w,
+            json!({"op":"readiness.enter","context":c,"ticket":a["immediate"]["ticket"]}),
         );
     }
     complete(&w, &c, &parent, "ok");

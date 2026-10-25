@@ -19,6 +19,7 @@ pub(super) fn validate(native: &Value, bridge: &Value) -> Result<(), HostError> 
         ("max_claims_per_root", json!(4096)),
         ("claim_reservation_per_child_scope", json!(3)),
         ("immediate_child_starts", json!(true)),
+        ("immediate_lifecycle_children", json!(true)),
         ("start_inside_lifecycle", json!(true)),
         ("start_inside_movenext", json!(true)),
         ("start_inside_current", json!(false)),

@@ -90,7 +90,7 @@ fn nested_start_descriptor() -> Value {
         "selection":"session.open_before_gameplay",
         "qualification":"native_only_bridge_integration_pending",
         "managed_integration":false,"native_scheduler":false,
-        "immediate_child_starts":true,"max_child_depth":crate::readiness::MAX_CHILD_DEPTH,
+        "immediate_child_starts":true,"immediate_lifecycle_children":true,"max_child_depth":crate::readiness::MAX_CHILD_DEPTH,
         "start_inside_lifecycle":true,"start_inside_movenext":true,
         "start_inside_current":false,"start_inside_dispose":false,
         "yielded_ienumerator":false,"predicates":false,

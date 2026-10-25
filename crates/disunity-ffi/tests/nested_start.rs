@@ -78,8 +78,12 @@ fn child_suspension_restores_entered_parent_before_peer_selection() {
         &w,
         json!({"op":"readiness.suspend","context":c,"routine":a["routine"],"wait":null}),
     );
+    assert!(
+        next(&w, &c).is_null(),
+        "restored parent has no lifecycle children"
+    );
     assert_eq!(
-        w.call(json!({"op":"readiness.next","context":c}))["ok"],
+        w.call(json!({"op":"readiness.enter","context":c,"ticket":parent["ticket"]}))["ok"],
         false
     );
     complete(&w, &c, &parent, "ok");
@@ -139,3 +143,6 @@ fn nested_profile_descriptor_is_additive_and_native_only() {
 
 #[path = "nested_start/bounds.rs"]
 mod bounds;
+
+#[path = "nested_start/lifecycle.rs"]
+mod lifecycle;

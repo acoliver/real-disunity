@@ -12,6 +12,8 @@ name = "unity-import"
 path = "src/main.rs"
 
 [dependencies]
+jpeg-decoder = { version = "0.3.2", default-features = false }
+png.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

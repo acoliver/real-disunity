@@ -2,11 +2,15 @@
 
 use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
-use worldrunner_unity_import::{Guid, ObjectId, Origin, Project, Scene, import_scene};
+use worldrunner_unity_import::{
+    Guid, ObjectId, Origin, Project, Reference, Scene, Textures, import_scene,
+};
 
 const USAGE: &str = "usage: unity-import catalog <project>
        unity-import documents <project> <asset path>
-       unity-import scene <project> <scene path>";
+       unity-import scene <project> <scene path>
+       unity-import texture <project> <texture path>
+       unity-import sprites <project> <scene path>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,6 +31,12 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         }
         [command, project, path] if command == "scene" => {
             scene(Path::new(project), Path::new(path))
+        }
+        [command, project, path] if command == "texture" => {
+            texture(Path::new(project), Path::new(path))
+        }
+        [command, project, path] if command == "sprites" => {
+            sprites(Path::new(project), Path::new(path))
         }
         _ => Err(USAGE.into()),
     }
@@ -126,4 +136,70 @@ fn print_tree(scene: &Scene, transform: ObjectId, depth: usize) {
     for child in view.children {
         print_tree(scene, child, depth + 1);
     }
+}
+
+fn texture(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
+    let project = Project::open(root)?;
+    let guid = project
+        .guid_of(path)
+        .ok_or_else(|| format!("{} is not a cataloged asset", path.display()))?;
+    let mut textures = Textures::default();
+    let texture = textures.get(&project, guid)?;
+    let image = texture.image();
+    println!(
+        "{} {}x{}",
+        texture.path().display(),
+        image.width,
+        image.height
+    );
+    println!("{:?}", texture.settings());
+    for sprite in texture.sprites() {
+        println!(
+            "  {} {}: rect {:?} pivot {:?} ppu {}",
+            sprite.file_id, sprite.name, sprite.rect, sprite.pivot, sprite.pixels_per_unit
+        );
+    }
+    Ok(())
+}
+
+/// Resolves every reference from the scene's objects into a texture asset.
+fn sprites(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
+    let project = Project::open(root)?;
+    let scene = import_scene(&project, path)?;
+    let mut references = Vec::new();
+    for (_, object) in scene.objects() {
+        object.fields.visit_references(&mut |reference| {
+            if let Reference::External { guid, file_id } = *reference {
+                let texture = project
+                    .asset(guid)
+                    .is_some_and(|asset| asset.importer == "TextureImporter");
+                if texture {
+                    references.push((guid, file_id));
+                }
+            }
+        });
+    }
+    let mut textures = Textures::default();
+    let mut failures = 0;
+    for (guid, file_id) in &references {
+        if let Err(error) = textures.sprite(&project, *guid, *file_id) {
+            failures += 1;
+            println!("  unresolved: {error}");
+        }
+    }
+    for (_, texture) in textures.iter() {
+        let image = texture.image();
+        println!(
+            "{} {}x{}: {} sprites",
+            texture.path().display(),
+            image.width,
+            image.height,
+            texture.sprites().len()
+        );
+    }
+    println!(
+        "sprite references: {} ({failures} unresolved)",
+        references.len()
+    );
+    Ok(())
 }

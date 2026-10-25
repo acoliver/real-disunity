@@ -69,7 +69,7 @@ impl Value {
         }
     }
 
-    pub(crate) fn visit_references(&self, visit: &mut impl FnMut(&Reference)) {
+    pub fn visit_references(&self, visit: &mut impl FnMut(&Reference)) {
         match self {
             Self::Scalar(_) => {}
             Self::Reference(reference) => visit(reference),

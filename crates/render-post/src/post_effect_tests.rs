@@ -378,6 +378,7 @@ fn gpu_nonfinite_inputs_cannot_poison_histogram_or_bloom() {
                 levels: 3,
             }),
             fxaa: None,
+            upscale: None,
         },
         [9, 7],
     );

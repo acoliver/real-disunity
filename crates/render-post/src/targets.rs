@@ -21,6 +21,7 @@ impl FrameConfig {
     }
 
     /// Set an explicit internal extent while retaining the original output extent.
+    #[must_use]
     pub fn with_render_extent(mut self, size: [u32; 2]) -> Self {
         self.output_size = Some(self.output_extent());
         self.size = size;

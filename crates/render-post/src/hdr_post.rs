@@ -24,9 +24,13 @@ pub struct HdrPostSettings {
     pub adaptive: Option<AdaptiveExposure>,
     pub bloom: Option<Bloom>,
     pub fxaa: Option<f32>,
+    pub upscale: Option<crate::UpscaleSettings>,
 }
 impl HdrPostSettings {
     pub fn validate(self) -> Result<(), PostError> {
+        if let Some(upscale) = self.upscale {
+            upscale.validate()?;
+        }
         if let Some(a) = self.adaptive {
             let values = [
                 a.log_range[0],
@@ -80,7 +84,10 @@ impl HdrPostSettings {
         Ok(())
     }
     pub fn enabled(self) -> bool {
-        self.adaptive.is_some() || self.bloom.is_some() || self.fxaa.is_some()
+        self.adaptive.is_some()
+            || self.bloom.is_some()
+            || self.fxaa.is_some()
+            || self.upscale.is_some()
     }
 }
 

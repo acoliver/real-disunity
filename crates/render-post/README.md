@@ -78,3 +78,37 @@ blends that result with the original pixel. An Rgba32Float LDR intermediate
 preserves flat-region precision. Only the final sRGB attachment applies output
 transfer; alpha is preserved. See the [post-filter derivation](../../docs/post-filter-design.md)
 for the bloom and FXAA equations.
+
+## Reduced internal resolution
+
+`FrameConfig::size` is the internal scene extent. Construct a configuration with
+its presentation extent, then call `with_render_extent([render_width, render_height])`.
+`output_extent()` returns the presentation extent. Both dimensions must be
+nonzero, within device limits, and the output must contain the render extent.
+`RenderScale::new` accepts 500000 through 1000000 millionths (0.5 through 1.0).
+Its `extent` method rounds to nearest, with halfway values rounded up.
+
+`SpatialUpscale` is a retained `StageFactory` for display-referred inputs.
+Select `UpscaleMode::Bilinear` or `UpscaleMode::Easu`. Set `sharpness` to
+`Some(stops)` for RCAS, from zero (maximum sharpening) through two stops.
+`None` is the exact off value and omits the RCAS pass. The WGSL port uses full
+precision reciprocals and square roots, with clamped border loads. EASU clamps
+each reconstructed RGB channel to the nearest four source samples. Alpha uses
+bilinear interpolation and passes unchanged through RCAS.
+
+For HDR, set `HdrPostSettings::upscale` and provide the two extents in
+`FrameConfig`. Exposure and bloom run at the render extent before tone mapping.
+FXAA runs after tone mapping at the render extent, then EASU/bilinear and RCAS
+run before final attachment transfer and format conversion. At equal extents,
+the HDR path omits reconstruction and RCAS, preserving the native pass count.
+Use `PostChain::resize_extents` to replace both extents and their dependent
+bindings transactionally. `resize` changes the internal extent; an explicit
+presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
+
+### Third-party license
+
+`src/upscale.wgsl` ports EASU and RCAS from
+[AMD FidelityFX Super Resolution 1, ffx_fsr1.h](https://github.com/GPUOpen-Effects/FidelityFX-FSR).
+Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License. The full copyright, permission and warranty
+notice is preserved in the shader file.

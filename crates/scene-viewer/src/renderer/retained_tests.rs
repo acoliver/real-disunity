@@ -458,3 +458,139 @@ fn replace_tables(host: &mut crate::RetainedHost) -> SceneObject {
         MaterialHandle::from_raw(1),
     )
 }
+
+#[test]
+fn retained_tint_only_replace_changes_next_generation_pixels() {
+    assert_in_place_replace(true, false);
+}
+
+#[test]
+fn retained_transform_only_replace_preserves_handle_and_sparse_writes() {
+    assert_in_place_replace(false, true);
+}
+
+#[test]
+fn retained_combined_replace_applies_tint_and_transform() {
+    assert_in_place_replace(true, true);
+}
+
+fn assert_in_place_replace(tint: bool, transform: bool) {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let base = source();
+    let original = base.geometry().objects()[0];
+    let offscreen = SceneObject::new(
+        SceneTransform {
+            position_millimeters: [100_000, 0, 0],
+            ..*original.transform()
+        },
+        original.mesh(),
+        original.material(),
+    );
+    let scene = scene_with_objects(&base, vec![offscreen, original, offscreen]);
+    let replacement = SceneObject::new(
+        SceneTransform {
+            position_millimeters: if transform { [700, 0, 0] } else { [0; 3] },
+            ..*original.transform()
+        },
+        original.mesh(),
+        original.material(),
+    )
+    .with_tint(if tint {
+        SceneTint::new([0, 1_000_000, 0]).unwrap()
+    } else {
+        original.tint()
+    });
+    let expected_scene = scene_with_objects(&base, vec![offscreen, replacement, offscreen]);
+    for shadows in [None, Some(shadow_settings())] {
+        assert_replace_frame(&context, &scene, &expected_scene, replacement, shadows);
+    }
+}
+
+fn assert_replace_frame(
+    context: &GpuContext,
+    scene: &RenderScene,
+    expected_scene: &RenderScene,
+    replacement: SceneObject,
+    shadows: Option<DirectionalShadowSettings>,
+) {
+    use crate::{ObjectId, RetainedHost, RetainedUpdate};
+    let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
+    let mut resident = Resident::new(context, scene, shadows, crate::FrameProfile::Legacy).unwrap();
+    let mut streaming = super::readiness::Streaming::new(shadows, crate::FrameProfile::Legacy);
+    let mut target = OffscreenTarget::new(
+        context.device(),
+        Viewport {
+            width: 64,
+            height: 64,
+        },
+    )
+    .unwrap();
+    let initial = frame(&mut resident, context, &mut target);
+    let handles = resident.scene_mut().instance_handles().collect::<Vec<_>>();
+    let generation = host.ready_generation();
+    host.apply(RetainedUpdate::Replace {
+        id: ObjectId(1),
+        object: replacement,
+    })
+    .unwrap();
+    publish(context, &mut streaming, &mut resident, &mut host);
+    assert!(host.ready_generation() > generation);
+    assert_eq!(host.ready_generation(), host.accepted_generation());
+    assert_replacement_writes(context, resident.scene_mut(), &handles, expected_scene);
+    let updated = frame(&mut resident, context, &mut target);
+    assert_ne!(updated, initial);
+    let mut expected = Resident::new(
+        context,
+        expected_scene,
+        shadows,
+        crate::FrameProfile::Legacy,
+    )
+    .unwrap();
+    assert_eq!(updated, frame(&mut expected, context, &mut target));
+    if replacement.tint() != SceneTint::WHITE {
+        assert!(
+            updated
+                .pixels
+                .chunks_exact(4)
+                .all(|pixel| pixel[0] == 0 && pixel[2] == 0)
+        );
+        assert!(updated.pixels.chunks_exact(4).any(|pixel| pixel[1] > 0));
+    }
+}
+
+fn scene_with_objects(base: &RenderScene, objects: Vec<SceneObject>) -> RenderScene {
+    RenderScene::new(SceneParts {
+        resources: base.resources().clone(),
+        geometry: SceneGeometry::new(base.geometry().meshes().to_vec(), objects).unwrap(),
+        terrain: None,
+        effects: base.effects().cloned(),
+    })
+    .unwrap()
+}
+
+fn assert_replacement_writes(
+    context: &GpuContext,
+    gpu: &mut worldrunner_render_scene::draw::SceneGpu,
+    handles: &[worldrunner_render_scene::draw::InstanceHandle],
+    expected_scene: &RenderScene,
+) {
+    assert_eq!(gpu.instance_handles().collect::<Vec<_>>(), handles);
+    for (&handle, &object) in handles.iter().zip(expected_scene.geometry().objects()) {
+        assert_eq!(gpu.instance(handle).unwrap(), (object, true));
+    }
+    assert_eq!(
+        gpu.flush_instances(context.device(), context.submission())
+            .unwrap(),
+        vec![worldrunner_render_scene::draw::InstanceWrite {
+            mesh: 0,
+            material: 0,
+            instances: 1..2,
+        }]
+    );
+    assert!(
+        gpu.flush_instances(context.device(), context.submission())
+            .unwrap()
+            .is_empty()
+    );
+}

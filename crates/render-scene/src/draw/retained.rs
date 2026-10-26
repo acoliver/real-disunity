@@ -105,6 +105,16 @@ impl SceneGpu {
         self.instances.set_transform(handle, transform)
     }
 
+    /// Replaces all placement fields while preserving visibility and batch identity.
+    /// Mesh and material must be unchanged. Edits coalesce through the sparse flush.
+    pub fn set_instance_object(
+        &mut self,
+        handle: InstanceHandle,
+        object: SceneObject,
+    ) -> Result<(), InstanceError> {
+        self.instances.set_object(handle, object)
+    }
+
     /// Changes draw membership without a GPU write, including shadow membership.
     pub fn set_instance_visible(
         &mut self,

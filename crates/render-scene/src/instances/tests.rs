@@ -72,4 +72,52 @@ fn runtime_instance_edits_cannot_silently_ignore_tint() {
         },
     );
     assert_eq!(batch.get(slot).0.tint(), object.tint());
+    instances.set_visible(handle, false).unwrap();
+    let replacement = SceneObject::new(
+        *batch.get(slot).0.transform(),
+        object.mesh(),
+        object.material(),
+    )
+    .with_tint(worldrunner_render_plan::SceneTint::WHITE);
+    instances.set_object(handle, replacement).unwrap();
+    assert_eq!(instances.get(handle).unwrap(), (replacement, false));
+    assert_rejected_objects_preserve_placement(&mut instances, handle, replacement);
+}
+
+fn assert_rejected_objects_preserve_placement(
+    instances: &mut Instances,
+    handle: InstanceHandle,
+    replacement: SceneObject,
+) {
+    let changed_mesh = SceneObject::new(
+        *replacement.transform(),
+        MeshHandle::from_raw(1),
+        replacement.material(),
+    );
+    assert!(matches!(
+        instances.set_object(handle, changed_mesh),
+        Err(InstanceError::ResourcesChanged)
+    ));
+    let changed_material = SceneObject::new(
+        *replacement.transform(),
+        replacement.mesh(),
+        MaterialHandle::from_raw(1),
+    );
+    assert!(matches!(
+        instances.set_object(handle, changed_material),
+        Err(InstanceError::ResourcesChanged)
+    ));
+    let invalid = SceneObject::new(
+        SceneTransform {
+            scale_millionths: 0,
+            ..*replacement.transform()
+        },
+        replacement.mesh(),
+        replacement.material(),
+    );
+    assert!(matches!(
+        instances.set_object(handle, invalid),
+        Err(InstanceError::Transform(_))
+    ));
+    assert_eq!(instances.get(handle).unwrap(), (replacement, false));
 }

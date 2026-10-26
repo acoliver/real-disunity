@@ -37,6 +37,9 @@ pub enum InstanceError {
         /// Rejected table index.
         index: u32,
     },
+    /// An in-place edit attempted to change the placement's batch resources.
+    #[error("in-place instance replacement must keep its mesh and material")]
+    ResourcesChanged,
     /// The transform violates the scene domain's invariants.
     #[error(transparent)]
     Transform(#[from] SceneValidationError),
@@ -211,6 +214,22 @@ impl Instances {
             .get_mut(&key)
             .expect("live batch")
             .set_transform(position, transform);
+        Ok(())
+    }
+
+    pub fn set_object(
+        &mut self,
+        handle: InstanceHandle,
+        object: SceneObject,
+    ) -> Result<(), InstanceError> {
+        let (key, position) = self.location(handle)?;
+        object.transform().validate()?;
+        let batch = self.batches.get_mut(&key).expect("live batch");
+        let old = batch.get(position).0;
+        if old.mesh() != object.mesh() || old.material() != object.material() {
+            return Err(InstanceError::ResourcesChanged);
+        }
+        batch.set_object(position, object);
         Ok(())
     }
 

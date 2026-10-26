@@ -224,6 +224,18 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityTransform>("sy").ToInt32() != 32) throw new InvalidOperationException("DisunityTransform.sy offset");
         if (Marshal.OffsetOf<DisunityTransform>("sz").ToInt32() != 36) throw new InvalidOperationException("DisunityTransform.sz offset");
         if (Marshal.SizeOf<DisunityTransform>() != 40 || typeof(DisunityTransform).GetFields().Length != 10) throw new InvalidOperationException("DisunityTransform layout");
+        if (Marshal.OffsetOf<DisunityCamera>("enabled").ToInt32() != 0) throw new InvalidOperationException("DisunityCamera.enabled offset");
+        if (Marshal.OffsetOf<DisunityCamera>("clear_flags").ToInt32() != 4) throw new InvalidOperationException("DisunityCamera.clear_flags offset");
+        if (Marshal.OffsetOf<DisunityCamera>("orthographic").ToInt32() != 8) throw new InvalidOperationException("DisunityCamera.orthographic offset");
+        if (Marshal.OffsetOf<DisunityCamera>("depth").ToInt32() != 12) throw new InvalidOperationException("DisunityCamera.depth offset");
+        if (Marshal.OffsetOf<DisunityCamera>("orthographic_size").ToInt32() != 16) throw new InvalidOperationException("DisunityCamera.orthographic_size offset");
+        if (Marshal.OffsetOf<DisunityCamera>("near").ToInt32() != 20) throw new InvalidOperationException("DisunityCamera.near offset");
+        if (Marshal.OffsetOf<DisunityCamera>("far").ToInt32() != 24) throw new InvalidOperationException("DisunityCamera.far offset");
+        if (Marshal.OffsetOf<DisunityCamera>("r").ToInt32() != 28) throw new InvalidOperationException("DisunityCamera.r offset");
+        if (Marshal.OffsetOf<DisunityCamera>("g").ToInt32() != 32) throw new InvalidOperationException("DisunityCamera.g offset");
+        if (Marshal.OffsetOf<DisunityCamera>("b").ToInt32() != 36) throw new InvalidOperationException("DisunityCamera.b offset");
+        if (Marshal.OffsetOf<DisunityCamera>("a").ToInt32() != 40) throw new InvalidOperationException("DisunityCamera.a offset");
+        if (Marshal.SizeOf<DisunityCamera>() != 44 || typeof(DisunityCamera).GetFields().Length != 11) throw new InvalidOperationException("DisunityCamera layout");
     }
 }
 /// The native ABI revision this assembly was built against.

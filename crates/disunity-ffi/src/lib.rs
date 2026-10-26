@@ -8,6 +8,7 @@ pub mod buffers;
 #[cfg(test)]
 mod callback_tests;
 pub mod callbacks;
+pub mod camera;
 pub mod camera_data;
 pub mod camera_layers;
 pub mod cloning;

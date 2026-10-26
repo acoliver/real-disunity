@@ -8,6 +8,7 @@ mod build_layout;
 const ABI_SOURCES: &[&str] = &[
     "src/abi.rs",
     "src/assets.rs",
+    "src/camera.rs",
     "src/camera_layers.rs",
     "src/camera_data.rs",
     "src/sprites.rs",

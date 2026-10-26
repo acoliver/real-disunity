@@ -145,6 +145,20 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_body_sleeping(ulong world, ulong handle, uint* sleeping);
         /// <summary>
         ///  # Safety
+        ///  Output is writable for one Camera record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_read(ulong world, ulong handle, DisunityCamera* output);
+        /// <summary>
+        ///  Validates every setting before changing the camera. Perspective projection is reported as
+        ///  an unsupported `orthographic` field.
+        ///  # Safety
+        ///  Value is readable for one Camera record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_write(ulong world, ulong handle, DisunityCamera* value);
+        /// <summary>
+        ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_camera_layer_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

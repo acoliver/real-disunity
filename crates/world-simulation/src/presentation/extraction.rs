@@ -78,7 +78,7 @@ pub fn extract_world(
                     WorldError::InvalidComponent(crate::ComponentError::InvalidPresentation)
                 })?);
                 result.camera_state = Some(state);
-                result.clear = camera.clear;
+                result.clear = camera.clear_color()?;
                 camera_depth = Some(camera.depth);
             }
             _ => {}

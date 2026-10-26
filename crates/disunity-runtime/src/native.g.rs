@@ -9,6 +9,22 @@ pub struct DisunityResult {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityCamera {
+    pub enabled: u32,
+    pub clear_flags: u32,
+    pub orthographic: u32,
+    pub depth: i32,
+    pub orthographic_size: f32,
+    pub near: f32,
+    pub far: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct DisunitySprite {
     pub identity: u64,
     pub texture: u64,

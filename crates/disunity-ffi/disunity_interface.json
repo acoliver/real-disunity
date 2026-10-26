@@ -118,6 +118,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_camera_read",
+      "since": "4.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_write",
+      "since": "4.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_canvas_read",
       "since": "2.0.0",
       "rets": "DisunityResult"

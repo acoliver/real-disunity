@@ -104,7 +104,10 @@ fn manifest_abi_version_matches_the_library_constant() {
 fn checked_bindings_match_complete_generated_signatures_and_layouts() {
     let generated = std::fs::read(Path::new(env!("OUT_DIR")).join("NativeBindings.g.cs"))
         .expect("the build generates bindings in OUT_DIR without changing the checked file");
-    assert_eq!(generated, generated_bindings().as_bytes());
+    assert!(
+        generated == generated_bindings().as_bytes(),
+        "checked csharp/Disunity/NativeBindings.g.cs differs from the generated imports"
+    );
 }
 
 #[test]

@@ -120,7 +120,7 @@ fn camera_clear_alpha_and_queries_use_the_render_camera() {
     w.add_component(
         camera,
         ComponentDesc::Camera(Camera {
-            clear: [0.1, 0.2, 0.3, 0.25],
+            background: [0.1, 0.2, 0.3, 0.25],
             ..Default::default()
         }),
     )

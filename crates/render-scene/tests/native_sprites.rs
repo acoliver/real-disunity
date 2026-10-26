@@ -33,7 +33,7 @@ fn contribution(size: [u32; 2]) -> WorldSceneContribution {
             camera,
             ComponentDesc::Camera(Camera {
                 half_height: 2.,
-                clear: [0., 0., 0., 0.25],
+                background: [0., 0., 0., 0.25],
                 ..Default::default()
             }),
         )

@@ -43,7 +43,7 @@ fn fixture() -> u64 {
             .add_component(
                 camera,
                 ComponentDesc::Camera(Camera {
-                    clear: [0.1, 0.2, 0.3, 0.25],
+                    background: [0.1, 0.2, 0.3, 0.25],
                     ..Default::default()
                 }),
             )

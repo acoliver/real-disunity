@@ -22,6 +22,26 @@ namespace Disunity.Native
         public ulong detail;
     }
 
+    /// <summary>
+    ///  A camera's serialized settings. `clear_flags` uses Unity's `CameraClearFlags` values:
+    ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. Only orthographic cameras are supported.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityCamera
+    {
+        public uint enabled;
+        public uint clear_flags;
+        public uint orthographic;
+        public int depth;
+        public float orthographic_size;
+        public float near;
+        public float far;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunitySprite
     {

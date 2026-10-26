@@ -232,7 +232,7 @@ state. Camera exposes its orthographic lens, clip planes, clear flags, backgroun
 colour, depth and enabled state; perspective projection is unsupported. Missing
 surface includes
 object constructors, component destruction, body forces, broader
-colliders/queries, materials/resources, managed tilemaps, application/scene controls,
+colliders/queries, materials/resources, script tile/grid APIs, application/scene controls,
 the CanvasScaler component, bold/italic text, rich text markup, best fit and generic
 AddComponent<Text>. Three pinned external runtime-script trees compile unchanged
 against Disunity in projects outside this repository. This establishes source

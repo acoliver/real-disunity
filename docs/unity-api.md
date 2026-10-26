@@ -40,6 +40,8 @@ No axes exist until the host registers them with `DisunityHost.RegisterInputAxis
 | `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `constraints` (`RigidbodyConstraints2D` freeze position X, Y and rotation), `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial` |
 | `Collider2D` | `enabled`, `isTrigger`, `offset`, `attachedRigidbody`, `sharedMaterial` |
 | `BoxCollider2D`, `CircleCollider2D` | `size`; `radius` |
+| `UnityEngine.Tilemaps.TilemapCollider2D` | Collides with the `Tilemap` on its object, following its cells as they change. Contacts and queries return it like any other collider. |
+| `UnityEngine.Tilemaps.Tilemap` | `enabled`, `color`, `tileAnchor`. The host sets the grid layout, tile palette and cells with `DisunityHost.ConfigureTilemap`, `SetTile` and `SetCells`; the script `Tile` and `Grid` APIs are not implemented. |
 | `PhysicsMaterial2D` | `name`, `friction`, `bounciness` |
 | `Collision2D` | `collider`, `otherCollider`, `gameObject`, `transform`, `rigidbody`, `contacts`, `contactCount`, `GetContact` |
 | `Physics2D` | `Raycast` (nearest hit), `OverlapCircle` (first hit) |

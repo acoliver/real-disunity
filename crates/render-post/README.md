@@ -76,7 +76,7 @@ A Sobel-derived tangent selects bilinear samples 1.5 texels away along its
 major axis, with center weight 1/2 and side weights 1/4. Its scene weight
 blends that result with the original pixel. An Rgba32Float LDR intermediate
 preserves flat-region precision. Only the final sRGB attachment applies output
-transfer; alpha is preserved. See the [post-filter derivation](../../docs/post-filter-design.md)
+transfer; alpha is preserved. See the [post-filter derivation](../../dev-docs/rendering/post-filters.md)
 for the bloom and FXAA equations.
 
 ## Reduced internal resolution

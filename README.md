@@ -1,159 +1,95 @@
 # Real Disunity
 
-A Rust 2024 workspace for reusable CPU, graphics, and application components. 
+Real Disunity is a game engine written in Rust. It runs games written for it in Rust, and it runs C# game scripts written against the `UnityEngine` API, on a native simulation and a wgpu renderer.
+
+The long-term goal is that Unity games, and later Unreal games, compile and run against Real Disunity without source changes, with current rendering techniques, on an engine whose own code is memory-safe Rust. The engine is not there yet. This page describes what works today, what does not, and how to start building on it.
+
+The project is MIT licensed. See [LICENSE](LICENSE).
+
+## Current state
+
+The engine is pre-release (version 0.1). APIs change without notice and nothing is published to crates.io or NuGet. CI builds and tests every change on Linux, macOS and Windows.
+
+What works today:
+
+- **Native world simulation** (`crates/world-simulation`): objects, typed components, parenting with full affine transforms, cloning with reference remapping, deferred destruction, Unity-style lifecycle ordering (Awake, OnEnable, Start, FixedUpdate, Update, LateUpdate, OnDisable, OnDestroy), coroutines, an exact rational clock with fixed steps, timestamped keyboard and axis input, 2D physics with continuous collision, triggers and queries, and Canvas/RectTransform UI layout with TrueType text.
+- **C# scripts on `UnityEngine` names** (`csharp/Disunity`): `MonoBehaviour`, `GameObject`, `Transform`, `Instantiate`, `Destroy`, coroutines, `Input`, `Time`, `Rigidbody2D` and 2D colliders, `SpriteRenderer`, `Canvas`, `Text` and more. Every call goes to the same native world a Rust game would use. See the [supported API list](docs/unity-api.md).
+- **Rendering** (`crates/render-*`, `crates/scene-viewer`): sprites, tiles and UI text for 2D games, and a 3D renderer with metallic-roughness materials, cascaded shadows, terrain, water, sky and height fog, SSAO, screen-space reflections, HDR exposure, bloom, FXAA and FSR 1 upscaling. It runs on Vulkan, Metal and DX12 through wgpu, in a window or headless.
+- **Unity project import** (`crates/unity-import`): reads Unity text scenes and prefabs in both the current and the Unity 2017 prefab formats, applies prefab overrides and resolves `.meta` GUIDs. It also reads textures, sprites, tilemaps, physics materials and renderer materials. It never writes to the project it reads.
+
+What does not work yet:
+
+- **An unmodified Unity game does not run end to end.** The importer can read the scenes of the three test games (Snake, Pong and Breakout) but nothing yet loads an imported scene into a running world. That loader is in progress ([#77](https://github.com/acoliver/real-disunity/issues/77)).
+- There is no player executable. A C# game is currently hosted from Rust code through `DisunityHost`.
+- 3D physics, audio, animation, particles, mouse and gamepad input, and most of `UnityEngine.UI` beyond `Canvas` and `Text` are not implemented.
+- There is no Unreal support of any kind.
+
+Code that uses a `UnityEngine` member `Disunity.Engine` does not have fails to compile. A supported member called with an unsupported setting throws an exception that names the setting.
+
+## Ways to build a game
+
+There are three entry points, and they all share one world implementation.
+
+1. **A native Rust game.** Depend on the `worldrunner` facade crate, build a `World`, add components, advance it each frame and hand the extracted sprites or 3D scene to the viewer. See [Writing a Rust game](docs/rust-games.md).
+2. **C# scripts against `UnityEngine`.** Reference `csharp/Disunity/Disunity.Engine.csproj`, write ordinary `MonoBehaviour` classes, and run them in the native world through `DisunityHost`. See [Writing C# scripts](docs/csharp-games.md).
+3. **An existing Unity project.** Inspect what the importer understands with the `unity-import` tool. Running the imported scene is the part still in progress. See [Importing Unity projects](docs/unity-projects.md).
+
+## Quick start
+
+You need the Rust toolchain from `rust-toolchain.toml` (rustup installs it automatically), Git, and a Vulkan, Metal or DX12 capable GPU driver. C# work also needs the .NET 8 SDK.
+
+```sh
+git clone https://github.com/acoliver/real-disunity.git
+cd real-disunity
+
+# Open the procedural 3D demo with terrain and cascaded shadows.
+cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --terrain --shadows
+
+# Run the CPU test suite that CI runs on every platform.
+cargo xtask ci-cpu
+```
+
+In the viewer, drag with the left mouse button to orbit, use the wheel to zoom, press R to reset and Escape to quit. [Getting started](docs/getting-started.md) lists the other viewer options and the remaining test commands.
+
+## Architecture
+
+Each responsibility has exactly one owner. A game written in Rust and a game written in C# drive the same native world, and both are drawn by the same renderer.
+
+```text
+  Rust game                         C# game scripts (UnityEngine API)
+      |                                         |
+      |                              csharp/Disunity  (Disunity.Engine)
+      |                                         |
+      |                              disunity-ffi     (C ABI only)
+      |                              disunity-runtime (DisunityHost, .NET host)
+      v                                         v
+  world-simulation: objects, lifecycle, time, input, 2D physics, UI
+      |
+  render-plan: extract sprites, tiles, UI and 3D scenes into render descriptions
+      |
+  render-scene + render-post + render-gpu: wgpu renderer and post-processing
+      |
+  scene-viewer: window, input and presentation (or headless capture)
+
+  unity-import: offline tool that reads Unity projects into engine content
+```
+
+The `worldrunner` crate is a facade that re-exports these crates behind feature flags, so a game depends on one crate. Engine library code forbids `unsafe`. The two exceptions are `disunity-ffi`, which implements the C ABI, and `disunity-runtime`, which loads the .NET runtime. [Architecture](dev-docs/architecture.md) has the full crate map and dependency rules.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `crates/` | All Rust crates. `worldrunner` is the facade a game depends on. |
+| `csharp/` | `Disunity.Engine` (the `UnityEngine` API), its tests, and two small fixture projects. |
+| `docs/` | Documentation for people using the engine to make games. Start at [docs/README.md](docs/README.md). |
+| `dev-docs/` | Documentation for people and coding agents changing the engine. Start at [dev-docs/README.md](dev-docs/README.md). |
+| `.github/workflows/` | CI: CPU and managed suites on three platforms, GPU suite on Linux with software Vulkan. |
+
+## Contributing
+
+Read [dev-docs/README.md](dev-docs/README.md) before changing code. It explains where each kind of change belongs, the enforced size and complexity limits, and how to run the same checks CI runs.
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
-
-## Consumer migration and extensions
-
-See the [frame executor migration guide](docs/frame-migration.md) for render contract v4, material payload v2, current GPU strides, encoder-only capture adapters, asynchronous timing and external feature registration. The headless `frame-feature` example builds and runs through public facade APIs. The [checked bridge proof](docs/bridge-proof.md) demonstrates mixed consumer and stock draws, target exchange, resolves and capture continuation.
-
-## Prerequisites
-
-- Rust 1.97.0 (`rust-toolchain.toml` installs rustfmt and Clippy); the declared MSRV is 1.95.
-- Git and a C toolchain where native dependencies require one.
-- Vulkan development/runtime support for graphics execution. CI uses Mesa lavapipe for software rendering on Linux.
-
-## Build and quality gates
-
-The `cargo xtask` alias runs the workspace task runner without an additional installation:
-
-```sh
-cargo xtask fmt          # non-mutating formatting check
-cargo xtask lint         # strict Clippy
-cargo xtask complexity   # quantitative Clippy limits
-cargo xtask check        # locked workspace/all targets/all features
-cargo xtask build        # locked workspace/all targets/all features
-cargo xtask test         # locked tests and doctests
-cargo xtask policy       # layers, transitive CPU graphs, registered explicit policy
-cargo xtask source-size  # 750-line warning / 1000-line hard limit
-cargo xtask ci           # full workspace; requires graphics and .NET prerequisites
-cargo xtask ci-cpu       # CPU packages and facade without default features
-cargo xtask ci-gpu       # all non-managed packages; required full GPU test mode
-cargo xtask ci-managed   # explicit .NET 8 fixture and native host verification
-```
-
-`cargo xtask ci` requires a current lockfile and runs formatting, policy, strict lint and complexity gates, then locked check/build/test/doctests. CPU, software-Vulkan, and managed CI jobs use separate explicit profiles; missing prerequisites fail rather than skip tests. Compilation subprocesses use two jobs. See [quality gates](docs/quality.md) for the layer graph, exact initial registry/literal scope, behavioral fixtures, and limitations; the environment lookup scan alone is not an explicit-policy guarantee.
-
-## Terrain shadow example
-
-Run the procedural viewer with a heightfield ridge and an elevated mesh:
-
-```sh
-cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --terrain --shadows
-```
-
-Terrain casts onto meshes and itself, and receives mesh and masked foliage shadows. The retained frame scheduler renders four directional shadow cascades into independent depth-array layers. Scene extents specify light-space coverage half-widths about the caller-supplied focus; overlapping terrain and mesh casters extend each cascade toward the light. Optional blend bands cross-fade to the next cascade near coverage edges. Water requires the HDR profile described below. Omit `--terrain` for the mesh-only example.
-
-## Reduced-resolution HDR rendering
-
-The viewer accepts `--render-scale=770000` to render internally at 77% of each
-output dimension and reconstruct with FSR 1 EASU. Values are integer millionths
-from 500000 through 1000000. Add `--bilinear` for bilinear reconstruction or
-`--rcas` for maximum RCAS sharpening. These flags select the HDR profile and
-compose with `--msaa`, `--terrain`, and `--shadows`.
-
-```sh
-cargo run -p worldrunner --features scene-viewer --example scene-viewer -- --render-scale=770000 --rcas
-```
-
-See [render-post](crates/render-post/README.md#reduced-internal-resolution) for
-explicit extents, filter ordering, sharpness units, tests, and the AMD license.
-
-## Frame admission and surface lifecycle
-
-The viewer selects two frames in flight in its example. `ViewerOptions::frames_in_flight`
-accepts one through three. Admission reserves a slot before surface acquisition; a full
-queue returns without acquiring another image. Surface creation, configuration, acquisition
-and presentation stay on the event-loop thread. Nonblocking device polls dispatch completion
-callbacks on the frame timer; no completion callback calls the window or waits for the event loop.
-Shutdown drops the surface before the window without joining a worker. Input callbacks never
-wait for GPU completion. Resize requests coalesce to the newest physical extent.
-Surface loss remains pending across zero-size suspension until replacement succeeds.
-Occlusion and zero-size windows pause redraw scheduling, and resize or visibility events
-resume it.
-
-Admission and completion progress never block the event thread. Backend drawable
-acquisition can wait for a presentable image through Metal `nextDrawable`, Vulkan
-`acquire_next_image`, or the DX12 frame-latency wait. Present mode and frames-in-flight
-settings bound that wait according to the backend's presentation policy.
-
-Encoder-only hosts can use `worldrunner_render_gpu::flight::FrameAdmission` and select the reserved
-slot on their scene and frame renderer. Submit successful encoders in preparation order.
-All submissions to that queue, including unrelated work, must use the same admission authority
-so submission and callback registration remain serialized.
-Uniform ranges are separate per slot; immutable staging allocations belong to that slot
-until reuse after completion. Shared GPU attachments and instance destinations remain
-queue ordered. Offscreen capture exposes three independent readback slots and rejects
-an unread slot overwrite. Read each capture with the submission index containing its copy;
-that read does not request a queue-wide wait.
-
-### Depth, normals and ambient occlusion
-
-HDR frames can opt into `SceneEffects::ssao` and `SceneEffects::with_ssr`. The stock prepass runs at the full
-render extent with one sample, independently of forward 1x or 4x MSAA. It writes
-`Depth32Float` camera depth and signed view-space XYZ normals in
-`Rgba16Float`; alpha marks covered pixels. SSAO alone uses geometric normals.
-Enabling SSR installs shading-normal variants and a matching F0/roughness pass. Meshes and terrain share camera
-selection, and masked cards use the colour shader's texture, sampler, billboard
-transform and alpha cutoff. Forward colour uses its own matching-sample depth,
-so a centre-sampled prepass cannot remove MSAA edge coverage.
-
-PostChain schedules depth linearization, a conservative minimum-depth pyramid,
-SSAO and a depth-aware 5x5 bilateral filter before opaque lighting. Pyramid
-levels use ceiling-half extents in separate textures, including odd final rows
-and columns. Background linearizes to the camera far distance. The deterministic
-hemisphere kernel consumes radius, intensity, sample count, surface bias and
-horizon angle. AO multiplies ambient diffuse lighting only; sunlight, emission
-and unlit colour are unchanged. With both SSAO and SSR absent the original shaders
-and pass sequence remain in use.
-
-The scene and document settings now include explicit `sample_count` (1 through
-64) and `bias_millimeters`. Authored documents use render contract v4; earlier versions are
-rejected rather than migrated implicitly. The stock radius range is 1 through 1,000,000
-millimetres, with bias strictly below radius. Unsupported settings fail before
-allocation. Legacy upload rejects SSAO with a typed error. Custom HDR hosts use
-`ScenePipelines::with_ssao` with a matching `FrameRenderer::hdr` profile. Resize
-builds replacement screen resources before publication. Submit successful
-encoders in preparation order, as required by the frame admission contract.
-
-Planar water is available in the HDR frame profile at 1x and 4x MSAA. Run the
-procedural scene viewer with `--water` (optionally `--msaa` and `--terrain`).
-It uses one authored rectangle, procedural animated normals, opaque-only
-refraction, Beer absorption, surface depth writes and shared cascade shadows.
-Refraction rejects foreground depth samples. Snapshot depth stores positive
-view-space metres and selects the nearest covered MSAA sample. Snapshot colour
-is the linear average of the retained opaque samples. Three admitted slots
-own independent snapshots; resize builds replacements before publication.
-Hosts supply animation time with `FrameRenderer::set_frame_time`. Water settings
-are immutable for a compiled profile. Water is a retained `FrameFeature`, using
-registration, planning, validation, preparation and drawing like external features.
-
-Snapshot production is independent of water. A feature declares reads of
-`ResourceRef::new("opaque snapshot color")` or `ResourceRef::new("opaque snapshot depth")`.
-Camera-aware composition installs those producers only when an active declaration
-reads them. `FrameRenderer::encode_frame` supplies the camera needed for depth
-linearization. Features obtain the current slot's checked texture view through
-`PrepareContext::resource` and `AttachmentView::view` when creating bindings.
-With no reader, there are no snapshot draws or copies. Resource versions and
-attachment hazards are validated before any feature prepares.
-
-The typed slot sequence is opaque, opaque snapshots, `TransparentWater`,
-`AfterWaterDepth`, then `ScreenSpaceAfterTransparent` and post output. SSAO and
-opaque snapshots see pre-water depth. Water loads and writes the camera depth
-attachment; subsequent passes reading that attachment see surface depth. The
-`post-water depth` resource is a distinct positive-view-metre resolve, refreshed
-after water at 1x and 4x. Later depth-based effects must declare this resource,
-not reuse the pre-water SSAO pyramid. Optional SSR uses the opaque snapshot as
-its reflected source, validates hit coverage and orientation, and adds filtered
-Fresnel-weighted specular with a smooth roughness cutoff. Matching pre-water and
-post-water sample reductions exclude water-covered receivers. Water is absent
-from the reflected source and does not export reflection metadata.
-
-One water writer is supported. Multiple water writers, and the reserved
-`TransparentAlpha` slot, return `FrameError::TransparentOrdering` before
-preparation. Supporting ordinary alpha features will require stable, cross-feature
-back-to-front packet sorting with depth read-only, rather than registration order.
-Intersecting transparent geometry remains outside that policy.
+Real Disunity is released under the [MIT License](LICENSE). Third-party dependencies keep their own licenses. The FSR 1 upscaler shader in `crates/render-post/src/upscale.wgsl` is ported from AMD FidelityFX FSR 1, also MIT licensed, and keeps AMD's notice in the file.

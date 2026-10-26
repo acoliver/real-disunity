@@ -3,7 +3,7 @@
 Atmospheric backgrounds are optional scene content. Install a `SceneAtmosphere`
 with `SceneEffects::with_atmosphere` to draw a linear HDR gradient, an optional
 solar disc, textured celestial discs and camera-relative celestial meshes.
-Existing effects without this option retain their original clear background.
+Without this option the frame keeps its clear background.
 The stock upload rejects atmospheric rendering on a non-HDR color target.
 
 ## Scene space and units
@@ -106,11 +106,10 @@ change depth. Orthographic rays start at the pixel's position on the camera
 plane and run parallel to the viewing direction. Density is adjusted from the
 eye height to that per-pixel origin. Perspective rays start at the eye.
 
-Six formerly unused frame-uniform lanes encode logarithmic eye density,
-falloff/enable state, start distance and RGB fog radiance. The frame block
-remains 160 bytes. Disabled fog writes the same zero lanes as before. The
-negative falloff encoding distinguishes enabled fog from the old zero padding
-without reserving a logarithmic density value.
+Six frame-uniform lanes encode logarithmic eye density, falloff/enable state,
+start distance and RGB fog radiance. The frame block is 160 bytes. Disabled
+fog writes zeros to those lanes. The negative falloff encoding distinguishes
+enabled fog from zero lanes without reserving a logarithmic density value.
 
 ### Water composition interface
 

@@ -1,101 +1,20 @@
-# Migrating to the retained frame executor
+# Retained frame executor
 
-Consumers moving from the earlier renderer must rebuild their CPU documents and GPU pipelines together. The render contract is version 4 and the material payload is version 2. Old serialized documents require explicit conversion before loading; the engine does not reinterpret an older version. Keep the required camera, lighting and material fields. Optional complete effect recipes remain opt-in and are validated even when their weights are zero.
+Every frame the stock renderer draws goes through one executor and one submission. This page describes how a host encodes frames, overlaps them, registers its own features and reads GPU pass timings.
 
-The stock packed vertex stride is 40 bytes and the instance stride is 80 bytes. Use `geometry::VERTEX_STRIDE`, `geometry::INSTANCE_STRIDE` and the engine packing helpers instead of an older host layout. Rebuild vertex layouts and buffers together. Scene coordinates are Z-up metres on the GPU, converted from integer millimetres at the CPU boundary. Materials carry the texture and scalar inputs used by the forward and metadata pipelines; regenerate version-2 payloads through the material API rather than copying earlier bytes.
+## Layouts and documents
 
-## Document conversion: v2 to v3 to v4
+The packed vertex stride is 40 bytes and the instance stride is 80 bytes. Use `geometry::VERTEX_STRIDE`, `geometry::INSTANCE_STRIDE` and the engine packing helpers rather than hand-written layouts. The material uniform is 112 bytes. Scene coordinates are Z-up metres on the GPU, converted from integer millimetres at the CPU boundary.
 
-The loader accepts only `schema: "real-disunity.render-contract.v4"` with `schema_version: 4`. It rejects v2 and v3 documents; it performs no migration. Changing just the version number leaves mandatory recipe fields missing. Conversion belongs in the consumer before discovery/loading.
+The render-contract loader in `render-plan` accepts only `schema: "real-disunity.render-contract.v4"` with `schema_version: 4`. Any other version is rejected, and there is no conversion path. Optional effect recipes are validated even when their weights are zero. The field ranges are documented on the recipe types in `crates/render-plan`.
 
-| Step | Discovery capability URI | Document envelope | Required recipe additions |
-| --- | --- | --- | --- |
-| v2 input | `urn:real-disunity:capability:render-contract:v2` | `real-disunity.render-contract.v2`, version 2 | Existing fields retained |
-| v2 to v3 | `urn:real-disunity:capability:render-contract:v3` | `real-disunity.render-contract.v3`, version 3 | `effects.ssao.sample_count` and `effects.ssao.bias_millimeters` |
-| v3 to v4 | `urn:real-disunity:capability:render-contract:v4` | `real-disunity.render-contract.v4`, version 4 | `effects.water.height_millimeters`, `color_micro`, `absorption_micro`, `roughness_micro` |
-
-Update the host's discovery binding separately from the serialized document. The capability URI is not a new document field. Preserve `routes.document.schema_uri` and its version, which identify the consumer payload rather than the render-contract envelope. Preserve other document fields. An absent optional recipe can remain absent; when present, all its fields are required, even at zero intensity.
-
-SSAO `sample_count` is an integer in 1..=64. Bias is unsigned whole millimetres, at least zero and strictly smaller than the radius for the stock renderer. The stock radius must be 1..=1,000,000 millimetres; intensity remains 0..=2,000,000 millionths and horizon 0..=180,000 millidegrees. The fixture choices are 16 samples and 10 millimetres bias, not engine-supplied defaults.
-
-Water elevation is a signed `i64` millimetre count in scene coordinates. `color_micro` is three unsigned linear RGB scattering values, each 0..=1,000,000, not sRGB bytes. `absorption_micro` is three unsigned Beer absorption coefficients per metre, each 0..=10,000,000 millionths. `roughness_micro` is unsigned 0..=1,000,000. Existing rectangle minima and positive extents remain unchanged; their corner arithmetic must fit `i64`. Choose these values explicitly for the intended appearance.
-
-### Worked fixture conversion
-
-The following JSON projections show the fields changed from `crates/render-plan/tests/fixtures/render-contract-v2.json`; every unshown field is preserved. They are fragments of the complete fixture, not standalone loadable documents.
-
-Before (v2):
-
-```json
-{
-  "schema": "real-disunity.render-contract.v2",
-  "schema_version": 2,
-  "effects": {
-    "ssao": {
-      "radius_millimeters": 750,
-      "intensity_micro": 1000000,
-      "horizon_angle_millidegrees": 90000
-    }
-  }
-}
-```
-
-After the v3 step, SSAO becomes:
-
-```json
-{
-  "sample_count": 16,
-  "bias_millimeters": 10,
-  "radius_millimeters": 750,
-  "intensity_micro": 1000000,
-  "horizon_angle_millidegrees": 90000
-}
-```
-
-Set the envelope to `real-disunity.render-contract.v3`, version 3 at that step. For v4, retain that SSAO object, set the envelope to `real-disunity.render-contract.v4`, version 4, and add these members to the existing water object:
-
-```json
-{
-  "height_millimeters": 0,
-  "color_micro": [50000, 200000, 250000],
-  "absorption_micro": [300000, 100000, 50000],
-  "roughness_micro": 200000
-}
-```
-
-This executable conversion preserves the complete fixture structure and yields the checked-in v3 and v4 fixtures, including all unshown required fields:
-
-```python
-import copy
-import json
-from pathlib import Path
-
-fixtures = Path("crates/render-plan/tests/fixtures")
-v2 = json.loads((fixtures / "render-contract-v2.json").read_text())
-v3 = copy.deepcopy(v2)
-v3.update(schema="real-disunity.render-contract.v3", schema_version=3)
-v3["effects"]["ssao"].update(sample_count=16, bias_millimeters=10)
-assert v3 == json.loads((fixtures / "render-contract-v3.json").read_text())
-v4 = copy.deepcopy(v3)
-v4.update(schema="real-disunity.render-contract.v4", schema_version=4)
-v4["effects"]["water"].update(
-    height_millimeters=0,
-    color_micro=[50000, 200000, 250000],
-    absorption_micro=[300000, 100000, 50000],
-    roughness_micro=200000,
-)
-assert v4 == json.loads((fixtures / "render-contract-v4.json").read_text())
-```
-
-Material payload v2 now uses a 112-byte uniform; packed vertices use 40 bytes and instances use 80 bytes. Reuse matching packing helpers rather than treating those layouts as new in this migration.
-
-Shadow `extent_millimeters` values remain coverage-box extents, not camera far-split distances. Retaining them preserves coverage semantics. To opt into camera splits, construct `SceneShadowCascades::camera_splits(distances_millimeters, blend_band_micro)` explicitly. Distances must increase, exceed the camera near plane and not exceed its far plane. Do not reinterpret old extents as splits by changing only an envelope version.
+Shadow `extent_millimeters` values are light-space coverage-box extents. Camera far-split cascades are a separate policy, constructed with `SceneShadowCascades::camera_splits(distances_millimeters, blend_band_micro)`. Distances must increase, exceed the camera near plane and not exceed its far plane.
 
 ## One executor and one submission
 
-`render-post::PostChain` owns geometry pass opening and post-stage execution. `render-scene::compositor::FrameRenderer` installs the stock scene, shadow, snapshot and effect features on that executor. The old standalone offscreen drawing loop has been removed. `OffscreenTarget::render`, `capture_scene` and `capture_scene_shadowed` retain their convenience APIs and use the same executor. `CopyOutput` remains a stage factory for the no-look output profile. The procedural byte-comparison regression compares direct drawing, convenience capture and encoder-only composition with copy output.
+`render-post::PostChain` owns geometry pass opening and post-stage execution. `render-scene::compositor::FrameRenderer` installs the stock scene, shadow, snapshot and effect features on that executor. The convenience APIs `OffscreenTarget::render`, `capture_scene` and `capture_scene_shadowed` use the same executor; there is no separate offscreen drawing loop. `CopyOutput` is the stage factory for the no-look output profile. A procedural byte-comparison regression compares direct drawing, convenience capture and encoder-only composition with copy output.
 
-For an existing custom host, `compositor::encode_resident` appends a previously prepared resident draw without submitting. It preserves the legacy exposed sRGB path and assumes the host has already set frame uniforms and flushed edits. Use `compositor::encode_scene` for staged frame uploads and camera-aware effects, or `ShadowedScene::encode_with` for shadow composition. Finish with `FrameRenderer::encode_output` and append capture copies to that same encoder. Submit once, then present an acquired surface image immediately. Explicit capture reads wait only for the supplied submission.
+For a custom host, `compositor::encode_resident` appends a previously prepared resident draw without submitting. It preserves the legacy exposed sRGB path and assumes the host has already set frame uniforms and flushed edits. Use `compositor::encode_scene` for staged frame uploads and camera-aware effects, or `ShadowedScene::encode_with` for shadow composition. Finish with `FrameRenderer::encode_output` and append capture copies to that same encoder. Submit once, then present an acquired surface image immediately. Explicit capture reads wait only for the supplied submission.
 
 For overlapping frames reserve a `FrameAdmission` slot, select it on the scene and renderer, encode, and submit in preparation order through the same admission authority. Reuse a slot only after completion. Successful feature uploads are committed, so successful encoders must be submitted rather than abandoned. Resize builds replacement resources before publishing them; zero-size surfaces suspend acquisition instead of allocating empty targets.
 

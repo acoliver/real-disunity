@@ -1,6 +1,6 @@
 # Canonical rendering services
 
-The SDK owns reusable GPU mechanisms in four independent service crates. Scene rendering and window hosting are consumers of these services, not alternate implementations. Application code using the `worldrunner` scene/viewer facade does not need direct GPU dependencies or copies of the SDK shaders.
+The engine's reusable GPU mechanisms live in four independent service crates. Scene rendering (`render-scene`) and window hosting (`scene-viewer`) are built on these services and do not duplicate them. Application code using the `worldrunner` scene/viewer facade does not need direct GPU dependencies or copies of the SDK shaders.
 
 ## Ownership and entry points
 
@@ -45,7 +45,7 @@ Shadow clients configure coverage, fitting and sampling explicitly using `Direct
 
 `CopyOutput` performs a no-effects texel copy with the destination attachment's transfer/channel behavior. It does not add tone mapping or clamp floating-point values into an implicit display range. Color format and multisample resolve support are validated independently; sample-count support alone does not prove a format can resolve.
 
-For in-frame captures, use `Readback::encode` at the intended point in the frame encoder, submit, then `read_encoded`. The configured format/extent and byte ceiling must describe the actual source. Native HDR/float bytes, including special floating-point bit patterns, are not silently converted. `BufferReadback` similarly captures opaque, aligned caller-defined bytes. Hosts retain decoding, channel packing and publication responsibilities. See [the post-service API guide](../crates/render-post/README.md) for retained resources, copy-only presentation and capture details.
+For in-frame captures, use `Readback::encode` at the intended point in the frame encoder, submit, then `read_encoded`. The configured format/extent and byte ceiling must describe the actual source. Native HDR/float bytes, including special floating-point bit patterns, are not silently converted. `BufferReadback` similarly captures opaque, aligned caller-defined bytes. Hosts retain decoding, channel packing and publication responsibilities. See [the post-service API guide](../../crates/render-post/README.md) for retained resources, copy-only presentation and capture details.
 
 ## Actual SDK consumers
 
@@ -56,12 +56,10 @@ For in-frame captures, use `Readback::encode` at the intended point in the frame
 
 Scene-specific coordinate conversions and shader bindings remain adapters at these boundaries. They are not a second low-level rendering service. The scene/viewer facade remains the application-facing integration boundary.
 
-## Source compatibility
-
-These are evolving 0.1 APIs. The scene `upload_*` helpers now return `Result` so callers must propagate or handle validated-upload failures. Prepared material construction uses explicit descriptors instead of implicit binding assembly. Internal callers and regression tests are migrated; source compatibility with arbitrary external callers is not promised. The application-facing scene/viewer facade remains the preferred integration boundary.
+These are 0.1 APIs with no stability promise to external callers. Scene `upload_*` helpers return `Result`, and prepared materials are built from explicit descriptors. Applications should integrate through the `worldrunner` scene/viewer facade.
 
 ## Verification and CI coverage
 
-`cargo +1.97 xtask ci-cpu` validates CPU layers and the facade's no-default-feature graph. `cargo +1.97 xtask ci-gpu` selects every registered non-managed workspace package, including all four services, the scene renderer, and viewer. It runs policy, fail-closed source-size, format, warning-denying Clippy, five explicit complexity lints, check/build, tests including ignored tests, and doctests. Missing adapters are failures. The GPU-required profile is not a substitute for the separate managed-runtime CI profile.
+`cargo xtask ci-cpu` validates CPU layers and the facade's no-default-feature graph. `cargo xtask ci-gpu` selects every registered non-managed workspace package, including all four services, the scene renderer, and viewer. It runs policy, fail-closed source-size, format, warning-denying Clippy, five explicit complexity lints, check/build, tests including ignored tests, and doctests. Missing adapters are failures. The GPU-required profile is not a substitute for the separate managed-runtime CI profile.
 
-Keep new packages registered in `crates/xtask/src/layers.rs`; unknown members are rejected rather than silently omitted. Validate an application's actual default and viewer dependency graphs as well as its source boundary: a declared path or revision alone does not prove which implementation is reachable. Local dirty-tree verification must record source provenance and must not be described as an immutable publication or hosted CI result.
+Keep new packages registered in `crates/xtask/src/layers.rs`; unknown members are rejected rather than silently omitted. Validate an application's actual default and viewer dependency graphs as well as its source boundary: a declared path or revision alone does not prove which implementation is reachable.

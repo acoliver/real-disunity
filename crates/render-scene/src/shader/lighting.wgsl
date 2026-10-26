@@ -91,11 +91,8 @@ fn apply_exposure(radiance: vec3<f32>) -> vec3<f32> {
 
 // Builds a tangent frame from screen-space derivatives.
 //
-// SceneVertex carries no tangent, so one is derived per fragment from how the
-// texture coordinates change across the surface. This is the standard
-// derivative-based frame; it agrees with a stored tangent basis except across
-// mirrored UV seams, where the handedness a stored tangent would record is not
-// recoverable from derivatives alone.
+// Vertices without authored tangents retain the derivative-based frame. Stored
+// tangents supply the independently authored orientation and handedness instead.
 fn cotangent_frame(normal: vec3<f32>, position: vec3<f32>, uv: vec2<f32>) -> mat3x3<f32> {
     let position_dx = dpdx(position);
     let position_dy = dpdy(position);

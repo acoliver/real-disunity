@@ -4,6 +4,7 @@ fn all_levels_and_camera_facing_rotations_have_conservative_bounds() {
     let far = SceneMeshLod::new(
         1,
         vec![SceneVertex {
+            tangent_micro: None,
             position_millimeters: [2_000, 0, 0],
             normal_micro: [0, 0, 1_000_000],
             texcoord_micro: [0; 2],
@@ -67,11 +68,13 @@ fn level(index: u8) -> SceneMeshLod {
         index,
         vec![
             SceneVertex {
+                tangent_micro: None,
                 position_millimeters: [-100, -200, -300],
                 normal_micro: [0, 0, 1_000_000],
                 texcoord_micro: [0; 2],
             },
             SceneVertex {
+                tangent_micro: None,
                 position_millimeters: [100, 200, 300],
                 normal_micro: [0, 0, 1_000_000],
                 texcoord_micro: [0; 2],

@@ -241,3 +241,26 @@ fn fully_textured() -> SceneMaterial {
     })
     .expect("the fixture material is valid")
 }
+
+#[test]
+fn normal_parameters_are_validated_and_encoded_without_changing_stock_prefix() {
+    use worldrunner_render_plan::{SceneNormalEncoding, SceneNormalY};
+    let base = material(SceneAlphaMode::Opaque, false);
+    assert_eq!(base.normal_encoding(), SceneNormalEncoding::TwoChannelXy);
+    assert_eq!(base.normal_y(), SceneNormalY::Up);
+    assert!(base.with_normal_scale(4_000_001).is_err());
+    let stock = MaterialUniform::from_material(&base).to_bytes();
+    for micro in [0, 1_000_000, 2_000_000, 4_000_000] {
+        let changed = base
+            .with_normal_scale(micro)
+            .unwrap()
+            .with_normal_encoding(SceneNormalEncoding::Rgb, SceneNormalY::Down);
+        let bytes = MaterialUniform::from_material(&changed).to_bytes();
+        assert_eq!(&bytes[..72], &stock[..72]);
+        assert_eq!(&bytes[76..80], &3_u32.to_le_bytes());
+        assert_eq!(
+            &bytes[72..76],
+            &f32::from(u16::try_from(micro / 1_000_000).unwrap()).to_le_bytes()
+        );
+    }
+}

@@ -30,6 +30,7 @@ pub(super) fn quad() -> SceneMesh {
         [-707, 0, 707],
     ]
     .map(|position_millimeters| SceneVertex {
+        tangent_micro: None,
         position_millimeters,
         normal_micro: [0, -1_000_000, 0],
         texcoord_micro: [0, 0],

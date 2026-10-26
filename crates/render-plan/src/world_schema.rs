@@ -63,6 +63,7 @@ impl SceneVertex {
         Ok(Self {
             position_millimeters: scene_vector_from_world(frame, position_xyz_millimeters)?,
             normal_micro: scene_vector_from_world(frame, normal_xyz_micro)?,
+            tangent_micro: None,
             texcoord_micro,
         })
     }

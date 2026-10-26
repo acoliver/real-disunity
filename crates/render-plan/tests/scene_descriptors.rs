@@ -46,7 +46,8 @@ fn material_descriptors_preserve_every_base_field() {
 #[test]
 fn descriptor_boundaries_are_closed() {
     assert!(SceneTint::new([0, 1_000_000, 500_000]).is_ok());
-    assert!(SceneTint::new([1_000_001, 0, 0]).is_err());
+    assert!(SceneTint::new([2_550_000, SceneTint::MAX_CHANNEL_MICRO, 0]).is_ok());
+    assert!(SceneTint::new([SceneTint::MAX_CHANNEL_MICRO + 1, 0, 0]).is_err());
     assert!(SceneAmbientOcclusion::new(1_000_001, true).is_err());
     assert!(
         SceneLayerBlend::new(
@@ -109,6 +110,7 @@ fn instance_tint_and_card_round_trip_without_basis_changes() {
     assert_eq!(object.transform(), &transform);
     let card = SceneCard::new(BillboardPolicy::YawLocked, [1000, 2000], 500_000).unwrap();
     let vertex = SceneVertex {
+        tangent_micro: None,
         position_millimeters: [0; 3],
         normal_micro: [0, 0, 1_000_000],
         texcoord_micro: [0; 2],

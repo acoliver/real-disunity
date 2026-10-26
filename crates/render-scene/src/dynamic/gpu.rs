@@ -240,6 +240,7 @@ fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
         push_f32(&mut bytes, v);
         bytes.extend_from_slice(&BILLBOARD_FIXED.to_le_bytes());
         push_f32(&mut bytes, 1.0);
+        bytes.extend_from_slice(&[0; 16]);
     }
     bytes
 }

@@ -94,6 +94,9 @@ impl PipelineKey {
 /// The per-material numbers the shader reads, as distinct from pipeline state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialUniform {
+    pub normal_encoding: worldrunner_render_plan::SceneNormalEncoding,
+    pub normal_y: worldrunner_render_plan::SceneNormalY,
+    pub normal_scale_micro: u32,
     pub translucency_micro: u32,
     pub terrain_contact: Option<worldrunner_render_plan::SceneTerrainContact>,
     /// Alpha below which a masked fragment is discarded, in micro units.
@@ -137,6 +140,9 @@ impl MaterialUniform {
             texture_flags |= shader::FLAG_SELF_ILLUMINATION;
         }
         Self {
+            normal_encoding: material.normal_encoding(),
+            normal_y: material.normal_y(),
+            normal_scale_micro: material.normal_scale_micro(),
             translucency_micro: material.translucency_micro(),
             terrain_contact: material.terrain_contact(),
             alpha_cutoff_micro,
@@ -168,6 +174,12 @@ impl MaterialUniform {
         bytes[12..16].copy_from_slice(&self.texture_flags.to_le_bytes());
         features::encode(&mut bytes, self.features);
         features::encode_surface(&mut bytes, self.translucency_micro, self.terrain_contact);
+        let scale = self.normal_scale_micro as f32 / MICRO_SCALE;
+        bytes[72..76].copy_from_slice(&scale.to_le_bytes());
+        let encoding =
+            u32::from(self.normal_encoding == worldrunner_render_plan::SceneNormalEncoding::Rgb)
+                | (u32::from(self.normal_y == worldrunner_render_plan::SceneNormalY::Down) << 1);
+        bytes[76..80].copy_from_slice(&encoding.to_le_bytes());
         bytes
     }
 }

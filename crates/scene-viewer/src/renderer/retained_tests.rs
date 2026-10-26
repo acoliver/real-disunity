@@ -231,6 +231,7 @@ pub(crate) fn source() -> RenderScene {
     ]
     .into_iter()
     .map(|position| SceneVertex {
+        tangent_micro: None,
         position_millimeters: position,
         normal_micro: [0, 0, 1_000_000],
         texcoord_micro: [0, 0],

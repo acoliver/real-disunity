@@ -24,6 +24,7 @@ fn regression_b1_nearest_celestial_surface_is_index_order_independent() {
         for (y, u) in [(-100, 250_000), (100, 750_000)] {
             for [x, z] in [[-707, -707], [707, -707], [707, 707], [-707, 707]] {
                 vertices.push(SceneVertex {
+                    tangent_micro: None,
                     position_millimeters: [x, y, z],
                     normal_micro: [0, -1_000_000, 0],
                     texcoord_micro: [u, 0],

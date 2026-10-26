@@ -73,6 +73,7 @@ pub(super) fn quad(half: i64) -> SceneMesh {
             ]
             .into_iter()
             .map(|(position, uv)| SceneVertex {
+                tangent_micro: None,
                 position_millimeters: position,
                 normal_micro: [0, 0, 1_000_000],
                 texcoord_micro: uv,

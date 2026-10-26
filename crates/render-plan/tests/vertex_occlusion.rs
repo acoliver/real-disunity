@@ -5,6 +5,7 @@ fn triangle() -> SceneMeshLod {
         0,
         vec![
             SceneVertex {
+                tangent_micro: None,
                 position_millimeters: [0; 3],
                 normal_micro: [0, 0, 1_000_000],
                 texcoord_micro: [0; 2],

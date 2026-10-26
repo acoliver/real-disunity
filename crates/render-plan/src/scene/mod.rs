@@ -42,7 +42,7 @@ mod material_features;
 mod resource;
 pub use material_features::{
     SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,
-    SceneTerrainContact, SceneTint, SceneWind,
+    SceneNormalEncoding, SceneNormalY, SceneTerrainContact, SceneTint, SceneWind,
 };
 mod terrain;
 mod terrain_pages;
@@ -385,6 +385,7 @@ mod tests {
 
     fn mesh() -> SceneMesh {
         let vertex = SceneVertex {
+            tangent_micro: None,
             position_millimeters: [0, 0, 0],
             normal_micro: [0, 1_000_000, 0],
             texcoord_micro: [0, 0],

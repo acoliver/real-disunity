@@ -65,6 +65,7 @@ fn scene() -> Result<RenderScene, SceneValidationError> {
     let vertices = [[-1000, 0, 0], [1000, 0, 0], [0, 0, 2000]]
         .into_iter()
         .map(|position| SceneVertex {
+            tangent_micro: None,
             position_millimeters: position,
             normal_micro: [0, -1_000_000, 0],
             texcoord_micro: [0, 0],

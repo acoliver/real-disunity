@@ -83,10 +83,7 @@ fn aces_matrix_gpu_primaries_ramp_and_default_identity() {
         let expected = ToneMap::AcesFitted.evaluate_rgb(values[i % 7], 1.0);
         for (&actual, linear) in pixel[..3].iter().zip(expected) {
             let v = encoded(linear);
-            assert!(
-                (v - (v.floor() + 0.5)).abs() > 0.1,
-                "rounding boundary {v}"
-            );
+            assert!((v - (v.floor() + 0.5)).abs() > 0.1, "rounding boundary {v}");
             assert_eq!(f64::from(actual).to_bits(), v.round().to_bits());
         }
         assert_eq!(pixel[3], 64);

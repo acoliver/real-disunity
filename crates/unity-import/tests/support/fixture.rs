@@ -22,15 +22,6 @@ impl Fixture {
         fs::write(path, contents).unwrap();
     }
 
-    /// Writes `contents` at `path` and a `.meta` file naming its GUID and importer.
-    pub fn asset(&self, path: &str, guid: &str, importer: &str, contents: impl AsRef<[u8]>) {
-        self.file(path, contents);
-        self.file(
-            &format!("{path}.meta"),
-            format!("fileFormatVersion: 2\nguid: {guid}\n{importer}:\n  userData: \n"),
-        );
-    }
-
     pub fn project(&self) -> Project {
         Project::open(self.0.path()).unwrap()
     }

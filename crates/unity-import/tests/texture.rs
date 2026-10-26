@@ -9,6 +9,8 @@ const SHEET: &str = "a0000000000000000000000000000002";
 const LEGACY: &str = "a0000000000000000000000000000003";
 const PHOTO: &str = "a0000000000000000000000000000004";
 
+#[path = "support/assets.rs"]
+mod assets;
 #[path = "support/fixture.rs"]
 mod fixture;
 

@@ -1,5 +1,7 @@
 use std::fmt::Write;
 
+#[path = "support/assets.rs"]
+mod assets;
 #[path = "support/fixture.rs"]
 mod fixture;
 #[path = "support/objects.rs"]

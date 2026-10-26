@@ -69,3 +69,48 @@ pub(crate) fn vector<const N: usize>(
         .get(key)
         .map_or(Some(default), |value| members(value, names, default))
 }
+
+/// A Unity enum serialized as its index into `variants`, or `variants[default]` when absent.
+pub(crate) fn variant<T: Copy>(
+    fields: &Value,
+    key: &str,
+    variants: &[T],
+    default: usize,
+) -> Option<T> {
+    match fields.get(key) {
+        None => variants.get(default).copied(),
+        Some(value) => usize::try_from(as_integer(value)?)
+            .ok()
+            .and_then(|index| variants.get(index).copied()),
+    }
+}
+
+/// A boolean serialized as `0` or `1`.
+pub(crate) fn flag(fields: &Value, key: &str, default: bool) -> Option<bool> {
+    match integer(fields, key, i64::from(default))? {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+/// An `int[]` Unity serializes compactly as the hexadecimal of its little-endian bytes.
+pub(crate) fn hex_int32s(fields: &Value, key: &str) -> Option<Vec<i64>> {
+    let text = fields
+        .get(key)
+        .map_or(Some(""), |value| Some(value.as_scalar()?.text()))?;
+    if text.len() % 8 != 0 || !text.is_ascii() {
+        return None;
+    }
+    (0..text.len())
+        .step_by(8)
+        .map(|start| {
+            let mut bytes = [0; 4];
+            for (index, byte) in bytes.iter_mut().enumerate() {
+                let pair = &text[start + index * 2..start + index * 2 + 2];
+                *byte = u8::from_str_radix(pair, 16).ok()?;
+            }
+            Some(i64::from(i32::from_le_bytes(bytes)))
+        })
+        .collect()
+}

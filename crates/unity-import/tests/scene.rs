@@ -9,6 +9,8 @@ const SCRIPT: &str = "44444444444444444444444444444444";
 const OUTER: &str = "55555555555555555555555555555555";
 const LEGACY: &str = "66666666666666666666666666666666";
 
+#[path = "support/assets.rs"]
+mod assets;
 #[path = "support/fixture.rs"]
 mod fixture;
 #[path = "support/objects.rs"]

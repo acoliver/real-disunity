@@ -82,6 +82,13 @@ fn baked_effects() -> Vec<SceneEffects> {
         .with_ssr(SceneSsr {
             enabled: true,
             max_steps: 8,
+            max_distance_millimeters: 42_000,
+            thickness_slope_micro: 20_000,
+            origin_skip_pixels: 4,
+            pass_behind_steps: 8,
+            roughness_fade_start_micro: Some(200_000),
+            luminance_limit_milli: Some(2000),
+            composition: SceneSsrComposition::ReplaceEnvironment,
             thickness_millimeters: 10,
             roughness_cutoff_micro: 1_000_000,
             resolution_scale_micro: 500_000,

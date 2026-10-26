@@ -16,7 +16,7 @@ fn gpu_production_water_trace_and_resolve_share_registered_metadata() {
             Ssr::new(
                 context.device(),
                 renderer.targets().config(),
-                settings(),
+                replacement_settings(),
                 renderer.ssao.as_mut().unwrap(),
             )
             .unwrap(),
@@ -343,4 +343,11 @@ fn replay_views(ssr: &Ssr, water: &crate::water::Water) -> Vec<wgpu::TextureView
     );
     water::Inputs::new(water, 0).resolve_views(&mut views);
     views
+}
+
+fn replacement_settings() -> SceneSsr {
+    SceneSsr {
+        composition: worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment,
+        ..settings()
+    }
 }

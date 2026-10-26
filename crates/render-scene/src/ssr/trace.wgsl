@@ -1,6 +1,7 @@
 struct ReflectionCamera {
     projection: mat4x4<f32>, inverse_projection: mat4x4<f32>,
     settings: vec4<f32>, size: vec4<f32>,
+    traversal: vec4<f32>, limits: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: ReflectionCamera;
 @group(0) @binding(1) var opaque: texture_2d<f32>;
@@ -47,7 +48,7 @@ fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: ve
     let normal = reflection_normal(packed.xyz);
     let direction = reflect(reflection_incident(origin_uv), normal);
     let start = centre + normal * 0.005;
-    var distance = 100.0;
+    var distance = camera.traversal.x;
     let near_point = camera.inverse_projection * vec4<f32>(0.0, 0.0, 0.0, 1.0);
     let near_z = near_point.z / near_point.w;
     if start.z > near_z { return vec4<f32>(0.0); }
@@ -61,7 +62,8 @@ fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: ve
     let span = length((uv_b-uv_a) * camera.size.xy);
     if span < 2.0 { return vec4<f32>(0.0); }
     let stride = 1.0/span;
-    var t = 2.0 * stride;
+    var t = camera.traversal.z * stride;
+    var remaining = u32(camera.traversal.w);
     var level = 0u;
     for (var step = 0u; step < u32(camera.settings.x); step++) {
         if t >= 1.0 { break; }
@@ -81,8 +83,13 @@ fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: ve
         let next_difference = -next_point.z - surface_depth;
         if max(difference,next_difference) >= 0.0 {
             if level > 0u { level--; continue; }
-            // The first crossed pixel terminates traversal even if too thick to accept.
-            if difference > camera.settings.y { break; }
+            let thickness = reflection_thickness(camera.settings.y, camera.traversal.y, surface_depth);
+            if min(difference, next_difference) > thickness {
+                if remaining == 0u { break; }
+                remaining--;
+                t = next_t + stride*0.001;
+                continue;
+            }
             let hit_uv = sample_uv;
             let hit_pixel = vec2<i32>(hit_uv * camera.size.xy);
             let hit_normal = textureLoad(normals, hit_pixel, 0);
@@ -90,9 +97,12 @@ fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: ve
             // Opaque radiance and normals cannot describe a different final surface.
             if !matches_receiver_depth(surface_depth, metadata_depth, hit_normal.xyz, hit_pixel) { break; }
             if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { break; }
-            let hit = textureLoad(opaque, hit_pixel, 0).rgb;
+            var hit = textureLoad(opaque, hit_pixel, 0).rgb;
+            if camera.limits.y > 0.0 {
+                hit = bounded_radiance(hit, camera.limits.y);
+            }
             let budget_fade = smoothstep(0.0, 0.2, 1.0-f32(step)/camera.settings.x);
-            let thickness_fade = 1.0-smoothstep(camera.settings.y*0.5, camera.settings.y, max(difference,0.0));
+            let thickness_fade = 1.0-smoothstep(thickness*0.5, thickness, max(difference,0.0));
             let confidence = edge_fade(hit_uv) * edge_fade(origin_uv) * budget_fade * thickness_fade;
             return vec4<f32>(hit * confidence, confidence);
         }

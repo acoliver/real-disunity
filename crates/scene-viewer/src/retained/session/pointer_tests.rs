@@ -171,6 +171,7 @@ fn invalid_fixed_interval_fails_before_native_startup() {
     for interval in [std::time::Duration::ZERO, std::time::Duration::MAX] {
         let options = crate::ViewerOptions {
             cadence: crate::PresentationCadence::Fixed(interval),
+            ssr: None,
             render_clock: crate::RenderClock::default(),
             ..crate::tests::options()
         };

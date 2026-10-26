@@ -251,6 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ViewerOptions {
             frames_in_flight: 2,
             cadence: worldrunner_scene_viewer::PresentationCadence::default(),
+            ssr: None,
             render_clock: worldrunner_scene_viewer::RenderClock::default(),
             frame_profile: frame_profile(),
             camera: SceneCamera {

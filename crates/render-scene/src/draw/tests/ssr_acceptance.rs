@@ -61,6 +61,7 @@ fn request() -> SceneSsr {
         thickness_millimeters: 100,
         roughness_cutoff_micro: 600_000,
         resolution_scale_micro: 1_000_000,
+        ..Default::default()
     }
 }
 fn body() -> SceneWaterBody {

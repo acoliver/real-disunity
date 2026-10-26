@@ -276,6 +276,7 @@ fn reflection_maps_and_composition_survive_both_replacement_paths() {
         thickness_millimeters: 100,
         roughness_cutoff_micro: 600_000,
         resolution_scale_micro: 1_000_000,
+        ..Default::default()
     });
     let base = settings
         .allocations()
@@ -343,5 +344,46 @@ fn adaptive_settings() -> AdaptiveExposure {
         speeds: [2.0, 1.0],
         fixed_delta: Some(0.25),
         fixed_exposure: None,
+    }
+}
+
+#[test]
+fn authored_reflection_composition_changes_override_retained_service_selection() {
+    use worldrunner_render_lighting::reflections::Composition;
+    use worldrunner_render_plan::{SceneSsr, SceneSsrComposition};
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    settings.ssr = Some(SceneSsr::default());
+    let mut renderer =
+        ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(100_000))
+            .unwrap();
+    assert_eq!(
+        renderer.state.current().ssr.as_ref().unwrap().composition,
+        Composition::Additive
+    );
+    for (selected, expected) in [
+        (
+            SceneSsrComposition::ReplaceEnvironment,
+            Composition::ReplaceEnvironment,
+        ),
+        (SceneSsrComposition::Additive, Composition::Additive),
+    ] {
+        settings.ssr.as_mut().unwrap().composition = selected;
+        renderer.reconfigure(&context, settings.clone()).unwrap();
+        assert_eq!(
+            renderer.state.current().ssr.as_ref().unwrap().composition,
+            expected
+        );
+        renderer
+            .state
+            .current_mut()
+            .resize(context.device(), [7, 5])
+            .unwrap();
+        assert_eq!(
+            renderer.state.current().ssr.as_ref().unwrap().composition,
+            expected
+        );
     }
 }

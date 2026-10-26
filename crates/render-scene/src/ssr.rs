@@ -15,9 +15,9 @@ use worldrunner_render_post::{
 };
 
 pub(crate) fn validate_settings(settings: &SceneSsr) -> Result<(), FrameError> {
-    settings.validate().map_err(|_| {
-        FrameError::SsrSettings("steps, thickness, cutoff or resolution scale out of range")
-    })
+    settings
+        .validate()
+        .map_err(|_| FrameError::SsrSettings("invalid reflection settings"))
 }
 pub(crate) fn validate_extent(
     config: FrameConfig,
@@ -111,7 +111,7 @@ impl Ssr {
         let reflections = gpu::radiance_textures(device, config, settings.resolution_scale_micro);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("SSR camera"),
-            size: 160,
+            size: 192,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -134,7 +134,14 @@ impl Ssr {
             settings,
             environment,
             forward_products: forward::products(device, config),
-            composition: worldrunner_render_lighting::reflections::Composition::Additive,
+            composition: match settings.composition {
+                worldrunner_render_plan::SceneSsrComposition::Additive => {
+                    worldrunner_render_lighting::reflections::Composition::Additive
+                }
+                worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment => {
+                    worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment
+                }
+            },
             water_trace,
             water_resolve,
             material_depth: crate::ssao::passes::texture(
@@ -433,6 +440,7 @@ impl PreparedFeature for ReflectionFeature<'_> {
                     == worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment,
             )),
         ]);
+        values.extend(gpu::controls(&self.ssr.settings));
         context.upload_buffer(
             &self.ssr.uniform,
             0,

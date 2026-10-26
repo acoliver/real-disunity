@@ -48,7 +48,7 @@ pub use post::{
     SceneVignette,
 };
 mod ssr;
-pub use ssr::SceneSsr;
+pub use ssr::{SceneSsr, SceneSsrComposition};
 mod error;
 mod geometry;
 mod material_features;

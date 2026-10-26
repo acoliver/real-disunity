@@ -331,8 +331,8 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
             size = size.map(|side| side.div_ceil(2));
         }
         reflection_depth_allocations([w, h], set);
-        set.buffer("reflection uniform", 160, 1);
-        set.buffer("reflection staging", 160, 3);
+        set.buffer("reflection uniform", 192, 1);
+        set.buffer("reflection staging", 192, 3);
     }
 }
 
@@ -496,10 +496,7 @@ impl ConfiguredFrameRenderer {
         let history_bank = self.history.as_ref();
         let water = previous.water.clone();
         let environment_conventions = previous.environment_conventions;
-        let reflection = previous
-            .ssr
-            .as_ref()
-            .map(|ssr| (ssr.environment.clone(), ssr.composition));
+        let reflection = previous.ssr.as_ref().map(ReflectionInputs::new);
         self.state
             .replace(&context.device().limits(), allocations, || {
                 let mut next = allocate(context, &settings, history_bank, Some(timing))?;
@@ -635,20 +632,31 @@ fn retain_water_inputs(next: &mut FrameRenderer, previous: Option<&crate::water:
     }
 }
 
+struct ReflectionInputs {
+    environment: [wgpu::TextureView; 2],
+    composition: worldrunner_render_lighting::reflections::Composition,
+    selected: worldrunner_render_plan::SceneSsrComposition,
+}
+impl ReflectionInputs {
+    fn new(ssr: &crate::ssr::Ssr) -> Self {
+        Self {
+            environment: ssr.environment.clone(),
+            composition: ssr.composition,
+            selected: ssr.settings.composition,
+        }
+    }
+}
 fn retain_reflection_inputs(
     device: &wgpu::Device,
     next: &mut FrameRenderer,
-    previous: Option<&(
-        [wgpu::TextureView; 2],
-        worldrunner_render_lighting::reflections::Composition,
-    )>,
+    previous: Option<&ReflectionInputs>,
 ) {
-    if let (Some(ssr), Some(screen), Some((environment, composition))) =
-        (&mut next.ssr, &mut next.ssao, previous)
-    {
-        ssr.environment.clone_from(environment);
-        ssr.composition = *composition;
-        let group = crate::ssr::forward::group(device, screen, environment);
+    if let (Some(ssr), Some(screen), Some(previous)) = (&mut next.ssr, &mut next.ssao, previous) {
+        ssr.environment.clone_from(&previous.environment);
+        if ssr.settings.composition == previous.selected {
+            ssr.composition = previous.composition;
+        }
+        let group = crate::ssr::forward::group(device, screen, &previous.environment);
         screen
             .geometry
             .forward

@@ -10,6 +10,7 @@
 mod app;
 pub mod cpu_profile;
 mod live;
+mod reflection_settings;
 pub use live::{
     IngressOrigin, LiveCapture, LiveClock, LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample,
     LiveOptions, LiveReceipt, LiveTick, ScheduledInput,
@@ -35,6 +36,9 @@ use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 /// Explicit caller-owned desktop presentation settings.
 #[derive(Clone, Debug)]
 pub struct ViewerOptions {
+    /// Optional startup SSR override. Requires authored scene effects and HDR.
+    /// Later retained settings replace the startup policy.
+    pub ssr: Option<worldrunner_render_plan::SceneSsr>,
     /// Window title; no engine/game default is inserted.
     pub title: String,
     /// Initial logical-pixel dimensions; each must be in `1..=4096`.
@@ -144,6 +148,7 @@ pub fn run_with_updates(
     ) -> Result<(), worldrunner_render_scene::draw::InstanceError>
     + 'static,
 ) -> Result<(), ViewerError> {
+    let scene = reflection_settings::startup_scene(scene, &options)?;
     validate(&scene, &options)?;
     app::run(scene, options, Box::new(update))
 }
@@ -199,6 +204,13 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
         ));
     }
 
+    if let Some(ssr) = scene.effects().and_then(|effects| effects.ssr()) {
+        ssr.validate()
+            .map_err(|error| ViewerError::Driver(error.to_string()))?;
+        if matches!(options.frame_profile, FrameProfile::Legacy) {
+            return Err(ViewerError::UnsupportedScene("SSR requires HDR"));
+        }
+    }
     if let Some(water) = scene.effects().and_then(|effects| effects.water()) {
         if matches!(options.frame_profile, FrameProfile::Legacy) {
             return Err(ViewerError::UnsupportedScene("water requires HDR"));

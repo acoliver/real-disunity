@@ -127,7 +127,8 @@ pub(super) fn resolve_source(levels: usize) -> String {
 
 pub(super) fn trace_source(samples: u32, water: bool) -> String {
     let source = format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
+        include_str!("controls.wgsl"),
         include_str!("trace.wgsl"),
         concat!(
             include_str!("projection.wgsl"),
@@ -192,4 +193,22 @@ pub(super) fn radiance_textures(
         extent = extent.map(|side| side.div_ceil(2));
     }
     reflections
+}
+
+pub(super) fn controls(settings: &worldrunner_render_plan::SceneSsr) -> [f32; 8] {
+    [
+        scalar(settings.max_distance_millimeters) / 1000.0,
+        scalar(settings.thickness_slope_micro) / 1_000_000.0,
+        scalar(settings.origin_skip_pixels),
+        scalar(settings.pass_behind_steps),
+        settings.roughness_fade_start_micro.map_or(
+            scalar(settings.roughness_cutoff_micro) / 1_000_000.0 * 0.75,
+            |value| scalar(value) / 1_000_000.0,
+        ),
+        settings
+            .luminance_limit_milli
+            .map_or(0.0, |value| scalar(value) / 1000.0),
+        0.0,
+        0.0,
+    ]
 }

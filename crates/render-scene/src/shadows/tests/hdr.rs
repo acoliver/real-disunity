@@ -211,6 +211,7 @@ fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_1x_and_4x() {
                 thickness_millimeters: 100,
                 roughness_cutoff_micro: 600_000,
                 resolution_scale_micro: 500_000,
+                ..Default::default()
             })
             .unwrap();
         let source = RenderScene::new(SceneParts {

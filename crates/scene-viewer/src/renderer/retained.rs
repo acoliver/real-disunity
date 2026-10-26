@@ -34,7 +34,7 @@ impl Objects {
                     let handle = handles.get_mut(&id).expect("validated object ID");
                     let old = gpu.instance(*handle)?.0;
                     if old.mesh() == object.mesh() && old.material() == object.material() {
-                        gpu.set_instance_transform(*handle, *object.transform())?;
+                        gpu.set_instance_object(*handle, object)?;
                     } else {
                         let replacement = gpu.add_instance(object, true)?;
                         gpu.remove_instance(*handle)?;

@@ -90,9 +90,9 @@ pub use document::{
 pub use scene::{
     SceneAdaptiveExposure, SceneBloom, SceneBloomLevelSelection, SceneBloomRecipe,
     SceneBloomReduction, SceneBloomTerminal, SceneBloomTintPass, SceneBrightCurve,
-    SceneBrightExtraction, SceneDisplayGrading, SceneFxaaKernel, SceneFxaaLuminance,
-    SceneFxaaQuality, SceneGaussianKernelRule, SceneGaussianLevel, SceneHdrPost,
-    SceneToneCurveBright, SceneToneMap, SceneVignette,
+    SceneBrightExtraction, SceneDisplayGrading, SceneExposureAdaptation, SceneFxaaKernel,
+    SceneFxaaLuminance, SceneFxaaQuality, SceneGaussianKernelRule, SceneGaussianLevel,
+    SceneHdrPost, ScenePercentileExposure, SceneToneCurveBright, SceneToneMap, SceneVignette,
 };
 
 pub use scene::{

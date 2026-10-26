@@ -4,6 +4,7 @@ use wgpu::util::DeviceExt;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AdaptiveExposure {
+    pub metering: crate::ExposureMetering,
     pub log_range: [f32; 2],
     pub percentiles: [f32; 2],
     pub key: f32,
@@ -59,6 +60,7 @@ impl HdrPostSettings {
             upscale.validate()?;
         }
         if let Some(a) = self.adaptive {
+            a.metering.validate()?;
             let values = [
                 a.log_range[0],
                 a.log_range[1],
@@ -256,7 +258,8 @@ impl HdrPost {
             label: Some("luminance histogram and adaptation"),
             source: wgpu::ShaderSource::Wgsl(include_str!("exposure.wgsl").into()),
         });
-        let constants = exposure_constants(a);
+        let mut constants = exposure_constants(a).to_vec();
+        constants.extend(crate::exposure_policy::constants(a));
         set.stages.push(Stage {
             id: crate::StageId::new("clear luminance histogram", 0),
             label: "clear luminance histogram",
@@ -355,6 +358,11 @@ pub fn histogram_bin(luminance: f32, range: [f32; 2]) -> usize {
         .unwrap_or(255)
 }
 pub fn target_exposure(bins: &[u32; 256], a: AdaptiveExposure) -> f64 {
+    if let crate::ExposureMetering::InterpolatedPercentile(p) = a.metering {
+        let l = crate::percentile_luminance(bins, a.log_range, p.percentile);
+        let key = (1.03 - 2.0 / (2.0 + (l + 1.0).log10())) * f64::from(p.key_bias);
+        return (key / l).max(f64::from(a.exposure_range[0]));
+    }
     let total: f64 = bins.iter().map(|&v| f64::from(v)).sum();
     let low = total * f64::from(a.percentiles[0]);
     let high = total * f64::from(a.percentiles[1]);

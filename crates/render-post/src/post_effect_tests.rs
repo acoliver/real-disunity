@@ -6,6 +6,7 @@ use crate::{
 
 pub(super) fn adaptive() -> AdaptiveExposure {
     AdaptiveExposure {
+        metering: crate::ExposureMetering::TrimmedMean,
         log_range: [-12.0, 12.0],
         percentiles: [0.1, 0.9],
         key: 0.18,
@@ -445,3 +446,6 @@ fn gpu_bloom_threshold_and_quadratic_knee_match_exact_reference() {
 
 #[path = "display_policy_gpu_tests.rs"]
 mod display_policy_gpu_tests;
+
+#[path = "exposure_policy_tests.rs"]
+mod exposure_policy_tests;

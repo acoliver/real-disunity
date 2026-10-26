@@ -7,6 +7,8 @@ override KNEE: f32 = 0.5;
 override GAUSSIAN: bool = false;
 override INTENSITY: f32 = 0.0;
 override FIXED: f32 = 1.0;
+override PERCENTILE_OUTPUT: bool = false;
+override EXPOSURE_SCALE: f32 = 1.0;
 override ADAPTIVE: bool = false;
 override FXAA: f32 = 0.75;
 override CURVE: u32 = 0u;
@@ -91,8 +93,8 @@ fn mapped(r: f32, e: f32) -> f32 {
         if GAUSSIAN { bloom = linear(lower, p.xy / vec2<f32>(textureDimensions(source))).rgb; }
         bloom *= INTENSITY;
     }
-    let e = select(FIXED, exposure.value, ADAPTIVE);
-    if CURVE == 2u || GRADE_COMPOSITION {
+    let e = select(FIXED, exposure.value, ADAPTIVE) * EXPOSURE_SCALE;
+    if CURVE == 2u || GRADE_COMPOSITION || PERCENTILE_OUTPUT {
         var v = vec3<f32>(0.0);
         if LINEAR_SCALE != 0.0 {
             var exposed = vec3<f32>(0.0);

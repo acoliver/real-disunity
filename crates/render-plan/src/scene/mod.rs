@@ -20,12 +20,14 @@ mod water_settings;
 pub use water::{SceneWaterBody, SceneWaterSurface};
 pub use water_settings::SceneWaterSettings;
 mod bloom;
+mod exposure;
 mod post;
 pub use bloom::{
     SceneBloomLevelSelection, SceneBloomRecipe, SceneBloomReduction, SceneBloomTerminal,
     SceneBloomTintPass, SceneBrightCurve, SceneBrightExtraction, SceneGaussianKernelRule,
     SceneGaussianLevel, SceneToneCurveBright,
 };
+pub use exposure::{SceneExposureAdaptation, ScenePercentileExposure};
 mod fxaa;
 #[cfg(test)]
 mod fxaa_tests;

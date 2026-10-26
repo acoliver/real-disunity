@@ -255,6 +255,36 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityTextStyle>("b").ToInt32() != 44) throw new InvalidOperationException("DisunityTextStyle.b offset");
         if (Marshal.OffsetOf<DisunityTextStyle>("a").ToInt32() != 48) throw new InvalidOperationException("DisunityTextStyle.a offset");
         if (Marshal.SizeOf<DisunityTextStyle>() != 56 || typeof(DisunityTextStyle).GetFields().Length != 12) throw new InvalidOperationException("DisunityTextStyle layout");
+        if (Marshal.OffsetOf<DisunityTilemap>("enabled").ToInt32() != 0) throw new InvalidOperationException("DisunityTilemap.enabled offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("sorting_layer").ToInt32() != 4) throw new InvalidOperationException("DisunityTilemap.sorting_layer offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("sorting_order").ToInt32() != 8) throw new InvalidOperationException("DisunityTilemap.sorting_order offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("r").ToInt32() != 12) throw new InvalidOperationException("DisunityTilemap.r offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("g").ToInt32() != 16) throw new InvalidOperationException("DisunityTilemap.g offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("b").ToInt32() != 20) throw new InvalidOperationException("DisunityTilemap.b offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("a").ToInt32() != 24) throw new InvalidOperationException("DisunityTilemap.a offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("cell_x").ToInt32() != 28) throw new InvalidOperationException("DisunityTilemap.cell_x offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("cell_y").ToInt32() != 32) throw new InvalidOperationException("DisunityTilemap.cell_y offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("gap_x").ToInt32() != 36) throw new InvalidOperationException("DisunityTilemap.gap_x offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("gap_y").ToInt32() != 40) throw new InvalidOperationException("DisunityTilemap.gap_y offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("anchor_x").ToInt32() != 44) throw new InvalidOperationException("DisunityTilemap.anchor_x offset");
+        if (Marshal.OffsetOf<DisunityTilemap>("anchor_y").ToInt32() != 48) throw new InvalidOperationException("DisunityTilemap.anchor_y offset");
+        if (Marshal.SizeOf<DisunityTilemap>() != 52 || typeof(DisunityTilemap).GetFields().Length != 13) throw new InvalidOperationException("DisunityTilemap layout");
+        if (Marshal.OffsetOf<DisunityTile>("collider").ToInt32() != 0) throw new InvalidOperationException("DisunityTile.collider offset");
+        if (Marshal.OffsetOf<DisunityTile>("r").ToInt32() != 4) throw new InvalidOperationException("DisunityTile.r offset");
+        if (Marshal.OffsetOf<DisunityTile>("g").ToInt32() != 8) throw new InvalidOperationException("DisunityTile.g offset");
+        if (Marshal.OffsetOf<DisunityTile>("b").ToInt32() != 12) throw new InvalidOperationException("DisunityTile.b offset");
+        if (Marshal.OffsetOf<DisunityTile>("a").ToInt32() != 16) throw new InvalidOperationException("DisunityTile.a offset");
+        if (Marshal.OffsetOf<DisunityTile>("m00").ToInt32() != 20) throw new InvalidOperationException("DisunityTile.m00 offset");
+        if (Marshal.OffsetOf<DisunityTile>("m01").ToInt32() != 24) throw new InvalidOperationException("DisunityTile.m01 offset");
+        if (Marshal.OffsetOf<DisunityTile>("m10").ToInt32() != 28) throw new InvalidOperationException("DisunityTile.m10 offset");
+        if (Marshal.OffsetOf<DisunityTile>("m11").ToInt32() != 32) throw new InvalidOperationException("DisunityTile.m11 offset");
+        if (Marshal.OffsetOf<DisunityTile>("tx").ToInt32() != 36) throw new InvalidOperationException("DisunityTile.tx offset");
+        if (Marshal.OffsetOf<DisunityTile>("ty").ToInt32() != 40) throw new InvalidOperationException("DisunityTile.ty offset");
+        if (Marshal.SizeOf<DisunityTile>() != 44 || typeof(DisunityTile).GetFields().Length != 11) throw new InvalidOperationException("DisunityTile layout");
+        if (Marshal.OffsetOf<DisunityTileCell>("x").ToInt32() != 0) throw new InvalidOperationException("DisunityTileCell.x offset");
+        if (Marshal.OffsetOf<DisunityTileCell>("y").ToInt32() != 4) throw new InvalidOperationException("DisunityTileCell.y offset");
+        if (Marshal.OffsetOf<DisunityTileCell>("tile").ToInt32() != 8) throw new InvalidOperationException("DisunityTileCell.tile offset");
+        if (Marshal.SizeOf<DisunityTileCell>() != 12 || typeof(DisunityTileCell).GetFields().Length != 3) throw new InvalidOperationException("DisunityTileCell layout");
     }
 }
 /// The native ABI revision this assembly was built against.

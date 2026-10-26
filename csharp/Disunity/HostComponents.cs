@@ -23,6 +23,8 @@ public static partial class DisunityHost
         {
             ThrowIfError(NativeBindings.disunity_sprite_create(WorldHandle, owner.NativeHandle, &handle));
         }
+        else if (value is UnityEngine.Tilemaps.Tilemap)
+            ThrowIfError(NativeBindings.disunity_tilemap_create(WorldHandle, owner.NativeHandle, &handle));
         else if (value is Canvas || value is RectTransform)
         {
             if (value is RectTransform && owner.transform is RectTransform) throw new InvalidOperationException("object already has a RectTransform");
@@ -30,7 +32,7 @@ public static partial class DisunityHost
         }
         else
         {
-            uint kind = value switch { Rigidbody2D => 0, BoxCollider2D => 1, CircleCollider2D => 2, _ => throw new NotSupportedException($"component {typeof(T)}") };
+            uint kind = value switch { Rigidbody2D => 0, BoxCollider2D => 1, CircleCollider2D => 2, UnityEngine.Tilemaps.TilemapCollider2D => 3, _ => throw new NotSupportedException($"component {typeof(T)}") };
             ThrowIfError(NativeBindings.disunity_physics_create(WorldHandle, owner.NativeHandle, kind, &handle));
         }
         value.Handle = handle;

@@ -118,6 +118,12 @@ CheckImport("disunity_canvas_scale_read", u64, u64, AbiType("DisunityCanvasScale
 CheckImport("disunity_canvas_scale_factor", u64, u64, u32, u32, f32.MakePointerType());
 CheckImport("disunity_text_style_write", u64, u64, AbiType("DisunityTextStyle").MakePointerType());
 CheckImport("disunity_text_style_read", u64, u64, AbiType("DisunityTextStyle").MakePointerType());
+CheckImport("disunity_tilemap_create", u64, u64, u64.MakePointerType());
+CheckImport("disunity_tilemap_write", u64, u64, AbiType("DisunityTilemap").MakePointerType());
+CheckImport("disunity_tilemap_read", u64, u64, AbiType("DisunityTilemap").MakePointerType());
+CheckImport("disunity_tilemap_set_tile", u64, u64, u32, AbiType("DisunityTile").MakePointerType(), AbiType("DisunitySprite").MakePointerType());
+CheckImport("disunity_tilemap_set_tile_shape", u64, u64, u32, f32.MakePointerType(), u32.MakePointerType(), u32);
+CheckImport("disunity_tilemap_set_cells", u64, u64, AbiType("DisunityTileCell").MakePointerType(), u32);
 CheckImport("disunity_canvas_read", u64, u64, AbiType("DisunityCanvas").MakePointerType());
 CheckImport("disunity_text_write", u64, u64, f32, bytes, u32);
 CheckImport("disunity_text_read", u64, u64, bytes, u32, u32.MakePointerType(), f32.MakePointerType());
@@ -197,6 +203,7 @@ PresentationTests.Run();
 CoroutineInputTests.Run();
 
 PhysicsTests.Run();
+TilemapTests.Run();
 PhysicsMaterialTests.Run();
 
 UiTests.Run();

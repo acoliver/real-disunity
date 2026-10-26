@@ -12,14 +12,12 @@ mod shapes;
 mod sleep;
 mod solver;
 mod targets;
-mod tiles;
 
 pub use body::{Body2d, BodyType, PhysicsPlane, PhysicsSettings};
 pub use contacts::{ContactEvent, ContactPhase};
 pub use material::{PhysicsMaterial2d, PhysicsMaterialHandle};
 pub use queries::{QueryFilter, RayHit};
-pub use shapes::{Collider2d, Shape2d};
-pub use tiles::{TileCell, TileGrid, TileShape};
+pub use shapes::{Collider2d, ColliderGeometry, Shape2d};
 
 use crate::{ComponentHandle, ObjectHandle, World, WorldError};
 use geometry::Shape;

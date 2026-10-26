@@ -32,6 +32,7 @@ mod components;
 mod edits;
 mod handles;
 pub mod physics2d;
+pub mod tilemap;
 mod ui_error;
 pub use ui_error::{FontId, UiError};
 #[cfg(feature = "ui")]

@@ -1,10 +1,9 @@
 use glam::{Quat, Vec2, Vec3};
+use worldrunner_world_simulation::tilemap::{Tile, TileCell, TileCollider, TileLayout, Tilemap};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentError, LocalTransform, ObjectDesc, ParentSpace, World, WorldError,
     WorldSettings,
-    physics2d::{
-        Body2d, BodyType, Collider2d, QueryFilter, Shape2d, TileCell, TileGrid, TileShape,
-    },
+    physics2d::{Body2d, BodyType, Collider2d, ColliderGeometry, QueryFilter, Shape2d},
 };
 
 #[test]
@@ -61,7 +60,7 @@ fn rejects_nonconvex_shapes_and_duplicate_bodies_atomically() {
             w.add_component(
                 o,
                 ComponentDesc::Collider2d(Collider2d {
-                    shapes: vec![Shape2d::Polygon(points)],
+                    geometry: ColliderGeometry::Shapes(vec![Shape2d::Polygon(points)]),
                     ..Default::default()
                 })
             )
@@ -90,19 +89,27 @@ fn rotated_scaled_tile_grid_and_overlap_shape_use_world_affine_matrix() {
             ..Default::default()
         })
         .unwrap();
-    let grid = TileGrid {
-        gap: Vec2::new(0.5, 0.0),
+    let tilemap = Tilemap {
+        layout: TileLayout {
+            cell_gap: Vec2::new(0.5, 0.0),
+            ..Default::default()
+        },
+        tiles: vec![Tile {
+            collider: TileCollider::Grid,
+            ..Default::default()
+        }],
         cells: vec![TileCell {
             position: [-1, 0],
-            shape: TileShape::Grid,
+            tile: 0,
         }],
         ..Default::default()
     };
+    w.add_component(o, ComponentDesc::Tilemap(tilemap)).unwrap();
     let collider = w
         .add_component(
             o,
             ComponentDesc::Collider2d(Collider2d {
-                shapes: grid.shapes().unwrap(),
+                geometry: ColliderGeometry::Tilemap,
                 ..Default::default()
             }),
         )
@@ -147,7 +154,7 @@ fn nonplanar_and_elliptical_circle_transforms_fail_without_advancing() {
         w.add_component(
             o,
             ComponentDesc::Collider2d(Collider2d {
-                shapes: vec![Shape2d::Circle { radius: 1.0 }],
+                geometry: ColliderGeometry::Shapes(vec![Shape2d::Circle { radius: 1.0 }]),
                 ..Default::default()
             }),
         )
@@ -173,7 +180,7 @@ fn overflowed_static_geometry_returns_a_typed_error() {
     w.add_component(
         o,
         ComponentDesc::Collider2d(Collider2d {
-            shapes: vec![Shape2d::Circle { radius: 1e30 }],
+            geometry: ColliderGeometry::Shapes(vec![Shape2d::Circle { radius: 1e30 }]),
             ..Default::default()
         }),
     )

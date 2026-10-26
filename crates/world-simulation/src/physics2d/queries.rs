@@ -1,9 +1,10 @@
 use super::{
-    BodyType, Collider, PhysicsError,
+    BodyType, Collider, ColliderGeometry, PhysicsError, Shape2d,
     geometry::{self, Shape},
 };
 use crate::{ComponentDesc, ComponentHandle, ComponentSnapshot, ObjectHandle, World, WorldError};
 use glam::Vec2;
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueryFilter {
@@ -134,6 +135,31 @@ impl World {
         }
         Ok(None)
     }
+    /// A collider's own shapes, or those built from the `Tilemap` on its object.
+    fn collider_shapes<'a>(
+        &'a self,
+        object: ObjectHandle,
+        geometry: &'a ColliderGeometry,
+    ) -> Result<Cow<'a, [Shape2d]>, WorldError> {
+        if let ColliderGeometry::Shapes(shapes) = geometry {
+            return Ok(Cow::Borrowed(shapes));
+        }
+        let tilemap = self
+            .components
+            .iter(self.identity)
+            .find_map(|(_, c)| match &c.desc {
+                ComponentDesc::Tilemap(map)
+                    if c.object == object && !self.lifetime.components.contains(&c.handle) =>
+                {
+                    Some(map)
+                }
+                _ => None,
+            });
+        Ok(match tilemap {
+            Some(map) => Cow::Owned(map.collision_shapes()?),
+            None => Cow::Borrowed(&[]),
+        })
+    }
     pub(super) fn physics_colliders(&self) -> Result<Vec<Collider>, WorldError> {
         let mut out = Vec::new();
         for (_, c) in self.components.iter(self.identity) {
@@ -155,7 +181,7 @@ impl World {
             let plane = self.physics.settings.plane;
             let matrix = self.world_matrix(c.object)?;
             let layer = self.object(c.object)?.layer;
-            for shape in &desc.shapes {
+            for shape in self.collider_shapes(c.object, &desc.geometry)?.iter() {
                 if out.len() >= 8192 {
                     return Err(PhysicsError::InvalidShape.into());
                 }

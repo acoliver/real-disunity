@@ -57,7 +57,7 @@ pub enum ComponentDesc {
     FlareLayer {
         enabled: bool,
     },
-    Tilemap(crate::presentation::Tilemap),
+    Tilemap(crate::tilemap::Tilemap),
     Camera(crate::presentation::Camera),
     #[cfg(feature = "ui")]
     RectTransform(crate::ui::RectTransform),

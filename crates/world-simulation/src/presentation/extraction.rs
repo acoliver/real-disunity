@@ -68,7 +68,7 @@ pub fn extract_world(
             }
 
             ComponentDesc::Tilemap(map) if map.enabled => {
-                append_tiles(&mut result.quads, map, matrix);
+                append_tiles(&mut result.quads, &map, matrix);
             }
             ComponentDesc::Camera(camera)
                 if camera.enabled && camera_depth.is_none_or(|d| camera.depth > d) =>
@@ -89,12 +89,16 @@ pub fn extract_world(
         .sort_by_key(|q| (q.overlay, q.sorting_layer, q.sorting_order));
     Ok(result)
 }
-fn append_tiles(quads: &mut Vec<SpriteQuad>, map: crate::presentation::Tilemap, matrix: Mat4) {
-    for tile in map.tiles {
+fn append_tiles(quads: &mut Vec<SpriteQuad>, map: &crate::tilemap::Tilemap, matrix: Mat4) {
+    for &cell in &map.cells {
+        let tile = map.tile(cell);
+        let Some(sprite) = tile.sprite else {
+            continue;
+        };
         let color = std::array::from_fn(|i| map.color[i] * tile.color[i]);
         quads.push(quad(
-            tile.sprite,
-            matrix * tile.transform,
+            sprite,
+            matrix * map.tile_matrix(cell),
             color,
             false,
             false,

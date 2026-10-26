@@ -86,47 +86,6 @@ impl SpriteRenderer {
         Ok(())
     }
 }
-#[derive(Clone, Debug, PartialEq)]
-pub struct Tile {
-    pub sprite: Sprite,
-    pub transform: Mat4,
-    pub color: [f32; 4],
-}
-#[derive(Clone, Debug, PartialEq)]
-pub struct Tilemap {
-    pub enabled: bool,
-    pub tiles: Vec<Tile>,
-    pub color: [f32; 4],
-    pub sorting_layer: i32,
-    pub sorting_order: i32,
-}
-impl Default for Tilemap {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            tiles: vec![],
-            color: [1.; 4],
-            sorting_layer: 0,
-            sorting_order: 0,
-        }
-    }
-}
-impl Tilemap {
-    pub(crate) fn validate(&self) -> Result<(), WorldError> {
-        color(self.color)?;
-        if self.tiles.len() > 65_536 {
-            return Err(invalid());
-        }
-        for tile in &self.tiles {
-            tile.sprite.validate()?;
-            color(tile.color)?;
-            if !tile.transform.is_finite() || tile.transform.row(3) != glam::Vec4::W {
-                return Err(invalid());
-            }
-        }
-        Ok(())
-    }
-}
 /// What a camera draws before its content, with Unity's `CameraClearFlags` values.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u32)]
@@ -249,11 +208,7 @@ impl crate::ComponentDesc {
             Self::Sprite(renderer) => {
                 renderer.sprite = renderer.sprite.map(Sprite::register).transpose()?;
             }
-            Self::Tilemap(map) => {
-                for tile in &mut map.tiles {
-                    tile.sprite = tile.sprite.register()?;
-                }
-            }
+            Self::Tilemap(map) => map.register_sprites()?,
             _ => {}
         }
         Ok(())

@@ -3,7 +3,7 @@ use crate::{DisunityResult, callbacks::mutate, store::Session};
 use glam::Vec2;
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle,
-    physics2d::{Body2d, BodyType, Collider2d, QueryFilter, Shape2d},
+    physics2d::{Body2d, BodyType, Collider2d, ColliderGeometry, QueryFilter, Shape2d},
 };
 
 #[repr(C)]
@@ -103,7 +103,11 @@ pub unsafe extern "C" fn disunity_physics_create(
         0 => ComponentDesc::Body2d(Body2d::default()),
         1 => ComponentDesc::Collider2d(Collider2d::default()),
         2 => ComponentDesc::Collider2d(Collider2d {
-            shapes: vec![Shape2d::Circle { radius: 0.5 }],
+            geometry: ColliderGeometry::Shapes(vec![Shape2d::Circle { radius: 0.5 }]),
+            ..Default::default()
+        }),
+        3 => ComponentDesc::Collider2d(Collider2d {
+            geometry: ColliderGeometry::Tilemap,
             ..Default::default()
         }),
         _ => return DisunityResult::invalid_argument(),
@@ -231,6 +235,30 @@ pub unsafe extern "C" fn disunity_body_read(
     })
 }
 
+fn geometry(v: DisunityCollider2d) -> Result<ColliderGeometry, crate::errors::AbiError> {
+    Ok(match v.kind {
+        0 => ColliderGeometry::Shapes(vec![Shape2d::Box {
+            half_extents: Vec2::new(v.size_x, v.size_y) * 0.5,
+        }]),
+        1 => ColliderGeometry::Shapes(vec![Shape2d::Circle { radius: v.radius }]),
+        2 => ColliderGeometry::Tilemap,
+        _ => return Err("unsupported collider shape".into()),
+    })
+}
+
+fn collider(
+    session: &Session,
+    handle: u64,
+) -> Result<(ComponentHandle, Collider2d), crate::errors::AbiError> {
+    let id = component(session, handle)?;
+    match &session.native.component(id)?.desc {
+        ComponentDesc::Collider2d(c) => Ok((id, c.clone())),
+        _ => Err("component is not a collider".into()),
+    }
+}
+
+/// Writes a box (kind 0), circle (kind 1) or tilemap (kind 2) collider. A tilemap collider takes
+/// its shapes from the Tilemap on its object, so its size and radius are ignored.
 /// # Safety
 /// `value` points to one readable collider record.
 #[unsafe(no_mangle)]
@@ -247,45 +275,18 @@ pub unsafe extern "C" fn disunity_collider_write(
         if v.enabled > 1 || v.trigger > 1 {
             return Err("invalid collider flags".into());
         }
-        let shape = match v.kind {
-            0 => Shape2d::Box {
-                half_extents: Vec2::new(v.size_x, v.size_y) * 0.5,
-            },
-            1 => Shape2d::Circle { radius: v.radius },
-            _ => return Err("unsupported collider shape".into()),
+        let (id, previous) = collider(s, handle)?;
+        let value = Collider2d {
+            geometry: geometry(v)?,
+            offset: Vec2::new(v.offset_x, v.offset_y),
+            enabled: v.enabled == 1,
+            trigger: v.trigger == 1,
+            layers: v.layers,
+            ..previous
         };
-        let id = component(s, handle)?;
-        if !matches!(
-            s.native
-                .component(id)
-                .map_err(crate::errors::AbiError::from)?
-                .desc,
-            ComponentDesc::Collider2d(_)
-        ) {
-            return Err("component is not a collider".into());
-        }
-        let ComponentDesc::Collider2d(previous) = &s
-            .native
-            .component(id)
-            .map_err(crate::errors::AbiError::from)?
-            .desc
-        else {
-            unreachable!()
-        };
-        let shared_material = previous.shared_material;
         s.native
-            .set_component(
-                id,
-                ComponentDesc::Collider2d(Collider2d {
-                    shared_material,
-                    shapes: vec![shape],
-                    offset: Vec2::new(v.offset_x, v.offset_y),
-                    enabled: v.enabled == 1,
-                    trigger: v.trigger == 1,
-                    layers: v.layers,
-                }),
-            )
-            .map_err(crate::errors::AbiError::from)
+            .set_component(id, ComponentDesc::Collider2d(value))?;
+        Ok(())
     })
 }
 
@@ -301,14 +302,7 @@ pub unsafe extern "C" fn disunity_collider_read(
         return DisunityResult::invalid_argument();
     }
     mutate(world, |s| {
-        let ComponentDesc::Collider2d(c) = &s
-            .native
-            .component(component(s, handle)?)
-            .map_err(crate::errors::AbiError::from)?
-            .desc
-        else {
-            return Err("component is not a collider".into());
-        };
+        let (_, c) = collider(s, handle)?;
         let mut v = DisunityCollider2d {
             enabled: u32::from(c.enabled),
             trigger: u32::from(c.trigger),
@@ -317,16 +311,19 @@ pub unsafe extern "C" fn disunity_collider_read(
             offset_y: c.offset.y,
             ..Default::default()
         };
-        match c.shapes.as_slice() {
-            [Shape2d::Box { half_extents }] => {
-                v.size_x = half_extents.x * 2.0;
-                v.size_y = half_extents.y * 2.0;
-            }
-            [Shape2d::Circle { radius }] => {
-                v.kind = 1;
-                v.radius = *radius;
-            }
-            _ => return Err("unsupported collider shape projection".into()),
+        match &c.geometry {
+            ColliderGeometry::Shapes(shapes) => match shapes.as_slice() {
+                [Shape2d::Box { half_extents }] => {
+                    v.size_x = half_extents.x * 2.0;
+                    v.size_y = half_extents.y * 2.0;
+                }
+                [Shape2d::Circle { radius }] => {
+                    v.kind = 1;
+                    v.radius = *radius;
+                }
+                _ => return Err("unsupported collider shape projection".into()),
+            },
+            ColliderGeometry::Tilemap => v.kind = 2,
         }
         unsafe { *output = v };
         Ok(())

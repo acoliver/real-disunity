@@ -3,8 +3,8 @@ use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, ObjectHandle, ParentSpace, World, WorldError,
     WorldSettings,
     physics2d::{
-        Body2d, BodyType, Collider2d, ContactPhase, PhysicsError, PhysicsSettings, QueryFilter,
-        Shape2d, TileCell, TileGrid, TileShape,
+        Body2d, BodyType, Collider2d, ColliderGeometry, ContactPhase, PhysicsError,
+        PhysicsSettings, QueryFilter, Shape2d,
     },
 };
 
@@ -31,7 +31,7 @@ fn collider(w: &mut World, o: ObjectHandle, shape: Shape2d, offset: Vec2, trigge
     w.add_component(
         o,
         ComponentDesc::Collider2d(Collider2d {
-            shapes: vec![shape],
+            geometry: ColliderGeometry::Shapes(vec![shape]),
             offset,
             trigger,
             ..Default::default()
@@ -61,18 +61,12 @@ fn rotating_pair(trigger: bool, endpoint: bool, thin_box: bool) -> (World, Objec
     let p = Vec2::new(angle.cos(), angle.sin()) * 100.0;
     let obstacle = object(&mut w, p);
     let shape = if thin_box {
-        TileGrid {
-            cell_size: Vec2::new(0.02, 0.0002),
-            offset: Vec2::new(-0.01, -0.0001),
-            cells: vec![TileCell {
-                position: [0, 0],
-                shape: TileShape::Grid,
-            }],
-            ..Default::default()
-        }
-        .shapes()
-        .unwrap()
-        .remove(0)
+        Shape2d::Polygon(vec![
+            Vec2::new(-0.01, -0.0001),
+            Vec2::new(0.01, -0.0001),
+            Vec2::new(0.01, 0.0001),
+            Vec2::new(-0.01, 0.0001),
+        ])
     } else {
         Shape2d::Circle { radius: 0.001 }
     };
@@ -276,7 +270,7 @@ fn tiny_positive_and_zero_shapes_are_rejected_without_mutation() {
             w.add_component(
                 o,
                 ComponentDesc::Collider2d(Collider2d {
-                    shapes: vec![shape],
+                    geometry: ColliderGeometry::Shapes(vec![shape]),
                     ..Default::default()
                 })
             )

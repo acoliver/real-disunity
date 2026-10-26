@@ -1,7 +1,7 @@
 use glam::{Quat, Vec2, Vec3};
 use worldrunner_world_simulation::physics2d::{
-    Body2d, BodyType, Collider2d, ContactPhase, PhysicsError, PhysicsPlane, PhysicsSettings,
-    QueryFilter, Shape2d, TileCell, TileGrid, TileShape,
+    Body2d, BodyType, Collider2d, ColliderGeometry, ContactPhase, PhysicsError, PhysicsPlane,
+    PhysicsSettings, QueryFilter, Shape2d,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, DestroyWhen, LocalTransform, ObjectDesc, ObjectHandle,
@@ -133,7 +133,7 @@ fn swept_convex_and_circle_bodies_cannot_tunnel() {
         w.add_component(
             a,
             ComponentDesc::Collider2d(Collider2d {
-                shapes: vec![shape],
+                geometry: ColliderGeometry::Shapes(vec![shape]),
                 ..Default::default()
             }),
         )
@@ -143,58 +143,6 @@ fn swept_convex_and_circle_bodies_cannot_tunnel() {
         assert!(w.local_transform(a).unwrap().translation.x <= -0.99);
         assert!(w.contacts().iter().any(|c| c.phase == ContactPhase::Enter));
     }
-}
-
-#[test]
-fn tile_shapes_preserve_empty_and_explicit_geometry() {
-    let grid = TileGrid {
-        cells: vec![
-            TileCell {
-                position: [0, 0],
-                shape: TileShape::Grid,
-            },
-            TileCell {
-                position: [1, 0],
-                shape: TileShape::Empty,
-            },
-            TileCell {
-                position: [2, 0],
-                shape: TileShape::Convex(vec![Vec2::ZERO, Vec2::X, Vec2::Y]),
-            },
-        ],
-        ..Default::default()
-    };
-    let mut w = world();
-    let o = object(&mut w, Vec2::ZERO);
-    let c = w
-        .add_component(
-            o,
-            ComponentDesc::Collider2d(Collider2d {
-                shapes: grid.shapes().unwrap(),
-                ..Default::default()
-            }),
-        )
-        .unwrap();
-    assert_eq!(
-        w.overlap_point(Vec2::splat(0.5), QueryFilter::default())
-            .unwrap(),
-        [c]
-    );
-    assert!(
-        w.overlap_point(Vec2::new(1.5, 0.5), QueryFilter::default())
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(
-        w.overlap_point(Vec2::new(2.1, 0.1), QueryFilter::default())
-            .unwrap(),
-        [c]
-    );
-    assert!(
-        w.overlap_point(Vec2::new(2.9, 0.9), QueryFilter::default())
-            .unwrap()
-            .is_empty()
-    );
 }
 
 #[test]
@@ -324,7 +272,7 @@ fn invalid_input_and_iteration_exhaustion_fail_before_mutation() {
         w.add_component(
             o,
             ComponentDesc::Collider2d(Collider2d {
-                shapes: vec![Shape2d::Circle { radius: f32::NAN }],
+                geometry: ColliderGeometry::Shapes(vec![Shape2d::Circle { radius: f32::NAN }]),
                 ..Default::default()
             })
         )

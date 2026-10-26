@@ -35,6 +35,7 @@ pub mod scheduling;
 pub mod sprites;
 mod store;
 pub mod text_style;
+pub mod tilemap;
 #[cfg(test)]
 mod time_input_tests;
 pub mod ui;

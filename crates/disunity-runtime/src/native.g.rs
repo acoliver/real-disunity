@@ -352,6 +352,48 @@ pub struct DisunityTextStyle {
     pub a: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityTilemap {
+    pub enabled: u32,
+    pub sorting_layer: i32,
+    pub sorting_order: i32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub cell_x: f32,
+    pub cell_y: f32,
+    pub gap_x: f32,
+    pub gap_y: f32,
+    pub anchor_x: f32,
+    pub anchor_y: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityTile {
+    pub collider: u32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub m00: f32,
+    pub m01: f32,
+    pub m10: f32,
+    pub m11: f32,
+    pub tx: f32,
+    pub ty: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityTileCell {
+    pub x: i32,
+    pub y: i32,
+    pub tile: u32,
+}
+
 /// The ABI revision these records belong to.
 pub const DISUNITY_ABI_VERSION: u32 = 5;
 

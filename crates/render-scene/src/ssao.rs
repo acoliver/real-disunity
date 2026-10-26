@@ -8,6 +8,9 @@ use worldrunner_render_plan::SceneSsao;
 use worldrunner_render_post::FrameError;
 
 pub(crate) fn validate_settings(settings: &SceneSsao) -> Result<(), FrameError> {
+    settings
+        .validate()
+        .map_err(|_| FrameError::SsaoSettings("invalid occlusion settings"))?;
     if !(1..=64).contains(&settings.sample_count) {
         return Err(FrameError::SsaoSettings("sample count must be 1..=64"));
     }

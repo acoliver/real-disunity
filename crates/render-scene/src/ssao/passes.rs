@@ -1,6 +1,8 @@
 use crate::frame::metadata::FrameProduct;
 #[path = "kernels.rs"]
 mod kernels;
+#[path = "scalable.rs"]
+mod scalable;
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, FeaturePass, FrameError, PassDeclaration, PassSlot,
     PreparedFeature, ResourceRef,
@@ -128,7 +130,7 @@ impl ScreenPasses {
         views: &mut Vec<AttachmentView>,
     ) -> Result<FeatureDeclaration, FrameError> {
         let stage = &self.stages[0];
-        let resource = Self::resource(stage.slot);
+        let resource = Self::stage_resource(stage);
         let view = AttachmentView::new(resource, &stage.target)?;
         let mut pass = PassDeclaration::new(stage.slot);
         pass.color = Some(crate::compositor::attachment(resource, &view, false));
@@ -197,6 +199,14 @@ impl ScreenPasses {
         let filtered = kernels::append(device, size, uniform, normals, settings, &mut stages);
         Self { stages, filtered }
     }
+    fn stage_resource(stage: &ScreenPass) -> ResourceRef {
+        if let PassSlot::OcclusionMetadata(index) = stage.slot
+            && stage.target.format() == wgpu::TextureFormat::R32Float
+        {
+            return FrameProduct::averaged_depth(index).resource();
+        }
+        Self::resource(stage.slot)
+    }
     fn resource(slot: PassSlot) -> ResourceRef {
         match slot {
             PassSlot::DepthPyramid(index) => level(index),
@@ -219,7 +229,7 @@ impl ScreenPasses {
             effects: vec!["SSAO"],
         };
         for stage in &self.stages {
-            let resource = Self::resource(stage.slot);
+            let resource = Self::stage_resource(stage);
             let view = AttachmentView::new(resource, &stage.target)?;
             let mut pass = PassDeclaration::new(stage.slot);
             pass.color = Some(crate::compositor::attachment(resource, &view, false));
@@ -345,3 +355,11 @@ mod reference_tests;
 #[cfg(test)]
 #[path = "coarse_reference_tests.rs"]
 mod coarse_reference_tests;
+
+#[cfg(test)]
+#[path = "scalable_tests.rs"]
+mod scalable_tests;
+
+#[cfg(test)]
+#[path = "scalable_sampling_tests.rs"]
+mod scalable_sampling_tests;

@@ -54,6 +54,9 @@ pub(super) fn append(
     settings: SceneSsao,
     stages: &mut Vec<ScreenPass>,
 ) -> wgpu::Texture {
+    if matches!(settings.kernel, SceneSsaoKernel::Scalable { .. }) {
+        return super::scalable::append(device, uniform, normals, settings, stages);
+    }
     let depth = stages[0].target.clone();
     let (ao, inputs, reads) = match settings.kernel {
         SceneSsaoKernel::Hemisphere => (
@@ -61,6 +64,7 @@ pub(super) fn append(
             vec![depth.clone(), normals.clone()],
             vec![level(0), FrameProduct::normals().resource()],
         ),
+        SceneSsaoKernel::Scalable { .. } => unreachable!("handled scalable kernel"),
         SceneSsaoKernel::Spiral => {
             let levels = averaged(device, size, &depth, normals, stages);
             let indices = [0, 2, 4, 6].map(|index| index.min(levels.len() - 1));
@@ -107,7 +111,9 @@ pub(super) fn append_filter(
 ) -> wgpu::Texture {
     let axes: &[[i32; 2]] = match filter {
         SceneSsaoFilter::DepthAwareBox => &[[0, 0]],
-        SceneSsaoFilter::SeparableBilateral => &[[1, 0], [0, 1]],
+        SceneSsaoFilter::SeparableBilateral | SceneSsaoFilter::ScalableBilateral { .. } => {
+            &[[1, 0], [0, 1]]
+        }
     };
     let mut input = raw;
     let mut input_resource = ResourceRef::new("raw ambient occlusion");
@@ -119,27 +125,38 @@ pub(super) fn append_filter(
         };
         let shader = if axis == [0, 0] {
             include_str!("blur.wgsl").to_owned()
+        } else if matches!(filter, SceneSsaoFilter::ScalableBilateral { .. }) {
+            super::scalable::blur_source(filter, axis)
         } else {
             crate::ssao::bilateral::source(axis)
         };
-        let pipeline = pipeline(device, &shader);
+        let scalable = matches!(filter, SceneSsaoFilter::ScalableBilateral { .. });
+        let format = if scalable {
+            wgpu::TextureFormat::Rg16Float
+        } else {
+            wgpu::TextureFormat::R32Float
+        };
+        let pipeline = pipeline_format(device, &shader, format);
         let group = group(
             device,
             &pipeline,
-            (axis == [0, 0]).then_some(uniform),
+            (axis == [0, 0] || scalable).then_some(uniform),
             &[depth, &input],
         );
-        let target = texture(
-            device,
-            [depth.width(), depth.height()],
-            wgpu::TextureFormat::R32Float,
-        );
+        let target = texture(device, [depth.width(), depth.height()], format);
         stages.push(ScreenPass {
             slot,
             pipeline,
             group,
             target: target.clone(),
-            reads: vec![level(0), input_resource],
+            reads: vec![
+                if scalable {
+                    FrameProduct::averaged_depth(0).resource()
+                } else {
+                    level(0)
+                },
+                input_resource,
+            ],
         });
         input_resource = super::ScreenPasses::resource(slot);
         input = target;

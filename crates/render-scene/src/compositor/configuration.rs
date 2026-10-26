@@ -185,24 +185,62 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
             [1, 1],
             1,
         );
-        set.texture(
-            "AO intermediates",
-            [w, h, 1],
-            wgpu::TextureFormat::R32Float,
-            [1, 1],
-            if settings.ssao.is_some_and(|ao| {
-                ao.filter == worldrunner_render_plan::SceneSsaoFilter::SeparableBilateral
-            }) {
-                3
-            } else {
-                2
-            },
-        );
+        occlusion_allocations(settings, set);
         screen_hierarchy_allocations(settings, set);
         set.buffer("screen uniform", 224, 1);
         set.buffer("screen staging", 224, 3);
     }
     reflection_allocations(settings, set);
+}
+fn occlusion_allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
+    let [w, h] = settings.frame.size;
+    let scalable = settings.ssao.is_some_and(|ao| {
+        matches!(
+            ao.kernel,
+            worldrunner_render_plan::SceneSsaoKernel::Scalable { .. }
+        )
+    });
+    let size = if scalable {
+        [w.div_ceil(2), h.div_ceil(2), 1]
+    } else {
+        [w, h, 1]
+    };
+    set.texture(
+        "AO intermediates",
+        size,
+        if scalable {
+            wgpu::TextureFormat::Rg16Float
+        } else {
+            wgpu::TextureFormat::R32Float
+        },
+        [1, 1],
+        if settings.ssao.is_some_and(|ao| {
+            !matches!(
+                ao.filter,
+                worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox
+            )
+        }) {
+            3
+        } else {
+            2
+        },
+    );
+    if scalable {
+        let mut extent = [w, h];
+        for _ in 0..8 {
+            extent = extent.map(|side| side.div_ceil(2));
+            set.texture(
+                "averaged AO depth",
+                [extent[0], extent[1], 1],
+                wgpu::TextureFormat::R32Float,
+                [1, 1],
+                1,
+            );
+            if extent.contains(&0) || extent == [1, 1] {
+                break;
+            }
+        }
+    }
 }
 fn screen_hierarchy_allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
     let [w, h] = settings.frame.size;

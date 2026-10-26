@@ -15,8 +15,10 @@ mod composition;
 mod depth_fitting;
 mod effects;
 mod lighting;
+mod obscurance;
 pub use depth_fitting::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
 pub use lighting::{SceneDiffuseEnvironment, SceneSh9};
+pub use obscurance::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel};
 mod water;
 mod water_settings;
 pub use water::{SceneWaterBody, SceneWaterSurface};
@@ -62,8 +64,7 @@ pub use composition::{
 };
 pub use effects::{
     EFFECTS_MICRO_SCALE, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
-    SceneEffects, SceneEffectsParts, ScenePostStage, SceneShadowCascades, SceneSky, SceneSsao,
-    SceneSsaoFilter, SceneSsaoKernel, SceneSun,
+    SceneEffects, SceneEffectsParts, ScenePostStage, SceneShadowCascades, SceneSky, SceneSun,
 };
 pub use error::SceneValidationError;
 pub use geometry::{
@@ -326,7 +327,7 @@ mod tests {
     use super::*;
     use crate::scene::effects::{
         SceneAmbient, SceneAntiAlias, SceneCamera, SceneColorGrading, SceneEffectsParts,
-        SceneShadowCascades, SceneSky, SceneSsao, SceneSun,
+        SceneShadowCascades, SceneSky, SceneSun,
     };
     use crate::scene::geometry::{SceneRotation, SceneVertex};
     use crate::scene::resource::{TexelFormat, TextureColorSpace, TextureEncoding};

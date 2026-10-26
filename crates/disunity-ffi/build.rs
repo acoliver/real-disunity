@@ -12,6 +12,8 @@ fn main() {
     for input in [
         "src/abi.rs",
         "src/assets.rs",
+        "src/camera_layers.rs",
+        "src/camera_data.rs",
         "src/sprites.rs",
         "src/presentation.rs",
         "src/lib.rs",
@@ -37,6 +39,7 @@ fn main() {
     let generated = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"))
         .join("NativeBindings.g.cs");
     generate_bindings(&generated);
+    split_managed_records(&generated, &checked);
 
     build_errors::generate(generated.parent().expect("output directory"));
     generate_native_records();
@@ -65,6 +68,8 @@ fn generate_native_records() {
     for file in [
         "src/abi.rs",
         "src/assets.rs",
+        "src/camera_layers.rs",
+        "src/camera_data.rs",
         "src/sprites.rs",
         "src/presentation.rs",
         "src/lib.rs",
@@ -114,6 +119,8 @@ fn generate_bindings(generated: &std::path::Path) {
     csbindgen::Builder::default()
         .input_extern_file("src/abi.rs")
         .input_extern_file("src/assets.rs")
+        .input_extern_file("src/camera_layers.rs")
+        .input_extern_file("src/camera_data.rs")
         .input_extern_file("src/sprites.rs")
         .input_extern_file("src/presentation.rs")
         .input_extern_file("src/lib.rs")
@@ -133,4 +140,29 @@ fn generate_bindings(generated: &std::path::Path) {
         .csharp_class_accessibility("internal")
         .generate_csharp_file(generated)
         .expect("generate managed ABI bindings");
+}
+
+fn split_managed_records(generated: &std::path::Path, checked: &std::path::Path) {
+    let source = std::fs::read_to_string(generated).expect("read generated bindings");
+    let class_end = source
+        .find("\n    }\n")
+        .expect("generated import class end")
+        + 7;
+    let header_end = source
+        .find("    internal static unsafe partial class NativeBindings")
+        .expect("generated import class");
+    let records = format!("{}{}", &source[..header_end], &source[class_end..]);
+    let output = generated.with_file_name("NativeRecords.g.cs");
+    std::fs::write(&output, records.as_bytes()).expect("write generated records");
+    let tracked = checked.with_file_name("NativeRecords.g.cs");
+    println!("cargo:rerun-if-changed={}", tracked.display());
+    assert_eq!(
+        std::fs::read(&tracked).unwrap_or_default(),
+        records.as_bytes(),
+        "managed record bindings drifted; copy {} to {}",
+        output.display(),
+        tracked.display()
+    );
+    std::fs::write(generated, format!("{}\n}}\n", &source[..class_end]))
+        .expect("write generated imports");
 }

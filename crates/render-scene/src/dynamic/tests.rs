@@ -243,7 +243,7 @@ fn gpu_invalid_dynamic_inputs_leave_resident_geometry_and_textures_unchanged() {
             ..quad
         },
         DynamicQuad {
-            uv_rect: [-1.0; 4],
+            uv_rect: [f32::NAN; 4],
             ..quad
         },
         DynamicQuad {

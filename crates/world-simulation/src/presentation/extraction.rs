@@ -16,6 +16,7 @@ pub struct SpriteTextures {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpriteQuad {
+    pub lighting: super::SpriteLighting,
     pub overlay: bool,
     pub corners: [[f32; 3]; 4],
     pub uv_rect: [f32; 4],
@@ -38,6 +39,7 @@ pub fn extract_world(
     viewport: [u32; 2],
 ) -> Result<WorldRenderPlan, WorldError> {
     let snapshot = world.snapshot();
+    let lighting = super::lighting::GlobalLighting::from_world(world)?;
     let mut result = WorldRenderPlan {
         camera: None,
         camera_state: None,
@@ -55,9 +57,12 @@ pub fn extract_world(
         ]);
         let matrix = basis * world.world_matrix(component.object)?;
         match component.desc {
-            ComponentDesc::Sprite(renderer) if renderer.enabled => {
-                if let Some(quad) = extract_sprite(&renderer, world.world_matrix(component.object)?)
+            ComponentDesc::Sprite(mut renderer) if renderer.enabled => {
+                renderer.color = lighting.color(&renderer);
+                if let Some(mut quad) =
+                    extract_sprite(&renderer, world.world_matrix(component.object)?)
                 {
+                    quad.lighting = renderer.lighting;
                     result.quads.push(quad);
                 }
             }
@@ -168,6 +173,7 @@ fn quad(
             .map(|[x, z]| matrix.transform_point3(Vec3::new(x, z, 0.)).to_array());
     }
     SpriteQuad {
+        lighting: super::SpriteLighting::Unlit,
         overlay: false,
         corners,
         uv_rect,
@@ -239,6 +245,7 @@ pub fn append_ui_from(
             }
             let uv = glyph.uv;
             plan.quads.push(SpriteQuad {
+                lighting: super::SpriteLighting::Unlit,
                 overlay: text.overlay,
                 corners,
                 uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
@@ -280,12 +287,14 @@ pub fn extract_sprite(
     let basis = Mat4::from_cols_array(&[
         1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
     ]);
-    Some(quad(
+    let mut result = quad(
         sprite,
         basis * matrix,
         renderer.color,
         renderer.flip_x,
         renderer.flip_y,
         [renderer.sorting_layer, renderer.sorting_order],
-    ))
+    );
+    result.lighting = renderer.lighting;
+    Some(result)
 }

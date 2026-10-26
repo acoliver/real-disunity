@@ -97,7 +97,7 @@ public static partial class DisunityHost
     private static object? CopyField(object? value, Dictionary<object, object> remap, Dictionary<object, object> copied)
     {
         if (value == null) return null;
-        if (value is Sprite or Font) return value;
+        if (value is Sprite or Font or Material) return value;
         if (value is EngineObject) return remap.GetValueOrDefault(value, value);
         var type = value.GetType();
         if (value is Vector3 or Vector2 or Vector2Int or Quaternion or Rect or Color or Bounds || type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)) return value;

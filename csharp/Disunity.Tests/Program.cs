@@ -141,7 +141,18 @@ CheckImport("disunity_camera_create", u64, u64, u64.MakePointerType());
 CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
 CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
 CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
-Require(bindings.GetMethods(Imports).Length == 89, "unexpected native import count");
+CheckImport("disunity_camera_layer_create", u64, u64, u32, u64.MakePointerType());
+CheckImport("disunity_camera_layer_read", u64, u64, u32.MakePointerType());
+CheckImport("disunity_camera_layer_write", u64, u64, u32);
+CheckImport("disunity_audio_listener_count", u64, u32.MakePointerType());
+CheckImport("disunity_light2d_read", u64, u64, u32, f32.MakePointerType());
+CheckImport("disunity_light2d_write", u64, u64, u32, f32);
+CheckImport("disunity_camera_data_read", u64, u64, u32, u32.MakePointerType());
+CheckImport("disunity_camera_data_write", u64, u64, u32, u32);
+CheckImport("disunity_light2d_layers", u64, u64, typeof(int).MakePointerType(), u32);
+CheckImport("disunity_light2d_layers_read", u64, u64, typeof(int).MakePointerType(), u32, u32.MakePointerType());
+CheckImport("disunity_light2d_color", u64, u64, f32, f32, f32, f32);
+Require(bindings.GetMethods(Imports).Length == 100, "unexpected native import count");
 AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
 
 CheckLayout(result, 16, ("code", typeof(int), 0), ("detail", u64, 8));
@@ -152,8 +163,10 @@ CheckLayout(state, 32, ("object", u64, 0), ("x", f32, 8), ("y", f32, 12),
 CheckLayout(advance, 32, ("kind", u32, 0), ("message", u32, 4), ("ticket", u64, 8), ("script", u64, 16), ("frame", u64, 24));
 CheckLayout(clock, 24, ("delta", typeof(double), 0), ("time", typeof(double), 8), ("frame", u64, 16));
 CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
-Console.WriteLine("PASS: all 89 native import signatures and generated ABI layout expectations");
+Console.WriteLine("PASS: all 100 native import signatures and generated ABI layout expectations");
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
+DisunityHost.ConfigureNativeLibrary(args[0]);
+ParticipantRegressionTests.Run();
 LifecycleTests.Run(args[0]);
 
 ReviewRegressionTests.Run();
@@ -172,3 +185,7 @@ EnabledTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();
+
+CameraLayerTests.Run();
+Light2dTests.Run();
+CameraDataTests.Run();

@@ -150,7 +150,8 @@ impl<'a> PreparedTexture<'a> {
 /// with no `wgpu` equivalent, or contradicts the colour space the scene
 /// declared.
 pub fn prepare_texture(texture: &SceneTexture) -> Result<PreparedTexture<'_>, TextureError> {
-    match texture {
+    match texture.payload() {
+        SceneTexture::Sampled { .. } => unreachable!("payload removes sampling wrapper"),
         SceneTexture::Texels {
             format,
             width,

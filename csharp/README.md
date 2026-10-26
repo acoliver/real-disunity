@@ -1,6 +1,6 @@
 # Managed ABI and portable fixture
 
-`Disunity/NativeBindings.g.cs` is checked in. The native FFI build generates a
+`Disunity/NativeBindings.g.cs` and `Disunity/NativeRecords.g.cs` are checked in. The native FFI build generates a
 separate file in Cargo's `OUT_DIR` and compares **all bytes**, including complete
 signatures, calling conventions, and struct fields. A mismatch fails the build;
 normal builds never update the checked file. All ABI source files and the
@@ -18,6 +18,9 @@ After an intentional ABI change:
    and layouts. Copy that generated file to the checked file **explicitly**:
    `cp <printed-OUT_DIR>/NativeBindings.g.cs csharp/Disunity/NativeBindings.g.cs`
    (PowerShell: `Copy-Item <printed-OUT_DIR>/NativeBindings.g.cs csharp/Disunity/NativeBindings.g.cs`).
+   Record declarations are emitted separately into `NativeRecords.g.cs` to keep
+   both generated files within the source-size target. Review and explicitly copy
+   that file from the same output directory when its comparison fails.
    Do not guess an old build directory: use the path from this invocation.
 3. Update `crates/disunity-ffi/disunity_interface.json` for new exports and
    record the current ABI revision. Revision 2 removes the old direct frame-step export.

@@ -49,10 +49,12 @@ pub use geometry::{
     BillboardPolicy, MeshHandle, ROTATION_MICRO_SCALE, SceneMesh, SceneMeshLod, SceneObject,
     SceneRotation, SceneTransform, SceneVertex,
 };
+mod sampler;
 pub use resource::{
     MATERIAL_MICRO_SCALE, MaterialHandle, SceneAlphaMode, SceneMaterial, SceneMaterialParts,
     SceneResources, SceneTexture, TexelFormat, TextureColorSpace, TextureEncoding, TextureHandle,
 };
+pub use sampler::{TextureFilter, TextureSampler, TextureWrap};
 pub use terrain::{
     SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, TerrainLodPolicy,
 };

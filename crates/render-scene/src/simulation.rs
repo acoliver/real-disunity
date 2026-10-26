@@ -28,7 +28,6 @@ impl WorldSceneContribution {
         }
         let mut quads = vec![];
         for (index, q) in plan.quads.into_iter().enumerate() {
-            let worldrunner_render_plan::BuiltinMaterial::SpriteUnlit = q.material;
             let texture = q
                 .texture
                 .map(|id| {

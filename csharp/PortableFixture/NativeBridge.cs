@@ -31,7 +31,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind != "portable-sprites-v1" && kind != "portable-triangle-v1" && kind != "portable-load-failure-v1" && kind != "portable-callback-failure-v1" && kind != "portable-long-failure-v1")
+            if (kind != "portable-lit-sprites-v1" && kind != "portable-sprites-v1" && kind != "portable-triangle-v1" && kind != "portable-load-failure-v1" && kind != "portable-callback-failure-v1" && kind != "portable-long-failure-v1")
             {
                 return -2;
             }
@@ -42,33 +42,9 @@ public static class NativeBridge
             DisunityHost.LoadWorld();
             var behaviours = Enumerable.Range(0, 3)
                 .Select(i => DisunityHost.AddComponent(new TriangleBehaviour(i))).ToArray();
-            if (kind == "portable-sprites-v1")
-                foreach (var behaviour in behaviours)
-                {
-                    var renderer = behaviour.gameObject.AddComponent<SpriteRenderer>();
-                    renderer.sprite = DisunityHost.CreateSprite(7, 8, 8, new Rect(0, 0, 2, 4), new Vector2(0.5f, 0.5f), 2);
-                    renderer.color = new Color(0.2f, 0.4f, 0.6f, 0.5f);
-                    renderer.flipX = true;
-                    renderer.sortingLayerID = 1;
-                    renderer.sortingOrder = 2;
-                }
-            if (kind == "portable-sprites-v1")
-            {
-                var camera = DisunityHost.CreateGameObject();
-                camera.transform.position = new Vector3(0, 0, -10);
-                camera.AddComponent<Camera>();
-                var canvas = DisunityHost.CreateGameObject();
-                var rect = canvas.AddComponent<RectTransform>();
-                canvas.AddComponent<Canvas>();
-                var label = DisunityHost.CreateGameObject();
-                var child = label.AddComponent<RectTransform>();
-                child.SetParent(rect, false);
-                child.sizeDelta = new Vector2(30, 20);
-                child.anchoredPosition = new Vector2(11, -3);
-                var text = DisunityHost.CreateText(label, DisunityHost.RegisterFont(SyntheticFont.Bytes()));
-                text.text = "AB";
-                text.fontSize = 12;
-            }
+            if (kind is "portable-sprites-v1" or "portable-lit-sprites-v1") AddSprites(behaviours, kind);
+            if (kind == "portable-sprites-v1") AddCameraUi();
+            if (kind == "portable-lit-sprites-v1") SpriteLightPulse.Create();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
             DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
@@ -85,6 +61,37 @@ public static class NativeBridge
             try { DisunityHost.UnloadWorld(); } catch (Exception cleanup) { LastError += cleanup.ToString(); }
             return -3;
         }
+    }
+
+    private static void AddSprites(TriangleBehaviour[] behaviours, string kind)
+    {
+        foreach (var behaviour in behaviours)
+        {
+            var renderer = behaviour.gameObject.AddComponent<SpriteRenderer>();
+            renderer.sprite = DisunityHost.CreateSprite(7, 8, 8, new Rect(0, 0, 2, 4), new Vector2(0.5f, 0.5f), 2);
+            renderer.color = new Color(0.2f, 0.4f, 0.6f, 0.5f);
+            renderer.flipX = true;
+            renderer.sortingLayerID = 1;
+            renderer.sortingOrder = 2;
+            if (kind == "portable-lit-sprites-v1") renderer.sharedMaterial = Material.SpriteLit;
+        }
+    }
+    private static void AddCameraUi()
+    {
+        var camera = DisunityHost.CreateGameObject();
+        camera.transform.position = new Vector3(0, 0, -10);
+        camera.AddComponent<Camera>();
+        var canvas = DisunityHost.CreateGameObject();
+        var rect = canvas.AddComponent<RectTransform>();
+        canvas.AddComponent<Canvas>();
+        var label = DisunityHost.CreateGameObject();
+        var child = label.AddComponent<RectTransform>();
+        child.SetParent(rect, false);
+        child.sizeDelta = new Vector2(30, 20);
+        child.anchoredPosition = new Vector2(11, -3);
+        var text = DisunityHost.CreateText(label, DisunityHost.RegisterFont(SyntheticFont.Bytes()));
+        text.text = "AB";
+        text.fontSize = 12;
     }
 
     [UnmanagedCallersOnly]

@@ -45,6 +45,18 @@ impl LocalTransform {
 pub enum ComponentDesc {
     Transform(LocalTransform),
     Sprite(crate::presentation::SpriteRenderer),
+    GlobalLight2d(crate::presentation::GlobalLight2d),
+    ShadowCaster2d,
+    UniversalAdditionalCameraData(crate::presentation::UniversalAdditionalCameraData),
+    AudioListener {
+        enabled: bool,
+    },
+    GUILayer {
+        enabled: bool,
+    },
+    FlareLayer {
+        enabled: bool,
+    },
     Tilemap(crate::presentation::Tilemap),
     Camera(crate::presentation::Camera),
     #[cfg(feature = "ui")]
@@ -71,6 +83,12 @@ impl ComponentDesc {
             Self::Sprite(value) => value.validate(),
             Self::Tilemap(value) => value.validate(),
             Self::Camera(value) => value.validate(),
+            Self::GlobalLight2d(value) => value.validate(),
+            Self::ShadowCaster2d => Err(WorldError::InvalidComponent(
+                ComponentError::UnsupportedField("ShadowCaster2D"),
+            )),
+            Self::UniversalAdditionalCameraData(value) => value.validate(),
+            Self::AudioListener { .. } | Self::GUILayer { .. } | Self::FlareLayer { .. } => Ok(()),
             #[cfg(feature = "ui")]
             Self::RectTransform(value) => value.validate().map_err(WorldError::from),
             #[cfg(feature = "ui")]

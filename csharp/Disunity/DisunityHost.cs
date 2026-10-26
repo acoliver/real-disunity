@@ -28,6 +28,7 @@ public static partial class DisunityHost
         ThrowIfError(NativeBindings.disunity_world_create(&world));
         WorldHandle = world;
         _faulted = false;
+        _listenerDiagnostic = null;
     }
 
     public static unsafe GameObject CreateGameObject()
@@ -43,7 +44,7 @@ public static partial class DisunityHost
     public static unsafe T AddComponent<T>(T behaviour) where T : MonoBehaviour
     {
         ArgumentNullException.ThrowIfNull(behaviour);
-        return Attach(CreateGameObject(), behaviour);
+        return AttachComponent(CreateGameObject(), behaviour);
     }
 
     internal static IEnumerable<Component> Components(GameObject owner) =>
@@ -71,6 +72,7 @@ public static partial class DisunityHost
         DisunityAdvance work;
         ThrowIfError(NativeBindings.disunity_world_advance(WorldHandle, nanos, denominator, &work));
         Drain(work);
+        ReportAudioListenerDiagnostic();
     }
 
     public static unsafe void Dispatch(ulong identity, uint message)
@@ -184,6 +186,7 @@ public static partial class DisunityHost
                 Tracked.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
                 var world = WorldHandle;
                 WorldHandle = 0;
+                _listenerDiagnostic = null;
                 ThrowIfError(NativeBindings.disunity_world_destroy(world));
             }
         }

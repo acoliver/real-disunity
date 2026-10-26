@@ -31,6 +31,7 @@ pub struct DisunitySprite {
     pub flip_y: u32,
     pub sorting_layer: i32,
     pub sorting_order: i32,
+    pub lighting: u32,
 }
 
 #[repr(C)]
@@ -97,6 +98,7 @@ pub struct DisunityQuad {
     pub texture: u64,
     pub textured: u32,
     pub overlay: u32,
+    pub lighting: u32,
     pub sorting_layer: i32,
     pub sorting_order: i32,
     pub p0_x: f32,

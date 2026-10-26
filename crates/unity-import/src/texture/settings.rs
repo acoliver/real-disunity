@@ -1,7 +1,7 @@
 use crate::yaml::{Mapping, Node, Scalar};
 
 /// Texture sampling filter. Unity's importer default (`-1`) is bilinear.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Filter {
     Point,
     Bilinear,
@@ -9,7 +9,7 @@ pub enum Filter {
 }
 
 /// Texture addressing. Unity's importer default (`-1`) is repeat.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Wrap {
     Repeat,
     Clamp,

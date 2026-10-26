@@ -14,14 +14,14 @@ use crate::{
 const INPUT_MANAGER: &str = "ProjectSettings/InputManager.asset";
 
 /// The device an axis reads, Unity's `AxisType`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum AxisKind {
     KeyOrMouseButton,
     MouseMovement,
     JoystickAxis,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct InputAxis {
     pub name: String,
     pub kind: AxisKind,

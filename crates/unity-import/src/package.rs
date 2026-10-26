@@ -37,7 +37,7 @@ pub enum PackageMaterial {
     SpriteLitDefault,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum PackageFont {
     /// Unity's built-in `Arial.ttf`.
     Arial,

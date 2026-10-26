@@ -15,6 +15,12 @@ The goal for Unity projects is that you point the engine at an unmodified projec
 
 Anything the importer cannot resolve is reported as a missing reference or a typed error that names the file, object and field. The importer never invents a replacement asset.
 
+### Scene plans
+
+`plan_scene` turns a scene into the plan the managed loader builds from. It lists every object of the scene and of the prefabs the scene references, parents first, with its engine components and scripts in authored order. Prefab objects are marked as templates: the loader keeps them for `Instantiate` and never activates them. Assets, sprites, textures, package fonts and input axes are listed once and referenced by index.
+
+Script fields keep Unity's text, because only the compiled script says how to read a value. A reference in a field names a plan entry: `{"$object": i}` for a GameObject, `{"$transform": i}` for its transform, `{"$component": [i, j]}` for component `j` of object `i`, `{"$asset": i}` for a ScriptableObject or physics material, `{"$sprite": i}` and `{"$texture": i}` for texture content, and `{"$font": "Arial"}` for a package font. Planning fails on a missing reference, on references to other asset types, on unsupported components and settings, and on game objects outside every hierarchy.
+
 ## The `unity-import` tool
 
 The tool prints what the importer sees, which is the quickest way to find out how far a project gets. Paths after the project directory are relative to the project root.
@@ -32,6 +38,7 @@ cargo run -p worldrunner-unity-import -- <command> <project> [path]
 | `sprites <project> <scene>` | Every texture the scene's sprites use, and any sprite reference that does not resolve. |
 | `components <project> <scene>` | The typed view of each camera and camera participant, sprite and tilemap renderer, Rigidbody2D, 2D collider with its physics material, grid, tilemap, Canvas, RectTransform and supported package component. |
 | `axes <project>` | The project's input axes from `ProjectSettings/InputManager.asset`, in file order. |
+| `plan <project> <scene>` | The scene plan as JSON: what the managed loader builds. Planning fails, naming the object, on anything the engine cannot build as authored. |
 
 For a project with one scene holding one object, `scene` prints:
 

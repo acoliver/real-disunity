@@ -8,7 +8,7 @@ pub(crate) const CAMERA: i32 = 20;
 const RENDER_SETTINGS: i32 = 104;
 
 /// Unity's `CameraClearFlags`, with its serialized values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum ClearFlags {
     Skybox = 1,
     SolidColor = 2,
@@ -17,7 +17,7 @@ pub enum ClearFlags {
 }
 
 /// An orthographic camera covering the whole screen and every layer.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct Camera {
     pub enabled: bool,
     pub clear: ClearFlags,
@@ -116,7 +116,7 @@ fn check_whole_screen(fields: &Value) -> Result<(), &'static str> {
 }
 
 /// A component that sits beside a camera and has only an enabled flag.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum CameraParticipant {
     AudioListener = 81,
     GuiLayer = 92,

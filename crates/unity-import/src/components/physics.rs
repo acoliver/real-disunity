@@ -5,7 +5,7 @@ use crate::scene::{
 };
 
 /// `PhysicsMaterialCombine2D`: how two touching colliders' values combine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Combine {
     Average,
     /// Geometric mean, `sqrt(a * b)`.
@@ -15,7 +15,7 @@ pub enum Combine {
     Maximum,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct PhysicsMaterial {
     pub friction: f64,
     pub bounciness: f64,

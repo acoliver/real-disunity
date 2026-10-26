@@ -3,21 +3,44 @@ use crate::{
     StageTarget, fullscreen_pipeline,
 };
 
-/// Explicit display curve. Authored filmic curves are not installed.
+/// Explicit display curve, applied after exposure and before attachment encoding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToneMap {
     Reinhard,
+    /// Clamped fitted ACES approximation by Krzysztof Narkowicz (2016).
     Filmic,
 }
 
-/// Fixed linear exposure followed by component-wise Reinhard: x = max(radiance, 0) * exposure;
-/// output = x / (1 + x). The sRGB attachment alone performs transfer encoding.
+impl ToneMap {
+    pub(crate) fn constant(self) -> f64 {
+        f64::from(u8::from(self == Self::Filmic))
+    }
+    /// Display-linear reference. Exposure must satisfy the output constructor's range.
+    pub fn evaluate(self, radiance: f64, exposure: f64) -> f64 {
+        if self == Self::Reinhard {
+            return ToneMapOutput::evaluate(radiance, exposure);
+        }
+        if exposure == 0.0 || radiance.is_nan() || radiance <= 0.0 {
+            return 0.0;
+        }
+        let x = radiance * exposure;
+        // The fitted curve exceeds one by x=16; saturation avoids quadratic overflow.
+        if x >= 16.0 {
+            return 1.0;
+        }
+        crate::aces::fitted(x).clamp(0.0, 1.0)
+    }
+}
+
+/// Fixed linear exposure followed by the selected component-wise display curve.
+/// The sRGB attachment alone performs transfer encoding.
 /// Negative radiance (including negative infinity) and NaN map to zero. Positive
 /// infinity maps to the curve's limit, one. Zero exposure maps all radiance to zero.
 #[derive(Clone, Debug)]
 pub struct ToneMapOutput {
     format: wgpu::TextureFormat,
     exposure: f64,
+    tone_map: ToneMap,
     post: Option<Box<crate::hdr_post::HdrPost>>,
 }
 impl ToneMapOutput {
@@ -26,9 +49,6 @@ impl ToneMapOutput {
         exposure: f64,
         tone_map: ToneMap,
     ) -> Result<Self, PostError> {
-        if tone_map != ToneMap::Reinhard {
-            return Err(PostError::UnsupportedProfile("tone map"));
-        }
         if !matches!(
             format,
             wgpu::TextureFormat::Rgba8UnormSrgb | wgpu::TextureFormat::Bgra8UnormSrgb
@@ -41,6 +61,7 @@ impl ToneMapOutput {
         Ok(Self {
             format,
             exposure,
+            tone_map,
             post: None,
         })
     }
@@ -148,7 +169,13 @@ impl StageFactory for ToneMapOutput {
     ) -> Result<StageSet, PostError> {
         self.validate_config(device, targets.config())?;
         if let Some(post) = &self.post {
-            Ok(post.build(device, targets, slot, self.format, self.exposure))
+            Ok(post.build(
+                device,
+                targets,
+                slot,
+                self.format,
+                (self.exposure, self.tone_map),
+            ))
         } else {
             self.build(device, targets, persistent)
         }
@@ -161,25 +188,19 @@ impl StageFactory for ToneMapOutput {
     ) -> Result<StageSet, PostError> {
         self.validate_config(device, targets.config())?;
         if let Some(post) = &self.post {
-            return Ok(post.build(device, targets, 0, self.format, self.exposure));
+            return Ok(post.build(
+                device,
+                targets,
+                0,
+                self.format,
+                (self.exposure, self.tone_map),
+            ));
         }
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("fixed exposure and Reinhard output"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("tone_map.wgsl").into()),
+            label: Some("fixed exposure and display curve"),
+            source: wgpu::ShaderSource::Wgsl(crate::aces::shader(include_str!("tone_map.wgsl"))),
         });
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("HDR output source"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
-        });
+        let layout = output_layout(device);
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("HDR output"),
             bind_group_layouts: &[Some(&layout)],
@@ -194,7 +215,10 @@ impl StageFactory for ToneMapOutput {
                 vertex_entry: "vertex",
                 fragment_entry: "fragment",
                 format: self.format,
-                constants: &[("EXPOSURE", self.exposure)],
+                constants: &[
+                    ("EXPOSURE", self.exposure),
+                    ("FILMIC", self.tone_map.constant()),
+                ],
             },
         );
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -218,6 +242,22 @@ impl StageFactory for ToneMapOutput {
             resources: Resources::default(),
         })
     }
+}
+
+fn output_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("HDR output source"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }],
+    })
 }
 
 #[cfg(test)]
@@ -252,7 +292,7 @@ mod tests {
             );
         }
         assert!(
-            ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Filmic).is_err()
+            ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Filmic).is_ok()
         );
     }
 }

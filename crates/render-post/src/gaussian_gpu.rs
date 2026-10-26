@@ -28,7 +28,9 @@ impl<'a> GaussianPyramid<'a> {
             set,
             module: device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("separable Gaussian pyramid"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("gaussian.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(crate::aces::shader(include_str!(
+                    "gaussian.wgsl"
+                ))),
             }),
             sampler: device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("Gaussian bilinear clamp"),

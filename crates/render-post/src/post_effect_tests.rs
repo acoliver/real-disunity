@@ -382,6 +382,7 @@ fn gpu_nonfinite_inputs_cannot_poison_histogram_or_bloom() {
             fxaa: None,
             upscale: None,
             bloom_kernel: crate::BloomKernel::Tent,
+            fxaa_quality: crate::FxaaQuality::default(),
         },
         [9, 7],
     );
@@ -440,3 +441,6 @@ fn gpu_bloom_threshold_and_quadratic_knee_match_exact_reference() {
         }
     }
 }
+
+#[path = "display_policy_gpu_tests.rs"]
+mod display_policy_gpu_tests;

@@ -22,7 +22,9 @@ impl<'a> Filters<'a> {
             set,
             module: device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("HDR post filters"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("post_filters.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(crate::aces::shader(include_str!(
+                    "post_filters.wgsl"
+                ))),
             }),
         }
     }
@@ -31,7 +33,7 @@ impl<'a> Filters<'a> {
         targets: &FrameTargets,
         settings: &HdrPostSettings,
         exposure: &wgpu::Buffer,
-        output: (wgpu::TextureFormat, f64),
+        output: (wgpu::TextureFormat, f64, crate::ToneMap),
     ) {
         let bloom = self.bloom_source(targets, settings, exposure, output.1);
         let constants = [
@@ -43,6 +45,7 @@ impl<'a> Filters<'a> {
                 ))),
             ),
             ("FIXED", output.1),
+            ("FILMIC", output.2.constant()),
             ("ADAPTIVE", f64::from(u8::from(settings.adaptive.is_some()))),
             (
                 "INTENSITY",
@@ -69,26 +72,32 @@ impl<'a> Filters<'a> {
                 .as_ref()
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
         });
-        self.finish(targets, fxaa, upscale, ldr.as_ref(), output.0);
+        self.finish(
+            targets,
+            fxaa.map(|v| (v, settings.fxaa_quality)),
+            upscale,
+            ldr.as_ref(),
+            output.0,
+        );
     }
     fn finish(
         &mut self,
         targets: &FrameTargets,
-        fxaa: Option<f32>,
+        fxaa: Option<(f32, crate::FxaaQuality)>,
         upscale: Option<crate::UpscaleSettings>,
         ldr: Option<&wgpu::TextureView>,
         format: wgpu::TextureFormat,
     ) {
         let filtered = (fxaa.is_some() && upscale.is_some())
             .then(|| self.display_texture(targets.config().size));
-        if let Some(weight) = fxaa {
+        if let Some((weight, quality)) = fxaa {
             self.pass(FilterPass {
                 entry: "fxaa",
                 level: 0,
                 source: ldr.unwrap(),
                 lower: None,
                 exposure: None,
-                constants: &[("FXAA", weight.into())],
+                constants: &quality.constants(weight),
                 format: filtered
                     .as_ref()
                     .map_or(format, |_| wgpu::TextureFormat::Rgba32Float),

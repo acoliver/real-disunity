@@ -22,14 +22,26 @@ For a level with radius `r > 0`, the discrete weights are `w(i) = exp(-i^2 / (2 
 
 Levels are blurred from the coarsest to the finest. The horizontal pass convolves the level with its weights. The vertical pass convolves the horizontal result, multiplies it by the level tint and weight, and adds a bilinear sample of the next coarser level's result, if any. The tone stage samples the level-zero result bilinearly at each output pixel and multiplies it by `Bloom::intensity`. The CPU computes the weights; the shader reads them from a storage buffer.
 
+## Tone mapping
+
+`ToneMap::Filmic` uses Krzysztof Narkowicz's [ACES Filmic Tone Mapping Curve](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/), published January 6, 2016. For each exposed RGB channel `x`, the fitted display curve is
+
+`f(x) = clamp(x * (2.51*x + 0.03) / (x * (2.43*x + 0.59) + 0.14), 0, 1)`.
+
+Bloom is composed into sanitized radiance before exposure multiplication and evaluation of the curve. Negative and NaN radiance map to zero. Positive infinity maps to one at positive exposure; zero exposure maps it to zero. This component-wise fit does not include the full ACES color-space transforms. The unclamped rational fit tends to `2.51/2.43`; the clamped display curve tends to one. `aces.rs` shares coefficients between the CPU reference and generated WGSL. Bloom extraction retains its existing unclamped fit.
+
 ## FXAA
 
-Use `(R + 2G + B) / 4` as a display-linear luminance proxy. The coefficients favor green and sum to one. A three-by-three neighborhood supplies minimum and maximum luminance. Skip filtering when contrast is at most `max(1/64, maximum/10)`.
+Use `Y = (R + 2G + B) / 4` as a display-linear luminance proxy. The coefficients favor green and sum to one. `FxaaQuality::luminance` defaults to `FxaaLuminance::Linear`. Selecting `FxaaLuminance::Srgb` instead applies the scalar sRGB OETF to `Y` before contrast and gradient calculations: `12.92*Y` for `Y <= 0.0031308`, otherwise `1.055*Y^(1/2.4) - 0.055`. RGB samples remain display-linear in either mode; the final sRGB attachment performs the output encoding once.
+
+A three-by-three neighborhood supplies minimum and maximum luminance in the selected domain. Skip filtering when contrast is at most `max(minimum_threshold, maximum * edge_threshold)`. The absolute `minimum_threshold` defaults to `1/64`; the relative `edge_threshold` defaults to `0.1`. At that relative default the shader retains division by ten, preserving the original `max(1/64, maximum/10)` arithmetic. The absolute threshold is measured in the selected luminance domain.
 
 Compute a gradient from right minus left and bottom minus top, using cross-axis coefficients `[1,2,1]`. Rotate the gradient by a right angle. Normalize this tangent by its largest absolute component. A zero gradient preserves the original pixel.
 
-Sample bilinearly at tangent offsets of plus and minus 1.5 texels. Give the original RGB weight one half and each side sample weight one quarter. The sum is one. Blend that result with the original RGB using the existing FXAA strength and preserve original alpha. The luma proxy, contrast cutoff and sample reach are choices of this implementation, not a claim to reproduce an FXAA quality preset.
+Sample bilinearly at tangent offsets of plus and minus 1.5 texels. Give the original RGB weight one half and each side sample weight one quarter. The sum is one. Blend that result with the original RGB using `HdrPostSettings::fxaa` strength multiplied by `FxaaQuality::subpixel_blend`, which defaults to one, and preserve original alpha. The multiplier scales this kernel's existing blend; it does not add a separate subpixel estimator. All three numeric quality controls must be finite and in `[0,1]`. Quality settings do not enable FXAA when its optional strength is absent or zero. The luma proxy, contrast cutoff and sample reach are choices of this implementation, not a claim to reproduce an FXAA quality preset.
 
 ## Verification
 
 `filter_reference.rs` contains a test-only scalar reference. `filter_reference_gpu_tests.rs` compares complete output bytes for bloom extraction, reduction, reconstruction and FXAA, including clamped borders, odd FXAA extents, strength endpoints and a single-texel image. Byte-encoded fixtures assert distance from quantization half-integers. `filter_hand_computed_gpu_tests.rs` adds hand-computed odd-size bloom reconstruction values and channel-varying FXAA cases below, at and above both contrast cutoffs, with horizontal and vertical tangents. Those expectations are exactly representable in binary16 and use complete byte equality. Existing post-chain, exposure, bloom energy and edge-behavior tests remain independently applicable.
+
+`display_policy_gpu_tests.rs` checks the Filmic tone paths, transfer, alpha and disabled-effect stage identities. Its ramp paints the resolved texture directly at configured sample counts one and four, so that loop covers post-resolve tone processing, not MSAA resolution. Existing resolve tests cover the resolve operation.

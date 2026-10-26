@@ -79,20 +79,36 @@ pub(super) fn upsample(high: &Image, low: &Image, uv: [f32; 2]) -> [f32; 4] {
     c[3] = 1.0;
     c
 }
-fn luma(c: [f32; 4]) -> f32 {
-    (c[0] + 2.0 * c[1] + c[2]) * 0.25
+fn luma(c: [f32; 4], transfer: crate::FxaaLuminance) -> f32 {
+    let v = (c[0] + 2.0 * c[1] + c[2]) * 0.25;
+    match transfer {
+        crate::FxaaLuminance::Linear => v,
+        crate::FxaaLuminance::Srgb if v <= 0.003_130_8 => v * 12.92,
+        crate::FxaaLuminance::Srgb => 1.055 * v.powf(1.0 / 2.4) - 0.055,
+    }
 }
 pub(super) fn fxaa(image: &Image, uv: [f32; 2], amount: f32) -> [f32; 4] {
+    fxaa_quality(image, uv, amount, crate::FxaaQuality::default())
+}
+pub(super) fn fxaa_quality(
+    image: &Image,
+    uv: [f32; 2],
+    amount: f32,
+    q: crate::FxaaQuality,
+) -> [f32; 4] {
     let center = image.sample(uv);
-    let mut minimum = luma(center);
+    let mut minimum = luma(center, q.luminance);
     let mut maximum = minimum;
     let mut gradient = [0.0; 2];
     for y in -1_i16..=1 {
         for x in -1_i16..=1 {
-            let value = luma(image.sample([
-                uv[0] + f32::from(x) / f32::from(image.size[0]),
-                uv[1] + f32::from(y) / f32::from(image.size[1]),
-            ]));
+            let value = luma(
+                image.sample([
+                    uv[0] + f32::from(x) / f32::from(image.size[0]),
+                    uv[1] + f32::from(y) / f32::from(image.size[1]),
+                ]),
+                q.luminance,
+            );
             minimum = minimum.min(value);
             maximum = maximum.max(value);
             gradient[0] += value * f32::from(x) * if y == 0 { 2.0 } else { 1.0 };
@@ -100,7 +116,12 @@ pub(super) fn fxaa(image: &Image, uv: [f32; 2], amount: f32) -> [f32; 4] {
         }
     }
     let norm = gradient[0].abs().max(gradient[1].abs());
-    if maximum - minimum <= (1.0 / 64.0_f32).max(maximum / 10.0) || norm == 0.0 {
+    let relative = if q.edge_threshold.to_bits() == 0.1_f32.to_bits() {
+        maximum / 10.0
+    } else {
+        maximum * q.edge_threshold
+    };
+    if maximum - minimum <= q.minimum_threshold.max(relative) || norm == 0.0 {
         return center;
     }
     let delta = [
@@ -110,7 +131,7 @@ pub(super) fn fxaa(image: &Image, uv: [f32; 2], amount: f32) -> [f32; 4] {
     let negative = image.sample([uv[0] - delta[0], uv[1] - delta[1]]);
     let positive = image.sample([uv[0] + delta[0], uv[1] + delta[1]]);
     let filtered = std::array::from_fn(|i| center[i] * 0.5 + (negative[i] + positive[i]) * 0.25);
-    let mut result = blend(center, filtered, amount);
+    let mut result = blend(center, filtered, amount * q.subpixel_blend);
     result[3] = center[3];
     result
 }

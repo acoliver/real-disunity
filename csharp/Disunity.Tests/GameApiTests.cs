@@ -76,6 +76,10 @@ internal static class GameApiTests
         catch (ArgumentException) { }
         var marker = value.AddComponent<Marker>();
         Require(ReferenceEquals(UnityEngine.Object.FindFirstObjectByType<Marker>(), marker), "native eligibility for type lookup");
+        Require(new Vector2(1, -2.5f).ToString() == "(1.00, -2.50)" && new Vector3(1, 2, 3).ToString() == "(1.00, 2.00, 3.00)",
+            "vectors print as Unity prints them");
+        Require(new Vector2Int(3, -4).ToString() == "(3, -4)" && Quaternion.identity.ToString() == "(0.00000, 0.00000, 0.00000, 1.00000)"
+            && new Color(1, 0, 0.5f, 1).ToString() == "RGBA(1.000, 0.000, 0.500, 1.000)", "integer vectors, rotations and colors print as Unity prints them");
         value.transform.localScale = new(2, 3, 4);
         Require(value.transform.localScale == new Vector3(2, 3, 4), "native scale round trip");
         var clone = UnityEngine.Object.Instantiate(value, new Vector3(4, 5, 6), Quaternion.identity);

@@ -7,6 +7,8 @@ public record struct Color(float r, float g, float b, float a = 1)
 {
     public static Color white => new(1, 1, 1, 1);
     public static Color clear => new(0, 0, 0, 0);
+    /// <summary>Unity's format, three decimals per channel.</summary>
+    public override readonly string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture, "RGBA({0:F3}, {1:F3}, {2:F3}, {3:F3})", r, g, b, a);
 }
 public readonly record struct Bounds(Vector3 center, Vector3 size);
 

@@ -12,6 +12,8 @@ public record struct Vector2(float x, float y)
     public float sqrMagnitude => x * x + y * y;
     public float magnitude => MathF.Sqrt(x * x + y * y);
     public Vector2 normalized => magnitude == 0 ? zero : this / magnitude;
+    /// <summary>Unity's format, two decimals per component.</summary>
+    public override readonly string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture, "({0:F2}, {1:F2})", x, y);
     public static Vector2 operator +(Vector2 a, Vector2 b) => new(a.x + b.x, a.y + b.y);
     public static Vector2 operator -(Vector2 a, Vector2 b) => new(a.x - b.x, a.y - b.y);
     public static Vector2 operator -(Vector2 a) => new(-a.x, -a.y);

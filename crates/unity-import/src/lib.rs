@@ -6,6 +6,7 @@
 
 pub mod components;
 pub mod guid;
+pub mod package;
 pub mod project;
 pub mod scene;
 pub mod texture;
@@ -15,6 +16,7 @@ pub use components::{
     Combine, ComponentError, Grid, PhysicsMaterial, RendererMaterial, Tile, Tilemap,
 };
 pub use guid::{Guid, ObjectRef, ReferenceError};
+pub use package::{PackageAsset, PackageFont, PackageMaterial, PackageScript};
 pub use project::{Asset, ImportError, Project};
 pub use scene::{
     GameObject, Object, ObjectId, Origin, Reference, Scene, SceneError, Source, Transform, Value,

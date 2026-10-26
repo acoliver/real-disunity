@@ -1,4 +1,5 @@
 use super::ObjectId;
+use crate::package::PackageAsset;
 use crate::{
     guid::Guid,
     yaml::{Node, Scalar},
@@ -18,6 +19,8 @@ pub enum Value {
 pub enum Reference {
     Null,
     Object(ObjectId),
+    /// A known asset from Unity itself or a package, which is not a file in the project.
+    Package(PackageAsset),
     /// An asset the scene does not expand, such as a texture, script or built-in resource.
     External {
         guid: Guid,

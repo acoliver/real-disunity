@@ -10,6 +10,7 @@ var games = args.Skip(1)
 LoaderRules.Run();
 PongScene.Run(games["pong"]);
 BreakoutScene.Run(games["breakout"]);
+SnakeScene.Run(games["snake"]);
 
 internal sealed record Game(string Plan, Assembly Scripts)
 {

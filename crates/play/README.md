@@ -24,11 +24,11 @@ Keyboard input from the window works the same way as scheduled keys. Pong's left
 
 The engine library is found through `DISUNITY_FFI_LIBRARY` or beside the `play` executable, where `cargo build -p worldrunner-disunity-ffi` puts it. Builds go to `target/play/<game>`. The command needs the .NET 8 SDK and system Git, and network access the first time a game is fetched.
 
-Settings the engine does not reproduce and input axes it cannot deliver are printed when the scene loads. Snake does not load yet: its scene uses a sprite from Unity's 2D package whose metrics are unconfirmed.
+Settings the engine does not reproduce and input axes it cannot deliver are printed when the scene loads. Snake is steered with W, A, S and D.
 
 ## Tests
 
-`tests/play_window.rs` plays Pong and Breakout in a 480x270 window and checks the captured pixels. It needs an X display; run it as the lavapipe CI job does:
+`tests/play_window.rs` plays all three games in a 480x270 window and checks the captured pixels. It needs an X display; run it as the lavapipe CI job does:
 
 ```sh
 env -u WAYLAND_DISPLAY xvfb-run --auto-servernum cargo test -p worldrunner-play --test play_window

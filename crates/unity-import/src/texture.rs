@@ -5,6 +5,7 @@
 //! use to reference them.
 
 mod image;
+mod package;
 mod physics;
 mod settings;
 mod sprites;
@@ -59,8 +60,11 @@ pub struct Texture {
 }
 
 /// Imports the texture asset `guid`: its settings, decoded image and sprites.
+/// A texture the project does not hold may be a known package texture.
 pub fn import_texture(project: &Project, guid: Guid) -> Result<Texture, TextureError> {
-    let asset = project.asset(guid).ok_or(TextureError::Missing(guid))?;
+    let Some(asset) = project.asset(guid) else {
+        return Texture::package(guid).ok_or(TextureError::Missing(guid));
+    };
     let path = asset.path.clone();
     let meta = project.read_plain(&path.with_extension(meta_extension(&path)))?;
     let importer = meta

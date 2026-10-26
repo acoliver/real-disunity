@@ -156,6 +156,9 @@ pub(super) fn sprite_index(
     match reference {
         Reference::Null => Ok(None),
         Reference::External { guid, file_id } => planner.sprite(owner, *guid, *file_id).map(Some),
+        Reference::Package(PackageAsset::Sprite(sprite)) => planner
+            .sprite(owner, sprite.texture_guid(), sprite.file_id())
+            .map(Some),
         other => Err(planner
             .scene
             .component_error(owner, format!("references {other:?} as a sprite"))

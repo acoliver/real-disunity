@@ -73,12 +73,13 @@ uses the native image selected by that host. SDK discovery settings belong to th
 invoking build/test environment, not engine policy.
 
 `crates/disunity-runtime/tests/original_scenes.rs` plays the original games from
-their scenes. It fetches Pong and Breakout with `original-games`, writes their
+their scenes. It fetches the three games with `original-games`, writes their
 plans with `unity-import plan`, compiles each game's scripts unchanged with the
 `csharp/OriginalGames` projects, then runs `Disunity.SceneTests` against the
 native library. Those tests check Unity's field binding rules on synthetic
 plans, then load each game and play it: Pong's launch, paddle axes and scoring
-through its scene-wired event, and Breakout's prefab instantiation and tile walls.
+through its scene-wired event, Breakout's prefab instantiation and tile walls,
+and Snake's configured grid and tick rate, steering and growth.
 
 `Disunity.Play` is the bridge the `play` command (`crates/play`) boots. Its `Run`
 reads a request naming a scene plan, the compiled game scripts and font files,

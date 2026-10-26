@@ -14,6 +14,7 @@ pub enum PackageAsset {
     Script(PackageScript),
     Material(PackageMaterial),
     Font(PackageFont),
+    Sprite(PackageSprite),
 }
 
 /// Engine and package component types that scenes reference by script.
@@ -41,6 +42,35 @@ pub enum PackageMaterial {
 pub enum PackageFont {
     /// Unity's built-in `Arial.ttf`.
     Arial,
+}
+
+/// Sprites that ship in Unity packages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum PackageSprite {
+    /// The `Square` that the built-in 2D Sprite package 1.0.0 creates from the
+    /// Create > 2D > Sprites menu, in its `v2/Square.png`.
+    Square,
+}
+
+impl PackageSprite {
+    /// The GUID of the texture the sprite belongs to.
+    pub fn texture_guid(self) -> Guid {
+        match self {
+            Self::Square => SPRITE_SQUARE,
+        }
+    }
+
+    /// The fileID references to the sprite use.
+    pub fn file_id(self) -> i64 {
+        match self {
+            Self::Square => SQUARE_SPRITE,
+        }
+    }
+
+    /// The package sprite whose texture is `guid`, if one is known.
+    pub fn of_texture(guid: Guid) -> Option<Self> {
+        (guid == SPRITE_SQUARE).then_some(Self::Square)
+    }
 }
 
 impl PackageScript {
@@ -85,10 +115,16 @@ const SOURCE_SCRIPT: i64 = 11_500_000;
 /// The fileID of the material in a `.mat` file.
 const MATERIAL: i64 = 2_100_000;
 
+/// `Editor/ObjectMenuCreation/DefaultAssets/Textures/v2/Square.png` in `com.unity.2d.sprite`
+/// 1.0.0, built into Unity 6000.3.5f2, and its one sprite's `internalID`.
+const SPRITE_SQUARE: Guid = guid(0x3119_25a0_02f4_447b_3a28_9271_69b8_3ea6);
+const SQUARE_SPRITE: i64 = 7_482_667_652_216_324_306;
+
 /// Fixed identities. Built-in Tile is named by Breakout's tile asset's own
 /// `m_EditorClassIdentifier`. The URP entries are the GUIDs in URP 17's public package `.meta`
-/// files, reported on issue #70. The scenes that use them hold exactly those types' fields.
-const FIXED: [(Guid, i64, PackageAsset); 6] = [
+/// files, reported on issue #70. The scenes that use them hold exactly those types' fields. The
+/// 2D Sprite package's Square is the one asset of its own `.meta` file in the editor build.
+const FIXED: [(Guid, i64, PackageAsset); 7] = [
     (
         BUILTIN_EXTRA,
         13_312,
@@ -118,6 +154,11 @@ const FIXED: [(Guid, i64, PackageAsset); 6] = [
         guid(0xa97c_1056_38bd_f8b4_a865_0670_310a_4cd3),
         MATERIAL,
         PackageAsset::Material(PackageMaterial::SpriteLitDefault),
+    ),
+    (
+        SPRITE_SQUARE,
+        SQUARE_SPRITE,
+        PackageAsset::Sprite(PackageSprite::Square),
     ),
 ];
 

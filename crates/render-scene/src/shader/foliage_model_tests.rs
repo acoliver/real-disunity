@@ -1,4 +1,5 @@
 use super::ENVIRONMENT_WGSL;
+use super::foliage_reference_tests::{ROUNDING_ERROR, TRIG_ERROR};
 use super::gpu_math_tests::evaluate_source;
 use crate::device::GpuContext;
 use glam::DVec3;
@@ -56,20 +57,30 @@ fn authored_basis_pins_oblique_parallel_and_radial_stretch_and_tangents() {
         let expected = integrate(sample, force, curvature);
         for (a, e) in actual.iter().zip(expected.to_array()) {
             assert!(
-                (f64::from(*a) - e).abs() < 2e-6,
+                // Each of the two unit authored directions carries epsilon/curvature.
+                (f64::from(*a) - e).abs() < 2.0 * TRIG_ERROR / curvature + ROUNDING_ERROR,
                 "{sample:?}, {force:?}: {actual:?} vs {expected:?}"
             );
         }
         let body = format!(
-            "let sample = {}; let force = {}; let unit = normalize(sample); let delta = 0.001; result[0] = vec4((scene_arc(sample + delta * unit, force, {curvature}).xyz - scene_arc(sample - delta * unit, force, {curvature}).xyz) / (2.0 * delta), 1.0);",
+            "let sample = {}; let force = {}; let unit = normalize(sample); let delta = 0.125; result[0] = vec4((scene_arc(sample + delta * unit, force, {curvature}).xyz - scene_arc(sample - delta * unit, force, {curvature}).xyz) / (2.0 * delta), 1.0);",
             literal(sample),
             literal(force)
         );
         let tangent = evaluate(&context, &body);
         let angle = (sample.length() * curvature).min(std::f64::consts::FRAC_PI_2);
         let expected = sample.normalize() * angle.cos() + force.normalize() * angle.sin();
+        // Two endpoints amplify arc error by 1/delta. A wider central
+        // difference keeps that bound useful; truncation <= (k*delta)^2/3
+        // for the sum of two unit tangent directions. No sample crosses the cap.
+        let tolerance = 2.0 * TRIG_ERROR / (curvature * 0.125)
+            + (curvature * 0.125).powi(2) / 3.0
+            + ROUNDING_ERROR;
         for (a, e) in tangent.iter().zip(expected.to_array()) {
-            assert!((f64::from(*a) - e).abs() < 0.0003);
+            assert!(
+                (f64::from(*a) - e).abs() < tolerance,
+                "sample={sample:?}, force={force:?}: actual={tangent:?}, expected={expected:?}"
+            );
         }
         if sample.dot(force) > 0.0 && angle < std::f64::consts::FRAC_PI_2 {
             assert!(expected.length() > 1.0);
@@ -107,11 +118,24 @@ fn zero_and_small_force_are_straight_through_material_vertex() {
         "material.foliage_extent_strength_phase.z = 0.0;",
         "material.wind_clock.y = 750000u; material.foliage_primary.y = bitcast<u32>(1.0);",
     ] {
+        let oscillator_zero = settings.starts_with("material.wind_clock");
+        // sin(-pi/2) may differ from -1 by epsilon. Keep tiny radial extents
+        // for exact zero force, but use extent 1 for the approximate oscillator
+        // zero: otherwise its residual is amplified by 1/extent^2.
+        let radial_extent = if oscillator_zero { 1.0 } else { 0.001 };
         for axis in ["vec3(0.0,0.0,1.0)", "normalize(vec3(1.0,2.0,3.0))"] {
             let body = format!(
-                "{MATERIAL_ENTRY} {settings} material.foliage_axis_curve = vec4({axis},1.0); material.foliage_extent_strength_phase.y = 0.001; vertex.position = vec3(1.0,0.0,2.0); let before = transform_vertex(vertex,instance); let after = material_vertex(vertex,instance); result[0] = vec4(after.world_position - before.world_position, 0.0);"
+                "{MATERIAL_ENTRY} {settings} material.foliage_axis_curve = vec4({axis},1.0); material.foliage_extent_strength_phase.y = {radial_extent}; vertex.position = vec3(1.0,0.0,2.0); let before = transform_vertex(vertex,instance); let after = material_vertex(vertex,instance); result[0] = vec4(after.world_position - before.world_position, 0.0);"
             );
-            assert_eq!(evaluate(&context, &body), vec![0.0; 4]);
+            let actual = evaluate(&context, &body);
+            if oscillator_zero {
+                // |p|^2=5; axial curvature <= epsilon/4, radial <= epsilon.
+                // Center plus rotation <= 2*5*epsilon/4; detail <= 5*epsilon.
+                let tolerance = 7.5 * TRIG_ERROR + ROUNDING_ERROR;
+                assert!(actual.iter().all(|v| f64::from(*v).abs() < tolerance));
+            } else {
+                assert_eq!(actual, vec![0.0; 4]);
+            }
         }
     }
     let mut previous = 1.0_f32;
@@ -165,7 +189,11 @@ fn billboard_wind_keeps_instance_axis_and_offset_hinge() {
             let actual = evaluate(&context, &body);
             for (a, e) in actual.iter().zip(expected.to_array()) {
                 assert!(
-                    (f64::from(*a) - e).abs() < 2e-6,
+                    // Arc error plus the three Rodrigues rotation terms.
+                    (f64::from(*a) - e).abs()
+                        < 2.0 * TRIG_ERROR / curvature
+                            + 3.0 * attachment.length() * TRIG_ERROR
+                            + ROUNDING_ERROR,
                     "mode={mode}, point={point:?}: {actual:?} vs {expected:?}"
                 );
             }

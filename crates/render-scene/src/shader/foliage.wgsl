@@ -29,7 +29,10 @@ fn scene_band(seed: vec3<f32>, band: vec4<u32>, time: u32, phase: f32) -> f32 {
     let frequency = bitcast<f32>(band.w);
     let period = u32(2.0 * PI / frequency * 1000.0);
     let angle = f32(time % period) / 1000.0 * frequency;
-    return 1.0 + sin(angle + wrapped + phase) * bitcast<f32>(band.y);
+    // WGSL only bounds sin accuracy on [-pi, pi]; reduce the complete phase.
+    let combined = angle + wrapped + phase;
+    let reduced = combined - floor((combined + PI) / (2.0 * PI)) * (2.0 * PI);
+    return 1.0 + sin(clamp(reduced, -PI, PI)) * bitcast<f32>(band.y);
 }
 
 struct SceneBendInput {

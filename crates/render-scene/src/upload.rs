@@ -110,14 +110,10 @@ pub fn material_bind_group_layout(device: &Device) -> BindGroupLayout {
 /// need to blend. Every authored terrain texture shares one size per map kind,
 /// so the layers stack without resampling.
 pub fn terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
-    terrain_layout(device, false)
+    terrain_layout(device, false, false)
 }
 
-pub(crate) fn cached_terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
-    terrain_layout(device, true)
-}
-
-fn terrain_layout(device: &Device, cached: bool) -> BindGroupLayout {
+pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> BindGroupLayout {
     let mut entries = Vec::with_capacity(6);
     entries.push(BindGroupLayoutEntry {
         binding: 0,
@@ -157,6 +153,18 @@ fn terrain_layout(device: &Device, cached: bool) -> BindGroupLayout {
         ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
         count: None,
     });
+    for binding in 8..if layered { 11 } else { 8 } {
+        entries.push(BindGroupLayoutEntry {
+            binding,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        });
+    }
     if cached {
         entries.extend(cached_terrain_entries());
     }

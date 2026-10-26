@@ -85,6 +85,7 @@ pub struct ScenePipelines {
     pipelines: [RenderPipeline; 4],
     terrain: RenderPipeline,
     pub(crate) cached_terrain: RenderPipeline,
+    pub(crate) layered: Option<pages::LayeredPipelines>,
     pub(crate) cached_terrain_layout: BindGroupLayout,
     unlit_alpha: RenderPipeline,
     specialization: specular::Specialization,
@@ -201,11 +202,7 @@ impl ScenePipelines {
         let vertex_attributes = vertex_attributes();
         let instance_attributes = instance_attributes();
         let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
-        let targets = if source.contains("struct ReflectionOutput") {
-            vec![color_targets(color_format)[0].clone(); 3]
-        } else {
-            color_targets(color_format).to_vec()
-        };
+        let targets = source_targets(source, color_format);
 
         let pipelines = build_objects(
             device,
@@ -216,7 +213,7 @@ impl ScenePipelines {
             (samples, &constants),
         );
         groups[1] = Some(&terrain_layout);
-        let (terrain, cached_terrain_layout, cached_terrain) = pages::build_cached(
+        let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
             device,
             &groups,
             terrain_source,
@@ -225,6 +222,7 @@ impl ScenePipelines {
             (samples, &constants),
         );
         Self {
+            layered,
             specialization: specular::Specialization::new(
                 device,
                 source,
@@ -617,4 +615,12 @@ fn scene_layout(
         bind_group_layouts: groups,
         immediate_size: 0,
     })
+}
+
+fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
+    if source.contains("struct ReflectionOutput") {
+        vec![color_targets(format)[0].clone(); 3]
+    } else {
+        color_targets(format).to_vec()
+    }
 }

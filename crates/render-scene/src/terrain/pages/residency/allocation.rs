@@ -9,18 +9,20 @@ use worldrunner_render_plan::TerrainPageSettings;
 pub(super) fn allocations(
     settings: TerrainPageSettings,
     slots: u32,
+    products: u32,
+    composition_bytes: u64,
 ) -> Result<AllocationSet, ConfigurationError<DriverAllocationError>> {
     let layers = slots
-        .checked_mul(2)
+        .checked_mul(products)
         .filter(|_| slots > 0)
         .ok_or(ConfigurationError::Invalid("page slot count"))?;
-    if settings
-        .page_bytes()
+    let page_bytes = settings.page_bytes() / 2 * u64::from(products);
+    if page_bytes
         .checked_mul(u64::from(slots))
         .is_none_or(|bytes| bytes > settings.parts().resident_bytes)
     {
         return Err(ConfigurationError::Budget {
-            required: settings.page_bytes().saturating_mul(u64::from(slots)),
+            required: page_bytes.saturating_mul(u64::from(slots)),
             budget: settings.parts().resident_bytes,
         });
     }
@@ -30,7 +32,7 @@ pub(super) fn allocations(
             "page extent exceeds exact GPU reduction range",
         ));
     }
-    let uploads = settings.parts().upload_bytes_per_frame / settings.page_bytes();
+    let uploads = settings.parts().upload_bytes_per_frame / page_bytes;
     let buffers = u32::try_from(
         uploads
             .checked_mul(2)
@@ -51,9 +53,21 @@ pub(super) fn allocations(
     // Packed composition output and its executor upload staging coexist.
     set.buffer(
         "terrain page input and staging",
-        u64::from(w) * u64::from(h) * 8,
+        u64::from(w) * u64::from(h) * if products == 3 { 16 } else { 8 },
         buffers,
     );
+    if products == 3 {
+        set.buffer(
+            "terrain layered source and staging",
+            composition_bytes,
+            buffers,
+        );
+        set.buffer(
+            "terrain layered positions and staging",
+            u64::from(w) * u64::from(h) * 8,
+            buffers,
+        );
+    }
     Ok(set)
 }
 
@@ -62,6 +76,7 @@ pub(super) fn create(
     authority: &SubmissionAuthority,
     settings: TerrainPageSettings,
     slots: u32,
+    products: u32,
 ) -> Result<Storage, DriverAllocationError> {
     let scope = AllocationScope::new(device);
     let [width, height] = settings.extent();
@@ -70,7 +85,7 @@ pub(super) fn create(
         size: wgpu::Extent3d {
             width,
             height,
-            depth_or_array_layers: slots * 2,
+            depth_or_array_layers: slots * products,
         },
         mip_level_count: u32::try_from(settings.mip_extents().len()).expect("mip count"),
         sample_count: 1,
@@ -86,7 +101,8 @@ pub(super) fn create(
         texture,
         state: Rc::new(RefCell::new(PageState::new(
             slots,
-            settings.parts().upload_bytes_per_frame / settings.page_bytes(),
+            settings.parts().upload_bytes_per_frame
+                / (settings.page_bytes() / 2 * u64::from(products)),
             authority,
         ))),
         owner: FrameOwner::new((), authority),

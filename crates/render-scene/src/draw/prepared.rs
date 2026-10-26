@@ -33,6 +33,7 @@ pub(super) struct PreparedTerrain {
     pub palettes: [Vec<crate::texture::OwnedPreparedTexture>; 3],
     pub bounds: visibility::Bounds,
     pub elevation: [f32; 2],
+    pub layered: Option<std::sync::Arc<crate::terrain::pages::layered_gpu::LayeredGpuSource>>,
 }
 
 impl PreparedScene {
@@ -69,6 +70,16 @@ impl PreparedScene {
                     mesh,
                     uniform,
                     palettes,
+                    layered: terrain
+                        .layered_source()
+                        .map(|_| {
+                            crate::terrain::pages::layered_gpu::LayeredGpuSource::new(
+                                terrain,
+                                scene.resources(),
+                            )
+                            .map(std::sync::Arc::new)
+                        })
+                        .transpose()?,
                 })
             })
             .transpose()?;
@@ -82,6 +93,24 @@ impl PreparedScene {
         })
     }
 
+    pub(super) fn validate_device(
+        &self,
+        device: &wgpu::Device,
+        pipelines: &super::ScenePipelines,
+    ) -> Result<(), DrawError> {
+        if let Some(source) = self
+            .terrain
+            .as_ref()
+            .and_then(|terrain| terrain.layered.as_ref())
+        {
+            source.validate_device(device)?;
+            if pipelines.layered.is_none() {
+                return Err(DrawError::LayeredLimit);
+            }
+        }
+        Ok(())
+    }
+
     /// The immutable source generation associated with these prepared bytes.
     pub fn scene(&self) -> &RenderScene {
         &self.scene
@@ -92,6 +121,17 @@ fn prepare_palettes(
     scene: &RenderScene,
     layers: &[MaterialHandle],
 ) -> Result<[Vec<crate::texture::OwnedPreparedTexture>; 3], DrawError> {
+    if scene
+        .terrain()
+        .is_some_and(|terrain| terrain.layered_source().is_some())
+    {
+        let index = resources::table_index(
+            scene.resources().materials()[layers[0].raw() as usize].albedo(),
+        );
+        let texture = prepare_texture(&scene.resources().textures()[index])
+            .map_err(|source| DrawError::Texture { index, source })?;
+        return Ok(array::from_fn(|_| vec![texture.clone().into_owned()]));
+    }
     let mut prepared = array::from_fn(|_| Vec::new());
     for (layer, handle) in layers.iter().enumerate() {
         let material = &scene.resources().materials()[handle.raw() as usize];

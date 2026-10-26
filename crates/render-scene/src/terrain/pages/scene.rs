@@ -31,6 +31,7 @@ pub(crate) struct ScenePages {
     generation: u64,
     writer: PageWriter,
     sample: Box<dyn Fn([f64; 2]) -> Vec<LayerSample>>,
+    layered: Option<std::sync::Arc<super::layered_gpu::LayeredGpuSource>>,
     pub selection: Option<PageSelection>,
     pub bounds: [f32; 4],
     pub elevation: [f32; 2],
@@ -52,11 +53,22 @@ impl std::fmt::Debug for ScenePages {
     }
 }
 impl ScenePages {
+    #[cfg(test)]
     pub fn new(
         device: &wgpu::Device,
         authority: &SubmissionAuthority,
         source: TerrainPageSource,
         bounds: [f32; 4],
+    ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
+        Self::with_layered(device, authority, source, bounds, None)
+    }
+
+    pub fn with_layered(
+        device: &wgpu::Device,
+        authority: &SubmissionAuthority,
+        source: TerrainPageSource,
+        bounds: [f32; 4],
+        layered: Option<std::sync::Arc<super::layered_gpu::LayeredGpuSource>>,
     ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
         let TerrainPageSource {
             settings,
@@ -64,46 +76,21 @@ impl ScenePages {
             budget,
             sample,
         } = source;
-        let leaves = 1 + (u64::from(settings.parts().maximum_selected_pages) - 1) / 3 * 3;
-        let nodes = ((leaves * 4 - 1) / 3)
-            .min(((1_u64 << (2 * (u32::from(settings.parts().maximum_depth) + 1))) - 1) / 3);
-        if u64::from(slots) < nodes {
-            return Err(ConfigurationError::Invalid(
-                "page slots must hold the bounded selection tree",
-            ));
-        }
-        let bytes = table::bytes(settings, slots);
-        let reserved = bytes.checked_mul(6).ok_or(ConfigurationError::Invalid(
-            "page table allocation overflow",
-        ))?;
-        let page_budget = budget
-            .0
-            .checked_sub(reserved)
-            .ok_or(ConfigurationError::Budget {
-                required: reserved,
-                budget: budget.0,
-            })?;
-        if bytes > device.limits().max_buffer_size
-            || bytes > device.limits().max_storage_buffer_binding_size
-        {
-            return Err(ConfigurationError::Invalid(
-                "page table exceeds device limits",
-            ));
-        }
-        let cache = ResidentPages::new(
+        let (cache, tables) = allocate_pages(
             device,
             authority,
             settings,
             slots,
-            AllocationBudget(page_budget),
+            budget,
+            layered.as_deref(),
         )?;
-        let tables = table::allocate(device, bytes).map_err(ConfigurationError::Allocation)?;
         Ok(Self {
             cache,
             identity: capture::identity(),
             generation: 1,
             writer: PageWriter::new(device, settings),
             sample,
+            layered,
             selection: None,
             bounds,
             elevation: [0.0; 2],
@@ -193,6 +180,10 @@ impl ScenePages {
                 Err(PageCacheError::UploadLimit | PageCacheError::ScratchFull) => break,
                 Err(error) => return Err(preparation_error(error)),
             };
+            if self.layered.is_some() {
+                self.encode_layered(device, encoder, pending)?;
+                continue;
+            }
             let image = compose_page(self.cache.settings(), key, &self.sample)
                 .map_err(preparation_error)?;
             if let Some(uploads) = &mut self.capture_uploads {
@@ -212,6 +203,22 @@ impl ScenePages {
         self.prepare_draw(device, encoder, &protected)?;
         self.prepared_view = Some((matrix, viewport));
         Ok(())
+    }
+
+    fn encode_layered(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        pending: super::residency::PendingPage,
+    ) -> Result<(), FrameError> {
+        let source = self.layered.as_ref().expect("layered source");
+        if let Some(uploads) = &mut self.capture_uploads {
+            uploads.encode_layered(source, device, encoder, &self.cache, pending)
+        } else {
+            source
+                .encode_page(device, encoder, &self.cache, pending)
+                .map_err(preparation_error)
+        }
     }
 
     fn prepare_draw(
@@ -300,4 +307,60 @@ fn preparation_error(error: impl std::fmt::Display) -> FrameError {
         feature: "terrain material pages",
         reason: error.to_string(),
     }
+}
+
+fn allocate_pages(
+    device: &wgpu::Device,
+    authority: &SubmissionAuthority,
+    settings: TerrainPageSettings,
+    slots: u32,
+    budget: AllocationBudget,
+    layered: Option<&super::layered_gpu::LayeredGpuSource>,
+) -> Result<(ResidentPages, Vec<wgpu::Buffer>), ConfigurationError<DriverAllocationError>> {
+    let leaves = 1 + (u64::from(settings.parts().maximum_selected_pages) - 1) / 3 * 3;
+    let nodes = ((leaves * 4 - 1) / 3)
+        .min(((1_u64 << (2 * (u32::from(settings.parts().maximum_depth) + 1))) - 1) / 3);
+    if u64::from(slots) < nodes {
+        return Err(ConfigurationError::Invalid(
+            "page slots must hold the bounded selection tree",
+        ));
+    }
+    let bytes = table::bytes(settings, slots);
+    let reserved = bytes.checked_mul(6).ok_or(ConfigurationError::Invalid(
+        "page table allocation overflow",
+    ))?;
+    let page_budget = budget
+        .0
+        .checked_sub(reserved)
+        .ok_or(ConfigurationError::Budget {
+            required: reserved,
+            budget: budget.0,
+        })?;
+    if bytes > device.limits().max_buffer_size
+        || bytes > device.limits().max_storage_buffer_binding_size
+    {
+        return Err(ConfigurationError::Invalid(
+            "page table exceeds device limits",
+        ));
+    }
+    let cache = if let Some(source) = &layered {
+        ResidentPages::new_layered(
+            device,
+            authority,
+            settings,
+            slots,
+            AllocationBudget(page_budget),
+            source.input_bytes(),
+        )?
+    } else {
+        ResidentPages::new(
+            device,
+            authority,
+            settings,
+            slots,
+            AllocationBudget(page_budget),
+        )?
+    };
+    let tables = table::allocate(device, bytes).map_err(ConfigurationError::Allocation)?;
+    Ok((cache, tables))
 }

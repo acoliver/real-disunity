@@ -45,6 +45,8 @@ pub struct ResidentPages {
     configuration: Configuration<Option<Storage>>,
     authority: SubmissionAuthority,
     settings: TerrainPageSettings,
+    products: u32,
+    composition_bytes: u64,
 }
 
 impl ResidentPages {
@@ -55,6 +57,36 @@ impl ResidentPages {
         slots: u32,
         budget: AllocationBudget,
     ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
+        Self::with_products(device, authority, settings, slots, budget, (2, 0))
+    }
+
+    pub fn new_layered(
+        device: &wgpu::Device,
+        authority: &SubmissionAuthority,
+        settings: TerrainPageSettings,
+        slots: u32,
+        budget: AllocationBudget,
+        composition_bytes: u64,
+    ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
+        Self::with_products(
+            device,
+            authority,
+            settings,
+            slots,
+            budget,
+            (3, composition_bytes),
+        )
+    }
+
+    fn with_products(
+        device: &wgpu::Device,
+        authority: &SubmissionAuthority,
+        settings: TerrainPageSettings,
+        slots: u32,
+        budget: AllocationBudget,
+        format: (u32, u64),
+    ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
+        let (products, composition_bytes) = format;
         let configuration = Configuration::new(
             authority,
             None,
@@ -67,6 +99,8 @@ impl ResidentPages {
             configuration,
             authority: authority.clone(),
             settings,
+            products,
+            composition_bytes,
         };
         cache.replace(device, slots)?;
         Ok(cache)
@@ -77,10 +111,12 @@ impl ResidentPages {
         device: &wgpu::Device,
         slots: u32,
     ) -> Result<(), ConfigurationError<DriverAllocationError>> {
-        let allocations = allocation::allocations(self.settings, slots)?;
+        let allocations =
+            allocation::allocations(self.settings, slots, self.products, self.composition_bytes)?;
         self.configuration
             .replace(&device.limits(), allocations, || {
-                allocation::create(device, &self.authority, self.settings, slots).map(Some)
+                allocation::create(device, &self.authority, self.settings, slots, self.products)
+                    .map(Some)
             })
     }
 
@@ -105,7 +141,7 @@ impl ResidentPages {
         if key.depth() > self.settings.parts().maximum_depth || state.contains(key) {
             return Err(PageCacheError::Address);
         }
-        let bytes = self.settings.page_bytes();
+        let bytes = self.page_bytes();
         if state.uploaded + bytes > self.settings.parts().upload_bytes_per_frame {
             return Err(PageCacheError::UploadLimit);
         }
@@ -180,6 +216,18 @@ impl ResidentPages {
             .as_ref()
             .expect("initialized cache")
     }
+    pub fn composition_bytes(&self) -> u64 {
+        self.composition_bytes
+    }
+
+    pub fn product_count(&self) -> u32 {
+        self.products
+    }
+
+    pub fn page_bytes(&self) -> u64 {
+        self.settings.page_bytes() / 2 * u64::from(self.products)
+    }
+
     pub fn settings(&self) -> TerrainPageSettings {
         self.settings
     }

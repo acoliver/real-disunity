@@ -35,6 +35,7 @@ mod environment;
 mod fold_translucency;
 mod foliage;
 mod foliage_fixes;
+mod layered_terrain;
 mod lod;
 mod material_factors;
 mod normal_frames;

@@ -59,9 +59,9 @@ fn cached_surface(world: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> BlendedSurf
     let local = global * exp2(f32(chosen.z)) - vec2<f32>(chosen.xy);
     let border = f32(page_table.shape.z);
     let uv = (local * interior + vec2<f32>(border)) / (interior + vec2<f32>(2.0 * border));
-    let color = page_filtered(uv, i32(chosen.w * 2u), lod);
-    let normal = page_filtered(uv, i32(chosen.w * 2u + 1u), lod);
-    return BlendedSurface(color.rgb, normalize(normal.xyz * 2.0 - 1.0), normal.w, 0.0);
+    let color = page_filtered(uv, i32(chosen.w * (2u + page_table.counts.z)), lod);
+    let normal = page_filtered(uv, i32(chosen.w * (2u + page_table.counts.z) + 1u), lod);
+    return BlendedSurface(color.rgb, normalize(normal.xyz * 2.0 - 1.0), normal.w, select(0.0, color.a, page_table.counts.z != 0u));
 }
 
 fn page_coordinate(global: vec2<f32>, depth: u32) -> vec2<u32> {

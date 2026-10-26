@@ -18,14 +18,19 @@ pub(in crate::terrain::pages) struct CaptureUploads {
     registry: ResourceRegistry,
     buffers: Vec<(wgpu::Buffer, AllocationKey)>,
     keys: Vec<WriteKey>,
+    layered: Vec<crate::terrain::pages::layered_gpu::LayeredScratch>,
     next: usize,
 }
 impl CaptureUploads {
-    pub fn new(device: &wgpu::Device, cache: &ResidentPages) -> Result<Self, FrameError> {
+    pub fn new(
+        device: &wgpu::Device,
+        cache: &ResidentPages,
+        source: Option<&crate::terrain::pages::layered_gpu::LayeredGpuSource>,
+    ) -> Result<Self, FrameError> {
         let scope = AllocationScope::new(device);
         let settings = cache.settings();
         let [w, h] = settings.extent();
-        let count = settings.parts().upload_bytes_per_frame / settings.page_bytes();
+        let count = settings.parts().upload_bytes_per_frame / cache.page_bytes();
         let mut registry = ResourceRegistry::default();
         let storage = cache.storage();
         let texture = registry.import_leased(
@@ -36,21 +41,32 @@ impl CaptureUploads {
         )?;
         let mut keys = vec![key(texture)];
         let mut buffers = Vec::new();
+        let mut layered = Vec::new();
         for _ in 0..count {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("terrain page capture input"),
-                size: u64::from(w) * u64::from(h) * 8,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            });
-            let allocation = registry.import_buffer(&buffer, ResourceLifetime::FrameLocal, None)?;
-            keys.push(key(allocation));
-            buffers.push((buffer, allocation));
+            if let Some(source) = source {
+                let scratch =
+                    crate::terrain::pages::layered_gpu::LayeredScratch::new(device, source, cache)
+                        .map_err(super::super::preparation_error)?;
+                keys.extend(scratch.keys());
+                layered.push(scratch);
+            } else {
+                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("terrain page capture input"),
+                    size: u64::from(w) * u64::from(h) * 8,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+                    mapped_at_creation: false,
+                });
+                let allocation =
+                    registry.import_buffer(&buffer, ResourceLifetime::FrameLocal, None)?;
+                keys.push(key(allocation));
+                buffers.push((buffer, allocation));
+            }
         }
         scope.finish().map_err(super::super::preparation_error)?;
         Ok(Self {
             registry,
             buffers,
+            layered,
             keys,
             next: 0,
         })
@@ -60,6 +76,21 @@ impl CaptureUploads {
     }
     pub fn reset(&mut self) {
         self.next = 0;
+    }
+
+    pub fn encode_layered(
+        &mut self,
+        source: &crate::terrain::pages::layered_gpu::LayeredGpuSource,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        cache: &ResidentPages,
+        pending: PendingPage,
+    ) -> Result<(), FrameError> {
+        let scratch = &mut self.layered[self.next];
+        self.next += 1;
+        scratch
+            .encode(source, device, encoder, cache, pending)
+            .map_err(super::super::preparation_error)
     }
 
     pub fn encode(

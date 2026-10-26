@@ -350,11 +350,12 @@ fn odd_page_extents_share_gutters_and_direct_sample_centers() {
 }
 
 #[test]
-fn unfinished_gpu_sampling_rejects_layered_sources() {
-    let (terrain, _) = fixture(TerrainSplatFilter::Spiral14);
+fn layered_uniform_marks_the_typed_source() {
+    let (terrain, _) = fixture(TerrainSplatFilter::Bilinear);
+    let uniform = crate::terrain_uniform::TerrainUniformState::encode(&terrain).unwrap();
     assert_eq!(
-        crate::terrain_uniform::TerrainUniformState::encode(&terrain),
-        Err(crate::terrain_uniform::TerrainUniformError::LayeredSource)
+        u32::from_le_bytes(uniform.bytes()[28..32].try_into().unwrap()),
+        1
     );
 }
 

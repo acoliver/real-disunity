@@ -16,6 +16,8 @@ use worldrunner_render_post::{
 #[derive(Debug, thiserror::Error)]
 pub enum PageEncodeError {
     #[error(transparent)]
+    Layered(#[from] super::layered_gpu::LayeredGpuError),
+    #[error(transparent)]
     Contract(#[from] ContractError),
     #[error(transparent)]
     Cache(#[from] PageCacheError),
@@ -27,6 +29,7 @@ pub struct PageWriter {
     store: wgpu::ComputePipeline,
     reduce: wgpu::ComputePipeline,
     input_bytes: u64,
+    products: u32,
 }
 impl PageWriter {
     pub fn new(
@@ -34,7 +37,15 @@ impl PageWriter {
         settings: worldrunner_render_plan::TerrainPageSettings,
     ) -> Self {
         let [w, h] = settings.extent();
-        pipelines::create(device, u64::from(w) * u64::from(h) * 8)
+        pipelines::create(device, u64::from(w) * u64::from(h) * 8, 2)
+    }
+
+    pub fn new_layered(
+        device: &wgpu::Device,
+        settings: worldrunner_render_plan::TerrainPageSettings,
+    ) -> Self {
+        let [w, h] = settings.extent();
+        pipelines::create(device, u64::from(w) * u64::from(h) * 16, 3)
     }
 
     /// Uploads already-composed products. Layer composition can instead supply a
@@ -103,7 +114,9 @@ impl PageWriter {
         pending.validate(encoder, &cache.storage().state)?;
         let [w, h] = cache.settings().extent();
         if source.range().end - source.range().start != self.input_bytes
-            || self.input_bytes != u64::from(w) * u64::from(h) * 8
+            || self.products != cache.product_count()
+            || self.input_bytes
+                != u64::from(w) * u64::from(h) * if self.products == 3 { 16 } else { 8 }
         {
             return Err(PageEncodeError::Input);
         }

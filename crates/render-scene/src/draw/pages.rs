@@ -58,18 +58,33 @@ impl SceneGpu {
                 "material pages already enabled",
             ));
         }
-        let mut pages = ScenePages::new(device, authority, source, terrain.page_bounds)?;
+        let mut pages = ScenePages::with_layered(
+            device,
+            authority,
+            source,
+            terrain.page_bounds,
+            terrain.layered.clone(),
+        )?;
         pages.elevation = terrain.page_elevation;
         let view = pages.cache.texture_view();
         for table in &pages.tables {
             pages.groups.push(super::resources::terrain_bind_group(
                 device,
-                &pipelines.cached_terrain_layout,
+                if terrain.layered.is_some() {
+                    &pipelines
+                        .layered
+                        .as_ref()
+                        .expect("validated layered device")
+                        .cached_layout
+                } else {
+                    &pipelines.cached_terrain_layout
+                },
                 &terrain.sampler,
                 (
                     &terrain.uniform,
                     &terrain.retained[3],
                     &terrain.retained[..3],
+                    &terrain.layered_buffers,
                 ),
                 Some((&view, table)),
             ));

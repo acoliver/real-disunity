@@ -29,7 +29,11 @@ impl ScenePages {
         device: &wgpu::Device,
     ) -> Result<(), worldrunner_render_post::FrameError> {
         if self.capture_uploads.is_none() {
-            self.capture_uploads = Some(CaptureUploads::new(device, &self.cache)?);
+            self.capture_uploads = Some(CaptureUploads::new(
+                device,
+                &self.cache,
+                self.layered.as_deref(),
+            )?);
         }
         Ok(())
     }

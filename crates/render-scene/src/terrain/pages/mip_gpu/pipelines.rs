@@ -1,6 +1,6 @@
 use super::PageWriter;
 
-pub(super) fn create(device: &wgpu::Device, input_bytes: u64) -> PageWriter {
+pub(super) fn create(device: &wgpu::Device, input_bytes: u64, products: u32) -> PageWriter {
     let storage = wgpu::BindingType::StorageTexture {
         access: wgpu::StorageTextureAccess::WriteOnly,
         format: wgpu::TextureFormat::Rgba8Uint,
@@ -18,25 +18,29 @@ pub(super) fn create(device: &wgpu::Device, input_bytes: u64) -> PageWriter {
     };
     PageWriter {
         input_bytes,
+        products,
         store: pipeline(
             device,
             [buffer, storage],
             include_str!("../page_store.wgsl"),
             "store",
+            products,
         ),
         reduce: pipeline(
             device,
             [texture, storage],
             include_str!("../mip_gpu.wgsl"),
             "reduce",
+            products,
         ),
     }
 }
 fn pipeline(
     device: &wgpu::Device,
     types: [wgpu::BindingType; 2],
-    shader: &'static str,
+    shader: &str,
     entry: &'static str,
+    products: u32,
 ) -> wgpu::ComputePipeline {
     let entries: Vec<_> = types
         .into_iter()
@@ -67,7 +71,7 @@ fn pipeline(
             layout: &layout,
             module: &module,
             entry,
-            constants: &[],
+            constants: &[("layered_products", f64::from(u8::from(products == 3)))],
         },
     )
 }

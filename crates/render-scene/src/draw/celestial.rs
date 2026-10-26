@@ -36,7 +36,12 @@ pub(super) fn upload(
             }
         })
         .collect();
-    Some(crate::sky::meshes::Meshes::new(device, pipelines, draws))
+    Some(crate::sky::meshes::Meshes::new(
+        device,
+        pipelines,
+        draws,
+        settings.scattering.is_some_and(|s| s.compose_celestial),
+    ))
 }
 
 impl super::SceneGpu {

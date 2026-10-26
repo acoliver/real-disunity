@@ -39,6 +39,8 @@ use visibility::{MeshSelection, Selection};
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
 pub enum DrawError {
+    #[error(transparent)]
+    Atmosphere(#[from] crate::sky::preparation::PreparationError),
     /// The selected terrain contact samples cannot be sized in GPU address space.
     #[error("terrain contact height buffer byte size overflow")]
     ContactHeightSizeOverflow,
@@ -255,7 +257,7 @@ impl SceneGpu {
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
             celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
-            sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view),
+            sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
             caster_generation: 0,
             post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
@@ -320,6 +322,13 @@ impl SceneGpu {
         assert!(
             self.celestial.is_none(),
             "celestial meshes require compositor::encode_scene or encode_resident"
+        );
+        assert!(
+            !self
+                .sky
+                .as_ref()
+                .is_some_and(crate::sky::Sky::requires_preparation),
+            "physical skies require compositor preparation"
         );
         self.draw_color(pass, pipelines, None);
     }
@@ -401,6 +410,10 @@ impl SceneGpu {
                 sky.draw(pass, &frame_group);
             }
             if let Some(meshes) = &self.celestial {
+                self.sky
+                    .as_ref()
+                    .expect("celestial atmosphere")
+                    .bind_background(pass, &frame_group);
                 meshes.draw(pass);
             }
             self.dynamic.draw(pass, &frame_group, pipelines);

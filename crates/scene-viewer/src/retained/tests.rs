@@ -25,6 +25,7 @@ fn atmospheric_settings_are_prepared_in_generation_order() {
     let mut host = host();
     let base = host.scene.effects().unwrap().clone();
     let atmosphere = SceneAtmosphere {
+        scattering: None,
         horizon_radiance_micro: [100_000; 3],
         zenith_radiance_micro: [200_000; 3],
         gradient_exponent_micro: 1_000_000,

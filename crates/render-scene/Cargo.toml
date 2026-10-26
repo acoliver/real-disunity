@@ -18,6 +18,7 @@ worldrunner-render-gpu = { path = "../render-gpu" }
 worldrunner-render-post = { path = "../render-post" }
 worldrunner-render-lighting = { path = "../render-lighting" }
 glam.workspace = true
+half = "2.7.1"
 worldrunner-render-plan = { path = "../render-plan", features = ["simulation"] }
 thiserror.workspace = true
 worldrunner-render-shadow = { path = "../render-shadow" }

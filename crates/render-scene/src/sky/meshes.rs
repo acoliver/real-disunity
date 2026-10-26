@@ -87,6 +87,7 @@ impl Meshes {
         device: &wgpu::Device,
         pipelines: &crate::renderer::ScenePipelines,
         draws: Vec<MeshDraw>,
+        physical: bool,
     ) -> Self {
         let (composite, layout) = super::mesh_target::pipeline(device, pipelines);
         Self {
@@ -94,7 +95,7 @@ impl Meshes {
             samples: pipelines.samples,
             layout,
             target: std::cell::RefCell::new(None),
-            pipelines: crate::renderer::celestial_pipelines(device, pipelines),
+            pipelines: crate::renderer::celestial_pipelines(device, pipelines, physical),
             draws,
         }
     }
@@ -126,7 +127,7 @@ impl Meshes {
             .as_ref()
             .expect("celestial meshes require scheduled visibility before scene draw");
         pass.set_pipeline(&self.composite);
-        pass.set_bind_group(0, &target.group, &[]);
+        pass.set_bind_group(2, &target.group, &[]);
         pass.draw(0..3, 0..1);
     }
     pub fn draw_geometry(&self, pass: &mut wgpu::RenderPass<'_>, frame: &wgpu::BindGroup) {
@@ -184,7 +185,7 @@ mod tests {
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
         );
-        let _ = crate::renderer::celestial_pipelines(context.device(), &scene);
+        let _ = crate::renderer::celestial_pipelines(context.device(), &scene, false);
         assert!(pollster::block_on(scope.pop()).is_none());
     }
 }

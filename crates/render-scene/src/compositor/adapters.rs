@@ -42,6 +42,7 @@ pub fn encode_resident(
 ) -> Result<(), FrameError> {
     let (scene, pipelines) = scene;
     let (color, depth) = attachments;
+    scene.prepare_sky(device, encoder, &scene.resident_frame())?;
     if scene.has_terrain_pages() {
         scene.prepare_terrain_pages(device, encoder, &scene.resident_frame(), color.size())?;
     }

@@ -107,6 +107,7 @@ pub(super) fn effects(density: u32, dome: bool) -> SceneEffects {
 }
 pub(super) fn atmosphere(density: u32) -> SceneAtmosphere {
     SceneAtmosphere {
+        scattering: None,
         horizon_radiance_micro: [0, 0, 2_000_000],
         zenith_radiance_micro: [0, 0, 2_000_000],
         gradient_exponent_micro: 1_000_000,

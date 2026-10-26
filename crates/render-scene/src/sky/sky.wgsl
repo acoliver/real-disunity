@@ -1,28 +1,3 @@
-struct Frame {
-    view_projection: mat4x4<f32>,
-    camera_position: vec4<f32>,
-    sun_direction: vec4<f32>,
-    sun_radiance: vec4<f32>,
-    ambient_sky: vec4<f32>,
-    ambient_ground: vec4<f32>,
-    grading: vec4<f32>,
-}
-struct Sky {
-    horizon: vec4<f32>,
-    zenith: vec4<f32>,
-    reserved3: vec4<f32>,
-    reserved4: vec4<f32>,
-    disc: vec4<f32>,
-    disc_radiance: vec4<f32>,
-    mode: vec4<f32>,
-    reserved0: vec4<f32>,
-    reserved1: vec4<f32>,
-    reserved2: vec4<f32>,
-}
-@group(0) @binding(0) var<uniform> frame: Frame;
-@group(1) @binding(0) var<uniform> sky: Sky;
-@group(1) @binding(1) var disc_texture: texture_2d<f32>;
-@group(1) @binding(2) var disc_sampler: sampler;
 struct Vertex {
     @builtin(position) position: vec4<f32>,
     @location(0) direction: vec3<f32>,
@@ -41,12 +16,6 @@ struct Vertex {
     out.origin=scene_background_origin(xy);
     return out;
 }
-fn fog_transmittance(ray:vec3<f32>, origin:vec3<f32>)->f32 {
-    if frame.sun_direction.w>=0.0 { return 1.0; }
-    let falloff=-frame.sun_direction.w-1.0;
-    let log_density=frame.camera_position.w-falloff*(origin.z-frame.camera_position.z);
-    return rd_height_fog_transmittance(log_density,falloff,frame.sun_radiance.w,ray*sky.mode.w,vec3(0.0,0.0,1.0));
-}
 @fragment fn fragment(input:Vertex)->@location(0) vec4<f32> {
     let ray=normalize(input.direction);
     var radiance=mix(sky.horizon.rgb,sky.zenith.rgb,pow(clamp(ray.z,0.0,1.0),sky.horizon.w));
@@ -60,6 +29,7 @@ fn fog_transmittance(ray:vec3<f32>, origin:vec3<f32>)->f32 {
         let periodic_dy=vec2(dy.x-round(dy.x),dy.y);
         radiance=textureSampleGrad(disc_texture,disc_sampler,uv,periodic_dx,periodic_dy).rgb;
     }
+    if sky.mode.z>0.5 { radiance=scattered_radiance(ray); }
     if sky.mode.x>0.5 {
         let cosine=dot(ray,sky.disc.xyz);
         if cosine<cos(sky.disc.w) { discard; }
@@ -73,10 +43,16 @@ fn fog_transmittance(ray:vec3<f32>, origin:vec3<f32>)->f32 {
         let uv=vec2(c*p.x+s*p.y,c*p.y-s*p.x)*0.5+0.5;
         let texel=textureSample(disc_texture,disc_sampler,uv);
         radiance=texel.rgb*sky.disc_radiance.rgb;
+        if sky.mode.z>0.5 && sky.reserved2.z>0.5 {
+            radiance=radiance*column_integral(ray,2)+scattered_radiance(ray);
+        }
         coverage=texel.a;
     } else if sky.zenith.w>0.0 && dot(ray,frame.sun_direction.xyz)>=cos(sky.zenith.w) {
         radiance=frame.sun_radiance.rgb;
+        if sky.mode.z>0.5 && sky.reserved2.z>0.5 {
+            radiance=radiance*column_integral(ray,2)+scattered_radiance(ray);
+        }
     }
-    radiance=mix(vec3(frame.ambient_sky.w,frame.ambient_ground.w,frame.grading.w),radiance,fog_transmittance(ray,input.origin));
+    radiance=mix(vec3(frame.ambient_sky.w,frame.ambient_ground.w,frame.grading.w),radiance,atmospheric_fog(ray,input.origin));
     return vec4(radiance * frame.grading.x,coverage);
 }

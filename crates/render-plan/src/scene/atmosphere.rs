@@ -44,6 +44,8 @@ impl SceneCelestialDisc {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneAtmosphere {
+    /// None preserves the existing gradient or dome background.
+    pub scattering: Option<super::SceneScattering>,
     pub horizon_radiance_micro: [u32; 3],
     pub zenith_radiance_micro: [u32; 3],
     pub gradient_exponent_micro: u32,
@@ -59,6 +61,9 @@ pub struct SceneAtmosphere {
 }
 impl SceneAtmosphere {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        if let Some(settings) = self.scattering {
+            settings.validate()?;
+        }
         require_range(
             "sky gradient exponent",
             u64::from(self.gradient_exponent_micro),

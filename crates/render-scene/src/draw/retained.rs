@@ -28,6 +28,7 @@ impl SceneGpu {
             crate::compositor::publication::key(&self.frame),
             crate::compositor::publication::key(&self.camera_selection),
         ];
+        keys.extend(self.sky.as_ref().and_then(crate::sky::Sky::write_key));
         keys.extend(
             self.shadow_selection
                 .iter()
@@ -211,5 +212,25 @@ impl SceneGpu {
             *committed_group.borrow_mut() = group;
         });
         context.upload_buffer(&self.frame_buffer, 0, &frame.to_bytes());
+    }
+}
+
+impl SceneGpu {
+    /// Prepare atmospheric columns in the same cancellable frame transaction.
+    pub(crate) fn prepare_sky(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        frame: &crate::frame::FrameUniform,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        if let Some(sky) = &self.sky {
+            sky.prepare(device, encoder, frame).map_err(|error| {
+                worldrunner_render_post::FrameError::FeaturePreparation {
+                    feature: "physical atmosphere",
+                    reason: error.to_string(),
+                }
+            })?;
+        }
+        Ok(())
     }
 }

@@ -269,5 +269,58 @@ fn texture(device: &wgpu::Device, size: u32, layers: u32, mips: u32) -> wgpu::Te
         view_formats: &[],
     })
 }
+
+/// Single-scattering columns prepared under the same authority as environment maps.
+#[derive(Debug)]
+pub struct PreparedAtmosphere {
+    lookup: super::scattering::Lookup,
+    transaction: Publications,
+}
+impl PreparedAtmosphere {
+    /// A 1-by-rows array: molecular integral, aerosol integral, view transmission.
+    /// The first two layers are phase-independent column lengths in metres.
+    pub fn view(&self) -> Result<wgpu::TextureView, PreparationError> {
+        if self.status() != TransactionStatus::Submitted {
+            return Err(PreparationError::NotSubmitted);
+        }
+        Ok(self.lookup.view.clone())
+    }
+    pub fn status(&self) -> TransactionStatus {
+        self.transaction.status()
+    }
+}
+
+pub fn atmosphere_allocations(
+    settings: worldrunner_render_plan::SceneScattering,
+) -> Result<AllocationSet, PreparationError> {
+    settings
+        .validate()
+        .map_err(|_| PreparationError::Settings)?;
+    Ok(super::scattering::allocations(settings))
+}
+
+/// The observer pair contains a unit toward-sun direction and altitude in metres.
+/// Cancellation discards the upload and prevents publication of the texture view.
+pub fn encode_atmosphere(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    settings: worldrunner_render_plan::SceneScattering,
+    observer: (glam::Vec3, f32),
+    budget: AllocationBudget,
+) -> Result<PreparedAtmosphere, PreparationError> {
+    let transaction = Publications::for_encoder(encoder)?;
+    let required = atmosphere_allocations(settings)?
+        .validate(&device.limits())
+        .map_err(|_| PreparationError::Budget)?;
+    if required > budget.0 {
+        return Err(PreparationError::Budget);
+    }
+    let lookup = super::scattering::Lookup::new(device, settings);
+    lookup.encode(device, encoder, observer, budget)?;
+    Ok(PreparedAtmosphere {
+        lookup,
+        transaction,
+    })
+}
 #[cfg(test)]
 mod tests;

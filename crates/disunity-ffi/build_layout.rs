@@ -24,10 +24,12 @@ pub fn generate(out: &Path) {
     ));
     std::fs::write(out.join("NativeLayouts.g.cs"), &managed).expect("managed layout expectations");
     std::fs::write(out.join("NativeLayouts.g.rs"), native).expect("native layout expectations");
-    let checked = Path::new("../../csharp/Disunity/NativeLayouts.g.cs");
+    let checked =
+        Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets manifest directory"))
+            .join("../../csharp/Disunity/NativeLayouts.g.cs");
     println!("cargo:rerun-if-changed={}", checked.display());
     assert!(
-        std::fs::read_to_string(checked).unwrap_or_default() == managed,
+        std::fs::read_to_string(&checked).unwrap_or_default() == managed,
         "generated layouts drifted; copy {} to {}",
         out.join("NativeLayouts.g.cs").display(),
         checked.display()

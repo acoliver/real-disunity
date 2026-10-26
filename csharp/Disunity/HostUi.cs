@@ -14,6 +14,23 @@ public static partial class DisunityHost
         ViewportWidth = width;
         ViewportHeight = height;
     }
+    /// <summary>
+    /// Scales the canvas with the screen, as a <c>CanvasScaler</c> in ScaleWithScreenSize mode
+    /// matching width or height does: the factor is <c>(width / reference.x)^(1 - match) *
+    /// (height / reference.y)^match</c> on the current viewport.
+    /// </summary>
+    public static unsafe void ScaleWithScreenSize(Canvas canvas, Vector2 referenceResolution, float matchWidthOrHeight)
+    {
+        ArgumentNullException.ThrowIfNull(canvas);
+        var scale = new DisunityCanvasScale
+        {
+            mode = 1,
+            reference_x = referenceResolution.x,
+            reference_y = referenceResolution.y,
+            match_height = matchWidthOrHeight,
+        };
+        ThrowIfError(NativeBindings.disunity_canvas_scale_write(WorldHandle, canvas.Handle, &scale));
+    }
     public static unsafe Font RegisterFont(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);

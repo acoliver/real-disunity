@@ -25,6 +25,17 @@ pub struct DisunityCamera {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityCanvasScale {
+    pub mode: u32,
+    pub screen_match: u32,
+    pub factor: f32,
+    pub reference_x: f32,
+    pub reference_y: f32,
+    pub match_height: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct DisunitySprite {
     pub identity: u64,
     pub texture: u64,
@@ -306,7 +317,6 @@ pub struct DisunityCanvas {
     pub camera: u64,
     pub orthographic_size: f32,
     pub plane_distance: f32,
-    pub scale: f32,
     pub sorting_order: i32,
 }
 
@@ -326,7 +336,7 @@ pub struct DisunityTransform {
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 4;
+pub const DISUNITY_ABI_VERSION: u32 = 5;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

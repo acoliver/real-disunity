@@ -1,6 +1,6 @@
 {
-  "abi_version": 4,
-  "description": "Disunity revision 4: retains revision 3 batch construction and object wake without activity changes, and adds directional position constraints to the body record.",
+  "abi_version": 5,
+  "description": "Disunity revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -129,12 +129,27 @@
     },
     {
       "name": "disunity_canvas_read",
-      "since": "2.0.0",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_scale_factor",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_scale_read",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_scale_write",
+      "since": "5.0.0",
       "rets": "DisunityResult"
     },
     {
       "name": "disunity_canvas_write",
-      "since": "2.0.0",
+      "since": "5.0.0",
       "rets": "DisunityResult"
     },
     {

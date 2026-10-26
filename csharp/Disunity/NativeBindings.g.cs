@@ -159,6 +159,27 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_camera_write(ulong world, ulong handle, DisunityCamera* value);
         /// <summary>
         ///  # Safety
+        ///  Output is writable for one canvas scale record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_scale_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_scale_read(ulong world, ulong handle, DisunityCanvasScale* output);
+        /// <summary>
+        ///  Validates the scale before changing the canvas.
+        ///  # Safety
+        ///  Value is readable for one canvas scale record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_scale_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_scale_write(ulong world, ulong handle, DisunityCanvasScale* value);
+        /// <summary>
+        ///  The factor the canvas scales its layout by on a `width` by `height` viewport, which is
+        ///  Unity's `Canvas.scaleFactor` for that screen.
+        ///  # Safety
+        ///  Output is writable for one factor.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_scale_factor", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_scale_factor(ulong world, ulong handle, uint width, uint height, float* output);
+        /// <summary>
+        ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_camera_layer_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

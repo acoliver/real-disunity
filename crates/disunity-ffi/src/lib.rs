@@ -11,6 +11,7 @@ pub mod callbacks;
 pub mod camera;
 pub mod camera_data;
 pub mod camera_layers;
+pub mod canvas;
 pub mod cloning;
 #[cfg(test)]
 mod cloning_tests;

@@ -42,6 +42,23 @@ namespace Disunity.Native
         public float a;
     }
 
+    /// <summary>
+    ///  How a canvas scales its layout. `mode` and `screen_match` use Unity's `ScaleMode` and
+    ///  `ScreenMatchMode` values. Supported: constant pixel size (0) with `factor`, and scale with
+    ///  screen size (1) matching width or height (0) against `reference_x` by `reference_y`, where
+    ///  `match_height` runs from 0 (match width) to 1 (match height).
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityCanvasScale
+    {
+        public uint mode;
+        public uint screen_match;
+        public float factor;
+        public float reference_x;
+        public float reference_y;
+        public float match_height;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunitySprite
     {
@@ -344,7 +361,6 @@ namespace Disunity.Native
         public ulong camera;
         public float orthographic_size;
         public float plane_distance;
-        public float scale;
         public int sorting_order;
     }
 

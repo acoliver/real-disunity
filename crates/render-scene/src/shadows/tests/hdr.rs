@@ -259,6 +259,7 @@ fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
                 recipe: None,
             }),
             fxaa_subpixel_micro: Some(750_000),
+            fxaa_quality: None,
         })
         .unwrap();
     let filtered = RenderScene::new(SceneParts {
@@ -315,6 +316,7 @@ fn authored_display_grade_reaches_the_existing_hdr_executor() {
             adaptive_exposure: None,
             bloom: None,
             fxaa_subpixel_micro: None,
+            fxaa_quality: None,
         })
         .unwrap();
     let settings = crate::post_settings(&effects).unwrap();

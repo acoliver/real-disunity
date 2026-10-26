@@ -41,6 +41,8 @@ mod post;
 mod post_bloom;
 #[cfg(test)]
 mod post_bloom_tests;
+#[cfg(test)]
+mod post_fxaa_tests;
 
 pub mod simulation;
 pub mod sky;

@@ -15,6 +15,8 @@ mod filter_reference;
 #[cfg(test)]
 mod filter_reference_gpu_tests;
 #[cfg(test)]
+mod fxaa_kernel_tests;
+#[cfg(test)]
 mod fxaa_quality_gpu_tests;
 #[cfg(test)]
 mod operations_buffer_scope_tests;
@@ -58,7 +60,7 @@ mod display_grading;
 pub use display_grading::{ColorGrading, Vignette};
 mod fxaa;
 mod post_filters;
-pub use fxaa::{FxaaLuminance, FxaaQuality};
+pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 mod tone_map;
 mod upscale;
 pub use hdr_post::{

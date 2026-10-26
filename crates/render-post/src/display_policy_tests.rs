@@ -43,6 +43,7 @@ fn fxaa_quality_defaults_and_validation() {
     assert_eq!(q.minimum_threshold.to_bits(), (1.0_f32 / 64.0).to_bits());
     assert_eq!(q.subpixel_blend.to_bits(), 1.0_f32.to_bits());
     assert_eq!(q.luminance, FxaaLuminance::Linear);
+    assert_eq!(q.kernel, crate::FxaaKernel::Sobel);
     for value in [-0.1, 1.1, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         for quality in [
             FxaaQuality {
@@ -76,6 +77,7 @@ fn fxaa_quality_defaults_and_validation() {
                     minimum_threshold: value,
                     subpixel_blend: value,
                     luminance: FxaaLuminance::Srgb,
+                    kernel: crate::FxaaKernel::Sobel,
                 },
                 ..Default::default()
             }

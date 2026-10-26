@@ -59,6 +59,9 @@ pub struct SceneHdrPost {
     /// FXAA directional preset, with subpixel strength in millionths.
     #[serde(deserialize_with = "required_option")]
     pub fxaa_subpixel_micro: Option<u32>,
+    /// Optional quality override, independent of the FXAA enable/strength control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fxaa_quality: Option<super::SceneFxaaQuality>,
 }
 impl SceneHdrPost {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
@@ -114,6 +117,9 @@ impl SceneHdrPost {
             }
         }
         self.validate_bloom()?;
+        self.fxaa_quality
+            .map(super::SceneFxaaQuality::validate)
+            .transpose()?;
         if let Some(weight) = self.fxaa_subpixel_micro {
             check("FXAA subpixel", weight.into(), 0, 1_000_000)?;
         }
@@ -235,6 +241,7 @@ mod tests {
             adaptive_exposure: None,
             bloom: None,
             fxaa_subpixel_micro: None,
+            fxaa_quality: None,
         };
         recipe.validate().unwrap();
         let json = serde_json::to_string(&recipe).unwrap();

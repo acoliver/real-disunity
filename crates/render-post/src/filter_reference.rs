@@ -82,6 +82,7 @@ pub(super) fn upsample(high: &Image, low: &Image, uv: [f32; 2]) -> [f32; 4] {
 fn luma(c: [f32; 4], transfer: crate::FxaaLuminance) -> f32 {
     let v = (c[0] + 2.0 * c[1] + c[2]) * 0.25;
     match transfer {
+        crate::FxaaLuminance::Green => c[1],
         crate::FxaaLuminance::Linear => v,
         crate::FxaaLuminance::Srgb if v <= 0.003_130_8 => v * 12.92,
         crate::FxaaLuminance::Srgb => 1.055 * v.powf(1.0 / 2.4) - 0.055,
@@ -97,6 +98,9 @@ pub(super) fn fxaa_quality(
     q: crate::FxaaQuality,
 ) -> [f32; 4] {
     let center = image.sample(uv);
+    if q.kernel == crate::FxaaKernel::SecondDifference {
+        return second_difference(image, uv, amount, q);
+    }
     let mut minimum = luma(center, q.luminance);
     let mut maximum = minimum;
     let mut gradient = [0.0; 2];
@@ -132,6 +136,61 @@ pub(super) fn fxaa_quality(
     let positive = image.sample([uv[0] + delta[0], uv[1] + delta[1]]);
     let filtered = std::array::from_fn(|i| center[i] * 0.5 + (negative[i] + positive[i]) * 0.25);
     let mut result = blend(center, filtered, amount * q.subpixel_blend);
+    result[3] = center[3];
+    result
+}
+
+fn second_difference(
+    image: &Image,
+    uv: [f32; 2],
+    amount: f32,
+    quality: crate::FxaaQuality,
+) -> [f32; 4] {
+    // The shader loads exact texels for direction scores. UV interpolation can
+    // perturb otherwise equal scores and incorrectly change the tie-selected axis.
+    let pixel: [i32; 2] = std::array::from_fn(|axis| {
+        i32::from(
+            (0..image.size[axis])
+                .rev()
+                .find(|&v| f32::from(v) <= uv[axis] * f32::from(image.size[axis]))
+                .unwrap(),
+        )
+    });
+    let center = image.at(pixel[0], pixel[1]);
+    let sample = |x: i16, y: i16| {
+        luma(
+            image.at(pixel[0] + i32::from(x), pixel[1] + i32::from(y)),
+            quality.luminance,
+        )
+    };
+    let middle = luma(center, quality.luminance);
+    let [north, south, east, west] = [sample(0, -1), sample(0, 1), sample(1, 0), sample(-1, 0)];
+    let [nw, ne, sw, se] = [sample(-1, -1), sample(1, -1), sample(-1, 1), sample(1, 1)];
+    let values = [middle, north, south, east, west, nw, ne, sw, se];
+    let minimum = values.into_iter().fold(f32::INFINITY, f32::min);
+    let maximum = values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+    let range = maximum - minimum;
+    if range == 0.0 || range < (quality.edge_threshold * maximum).max(quality.minimum_threshold) {
+        return center;
+    }
+    let horizontal = (north + south - 2.0 * middle).abs() * 2.0
+        + (nw + se - 2.0 * middle).abs()
+        + (ne + sw - 2.0 * middle).abs();
+    let vertical = (east + west - 2.0 * middle).abs() * 2.0
+        + (nw + se - 2.0 * middle).abs()
+        + (ne + sw - 2.0 * middle).abs();
+    let axis = usize::from(horizontal >= vertical);
+    let mut before = uv;
+    let mut after = uv;
+    before[axis] -= 1.5 / f32::from(image.size[axis]);
+    after[axis] += 1.5 / f32::from(image.size[axis]);
+    let negative = image.sample(before);
+    let positive = image.sample(after);
+    let directional = std::array::from_fn(|i| center[i] * 0.5 + (negative[i] + positive[i]) * 0.25);
+    let avg = (2.0 * (north + south + east + west) + nw + ne + sw + se) / 12.0;
+    let weight = quality.subpixel_blend * ((avg - middle).abs() / range).clamp(0.0, 1.0);
+    let smoothed = blend(directional, [avg; 4], weight);
+    let mut result = blend(center, smoothed, amount);
     result[3] = center[3];
     result
 }
@@ -189,4 +248,19 @@ fn reference_preserves_constants_and_prefilter_contract() {
         prefilter([f32::NAN, -1.0, f32::INFINITY, 0.0], 0.0, 0.0).map(f32::to_bits),
         [0.0, 0.0, 0.0, 1.0_f32].map(f32::to_bits)
     );
+}
+
+#[test]
+fn green_luminance_vectors_use_only_the_green_channel() {
+    for (rgb, expected) in [
+        ([1.0, 0.0, 0.0, 1.0], 0.0_f32),
+        ([0.0, 1.0, 0.0, 1.0], 1.0),
+        ([0.0, 0.0, 1.0, 1.0], 0.0),
+        ([0.875, 0.25, 0.625, 0.125], 0.25),
+    ] {
+        assert_eq!(
+            luma(rgb, crate::FxaaLuminance::Green).to_bits(),
+            expected.to_bits()
+        );
+    }
 }

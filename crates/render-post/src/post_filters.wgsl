@@ -15,6 +15,8 @@ override EDGE_THRESHOLD: f32 = 0.1;
 override MINIMUM_THRESHOLD: f32 = 1.0 / 64.0;
 override SUBPIXEL_BLEND: f32 = 1.0;
 override SRGB_LUMA: bool = false;
+override GREEN_LUMA: bool = false;
+override SECOND_DIFFERENCE: bool = false;
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(f32((i << 1u) & 2u) * 2.0 - 1.0, f32(i & 2u) * 2.0 - 1.0, 0.0, 1.0);
 }
@@ -111,16 +113,49 @@ fn mapped(r: f32, e: f32) -> f32 {
     return vec4<f32>(display_grade(result, p.xy / vec2<f32>(textureDimensions(source))),c.a);
 }
 fn edge_brightness(rgb: vec3<f32>) -> f32 {
+    if GREEN_LUMA { return rgb.g; }
     let luma = (rgb.r + 2.0 * rgb.g + rgb.b) * 0.25;
     if !SRGB_LUMA { return luma; }
     if luma <= 0.0031308 { return luma * 12.92; }
     return 1.055 * pow(luma, 1.0 / 2.4) - 0.055;
 }
 
+fn second_difference(pixel: vec2<f32>, original: vec4<f32>) -> vec4<f32> {
+    let p = vec2<i32>(pixel);
+    let m = edge_brightness(original.rgb);
+    let n = edge_brightness(load(source, p + vec2<i32>(0,-1)).rgb);
+    let s = edge_brightness(load(source, p + vec2<i32>(0,1)).rgb);
+    let e = edge_brightness(load(source, p + vec2<i32>(1,0)).rgb);
+    let w = edge_brightness(load(source, p + vec2<i32>(-1,0)).rgb);
+    let nw = edge_brightness(load(source, p + vec2<i32>(-1,-1)).rgb);
+    let ne = edge_brightness(load(source, p + vec2<i32>(1,-1)).rgb);
+    let sw = edge_brightness(load(source, p + vec2<i32>(-1,1)).rgb);
+    let se = edge_brightness(load(source, p + vec2<i32>(1,1)).rgb);
+    let darkest = min(m, min(min(n,s), min(min(e,w), min(min(nw,ne), min(sw,se)))));
+    let brightest = max(m, max(max(n,s), max(max(e,w), max(max(nw,ne), max(sw,se)))));
+    let range = brightest - darkest;
+    if range == 0.0 || range < max(EDGE_THRESHOLD * brightest, MINIMUM_THRESHOLD) {
+        return original;
+    }
+    let edge_h = abs(n + s - 2.0 * m) * 2.0 + abs(nw + se - 2.0 * m) + abs(ne + sw - 2.0 * m);
+    let edge_v = abs(e + w - 2.0 * m) * 2.0 + abs(nw + se - 2.0 * m) + abs(ne + sw - 2.0 * m);
+    let extent = vec2<f32>(textureDimensions(source));
+    let reach = select(vec2<f32>(1.5,0.0), vec2<f32>(0.0,1.5), edge_h >= edge_v) / extent;
+    let uv = pixel / extent;
+    let before = linear(source, uv - reach).rgb;
+    let after = linear(source, uv + reach).rgb;
+    let directional = original.rgb * 0.5 + (before + after) * 0.25;
+    let avg = (2.0 * (n + s + e + w) + nw + ne + sw + se) / 12.0;
+    let blend = SUBPIXEL_BLEND * clamp(abs(avg - m) / range, 0.0, 1.0);
+    let smoothed = mix(directional, vec3<f32>(avg), blend);
+    return vec4<f32>(mix(original.rgb, smoothed, FXAA), original.a);
+}
+
 @fragment fn fxaa(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     let extent = vec2<f32>(textureDimensions(source));
     let center_uv = pixel.xy / extent;
     let original = load(source, vec2<i32>(pixel.xy));
+    if SECOND_DIFFERENCE { return second_difference(pixel.xy, original); }
     var darkest = edge_brightness(original.rgb);
     var brightest = darkest;
     var slope = vec2<f32>(0.0);

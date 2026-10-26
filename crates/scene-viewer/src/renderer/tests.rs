@@ -1,9 +1,33 @@
+fn fxaa_recipe() -> worldrunner_render_plan::SceneHdrPost {
+    worldrunner_render_plan::SceneHdrPost {
+        tone_map: Some(worldrunner_render_plan::SceneToneMap::AcesFitted),
+        grading: Some(worldrunner_render_plan::SceneDisplayGrading {
+            linear_scale_micro: 2_000_000,
+            display_power_micro: [1_250_000, 1_000_000, 750_000],
+            vignette: None,
+        }),
+        adaptive_exposure: None,
+        bloom: None,
+        fxaa_subpixel_micro: Some(500_000),
+        fxaa_quality: Some(worldrunner_render_plan::SceneFxaaQuality {
+            edge_threshold_micro: 125_000,
+            minimum_threshold_micro: 31_250,
+            subpixel_blend_micro: 500_000,
+            luminance: worldrunner_render_plan::SceneFxaaLuminance::Green,
+            kernel: worldrunner_render_plan::SceneFxaaKernel::SecondDifference,
+        }),
+    }
+}
+
 fn edit_retained_settings(
     renderer: &mut Renderer,
     host: &mut crate::RetainedHost,
     replacement: &worldrunner_render_plan::SceneEffects,
     profile: crate::FrameProfile,
 ) {
+    let expected_quality = worldrunner_render_scene::post_settings(replacement)
+        .unwrap()
+        .fxaa_quality;
     present_retained(renderer, host);
     let handles: Vec<_> = renderer.resident.scene_mut().instance_handles().collect();
     let original = renderer.presentation.scheduler.configuration().clone();
@@ -30,6 +54,7 @@ fn edit_retained_settings(
     );
     let settings = renderer.presentation.scheduler.configuration();
     assert_eq!(settings.post.fxaa, Some(0.5));
+    assert_eq!(settings.post.fxaa_quality, expected_quality);
     assert_eq!(settings.post.upscale, original.post.upscale);
     assert_eq!(settings.frame, original.frame);
     renderer.resize([320, 240]).unwrap();
@@ -37,6 +62,7 @@ fn edit_retained_settings(
     present_retained(renderer, host);
     let settings = renderer.presentation.scheduler.configuration();
     assert_eq!(settings.post.fxaa, Some(0.5));
+    assert_eq!(settings.post.fxaa_quality, expected_quality);
     assert_eq!(settings.post.upscale, original.post.upscale);
     assert_eq!(settings.frame.output_extent(), [320, 240]);
     let expected = if let crate::FrameProfile::HdrUpscaled { scale, .. } = profile {
@@ -60,17 +86,7 @@ fn retained_settings_present(event_loop: &EventLoop<()>, window: &Arc<Window>) {
         .effects()
         .unwrap()
         .clone()
-        .with_hdr_post(worldrunner_render_plan::SceneHdrPost {
-            tone_map: Some(worldrunner_render_plan::SceneToneMap::AcesFitted),
-            grading: Some(worldrunner_render_plan::SceneDisplayGrading {
-                linear_scale_micro: 2_000_000,
-                display_power_micro: [1_250_000, 1_000_000, 750_000],
-                vignette: None,
-            }),
-            adaptive_exposure: None,
-            bloom: None,
-            fxaa_subpixel_micro: Some(500_000),
-        })
+        .with_hdr_post(fxaa_recipe())
         .unwrap();
     for profile in [
         FrameProfile::Hdr {

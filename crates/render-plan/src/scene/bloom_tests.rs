@@ -40,6 +40,7 @@ fn post(r: SceneBloomRecipe) -> SceneHdrPost {
             recipe: Some(r),
         }),
         fxaa_subpixel_micro: None,
+        fxaa_quality: None,
     }
 }
 

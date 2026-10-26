@@ -19,7 +19,7 @@ These cover creating, finding and destroying things, which nearly every script u
 | `ScriptableObject` | `CreateInstance<T>`, `CreateInstance(Type)` and `CreateInstance(string)`, with `Awake`, `OnEnable`, `OnDisable` and `OnDestroy` |
 | Attributes | `SerializeField`, `Header`, `Range`, `CreateAssetMenu` |
 
-Instantiated objects have their internal references remapped to the clone, as in Unity, and their `Awake` and `OnEnable` run before `Instantiate` returns. `Destroy` follows Unity's timing: the object stops receiving update messages at once, but searches still find it and it compares non-null until the end of the frame, when `OnDisable` and `OnDestroy` run. Destroying a single component throws `NotSupportedException`.
+Instantiated objects have their internal references remapped to the clone, as in Unity, and their `Awake` and `OnEnable` run before `Instantiate` returns. The clone's root is named after the original with a `(Clone)` suffix. Prefab assets are templates that take part in nothing until instantiated. `Destroy` follows Unity's timing: the object stops receiving update messages at once, but searches still find it and it compares non-null until the end of the frame, when `OnDisable` and `OnDestroy` run. Destroying a single component throws `NotSupportedException`.
 
 ## Time, input and coroutines
 

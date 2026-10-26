@@ -59,28 +59,28 @@ fn clone_subtree(
     } else {
         Some(session.object(parent)?)
     };
-    let nodes = clone_nodes(session, original)?;
-    let component_count = session
-        .native
-        .snapshot()
-        .components
-        .iter()
-        .filter(|component| nodes.contains(&component.object))
-        .count();
-    let handles = (0..nodes.len() + component_count)
-        .map(|_| {
-            store
-                .allocate_handle()
-                .map_err(crate::errors::AbiError::from)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let handles = handles.into_iter();
-    let session = store.session_mut(world)?;
+    check_identities(session, original)?;
     let clone = session
         .native
         .instantiate_unpublished(original, parent)
         .map_err(crate::errors::AbiError::from)?;
-    encode_clone(session, clone, handles)
+    // The clone names every object and component it created, including those cloned from a
+    // template that was never published, so it sizes the identities it needs.
+    let needed = clone.objects.len() + clone.components.len();
+    let handles = (0..needed)
+        .map(|_| store.allocate_handle())
+        .collect::<Result<Vec<_>, _>>();
+    let session = store.session_mut(world)?;
+    match handles {
+        Ok(handles) => encode_clone(session, clone, handles.into_iter()),
+        Err(error) => {
+            session
+                .native
+                .discard_instantiation(&clone)
+                .map_err(crate::errors::AbiError::from)?;
+            Err(error.into())
+        }
+    }
 }
 
 fn encode_clone(
@@ -258,26 +258,25 @@ pub unsafe extern "C" fn disunity_clone_activate(
     })
 }
 
-fn clone_nodes(
+/// Checks that every object in the source subtree has an ABI identity, so encoding the clone
+/// cannot fail after the native clone exists.
+fn check_identities(
     session: &crate::store::Session,
     root: worldrunner_world_simulation::ObjectHandle,
-) -> Result<Vec<worldrunner_world_simulation::ObjectHandle>, crate::errors::AbiError> {
-    let mut nodes = vec![root];
-    let mut index = 0;
-    while index < nodes.len() {
-        let object = nodes[index];
+) -> Result<(), crate::errors::AbiError> {
+    let mut pending = vec![root];
+    while let Some(object) = pending.pop() {
         if !session.objects.values().any(|&value| value == object) {
             return Err("source object has no ABI identity".into());
         }
-        nodes.extend(
+        pending.extend(
             session
                 .native
                 .children(object)
                 .map_err(crate::errors::AbiError::from)?,
         );
-        index += 1;
     }
-    Ok(nodes)
+    Ok(())
 }
 
 /// Discards an unpublished subtree after managed binding failure.

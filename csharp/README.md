@@ -116,6 +116,14 @@ constructed child under it makes the child inherit retirement, suppresses its
 lifecycle, and retires both at frame cleanup, matching the pending-parent clone
 contract.
 
+A construction that is never activated holds prefab templates, as a scene load does
+for the prefabs its scripts reference. Its objects and scripts take part in nothing:
+no messages, searches, rendering or physics. `Instantiate` of a template object or
+component clones it into a new published object that wakes like any clone, with
+references inside the prefab remapped. The clone's root is named after the original
+with a `(Clone)` suffix, as in Unity. Disposing the construction destroys the
+templates and keeps their clones.
+
 `AddComponent` wakes a new script only when its object is active in the hierarchy.
 It never changes whether the object is active; an inactive object's scripts wake
 when it is activated.

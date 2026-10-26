@@ -4,6 +4,9 @@
 //! Publishing queues `Awake`/`OnEnable` for all constructed objects under one mutation;
 //! activating publishes and runs that work. Discarding removes everything the construction
 //! created.
+//!
+//! A construction that is never published holds prefab templates: its objects take part in
+//! nothing, and [`World::instantiate`] clones one into a separate, published construction.
 
 use crate::{Advance, MutationId, ObjectDesc, ObjectHandle, World, WorldError};
 

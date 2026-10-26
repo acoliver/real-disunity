@@ -76,10 +76,16 @@ impl World {
         let mut remap = BTreeMap::new();
         for &old in source {
             let value = self.object(old)?;
+            // Unity names the instantiated root after its original with a `(Clone)` suffix.
+            let name = if old == template {
+                format!("{}(Clone)", value.name)
+            } else {
+                value.name
+            };
             let new = self.create_object_in(
                 construction,
                 ObjectDesc {
-                    name: value.name,
+                    name,
                     tag: value.tag,
                     layer: value.layer,
                     active: value.active,

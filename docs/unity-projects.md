@@ -9,7 +9,9 @@ The goal for Unity projects is that you point the engine at an unmodified projec
 - **Project catalog**: every asset and its `.meta` GUID, the importer type of each asset, and `.meta` files whose asset is missing.
 - **Scenes and prefabs**: Unity's text YAML, for both current editors and Unity 2017. Prefab instances are expanded from their prefab files with the scene's overrides applied, including stripped references. Prefabs and `ScriptableObject` assets that the scene refers to are loaded once as templates.
 - **Textures and sprites**: PNG and JPEG images with their import settings (filter, wrap, color space, pixels per unit) and the sprite rectangles and pivots in single and multiple sprite mode.
-- **Components with typed views**: `Grid` and `Tilemap`, 2D collider physics materials, `SpriteRenderer` and `TilemapRenderer` materials, `Canvas`, `RectTransform`, and the package components `Text`, `CanvasScaler`, URP `Light2D` and `UniversalAdditionalCameraData`. Package script identities are resolved from their DLL GUID and file ID.
+- **Components with typed views**: orthographic `Camera` and the `AudioListener`, `GUILayer` and `FlareLayer` beside it; `SpriteRenderer` and `TilemapRenderer`; `Rigidbody2D`; `BoxCollider2D`, `CircleCollider2D` and `TilemapCollider2D` with their physics materials; `Grid` and `Tilemap`; `Canvas` and `RectTransform`; and the package components `Text`, `CanvasScaler`, URP `Light2D` and `UniversalAdditionalCameraData`. Package script identities are resolved from their DLL GUID and file ID. Settings the engine does not implement, such as perspective cameras, a scene skybox material, sprite masks, body damping, effectors or composite colliders, fail with the component named.
+- **Input axes** from `ProjectSettings/InputManager.asset`, in file order with Unity's button names.
+- **Sprite physics shapes** for tiles that collide with their sprite. A fully opaque sprite without an authored shape collides with its rectangle, as Unity generates it. Authored shapes and outlines traced from transparent pixels are not supported yet.
 
 Anything the importer cannot resolve is reported as a missing reference or a typed error that names the file, object and field. The importer never invents a replacement asset.
 
@@ -28,7 +30,8 @@ cargo run -p worldrunner-unity-import -- <command> <project> [path]
 | `scene <project> <scene>` | The expanded object hierarchy with each object's components and position, where each object came from, and every missing reference. |
 | `texture <project> <texture>` | Image size, import settings and every sprite in one texture. |
 | `sprites <project> <scene>` | Every texture the scene's sprites use, and any sprite reference that does not resolve. |
-| `components <project> <scene>` | The typed view of each tilemap, collider, renderer material, Canvas, RectTransform and supported package component. |
+| `components <project> <scene>` | The typed view of each camera and camera participant, sprite and tilemap renderer, Rigidbody2D, 2D collider with its physics material, grid, tilemap, Canvas, RectTransform and supported package component. |
+| `axes <project>` | The project's input axes from `ProjectSettings/InputManager.asset`, in file order. |
 
 For a project with one scene holding one object, `scene` prints:
 

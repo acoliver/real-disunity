@@ -4,10 +4,11 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
-    import_scene,
+    import_scene, input_axes,
 };
 
 const USAGE: &str = "usage: unity-import catalog <project>
+       unity-import axes <project>
        unity-import documents <project> <asset path>
        unity-import scene <project> <scene path>
        unity-import texture <project> <texture path>
@@ -28,6 +29,7 @@ fn main() -> ExitCode {
 fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
     match args {
         [command, project] if command == "catalog" => catalog(Path::new(project)),
+        [command, project] if command == "axes" => axes(Path::new(project)),
         [command, project, asset] if command == "documents" => {
             documents(Path::new(project), Path::new(asset))
         }
@@ -223,28 +225,55 @@ fn package_view(scene: &Scene, id: ObjectId) -> Option<String> {
     })
 }
 
+/// The typed view of an engine component, for the classes that have one.
+fn engine_view(scene: &Scene, id: ObjectId, type_name: &str) -> Option<String> {
+    Some(match type_name {
+        "Grid" => format!("{:?}", scene.grid(id)),
+        "Tilemap" => scene.tilemap(id).map_or_else(
+            |error| error.to_string(),
+            |map| format!("{} tiles, first {:?}", map.tiles.len(), map.tiles.first()),
+        ),
+        "Camera" => format!("{:?}", scene.camera(id)),
+        "AudioListener" | "Behaviour" => format!("{:?}", scene.camera_participant(id)),
+        "Rigidbody2D" => format!("{:?}", scene.rigidbody_2d(id)),
+        name if name.ends_with("Collider2D") => format!(
+            "{:?}, material {:?}",
+            scene.collider(id),
+            scene.collider_material(id)
+        ),
+        "SpriteRenderer" => format!("{:?}", scene.sprite_renderer(id)),
+        "TilemapRenderer" => format!("{:?}", scene.tilemap_renderer(id)),
+        "Canvas" => format!("{:?}", scene.canvas(id)),
+        "RectTransform" => format!("{:?}", scene.rect_transform(id)),
+        "MonoBehaviour" => package_view(scene, id)?,
+        _ => return None,
+    })
+}
+
 /// Reads every typed component view in the scene.
 fn components(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
     let project = Project::open(root)?;
     let scene = import_scene(&project, path)?;
     for (id, object) in scene.objects() {
-        let line = match object.type_name.as_str() {
-            "Grid" => format!("{:?}", scene.grid(id)),
-            "Tilemap" => scene.tilemap(id).map_or_else(
-                |error| error.to_string(),
-                |map| format!("{} tiles, first {:?}", map.tiles.len(), map.tiles.first()),
-            ),
-            name if name.ends_with("Collider2D") => format!("{:?}", scene.collider_material(id)),
-            "SpriteRenderer" | "TilemapRenderer" => format!("{:?}", scene.renderer_material(id)),
-            "Canvas" => format!("{:?}", scene.canvas(id)),
-            "RectTransform" => format!("{:?}", scene.rect_transform(id)),
-            "MonoBehaviour" => match package_view(&scene, id) {
-                Some(line) => line,
-                None => continue,
-            },
-            _ => continue,
-        };
-        println!("{} {}: {line}", object.type_name, id.index());
+        if let Some(line) = engine_view(&scene, id, &object.type_name) {
+            println!("{} {}: {line}", object.type_name, id.index());
+        }
+    }
+    Ok(())
+}
+
+/// Prints the project's input axes in file order.
+fn axes(root: &Path) -> Result<(), Box<dyn Error>> {
+    for axis in input_axes(&Project::open(root)?)? {
+        println!(
+            "{} {:?}: -{:?}/{:?} +{:?}/{:?}",
+            axis.name,
+            axis.kind,
+            axis.negative,
+            axis.alt_negative,
+            axis.positive,
+            axis.alt_positive
+        );
     }
     Ok(())
 }

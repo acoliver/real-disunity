@@ -5,13 +5,13 @@ use worldrunner_render_post::{
 
 pub(crate) fn source(source: &str, terrain: bool) -> String {
     let source = source.replace("vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
-        "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao);");
+        "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion);");
     let source = if terrain {
         source
     } else {
         source.replace(
-            "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao)",
-            "forward_reflection(world_position, scene_environment_normal(normal), f0, scene_environment_roughness(roughness_in), ao)",
+            "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
+            "forward_reflection(world_position, scene_environment_normal(normal), f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
         ) + "\nfn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { if material.contact_surface.z > 0.0 { return reflection_normal(normal); } return normal; }"
     };
     let source = if terrain {
@@ -100,19 +100,22 @@ pub(super) fn install(
     device: &wgpu::Device,
     config: FrameConfig,
     screen: &mut SceneMetadata,
+    application_ao: bool,
 ) -> [wgpu::TextureView; 2] {
     let maps = crate::water::receivers::empty_environment(device);
     let group = group(device, screen, &maps);
     let pipelines = crate::renderer::ScenePipelines::with_screen_space(
         device,
         (config.format, config.samples),
-        &source(
+        &application_source(
             &crate::ssao::ambient_source(crate::shader::ENVIRONMENT_WGSL),
             false,
+            application_ao,
         ),
-        &source(
+        &application_source(
             &crate::ssao::ambient_source(crate::shader::TERRAIN_WGSL),
             true,
+            application_ao,
         ),
         None,
         Some(&layout(device)),
@@ -164,4 +167,27 @@ pub(super) fn schedule(
         }
     }
     Ok(())
+}
+
+fn application_source(shader: &str, terrain: bool, enabled: bool) -> String {
+    application_metadata(source(shader, terrain), enabled)
+}
+
+pub(super) fn application_metadata(shader: String, enabled: bool) -> String {
+    if !enabled {
+        return shader;
+    }
+    shader
+        .replace(
+            "// APPLICATION_FACTOR",
+            "published_factor = rd_split_sum(f0, coefficients) * air;",
+        )
+        .replace(
+            "vec4<f32>(published_environment, 1.0)",
+            "vec4<f32>(published_environment, published_visibility)",
+        )
+        .replace(
+            "vec4<f32>(published_factor, 1.0)",
+            "vec4<f32>(published_factor, published_self_ao)",
+        )
 }

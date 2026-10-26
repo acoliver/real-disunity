@@ -8,12 +8,22 @@ pub(super) fn resolve_capture(
 ) -> Vec<u8> {
     resolve_capture_settings(context, reflection, roughness, water, settings())
 }
-fn resolve_capture_settings(
+pub(super) fn resolve_capture_settings(
     context: &GpuContext,
     reflection: f32,
     roughness: f32,
     water: bool,
     policy: SceneSsr,
+) -> Vec<u8> {
+    resolve_capture_prepared(context, reflection, roughness, water, policy, false)
+}
+pub(super) fn resolve_capture_prepared(
+    context: &GpuContext,
+    reflection: f32,
+    roughness: f32,
+    water: bool,
+    policy: SceneSsr,
+    forward_render: bool,
 ) -> Vec<u8> {
     let size = [3, 3];
     let ssr = resolve_ssr(context, size, policy);
@@ -36,9 +46,13 @@ fn resolve_capture_settings(
     let final_depth =
         crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::R32Float);
     upload(context, &final_depth, &[if water { 2.0 } else { 3.0 }; 9]);
+    super::fidelity_tests::prepare_application_ao(context, &ssr, &final_depth);
     let target =
         crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::Rgba16Float);
     upload(context, &target, &[0.25, 0.125, 0.0625, 1.0].repeat(9));
+    if forward_render {
+        super::forward_ao_tests::prepare(context, &ssr, &target);
+    }
     let color = AttachmentView::new(ResourceRef::new("scene color"), &target).unwrap();
     let mut feature = ReflectionFeature {
         water: None,
@@ -113,6 +127,7 @@ fn resolve_inputs(ssr: &Ssr, final_depth: &wgpu::Texture) -> Vec<wgpu::TextureVi
             .each_ref()
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
     );
+    ssr.application_views(&mut inputs);
     inputs
 }
 
@@ -180,12 +195,15 @@ fn gpu_scene_selected_replacement_preserves_direct_and_diffuse_energy() {
 
 fn prepare_forward(context: &GpuContext, ssr: &Ssr) {
     if ssr.settings.composition != worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment
+        && !ssr.settings.depth_relative_ao
     {
         return;
     }
     assert_eq!(
-        ssr.composition,
-        worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment
+        ssr.composition
+            == worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment,
+        ssr.settings.composition
+            == worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment
     );
     let colors = [
         wgpu::Color {

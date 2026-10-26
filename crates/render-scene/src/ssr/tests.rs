@@ -1,9 +1,17 @@
+#[path = "ao_accuracy_tests.rs"]
+mod ao_accuracy_tests;
 #[path = "controls_tests.rs"]
 mod controls_tests;
+#[path = "fidelity_tests.rs"]
+mod fidelity_tests;
 #[path = "final_depth_tests.rs"]
 mod final_depth_tests;
 #[path = "fix_tests.rs"]
 mod fix_tests;
+#[path = "forward_ao_tests.rs"]
+mod forward_ao_tests;
+#[path = "grid_tests.rs"]
+mod grid_tests;
 #[path = "msaa.rs"]
 mod msaa;
 #[path = "numerical.rs"]
@@ -64,15 +72,16 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
     .unwrap()
 }
 fn half(value: f32) -> u16 {
-    if value == 0.0 {
-        return 0;
-    }
-    let bits = value.to_bits();
-    let sign = u16::try_from((bits >> 16) & 0x8000).unwrap();
-    let exponent = i32::try_from((bits >> 23) & 255).unwrap() - 127 + 15;
-    assert!((1..31).contains(&exponent));
-    sign | (u16::try_from(exponent).unwrap() << 10)
-        | u16::try_from((bits & 0x007f_ffff) >> 13).unwrap()
+    ::half::f16::from_f32(value).to_bits()
+}
+
+#[test]
+fn half_upload_rounds_to_nearest_ties_to_even() {
+    assert_eq!(half(1.0 + 2.0f32.powi(-11)), 0x3c00);
+    assert_eq!(half(1.0 + 3.0 * 2.0f32.powi(-11)), 0x3c02);
+    assert_eq!(half(1.0 + 0.75 * 2.0f32.powi(-10)), 0x3c01);
+    assert_eq!(half(-0.0), 0x8000);
+    assert_eq!(half(2.0f32.powi(-24)), 1);
 }
 fn upload(context: &GpuContext, texture: &wgpu::Texture, values: &[f32]) {
     let bytes: Vec<u8> = if texture.format() == wgpu::TextureFormat::R32Float {
@@ -167,6 +176,14 @@ fn gpu_reflection_resources_compile_and_half_resolution_includes_odd_edges() {
 }
 
 fn upload_hierarchy(context: &GpuContext, ssr: &Ssr, size: [u32; 2], depths: Vec<f32>) {
+    if ssr.settings.traversal == worldrunner_render_plan::SceneSsrTraversal::Grid {
+        upload(context, &ssr.source_depth, &depths);
+        let mut encoder = context.submission().begin(context.device()).unwrap();
+        ssr.final_depth
+            .encode_for_test(context.device(), &mut encoder, &ssr.source_depth);
+        encoder.finish().submit().unwrap();
+        return;
+    }
     let mut level_size = size;
     upload(context, &ssr.source_depth, &depths);
     let mut reduced = depths;

@@ -70,6 +70,7 @@ pub(crate) struct Ssr {
     pub environment: [wgpu::TextureView; 2],
     pub composition: worldrunner_render_lighting::reflections::Composition,
     material: wgpu::Texture,
+    application_ao: wgpu::Texture,
     material_depth: wgpu::Texture,
     source_depth: wgpu::Texture,
     normals: wgpu::Texture,
@@ -92,6 +93,13 @@ impl Ssr {
         textures
     }
 
+    fn application_views(&self, views: &mut [wgpu::TextureView]) {
+        if self.settings.depth_relative_ao {
+            views[1] = self
+                .application_ao
+                .create_view(&wgpu::TextureViewDescriptor::default());
+        }
+    }
     pub fn new(
         device: &wgpu::Device,
         config: FrameConfig,
@@ -100,36 +108,32 @@ impl Ssr {
     ) -> Result<Self, FrameError> {
         validate_settings(&settings)?;
         validate_extent(config, &settings, &device.limits())?;
-        let environment = forward::install(device, config, screen);
+        let environment = forward::install(device, config, screen, settings.depth_relative_ao);
         screen.geometry.reflection =
             Some(crate::scene_metadata::pipelines(device, &screen.uniform, true).0);
         // All geometry pipelines use the same explicit group layout as the normal prepass.
 
         let material = metadata::material_texture(device, config.size, screen)?;
-        let final_depth = final_depth::FinalDepth::new(device, config.size, config.samples);
+        let final_depth =
+            final_depth::FinalDepth::new(device, config.size, config.samples, settings.traversal);
         let hierarchy = final_depth.trace_levels();
         let reflections = gpu::radiance_textures(device, config, settings.resolution_scale_micro);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("SSR camera"),
-            size: 192,
+            size: 208,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let trace = gpu::pipeline(device, &gpu::trace_source(config.samples, false), 1, false);
         let reduce = gpu::pipeline(device, &gpu::reduce_source(config.samples), 1, false);
-        let resolve = gpu::pipeline(
+        let (resolve, water_resolve) = gpu::resolve_pipelines(
             device,
-            &gpu::sampled_resolve_source(reflections.len(), config.samples, false),
             config.samples,
-            true,
+            reflections.len(),
+            settings.depth_relative_ao,
+            screen.passes.filtered.format() == wgpu::TextureFormat::Rg16Float,
         );
         let water_trace = gpu::pipeline(device, &gpu::trace_source(config.samples, true), 1, false);
-        let water_resolve = gpu::pipeline(
-            device,
-            &gpu::sampled_resolve_source(reflections.len(), config.samples, true),
-            config.samples,
-            true,
-        );
         Ok(Self {
             settings,
             environment,
@@ -150,6 +154,7 @@ impl Ssr {
                 wgpu::TextureFormat::Depth32Float,
             ),
             material,
+            application_ao: screen.passes.filtered.clone(),
             source_depth: screen.passes.depth_levels()[0].clone(),
             normals: screen.normals.clone(),
             hierarchy,
@@ -305,6 +310,11 @@ impl ReflectionFeature<'_> {
         views.push(material);
         Ok(())
     }
+    fn application_reads(&self, feature: &mut FeaturePass) {
+        if self.ssr.settings.depth_relative_ao {
+            feature.reads.push(ResourceRef::new("ambient occlusion"));
+        }
+    }
     pub fn schedule(
         &self,
         passes: &mut Vec<PassDeclaration>,
@@ -364,6 +374,7 @@ impl ReflectionFeature<'_> {
         if let Some(water) = &self.water {
             feature.reads.extend(water::reads(water.depth));
         }
+        self.application_reads(&mut feature);
         declaration.passes.push(feature);
         Ok(declaration)
     }
@@ -397,6 +408,7 @@ impl PreparedFeature for ReflectionFeature<'_> {
         if let Some(water) = &self.water {
             water.resolve_views(&mut resolve_inputs);
         }
+        ssr.application_views(&mut resolve_inputs);
         let resolve_pipeline = if self.water.is_some() {
             &ssr.water_resolve
         } else {

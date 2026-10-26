@@ -31,6 +31,24 @@ public static partial class DisunityHost
         };
         ThrowIfError(NativeBindings.disunity_canvas_scale_write(WorldHandle, canvas.Handle, &scale));
     }
+    /// <summary>
+    /// Renders the canvas in ScreenSpaceCamera mode through <paramref name="camera"/>, at
+    /// <paramref name="planeDistance"/> in front of it, as setting <c>worldCamera</c> on a
+    /// ScreenSpaceCamera canvas does in Unity. The canvas takes the camera's orthographic size
+    /// when this is called.
+    /// </summary>
+    public static void RenderThroughCamera(Canvas canvas, Camera camera, float planeDistance)
+    {
+        ArgumentNullException.ThrowIfNull(canvas);
+        ArgumentNullException.ThrowIfNull(camera);
+        var value = canvas.Read();
+        value.mode = (uint)RenderMode.ScreenSpaceCamera;
+        value.camera = camera.gameObject.NativeHandle;
+        value.orthographic_size = camera.orthographicSize;
+        value.plane_distance = planeDistance;
+        canvas.Write(value);
+    }
+
     public static unsafe Font RegisterFont(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);

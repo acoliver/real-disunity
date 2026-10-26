@@ -11,15 +11,23 @@ These cover creating, finding and destroying things, which nearly every script u
 | Type | Supported |
 | --- | --- |
 | `Object` | `Instantiate` (original; with parent; with position and rotation; with position, rotation and parent), `Destroy(obj)` for game objects and `ScriptableObject`s, `Destroy(obj, delay)` for game objects, `FindObjectOfType`, `FindFirstObjectByType`, `FindObjectsByType`, Unity-style null and equality checks on destroyed objects |
-| `GameObject` | `name`, `tag`, `CompareTag`, `activeSelf`, `activeInHierarchy`, `SetActive`, `GetComponent<T>`, `AddComponent<T>`, `transform`, `FindGameObjectWithTag` |
+| `GameObject` | `name`, `tag`, `layer`, `CompareTag`, `activeSelf`, `activeInHierarchy`, `SetActive`, `GetComponent<T>`, `AddComponent<T>`, `transform`, `FindGameObjectWithTag` |
 | `Component` | `gameObject`, `transform`, `tag`, `CompareTag`, `GetComponent<T>` |
 | `Behaviour` | `enabled`, `isActiveAndEnabled` |
 | `MonoBehaviour` | Messages `Awake`, `OnEnable`, `Start` (also as a coroutine), `FixedUpdate`, `Update`, `LateUpdate`, `OnDisable`, `OnDestroy`, `OnCollisionEnter2D`/`Stay2D`/`Exit2D`, `OnTriggerEnter2D`/`Stay2D`/`Exit2D`; `StartCoroutine`, `StopCoroutine`, `StopAllCoroutines` |
 | `Transform` | `position`, `rotation`, `localPosition`, `localRotation`, `localScale`, `parent`, `SetParent(parent, worldPositionStays)` |
-| `ScriptableObject` | `CreateInstance<T>`, `CreateInstance(Type)` and `CreateInstance(string)`, with `Awake`, `OnEnable`, `OnDisable` and `OnDestroy` |
+| `ScriptableObject` | `name`, `CreateInstance<T>`, `CreateInstance(Type)` and `CreateInstance(string)`, with `Awake`, `OnEnable`, `OnDisable` and `OnDestroy` |
 | Attributes | `SerializeField`, `Header`, `Range`, `CreateAssetMenu` |
 
 Instantiated objects have their internal references remapped to the clone, as in Unity, and their `Awake` and `OnEnable` run before `Instantiate` returns. The clone's root is named after the original with a `(Clone)` suffix. Prefab assets are templates that take part in nothing until instantiated. `Destroy` follows Unity's timing: the object stops receiving update messages at once, but searches still find it and it compares non-null until the end of the frame, when `OnDisable` and `OnDestroy` run. Destroying a single component throws `NotSupportedException`.
+
+## Loading scenes
+
+A host loads a Unity scene from the plan `unity-import plan` writes, with `DisunityHost.LoadScene(planJson, new SceneLoadOptions(gameAssembly, fontBytes))`. The game's scripts are compiled into `gameAssembly` unchanged; `csharp/OriginalGames` shows a project that does this for a game checkout. `fontBytes` returns the TrueType bytes for a package font by name, such as Unity's `Arial`. The loader builds every object, engine component and script, sets serialized fields, registers the project's input axes, and then runs `Awake` and `OnEnable` for the scene together, as a Unity scene load does. Prefabs the scene references are kept as templates for `Instantiate` until the returned `LoadedScene` is disposed. If anything fails, the world is left as it was and `SceneLoadException` names the object, component or field.
+
+Serialized fields bind as Unity deserializes them. Public and `[SerializeField]` fields are set; static, readonly and `[NonSerialized]` fields are not. A field the scene does not mention keeps its initializer, and scene data for a field the script no longer declares is ignored. Supported field types are numbers, `bool`, enums, `string`, `Vector2`, `Vector3`, `Vector2Int`, `Quaternion`, `Color`, `Rect`, `LayerMask`, references to objects, components, sprites, fonts and `ScriptableObject` assets, `[Serializable]` classes, arrays, `List<T>` and `UnityEvent<T>`. Any other type fails the load.
+
+`LoadedScene.UnregisteredAxes` lists input axes that need mouse, joystick or keys the engine does not deliver; reading one fails as an unregistered axis does. `LoadedScene.Differences` lists authored presentation settings the engine does not reproduce, such as interpolated bodies, lit tilemaps and pixel-perfect canvases. `LoadedScene.Textures` gives the identity each scene texture's sprites use, for the host to upload.
 
 ## Time, input and coroutines
 
@@ -65,7 +73,7 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 
 | Type | Supported |
 | --- | --- |
-| `Canvas` | `renderMode` (screen space overlay, screen space camera, world space), `enabled`, `sortingOrder`, `scaleFactor` (the factor for the current screen), `planeDistance` |
+| `Canvas` | `renderMode` (screen space overlay, screen space camera, world space), `enabled`, `sortingOrder`, `scaleFactor` (the factor for the current screen), `planeDistance`, `worldCamera` (read; the host sets it with `DisunityHost.RenderThroughCamera`) |
 | `RectTransform` | `anchorMin`, `anchorMax`, `pivot`, `sizeDelta`, `anchoredPosition`, `rect` |
 | `UnityEngine.UI.Text` | `text`, `fontSize`, `font`, `color`, `alignment`, `lineSpacing`, `horizontalOverflow`, `verticalOverflow`, `supportRichText`; `fontStyle` Normal only; `resizeTextForBestFit` off only. Fonts are TrueType files registered by the host with `DisunityHost.RegisterFont`; there is no built-in font. |
 
@@ -80,9 +88,10 @@ Text covers printable ASCII with line breaks and kerning. Font size is pixels pe
 | `Vector2Int` | Constructor, `x`, `y`, `zero`, `up`, `down`, `left`, `right`, `+`, division by an integer |
 | `Quaternion` | Constructor and `identity` |
 | `Color`, `Rect`, `Bounds`, `LayerMask` | Value types with their fields; `Color.white`, `Color.clear` |
+| Formatting | `ToString` on `Vector2`, `Vector3`, `Vector2Int`, `Quaternion` and `Color` prints as current Unity does, for example `(1.00, 2.00)` and `RGBA(1.000, 0.000, 0.000, 1.000)` |
 | `Mathf` | `Min`, `Clamp` |
 | `Random` | `value`, `Range(int, int)`, `Range(float, float)`. Not seedable. |
 | `Debug` | `Log`, `LogError`, written to the console |
-| `UnityEngine.Events.UnityEvent<T>` | `AddListener`, `RemoveListener`, `RemoveAllListeners`, `Invoke`. Persistent listeners set in the editor are not loaded yet. |
+| `UnityEngine.Events.UnityEvent<T>` | `AddListener`, `RemoveListener`, `RemoveAllListeners`, `Invoke`, `GetPersistentEventCount`, `GetPersistentMethodName`, `GetPersistentTarget`. Calls set in the editor load with the scene and run before runtime listeners, in authored order, with the event's argument or their fixed one; `RemoveAllListeners` leaves them, as in Unity. Clones call their own copies of the targets. |
 
 The math types are deliberately small and grow as games need them. Adding a missing helper such as `Vector3` addition is a welcome contribution; see the [developer guide](../dev-docs/README.md).

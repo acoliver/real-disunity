@@ -77,7 +77,7 @@ public static partial class DisunityHost
         return (T)remap[original];
     }
 
-    private static IEnumerable<FieldInfo> SerializedFields(Type type)
+    internal static IEnumerable<FieldInfo> SerializedFields(Type type)
     {
         for (var current = type; current != null && current != typeof(MonoBehaviour); current = current.BaseType)
             foreach (var field in current.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))

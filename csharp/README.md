@@ -72,6 +72,14 @@ bridge type paths explicitly through `ManagedHostConfig`; the managed resolver
 uses the native image selected by that host. SDK discovery settings belong to the
 invoking build/test environment, not engine policy.
 
+`crates/disunity-runtime/tests/original_scenes.rs` plays the original games from
+their scenes. It fetches Pong and Breakout with `original-games`, writes their
+plans with `unity-import plan`, compiles each game's scripts unchanged with the
+`csharp/OriginalGames` projects, then runs `Disunity.SceneTests` against the
+native library. Those tests check Unity's field binding rules on synthetic
+plans, then load each game and play it: Pong's launch, paddle axes and scoring
+through its scene-wired event, and Breakout's prefab instantiation and tile walls.
+
 CI defines Linux, Windows, and macOS managed jobs. A local Linux result does not
 establish Windows or macOS compatibility.
 

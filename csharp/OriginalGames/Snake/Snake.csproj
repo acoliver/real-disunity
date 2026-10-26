@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Original.Snake</AssemblyName>
+  </PropertyGroup>
+  <Import Project="../OriginalGame.props" />
+</Project>

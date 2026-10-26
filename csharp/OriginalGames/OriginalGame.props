@@ -1,0 +1,22 @@
+<!-- Compiles one original game's runtime scripts, unchanged, against Disunity. Pass the pinned
+     checkout as -p:GameRoot; `original-games path <game>` prints it. Unity leaves scripts in
+     Editor folders out of the runtime assembly, so this does too. -->
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- CS0649: private [SerializeField] fields look unassigned to the compiler; the scene
+         loader assigns them, as Unity's serializer does. -->
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+  </PropertyGroup>
+  <Target Name="RequireGameRoot" BeforeTargets="CoreCompile" Condition="'$(GameRoot)' == ''">
+    <Error Text="Pass the game's checkout as -p:GameRoot=..." />
+  </Target>
+  <ItemGroup>
+    <Compile Include="$(GameRoot)/Assets/**/*.cs" Exclude="$(GameRoot)/Assets/**/Editor/**" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../Disunity/Disunity.Engine.csproj" />
+  </ItemGroup>
+</Project>

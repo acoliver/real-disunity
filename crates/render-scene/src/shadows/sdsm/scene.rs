@@ -20,7 +20,7 @@ pub(crate) struct SceneDepthFitting {
     pending: Vec<PendingReduction>,
     current: Option<AdoptedFit>,
     pub next_frame: u64,
-    started: std::time::Instant,
+    last_time: Option<std::time::Duration>,
 }
 impl ShadowedScene {
     pub fn set_scene_depth_fitting(
@@ -55,7 +55,7 @@ impl ShadowedScene {
                 pending: Vec::new(),
                 current: None,
                 next_frame: 0,
-                started: std::time::Instant::now(),
+                last_time: None,
             });
         } else {
             self.depth_fitting = None;
@@ -153,6 +153,7 @@ impl ShadowedScene {
             }
             .into());
         }
+        state.select_time(self.scheduler.selected_time);
         let metadata = state.bind(context, &self.scheduler, attachments.0.size())?;
         let frame = self
             .scheduler
@@ -303,13 +304,13 @@ impl ShadowedScene {
                 index += 1;
             }
         }
-        let current = fitting
-            .adopt_at(
-                input.source_frame,
-                input.view.resolved_view().clip_distances_meters(),
-                state.started.elapsed(),
-            )?
-            .or(state.current);
+        let clip = input.view.resolved_view().clip_distances_meters();
+        let adopted = if let Some(time) = state.last_time {
+            fitting.adopt_at(input.source_frame, clip, time)?
+        } else {
+            fitting.adopt(input.source_frame, clip)?
+        };
+        let current = adopted.or(state.current);
         let mut pending = None;
         let prepared = context
             .submission()
@@ -352,6 +353,19 @@ struct RenderInput<'a> {
     metadata: crate::scene_metadata::SceneMetadata,
 }
 impl SceneDepthFitting {
+    fn select_time(&mut self, time: Option<std::time::Duration>) {
+        if time
+            .zip(self.last_time)
+            .is_some_and(|(now, last)| now < last)
+        {
+            if let Some(fitting) = &mut self.fitting {
+                fitting.invalidate();
+            }
+            self.pending.clear();
+            self.current = None;
+        }
+        self.last_time = time;
+    }
     fn bind(
         &mut self,
         context: &GpuContext,

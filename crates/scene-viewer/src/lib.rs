@@ -1,6 +1,6 @@
-//! Optional desktop presentation for a caller-owned scene.
+//! Desktop and request-driven windowless presentation for a caller-owned scene.
 //!
-//! No window or GPU is started until [`run`] is called. Geometry, materials,
+//! A GPU starts only when a run mode is requested. Geometry, materials,
 //! pipelines and optional shadows remain resident across frames. The caller
 //! owns scene construction, camera framing and shadow fit; this host adds no
 //! asset lookup, terrain policy or command-line parsing.
@@ -14,6 +14,8 @@ pub use live::{
     IngressOrigin, LiveCapture, LiveClock, LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample,
     LiveOptions, LiveReceipt, LiveTick, ScheduledInput,
 };
+mod clock;
+pub use clock::RenderClock;
 mod camera;
 mod presentation;
 mod renderer;
@@ -21,7 +23,7 @@ mod retained;
 pub use retained::{
     CaptureRequestError, CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton,
     NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
-    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, WheelDelta,
+    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, WheelDelta, WindowlessRetained,
 };
 
 pub use camera::{OrbitCamera, OrbitLimits};
@@ -51,6 +53,8 @@ pub struct ViewerOptions {
     pub frames_in_flight: usize,
     /// Presentation scheduling; defaults to a 16 ms fixed interval.
     pub cadence: PresentationCadence,
+    /// Shader clock, wall time by default.
+    pub render_clock: RenderClock,
 }
 
 /// Presentation policy, independent of GPU submission admission.

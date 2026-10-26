@@ -8,15 +8,27 @@ pub(super) fn assert_production_recovery(renderer: &mut Renderer) {
             timeout: Some(Duration::from_secs(10)),
         })
         .unwrap();
-    let generation = renderer.execution.presenter.configuration_generation();
+    let generation = renderer
+        .execution
+        .surface()
+        .presenter
+        .configuration_generation();
     assert_lost_and_outdated_recovery(renderer, &device);
     assert_eq!(
-        renderer.execution.presenter.configuration_generation(),
+        renderer
+            .execution
+            .surface()
+            .presenter
+            .configuration_generation(),
         generation + 2
     );
     assert_suboptimal_presentation(renderer, &device);
     assert_eq!(
-        renderer.execution.presenter.configuration_generation(),
+        renderer
+            .execution
+            .surface()
+            .presenter
+            .configuration_generation(),
         generation + 2
     );
 }
@@ -28,12 +40,17 @@ fn assert_lost_and_outdated_recovery(renderer: &mut Renderer, device: &wgpu::Dev
     ] {
         renderer
             .execution
+            .surface_mut()
             .presenter
             .handle_acquired(device, outcome)
             .unwrap();
         renderer.resize([700, 500]).unwrap();
         let previous_view = view(renderer);
-        let before_suspend = renderer.execution.presenter.configuration_generation();
+        let before_suspend = renderer
+            .execution
+            .surface()
+            .presenter
+            .configuration_generation();
         renderer.resize([0, 480]).unwrap();
         let mut update: crate::SceneUpdate = Box::new(|_| panic!("suspended recovery update"));
         for _ in 0..3 {
@@ -41,7 +58,11 @@ fn assert_lost_and_outdated_recovery(renderer: &mut Renderer, device: &wgpu::Dev
             renderer.poll().unwrap();
         }
         assert_eq!(
-            renderer.execution.presenter.configuration_generation(),
+            renderer
+                .execution
+                .surface()
+                .presenter
+                .configuration_generation(),
             before_suspend
         );
         renderer.resize([640, 480]).unwrap();
@@ -57,12 +78,19 @@ fn assert_lost_and_outdated_recovery(renderer: &mut Renderer, device: &wgpu::Dev
 
 fn assert_suboptimal_presentation(renderer: &mut Renderer, device: &wgpu::Device) {
     for _ in 0..8 {
-        let frame = match renderer.execution.presenter.acquire(device).unwrap() {
+        let frame = match renderer
+            .execution
+            .surface_mut()
+            .presenter
+            .acquire(device)
+            .unwrap()
+        {
             AcquiredFrame::Frame(frame) => frame,
             other => panic!("{other:?}"),
         };
         let frame = match renderer
             .execution
+            .surface_mut()
             .presenter
             .handle_acquired(device, wgpu::CurrentSurfaceTexture::Suboptimal(frame))
             .unwrap()
@@ -71,7 +99,7 @@ fn assert_suboptimal_presentation(renderer: &mut Renderer, device: &wgpu::Device
             other => panic!("{other:?}"),
         };
         // Discarding usable images can exhaust the Vulkan swapchain instead of releasing them.
-        renderer.window.pre_present_notify();
+        renderer.window.as_ref().unwrap().pre_present_notify();
         renderer.context.queue().present(frame);
         present(renderer);
     }

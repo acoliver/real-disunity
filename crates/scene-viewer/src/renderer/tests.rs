@@ -256,7 +256,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     renderer.check_errors().unwrap();
     assert_production_recovery(renderer);
     // Additional invalid-capability diagnostics use a separate real surface.
-    let window = renderer.window.clone();
+    let window = renderer.window.as_ref().unwrap().clone();
     let device = renderer.context.device().clone();
     let adapter = renderer.context.adapter().clone();
     let queue = renderer.context.queue().clone();
@@ -431,6 +431,8 @@ fn assert_native_resizes(event_loop: &mut EventLoop<()>, harness: &mut Harness) 
             .as_ref()
             .unwrap()
             .window
+            .as_ref()
+            .unwrap()
             .request_inner_size(winit::dpi::PhysicalSize::new(physical[0], physical[1]));
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {

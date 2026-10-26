@@ -62,6 +62,9 @@ impl ConfiguredFrameRenderer {
     pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
         self.state.current_mut().set_frame_time(seconds)
     }
+    pub fn set_frame_time_duration(&mut self, time: std::time::Duration) -> Result<(), FrameError> {
+        self.state.current_mut().set_frame_time_duration(time)
+    }
     pub fn set_frame_delta(&mut self, delta: f32) -> Result<(), PostError> {
         self.state.current_mut().set_frame_delta(delta)
     }

@@ -142,7 +142,11 @@ impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.suspended = false;
         let result = if let Some(renderer) = &mut self.renderer {
-            let size = renderer.window.inner_size();
+            let size = renderer
+                .window
+                .as_ref()
+                .expect("windowed renderer")
+                .inner_size();
             renderer.resize([size.width, size.height])
         } else {
             let size = self.content.size();
@@ -167,10 +171,19 @@ impl ApplicationHandler for App<'_> {
             return;
         }
         if let Some(renderer) = &self.renderer {
-            let size = renderer.window.inner_size();
-            self.content.window_ready(renderer.window.clone());
+            let size = renderer
+                .window
+                .as_ref()
+                .expect("windowed renderer")
+                .inner_size();
+            self.content
+                .window_ready(renderer.window.as_ref().expect("windowed renderer").clone());
             self.content.surface_size([size.width, size.height]);
-            renderer.window.request_redraw();
+            renderer
+                .window
+                .as_ref()
+                .expect("windowed renderer")
+                .request_redraw();
         }
     }
 
@@ -196,7 +209,7 @@ impl ApplicationHandler for App<'_> {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
-        if renderer.window.id() != id {
+        if renderer.window.as_ref().expect("windowed renderer").id() != id {
             return;
         }
         self.content.event(&event, renderer.viewport);
@@ -218,7 +231,11 @@ impl ApplicationHandler for App<'_> {
                 {
                     event_loop.exit();
                 } else {
-                    renderer.window.request_redraw();
+                    renderer
+                        .window
+                        .as_ref()
+                        .expect("windowed renderer")
+                        .request_redraw();
                 }
             }
             WindowEvent::Resized(size) => {
@@ -229,7 +246,11 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::Occluded(value) => {
                 self.occluded = value;
                 if !value {
-                    renderer.window.request_redraw();
+                    renderer
+                        .window
+                        .as_ref()
+                        .expect("windowed renderer")
+                        .request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -270,7 +291,11 @@ impl ApplicationHandler for App<'_> {
             pending,
         );
         if redraw {
-            renderer.window.request_redraw();
+            renderer
+                .window
+                .as_ref()
+                .expect("windowed renderer")
+                .request_redraw();
             self.next_frame = cadence::next_frame(now, self.content.cadence());
         }
         event_loop.set_control_flow(flow);

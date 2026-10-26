@@ -169,7 +169,12 @@ impl Harness {
         let ticket = self.flight.submit_prepared(admission, prepared).unwrap();
         self.streaming
             .captures
-            .submitted(&mut self.host, capture, ticket.clone())
+            .submitted(
+                &mut self.host,
+                capture,
+                ticket.clone(),
+                std::time::Duration::ZERO,
+            )
             .unwrap();
         ticket
     }
@@ -184,7 +189,7 @@ impl Harness {
             if let Some(RetainedEvent::Capture {
                 id,
                 generation,
-                outcome: RetainedCaptureOutcome::Completed { frame, image },
+                outcome: RetainedCaptureOutcome::Completed { frame, image, .. },
             }) = self.host.captures.take_event()
             {
                 return (id, generation, frame, image);

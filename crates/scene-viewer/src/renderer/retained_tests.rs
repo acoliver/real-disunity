@@ -173,6 +173,7 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
             frame_profile: crate::FrameProfile::Legacy,
             frames_in_flight: 2,
             cadence: crate::PresentationCadence::default(),
+            render_clock: crate::RenderClock::default(),
             shadows,
             ..crate::tests::options()
         };
@@ -283,7 +284,7 @@ fn frame(resident: &mut Resident, context: &GpuContext, target: &mut OffscreenTa
     target.read_encoded(context, submission).unwrap()
 }
 
-pub(super) fn shadow_settings() -> DirectionalShadowSettings {
+pub(crate) fn shadow_settings() -> DirectionalShadowSettings {
     DirectionalShadowSettings {
         focus_meters: [0.0, 0.0, 0.0].into(),
         half_extent_meters: 4.0,

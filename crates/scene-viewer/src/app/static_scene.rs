@@ -121,6 +121,7 @@ impl Content for StaticScene {
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {
         if let Some(viewport) = renderer.viewport {
             let view = self.camera.view(self.options.camera, viewport)?;
+            renderer.set_clock(self.options.render_clock);
             renderer.render(&view, &mut self.update)?;
         }
         Ok(self.exit)

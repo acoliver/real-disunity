@@ -8,6 +8,8 @@ mod execution;
 mod live;
 mod readiness;
 mod retained;
+mod target;
+mod windowless;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_scene::{
@@ -26,16 +28,17 @@ use crate::{
 
 pub(super) struct Renderer {
     // Surface is dropped before its instance/window; it also owns an Arc<Window>.
-    execution: execution::SurfaceExecution,
+    execution: target::Execution,
     #[cfg(all(test, target_os = "linux"))]
     instance: wgpu::Instance,
-    pub window: Arc<Window>,
+    pub window: Option<Arc<Window>>,
     context: GpuContext,
     presentation: Presentation,
     resident: Resident,
     pub viewport: Option<Viewport>,
     errors: mpsc::Receiver<String>,
-    animation_start: std::time::Instant,
+    clock: crate::clock::Clock,
+    pub(crate) frame_time: std::time::Duration,
     live_upload: Option<live::Upload>,
     live_pending: Option<live::Pending>,
     streaming: readiness::Streaming,
@@ -75,10 +78,7 @@ impl Renderer {
         let context = GpuContext::from_adapter_with_features(adapter, features).await?;
         let errors = device_errors(context.device(), context.submission().clone());
         let size = window.inner_size();
-        let extents = Extents::new(
-            [size.width, size.height],
-            context.device().limits().max_texture_dimension_2d,
-        )?;
+        let extents = Extents::for_device([size.width, size.height], context.device())?;
         let initial = extents.unwrap_or_else(Extents::placeholder);
         let viewport = extents.map(|extents| extents.surface);
         let capabilities = surface.get_capabilities(context.adapter());
@@ -103,29 +103,26 @@ impl Renderer {
             frames_in_flight,
         )?;
         let renderer = Self {
-            animation_start: std::time::Instant::now(),
+            clock: crate::clock::Clock::new(),
+            frame_time: std::time::Duration::ZERO,
             live_upload: None,
             live_pending: None,
             streaming: readiness::Streaming::new(shadows, profile),
-            execution,
+            execution: target::Execution::Surface(Box::new(execution)),
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
-            window,
+            window: Some(window),
             context,
             presentation,
             resident,
             viewport,
             errors,
         };
-        renderer.check_errors()?;
-        Ok(renderer)
+        renderer.check_errors().map(|()| renderer)
     }
 
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
-        let extents = Extents::new(
-            size,
-            self.context.device().limits().max_texture_dimension_2d,
-        )?;
+        let extents = Extents::for_device(size, self.context.device())?;
         if let Some(extents) = extents {
             let [width, height] = self
                 .presentation
@@ -138,7 +135,9 @@ impl Renderer {
         }
         self.execution.resize(self.context.device(), size)?;
         self.viewport = extents.map(|extents| extents.surface);
-        self.window.request_redraw();
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
         Ok(())
     }
 
@@ -220,9 +219,12 @@ impl Renderer {
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
         if let Some(host) = host {
-            self.streaming
-                .captures
-                .submitted(host, retained_capture, ticket.clone())?;
+            self.streaming.captures.submitted(
+                host,
+                retained_capture,
+                ticket.clone(),
+                self.frame_time,
+            )?;
         }
         self.check_errors()?;
         Ok(Some(ticket))
@@ -277,11 +279,8 @@ impl Renderer {
     /// Sizes the presentation targets and selects the admitted slot, clear and frame time.
     fn prepare_frame(&mut self, view: &SceneView, slot: usize) -> Result<(), ViewerError> {
         let size = self.viewport.expect("acquired nonzero extent");
-        let extents = Extents::new(
-            [size.width, size.height],
-            self.context.device().limits().max_texture_dimension_2d,
-        )?
-        .expect("acquired nonzero extent");
+        let extents = Extents::for_device([size.width, size.height], self.context.device())?
+            .expect("acquired nonzero extent");
         let render_size = if self.resident.clear_color().is_some() {
             view.viewport()
         } else {
@@ -294,9 +293,10 @@ impl Renderer {
         }
         self.resident.select_frame_slot(slot);
         self.presentation.scheduler.select_frame_slot(slot);
+        self.frame_time = self.clock.time();
         self.presentation
             .scheduler
-            .set_frame_time(self.animation_start.elapsed().as_secs_f32())?;
+            .set_frame_time_duration(self.frame_time)?;
         Ok(())
     }
 }

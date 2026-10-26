@@ -13,11 +13,11 @@ use winit::event::{DeviceEvent, WindowEvent};
 use worldrunner_render_scene::Viewport;
 
 pub(crate) struct Session<'a> {
-    host: RetainedHost,
+    pub(super) host: RetainedHost,
     driver: &'a mut dyn RetainedDriver,
     start: Instant,
     previous: Instant,
-    frame: u64,
+    pub(super) frame: u64,
     pending: bool,
     failure: Option<String>,
 }
@@ -125,6 +125,11 @@ impl Content for Session<'_> {
         if !self.pending {
             self.tick()?;
         }
+        let clock = self
+            .driver
+            .render_clock()
+            .unwrap_or(self.host.options.render_clock);
+        renderer.set_clock(clock);
         if renderer.render_retained(&mut self.host)? {
             self.driver
                 .event(&RetainedEvent::Presented { frame: self.frame })

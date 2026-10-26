@@ -454,6 +454,8 @@ impl ConfiguredFrameRenderer {
         let reset = previous.exposure_reset.clone();
         let timing = previous.chain.timing_state();
         let elapsed = previous.elapsed_seconds;
+        let animation_time = previous.animation_time;
+        let selected_time = previous.selected_time;
         let delta = previous.frame_delta;
         let history_bank = self.history.as_ref();
         let water = previous.water.clone();
@@ -469,6 +471,8 @@ impl ConfiguredFrameRenderer {
                 next.post_time = post_time;
                 next.exposure_reset = reset;
                 next.elapsed_seconds = elapsed;
+                next.animation_time = animation_time;
+                next.selected_time = selected_time;
                 next.frame_delta = delta;
                 Ok(next)
             })?;
@@ -532,6 +536,8 @@ fn build(
         clear_color: settings.clear_color,
         post_requested: settings.post,
         elapsed_seconds: 0.0,
+        selected_time: None,
+        animation_time: None,
         frame_delta: 0.0,
         post_time: std::rc::Rc::default(),
         exposure_reset: std::rc::Rc::default(),

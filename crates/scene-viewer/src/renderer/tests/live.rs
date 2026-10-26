@@ -104,12 +104,15 @@ pub(super) fn pending_survives_resize_and_surface_recovery(
 fn resize_native(event_loop: &mut EventLoop<()>, renderer: Renderer) -> Renderer {
     let _ = renderer
         .window
+        .as_ref()
+        .unwrap()
         .request_inner_size(winit::dpi::PhysicalSize::new(96, 64));
     let mut harness = Harness {
         renderer: Some(renderer),
     };
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
+        harness.renderer.as_ref().unwrap().poll().unwrap();
         event_loop.pump_app_events(Some(Duration::from_millis(10)), &mut harness);
         if harness.renderer.as_ref().unwrap().viewport
             == Some(Viewport {
@@ -127,7 +130,11 @@ fn resize_native(event_loop: &mut EventLoop<()>, renderer: Renderer) -> Renderer
 }
 
 fn skip(session: &mut Session<'_>, renderer: &mut Renderer, acquired: wgpu::CurrentSurfaceTexture) {
-    renderer.execution.acquisitions.push_back(acquired);
+    renderer
+        .execution
+        .surface_mut()
+        .acquisitions
+        .push_back(acquired);
     assert!(!session.redraw(renderer).unwrap());
 }
 
@@ -140,6 +147,7 @@ fn finish_frame(
 ) {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
+        renderer.poll().unwrap();
         let finished = session.redraw(renderer).unwrap();
         if records.borrow().receipts.len() == count {
             assert_eq!(finished, exit);

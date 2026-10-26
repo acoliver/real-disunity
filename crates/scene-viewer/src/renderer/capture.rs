@@ -5,6 +5,7 @@ use worldrunner_render_gpu::flight::CompletionTicket;
 struct Pending {
     id: u64,
     frame: u64,
+    time: std::time::Duration,
     ticket: CompletionTicket,
     image: Capture,
 }
@@ -48,6 +49,7 @@ impl Captures {
         host: &mut RetainedHost,
         image: Option<(u64, Capture)>,
         ticket: CompletionTicket,
+        time: std::time::Duration,
     ) -> Result<(), ViewerError> {
         if let Some((id, mut image)) = image {
             let index = host
@@ -61,6 +63,7 @@ impl Captures {
             self.pending.push(Pending {
                 id,
                 frame: self.frame,
+                time,
                 ticket,
                 image,
             });
@@ -76,7 +79,8 @@ impl Captures {
             if pending.ticket.is_complete()
                 && let Some(image) = pending.image.try_read()?
             {
-                host.captures.complete(pending.id, pending.frame, image);
+                host.captures
+                    .complete(pending.id, pending.frame, pending.time, image);
                 let pending = self.pending.remove(index);
                 // The map and GPU ticket have both finished before slot reuse.
                 if self.spare.len() < 3 {

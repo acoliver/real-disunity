@@ -66,7 +66,7 @@ fn assert_capture(renderer: &mut Renderer, host: &mut RetainedHost, id: u64, sou
         panic!("capture event");
     };
     assert_eq!(received, id);
-    let RetainedCaptureOutcome::Completed { frame, image } = outcome else {
+    let RetainedCaptureOutcome::Completed { frame, image, .. } = outcome else {
         panic!("capture cancelled");
     };
     assert_eq!(frame, source_frame);

@@ -7,7 +7,7 @@ use worldrunner_play::{Game, PlayDriver, key_code, prepare};
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
-            [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf]";
+            [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]";
 
 #[derive(Default)]
 struct Arguments {
@@ -18,6 +18,7 @@ struct Arguments {
     keys: Vec<ScheduledInput>,
     captures: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
+    seed: Option<i32>,
 }
 
 fn number<T: std::str::FromStr>(text: &str, what: &str) -> Result<T, String> {
@@ -76,6 +77,7 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .push((number(frame, "--capture frame")?, file.into()));
         }
         "--font" => arguments.font = Some(value.into()),
+        "--seed" => arguments.seed = Some(number(value, "--seed")?),
         _ => return Err(format!("unknown option {name}")),
     }
     Ok(())
@@ -98,7 +100,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 
 fn play(arguments: Arguments) -> Result<(), String> {
     let game = arguments.game.ok_or("name a game")?;
-    let prepared = prepare(game, arguments.font.as_deref()).map_err(|error| error.to_string())?;
+    let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)
+        .map_err(|error| error.to_string())?;
     let mut driver = PlayDriver::new(prepared, arguments.captures.iter().map(|(frame, _)| *frame))
         .map_err(|error| error.to_string())?;
     let mut options = LiveOptions::new(

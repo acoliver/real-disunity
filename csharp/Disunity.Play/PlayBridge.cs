@@ -8,7 +8,8 @@ namespace Disunity.Play;
 /// <summary>
 /// The managed side of the play harness. <c>Run</c> loads the scene a play request names and
 /// returns; the Rust host then advances the world, delivers input and renders each frame.
-/// A request is JSON: <c>{"plan": path, "scripts": path, "fonts": {"Arial": path}, "first_texture": 1}</c>.
+/// A request is JSON: <c>{"plan": path, "scripts": path, "fonts": {"Arial": path}, "first_texture": 1}</c>,
+/// with an optional <c>"seed"</c> for <c>Random.InitState</c> before the scene loads.
 /// </summary>
 public static class PlayBridge
 {
@@ -46,6 +47,7 @@ public static class PlayBridge
             {
                 FirstTextureIdentity = root.GetProperty("first_texture").GetUInt64(),
             };
+            if (root.TryGetProperty("seed", out var seed)) UnityEngine.Random.InitState(seed.GetInt32());
             DisunityHost.LoadWorld();
             Scene = DisunityHost.LoadScene(File.ReadAllText(root.GetProperty("plan").GetString()!), options);
             foreach (var line in Scene.UnregisteredAxes) Console.Error.WriteLine($"input axis not registered: {line}");

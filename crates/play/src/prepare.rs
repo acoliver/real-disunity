@@ -24,8 +24,8 @@ pub struct Prepared {
 
 /// Fetches `game`, plans its scene and builds its scripts and the managed bridge into
 /// `<target>/play/<game>`. `font` supplies Unity's Arial; on Linux it defaults to the font
-/// `fc-match Arial` selects.
-pub fn prepare(game: Game, font: Option<&Path>) -> Result<Prepared, PlayError> {
+/// `fc-match Arial` selects. A `seed` makes the game's `Random` repeat its sequence.
+pub fn prepare(game: Game, font: Option<&Path>, seed: Option<i32>) -> Result<Prepared, PlayError> {
     let root = workspace_root()?;
     let output = target(&root).join("play").join(game.name());
     std::fs::create_dir_all(&output).map_err(|error| PlayError::Io(output.clone(), error))?;
@@ -44,12 +44,15 @@ pub fn prepare(game: Game, font: Option<&Path>) -> Result<Prepared, PlayError> {
     )?;
     let (scripts, bridge) = build(&root, game, &source, &output)?;
     let request = output.join("request.json");
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "plan": plan_path,
         "scripts": scripts,
         "fonts": fonts,
         "first_texture": FIRST_TEXTURE,
     });
+    if let Some(seed) = seed {
+        body["seed"] = seed.into();
+    }
     write(&request, body.to_string().as_bytes())?;
     let config = ManagedHostConfig {
         ffi_library: native_library()?,

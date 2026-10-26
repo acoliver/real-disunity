@@ -14,9 +14,10 @@ cargo run -p worldrunner-play -- breakout --frames 300 --fixed-dt 20 --key 30:a:
 | --- | --- |
 | `--size WxH` | Window size in pixels; 960x540 by default. |
 | `--frames N` | Close the window after N frames. Without it the game runs until the window is closed. |
-| `--fixed-dt MS` | Advance every frame by MS milliseconds instead of the measured frame time, so runs repeat exactly. |
+| `--fixed-dt MS` | Advance every frame by MS milliseconds instead of the measured frame time. |
 | `--key FRAME:KEY:down\|up` | Press or release a key before frame FRAME. Keys are lowercase names: letters, `space`, `enter`, `escape`, `arrowup`, `arrowdown`, `arrowleft`, `arrowright`. |
 | `--capture FRAME:FILE` | Write frame FRAME as it was presented to an RGB PNG. |
+| `--seed N` | Seed the game's `Random` before the scene loads, so runs with `--fixed-dt` and the same keys repeat exactly. Without it, as in Unity, each run differs. |
 | `--font FILE` | The TrueType file to use for Unity's built-in Arial. On Linux the default is the font `fc-match Arial` selects, usually Liberation Sans, whose metrics match Arial. |
 
 Keyboard input from the window works the same way as scheduled keys. Pong's left paddle uses W and S, and Breakout's paddle uses A and D.

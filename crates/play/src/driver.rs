@@ -37,6 +37,14 @@ impl Capture {
         ]
     }
 
+    /// The colour the window showed at column `x`, row `y` from the top. The window is opaque,
+    /// so the alpha the GPU wrote is not part of it.
+    #[must_use]
+    pub fn rgb(&self, x: u32, y: u32) -> [u8; 3] {
+        let [red, green, blue, _] = self.pixel(x, y);
+        [red, green, blue]
+    }
+
     /// Writes the frame as an RGB PNG. The window is opaque, so the alpha the GPU wrote
     /// (zero where a camera's background colour has zero alpha) is not part of the picture.
     pub fn write_png(&self, path: &Path) -> Result<(), PlayError> {

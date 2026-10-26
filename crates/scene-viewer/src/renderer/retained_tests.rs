@@ -1,3 +1,107 @@
+#[test]
+fn retained_lighting_settings_change_the_next_frame_without_reupload() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let scene = source();
+    let initial_effects = scene.effects().unwrap();
+    let effects = SceneEffects::new(SceneEffectsParts {
+        water: None,
+        sky: *initial_effects.sky(),
+        sun: *initial_effects.sun(),
+        ambient: SceneAmbient {
+            sky_irradiance_micro: 100_000,
+            ground_irradiance_micro: 100_000,
+        },
+        shadows: initial_effects.shadows().clone(),
+        ssao: None,
+        camera: *initial_effects.camera(),
+        grading: *initial_effects.grading(),
+        post: vec![],
+        anti_alias: *initial_effects.anti_alias(),
+    })
+    .unwrap();
+    for shadows in [None, Some(shadow_settings())] {
+        let mut host = crate::RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
+        let mut resident =
+            Resident::new(&context, &scene, shadows, crate::FrameProfile::Legacy).unwrap();
+        let mut target = OffscreenTarget::new(
+            context.device(),
+            Viewport {
+                width: 64,
+                height: 64,
+            },
+        )
+        .unwrap();
+        let initial = frame(&mut resident, &context, &mut target);
+        let handles: Vec<_> = resident.scene_mut().instance_handles().collect();
+        host.apply(crate::RetainedUpdate::Settings(Box::new(effects.clone())))
+            .unwrap();
+        let mut objects = super::retained::Objects::default();
+        let effects = objects
+            .apply(resident.scene_mut(), &mut host)
+            .unwrap()
+            .unwrap();
+        resident.set_retained_effects(&effects).unwrap();
+        assert_eq!(
+            resident.scene_mut().instance_handles().collect::<Vec<_>>(),
+            handles
+        );
+        assert_ne!(frame(&mut resident, &context, &mut target), initial);
+    }
+}
+
+#[test]
+fn retained_host_ordered_edits_reach_the_next_frame() {
+    use crate::{ObjectId, RetainedHost, RetainedUpdate};
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    for shadows in [None, Some(shadow_settings())] {
+        let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
+        let mut resident =
+            Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
+        let mut objects = super::retained::Objects::default();
+        let mut target = OffscreenTarget::new(
+            context.device(),
+            Viewport {
+                width: 64,
+                height: 64,
+            },
+        )
+        .unwrap();
+        let initial = frame(&mut resident, &context, &mut target);
+        let object = host.object(ObjectId(0)).unwrap();
+        host.apply(RetainedUpdate::Remove(ObjectId(0))).unwrap();
+        host.apply(RetainedUpdate::Add {
+            id: ObjectId(4),
+            object,
+        })
+        .unwrap();
+        host.apply(RetainedUpdate::Replace {
+            id: ObjectId(4),
+            object: SceneObject::new(
+                SceneTransform {
+                    position_millimeters: [100_000, 0, 0],
+                    ..*object.transform()
+                },
+                object.mesh(),
+                object.material(),
+            ),
+        })
+        .unwrap();
+        objects.apply(resident.scene_mut(), &mut host).unwrap();
+        let moved = frame(&mut resident, &context, &mut target);
+        assert_ne!(initial, moved);
+        host.apply(RetainedUpdate::Replace {
+            id: ObjectId(4),
+            object,
+        })
+        .unwrap();
+        objects.apply(resident.scene_mut(), &mut host).unwrap();
+        assert_eq!(frame(&mut resident, &context, &mut target), initial);
+        assert!(host.apply(RetainedUpdate::Remove(ObjectId(0))).is_err());
+    }
+}
+
 use super::*;
 use crate::presentation::COLOR;
 use worldrunner_render_plan::*;

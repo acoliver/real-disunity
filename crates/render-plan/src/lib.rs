@@ -121,3 +121,8 @@ pub use scene::{
 };
 
 pub use scene::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
+
+pub use scene::{
+    TerrainColorization, TerrainColorizationChannels, TerrainLayer, TerrainLayeredSource,
+    TerrainSplatFilter, TerrainTypeGrid,
+};

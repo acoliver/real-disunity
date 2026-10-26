@@ -65,6 +65,8 @@ const NEUTRAL_TINT_PERCENT: f32 = 100.0;
 /// Refusals encountered while encoding terrain uniform state.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TerrainUniformError {
+    #[error("layered terrain GPU sampling is not implemented")]
+    LayeredSource,
     /// The scene carried more surfaces than a surface index can address.
     #[error("terrain declares {count} surfaces but only {MAX_TERRAIN_SURFACES} are addressable")]
     TooManySurfaces {
@@ -89,12 +91,8 @@ impl TerrainUniformState {
     /// Returns [`TerrainUniformError::TooManySurfaces`] when the terrain
     /// declares more surfaces than a one-byte surface index can address.
     pub fn encode(terrain: &SceneTerrain) -> Result<Self, TerrainUniformError> {
+        validate_source(terrain)?;
         let surfaces = terrain.surfaces();
-        if surfaces.len() > MAX_TERRAIN_SURFACES {
-            return Err(TerrainUniformError::TooManySurfaces {
-                count: surfaces.len(),
-            });
-        }
 
         let layer_materials = distinct_materials(surfaces);
         let spacing_millimeters = terrain.sample_spacing_millimeters();
@@ -283,3 +281,22 @@ fn write_u32(bytes: &mut [u8; TERRAIN_UNIFORM_BYTES], offset: &mut usize, value:
 
 #[cfg(test)]
 mod tests;
+
+fn validate_source(terrain: &SceneTerrain) -> Result<(), TerrainUniformError> {
+    if terrain.layered_source().is_some()
+        || terrain
+            .surfaces()
+            .iter()
+            .any(|surface| surface.appearance().layered.is_some())
+    {
+        return Err(TerrainUniformError::LayeredSource);
+    }
+    let surfaces = terrain.surfaces();
+    if surfaces.len() > MAX_TERRAIN_SURFACES {
+        return Err(TerrainUniformError::TooManySurfaces {
+            count: surfaces.len(),
+        });
+    }
+
+    Ok(())
+}

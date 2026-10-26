@@ -58,6 +58,13 @@ pub use material_features::{
     SceneNormalEncoding, SceneNormalY, SceneTerrainContact, SceneTint, SceneWind,
 };
 mod terrain;
+mod terrain_layered;
+#[cfg(test)]
+mod terrain_layered_tests;
+pub use terrain_layered::{
+    TerrainColorization, TerrainColorizationChannels, TerrainLayer, TerrainLayeredSource,
+    TerrainSplatFilter, TerrainTypeGrid,
+};
 mod terrain_pages;
 pub use terrain_pages::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 #[cfg(test)]
@@ -243,6 +250,17 @@ impl RenderScene {
         self.geometry.validate()?;
         if let Some(terrain) = &self.terrain {
             terrain.validate()?;
+            if let Some(source) = terrain.layered_source() {
+                source.validate_resources(terrain, self.resources().textures())?;
+            } else if terrain
+                .surfaces()
+                .iter()
+                .any(|surface| surface.appearance().layered.is_some())
+            {
+                return Err(SceneValidationError::UnsupportedInput {
+                    part: "terrain layers require a layered source",
+                });
+            }
         }
         self.validate_references()
     }

@@ -130,7 +130,7 @@ pub fn compose_page(
     MaterialImage::new(extent, texels)
 }
 
-fn source_uv(settings: TerrainPageSettings, key: PageKey, texel: [u32; 2]) -> [f64; 2] {
+pub(super) fn source_uv(settings: TerrainPageSettings, key: PageKey, texel: [u32; 2]) -> [f64; 2] {
     let policy = settings.parts();
     let scale = f64::from(1_u32 << key.depth());
     std::array::from_fn(|axis| {

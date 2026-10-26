@@ -48,6 +48,8 @@ pub enum TerrainLodPolicy {
 /// would render the surface black while still validating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneTerrainAppearance {
+    /// Optional height-aware texture layer. Requires a layered terrain source.
+    pub layered: Option<super::TerrainLayer>,
     /// Radius in millimeters over which the surface's coverage mask is
     /// softened against its neighbours; zero leaves the mask hard.
     pub blur_radius_millimeters: u32,
@@ -61,6 +63,7 @@ pub struct SceneTerrainAppearance {
 impl SceneTerrainAppearance {
     /// The identity appearance: no blur, no tint, no rotation.
     pub const NEUTRAL: Self = Self {
+        layered: None,
         blur_radius_millimeters: 0,
         tint_percent: [100; 3],
         rotation_arcminutes: 0,
@@ -173,6 +176,7 @@ pub struct SceneTerrain {
     surface_indices: Box<[u8]>,
     surfaces: Box<[SceneTerrainSurface]>,
     lod_policy: TerrainLodPolicy,
+    layered_source: Option<super::TerrainLayeredSource>,
 }
 
 impl SceneTerrain {
@@ -195,9 +199,24 @@ impl SceneTerrain {
             surface_indices: parts.surface_indices.into_boxed_slice(),
             surfaces: parts.surfaces.into_boxed_slice(),
             lod_policy: parts.lod_policy,
+            layered_source: None,
         };
         terrain.validate()?;
         Ok(terrain)
+    }
+
+    /// Adopts validated layered composition with an independent material-cell grid.
+    pub fn with_layered_source(
+        mut self,
+        source: super::TerrainLayeredSource,
+    ) -> Result<Self, SceneValidationError> {
+        source.validate(&self)?;
+        self.layered_source = Some(source);
+        Ok(self)
+    }
+
+    pub const fn layered_source(&self) -> Option<&super::TerrainLayeredSource> {
+        self.layered_source.as_ref()
     }
 
     /// Returns the sample column count, counted along the eastward axis.
@@ -270,6 +289,14 @@ impl SceneTerrain {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         const PART: &str = "terrain";
+        if let Some(source) = &self.layered_source {
+            source.validate(self)?;
+        }
+        for surface in &self.surfaces {
+            if let Some(layer) = surface.appearance().layered {
+                layer.validate()?;
+            }
+        }
         if self.columns < 2 || self.rows < 2 {
             return Err(SceneValidationError::InvalidDimensions {
                 part: PART,

@@ -221,6 +221,17 @@ fn environment_faces(
     context: &GpuContext,
     directional: bool,
 ) -> crate::sky::preparation::PreparedEnvironmentMaps {
+    environment_convention(
+        context,
+        directional,
+        worldrunner_render_plan::SceneSpecularConvention::default(),
+    )
+}
+fn environment_convention(
+    context: &GpuContext,
+    directional: bool,
+    convention: worldrunner_render_plan::SceneSpecularConvention,
+) -> crate::sky::preparation::PreparedEnvironmentMaps {
     let source = context.device().create_texture(&TextureDescriptor {
         label: Some("acceptance environment"),
         size: Extent3d {
@@ -270,13 +281,8 @@ fn environment_faces(
         context.device(),
         &mut encoder,
         &view,
-        crate::sky::preparation::EnvironmentPreparation {
-            cube_size: 4,
-            mip_count: 3,
-            lut_size: 1,
-            samples: 64,
-        },
-        worldrunner_render_gpu::configuration::AllocationBudget(100_000),
+        selected_environment_settings(convention),
+        worldrunner_render_gpu::configuration::AllocationBudget(1_000_000),
     )
     .unwrap();
     encoder.finish().submit().unwrap();
@@ -574,3 +580,30 @@ fn channel_source(texture: &Texture, sample: u32, component: u32) -> String {
 
 #[path = "ssr_fold.rs"]
 mod fold_reflections;
+
+fn environment_settings() -> crate::sky::preparation::EnvironmentPreparation {
+    crate::sky::preparation::EnvironmentPreparation {
+        convention: worldrunner_render_plan::SceneSpecularConvention::default(),
+        cube_size: 4,
+        mip_count: 3,
+        lut_size: 1,
+        samples: 64,
+    }
+}
+
+#[path = "specular_render_tests.rs"]
+mod specular_render_tests;
+
+fn selected_environment_settings(
+    convention: worldrunner_render_plan::SceneSpecularConvention,
+) -> crate::sky::preparation::EnvironmentPreparation {
+    crate::sky::preparation::EnvironmentPreparation {
+        convention,
+        lut_size: if convention == worldrunner_render_plan::SceneSpecularConvention::default() {
+            1
+        } else {
+            64
+        },
+        ..environment_settings()
+    }
+}

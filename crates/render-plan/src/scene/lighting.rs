@@ -60,3 +60,68 @@ mod tests {
         );
     }
 }
+
+/// Material roughness interpretation, analytic highlight floor and GGX distribution guard.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneRoughnessRemap {
+    /// Legacy D guard: alpha² / max(pi * denominator², 1e-7).
+    #[default]
+    Perceptual045,
+    /// Analytic floor 0.04; D = (alpha / max(denominator, 1e-8))² / pi.
+    Perceptual04,
+    /// Input is GGX alpha rather than perceptual roughness. Floor is 0.04.
+    /// Uses the same denominator guard as Perceptual04, independently of visibility.
+    LinearAlpha,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneSpecularVisibility {
+    #[default]
+    SmithCorrelated,
+    /// Karis (2013): hotness reduction for analytic lights only, not the IBL LUT.
+    SchlickSmith,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneSpecularOcclusion {
+    #[default]
+    AmbientOnly,
+    /// Minimum of material AO and screen AO, sun relief, roughness-aware specular AO.
+    RoughnessAware,
+}
+/// Scene-wide BRDF policy. Default preserves the existing render output.
+/// Visibility follows Heitz (2014), <https://jcgt.org/published/0003/02/03/>, or
+/// Karis (2013), <https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf>.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SceneSpecularConvention {
+    pub roughness: SceneRoughnessRemap,
+    pub visibility: SceneSpecularVisibility,
+    pub occlusion: SceneSpecularOcclusion,
+}
+impl SceneSpecularConvention {
+    /// Numeric selections shared by pipeline constants and environment preparation.
+    pub const fn shader_options(self) -> [u32; 3] {
+        let roughness = match self.roughness {
+            SceneRoughnessRemap::Perceptual045 => 0,
+            SceneRoughnessRemap::Perceptual04 => 1,
+            SceneRoughnessRemap::LinearAlpha => 2,
+        };
+        let visibility = match self.visibility {
+            SceneSpecularVisibility::SmithCorrelated => 0,
+            SceneSpecularVisibility::SchlickSmith => 1,
+        };
+        let occlusion = match self.occlusion {
+            SceneSpecularOcclusion::AmbientOnly => 0,
+            SceneSpecularOcclusion::RoughnessAware => 1,
+        };
+        [roughness, visibility, occlusion]
+    }
+}
+impl SceneEffects {
+    #[must_use]
+    pub fn with_specular_convention(mut self, convention: SceneSpecularConvention) -> Self {
+        self.specular_convention = convention;
+        self
+    }
+    pub const fn specular_convention(&self) -> SceneSpecularConvention {
+        self.specular_convention
+    }
+}

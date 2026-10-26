@@ -5,7 +5,7 @@ pub(crate) mod forward;
 mod gpu;
 mod metadata;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub(crate) mod water;
 use crate::{frame::FrameUniform, scene_metadata::SceneMetadata};
 use worldrunner_render_plan::{SceneSsao, SceneSsr};
@@ -406,7 +406,12 @@ impl PreparedFeature for ReflectionFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut PrepareContext<'_>) {
-        let projection = self.frame.view_projection * self.frame.view.inverse();
+        let mut projection = self.frame.view_projection * self.frame.view.inverse();
+        // Multiplying by inverse(view) can leave roundoff in this projection tag.
+        // Derive it from clip-from-world, whose perspective row has a direction.
+        projection.w_axis.w = f32::from(u8::from(
+            self.frame.view_projection.row(3).truncate() == glam::Vec3::ZERO,
+        ));
         let mut values: Vec<f32> = [projection, projection.inverse()]
             .into_iter()
             .flat_map(|matrix| matrix.to_cols_array())

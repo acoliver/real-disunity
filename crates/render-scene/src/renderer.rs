@@ -46,7 +46,9 @@
 //! what drives depth fighting on distant coplanar surfaces.
 
 mod pages;
+mod specular;
 mod unlit;
+pub(crate) use specular::constants as specular_constants;
 
 use std::borrow::Cow;
 
@@ -85,6 +87,7 @@ pub struct ScenePipelines {
     pub(crate) cached_terrain: RenderPipeline,
     pub(crate) cached_terrain_layout: BindGroupLayout,
     unlit_alpha: RenderPipeline,
+    specialization: specular::Specialization,
 }
 
 impl ScenePipelines {
@@ -162,6 +165,26 @@ impl ScenePipelines {
         shadow_layout: Option<&BindGroupLayout>,
         screen_layout: Option<&BindGroupLayout>,
     ) -> Self {
+        Self::with_constants(
+            device,
+            target,
+            (source, terrain_source),
+            shadow_layout,
+            screen_layout,
+            [0; 3],
+        )
+    }
+
+    fn with_constants(
+        device: &Device,
+        target: (TextureFormat, u32),
+        sources: (&str, &str),
+        shadow_layout: Option<&BindGroupLayout>,
+        screen_layout: Option<&BindGroupLayout>,
+        options: [u32; 3],
+    ) -> Self {
+        let (source, terrain_source) = sources;
+        let constants = specular::constants(options);
         let (color_format, samples) = target;
         let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
@@ -173,11 +196,7 @@ impl ScenePipelines {
             shadow_layout,
             screen_layout,
         );
-        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("environment"),
-            bind_group_layouts: &groups,
-            immediate_size: 0,
-        });
+        let layout = scene_layout(device, "environment", &groups);
 
         let vertex_attributes = vertex_attributes();
         let instance_attributes = instance_attributes();
@@ -188,25 +207,32 @@ impl ScenePipelines {
             color_targets(color_format).to_vec()
         };
 
-        let pipelines = build_objects(device, &layout, &buffers, &targets, samples, &module);
-        groups[1] = Some(&terrain_layout);
-        let terrain_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("terrain"),
-            bind_group_layouts: &groups,
-            immediate_size: 0,
-        });
-        let terrain = build_terrain(
+        let pipelines = build_objects(
             device,
-            &terrain_pipeline_layout,
+            &layout,
+            &buffers,
+            &targets,
+            &module,
+            (samples, &constants),
+        );
+        groups[1] = Some(&terrain_layout);
+        let (terrain, cached_terrain_layout, cached_terrain) = pages::build_cached(
+            device,
+            &groups,
             terrain_source,
             &buffers,
             &targets,
-            samples,
+            (samples, &constants),
         );
-
-        let (cached_terrain_layout, cached_terrain) =
-            pages::build_cached(device, &groups, terrain_source, &buffers, &targets, samples);
         Self {
+            specialization: specular::Specialization::new(
+                device,
+                source,
+                terrain_source,
+                shadow_layout,
+                screen_layout,
+                options,
+            ),
             cached_terrain_layout,
             cached_terrain,
             color_format,
@@ -383,8 +409,9 @@ fn build_terrain(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    samples: u32,
+    target: (u32, &[(&str, f64)]),
 ) -> RenderPipeline {
+    let (samples, constants) = target;
     let module = scene_shader(device, "terrain", source);
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -419,7 +446,10 @@ fn build_terrain(
         fragment: Some(FragmentState {
             module: &module,
             entry_point: Some(shader::TERRAIN_FRAGMENT_ENTRY_POINT),
-            compilation_options: PipelineCompilationOptions::default(),
+            compilation_options: PipelineCompilationOptions {
+                constants,
+                ..Default::default()
+            },
             targets,
         }),
         multiview_mask: None,
@@ -490,9 +520,10 @@ fn build_objects(
     layout: &PipelineLayout,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    samples: u32,
     module: &wgpu::ShaderModule,
+    target: (u32, &[(&str, f64)]),
 ) -> [RenderPipeline; 4] {
+    let (samples, constants) = target;
     PipelineKey::ALL.map(|key| {
         build(
             device,
@@ -503,7 +534,10 @@ fn build_objects(
             FragmentState {
                 module,
                 entry_point: Some(shader::fragment_entry_point(key.masked)),
-                compilation_options: PipelineCompilationOptions::default(),
+                compilation_options: PipelineCompilationOptions {
+                    constants,
+                    ..Default::default()
+                },
                 targets,
             },
         )
@@ -515,6 +549,15 @@ pub(crate) fn celestial_pipelines(
     scene: &ScenePipelines,
     physical: bool,
 ) -> [RenderPipeline; 4] {
+    celestial_specialization(device, scene, physical, [0; 3])
+}
+pub(crate) fn celestial_specialization(
+    device: &Device,
+    scene: &ScenePipelines,
+    physical: bool,
+    options: [u32; 3],
+) -> [RenderPipeline; 4] {
+    let constants = specular_constants(options);
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",
         "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
@@ -548,7 +591,10 @@ pub(crate) fn celestial_pipelines(
                 } else {
                     "fs_celestial_opaque"
                 }),
-                compilation_options: PipelineCompilationOptions::default(),
+                compilation_options: PipelineCompilationOptions {
+                    constants: &constants,
+                    ..Default::default()
+                },
                 targets: &targets,
             },
             ObjectState {
@@ -558,5 +604,17 @@ pub(crate) fn celestial_pipelines(
                 vertex_entry: "vs_celestial",
             },
         )
+    })
+}
+
+fn scene_layout(
+    device: &Device,
+    label: &str,
+    groups: &[Option<&BindGroupLayout>],
+) -> PipelineLayout {
+    device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: Some(label),
+        bind_group_layouts: groups,
+        immediate_size: 0,
     })
 }

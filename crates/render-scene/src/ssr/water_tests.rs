@@ -270,3 +270,77 @@ fn gpu_partial_water_coverage_replaces_only_its_own_sample() {
         .collect();
     assert_eq!(&result[32..40], expected);
 }
+
+// Replays the production replacement pipeline with unit incident radiance.
+// The caller has already captured its rendered water lobe and direct contribution.
+pub(crate) fn replay_water_factor(
+    context: &GpuContext,
+    renderer: &crate::compositor::FrameRenderer,
+    frame: &crate::frame::FrameUniform,
+) -> Vec<u8> {
+    let ssr = renderer.ssr.as_ref().unwrap();
+    let water = renderer.water.as_ref().unwrap();
+    for texture in &ssr.reflections {
+        upload(
+            context,
+            texture,
+            &[1.0; 4].repeat(usize::try_from(texture.width() * texture.height()).unwrap()),
+        );
+    }
+    let views = replay_views(ssr, water);
+    let group = gpu::group(
+        context.device(),
+        &ssr.water_resolve,
+        Some(&ssr.uniform),
+        &views,
+    );
+    let output =
+        crate::ssao::passes::texture(context.device(), [32, 32], wgpu::TextureFormat::Rgba16Float);
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let mut feature = ReflectionFeature {
+        ssr,
+        water: None,
+        frame: *frame,
+        color: AttachmentView::new(ResourceRef::new("replay color"), &output).unwrap(),
+        groups: Vec::new(),
+    };
+    let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
+    feature.commit(&mut prepare);
+    prepare.finish();
+    worldrunner_render_post::fullscreen_pass(
+        &mut encoder,
+        None,
+        wgpu::RenderPassColorAttachment {
+            view: &output.create_view(&wgpu::TextureViewDescriptor::default()),
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                store: wgpu::StoreOp::Store,
+            },
+        },
+        &ssr.water_resolve,
+        &[&group],
+    );
+    encoder.finish().submit().unwrap();
+    read(context, &output)
+}
+
+fn replay_views(ssr: &Ssr, water: &crate::water::Water) -> Vec<wgpu::TextureView> {
+    let mut views = [
+        &ssr.material,
+        &ssr.normals,
+        &ssr.hierarchy[0],
+        &ssr.hierarchy[0],
+    ]
+    .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
+    .to_vec();
+    views.extend(
+        ssr.reflections
+            .iter()
+            .chain(ssr.forward_products.iter())
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
+    );
+    water::Inputs::new(water, 0).resolve_views(&mut views);
+    views
+}

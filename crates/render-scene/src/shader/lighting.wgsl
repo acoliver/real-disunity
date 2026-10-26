@@ -1,4 +1,7 @@
 
+override SCENE_ROUGHNESS_REMAP: u32 = 0u;
+override SCENE_SPECULAR_VISIBILITY: u32 = 0u;
+override SCENE_SPECULAR_OCCLUSION: u32 = 0u;
 struct Frame {
     view_projection: mat4x4<f32>,
     camera_position: vec4<f32>,
@@ -27,6 +30,12 @@ const MINIMUM_ROUGHNESS: f32 = 0.045;
 
 // GGX normal distribution.
 fn distribution_ggx(normal_dot_half: f32, roughness: f32) -> f32 {
+    return rd_distribution_ggx(normal_dot_half, roughness, 1e-7, true);
+}
+fn scene_distribution_ggx(normal_dot_half: f32, roughness: f32) -> f32 {
+    if SCENE_ROUGHNESS_REMAP != 0u {
+        return rd_distribution_ggx(normal_dot_half, roughness, 1e-8, false);
+    }
     return rd_distribution_ggx(normal_dot_half, roughness, 1e-7, true);
 }
 
@@ -61,10 +70,16 @@ fn surface_lighting(
     metalness: f32,
     ambient_occlusion: f32,
 ) -> vec3<f32> {
-    if frame.grading.y != 0.0 {
-        return albedo;
-    }
-    let roughness = clamp(roughness_in, MINIMUM_ROUGHNESS, 1.0);
+    return scene_surface_lighting(world_position, normal, albedo,
+        vec3<f32>(roughness_in, metalness, ambient_occlusion), DIELECTRIC_F0).color;
+}
+struct SceneSurfaceLight { color: vec3<f32>, diffuse: vec3<f32>, specular: vec3<f32>, }
+fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: vec3<f32>, properties: vec3<f32>, dielectric_f0: vec3<f32>) -> SceneSurfaceLight {
+    if frame.grading.y != 0.0 { return SceneSurfaceLight(albedo, albedo, vec3<f32>(0.0)); }
+    let roughness_in = properties.x;
+    let metalness = properties.y;
+    let ambient_occlusion = properties.z;
+    let roughness = scene_roughness(roughness_in);
 
     let view = normalize(frame.camera_position.xyz - world_position);
     let light = rd_toward_light(frame.sun_direction.xyz, false);
@@ -75,26 +90,42 @@ fn surface_lighting(
     let normal_dot_half = clamp(dot(normal, half_vector), 0.0, 1.0);
     let view_dot_half = clamp(dot(view, half_vector), 0.0, 1.0);
 
-    let f0 = mix(DIELECTRIC_F0, albedo, metalness);
+    let f0 = mix(dielectric_f0, albedo, metalness);
     let fresnel = fresnel_schlick(view_dot_half, f0);
-    let specular = fresnel
-        * distribution_ggx(normal_dot_half, roughness)
-        * visibility_smith(normal_dot_view, normal_dot_light, roughness);
+    let specular = scene_specular_brdf(vec4<f32>(normal_dot_view, normal_dot_light, normal_dot_half, view_dot_half), roughness, fresnel);
 
     // Metals have no diffuse lobe; their absorbed light does not re-emerge.
     let diffuse_colour = albedo * (1.0 - metalness);
     let diffuse = (vec3<f32>(1.0) - fresnel) * diffuse_colour / PI;
 
+    let shadow = sunlight_visibility(world_position, normal);
+    let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, shadow);
+    var environment_roughness = roughness;
+    if SCENE_ROUGHNESS_REMAP != 0u {
+        environment_roughness = rd_remap_roughness(roughness_in, SCENE_ROUGHNESS_REMAP);
+    }
+    let specular_ao = scene_specular_ao(normal_dot_view, ao, environment_roughness);
     let direct = (diffuse + specular) * frame.sun_irradiance.rgb * normal_dot_light;
 
     // Hemisphere ambient about the scene's own up axis. Scene space is Z-up, so
     // the sky/ground blend reads the z component; using y here would light the
     // world as though the horizon ran vertically.
-    let ambient = scene_diffuse_environment(normal, frame.ambient_ground.rgb, frame.ambient_sky.rgb)
-        * diffuse_colour
-        * ambient_occlusion /* SCREEN_AMBIENT_FACTOR */;
+    let irradiance = scene_diffuse_environment(normal, frame.ambient_ground.rgb, frame.ambient_sky.rgb);
+    var ambient = irradiance * diffuse_colour * ambient_occlusion * scene_screen_ao(world_position);
+    if SCENE_SPECULAR_OCCLUSION != 0u { ambient = irradiance * diffuse_colour * ao; }
 
-    return direct * sunlight_visibility(world_position, normal) + ambient;
+    let environment = vec3<f32>(0.0); /* SCENE_ENVIRONMENT */
+    var color = scene_complete_lighting(direct, shadow, ambient, environment);
+    if SCENE_SPECULAR_OCCLUSION != 0u {
+        let occluded_direct = (diffuse * ao + specular * specular_ao) * frame.sun_irradiance.rgb * normal_dot_light;
+        color = scene_complete_lighting(occluded_direct, shadow, ambient, environment);
+    }
+    var diffuse_ao = 1.0;
+    if SCENE_SPECULAR_OCCLUSION != 0u { diffuse_ao = ao; }
+    let diffuse_radiance = diffuse * diffuse_ao
+        * frame.sun_irradiance.rgb * normal_dot_light * shadow + ambient;
+    let specular_radiance = specular * specular_ao * frame.sun_irradiance.rgb * normal_dot_light * shadow + environment;
+    return SceneSurfaceLight(color, diffuse_radiance, specular_radiance);
 }
 
 fn apply_exposure(radiance: vec3<f32>) -> vec3<f32> {
@@ -159,4 +190,42 @@ fn scene_scattering_tint(base: vec3<f32>, colour: vec4<f32>, warming: f32) -> ve
     let weights = vec3<f32>(0.2126, 0.7152, 0.0722);
     tint = tint * colour.y / max(0.0001, dot(tint, weights));
     return mix(tint, vec3<f32>(dot(tint, weights)), -colour.z);
+}
+
+fn scene_roughness(value: f32) -> f32 {
+    if SCENE_ROUGHNESS_REMAP != 0u {
+        return clamp(rd_remap_roughness(value, SCENE_ROUGHNESS_REMAP), 0.04, 1.0);
+    }
+    return clamp(value, MINIMUM_ROUGHNESS, 1.0);
+}
+fn scene_screen_ao(world_position: vec3<f32>) -> f32 {
+    return 1.0 /* SCREEN_AMBIENT_FACTOR */;
+}
+fn scene_ao(material_ao: f32, world_position: vec3<f32>, no_l: f32, shadow: f32) -> f32 {
+    let screen = scene_screen_ao(world_position);
+    if SCENE_SPECULAR_OCCLUSION == 0u { return material_ao * screen; }
+    let combined = min(material_ao, screen * 1.01);
+    let relief = clamp(min(shadow, no_l) * min(1.0, frame.sun_irradiance.x / 3.0), 0.0, 1.0);
+    return mix(combined, 1.0, relief);
+}
+fn scene_specular_ao(no_v: f32, ao: f32, roughness: f32) -> f32 {
+    if SCENE_SPECULAR_OCCLUSION == 0u { return 1.0; }
+    return rd_specular_occlusion(no_v, ao, roughness);
+}
+fn scene_complete_lighting(direct: vec3<f32>, shadow: f32, ambient: vec3<f32>, environment: vec3<f32>) -> vec3<f32> {
+    return direct * shadow + ambient + environment;
+}
+
+fn scene_specular_brdf(dots: vec4<f32>, roughness: f32, fresnel: vec3<f32>) -> vec3<f32> {
+    return fresnel * scene_distribution_ggx(dots.z, roughness)
+        * rd_visibility(dots.x, dots.y, roughness, SCENE_SPECULAR_VISIBILITY);
+}
+
+// Environment coordinates are shared by forward shading and receiver publication.
+fn scene_environment_roughness(value: f32) -> f32 {
+    if SCENE_ROUGHNESS_REMAP == 0u { return scene_roughness(value); }
+    return rd_remap_roughness(value, SCENE_ROUGHNESS_REMAP);
+}
+fn scene_environment_factor(f0: vec3<f32>, coefficients: vec2<f32>, no_v: f32, ao: f32, roughness: f32) -> vec3<f32> {
+    return rd_split_sum(f0, coefficients) * scene_specular_ao(no_v, ao, roughness);
 }

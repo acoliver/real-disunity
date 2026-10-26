@@ -192,6 +192,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
     let ssao = SceneMetadata::new(context.device(), [6, 1], settings()).unwrap();
     let projection = glam::Mat4::IDENTITY;
     let frame = FrameUniform {
+        specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         view: projection,

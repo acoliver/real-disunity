@@ -9,8 +9,10 @@ pub(super) fn build_cached(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    samples: u32,
-) -> (BindGroupLayout, RenderPipeline) {
+    target: (u32, &[(&str, f64)]),
+) -> (RenderPipeline, BindGroupLayout, RenderPipeline) {
+    let terrain_layout = super::scene_layout(device, "terrain", groups);
+    let terrain = build_terrain(device, &terrain_layout, source, buffers, targets, target);
     let layout = crate::upload::cached_terrain_bind_group_layout(device);
     let mut groups = groups.to_vec();
     groups[1] = Some(&layout);
@@ -23,6 +25,6 @@ pub(super) fn build_cached(
         "let blended = blend_surfaces(grid, world_xy, world_xy_dx, world_xy_dy, centre_surface);",
         "let blended = cached_surface(world_xy, world_xy_dx, world_xy_dy);",
     ) + include_str!("../terrain/pages/sampling.wgsl");
-    let pipeline = build_terrain(device, &pipeline_layout, &source, buffers, targets, samples);
-    (layout, pipeline)
+    let pipeline = build_terrain(device, &pipeline_layout, &source, buffers, targets, target);
+    (terrain, layout, pipeline)
 }

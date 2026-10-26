@@ -85,7 +85,8 @@ pub(super) fn group(
 }
 pub(super) fn resolve_source(levels: usize) -> String {
     let mut source = format!(
-        "{}\n{}\n{}",
+        "{}\n{}\n{}\n{}",
+        worldrunner_render_lighting::WGSL,
         include_str!("replacement.wgsl"),
         include_str!("resolve.wgsl"),
         concat!(

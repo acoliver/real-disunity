@@ -114,6 +114,7 @@ pub(crate) fn prepare_environment(
         &mut encoder,
         &view,
         crate::sky::preparation::EnvironmentPreparation {
+            convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             cube_size: 4,
             mip_count: 3,
             lut_size: 8,

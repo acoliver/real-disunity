@@ -147,6 +147,10 @@ pub(crate) struct Water {
     pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
+    specializations: std::rc::Rc<
+        std::cell::RefCell<std::collections::BTreeMap<[u32; 3], [wgpu::RenderPipeline; 2]>>,
+    >,
+    samples: u32,
     pub receivers: [[wgpu::Texture; 3]; 3],
     pub environment: [wgpu::TextureView; 2],
     sampler: wgpu::Sampler,
@@ -187,8 +191,8 @@ impl Water {
             ));
         }
         let layout = input_layout(device);
-        let plain_pipeline = pipeline(device, config.samples, &layout, false);
-        let shadow_pipeline = pipeline(device, config.samples, &layout, true);
+        let plain_pipeline = pipeline(device, config.samples, &layout, false, [0; 3]);
+        let shadow_pipeline = pipeline(device, config.samples, &layout, true, [0; 3]);
         let bodies = geometry
             .into_iter()
             .map(|vertices| Body::new(device, &vertices))
@@ -208,6 +212,8 @@ impl Water {
             bodies,
             settings: settings.into(),
             snapshots: std::array::from_fn(|_| Snapshots::new(device, config)),
+            specializations: std::rc::Rc::default(),
+            samples: config.samples,
             pipeline: plain_pipeline,
             shadow_pipeline,
             layout,
@@ -230,8 +236,21 @@ impl Water {
                 self.snapshot_group(device, snapshots, &body.uniforms[slot], index)
             })
             .collect();
+        let mut water = self.clone();
+        let options = frame.specular_convention.shader_options();
+        if options != [0; 3] {
+            let mut cache = self.specializations.borrow_mut();
+            let selected = cache.entry(options).or_insert_with(|| {
+                [
+                    pipeline(device, self.samples, &self.layout, false, options),
+                    pipeline(device, self.samples, &self.layout, true, options),
+                ]
+            });
+            water.pipeline = selected[0].clone();
+            water.shadow_pipeline = selected[1].clone();
+        }
         WaterFeature {
-            water: self.clone(),
+            water,
             snapshots: snapshots.clone(),
             frame: *frame,
             time,
@@ -315,7 +334,9 @@ fn pipeline(
     samples: u32,
     layout: &wgpu::BindGroupLayout,
     shadows: bool,
+    options: [u32; 3],
 ) -> wgpu::RenderPipeline {
+    let constants = crate::renderer::specular_constants(options);
     let source = water_source(shadows);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("planar water"),
@@ -344,7 +365,10 @@ fn pipeline(
         fragment: Some(wgpu::FragmentState {
             module: &module,
             entry_point: Some("fs_water"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &constants,
+                ..Default::default()
+            },
             targets: &std::array::from_fn::<_, 4, _>(|_| {
                 Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba16Float,
@@ -370,7 +394,7 @@ fn pipeline(
     })
 }
 
-fn water_source(shadows: bool) -> String {
+pub(crate) fn water_source(shadows: bool) -> String {
     let shadow_source = if shadows {
         format!(
             "{}\n{}",

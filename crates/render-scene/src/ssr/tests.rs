@@ -15,7 +15,7 @@ mod regressions;
 #[path = "replacement_tests.rs"]
 mod replacement_tests;
 #[path = "water_tests.rs"]
-mod water_tests;
+pub(crate) mod water_tests;
 use super::*;
 use crate::device::GpuContext;
 use worldrunner_render_post::{Readback, ToneMap};
@@ -34,6 +34,7 @@ fn context() -> GpuContext {
 }
 fn frame() -> FrameUniform {
     FrameUniform {
+        specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         view: glam::Mat4::IDENTITY,

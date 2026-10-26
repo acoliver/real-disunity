@@ -59,7 +59,11 @@ impl super::SceneGpu {
     }
     pub(crate) fn draw_celestial(&self, pass: &mut wgpu::RenderPass<'_>) {
         if let Some(meshes) = &self.celestial {
-            meshes.draw_geometry(pass, &self.drawing_frame_group());
+            meshes.draw_geometry(
+                pass,
+                &self.drawing_frame_group(),
+                self.drawing_uniform().specular_convention,
+            );
         }
     }
 }

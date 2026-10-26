@@ -70,14 +70,28 @@ fn water_camera_transmittance(position: vec3<f32>) -> f32 {
     let light = rd_toward_light(select(water.sun_direction.xyz, vec3<f32>(0.0, 0.0, 1.0), frame.grading.y != 0.0), false);
     let ambient = scene_diffuse_environment(normal, frame.ambient_ground.xyz, water.ambient.xyz);
     let lighting = ambient + water.sun_radiance.xyz * max(dot(normal, light), 0.0) * visibility;
-    let scattering = water.color_roughness.xyz * lighting;
+    var scattering = water.color_roughness.xyz * lighting;
     let view = normalize(scene_ray_origin(input.world) - input.world);
     let no_v = clamp(dot(normal, view), 0.0001, 1.0);
     let roughness = water.color_roughness.w;
-    let coefficients = textureSampleLevel(environment_brdf, environment_sampler, vec2<f32>(no_v, roughness), 0.0).rg;
+    var environment_roughness = roughness;
+    if SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u {
+        environment_roughness = scene_environment_roughness(roughness);
+    }
+    let coefficients = textureSampleLevel(environment_brdf, environment_sampler, vec2<f32>(no_v, environment_roughness), 0.0).rg;
     let reflected = reflect(-view, normal);
-    let radiance = textureSampleLevel(environment_cube, environment_sampler, reflected, roughness * f32(textureNumLevels(environment_cube) - 1u)).rgb;
-    let specular = radiance * (vec3<f32>(0.02037) * coefficients.x + vec3<f32>(coefficients.y));
+    let radiance = textureSampleLevel(environment_cube, environment_sampler, reflected, environment_roughness * f32(textureNumLevels(environment_cube) - 1u)).rgb;
+    var environment_specular = radiance * rd_split_sum(vec3<f32>(0.02037), coefficients);
+    if SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u {
+        environment_specular = radiance * scene_environment_factor(vec3<f32>(0.02037), coefficients, no_v, 1.0, environment_roughness);
+    }
+    var specular = environment_specular;
+    if (SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u) && frame.grading.y == 0.0 {
+        let lit = scene_surface_lighting(input.world, normal, water.color_roughness.xyz,
+            vec3<f32>(roughness, 0.0, 1.0), vec3<f32>(0.02037));
+        scattering = lit.diffuse;
+        specular += lit.specular;
+    }
     let air = water_camera_transmittance(input.world);
     let fog = vec3<f32>(frame.ambient_sky.w, frame.ambient_ground.w, frame.grading.w);
     // The snapshot already contains camera fog. Preserve its transmitted share,
@@ -85,5 +99,5 @@ fn water_camera_transmittance(position: vec3<f32>) -> f32 {
     let color = rd_compose_water_fog(background, transmission, scattering, specular, air, fog);
     let receiver_clip = water.clip * vec4<f32>(input.world, 1.0);
     let receiver_pixel = (receiver_clip.xy / receiver_clip.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5)) * vec2<f32>(size);
-    return WaterOutput(vec4<f32>(color, 1.0), vec4<f32>(normalize((water.view * vec4<f32>(normal, 0.0)).xyz), 1.0), vec4<f32>(receiver_pixel - floor(input.position.xy), 0.02037, roughness), vec4<f32>(specular * air, air));
+    return WaterOutput(vec4<f32>(color, 1.0), vec4<f32>(normalize((water.view * vec4<f32>(normal, 0.0)).xyz), 1.0), vec4<f32>(receiver_pixel - floor(input.position.xy), 0.02037, environment_roughness), vec4<f32>(environment_specular * air, air));
 }

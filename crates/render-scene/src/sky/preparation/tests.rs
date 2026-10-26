@@ -33,6 +33,7 @@ fn prefilter_uses_source_mip_footprints_but_mirror_keeps_mip_zero() {
 
 fn settings() -> EnvironmentPreparation {
     EnvironmentPreparation {
+        convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 4,
         mip_count: 3,
         lut_size: 4,
@@ -44,14 +45,17 @@ fn bounded_preparation_settings() {
     assert!(settings().allocations().is_ok());
     for config in [
         EnvironmentPreparation {
+            convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             samples: 0,
             ..settings()
         },
         EnvironmentPreparation {
+            convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             mip_count: 4,
             ..settings()
         },
         EnvironmentPreparation {
+            convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             cube_size: 3,
             ..settings()
         },
@@ -108,7 +112,7 @@ fn cancellation_does_not_publish_environment_resources() {
     assert!(maps.views().is_ok());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     verify_constant(device, context.submission(), &maps.cube);
-    verify_lut(device, context.submission(), &maps.lut);
+    verify_lut(device, context.submission(), &maps.lut, settings());
 }
 fn verify_constant(
     device: &wgpu::Device,
@@ -127,21 +131,32 @@ fn verify_lut(
     device: &wgpu::Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
     lut: &wgpu::Texture,
+    settings: EnvironmentPreparation,
 ) {
     let data = read_texture(device, authority, lut, 0);
     for y in 0..4u16 {
         for x in 0..4u16 {
-            let expected = worldrunner_render_lighting::ibl::brdf_integral(
+            let input = (f32::from(y) + 0.5) / 4.0;
+            let roughness = if settings.convention.roughness
+                == worldrunner_render_plan::SceneRoughnessRemap::LinearAlpha
+            {
+                input.sqrt()
+            } else {
+                input
+            };
+            let expected = reference::integral(
                 (f32::from(x) + 0.5) / 4.0,
-                (f32::from(y) + 0.5) / 4.0,
-                settings().samples,
+                roughness,
+                settings.samples,
+                settings.convention.visibility
+                    == worldrunner_render_plan::SceneSpecularVisibility::SchlickSmith,
             );
             let offset = usize::from(y) * 256 + usize::from(x) * 8;
             for (channel, expected) in expected.into_iter().enumerate() {
                 let index = offset + channel * 2;
                 let value = half(u16::from_le_bytes([data[index], data[index + 1]]));
                 assert!(
-                    (value - expected).abs() < 0.001,
+                    (f64::from(value) - expected).abs() < 0.001,
                     "LUT ({x},{y}) channel {channel}: {value} != {expected}"
                 );
             }
@@ -331,3 +346,60 @@ fn encode_rejects_an_under_budget_environment_job() {
         .unwrap();
     prepared.cancel();
 }
+
+#[test]
+fn selected_environment_conventions_match_reference_integrals() {
+    use worldrunner_render_plan::{
+        SceneRoughnessRemap, SceneSpecularConvention, SceneSpecularVisibility,
+    };
+    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let source = source_cube(&context);
+    for roughness in [
+        SceneRoughnessRemap::Perceptual045,
+        SceneRoughnessRemap::Perceptual04,
+        SceneRoughnessRemap::LinearAlpha,
+    ] {
+        for visibility in [
+            SceneSpecularVisibility::SmithCorrelated,
+            SceneSpecularVisibility::SchlickSmith,
+        ] {
+            let settings = EnvironmentPreparation {
+                convention: SceneSpecularConvention {
+                    roughness,
+                    visibility,
+                    ..Default::default()
+                },
+                ..settings()
+            };
+            let mut maps = None;
+            context
+                .submission()
+                .prepare(context.device(), |encoder, _| {
+                    maps = Some(encode(
+                        context.device(),
+                        encoder,
+                        &source,
+                        settings,
+                        AllocationBudget(1_000_000),
+                    )?);
+                    Ok::<_, PreparationError>(())
+                })
+                .unwrap()
+                .submit()
+                .unwrap();
+            let maps = maps.unwrap();
+            context
+                .device()
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            verify_constant(context.device(), context.submission(), &maps.cube);
+            verify_lut(context.device(), context.submission(), &maps.lut, settings);
+            assert_eq!(maps.convention(), settings.convention);
+        }
+    }
+}
+
+#[path = "directional_tests.rs"]
+mod directional_tests;
+#[path = "../../../../render-lighting/src/tests/reference.rs"]
+mod reference;

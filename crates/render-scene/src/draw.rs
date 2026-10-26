@@ -361,6 +361,19 @@ impl SceneGpu {
         self.draw_color_pass(pass, pipelines, shadow, true)
     }
 
+    fn drawing_uniform(&self) -> FrameUniform {
+        self.drawing_frame
+            .borrow()
+            .as_ref()
+            .and_then(|(owner, frame)| {
+                worldrunner_render_gpu::submission::Publications::current()
+                    .filter(|current| current.same_transaction(owner))
+                    .map(|_| *frame)
+            })
+            .or_else(|| self.frame.get())
+            .expect("set frame before drawing")
+    }
+
     fn drawing_frame_group(&self) -> BindGroup {
         let transaction_frame = self
             .drawing_frame
@@ -384,6 +397,9 @@ impl SceneGpu {
         shadow: Option<&BindGroup>,
         dynamic: bool,
     ) -> SelectionPublication {
+        let frame = self.drawing_uniform();
+        let selected = pipelines.for_convention(frame.specular_convention);
+        let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
         if let Some(terrain) = &self.terrain {

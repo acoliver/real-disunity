@@ -8,11 +8,11 @@ struct ReflectionOutput {
     @location(1) environment: vec4<f32>,
     @location(2) factor: vec4<f32>,
 }
-fn forward_reflection(world: vec3<f32>, normal: vec3<f32>, f0: vec3<f32>, roughness: f32) -> vec3<f32> {
+fn forward_reflection(world: vec3<f32>, normal: vec3<f32>, f0: vec3<f32>, roughness: f32, ao: f32) -> vec3<f32> {
     let view = normalize(scene_ray_origin(world) - world);
     let cosine = clamp(dot(normal, view), 0.0001, 1.0);
     let coefficients = textureSampleLevel(reflection_brdf, reflection_sampler, vec2<f32>(cosine, roughness), 0.0).rg;
-    let factor = f0 * coefficients.x + vec3<f32>(coefficients.y);
+    let factor = scene_environment_factor(f0, coefficients, cosine, ao, roughness);
     let radiance = textureSampleLevel(reflection_environment, reflection_sampler, reflect(-view, normal), roughness * f32(textureNumLevels(reflection_environment) - 1u)).rgb;
     var air = 1.0;
     if frame.sun_direction.w < 0.0 {

@@ -82,6 +82,7 @@ pub(super) fn resolve_source(source: &str, levels: usize, samples: u32) -> Strin
         .replace("return vec4<f32>(reflection_delta", r"
     if is_water {
         let published = textureLoad(water_environment, p, SAMPLE_INDEX);
+        // The receiver stores the forward environment coordinate, including remapping.
         factor = reflection_factor(surface.rgb, water_coefficients(vec2<f32>(cosine, surface.a))) * published.a;
         environment = published.rgb;
     }

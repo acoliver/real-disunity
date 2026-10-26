@@ -19,8 +19,23 @@ fn half_vector(xi: Vec2, roughness: f32) -> Vec3 {
     Vec3::new((TAU * xi.x).cos() * sine, (TAU * xi.x).sin() * sine, cosine)
 }
 /// Returns coefficients A and B for `F0 * A + B`, not exposed radiance.
-#[expect(clippy::cast_precision_loss, reason = "bounded sample count")]
 pub fn brdf_integral(no_v: f32, roughness: f32, samples: u32) -> [f32; 2] {
+    brdf_integral_with_visibility(
+        no_v,
+        roughness,
+        samples,
+        crate::VisibilityAlgorithm::SmithCorrelated,
+    )
+}
+/// IBL visibility must not use the analytic-light hotness remap (Karis, 2013).
+#[expect(clippy::cast_precision_loss, reason = "bounded sample count")]
+pub fn brdf_integral_with_visibility(
+    no_v: f32,
+    roughness: f32,
+    samples: u32,
+    algorithm: crate::VisibilityAlgorithm,
+) -> [f32; 2] {
+    assert_ne!(algorithm, crate::VisibilityAlgorithm::SchlickSmithHotness);
     assert!(samples > 0 && no_v > 0.0 && no_v <= 1.0 && (0.0..=1.0).contains(&roughness));
     let v = Vec3::new((1.0 - no_v * no_v).sqrt(), 0.0, no_v);
     let mut sum = Vec2::ZERO;
@@ -29,12 +44,7 @@ pub fn brdf_integral(no_v: f32, roughness: f32, samples: u32) -> [f32; 2] {
         let vo_h = v.dot(h).max(0.0);
         let l = 2.0 * vo_h * h - v;
         if l.z > 0.0 {
-            let visibility = crate::visibility(
-                no_v,
-                l.z,
-                roughness,
-                crate::VisibilityAlgorithm::SmithCorrelated,
-            );
+            let visibility = crate::visibility(no_v, l.z, roughness, algorithm);
             let weight = 4.0 * visibility * l.z * vo_h / h.z.max(1e-7);
             let fc = (1.0 - vo_h).powi(5);
             sum += Vec2::new(1.0 - fc, fc) * weight;

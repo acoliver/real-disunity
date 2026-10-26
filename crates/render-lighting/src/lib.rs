@@ -19,6 +19,7 @@ pub const WGSL: &str = crate::lighting_wgsl!();
 pub enum VisibilityAlgorithm {
     SmithCorrelated,
     SchlickSmithHotness,
+    SchlickSmithIbl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,8 +75,12 @@ pub fn visibility(no_v: f32, no_l: f32, roughness: f32, algorithm: VisibilityAlg
             let l = no_v * (no_l * no_l * (1.0 - a2) + a2).sqrt();
             0.5 / (v + l).max(1e-7)
         }
-        VisibilityAlgorithm::SchlickSmithHotness => {
-            let k = ((roughness + 1.0).powi(2) / 8.0).max(1e-5);
+        VisibilityAlgorithm::SchlickSmithHotness | VisibilityAlgorithm::SchlickSmithIbl => {
+            let k = match algorithm {
+                VisibilityAlgorithm::SchlickSmithIbl => roughness * roughness * 0.5,
+                _ => (roughness + 1.0).powi(2) / 8.0,
+            }
+            .max(1e-5);
             0.25 / ((no_l * (1.0 - k) + k) * (no_v * (1.0 - k) + k))
         }
     }
@@ -99,3 +104,17 @@ pub mod reflections;
 
 #[cfg(test)]
 mod reflections_tests;
+
+/// Converts GGX alpha to perceptual roughness when explicitly requested.
+pub fn remap_roughness(value: f32, linear_alpha: bool) -> f32 {
+    assert!((0.0..=1.0).contains(&value));
+    if linear_alpha { value.sqrt() } else { value }
+}
+pub fn specular_occlusion(no_v: f32, ao: f32, roughness: f32) -> f32 {
+    assert!(
+        [no_v, ao, roughness]
+            .into_iter()
+            .all(|v| (0.0..=1.0).contains(&v))
+    );
+    ((no_v + ao).abs().powf((-16.0 * roughness - 1.0).exp2()) - 1.0 + ao).clamp(0.0, 1.0)
+}

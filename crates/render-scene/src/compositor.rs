@@ -23,6 +23,7 @@ use worldrunner_render_post::{
 /// Encoding requires the authority-owned encoder. Cancellation discards publication.
 pub struct FrameRenderer {
     chain: PostChain<FrameOutput>,
+    environment_conventions: [Option<worldrunner_render_plan::SceneSpecularConvention>; 2],
     pub(crate) water: Option<crate::water::Water>,
     water_state: std::rc::Rc<std::cell::RefCell<crate::water::WaterState>>,
     pub(crate) snapshots: Option<[crate::water::snapshots::Snapshots; 3]>,
@@ -81,6 +82,7 @@ impl FrameRenderer {
         output_format: wgpu::TextureFormat,
     ) -> Result<Self, worldrunner_render_post::PostError> {
         Ok(Self {
+            environment_conventions: [None; 2],
             ssao: None,
             ssr: None,
             ssao_requested: None,
@@ -139,6 +141,7 @@ impl FrameRenderer {
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
         let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
         let mut renderer = Self {
+            environment_conventions: [None; 2],
             ssao_requested,
             ssr_requested,
             ssr: None,
@@ -273,9 +276,9 @@ impl FrameRenderer {
             })
     }
     /// Submitted per-sample water receivers: view normal and water flag (alpha),
-    /// dielectric F0 and roughness, and replaceable linear environment specular.
+    /// dielectric F0 and environment roughness, and replaceable environment specular.
     /// Sample-frequency normal/coverage, material (pixel offsets RG, scalar F0 B,
-    /// roughness A), and environment specular (camera transmittance A).
+    /// environment-coordinate roughness A), and specular (camera transmittance A).
     pub fn water_receivers(
         &self,
     ) -> Option<(wgpu::TextureView, wgpu::TextureView, wgpu::TextureView)> {
@@ -484,6 +487,7 @@ impl FrameRenderer {
     ) -> Result<(), FrameError> {
         let config = self.targets().config();
         let (frame, shadow) = input;
+        self.validate_environment_conventions(frame.specular_convention)?;
         let (passes, views) = plan;
         let mut passes = passes.to_vec();
         let mut views = views.to_vec();

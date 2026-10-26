@@ -115,6 +115,9 @@ pub use scene::{
 };
 pub use worldrunner_material::BuiltinMaterial;
 
-pub use scene::{SceneDiffuseEnvironment, SceneSh9};
+pub use scene::{
+    SceneDiffuseEnvironment, SceneRoughnessRemap, SceneSh9, SceneSpecularConvention,
+    SceneSpecularOcclusion, SceneSpecularVisibility,
+};
 
 pub use scene::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};

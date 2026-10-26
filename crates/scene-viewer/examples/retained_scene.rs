@@ -133,6 +133,7 @@ fn options() -> ViewerOptions {
         frame_profile: FrameProfile::Legacy,
         frames_in_flight: 2,
         cadence: worldrunner_scene_viewer::PresentationCadence::default(),
+        ssr: None,
         render_clock: worldrunner_scene_viewer::RenderClock::default(),
     }
 }

@@ -10,6 +10,7 @@ fn settings(enabled: bool) -> SceneSsr {
         thickness_millimeters: 100,
         roughness_cutoff_micro: 600_000,
         resolution_scale_micro: 500_000,
+        ..Default::default()
     }
 }
 fn source(request: Option<SceneSsr>) -> RenderScene {

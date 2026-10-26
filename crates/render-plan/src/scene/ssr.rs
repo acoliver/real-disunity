@@ -2,6 +2,14 @@
 use super::SceneValidationError;
 use serde::{Deserialize, Serialize};
 
+/// How reflected radiance contributes to the forward-lit scene before exposure.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneSsrComposition {
+    #[default]
+    Additive,
+    ReplaceEnvironment,
+}
+
 /// Optional scene/document reflection settings. No temporal history is retained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10,39 +18,73 @@ pub struct SceneSsr {
     pub enabled: bool,
     /// Hierarchical traversal budget, within 1..=256.
     pub max_steps: u32,
-    /// Maximum accepted surface depth penetration, within 1..=1000 millimetres.
+    /// Base accepted depth penetration, within 1..=1000 millimetres.
     pub thickness_millimeters: u32,
+    /// Additional thickness per metre of surface depth, within 0..=1000000.
+    #[serde(default)]
+    pub thickness_slope_micro: u32,
+    /// Maximum ray length, within 1..=1000000 millimetres.
+    #[serde(default = "default_distance")]
+    pub max_distance_millimeters: u32,
+    /// Full-resolution screen pixels skipped at the origin, within 0..=4096.
+    #[serde(default = "default_skip")]
+    pub origin_skip_pixels: u32,
+    /// Number of too-deep finest-level spans allowed before terminating, within 0..=256.
+    /// Zero rejects the first such span.
+    #[serde(default)]
+    pub pass_behind_steps: u32,
+    /// Optional start of the smooth roughness fade. None uses 75% of the cutoff.
+    #[serde(default)]
+    pub roughness_fade_start_micro: Option<u32>,
     /// Surfaces at or above this roughness receive no SSR, within 1..=1000000.
     pub roughness_cutoff_micro: u32,
+    /// Optional reflected linear luminance ceiling, within 1..=1000000000 milli-units.
+    /// When enabled, positive luminance below 0.0001 attenuates RGB by luminance / 0.0001,
+    /// even below the ceiling, matching the reference formula. Confidence is unchanged.
+    #[serde(default)]
+    pub luminance_limit_milli: Option<u32>,
     /// Trace resolution: 1000000 for full or 500000 for half resolution.
     pub resolution_scale_micro: u32,
+    #[serde(default)]
+    pub composition: SceneSsrComposition,
+}
+const fn default_distance() -> u32 {
+    100_000
+}
+const fn default_skip() -> u32 {
+    2
+}
+impl Default for SceneSsr {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_steps: 256,
+            thickness_millimeters: 100,
+            thickness_slope_micro: 0,
+            max_distance_millimeters: 100_000,
+            origin_skip_pixels: 2,
+            pass_behind_steps: 0,
+            roughness_fade_start_micro: None,
+            roughness_cutoff_micro: 600_000,
+            luminance_limit_milli: None,
+            resolution_scale_micro: 1_000_000,
+            composition: SceneSsrComposition::Additive,
+        }
+    }
 }
 impl SceneSsr {
     /// Validates even disabled settings, so enabling never changes their interpretation.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        for (part, observed, minimum, maximum) in [
-            ("ssr max_steps", self.max_steps, 1, 256),
-            (
-                "ssr thickness_millimeters",
-                self.thickness_millimeters,
-                1,
-                1000,
-            ),
-            (
-                "ssr roughness_cutoff_micro",
-                self.roughness_cutoff_micro,
-                1,
-                1_000_000,
-            ),
-        ] {
-            if observed < minimum || observed > maximum {
-                return Err(SceneValidationError::RangeViolation {
-                    part,
-                    observed: observed.into(),
-                    minimum: minimum.into(),
-                    maximum: maximum.into(),
-                });
-            }
+        self.validate_traversal()?;
+        let start = self.roughness_fade_start_micro.unwrap_or(0);
+        check(
+            "ssr roughness fade start",
+            start,
+            0,
+            self.roughness_cutoff_micro - 1,
+        )?;
+        if let Some(limit) = self.luminance_limit_milli {
+            check("ssr luminance limit", limit, 1, 1_000_000_000)?;
         }
         if !matches!(self.resolution_scale_micro, 500_000 | 1_000_000) {
             return Err(SceneValidationError::RangeViolation {
@@ -53,5 +95,125 @@ impl SceneSsr {
             });
         }
         Ok(())
+    }
+    fn validate_traversal(&self) -> Result<(), SceneValidationError> {
+        for (part, value, min, max) in [
+            ("ssr max_steps", self.max_steps, 1, 256),
+            (
+                "ssr thickness_millimeters",
+                self.thickness_millimeters,
+                1,
+                1000,
+            ),
+            (
+                "ssr thickness slope",
+                self.thickness_slope_micro,
+                0,
+                1_000_000,
+            ),
+            (
+                "ssr max distance",
+                self.max_distance_millimeters,
+                1,
+                1_000_000,
+            ),
+            ("ssr origin skip", self.origin_skip_pixels, 0, 4096),
+            ("ssr pass behind", self.pass_behind_steps, 0, 256),
+            (
+                "ssr roughness_cutoff_micro",
+                self.roughness_cutoff_micro,
+                1,
+                1_000_000,
+            ),
+        ] {
+            check(part, value, min, max)?;
+        }
+        Ok(())
+    }
+}
+fn check(part: &'static str, value: u32, min: u32, max: u32) -> Result<(), SceneValidationError> {
+    if value < min || value > max {
+        return Err(SceneValidationError::RangeViolation {
+            part,
+            observed: value.into(),
+            minimum: min.into(),
+            maximum: max.into(),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn controls_validate_even_when_disabled() {
+        let invalid = [
+            SceneSsr {
+                max_distance_millimeters: 0,
+                ..Default::default()
+            },
+            SceneSsr {
+                max_distance_millimeters: 1_000_001,
+                ..Default::default()
+            },
+            SceneSsr {
+                thickness_slope_micro: 1_000_001,
+                ..Default::default()
+            },
+            SceneSsr {
+                origin_skip_pixels: 4097,
+                ..Default::default()
+            },
+            SceneSsr {
+                pass_behind_steps: 257,
+                ..Default::default()
+            },
+            SceneSsr {
+                roughness_fade_start_micro: Some(600_000),
+                ..Default::default()
+            },
+            SceneSsr {
+                roughness_cutoff_micro: 0,
+                ..Default::default()
+            },
+            SceneSsr {
+                luminance_limit_milli: Some(0),
+                ..Default::default()
+            },
+            SceneSsr {
+                luminance_limit_milli: Some(1_000_000_001),
+                ..Default::default()
+            },
+        ];
+        for policy in invalid {
+            for enabled in [false, true] {
+                assert!(SceneSsr { enabled, ..policy }.validate().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn defaults_and_authored_controls_roundtrip() {
+        let defaults: SceneSsr = serde_json::from_str(r#"{"enabled":true,"max_steps":256,"thickness_millimeters":100,"roughness_cutoff_micro":600000,"resolution_scale_micro":1000000}"#).unwrap();
+        assert_eq!(defaults, SceneSsr::default());
+        assert!(defaults.validate().is_ok());
+        let authored = SceneSsr {
+            composition: SceneSsrComposition::ReplaceEnvironment,
+            max_distance_millimeters: 25_000,
+            thickness_slope_micro: 20_000,
+            origin_skip_pixels: 0,
+            pass_behind_steps: 8,
+            roughness_fade_start_micro: Some(100_000),
+            luminance_limit_milli: Some(4000),
+            ..defaults
+        };
+        assert!(authored.validate().is_ok());
+        let bytes = serde_json::to_vec(&authored).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<SceneSsr>(&bytes).unwrap(),
+            authored
+        );
     }
 }

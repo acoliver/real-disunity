@@ -1,6 +1,7 @@
 struct ReflectionCamera {
     projection: mat4x4<f32>, inverse_projection: mat4x4<f32>,
     settings: vec4<f32>, size: vec4<f32>,
+    traversal: vec4<f32>, limits: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: ReflectionCamera;
 @group(0) @binding(1) var material: texture_2d<f32>;
@@ -23,7 +24,7 @@ struct ReflectionCamera {
     if reflection.a <= 0.0 { discard; }
     let cosine = clamp(dot(reflection_normal(normal.xyz), -reflection_incident(uv)), 0.0, 1.0);
     let fresnel = surface.rgb + (vec3<f32>(1.0)-surface.rgb)*pow(1.0-cosine,5.0);
-    let roughness_fade = 1.0 - smoothstep(camera.settings.z * 0.75, camera.settings.z, surface.a);
+    let roughness_fade = 1.0 - smoothstep(camera.limits.x, camera.settings.z, surface.a);
     var factor = reflection_factor(fresnel, vec2<f32>(1.0, 0.0));
     var environment = vec3<f32>(0.0);
     let replacement = camera.size.w != 0.0;

@@ -6,8 +6,18 @@ pub(super) fn resolve_capture(
     roughness: f32,
     water: bool,
 ) -> Vec<u8> {
+    resolve_capture_settings(context, reflection, roughness, water, settings())
+}
+fn resolve_capture_settings(
+    context: &GpuContext,
+    reflection: f32,
+    roughness: f32,
+    water: bool,
+    policy: SceneSsr,
+) -> Vec<u8> {
     let size = [3, 3];
-    let ssr = resolve_ssr(context, size);
+    let ssr = resolve_ssr(context, size, policy);
+    prepare_forward(context, &ssr);
     upload(context, &ssr.normals, &[0.0, 0.0, 1.0, 1.0].repeat(9));
     upload(
         context,
@@ -106,13 +116,110 @@ fn resolve_inputs(ssr: &Ssr, final_depth: &wgpu::Texture) -> Vec<wgpu::TextureVi
     inputs
 }
 
-fn resolve_ssr(context: &GpuContext, size: [u32; 2]) -> Ssr {
+fn resolve_ssr(context: &GpuContext, size: [u32; 2], policy: SceneSsr) -> Ssr {
     let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
     Ssr::new(
         context.device(),
         FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1),
-        settings(),
+        policy,
         &mut screen,
     )
     .unwrap()
+}
+
+#[test]
+fn gpu_roughness_fade_has_full_and_zero_endpoints() {
+    let context = context();
+    let policy = SceneSsr {
+        roughness_fade_start_micro: Some(250_000),
+        roughness_cutoff_micro: 500_000,
+        ..settings()
+    };
+    let full = resolve_capture_settings(&context, 1.0, 0.25, false, policy);
+    let middle = resolve_capture_settings(&context, 1.0, 0.375, false, policy);
+    let zero = resolve_capture_settings(&context, 1.0, 0.5, false, policy);
+    let red = |bytes: &[u8]| u16::from_le_bytes(bytes[32..34].try_into().unwrap());
+    assert_eq!(red(&full), half(0.75));
+    assert_eq!(red(&middle), half(0.5));
+    assert_eq!(red(&zero), half(0.25));
+    assert_eq!(
+        resolve_capture(&context, 1.0, 0.5, false),
+        resolve_capture_settings(
+            &context,
+            1.0,
+            0.5,
+            false,
+            SceneSsr {
+                roughness_fade_start_micro: Some(450_000),
+                ..settings()
+            }
+        )
+    );
+}
+
+#[test]
+fn gpu_scene_selected_replacement_preserves_direct_and_diffuse_energy() {
+    let context = context();
+    let policy = SceneSsr {
+        composition: worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment,
+        ..settings()
+    };
+    for (confidence, expected) in [
+        (0.0, [0.25, 0.125, 0.0625, 1.0]),
+        (0.5, [0.4375, 0.34375, 0.296_875, 1.0]),
+        (1.0, [0.625, 0.5625, 0.53125, 1.0]),
+    ] {
+        let image = resolve_capture_settings(&context, confidence, 0.0, false, policy);
+        let expected: Vec<_> = expected
+            .into_iter()
+            .flat_map(|value| half(value).to_le_bytes())
+            .collect();
+        assert_eq!(&image[32..40], expected);
+    }
+}
+
+fn prepare_forward(context: &GpuContext, ssr: &Ssr) {
+    if ssr.settings.composition != worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment
+    {
+        return;
+    }
+    assert_eq!(
+        ssr.composition,
+        worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment
+    );
+    let colors = [
+        wgpu::Color {
+            r: 0.125,
+            g: 0.0625,
+            b: 0.03125,
+            a: 1.0,
+        },
+        wgpu::Color {
+            r: 0.5,
+            g: 0.5,
+            b: 0.5,
+            a: 1.0,
+        },
+    ];
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    for (texture, color) in ssr.forward_products.iter().zip(colors) {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    }
+    encoder.finish().submit().unwrap();
 }

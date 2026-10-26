@@ -66,11 +66,11 @@ pub use scene::{
     SceneCompositionFactory, SceneContribution, SceneDirection, SceneEffects, SceneEffectsParts,
     SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject,
     SceneParts, ScenePlacement, ScenePostStage, SceneResources, SceneRotation, SceneShadowCascades,
-    SceneSky, SceneSsao, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, SceneSun, SceneTerrain,
-    SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform,
-    SceneValidationError, SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy,
-    TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
-    TextureWrap,
+    SceneSky, SceneSsao, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, SceneSsrComposition, SceneSun,
+    SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, SceneTexture,
+    SceneTransform, SceneValidationError, SceneVertex, SceneWaterBody, SceneWaterSurface,
+    TerrainLodPolicy, TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter,
+    TextureHandle, TextureSampler, TextureWrap,
 };
 pub use scene::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 

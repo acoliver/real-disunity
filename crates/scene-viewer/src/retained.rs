@@ -133,6 +133,7 @@ pub struct RetainedHost {
 
 impl RetainedHost {
     pub fn new(scene: RenderScene, options: ViewerOptions) -> Result<Self, ViewerError> {
+        let scene = crate::reflection_settings::startup_scene(scene, &options)?;
         crate::validate(&scene, &options)?;
         let objects = scene
             .geometry()

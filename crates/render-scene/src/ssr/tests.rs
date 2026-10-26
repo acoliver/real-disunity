@@ -1,3 +1,5 @@
+#[path = "controls_tests.rs"]
+mod controls_tests;
 #[path = "final_depth_tests.rs"]
 mod final_depth_tests;
 #[path = "fix_tests.rs"]
@@ -27,6 +29,7 @@ fn settings() -> SceneSsr {
         thickness_millimeters: 100,
         roughness_cutoff_micro: 600_000,
         resolution_scale_micro: 1_000_000,
+        ..Default::default()
     }
 }
 fn context() -> GpuContext {

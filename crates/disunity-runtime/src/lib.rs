@@ -432,4 +432,5 @@ mod tests {
 
 mod sprites;
 
+mod input;
 mod presentation;

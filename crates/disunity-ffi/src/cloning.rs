@@ -248,10 +248,10 @@ pub unsafe extern "C" fn disunity_clone_activate(
         if !clone.unbound.is_empty() {
             return Err("clone scripts must bind before activation".into());
         }
-        let mutation = clone.native.mutation;
+        let construction = clone.native.construction();
         let advance = session
             .native
-            .next_lifecycle(mutation)
+            .activate_construction(construction)
             .map_err(crate::errors::AbiError::from)?;
         session.clones.remove(&root);
         Ok(advance)

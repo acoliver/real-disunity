@@ -183,6 +183,11 @@ impl World {
     /// Opens a child scope without releasing the suspended parent's ticket.
     /// The host drains it through resume until `LifecycleComplete` before returning the clone.
     pub fn next_lifecycle(&mut self, mutation: MutationId) -> Result<Advance, WorldError> {
+        self.check_lifecycle_scope()?;
+        self.open_lifecycle(mutation)
+    }
+    /// A lifecycle scope may open at top level or inside a script callback.
+    pub(crate) fn check_lifecycle_scope(&self) -> Result<(), WorldError> {
         if self.scheduler.faulted {
             return Err(WorldError::Faulted);
         }
@@ -194,10 +199,12 @@ impl World {
         {
             return Err(WorldError::WrongCallback);
         }
+        Ok(())
+    }
+    pub(crate) fn open_lifecycle(&mut self, mutation: MutationId) -> Result<Advance, WorldError> {
         if self.scheduler.scopes.is_empty() {
             self.scheduler.known_scripts = self.lifecycle.scripts.keys().copied().collect();
         }
-        self.lifecycle.unpublished.remove(&mutation.sequence);
         let tasks = self
             .take_lifecycle_work(mutation)?
             .into_iter()

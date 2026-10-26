@@ -1,6 +1,6 @@
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentHandle, Construction, FieldValue, ObjectDesc, ObjectHandle,
-    ParentSpace, ScriptMessage, World, WorldError, WorldSettings,
+    Advance, CallbackOutcome, ComponentDesc, ComponentHandle, Construction, FieldValue, ObjectDesc,
+    ObjectHandle, ParentSpace, ScriptMessage, World, WorldError, WorldSettings,
 };
 
 fn script(world: &mut World, object: ObjectHandle, name: &str) -> ComponentHandle {
@@ -166,4 +166,51 @@ fn a_construction_from_another_world_is_rejected_even_with_the_same_sequence() {
         .unwrap();
     second.publish_construction(local).unwrap();
     assert_eq!(second.snapshot().objects.len(), 1);
+}
+
+/// Runs `advance` to completion, recording each script callback.
+fn drain(world: &mut World, mut advance: Advance) -> Vec<(ComponentHandle, ScriptMessage)> {
+    let mut calls = Vec::new();
+    loop {
+        match advance {
+            Advance::Callback(work) => {
+                calls.push((work.script, work.message));
+                advance = world
+                    .resume(work.ticket, CallbackOutcome::Returned)
+                    .unwrap();
+            }
+            Advance::LifecycleComplete => return calls,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn activation_publishes_and_runs_awake_for_scenes_and_clones() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let scene = construct(&mut world);
+    let advance = world.activate_construction(scene.construction).unwrap();
+    let [manager, player, _hidden] = scene.scripts;
+    assert_eq!(
+        drain(&mut world, advance),
+        [
+            (manager, ScriptMessage::Awake),
+            (player, ScriptMessage::Awake),
+            (manager, ScriptMessage::OnEnable),
+            (player, ScriptMessage::OnEnable),
+        ]
+    );
+    assert!(world.script_ready(manager).unwrap());
+    let clone = world.instantiate_unpublished(scene.root, None).unwrap();
+    let cloned = clone.components[&manager];
+    assert!(!world.script_ready(cloned).unwrap());
+    let advance = world.activate_construction(clone.construction()).unwrap();
+    let calls = drain(&mut world, advance);
+    assert_eq!(calls[0], (cloned, ScriptMessage::Awake));
+    assert_eq!(calls.len(), 4, "the clone's two scripts wake and enable");
+    assert!(world.script_ready(cloned).unwrap());
+    assert_eq!(
+        world.activate_construction(clone.construction()).err(),
+        Some(WorldError::WrongMutation)
+    );
 }

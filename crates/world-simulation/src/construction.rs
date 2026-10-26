@@ -1,10 +1,11 @@
 //! Objects built in one batch stay out of lifecycle, searches and snapshots until published.
 //!
 //! A scene load or clone creates every object and component, binds script fields, then publishes.
-//! Publishing queues `Awake`/`OnEnable` for all constructed objects under one mutation, which
-//! [`World::next_lifecycle`] runs. Discarding removes everything the construction created.
+//! Publishing queues `Awake`/`OnEnable` for all constructed objects under one mutation;
+//! activating publishes and runs that work. Discarding removes everything the construction
+//! created.
 
-use crate::{MutationId, ObjectDesc, ObjectHandle, World, WorldError};
+use crate::{Advance, MutationId, ObjectDesc, ObjectHandle, World, WorldError};
 
 /// An open batch of unpublished objects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +59,17 @@ impl World {
             .collect();
         self.refresh_lifecycle(&live, construction.0);
         Ok(())
+    }
+
+    /// Publishes the construction and runs its lifecycle work as [`World::next_lifecycle`] does.
+    /// Scope checks precede publishing, so a rejected activation leaves the construction open.
+    pub fn activate_construction(
+        &mut self,
+        construction: Construction,
+    ) -> Result<Advance, WorldError> {
+        self.check_lifecycle_scope()?;
+        self.publish_construction(construction)?;
+        self.open_lifecycle(construction.mutation())
     }
 
     /// Removes every object the construction created. Fails once any of their scripts has run.

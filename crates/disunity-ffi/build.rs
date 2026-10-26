@@ -4,34 +4,40 @@ use std::path::PathBuf;
 mod build_errors;
 mod build_layout;
 
+/// Sources whose `extern "C"` functions are bound into the managed `NativeBindings` class.
+const EXTERN_INPUTS: [&str; 18] = [
+    "src/abi.rs",
+    "src/assets.rs",
+    "src/camera_layers.rs",
+    "src/camera_data.rs",
+    "src/sprites.rs",
+    "src/presentation.rs",
+    "src/lib.rs",
+    "src/scheduling.rs",
+    "src/buffers.rs",
+    "src/cloning.rs",
+    "src/construction.rs",
+    "src/hierarchy.rs",
+    "src/callbacks.rs",
+    "src/input.rs",
+    "src/physics.rs",
+    "src/physics_materials.rs",
+    "src/ui.rs",
+    "src/object_api.rs",
+];
+const BUILD_INPUTS: [&str; 4] = [
+    "build.rs",
+    "build_layout.rs",
+    "build_errors.rs",
+    "src/errors.rs",
+];
+
 fn main() {
     let checked = PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets manifest directory"),
     )
     .join("../../csharp/Disunity/NativeBindings.g.cs");
-    for input in [
-        "src/abi.rs",
-        "src/assets.rs",
-        "src/camera_layers.rs",
-        "src/camera_data.rs",
-        "src/sprites.rs",
-        "src/presentation.rs",
-        "src/lib.rs",
-        "src/scheduling.rs",
-        "src/buffers.rs",
-        "src/cloning.rs",
-        "src/hierarchy.rs",
-        "src/callbacks.rs",
-        "src/input.rs",
-        "src/physics.rs",
-        "src/physics_materials.rs",
-        "src/ui.rs",
-        "src/object_api.rs",
-        "build.rs",
-        "build_layout.rs",
-        "build_errors.rs",
-        "src/errors.rs",
-    ] {
+    for input in EXTERN_INPUTS.iter().chain(&BUILD_INPUTS) {
         println!("cargo:rerun-if-changed={input}");
     }
     println!("cargo:rerun-if-changed={}", checked.display());
@@ -116,24 +122,12 @@ fn generate_native_records() {
 }
 
 fn generate_bindings(generated: &std::path::Path) {
-    csbindgen::Builder::default()
-        .input_extern_file("src/abi.rs")
-        .input_extern_file("src/assets.rs")
-        .input_extern_file("src/camera_layers.rs")
-        .input_extern_file("src/camera_data.rs")
-        .input_extern_file("src/sprites.rs")
-        .input_extern_file("src/presentation.rs")
-        .input_extern_file("src/lib.rs")
-        .input_extern_file("src/scheduling.rs")
-        .input_extern_file("src/buffers.rs")
-        .input_extern_file("src/cloning.rs")
-        .input_extern_file("src/hierarchy.rs")
-        .input_extern_file("src/callbacks.rs")
-        .input_extern_file("src/input.rs")
-        .input_extern_file("src/physics.rs")
-        .input_extern_file("src/physics_materials.rs")
-        .input_extern_file("src/ui.rs")
-        .input_extern_file("src/object_api.rs")
+    let builder = EXTERN_INPUTS
+        .iter()
+        .fold(csbindgen::Builder::default(), |builder, input| {
+            builder.input_extern_file(input)
+        });
+    builder
         .csharp_dll_name("worldrunner_disunity_ffi")
         .csharp_namespace("Disunity.Native")
         .csharp_class_name("NativeBindings")

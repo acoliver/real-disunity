@@ -16,6 +16,9 @@ struct Material {
     geometry_flags: vec4<u32>,
     contact_tint_distance: vec4<f32>,
     contact_surface: vec4<f32>,
+    scattering_shape: vec4<f32>,
+    scattering_colour: vec4<f32>,
+    scattering_mode: vec4<f32>,
 }
 
 const FLAG_NORMAL: u32 = 1u;
@@ -116,6 +119,7 @@ struct VertexOutput {
     @location(4) ambient_occlusion: f32,
     @location(5) @interpolate(flat) coverage: u32,
     @location(6) world_tangent: vec4<f32>,
+    @location(7) ground_fold: vec4<f32>,
 }
 
 fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
@@ -150,6 +154,7 @@ fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutpu
     out.world_normal = scene_normal(rotation, vertex.normal);
     out.world_tangent = vec4<f32>(rotation * vertex.tangent.xyz,
         vertex.tangent.w * sign(dot(rotation[0], cross(rotation[1], rotation[2]))));
+    out.ground_fold = vec4<f32>(0.0);
     out.texcoord = vertex.texcoord;
     out.tint = vec4<f32>(1.0);
     out.ambient_occlusion = 1.0;
@@ -159,6 +164,12 @@ fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutpu
 
 fn material_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     var out = transform_vertex(vertex, instance);
+    if material.contact_surface.z > 0.0 {
+        let ground = scene_ground(instance.model_column_3.xyz);
+        if dot(ground.xyz, ground.xyz) != 0.0 {
+            out.ground_fold = vec4<f32>(ground.xyz, vertex.position.z);
+        }
+    }
     let displacement = scene_wind_offset(material.wind_direction_amplitude, material.wind_clock.xy,
         bitcast<u32>(frame.grading.z));
     if material.wind_clock.x != 0u {
@@ -169,6 +180,10 @@ fn material_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput
     out.ambient_occlusion = material.tint_ao.a;
     if material.geometry_flags.x != 0u {
         out.ambient_occlusion *= vertex.ambient_occlusion;
+    }
+    if material.scattering_mode.y != 0.0 {
+        out.ambient_occlusion = 1.0;
+        if material.geometry_flags.x != 0u { out.ambient_occlusion = vertex.ambient_occlusion; }
     }
     return out;
 }
@@ -240,10 +255,17 @@ fn scene_contact_weight(height_above: f32, distance: f32) -> f32 {
 
 fn scene_contact(position: vec3<f32>) -> f32 {
     if material.contact_tint_distance.w == 0.0 { return 0.0; }
+    let ground = scene_ground(position);
+    if dot(ground.xyz, ground.xyz) == 0.0 { return 0.0; }
+    return scene_contact_weight(position.z - ground.w, material.contact_tint_distance.w);
+}
+
+// Reuse the selected terrain triangles for contact height and shading direction.
+fn scene_ground(position: vec3<f32>) -> vec4<f32> {
     let grid = contact_heights.origin_spacing_columns;
     let maximum = vec2<f32>(grid.w, contact_heights.rows_reserved.x) - 1.0;
     let point = (position.xy - grid.xy) / grid.z;
-    if any(point < vec2<f32>(0.0)) || any(point > maximum) { return 0.0; }
+    if any(point < vec2<f32>(0.0)) || any(point > maximum) { return vec4<f32>(0.0); }
     let stride = contact_heights.rows_reserved.y;
     let lower = min(floor(point / stride), ceil(maximum / stride) - 1.0) * stride;
     let upper = min(lower + stride, maximum);
@@ -256,12 +278,16 @@ fn scene_contact(position: vec3<f32>) -> f32 {
     let c = contact_heights.heights[next.y * columns + cell.x];
     let d = contact_heights.heights[next.y * columns + next.x];
     var height: f32;
+    var gradient: vec2<f32>;
     if fraction.x >= fraction.y {
         height = a + (b - a) * fraction.x + (d - b) * fraction.y;
+        gradient = vec2<f32>(b - a, d - b);
     } else {
         height = a + (d - c) * fraction.x + (c - a) * fraction.y;
+        gradient = vec2<f32>(d - c, c - a);
     }
-    return scene_contact_weight(position.z - height, material.contact_tint_distance.w);
+    gradient /= (upper - lower) * grid.z;
+    return vec4<f32>(normalize(vec3<f32>(-gradient, 1.0)), height);
 }
 
 fn scene_contact_albedo(albedo: vec3<f32>, weight: f32) -> vec3<f32> {
@@ -285,4 +311,15 @@ fn scene_apply_coverage(input: VertexOutput) {
 
 @vertex fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     return material_vertex(vertex,instance);
+}
+
+fn scene_fold_direction(mesh: vec3<f32>, ground: vec4<f32>, settings: vec2<f32>) -> vec3<f32> {
+    if settings.x == 0.0 || dot(ground.xyz, ground.xyz) == 0.0 { return mesh; }
+    let weight = clamp(settings.y + max(0.0, ground.w) / settings.x, 0.0, 1.0);
+    return mix(ground.xyz, mesh, weight);
+}
+
+fn scene_mask_response(channel: f32, packed_ao: f32, self_ao: f32, mapped: bool) -> vec2<f32> {
+    let amount = channel * select(1.0, packed_ao, mapped) * self_ao;
+    return vec2<f32>(0.0, amount);
 }

@@ -1,7 +1,8 @@
 fn reflection_metadata(input: VertexOutput, front: bool, masked: bool) -> vec4<f32> {
     var albedo = scene_albedo(textureSample(albedo_texture, material_sampler, input.texcoord), input.tint);
     let geometric = normalize(input.world_normal) * select(-1.0, 1.0, front);
-    let normal = sample_normal(input.texcoord, geometric, input.world_position, input.world_tangent);
+    let mapped_normal = sample_normal(input.texcoord, geometric, input.world_position, input.world_tangent);
+    let normal = scene_fold_direction(mapped_normal, input.ground_fold, material.contact_surface.zw);
     var roughness = material.roughness;
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {
@@ -16,6 +17,7 @@ fn reflection_metadata(input: VertexOutput, front: bool, masked: bool) -> vec4<f
         roughness = surface.x;
         metalness = surface.y;
     }
+    if material.scattering_mode.y != 0.0 { metalness = 0.0; }
     scene_apply_coverage(input);
     if masked && !scene_alpha_covered(albedo.a, input) { discard; }
     return METADATA_OUTPUT;
@@ -25,4 +27,9 @@ fn reflection_metadata(input: VertexOutput, front: bool, masked: bool) -> vec4<f
 }
 @fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     return reflection_metadata(input, front, true);
+}
+
+fn scene_metadata_direction(direction: vec3<f32>) -> vec3<f32> {
+    if material.contact_surface.z > 0.0 { return direction; }
+    return normalize(direction);
 }

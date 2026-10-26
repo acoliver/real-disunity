@@ -7,6 +7,14 @@ pub(crate) fn source(source: &str, terrain: bool) -> String {
     let source = source.replace("return direct * sunlight_visibility(world_position, normal) + ambient;",
         "return direct * sunlight_visibility(world_position, normal) + ambient + forward_reflection(world_position, normal, f0, roughness);");
     let source = if terrain {
+        source
+    } else {
+        source.replace(
+            "forward_reflection(world_position, normal, f0, roughness)",
+            "forward_reflection(world_position, scene_environment_normal(normal), f0, roughness)",
+        ) + "\nfn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { if material.contact_surface.z > 0.0 { return reflection_normal(normal); } return normal; }"
+    };
+    let source = if terrain {
         source.replace(
             "@fragment\nfn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>",
             "fn shaded_terrain(input: TerrainVertexOutput) -> vec4<f32>",
@@ -18,7 +26,11 @@ pub(crate) fn source(source: &str, terrain: bool) -> String {
                 "fn shaded_masked(input: VertexOutput, front_facing: bool) -> vec4<f32>")
             + "\n@fragment fn fs_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { return reflection_output(shaded_opaque(input, front)); }\n@fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { return reflection_output(shaded_masked(input, front)); }"
     };
-    format!("{source}\n{}", include_str!("forward.wgsl"))
+    format!(
+        "{source}\n{}\n{}",
+        include_str!("normal.wgsl"),
+        include_str!("forward.wgsl")
+    )
 }
 pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     let mut entries = Vec::new();

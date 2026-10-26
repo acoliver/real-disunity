@@ -18,6 +18,7 @@ fn features() -> SceneMaterialFeatures {
         ambient_occlusion: SceneAmbientOcclusion::UNOCCLUDED,
         wind: None,
         layer: None,
+        translucency: None,
     }
 }
 

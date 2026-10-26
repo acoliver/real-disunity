@@ -8,7 +8,7 @@ use crate::shader;
 const MICRO_SCALE: f32 = 1_000_000.0;
 
 /// Size in bytes of the shader's `Material` uniform block.
-pub const MATERIAL_UNIFORM_BYTES: usize = 112;
+pub const MATERIAL_UNIFORM_BYTES: usize = 160;
 
 /// The fixed-function and shader-program state one material requires.
 ///

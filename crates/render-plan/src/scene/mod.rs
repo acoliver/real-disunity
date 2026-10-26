@@ -41,6 +41,8 @@ pub use ssr::SceneSsr;
 mod error;
 mod geometry;
 mod material_features;
+mod translucency;
+pub use translucency::{SceneTranslucency, SceneTranslucencyParts};
 mod resource;
 pub use material_features::{
     SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,

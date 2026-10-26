@@ -117,3 +117,34 @@ fn apply_height_fog(radiance: vec3<f32>, position: vec3<f32>) -> vec3<f32> {
         frame.sun_irradiance.w, position - origin, vec3(0.0, 0.0, 1.0));
     return mix(vec3(frame.ambient_sky.w, frame.ambient_ground.w, frame.grading.w), radiance, transmittance);
 }
+
+// The distorted light vector is deliberately left unnormalised.
+fn scene_backlight_strength(ray: vec3<f32>, light: vec3<f32>, normal: vec3<f32>,
+    shape: vec4<f32>, factors: vec3<f32>) -> f32 {
+    let alignment = clamp(dot(ray, light - normal * shape.x), 0.0, 1.0);
+    return (pow(alignment, shape.y) * shape.z + shape.w) * factors.x * factors.y * factors.z;
+}
+
+fn scene_temperature_rgb(kelvin: f32) -> vec3<f32> {
+    let t = kelvin / 100.0;
+    var rgb = vec3<f32>(0.0);
+    if t <= 66.0 {
+        rgb.x = 255.0;
+        rgb.y = 99.4708025861 * log(t) - 161.1195681661;
+    } else {
+        rgb.x = 329.698727446 * pow(t - 60.0, -0.1332047592);
+        rgb.y = 288.1221695283 * pow(t - 60.0, -0.0755148492);
+    }
+    if t >= 66.0 { rgb.z = 255.0; }
+    else if t > 19.0 { rgb.z = 138.5177312231 * log(t - 10.0) - 305.0447927307; }
+    return clamp(rgb / 255.0, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn scene_scattering_tint(base: vec3<f32>, colour: vec4<f32>, warming: f32) -> vec3<f32> {
+    let neutral = max(vec3<f32>(0.001), scene_temperature_rgb(colour.w));
+    let warm = scene_temperature_rgb(max(1000.0, colour.w - warming));
+    var tint = base / neutral * warm;
+    let weights = vec3<f32>(0.2126, 0.7152, 0.0722);
+    tint = tint * colour.y / max(0.0001, dot(tint, weights));
+    return mix(tint, vec3<f32>(dot(tint, weights)), -colour.z);
+}

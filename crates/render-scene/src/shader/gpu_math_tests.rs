@@ -166,6 +166,15 @@ fn evaluate(
     entry: &str,
     frame: Option<crate::frame::FrameUniform>,
 ) -> Vec<f32> {
+    evaluate_with_ground(context, entry, frame, None)
+}
+
+fn evaluate_with_ground(
+    context: &GpuContext,
+    entry: &str,
+    frame: Option<crate::frame::FrameUniform>,
+    ground: Option<&[f32]>,
+) -> Vec<f32> {
     let device = context.device();
     let source = format!("{ENVIRONMENT_WGSL}\n{entry}");
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -208,11 +217,15 @@ fn evaluate(
         layout: &pipeline.get_bind_group_layout(0),
         entries: &entries,
     });
+    let ground_group = ground.map(|values| ground_binding(context, &pipeline, values));
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &group, &[]);
+        if let Some(ground) = &ground_group {
+            pass.set_bind_group(1, ground, &[]);
+        }
         pass.dispatch_workgroups(1, 1, 1);
     }
     encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, 16);
@@ -295,4 +308,166 @@ fn foliage_coverage_endpoints_and_complement_are_exact() {
     );
     assert_eq!(&result[..2], &[0.0, 1.0]);
     assert_eq!((result[2] + result[3]).to_bits(), 1.0_f32.to_bits());
+}
+
+#[test]
+fn folding_uses_sloped_terrain_and_preserves_intermediate_length() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let terrain = [0.0, 0.0, 1.0, 2.0, 2.0, 1.0, 2.0, 0.0, 0.0, 0.75, 0.0, 0.75];
+    for (height, minimum, weight) in [
+        (-1.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
+        (0.5, 0.0, 0.25),
+        (2.0, 0.0, 1.0),
+        (4.0, 0.0, 1.0),
+        (0.0, 0.25, 0.25),
+        (0.5, 0.25, 0.5),
+        (2.0, 0.25, 1.0),
+    ] {
+        let entry = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    let ground = scene_ground(vec3<f32>(0.2, 0.3, 0.0));
+    result[0] = vec4<f32>(scene_fold_direction(vec3<f32>(0.0, 1.0, 0.0),
+        vec4<f32>(ground.xyz, {height}), vec2<f32>(2.0, {minimum})), ground.w);
+}} "
+        );
+        let result = evaluate_with_ground(&context, &entry, None, Some(&terrain));
+        let expected = glam::Vec3::new(-0.6, 0.0, 0.8).lerp(glam::Vec3::Y, weight);
+        for (actual, expected) in result[..3].iter().zip(expected.to_array()) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
+        assert!((result[3] - 0.15).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn mask_coupling_and_shadowed_view_dependent_scattering_match_equations() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let result = evaluate(
+        &context,
+        r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    let shape = vec4<f32>(0.0, 4.0, 2.0, 0.0);
+    let light = vec3<f32>(0.0, 0.0, 1.0);
+    let mask = scene_mask_response(0.8, 0.5, 0.5, true);
+    result[0] = vec4<f32>(mask,
+        scene_backlight_strength(light, light, light, shape, vec3<f32>(1.0, mask.y, 1.0)),
+        scene_backlight_strength(light, light, light, shape, vec3<f32>(1.0, mask.y, 0.0)));
+}",
+        None,
+    );
+    assert_eq!(result, vec![0.0, 0.2, 0.4, 0.0]);
+    let result = evaluate(
+        &context,
+        r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    let light = vec3<f32>(0.0, 0.0, 1.0);
+    let shape = vec4<f32>(0.0, 4.0, 2.0, 0.0);
+    result[0] = vec4<f32>(scene_backlight_strength(-light, light, light, shape, vec3<f32>(1.0)),
+        scene_backlight_strength(vec3<f32>(1.0, 0.0, 0.0), light, light, shape, vec3<f32>(1.0)),
+        scene_mask_response(0.8, 0.5, 0.5, false));
+}",
+        None,
+    );
+    assert_eq!(result, vec![0.0, 0.0, 0.0, 0.4]);
+}
+
+fn ground_binding(
+    context: &GpuContext,
+    pipeline: &wgpu::ComputePipeline,
+    values: &[f32],
+) -> wgpu::BindGroup {
+    let buffer = context.device().create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: (values.len() * 4) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let bytes: Vec<_> = values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
+    context.queue().write_buffer(&buffer, 0, &bytes);
+    context
+        .device()
+        .create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipeline.get_bind_group_layout(1),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 7,
+                resource: buffer.as_entire_binding(),
+            }],
+        })
+}
+
+#[test]
+fn scattering_temperature_and_unnormalised_distortion_match_numerical_reference() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let result = evaluate(
+        &context,
+        r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    let tint = scene_scattering_tint(vec3<f32>(0.4, 0.8, 0.2), vec4<f32>(1.0, 0.3, 0.1, 6500.0), 1000.0);
+    let light = vec3<f32>(0.0, 0.0, 1.0);
+    let strength = scene_backlight_strength(light, light, light,
+        vec4<f32>(0.5, 4.0, 2.0, 0.1), vec3<f32>(0.8, 0.5, 0.25));
+    result[0] = vec4<f32>(tint, strength);
+}",
+        None,
+    );
+    let expected = [0.178_656_22, 0.360_023_17, 0.062_730_25, 0.0225];
+    for (actual, expected) in result.into_iter().zip(expected) {
+        assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+    }
+}
+
+#[test]
+fn high_temperature_and_cross_branch_warming_match_independent_values() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    for (kelvin, expected) in [
+        (6601, [1.0, 0.986_779, 1.0]),
+        (8000, [0.867_508_4, 0.901_134_1, 1.0]),
+        (20000, [0.669_426_1, 0.777_986_3, 1.0]),
+        (40000, [0.594_801_5, 0.727_565_8, 1.0]),
+    ] {
+        let entry = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    result[0] = vec4<f32>(scene_temperature_rgb({kelvin}.0), 1.0);
+}} "
+        );
+        let result = evaluate(&context, &entry, None);
+        for (actual, expected) in result[..3].iter().zip(expected) {
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "{kelvin}: {actual} != {expected}"
+            );
+        }
+    }
+    let result = evaluate(
+        &context,
+        r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    result[0] = vec4<f32>(scene_scattering_tint(vec3<f32>(0.4, 0.8, 0.2),
+        vec4<f32>(1.0, 0.3, 0.0, 8000.0), 2000.0), 1.0);
+}",
+        None,
+    );
+    for (actual, expected) in result[..3]
+        .iter()
+        .zip([0.190_972, 0.354_928_1, 0.076_935_69])
+    {
+        assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+    }
 }

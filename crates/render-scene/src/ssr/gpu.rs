@@ -88,7 +88,11 @@ pub(super) fn resolve_source(levels: usize) -> String {
         "{}\n{}\n{}",
         include_str!("replacement.wgsl"),
         include_str!("resolve.wgsl"),
-        include_str!("projection.wgsl")
+        concat!(
+            include_str!("projection.wgsl"),
+            "\n",
+            include_str!("normal.wgsl")
+        )
     );
     for index in 0..levels {
         write!(
@@ -124,7 +128,11 @@ pub(super) fn trace_source(samples: u32, water: bool) -> String {
     let source = format!(
         "{}\n{}",
         include_str!("trace.wgsl"),
-        include_str!("projection.wgsl")
+        concat!(
+            include_str!("projection.wgsl"),
+            "\n",
+            include_str!("normal.wgsl")
+        )
     )
     .replace("SAMPLE_LANES", &samples.to_string());
     if water {

@@ -81,7 +81,7 @@ pub fn material_bind_group_layout(device: &Device) -> BindGroupLayout {
     });
     entries.push(BindGroupLayoutEntry {
         binding: 7,
-        visibility: ShaderStages::FRAGMENT,
+        visibility: ShaderStages::VERTEX_FRAGMENT,
         ty: BindingType::Buffer {
             ty: wgpu::BufferBindingType::Storage { read_only: true },
             has_dynamic_offset: false,

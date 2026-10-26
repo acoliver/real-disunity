@@ -58,6 +58,7 @@ fn validate_terrain_material(features: &SceneMaterialFeatures) -> Result<(), Fra
     if features.tint != SceneTint::WHITE
         || features.ambient_occlusion != SceneAmbientOcclusion::UNOCCLUDED
         || features.wind.is_some()
+        || features.translucency.is_some()
     {
         return Err(FrameError::UnsupportedEffect(
             "terrain material geometry features",
@@ -95,6 +96,7 @@ mod tests {
             ambient_occlusion: SceneAmbientOcclusion::UNOCCLUDED,
             wind: None,
             layer: None,
+            translucency: None,
         }
     }
     #[test]

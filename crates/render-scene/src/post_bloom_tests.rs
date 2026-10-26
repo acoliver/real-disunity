@@ -113,6 +113,7 @@ pub(crate) fn effects(bloom: s::SceneBloom) -> s::SceneEffects {
         adaptive_exposure: None,
         bloom: Some(bloom),
         fxaa_subpixel_micro: None,
+        fxaa_quality: None,
     })
     .unwrap()
 }

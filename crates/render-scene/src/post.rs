@@ -8,6 +8,7 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
         post.validate()
             .map_err(|_| PostError::UnsupportedProfile("HDR post quantities"))?;
         apply_grading(post, &mut out);
+        apply_fxaa(post, &mut out);
         out.adaptive = post.adaptive_exposure.map(|a| AdaptiveExposure {
             log_range: [signed(a.log_min_milli), signed(a.log_max_milli)],
             percentiles: [
@@ -101,6 +102,27 @@ fn apply_grading(post: &worldrunner_render_plan::SceneHdrPost, out: &mut HdrPost
                 darken_range: v.darken_range_micro.map(micro),
                 darken_opacity: micro(v.darken_opacity_micro),
             }),
+        };
+    }
+}
+
+fn apply_fxaa(post: &worldrunner_render_plan::SceneHdrPost, out: &mut HdrPostSettings) {
+    use worldrunner_render_plan::{SceneFxaaKernel, SceneFxaaLuminance};
+    use worldrunner_render_post::{FxaaKernel, FxaaLuminance, FxaaQuality};
+    if let Some(q) = post.fxaa_quality {
+        out.fxaa_quality = FxaaQuality {
+            edge_threshold: micro(q.edge_threshold_micro),
+            minimum_threshold: micro(q.minimum_threshold_micro),
+            subpixel_blend: micro(q.subpixel_blend_micro),
+            luminance: match q.luminance {
+                SceneFxaaLuminance::Linear => FxaaLuminance::Linear,
+                SceneFxaaLuminance::Srgb => FxaaLuminance::Srgb,
+                SceneFxaaLuminance::Green => FxaaLuminance::Green,
+            },
+            kernel: match q.kernel {
+                SceneFxaaKernel::Sobel => FxaaKernel::Sobel,
+                SceneFxaaKernel::SecondDifference => FxaaKernel::SecondDifference,
+            },
         };
     }
 }

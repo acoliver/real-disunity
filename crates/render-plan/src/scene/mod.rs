@@ -26,6 +26,10 @@ pub use bloom::{
     SceneBloomTintPass, SceneBrightCurve, SceneBrightExtraction, SceneGaussianKernelRule,
     SceneGaussianLevel, SceneToneCurveBright,
 };
+mod fxaa;
+#[cfg(test)]
+mod fxaa_tests;
+pub use fxaa::{SceneFxaaKernel, SceneFxaaLuminance, SceneFxaaQuality};
 pub use post::{
     SceneAdaptiveExposure, SceneBloom, SceneDisplayGrading, SceneHdrPost, SceneToneMap,
     SceneVignette,

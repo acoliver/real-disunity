@@ -7,6 +7,16 @@ pub enum FxaaLuminance {
     Linear,
     /// Apply the sRGB OETF to linear luminance before computing contrast and gradients.
     Srgb,
+    /// Use the linear green channel directly.
+    Green,
+}
+
+/// Direction selection for the three-tap FXAA filter.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FxaaKernel {
+    #[default]
+    Sobel,
+    SecondDifference,
 }
 
 /// Quality controls for the directional three-by-three FXAA kernel.
@@ -16,9 +26,10 @@ pub struct FxaaQuality {
     pub edge_threshold: f32,
     /// Absolute contrast cutoff in the selected luminance domain, finite and within 0..=1.
     pub minimum_threshold: f32,
-    /// Multiplier of the existing FXAA strength, finite and within 0..=1.
+    /// Sobel strength multiplier, or second-difference neighbourhood blend, within 0..=1.
     pub subpixel_blend: f32,
     pub luminance: FxaaLuminance,
+    pub kernel: FxaaKernel,
 }
 impl Default for FxaaQuality {
     fn default() -> Self {
@@ -27,6 +38,7 @@ impl Default for FxaaQuality {
             minimum_threshold: 1.0 / 64.0,
             subpixel_blend: 1.0,
             luminance: FxaaLuminance::Linear,
+            kernel: FxaaKernel::Sobel,
         }
     }
 }
@@ -44,7 +56,7 @@ impl FxaaQuality {
         }
         Ok(())
     }
-    pub(crate) fn constants(self, strength: f32) -> [(&'static str, f64); 5] {
+    pub(crate) fn constants(self, strength: f32) -> [(&'static str, f64); 7] {
         [
             ("FXAA", strength.into()),
             ("EDGE_THRESHOLD", self.edge_threshold.into()),
@@ -53,6 +65,14 @@ impl FxaaQuality {
             (
                 "SRGB_LUMA",
                 f64::from(u8::from(self.luminance == FxaaLuminance::Srgb)),
+            ),
+            (
+                "GREEN_LUMA",
+                f64::from(u8::from(self.luminance == FxaaLuminance::Green)),
+            ),
+            (
+                "SECOND_DIFFERENCE",
+                f64::from(u8::from(self.kernel == FxaaKernel::SecondDifference)),
             ),
         ]
     }

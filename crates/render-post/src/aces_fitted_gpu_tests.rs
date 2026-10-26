@@ -52,14 +52,14 @@ fn aces_matrix_gpu_primaries_ramp_and_default_identity() {
     let (device, queue) = crate::gpu_tests::gpu();
     let values = [
         [0.0; 3],
-        [0.125; 3],
-        [0.5; 3],
-        [2.0; 3],
-        [4.0, 0.0, 0.0],
-        [0.0, 4.0, 0.0],
-        [0.0, 0.0, 4.0],
+        [0.09375; 3],
+        [0.75; 3],
+        [4.5; 3],
+        [5.0, 0.0, 0.0],
+        [0.0, 5.0, 0.0],
+        [0.0, 0.0, 5.0],
     ];
-    let body = "let v=array<vec3<f32>,7>(vec3(0.0),vec3(0.125),vec3(0.5),vec3(2.0),vec3(4.0,0.0,0.0),vec3(0.0,4.0,0.0),vec3(0.0,0.0,4.0))[u32(p.x)];return vec4(v,0.25);";
+    let body = "let v=array<vec3<f32>,7>(vec3(0.0),vec3(0.09375),vec3(0.75),vec3(4.5),vec3(5.0,0.0,0.0),vec3(0.0,5.0,0.0),vec3(0.0,0.0,5.0))[u32(p.x)];return vec4(v,0.25);";
     let config = FrameConfig::new([7, 3], wgpu::TextureFormat::Rgba16Float, 1);
     let (fixed, _) = render(
         (&device, &queue),
@@ -84,7 +84,7 @@ fn aces_matrix_gpu_primaries_ramp_and_default_identity() {
         for (&actual, linear) in pixel[..3].iter().zip(expected) {
             let v = encoded(linear);
             assert!(
-                (v - (v.floor() + 0.5)).abs() > 0.02,
+                (v - (v.floor() + 0.5)).abs() > 0.1,
                 "rounding boundary {v}"
             );
             assert_eq!(f64::from(actual).to_bits(), v.round().to_bits());

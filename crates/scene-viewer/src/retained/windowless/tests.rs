@@ -187,6 +187,7 @@ fn windy() -> RenderScene {
                 .unwrap(),
             ),
             layer: None,
+            translucency: None,
         })
         .unwrap();
     RenderScene::new(SceneParts {

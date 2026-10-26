@@ -18,9 +18,13 @@ pub struct SceneWaterSettings {
     /// Vlachos (2010), "Water Flow in Portal 2".
     pub flow_period_milliseconds: Option<u32>,
     /// Authored maximum refraction displacement in millimetres, including zero.
+    /// Applied in the surface plane, scaled by camera-axis thickness clamped to one metre.
     /// `None` preserves stock procedural refraction without an authored bound.
-    /// Stock rendering rejects every `Some` bound until displacement limiting is implemented.
     pub refraction_millimeters: Option<u32>,
+    /// Optional reflectance and additional scattering controls.
+    pub optics: Option<super::SceneWaterOptics>,
+    /// Optional depth-driven flow, normal and opacity shaping.
+    pub shoreline: Option<super::SceneWaterShoreline>,
 }
 impl SceneWaterSettings {
     pub const STOCK: Self = Self {
@@ -30,6 +34,8 @@ impl SceneWaterSettings {
         flow: None,
         flow_period_milliseconds: None,
         refraction_millimeters: None,
+        optics: None,
+        shoreline: None,
     };
     pub(super) fn validate_handles(
         self,

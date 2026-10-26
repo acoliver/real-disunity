@@ -57,6 +57,7 @@ impl SceneWaterBody {
     /// an extent is zero or a maximum corner computation overflows.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.validate_surface()?;
+        super::water_optics::validate(self.material.optics, self.material.shoreline)?;
         if self.material.flow_period_milliseconds == Some(0)
             || (self.material.flow_period_milliseconds.is_some() && self.material.normal.is_none())
         {

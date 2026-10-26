@@ -20,11 +20,12 @@ use super::*;
 
 #[test]
 fn water_origin_uses_the_published_forward_sample_offset() {
+    assert!(include_str!("../water/water.wgsl").contains("var f0 = 0.02037;"));
     let source = gpu::trace_source(4, true);
     assert!(source.contains("origin_uv = (vec2<f32>(p) + water_surface.rg) / camera.size.xy"));
     assert!(
         include_str!("../water/water.wgsl")
-            .contains("receiver_pixel - floor(input.position.xy), 0.02037")
+            .contains("receiver_pixel - floor(input.position.xy), f0")
     );
 }
 #[test]

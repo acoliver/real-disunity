@@ -6,14 +6,14 @@ use worldrunner_render_scene::draw::{InstanceHandle, SceneGpu};
 
 #[derive(Default)]
 pub(super) struct Objects {
-    handles: Option<BTreeMap<ObjectId, InstanceHandle>>,
+    pub(super) handles: Option<BTreeMap<ObjectId, InstanceHandle>>,
 }
 
 impl Objects {
-    pub fn apply(
+    pub(super) fn apply_updates(
         &mut self,
         gpu: &mut SceneGpu,
-        host: &mut RetainedHost,
+        updates: impl IntoIterator<Item = RetainedUpdate>,
     ) -> Result<Option<SceneEffects>, ViewerError> {
         let handles = self.handles.get_or_insert_with(|| {
             gpu.instance_handles()
@@ -22,7 +22,7 @@ impl Objects {
                 .collect()
         });
         let mut effects = None;
-        for update in host.pending.drain(..) {
+        for update in updates {
             match update {
                 RetainedUpdate::Add { id, object } => {
                     handles.insert(id, gpu.add_instance(object, true)?);
@@ -43,6 +43,11 @@ impl Objects {
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
                 RetainedUpdate::Camera { .. } => {}
+                RetainedUpdate::Resources { .. } => {
+                    return Err(ViewerError::UnsupportedScene(
+                        "resource replacement outside readiness",
+                    ));
+                }
             }
         }
         Ok(effects)
@@ -63,23 +68,31 @@ impl Renderer {
             .render_admitted(&view, &mut noop, None, Some(host))?
             .is_some())
     }
+}
 
-    pub(super) fn retained_settings(&mut self, effects: &SceneEffects) -> Result<(), ViewerError> {
-        let mut settings = self.presentation.scheduler.configuration().clone();
-        let upscale = settings.post.upscale;
-        settings.post = worldrunner_render_scene::post_settings(effects)?;
-        settings.post.upscale = upscale;
-        if let Some((exposure, _)) = &mut settings.hdr {
-            *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
-        }
-        self.resident.set_retained_effects(effects)?;
-        self.presentation
-            .scheduler
-            .reconfigure(&self.context, settings)
-            .map_err(|error| ViewerError::Gpu(error.to_string()))?;
-        self.presentation.refresh_targets();
-        Ok(())
+pub(super) fn configure_effects(
+    context: &super::GpuContext,
+    resident: &mut Resident,
+    presentation: &mut super::Presentation,
+    effects: &SceneEffects,
+) -> Result<(), ViewerError> {
+    let mut settings = presentation.scheduler.configuration().clone();
+    let upscale = settings.post.upscale;
+    settings.post = worldrunner_render_scene::post_settings(effects)?;
+    settings.post.upscale = upscale;
+    settings.ssao = effects.ssao().copied();
+    settings.ssr = effects.ssr().copied();
+    settings.water = effects.water_bodies().to_vec();
+    if let Some((exposure, _)) = &mut settings.hdr {
+        *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
     }
+    resident.set_retained_effects(effects)?;
+    presentation
+        .scheduler
+        .reconfigure(context, settings)
+        .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+    presentation.refresh_targets();
+    Ok(())
 }
 
 impl Resident {

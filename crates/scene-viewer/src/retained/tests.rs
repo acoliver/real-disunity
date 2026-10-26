@@ -21,7 +21,7 @@ fn dome_effects(initial: &SceneEffects) -> SceneEffects {
 use worldrunner_render_plan::*;
 
 #[test]
-fn unsupported_atmospheric_settings_leave_pending_edits_unchanged() {
+fn atmospheric_settings_are_prepared_in_generation_order() {
     let mut host = host();
     let base = host.scene.effects().unwrap().clone();
     let atmosphere = SceneAtmosphere {
@@ -44,7 +44,7 @@ fn unsupported_atmospheric_settings_leave_pending_edits_unchanged() {
     .unwrap();
     host.apply(RetainedUpdate::Settings(Box::new(initial.clone())))
         .unwrap();
-    let pending = format!("{:?}", host.pending);
+    let mut generation = host.accepted_generation();
     let mut background = atmosphere.clone();
     background.horizon_radiance_micro = [300_000; 3];
     let mut disc = atmosphere.clone();
@@ -72,21 +72,23 @@ fn unsupported_atmospheric_settings_leave_pending_edits_unchanged() {
         base.with_atmosphere(mesh).unwrap(),
         dome,
     ] {
-        assert!(matches!(
-            host.apply(RetainedUpdate::Settings(Box::new(effects))),
-            Err(ViewerError::UnsupportedScene(
-                "resource-changing retained settings"
-            ))
-        ));
-        assert_eq!(format!("{:?}", host.pending), pending);
-        assert_eq!(host.scene.effects(), Some(&initial));
+        host.apply(RetainedUpdate::Settings(Box::new(effects.clone())))
+            .unwrap();
+        generation += 1;
+        assert_eq!(host.accepted_generation(), generation);
+        assert_eq!(host.ready_generation(), 0);
+        assert_eq!(host.scene.effects(), Some(&effects));
     }
 }
 
 use super::*;
 
 fn host() -> RetainedHost {
-    RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap()
+    RetainedHost::new(
+        crate::renderer::retained_tests::source(),
+        crate::tests::options(),
+    )
+    .unwrap()
 }
 
 #[test]

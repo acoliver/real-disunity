@@ -3,24 +3,35 @@ use worldrunner_render_plan::{RenderScene, SceneTerrain, TerrainLodPolicy};
 
 use super::DrawError;
 
-pub(super) fn height_buffer(
-    device: &Device,
-    queue: &Queue,
-    scene: &RenderScene,
-) -> Result<Buffer, DrawError> {
+pub(super) fn prepare(scene: &RenderScene) -> Result<Vec<u8>, DrawError> {
     let terrain = scene
         .resources()
         .materials()
         .iter()
         .any(|material| material.terrain_contact().is_some())
         .then(|| scene.terrain().expect("contact admission requires terrain"));
-    let bytes = height_bytes(terrain, &device.limits())?;
+    height_bytes(
+        terrain,
+        &wgpu::Limits {
+            max_buffer_size: u64::MAX,
+            max_storage_buffer_binding_size: u64::MAX,
+            ..Default::default()
+        },
+    )
+}
+
+pub(super) fn height_buffer(
+    device: &Device,
+    queue: &Queue,
+    bytes: &[u8],
+) -> Result<Buffer, DrawError> {
+    validate_size(bytes.len() as u64, &device.limits())?;
     Ok(crate::upload::upload_buffer(
         device,
         queue,
         "contact heights",
         BufferUsages::STORAGE,
-        &bytes,
+        bytes,
     ))
 }
 

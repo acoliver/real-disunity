@@ -5,6 +5,7 @@ use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
 mod execution;
 mod live;
+mod readiness;
 mod retained;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
@@ -36,7 +37,7 @@ pub(super) struct Renderer {
     animation_start: std::time::Instant,
     live_upload: Option<live::Upload>,
     live_pending: Option<live::Pending>,
-    retained_objects: retained::Objects,
+    streaming: readiness::Streaming,
 }
 
 enum Resident {
@@ -103,7 +104,7 @@ impl Renderer {
             animation_start: std::time::Instant::now(),
             live_upload: None,
             live_pending: None,
-            retained_objects: retained::Objects::default(),
+            streaming: readiness::Streaming::new(shadows, profile),
             execution,
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
@@ -163,23 +164,24 @@ impl Renderer {
         self.poll()?;
         let resident = &mut self.resident;
         let upload = &mut self.live_upload;
-        let objects = &mut self.retained_objects;
-        let mut settings = None;
+
         let Some(ready) = self.execution.acquire(&self.context, || {
             if let Some(upload) = upload.take() {
                 resident.upload_live(&self.context, upload)?;
-            }
-            if let Some(host) = host {
-                settings = objects.apply(resident.scene_mut(), host)?;
             }
             update(resident.scene_mut()).map_err(ViewerError::from)
         })?
         else {
             return Ok(None);
         };
-        if let Some(settings) = settings {
-            self.retained_settings(&settings)?;
-        }
+        let retained_view;
+        let view = if let Some(host) = host {
+            self.publish_retained(host)?;
+            retained_view = host.view()?.expect("admitted retained extent");
+            &retained_view
+        } else {
+            view
+        };
         self.prepare_frame(view, ready.admission.slot())?;
         let output = ready
             .frame
@@ -329,10 +331,25 @@ impl Resident {
         shadows: Option<DirectionalShadowSettings>,
         profile: crate::FrameProfile,
     ) -> Result<Self, ViewerError> {
+        Self::from_prepared(
+            context,
+            worldrunner_render_scene::draw::PreparedScene::new(scene)?,
+            shadows,
+            profile,
+        )
+    }
+
+    fn from_prepared(
+        context: &GpuContext,
+        prepared: worldrunner_render_scene::draw::PreparedScene,
+        shadows: Option<DirectionalShadowSettings>,
+        profile: crate::FrameProfile,
+    ) -> Result<Self, ViewerError> {
+        let scene = prepared.scene().clone();
         Ok(if let Some(settings) = shadows {
-            Self::Shadowed(Box::new(ShadowedScene::with_target(
+            Self::Shadowed(Box::new(ShadowedScene::with_prepared_target(
                 context,
-                scene,
+                prepared,
                 settings,
                 profile.target().0,
                 profile.target().1,
@@ -344,7 +361,12 @@ impl Resident {
                 ScenePipelines::with_samples
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
-            let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
+            let gpu = SceneGpu::upload_prepared(
+                context.device(),
+                context.submission(),
+                prepared,
+                &pipelines,
+            )?;
             Self::Plain(Box::new(PlainScene {
                 gpu,
                 pipelines,
@@ -393,7 +415,7 @@ impl Resident {
 mod tests;
 
 #[cfg(test)]
-mod retained_tests;
+pub(crate) mod retained_tests;
 
 #[cfg(test)]
 mod hdr_tests;

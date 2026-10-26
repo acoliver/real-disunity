@@ -7,6 +7,7 @@ use std::{
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod readiness;
 mod session;
 pub(crate) use session::Session;
 #[cfg(test)]
@@ -16,7 +17,7 @@ mod tests;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ObjectId(pub u64);
 
-/// Ordered edits reference the initial scene's retained mesh and material tables.
+/// Ordered edits reference the latest accepted mesh and material tables.
 #[derive(Clone, Debug)]
 pub enum RetainedUpdate {
     Add {
@@ -32,10 +33,17 @@ pub enum RetainedUpdate {
         pose: CameraPose,
         lens: SceneCamera,
     },
-    /// Lighting and post settings. Resource-changing SSAO, SSR, water, atmosphere,
-    /// celestial disc/mesh and dome texture edits are rejected until asynchronous
-    /// preparation is available.
+    /// Lighting and post settings, prepared before atomic frame publication.
+    /// Water, SSAO and SSR edits require an HDR frame profile.
     Settings(Box<SceneEffects>),
+    /// Replace resource tables before adding or replacing objects that reference them.
+    /// Existing objects and terrain must remain valid against the new tables.
+    /// Textures requiring features absent from the initial device are rejected
+    /// during publication.
+    Resources {
+        resources: worldrunner_render_plan::SceneResources,
+        meshes: Vec<worldrunner_render_plan::SceneMesh>,
+    },
 }
 
 /// Logical OS input, independent of window-library and GPU types.
@@ -79,11 +87,13 @@ pub trait RetainedDriver {
 }
 
 /// CPU state is available without starting a display or GPU. Edits become visible
-/// together on the next admitted frame; skipped acquisitions retain pending edits.
+/// in generation order on admitted frames. CPU preparation never waits on the event
+/// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
     pub(crate) scene: RenderScene,
+    pub(crate) initial_scene: RenderScene,
+    pub(crate) readiness: readiness::Readiness,
     pub(crate) options: ViewerOptions,
-    pub(crate) pending: Vec<RetainedUpdate>,
     objects: BTreeMap<ObjectId, SceneObject>,
     held: BTreeSet<String>,
     size: [u32; 2],
@@ -104,9 +114,18 @@ impl RetainedHost {
             .collect();
         let size = options.size;
         Ok(Self {
+            initial_scene: scene.clone(),
+            readiness: readiness::Readiness {
+                queue: std::collections::VecDeque::new(),
+                limit: 64,
+                accepted: 0,
+                ready: 0,
+                camera: (options.pose, options.camera),
+                #[cfg(test)]
+                preparation_hook: None,
+            },
             scene,
             options,
-            pending: Vec::new(),
             objects,
             held: BTreeSet::new(),
             size,
@@ -134,42 +153,93 @@ impl RetainedHost {
 
     /// Invalid edits fail before changing CPU state or enqueuing GPU work.
     pub fn apply(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
-        match &update {
+        if self.readiness.queue.len() == self.readiness.limit {
+            return Err(ViewerError::BackPressure {
+                limit: self.readiness.limit,
+            });
+        }
+        if let RetainedUpdate::Camera { pose, lens } = &update {
+            Self::validate_camera(*pose, *lens)?;
+            self.options.pose = *pose;
+            self.options.camera = *lens;
+            self.enqueue(update, false);
+            return Ok(());
+        }
+        let mut objects = self.objects.clone();
+        let mut effects = self.scene.effects().cloned();
+        let mut replacement = None;
+        let rebuild = match &update {
             RetainedUpdate::Add { id, object } => {
                 self.validate_object(*object)?;
-                if self.objects.contains_key(id) {
+                if objects.insert(*id, *object).is_some() {
                     return Err(ViewerError::Driver("duplicate object ID".into()));
                 }
-                self.objects.insert(*id, *object);
+                false
             }
             RetainedUpdate::Remove(id) => {
-                self.objects
+                objects
                     .remove(id)
                     .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))?;
+                false
             }
             RetainedUpdate::Replace { id, object } => {
                 self.validate_object(*object)?;
-                let entry = self
-                    .objects
+                *objects
                     .get_mut(id)
-                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))?;
-                *entry = *object;
+                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))? = *object;
+                false
             }
-            RetainedUpdate::Camera { pose, lens } => {
-                SceneView::new(
-                    *pose,
-                    *lens,
-                    Viewport {
-                        width: 1,
-                        height: 1,
-                    },
-                )?;
-                self.options.pose = *pose;
-                self.options.camera = *lens;
+            RetainedUpdate::Camera { .. } => unreachable!("camera accepted above"),
+            RetainedUpdate::Settings(next) => {
+                self.validate_streamed_effects(next)?;
+                let rebuild = readiness::resource_settings_changed(self.scene.effects(), next);
+                effects = Some(*next.clone());
+                rebuild
             }
-            RetainedUpdate::Settings(effects) => self.validate_settings(effects)?,
+            RetainedUpdate::Resources {
+                resources: next,
+                meshes: next_meshes,
+            } => {
+                replacement = Some((next.clone(), next_meshes.clone()));
+                true
+            }
+        };
+        let scene = self.edited_scene(replacement, &objects, effects)?;
+        self.scene = scene;
+        self.objects = objects;
+        self.enqueue(update, rebuild);
+        Ok(())
+    }
+
+    fn edited_scene(
+        &self,
+        replacement: Option<(
+            worldrunner_render_plan::SceneResources,
+            Vec<worldrunner_render_plan::SceneMesh>,
+        )>,
+        objects: &BTreeMap<ObjectId, SceneObject>,
+        effects: Option<SceneEffects>,
+    ) -> Result<RenderScene, ViewerError> {
+        if let Some((resources, meshes)) = replacement {
+            let scene = self.snapshot(resources, meshes, objects, effects)?;
+            crate::validate(&scene, &self.options)?;
+            Ok(scene)
+        } else {
+            self.scene
+                .with_objects_and_effects(objects.values().copied().collect(), effects)
+                .map_err(|error| ViewerError::Driver(error.to_string()))
         }
-        self.pending.push(update);
+    }
+
+    fn validate_camera(pose: CameraPose, lens: SceneCamera) -> Result<(), ViewerError> {
+        SceneView::new(
+            pose,
+            lens,
+            Viewport {
+                width: 1,
+                height: 1,
+            },
+        )?;
         Ok(())
     }
 
@@ -185,31 +255,6 @@ impl RetainedHost {
                 "object references a nonresident resource".into(),
             ));
         }
-        Ok(())
-    }
-
-    fn validate_settings(&self, effects: &SceneEffects) -> Result<(), ViewerError> {
-        let Some(initial) = self.scene.effects() else {
-            return Err(ViewerError::UnsupportedScene(
-                "adding effects to an unlit scene",
-            ));
-        };
-        if initial.ssao() != effects.ssao()
-            || initial.ssr() != effects.ssr()
-            || initial.water_bodies() != effects.water_bodies()
-            || initial.atmosphere() != effects.atmosphere()
-            || (initial.sky() != effects.sky()
-                && matches!(
-                    (initial.sky(), effects.sky()),
-                    (worldrunner_render_plan::SceneSky::DomeTexture { .. }, _)
-                        | (_, worldrunner_render_plan::SceneSky::DomeTexture { .. })
-                ))
-        {
-            return Err(ViewerError::UnsupportedScene(
-                "resource-changing retained settings",
-            ));
-        }
-        worldrunner_render_scene::post_settings(effects)?;
         Ok(())
     }
 
@@ -248,8 +293,8 @@ impl RetainedHost {
             return Ok(None);
         }
         Ok(Some(SceneView::new(
-            self.options.pose,
-            self.options.camera,
+            self.readiness.camera.0,
+            self.readiness.camera.1,
             Viewport {
                 width: self.size[0],
                 height: self.size[1],

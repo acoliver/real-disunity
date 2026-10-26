@@ -53,6 +53,8 @@ pub struct ViewerOptions {
 /// Startup, presentation or scene rendering failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ViewerError {
+    #[error("retained preparation bound {limit} reached")]
+    BackPressure { limit: usize },
     #[error("live driver failed: {0}")]
     Driver(String),
     #[error(transparent)]

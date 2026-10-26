@@ -215,11 +215,24 @@ impl SceneGpu {
         scene: &RenderScene,
         pipelines: &ScenePipelines,
     ) -> Result<Self, DrawError> {
+        Self::upload_prepared(device, authority, PreparedScene::new(scene)?, pipelines)
+    }
+
+    /// Uploads an owned CPU preparation without repacking source content.
+    ///
+    /// # Errors
+    /// Returns errors for unsupported profiles or GPU upload constraints.
+    pub fn upload_prepared(
+        device: &Device,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+        prepared: PreparedScene,
+        pipelines: &ScenePipelines,
+    ) -> Result<Self, DrawError> {
+        let scene = &prepared.scene;
         let queue = authority.queue();
         validate_profile(scene, pipelines)?;
-        crate::water::surface::validate(scene)?;
-        let contact_heights = contact::height_buffer(device, queue, scene)?;
-        let (textures, views) = upload_textures(device, queue, scene)?;
+        let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
+        let (textures, views) = upload_textures(device, queue, &prepared.textures)?;
         let placeholder = placeholder_texture(device, queue);
         let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());
         let sampler = material_sampler(device);
@@ -235,9 +248,9 @@ impl SceneGpu {
                 heights: &contact_heights,
             },
         );
-        let meshes = upload_meshes(device, queue, scene)?;
-        let mesh_selection = mesh_selections(scene);
-        let terrain = upload_terrain(device, queue, scene, pipelines.terrain_layout(), &sampler)?;
+        let meshes = upload_meshes(device, queue, &prepared.meshes);
+        let terrain = resources::prepared_terrain(device, queue, &prepared, pipelines, &sampler)?;
+        let mesh_selection = prepared.selection;
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
@@ -525,16 +538,16 @@ impl SceneGpu {
 }
 
 use resources::{
-    MaterialBindings, allocate_frame_slots, upload_materials, upload_meshes, upload_terrain,
-    upload_textures,
+    MaterialBindings, allocate_frame_slots, upload_materials, upload_meshes, upload_textures,
 };
+mod prepared;
 mod resources;
+pub use prepared::PreparedScene;
 
 #[cfg(test)]
 mod tests;
 
 fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(), DrawError> {
-    descriptors::validate(scene)?;
     if let Some(effects) = scene.effects() {
         crate::frame::validate_stock_effects(effects)?;
         if matches!(

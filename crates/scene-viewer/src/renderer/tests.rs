@@ -57,6 +57,19 @@ fn edit_retained_settings(
     assert_eq!(settings.post.fxaa_quality, expected_quality);
     assert_eq!(settings.post.upscale, original.post.upscale);
     assert_eq!(settings.frame, original.frame);
+    resize_retained_settings(renderer, host, replacement, profile, &original);
+}
+
+fn resize_retained_settings(
+    renderer: &mut Renderer,
+    host: &mut crate::RetainedHost,
+    replacement: &worldrunner_render_plan::SceneEffects,
+    profile: crate::FrameProfile,
+    original: &worldrunner_render_scene::compositor::RendererConfiguration,
+) {
+    let expected_quality = worldrunner_render_scene::post_settings(replacement)
+        .unwrap()
+        .fxaa_quality;
     renderer.resize([320, 240]).unwrap();
     host.input(crate::RetainedInput::Resized([320, 240]));
     present_retained(renderer, host);

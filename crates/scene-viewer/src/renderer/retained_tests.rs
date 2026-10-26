@@ -103,7 +103,7 @@ use crate::presentation::COLOR;
 use worldrunner_render_plan::*;
 use worldrunner_render_scene::offscreen::{OffscreenTarget, RgbaImage};
 
-pub(super) fn terrain_source() -> RenderScene {
+pub(crate) fn terrain_source() -> RenderScene {
     let base = source();
     let mut textures = base.resources().textures().to_vec();
     for bytes in [[128, 128, 255, 255], [0, 255, 0, 255]] {

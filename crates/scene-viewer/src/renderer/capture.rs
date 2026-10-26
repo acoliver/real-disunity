@@ -29,12 +29,18 @@ impl Captures {
         device: &wgpu::Device,
         host: &RetainedHost,
         texture: &wgpu::Texture,
+        pages_ready: bool,
     ) -> Result<Option<(u64, Capture)>, ViewerError> {
         if self.pending.len() == 3 {
             return Ok(None);
         }
         let generation = host.ready_generation();
-        let Some(&(id, _)) = host.captures.waiting.iter().find(|r| r.1 == generation) else {
+        let Some(&(id, _, _)) = host
+            .captures
+            .waiting
+            .iter()
+            .find(|r| r.1 == generation && !host.readiness.page_wait && (!r.2 || pages_ready))
+        else {
             return Ok(None);
         };
         let image = match self.spare.pop() {

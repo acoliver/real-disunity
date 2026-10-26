@@ -1,3 +1,89 @@
+pub(super) fn retained_page_capture_present(event_loop: &EventLoop<()>, window: &Arc<Window>) {
+    let scene = crate::retained::layered_scene();
+    let mut renderer = pollster::block_on(Renderer::new(
+        event_loop.owned_display_handle(),
+        window.clone(),
+        &scene,
+        None,
+        crate::FrameProfile::Legacy,
+        2,
+    ))
+    .unwrap();
+    let size = renderer.viewport.unwrap();
+    let mut host = RetainedHost::new(
+        scene,
+        crate::ViewerOptions {
+            size: [size.width, size.height],
+            ..crate::tests::options()
+        },
+    )
+    .unwrap()
+    .with_capture_limit(1)
+    .unwrap();
+    host.apply_with_pages(RetainedUpdate::Camera {
+        pose: crate::tests::options().pose,
+        lens: crate::tests::options().camera,
+    })
+    .unwrap();
+    let id = host.request_capture_with_pages(1).unwrap();
+    present_retained(&mut renderer, &mut host);
+    assert_eq!(host.ready_generation(), 0);
+    assert_eq!(host.captures.waiting.len(), 1);
+    assert!(matches!(
+        host.request_capture_with_pages(1),
+        Err(crate::CaptureRequestError::BackPressure { limit: 1 })
+    ));
+    let cold = page_result(&mut renderer, &mut host, id);
+    let next = renderer.streaming.captures.next_frame();
+    let id = host.request_capture_with_pages(1).unwrap();
+    let warm = page_result(&mut renderer, &mut host, id);
+    assert_eq!(warm.0, next);
+    assert_eq!(cold.1, warm.1);
+    cancel_waiting_pages(&mut renderer, host);
+    renderer.drain().unwrap();
+}
+
+fn cancel_waiting_pages(renderer: &mut Renderer, mut host: RetainedHost) {
+    renderer
+        .resident
+        .scene_mut()
+        .invalidate_terrain_pages([0.0; 2], [1.0; 2]);
+    let id = host.request_capture_with_pages(1).unwrap();
+    present_retained(renderer, &mut host);
+    assert_eq!(host.captures.waiting.len(), 1);
+    let cancelled = Rc::new(RefCell::new(None));
+    let mut consumer = Consumer(cancelled.clone());
+    let mut session = Session::new(host, &mut consumer);
+    session.shutdown().unwrap();
+    assert!(
+        matches!(*cancelled.borrow(), Some(RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::Cancelled, .. }) if actual == id)
+    );
+}
+
+fn page_result(
+    renderer: &mut Renderer,
+    host: &mut RetainedHost,
+    id: u64,
+) -> (u64, worldrunner_render_scene::offscreen::RgbaImage) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        renderer.poll().unwrap();
+        renderer.collect_retained(host).unwrap();
+        if let Some(RetainedEvent::Capture {
+            id: actual,
+            outcome: RetainedCaptureOutcome::Completed { frame, image, .. },
+            ..
+        }) = host.captures.take_event()
+        {
+            assert_eq!(actual, id);
+            return (frame, image);
+        }
+        renderer.render_retained(host).unwrap();
+        assert!(Instant::now() < deadline, "page capture timed out");
+        std::thread::yield_now();
+    }
+}
+
 use super::*;
 use crate::{
     RetainedCaptureOutcome, RetainedDriver, RetainedEvent, RetainedHost, RetainedTick,

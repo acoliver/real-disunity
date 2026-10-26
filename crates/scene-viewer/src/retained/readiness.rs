@@ -3,7 +3,7 @@ use super::{
     SceneEffects, SceneObject, ViewerError, ViewerOptions,
 };
 use std::{collections::VecDeque, sync::mpsc};
-use worldrunner_render_plan::{SceneGeometry, SceneParts, SceneResources};
+use worldrunner_render_plan::{SceneGeometry, SceneResources};
 use worldrunner_render_scene::draw::PreparedScene;
 
 pub(crate) struct Preparation {
@@ -11,6 +11,8 @@ pub(crate) struct Preparation {
     pub update: RetainedUpdate,
     pub scene: Option<mpsc::Receiver<Result<PreparedScene, ViewerError>>>,
     pub ids: Vec<ObjectId>,
+    pub pages_enabled: bool,
+    pub require_pages: bool,
 }
 
 pub(crate) struct Readiness {
@@ -18,19 +20,39 @@ pub(crate) struct Readiness {
     pub limit: usize,
     pub accepted: u64,
     pub ready: u64,
+    pub published: u64,
+    pub pages_enabled: bool,
+    pub page_wait: bool,
     pub camera: (CameraPose, SceneCamera),
     #[cfg(test)]
     pub preparation_hook: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl Readiness {
+    pub(crate) fn pages_enabled_for(&self, generation: u64) -> bool {
+        if generation == self.published {
+            self.pages_enabled
+        } else {
+            self.queue
+                .iter()
+                .find(|p| p.generation == generation)
+                .expect("accepted, unsuperseded generation")
+                .pages_enabled
+        }
+    }
+
     pub(crate) fn publish_front(&mut self) -> RetainedUpdate {
         let front = self.queue.pop_front().expect("published front generation");
         if let RetainedUpdate::Camera { pose, lens } = &front.update {
             self.camera = (*pose, *lens);
         }
-        assert_eq!(front.generation, self.ready + 1);
-        self.ready = front.generation;
+        assert_eq!(front.generation, self.published + 1);
+        self.published = front.generation;
+        self.pages_enabled = front.pages_enabled;
+        self.page_wait = front.require_pages;
+        if !self.page_wait {
+            self.ready = front.generation;
+        }
         front.update
     }
 }
@@ -64,7 +86,31 @@ impl RetainedHost {
     }
 
     pub fn preparations_in_flight(&self) -> usize {
-        self.readiness.queue.len()
+        self.readiness.queue.len() + usize::from(self.readiness.page_wait)
+    }
+
+    /// Accepts an edit whose generation becomes ready only when the current view's
+    /// selected terrain material pages are resident. Paging must be enabled.
+    pub fn apply_with_pages(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
+        let terrain = match &update {
+            RetainedUpdate::Terrain(terrain) => terrain.as_deref(),
+            _ => self.scene.terrain(),
+        };
+        if terrain
+            .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
+            .is_none()
+        {
+            return Err(ViewerError::InvalidOptions(
+                "page dependency requires paging",
+            ));
+        }
+        self.apply(update)?;
+        self.readiness
+            .queue
+            .back_mut()
+            .expect("accepted update")
+            .require_pages = true;
+        Ok(())
     }
 
     pub(super) fn validate_streamed_effects(
@@ -92,14 +138,14 @@ impl RetainedHost {
         objects: &BTreeMap<ObjectId, SceneObject>,
         effects: Option<SceneEffects>,
     ) -> Result<RenderScene, ViewerError> {
-        RenderScene::new(SceneParts {
-            resources,
-            geometry: SceneGeometry::new(meshes, objects.values().copied().collect())
-                .map_err(|error| ViewerError::Driver(error.to_string()))?,
-            terrain: self.scene.terrain().cloned(),
-            effects,
-        })
-        .map_err(|error| ViewerError::Driver(error.to_string()))
+        self.scene
+            .with_resources(
+                resources,
+                SceneGeometry::new(meshes, objects.values().copied().collect())
+                    .map_err(|error| ViewerError::Driver(error.to_string()))?,
+                effects,
+            )
+            .map_err(|error| ViewerError::Driver(error.to_string()))
     }
 
     pub(super) fn enqueue(&mut self, update: RetainedUpdate, rebuild: bool) {
@@ -124,6 +170,12 @@ impl RetainedHost {
         });
         self.readiness.queue.push_back(Preparation {
             generation: self.readiness.accepted,
+            pages_enabled: self
+                .scene
+                .terrain()
+                .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
+                .is_some(),
+            require_pages: false,
             update,
             scene,
             ids: if rebuild {

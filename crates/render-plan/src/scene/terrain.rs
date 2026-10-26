@@ -177,6 +177,7 @@ pub struct SceneTerrain {
     surfaces: Box<[SceneTerrainSurface]>,
     lod_policy: TerrainLodPolicy,
     layered_source: Option<super::TerrainLayeredSource>,
+    page_policy: Option<super::TerrainPagePolicy>,
 }
 
 impl SceneTerrain {
@@ -200,6 +201,7 @@ impl SceneTerrain {
             surfaces: parts.surfaces.into_boxed_slice(),
             lod_policy: parts.lod_policy,
             layered_source: None,
+            page_policy: None,
         };
         terrain.validate()?;
         Ok(terrain)
@@ -217,6 +219,25 @@ impl SceneTerrain {
 
     pub const fn layered_source(&self) -> Option<&super::TerrainLayeredSource> {
         self.layered_source.as_ref()
+    }
+
+    /// Enables bounded material residency for this terrain's layered source.
+    /// Passing `None` disables material pages.
+    pub fn with_page_policy(
+        mut self,
+        policy: Option<super::TerrainPagePolicy>,
+    ) -> Result<Self, SceneValidationError> {
+        if policy.is_some() && self.layered_source.is_none() {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "terrain page policy requires a layered source",
+            });
+        }
+        self.page_policy = policy;
+        Ok(self)
+    }
+
+    pub const fn page_policy(&self) -> Option<super::TerrainPagePolicy> {
+        self.page_policy
     }
 
     /// Returns the sample column count, counted along the eastward axis.

@@ -42,6 +42,13 @@ pub enum DrawError {
     #[error("layered terrain is unsupported by the device limits")]
     LayeredLimit,
     #[error(transparent)]
+    TerrainPages(
+        #[from]
+        worldrunner_render_gpu::configuration::ConfigurationError<
+            worldrunner_render_gpu::configuration::DriverAllocationError,
+        >,
+    ),
+    #[error(transparent)]
     LayeredGpu(#[from] crate::terrain::pages::layered_gpu::LayeredGpuError),
     #[error(transparent)]
     Layered(#[from] crate::terrain::pages::layered::LayeredError),
@@ -295,6 +302,7 @@ impl SceneGpu {
                 material_uniforms,
             },
         };
+        gpu.install_terrain_page_policy(device, authority, pipelines, scene)?;
         gpu.flush_instances(device, authority)?;
         Ok(gpu)
     }

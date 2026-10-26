@@ -136,7 +136,7 @@ impl Harness {
         let mut capture = self
             .streaming
             .captures
-            .prepare(self.context.device(), &self.host, &self.output)
+            .prepare(self.context.device(), &self.host, &self.output, false)
             .unwrap();
         let view = self.host.view().unwrap().unwrap();
         self.resident.select_frame_slot(admission.slot());

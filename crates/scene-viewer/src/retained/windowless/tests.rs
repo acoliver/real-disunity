@@ -1,3 +1,5 @@
+pub(crate) mod pages;
+mod terrain;
 #[test]
 fn wall_clock_captures_advance_without_a_fixed_override() {
     let mut driver = Driver::default();

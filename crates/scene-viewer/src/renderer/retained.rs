@@ -43,9 +43,9 @@ impl Objects {
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
                 RetainedUpdate::Camera { .. } => {}
-                RetainedUpdate::Resources { .. } => {
+                RetainedUpdate::Resources { .. } | RetainedUpdate::Terrain(_) => {
                     return Err(ViewerError::UnsupportedScene(
-                        "resource replacement outside readiness",
+                        "scene replacement outside readiness",
                     ));
                 }
             }

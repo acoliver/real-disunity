@@ -9,6 +9,35 @@ use worldrunner_render_gpu::{
 use worldrunner_render_post::FrameError;
 
 impl SceneGpu {
+    pub(super) fn install_terrain_page_policy(
+        &mut self,
+        device: &wgpu::Device,
+        authority: &SubmissionAuthority,
+        pipelines: &crate::renderer::ScenePipelines,
+        scene: &worldrunner_render_plan::RenderScene,
+    ) -> Result<(), super::DrawError> {
+        let Some(policy) = scene
+            .terrain()
+            .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
+        else {
+            return Ok(());
+        };
+        self.enable_terrain_pages(
+            device,
+            authority,
+            pipelines,
+            TerrainPageSource {
+                settings: policy.settings(),
+                slots: policy.slots(),
+                budget: worldrunner_render_gpu::configuration::AllocationBudget(
+                    policy.budget_bytes(),
+                ),
+                sample: Box::new(|_| unreachable!("scene page policy requires layered terrain")),
+            },
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn clear_capture_pages(&self) {
         if let Some(pages) = self
             .terrain

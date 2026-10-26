@@ -277,6 +277,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     crate::retained::session::pointer_tests::native_window_pointer_delivery(window.clone());
     streaming::streaming_present(&event_loop, &window);
     capture::retained_capture_present(&event_loop, &window);
+    capture::retained_page_capture_present(&event_loop, &window);
     sdsm::retained_depth_fitting(&event_loop, &window);
     live::pending_survives_resize_and_surface_recovery(&mut event_loop, window.clone());
     teardown::assert_pending_submission_cleanup(

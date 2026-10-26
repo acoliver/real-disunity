@@ -4125,6 +4125,8 @@ version = "0.1.0"
 dependencies = [
  "jpeg-decoder",
  "png",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "worldrunner-original-games",

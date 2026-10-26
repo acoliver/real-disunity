@@ -5,7 +5,7 @@ use crate::{
 };
 
 /// The material a sprite or tilemap renderer draws with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum RendererMaterial {
     /// Unity's built-in unlit, alpha-blended sprite material.
     SpritesDefault,

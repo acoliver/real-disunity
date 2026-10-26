@@ -48,11 +48,36 @@ fn manifest() -> serde_json::Value {
     serde_json::from_str(&text).expect("manifest parses as JSON")
 }
 
+/// The `NativeBindings.g.cs` and `NativeBindings.<n>.g.cs` parts in `directory`, by name,
+/// with their bytes.
+fn binding_parts(directory: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut parts: Vec<_> = std::fs::read_dir(directory)
+        .expect("binding directory")
+        .map(|entry| entry.expect("binding entry").path())
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?.to_owned();
+            let part = name
+                .strip_prefix("NativeBindings.")?
+                .strip_suffix("g.cs")?
+                .strip_suffix('.')
+                .is_none_or(|number| number.bytes().all(|b| b.is_ascii_digit()));
+            part.then(|| (name.clone(), std::fs::read(&path).expect("binding part")))
+        })
+        .collect();
+    parts.sort();
+    parts
+}
+
+fn checked_parts() -> Vec<(String, Vec<u8>)> {
+    binding_parts(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../csharp/Disunity"))
+}
+
+/// Every checked import declaration, across all parts of the partial class.
 fn generated_bindings() -> String {
-    std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../csharp/Disunity/NativeBindings.g.cs"),
-    )
-    .expect("csbindgen output is generated into csharp/Disunity and tracked")
+    checked_parts()
+        .into_iter()
+        .map(|(_, bytes)| String::from_utf8(bytes).expect("UTF-8 bindings"))
+        .collect()
 }
 
 #[test]
@@ -102,11 +127,25 @@ fn manifest_abi_version_matches_the_library_constant() {
 
 #[test]
 fn checked_bindings_match_complete_generated_signatures_and_layouts() {
-    let generated = std::fs::read(Path::new(env!("OUT_DIR")).join("NativeBindings.g.cs"))
-        .expect("the build generates bindings in OUT_DIR without changing the checked file");
+    let generated = binding_parts(Path::new(env!("OUT_DIR")));
+    let names = |parts: &[(String, Vec<u8>)]| {
+        parts
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>()
+    };
     assert!(
-        generated == generated_bindings().as_bytes(),
-        "checked csharp/Disunity/NativeBindings.g.cs differs from the generated imports"
+        !generated.is_empty(),
+        "the build generates bindings in OUT_DIR"
+    );
+    assert_eq!(
+        names(&checked_parts()),
+        names(&generated),
+        "checked binding parts differ from the generated parts"
+    );
+    assert!(
+        checked_parts() == generated,
+        "checked csharp/Disunity/NativeBindings*.g.cs differ from the generated imports"
     );
 }
 

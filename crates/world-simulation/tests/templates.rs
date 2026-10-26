@@ -165,3 +165,14 @@ fn discarding_templates_keeps_their_clones() {
         "a discarded template is gone"
     );
 }
+
+#[test]
+fn layers_hold_unitys_thirty_two_and_survive_cloning() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let object = world.create_object(named("Ball")).unwrap();
+    world.set_layer(object, 8).unwrap();
+    assert_eq!(world.object(object).unwrap().layer, 8);
+    assert!(world.set_layer(object, 32).is_err());
+    let clone = world.instantiate(object, None).unwrap();
+    assert_eq!(world.object(clone.root).unwrap().layer, 8);
+}

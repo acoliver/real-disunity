@@ -1,11 +1,13 @@
 # Managed ABI and portable fixture
 
-`Disunity/NativeBindings.g.cs` and `Disunity/NativeRecords.g.cs` are checked in.
-The native FFI build generates imports and records in Cargo's `OUT_DIR`, splitting
-csbindgen's partial import class from its namespace-level records. It removes
-blank import lines to keep the combined surface under 750 lines and compares
-**all bytes** in both files, including complete signatures, calling conventions,
-and struct fields. A mismatch fails the build;
+The generated imports `Disunity/NativeBindings.g.cs`, `Disunity/NativeBindings.2.g.cs`
+and so on, and the records in `Disunity/NativeRecords.g.cs`, are checked in.
+The native FFI build generates them in Cargo's `OUT_DIR`, splitting csbindgen's
+partial import class from its namespace-level records. It removes blank import
+lines and packs the import declarations, in generated order, into as many parts
+of the partial class as keep each file under 750 lines. It compares **all bytes**
+in every file, including complete signatures, calling conventions, and struct
+fields. A mismatch fails the build;
 normal builds never update the checked file. All ABI source files and the
 checked bindings are Cargo rerun inputs. Keep LF line endings as required by the
 repository attributes.
@@ -21,8 +23,9 @@ After an intentional ABI change:
    and layouts. Copy that generated file to the checked file **explicitly**:
    `cp <printed-OUT_DIR>/NativeBindings.g.cs csharp/Disunity/NativeBindings.g.cs`
    (PowerShell: `Copy-Item <printed-OUT_DIR>/NativeBindings.g.cs csharp/Disunity/NativeBindings.g.cs`).
-   Review and copy `NativeRecords.g.cs` from that same output directory as well.
-   Both generated files must remain under 750 lines and both have byte-for-byte drift checks.
+   Review and copy every other drifted file the build names from that same output
+   directory, including `NativeBindings.2.g.cs` when imports move between parts and
+   `NativeRecords.g.cs`. Every generated file has a byte-for-byte drift check.
    Do not guess an old build directory: use the path from this invocation.
 3. Update `crates/disunity-ffi/disunity_interface.json` for new exports and
    record the current ABI revision. Removing or changing an export requires a new
@@ -68,6 +71,14 @@ cleanup. The host receives native library, managed assembly, runtimeconfig, and
 bridge type paths explicitly through `ManagedHostConfig`; the managed resolver
 uses the native image selected by that host. SDK discovery settings belong to the
 invoking build/test environment, not engine policy.
+
+`crates/disunity-runtime/tests/original_scenes.rs` plays the original games from
+their scenes. It fetches Pong and Breakout with `original-games`, writes their
+plans with `unity-import plan`, compiles each game's scripts unchanged with the
+`csharp/OriginalGames` projects, then runs `Disunity.SceneTests` against the
+native library. Those tests check Unity's field binding rules on synthetic
+plans, then load each game and play it: Pong's launch, paddle axes and scoring
+through its scene-wired event, and Breakout's prefab instantiation and tile walls.
 
 CI defines Linux, Windows, and macOS managed jobs. A local Linux result does not
 establish Windows or macOS compatibility.
@@ -265,9 +276,9 @@ limits are generated from the ABI. Valid UTF-8 failure diagnostics are clipped
 at a character boundary before native ownership, so oversized messages cannot
 prevent failure teardown. The Rust host retains the full managed diagnostic.
 
-Regeneration covers five checked outputs: NativeErrors.g.cs,
-crates/disunity-runtime/src/native.g.rs, NativeLayouts.g.cs, NativeBindings.g.cs
-and NativeRecords.g.cs.
+Regeneration covers these checked outputs: NativeErrors.g.cs,
+crates/disunity-runtime/src/native.g.rs, NativeLayouts.g.cs, every NativeBindings
+part and NativeRecords.g.cs.
 Build first, inspect the generated output named by the drift failure, copy that
 artifact explicitly, and rebuild until every drift check passes. Builds do not
 rewrite these files. Managed imports and records are checked first, followed by

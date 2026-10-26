@@ -38,6 +38,20 @@ public sealed class GameObject : Object, IDisposable
 
     public string name { get => DisunityHost.ObjectText(this, 0); set => DisunityHost.ObjectText(this, 0, value); }
     public string tag { get => DisunityHost.ObjectText(this, 1); set => DisunityHost.ObjectText(this, 1, value); }
+    public unsafe int layer
+    {
+        get
+        {
+            uint value;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_object_layer_read(DisunityHost.WorldHandle, NativeHandle, &value));
+            return (int)value;
+        }
+        set
+        {
+            if (value is < 0 or > 31) throw new ArgumentException("A layer is 0 to 31", nameof(value));
+            DisunityHost.ThrowIfError(NativeBindings.disunity_object_layer_write(DisunityHost.WorldHandle, NativeHandle, (uint)value));
+        }
+    }
     public bool activeSelf => (DisunityHost.ObjectFlags(this) & 1) != 0;
     public bool activeInHierarchy => (DisunityHost.ObjectFlags(this) & 2) != 0;
     public bool CompareTag(string value) => tag == value;

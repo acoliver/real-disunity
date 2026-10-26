@@ -4,11 +4,12 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
-    import_scene, input_axes,
+    import_scene, input_axes, plan_scene,
 };
 
 const USAGE: &str = "usage: unity-import catalog <project>
        unity-import axes <project>
+       unity-import plan <project> <scene path>
        unity-import documents <project> <asset path>
        unity-import scene <project> <scene path>
        unity-import texture <project> <texture path>
@@ -30,6 +31,9 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
     match args {
         [command, project] if command == "catalog" => catalog(Path::new(project)),
         [command, project] if command == "axes" => axes(Path::new(project)),
+        [command, project, scene] if command == "plan" => {
+            plan(Path::new(project), Path::new(scene))
+        }
         [command, project, asset] if command == "documents" => {
             documents(Path::new(project), Path::new(asset))
         }
@@ -259,6 +263,13 @@ fn components(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
             println!("{} {}: {line}", object.type_name, id.index());
         }
     }
+    Ok(())
+}
+
+/// Prints the scene's plan as JSON.
+fn plan(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
+    let plan = plan_scene(&Project::open(root)?, path)?;
+    println!("{}", serde_json::to_string_pretty(&plan)?);
     Ok(())
 }
 

@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum RenderMode {
     ScreenSpaceOverlay,
     ScreenSpaceCamera,
@@ -30,7 +30,7 @@ pub struct Canvas {
 }
 
 /// The layout rectangle of a UI object, relative to its parent's rectangle.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct RectTransform {
     pub anchor_min: [f64; 2],
     pub anchor_max: [f64; 2],
@@ -39,7 +39,7 @@ pub struct RectTransform {
     pub pivot: [f64; 2],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum ScreenMatch {
     MatchWidthOrHeight,
     Expand,
@@ -48,7 +48,7 @@ pub enum ScreenMatch {
 
 /// How a `CanvasScaler` sizes its canvas. Physical-size scaling depends on screen DPI and is not
 /// supported.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub enum CanvasScale {
     ConstantPixelSize {
         scale_factor: f64,
@@ -60,13 +60,13 @@ pub enum CanvasScale {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct CanvasScaler {
     pub scale: CanvasScale,
     pub reference_pixels_per_unit: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum FontStyle {
     Normal,
     Bold,
@@ -74,7 +74,7 @@ pub enum FontStyle {
     BoldAndItalic,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum TextAnchor {
     UpperLeft,
     UpperCenter,
@@ -87,19 +87,19 @@ pub enum TextAnchor {
     LowerRight,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum HorizontalOverflow {
     Wrap,
     Overflow,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum VerticalOverflow {
     Truncate,
     Overflow,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct FontData {
     pub font: PackageFont,
     pub size: i64,
@@ -116,7 +116,7 @@ pub struct FontData {
 }
 
 /// A UI `Text` drawn with the default UI material.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Text {
     pub text: String,
     /// Linear RGBA color.

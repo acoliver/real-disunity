@@ -15,6 +15,12 @@ The goal for Unity projects is that you point the engine at an unmodified projec
 
 Anything the importer cannot resolve is reported as a missing reference or a typed error that names the file, object and field. The importer never invents a replacement asset.
 
+### Scene plans
+
+`plan_scene` turns a scene into the plan the managed loader builds from. It lists every object of the scene and of the prefabs the scene references, parents first, with its engine components and scripts in authored order. Prefab objects are marked as templates: the loader keeps them for `Instantiate` and never activates them. Assets, sprites, textures, package fonts and input axes are listed once and referenced by index.
+
+Script fields keep Unity's text, because only the compiled script says how to read a value. A reference in a field names a plan entry: `{"$object": i}` for a GameObject, `{"$transform": i}` for its transform, `{"$component": [i, j]}` for component `j` of object `i`, `{"$asset": i}` for a ScriptableObject or physics material, `{"$sprite": i}` and `{"$texture": i}` for texture content, and `{"$font": "Arial"}` for a package font. Planning fails on a missing reference, on references to other asset types, on unsupported components and settings, and on game objects outside every hierarchy.
+
 ## The `unity-import` tool
 
 The tool prints what the importer sees, which is the quickest way to find out how far a project gets. Paths after the project directory are relative to the project root.
@@ -32,6 +38,7 @@ cargo run -p worldrunner-unity-import -- <command> <project> [path]
 | `sprites <project> <scene>` | Every texture the scene's sprites use, and any sprite reference that does not resolve. |
 | `components <project> <scene>` | The typed view of each camera and camera participant, sprite and tilemap renderer, Rigidbody2D, 2D collider with its physics material, grid, tilemap, Canvas, RectTransform and supported package component. |
 | `axes <project>` | The project's input axes from `ProjectSettings/InputManager.asset`, in file order. |
+| `plan <project> <scene>` | The scene plan as JSON: what the managed loader builds. Planning fails, naming the object, on anything the engine cannot build as authored. |
 
 For a project with one scene holding one object, `scene` prints:
 
@@ -46,13 +53,13 @@ missing references: 0
 
 Three small open-source Unity games are the first targets. They will run from their original repositories at pinned commits, with no changes to their source or assets.
 
-| Game | Unity version | Import status |
+| Game | Unity version | Status |
 | --- | --- | --- |
-| [Snake](https://github.com/eguldali/Optimized-Snake-Game) | 6000.3 | Imports except for one sprite that comes from Unity's 2D sprite package, whose exact metrics are not confirmed. |
-| [Pong](https://github.com/mcrvaz/pong-tdd) | 2017.1 | Imports with no missing references. |
-| [Breakout](https://github.com/admtrv/Breakout) | 6000.3 | Imports with no missing references. |
+| [Snake](https://github.com/eguldali/Optimized-Snake-Game) | 6000.3 | Its scripts compile. Planning fails on one sprite that comes from Unity's 2D sprite package, whose exact metrics are not confirmed. |
+| [Pong](https://github.com/mcrvaz/pong-tdd) | 2017.1 | Loads and plays headless: the ball launches, the paddles follow their input axes and goals score. |
+| [Breakout](https://github.com/admtrv/Breakout) | 6000.3 | Loads and plays headless: bricks and the ball are instantiated from their prefabs and the tile walls keep the ball in play. |
 
-None of them runs yet, because of the missing scene loader. The engine work they need is tracked in [#70](https://github.com/acoliver/real-disunity/issues/70). Named input axes, position constraints on 2D bodies and Unity's deferred `Destroy` timing are done; camera, `CanvasScaler` and `Text` style settings over the ABI and the loader itself remain.
+"Headless" means scripts, physics, input and UI state run without a window; rendering and keyboard play through a window are tracked in [#70](https://github.com/acoliver/real-disunity/issues/70). The test that plays them is `crates/disunity-runtime/tests/original_scenes.rs`.
 
 ## When a project does not import
 

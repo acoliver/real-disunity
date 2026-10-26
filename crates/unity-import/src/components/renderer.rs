@@ -9,7 +9,7 @@ pub(crate) const TILEMAP_RENDERER: i32 = 483_693_784;
 
 /// Sorting and material shared by sprite and tilemap renderers. Only the Default sorting layer
 /// exists, so its order is the whole sort key.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct RendererSettings {
     pub enabled: bool,
     pub sorting_order: i64,

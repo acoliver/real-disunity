@@ -128,6 +128,11 @@ impl Scene {
         self.templates.get(&prefab).copied()
     }
 
+    /// Every prefab loaded as a template, with its root transform, in GUID order.
+    pub fn templates(&self) -> impl Iterator<Item = (Guid, ObjectId)> + '_ {
+        self.templates.iter().map(|(guid, root)| (*guid, *root))
+    }
+
     /// References whose target is absent from the project, with the object that holds them.
     pub fn missing_references(&self) -> Vec<(ObjectId, Reference)> {
         let mut missing = Vec::new();

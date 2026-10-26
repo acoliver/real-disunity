@@ -136,6 +136,8 @@ CheckImport("disunity_transform_write", u64, u64, AbiType("DisunityTransform").M
 CheckImport("disunity_object_text_write", u64, u64, u32, bytes, u32);
 CheckImport("disunity_object_text_read", u64, u64, u32, bytes, u32, u32.MakePointerType());
 CheckImport("disunity_object_flags", u64, u64, u32.MakePointerType());
+CheckImport("disunity_object_layer_write", u64, u64, u32);
+CheckImport("disunity_object_layer_read", u64, u64, u32.MakePointerType());
 CheckImport("disunity_world_fixed_delta", u64, typeof(double).MakePointerType());
 CheckImport("disunity_body_move_position", u64, u64, f32, f32);
 CheckImport("disunity_rotation_read", u64, u64, f32.MakePointerType(), f32.MakePointerType(), f32.MakePointerType(), f32.MakePointerType());

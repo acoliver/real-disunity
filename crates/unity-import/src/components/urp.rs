@@ -14,7 +14,7 @@ const GLOBAL: &str = "Global";
 
 /// A URP global 2D light. Other light types carry shape data this view does not hold, so
 /// importing them fails.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Light2D {
     /// Linear RGBA color.
     pub color: [f64; 4],
@@ -25,21 +25,21 @@ pub struct Light2D {
     pub blend_style: i64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum CameraRenderType {
     Base,
     Overlay,
 }
 
 /// A per-camera override of a render pipeline setting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum CameraOverride {
     Off,
     On,
     UsePipelineSettings,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Antialiasing {
     None,
     Fxaa,
@@ -47,7 +47,7 @@ pub enum Antialiasing {
     Taa,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct UrpPostProcessing {
     pub enabled: bool,
     pub antialiasing: Antialiasing,
@@ -57,7 +57,7 @@ pub struct UrpPostProcessing {
 
 /// URP's `UniversalAdditionalCameraData`. Which settings render is the engine's decision; this
 /// view only translates them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct UrpCamera {
     pub render_type: CameraRenderType,
     /// `-1` selects the pipeline's default renderer.

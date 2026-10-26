@@ -8,7 +8,7 @@ pub(crate) const BOX_COLLIDER_2D: i32 = 61;
 pub(crate) const CIRCLE_COLLIDER_2D: i32 = 58;
 pub(crate) const TILEMAP_COLLIDER_2D: i32 = 19_719_996;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum BodyType {
     Dynamic,
     Kinematic,
@@ -16,7 +16,7 @@ pub enum BodyType {
 }
 
 /// `RigidbodyInterpolation2D`: how the drawn pose follows the fixed-step pose.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Interpolation {
     None,
     Interpolate,
@@ -48,7 +48,7 @@ pub struct Collider2D {
     pub material: Option<ObjectId>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub enum ColliderShape {
     Box {
         size: [f64; 2],

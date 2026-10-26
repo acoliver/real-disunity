@@ -13,6 +13,15 @@ public sealed class RectTransform : Transform
         DisunityHost.ThrowIfError(NativeBindings.disunity_rect_read(DisunityHost.WorldHandle, Handle, &value));
         return value;
     }
+    /// <summary>Sets the whole layout at once, so no intermediate state has min above max.</summary>
+    internal void SetLayout(Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 sizeDelta, Vector2 anchoredPosition)
+    {
+        var r = Read();
+        (r.min_x, r.min_y, r.max_x, r.max_y) = (anchorMin.x, anchorMin.y, anchorMax.x, anchorMax.y);
+        (r.pivot_x, r.pivot_y, r.size_x, r.size_y) = (pivot.x, pivot.y, sizeDelta.x, sizeDelta.y);
+        (r.position_x, r.position_y) = (anchoredPosition.x, anchoredPosition.y);
+        Write(r);
+    }
     private unsafe void Write(DisunityRect value) => DisunityHost.ThrowIfError(NativeBindings.disunity_rect_write(DisunityHost.WorldHandle, Handle, &value));
     public Vector2 anchorMin { get { var r = Read(); return new(r.min_x, r.min_y); } set { var r = Read(); r.min_x = value.x; r.min_y = value.y; Write(r); } }
     public Vector2 anchorMax { get { var r = Read(); return new(r.max_x, r.max_y); } set { var r = Read(); r.max_x = value.x; r.max_y = value.y; Write(r); } }

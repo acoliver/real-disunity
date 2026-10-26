@@ -198,6 +198,7 @@ ReviewRegressionTests.Run();
 HostTests.Run();
 CloneTests.Run();
 ConstructionTests.Run();
+TemplateTests.Run();
 PresentationTests.Run();
 
 CoroutineInputTests.Run();

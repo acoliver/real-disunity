@@ -36,8 +36,8 @@ pub enum HostError {
     WorldAlreadyLoaded,
     #[error("hostfxr failed to load a .NET runtime: {0}")]
     Hostfxr(String),
-    #[error("managed slice run failed with code {0}")]
-    SliceRun(i32),
+    #[error("managed slice run failed with code {code}: {message}")]
+    SliceRun { code: i32, message: String },
     #[error("disunity abi call failed with code {0}")]
     Abi(i32),
     #[error("native operation failed ({code}/{reason:?}): {message}")]
@@ -199,16 +199,22 @@ impl DisunityHost {
         if self.world.is_some() {
             return Err(HostError::WorldAlreadyLoaded);
         }
-        let fixture = CString::new(fixture.to_string_lossy().as_bytes())
-            .map_err(|_| HostError::SliceRun(-1))?;
+        let fixture = CString::new(fixture.to_string_lossy().as_bytes()).map_err(|_| {
+            HostError::SliceRun {
+                code: -1,
+                message: "the slice path contains a NUL byte".into(),
+            }
+        })?;
         let token = unsafe { (self.bridge.token_alloc)() };
         self.live_token = Some(token);
         let code = unsafe { (self.bridge.run_slice)(fixture.as_ptr()) };
         if code != 0 {
+            // Read the failure before unloading, which may replace it.
+            let message = self.bridge.failure();
             unsafe { (self.bridge.unload)() };
             unsafe { (self.bridge.token_free)(token) };
             self.live_token = None;
-            return Err(HostError::SliceRun(code));
+            return Err(HostError::SliceRun { code, message });
         }
         self.world = Some(unsafe { (self.bridge.world_handle)() });
         Ok(())

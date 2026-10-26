@@ -1,5 +1,5 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using System.Text.Json;
 using Disunity.Hosting;
 
@@ -37,7 +37,11 @@ public static class PlayBridge
             using var request = JsonDocument.Parse(File.ReadAllText(path));
             var root = request.RootElement;
             var fonts = root.GetProperty("fonts").EnumerateObject().ToDictionary(font => font.Name, font => font.Value.GetString()!);
-            var options = new SceneLoadOptions(Assembly.LoadFrom(root.GetProperty("scripts").GetString()!), name =>
+            // The host loads this bridge into its own context; the game must bind the same
+            // Disunity.Engine, so it loads there too.
+            var context = AssemblyLoadContext.GetLoadContext(typeof(PlayBridge).Assembly)!;
+            var scripts = context.LoadFromAssemblyPath(Path.GetFullPath(root.GetProperty("scripts").GetString()!));
+            var options = new SceneLoadOptions(scripts, name =>
                 fonts.TryGetValue(name, out var file) ? File.ReadAllBytes(file) : throw new FileNotFoundException($"no font file for {name}"))
             {
                 FirstTextureIdentity = root.GetProperty("first_texture").GetUInt64(),

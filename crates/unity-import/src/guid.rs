@@ -17,6 +17,10 @@ impl fmt::Debug for Guid {
 impl Guid {
     pub const ZERO: Self = Self(0);
 
+    pub const fn from_u128(value: u128) -> Self {
+        Self(value)
+    }
+
     /// Unity's built-in resources (`0000000000000000e000000000000000`) and default resources
     /// (`0000000000000000f000000000000000`), which have no file in the project.
     pub fn is_builtin(self) -> bool {

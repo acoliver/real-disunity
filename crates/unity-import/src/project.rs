@@ -109,6 +109,13 @@ impl Project {
         self.assets.get(&guid)
     }
 
+    /// The GUID of the asset at `path`, relative to the project root.
+    pub fn guid_of(&self, path: &Path) -> Option<Guid> {
+        self.assets
+            .iter()
+            .find_map(|(guid, asset)| (asset.path == path).then_some(*guid))
+    }
+
     pub fn assets(&self) -> impl Iterator<Item = (Guid, &Asset)> {
         self.assets.iter().map(|(guid, asset)| (*guid, asset))
     }
@@ -137,7 +144,8 @@ impl Project {
         })
     }
 
-    fn read_text(&self, relative: &Path) -> Result<String, ImportError> {
+    /// Reads a project file's bytes, such as an image.
+    pub fn read_bytes(&self, relative: &Path) -> Result<Vec<u8>, ImportError> {
         let path = self.contained(relative)?;
         let io = |source| ImportError::Io {
             path: relative.to_owned(),
@@ -146,7 +154,12 @@ impl Project {
         if fs::metadata(&path).map_err(io)?.len() > MAX_FILE_BYTES {
             return Err(ImportError::TooLarge(relative.to_owned()));
         }
-        fs::read_to_string(&path).map_err(io)
+        fs::read(&path).map_err(io)
+    }
+
+    fn read_text(&self, relative: &Path) -> Result<String, ImportError> {
+        String::from_utf8(self.read_bytes(relative)?)
+            .map_err(|_| ImportError::invalid(relative, "file is not UTF-8 text"))
     }
 
     /// Resolves `relative` under the root without `..`, absolute parts or symbolic links.

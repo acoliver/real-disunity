@@ -1,4 +1,7 @@
-use super::{ObjectId, Reference, Scene, Value};
+use super::{
+    ObjectId, Reference, Scene, Value,
+    read::{XYZW, object_id, text, vector},
+};
 use crate::yaml::Scalar;
 
 pub(crate) const GAME_OBJECT: i32 = 1;
@@ -71,9 +74,9 @@ impl Scene {
             game_object: fields.get("m_GameObject").and_then(object_id),
             parent: parent.filter(|parent| self.object(*parent).is_some()),
             children: self.linked(listed, id, "m_Father", is_transform),
-            local_position: vector(fields, "m_LocalPosition", [0.0; 3])?,
-            local_rotation: vector(fields, "m_LocalRotation", [0.0, 0.0, 0.0, 1.0])?,
-            local_scale: vector(fields, "m_LocalScale", [1.0; 3])?,
+            local_position: vector(fields, "m_LocalPosition", XYZW, [0.0; 3])?,
+            local_rotation: vector(fields, "m_LocalRotation", XYZW, [0.0, 0.0, 0.0, 1.0])?,
+            local_scale: vector(fields, "m_LocalScale", XYZW, [1.0; 3])?,
         })
     }
 
@@ -116,33 +119,4 @@ impl Scene {
         ids.extend(extra);
         ids
     }
-}
-
-fn object_id(value: &Value) -> Option<ObjectId> {
-    match value.as_reference()? {
-        Reference::Object(id) => Some(id),
-        _ => None,
-    }
-}
-
-fn text(fields: &Value, key: &str) -> Option<String> {
-    Some(fields.get(key)?.as_scalar()?.text().to_owned())
-}
-
-/// A numeric field, `default` when absent and `None` when present but not a number.
-fn number(fields: &Value, key: &str, default: f64) -> Option<f64> {
-    fields
-        .get(key)
-        .map_or(Some(default), |value| value.as_scalar()?.as_f64())
-}
-
-fn vector<const N: usize>(fields: &Value, key: &str, default: [f64; N]) -> Option<[f64; N]> {
-    let Some(value) = fields.get(key) else {
-        return Some(default);
-    };
-    let mut out = default;
-    for (slot, axis) in out.iter_mut().zip(["x", "y", "z", "w"]) {
-        *slot = number(value, axis, *slot)?;
-    }
-    Some(out)
 }

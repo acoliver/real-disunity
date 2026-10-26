@@ -21,6 +21,7 @@ fn previous_body_layout_revision_is_rejected_before_body_access() {
 fn checked_managed_bindings_fit_the_source_file_limit() {
     for source in [
         include_str!("../../../csharp/Disunity/NativeBindings.g.cs"),
+        include_str!("../../../csharp/Disunity/NativeBindings.2.g.cs"),
         include_str!("../../../csharp/Disunity/NativeRecords.g.cs"),
     ] {
         assert!(source.lines().count() < 750);

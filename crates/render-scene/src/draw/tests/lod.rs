@@ -22,7 +22,7 @@ fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
     let mesh = SceneMesh::with_distances(vec![near, far], vec![5_000, 20_000]).unwrap();
     let source = build(
         white_texture(),
-        material(SceneAlphaMode::Opaque, false),
+        &material(SceneAlphaMode::Opaque, false),
         mesh,
         1,
     );

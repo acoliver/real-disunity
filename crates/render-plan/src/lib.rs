@@ -96,9 +96,9 @@ pub use scene::{
 };
 
 pub use scene::{
-    SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,
-    SceneNormalEncoding, SceneNormalY, SceneTerrainContact, SceneTint, SceneTranslucency,
-    SceneTranslucencyParts, SceneWind,
+    SceneAmbientOcclusion, SceneCard, SceneFoliageWind, SceneLayerBlend, SceneLayerMode,
+    SceneMaterialFeatures, SceneNormalEncoding, SceneNormalY, SceneTerrainContact, SceneTint,
+    SceneTranslucency, SceneTranslucencyParts, SceneWind, SceneWindBand, SceneWindPhase,
 };
 
 pub use scene::{SceneWaterOptics, SceneWaterSettings, SceneWaterShoreline, SceneWaterTint};

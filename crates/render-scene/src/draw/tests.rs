@@ -31,6 +31,7 @@ use worldrunner_render_plan::{
     SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy, TextureColorSpace,
     TextureEncoding, TextureHandle,
 };
+mod curved_wind;
 mod environment;
 mod fold_translucency;
 mod foliage;
@@ -368,7 +369,7 @@ fn effect_parts() -> SceneEffectsParts {
 /// Builds a scene holding exactly one texture, material and mesh.
 fn build(
     texture: SceneTexture,
-    material: SceneMaterial,
+    material: &SceneMaterial,
     mesh: SceneMesh,
     placements: usize,
 ) -> RenderScene {
@@ -382,7 +383,7 @@ fn build(
         })
         .collect();
     RenderScene::new(SceneParts {
-        resources: SceneResources::new(vec![texture], vec![material])
+        resources: SceneResources::new(vec![texture], vec![*material])
             .expect("the fixture resources validate"),
         geometry: SceneGeometry::new(vec![mesh], objects).expect("the fixture geometry validates"),
         terrain: None,
@@ -448,7 +449,7 @@ fn terrain_scene(materials: usize) -> RenderScene {
 fn scene(alpha_mode: SceneAlphaMode, double_sided: bool, placements: usize) -> RenderScene {
     build(
         white_texture(),
-        material(alpha_mode, double_sided),
+        &material(alpha_mode, double_sided),
         quad(),
         placements,
     )

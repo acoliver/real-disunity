@@ -95,6 +95,29 @@ impl MeshSelection {
             .unwrap_or_else(|| self.ceilings_squared.len().saturating_sub(1))
     }
 
+    fn wind_bounds(
+        &self,
+        transform: &SceneTransform,
+        extent: Vec3,
+        curved: Option<Vec3>,
+    ) -> Bounds {
+        let bounds = self.world_bounds(transform);
+        let Some(origin) = curved else {
+            return bounds.expanded(extent);
+        };
+        // Each arc is bounded by twice its input length, including arbitrary
+        // force directions. Projection and attachment together fit six radii.
+        let radius = self
+            .bounds
+            .min
+            .abs()
+            .max(self.bounds.max.abs())
+            .length()
+            .max(self.billboard_radius.unwrap_or(0.0));
+        let scale = model_matrix(transform).x_axis.truncate().length();
+        bounds.expanded(Vec3::splat((6.0 * radius + 7.0 * origin.length()) * scale))
+    }
+
     pub fn world_bounds(&self, transform: &SceneTransform) -> Bounds {
         let model = model_matrix(transform);
         let bounds = if let Some(radius) = self.billboard_radius {
@@ -184,10 +207,11 @@ impl Selection {
             for (slot, object, visible) in batch.placements() {
                 self.stats.considered += 1;
                 if !visible
-                    || !frustum.intersects(
-                        mesh.world_bounds(object.transform())
-                            .expanded(instances.wind_extents[key.2]),
-                    )
+                    || !frustum.intersects(mesh.wind_bounds(
+                        object.transform(),
+                        instances.wind_extents[key.2],
+                        instances.curved_wind[key.2],
+                    ))
                 {
                     self.stats.culled += 1;
                     continue;
@@ -238,9 +262,11 @@ pub(super) fn caster_matrix(
         for (_, object, visible) in batch.placements().filter(|(_, _, visible)| *visible) {
             debug_assert!(visible);
             near = near.min(caster_near(
-                meshes[mesh]
-                    .world_bounds(object.transform())
-                    .expanded(instances.wind_extents[material]),
+                meshes[mesh].wind_bounds(
+                    object.transform(),
+                    instances.wind_extents[material],
+                    instances.curved_wind[material],
+                ),
                 receiver,
             ));
         }

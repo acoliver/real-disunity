@@ -50,8 +50,12 @@ pub use post::{
 mod ssr;
 pub use ssr::{SceneSsr, SceneSsrComposition};
 mod error;
+mod foliage_wind;
+#[cfg(test)]
+mod foliage_wind_tests;
 mod geometry;
 mod material_features;
+pub use foliage_wind::{SceneFoliageWind, SceneWindBand, SceneWindPhase};
 mod translucency;
 pub use translucency::{SceneTranslucency, SceneTranslucencyParts};
 mod resource;

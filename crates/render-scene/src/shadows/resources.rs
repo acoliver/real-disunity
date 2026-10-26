@@ -20,6 +20,7 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     include_str!("../shader/camera_rays.wgsl"),
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/geometry.wgsl"),
+    include_str!("../shader/foliage.wgsl"),
     include_str!("../shader/environment.wgsl")
 );
 

@@ -635,3 +635,24 @@ impl From<std::convert::Infallible> for ShadowError {
         match value {}
     }
 }
+
+#[cfg(test)]
+pub(crate) fn wind_test_pipelines(
+    device: &wgpu::Device,
+    layouts: &ScenePipelines,
+) -> [wgpu::RenderPipeline; 4] {
+    resources::depth_pipelines(
+        device,
+        layouts,
+        DirectionalShadowSettings {
+            focus_meters: glam::Vec3::ZERO,
+            half_extent_meters: 4.0,
+            depth_half_extent_meters: 4.0,
+            resolution: 64,
+            depth_bias: 0.0,
+            normal_bias_meters: 0.0,
+            refresh_policy: CascadeRefreshPolicy::default(),
+        },
+    )
+    .0
+}

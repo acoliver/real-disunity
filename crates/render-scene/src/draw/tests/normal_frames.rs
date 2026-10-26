@@ -36,7 +36,7 @@ fn absent_tangents_and_default_normal_settings_match_stock_shading_bytes() {
     );
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let scene = normal_scene([191, 159, 7, 255], None, mapped_material());
+    let scene = normal_scene([191, 159, 7, 255], None, &mapped_material());
     let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
     gpu.set_frame(
         context.queue(),
@@ -84,7 +84,7 @@ fn texel(rgba: [u8; 4]) -> SceneTexture {
     }
 }
 
-fn normal_scene(rgba: [u8; 4], tangent: Option<[i64; 4]>, mat: SceneMaterial) -> RenderScene {
+fn normal_scene(rgba: [u8; 4], tangent: Option<[i64; 4]>, mat: &SceneMaterial) -> RenderScene {
     let mut vertices = quad().lods()[0].vertices().to_vec();
     for vertex in &mut vertices {
         vertex.tangent_micro = tangent;
@@ -95,7 +95,7 @@ fn normal_scene(rgba: [u8; 4], tangent: Option<[i64; 4]>, mat: SceneMaterial) ->
     }
     let lod = SceneMeshLod::new(0, vertices, vec![0, 1, 2, 0, 2, 3], None).unwrap();
     RenderScene::new(SceneParts {
-        resources: SceneResources::new(vec![texel([51, 51, 51, 255]), texel(rgba)], vec![mat])
+        resources: SceneResources::new(vec![texel([51, 51, 51, 255]), texel(rgba)], vec![*mat])
             .unwrap(),
         geometry: SceneGeometry::new(
             vec![SceneMesh::new(vec![lod]).unwrap()],
@@ -173,7 +173,7 @@ fn stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_
             let scene = normal_scene(
                 [191, 159, 7, 255],
                 Some([MICRO, 0, -MICRO, handedness * MICRO]),
-                mapped_material(),
+                &mapped_material(),
             );
             let prepared = super::super::PreparedScene::new(&scene).unwrap();
             let gpu = SceneGpu::upload_prepared(
@@ -215,7 +215,7 @@ fn source_channels_y_conventions_and_normal_scale_reach_every_normal_pass() {
                         .with_normal_encoding(encoding, y)
                         .with_normal_scale(scale)
                         .unwrap();
-                    let scene = normal_scene(rgba, Some([MICRO, 0, 0, MICRO]), material);
+                    let scene = normal_scene(rgba, Some([MICRO, 0, 0, MICRO]), &material);
                     let gpu =
                         SceneGpu::upload(context.device(), context.submission(), &scene, &layouts)
                             .unwrap();
@@ -236,7 +236,7 @@ fn source_channels_y_conventions_and_normal_scale_reach_every_normal_pass() {
 fn brightening_tint_reaches_shaded_output_linearly() {
     let context = context();
     let material = mapped_material().with_normal_scale(0).unwrap();
-    let scene = normal_scene([128, 128, 255, 255], None, material);
+    let scene = normal_scene([128, 128, 255, 255], None, &material);
     let frame = FrameUniform {
         sun_irradiance: Vec3::ZERO,
         ambient_sky: Vec3::splat(0.4),

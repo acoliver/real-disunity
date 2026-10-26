@@ -30,6 +30,7 @@ pub(super) fn encode(
             write_float(bytes, 44, wind.amplitude_millimeters() as f32 / 1000.0);
             bytes[48..52].copy_from_slice(&wind.period_milliseconds().to_le_bytes());
             bytes[52..56].copy_from_slice(&wind.phase_micro().to_le_bytes());
+            encode_foliage(bytes, wind);
         }
     }
 }
@@ -104,4 +105,56 @@ fn encode_translucency(bytes: &mut [u8], value: worldrunner_render_plan::SceneTr
     write_float(bytes, 140, p.base_kelvin as f32);
     write_float(bytes, 144, p.warming_kelvin as f32);
     write_float(bytes, 148, 1.0);
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "validated quantized inputs become GPU floats"
+)]
+fn encode_foliage(bytes: &mut [u8], wind: SceneWind) {
+    let Some(foliage) = wind.foliage() else {
+        return;
+    };
+    let axis =
+        glam::Vec3::from_array(foliage.axis().components_micro().map(|v| v as f32)).normalize();
+    for (index, value) in axis.to_array().into_iter().enumerate() {
+        write_float(bytes, 160 + index * 4, value);
+    }
+    write_float(bytes, 172, foliage.curve_micro() as f32 / 1_000_000.0);
+    for (index, value) in foliage.origin_millimeters().into_iter().enumerate() {
+        write_float(bytes, 224 + index * 4, value as f32 / 1000.0);
+    }
+    for (index, extent) in foliage.extents_millimeters().into_iter().enumerate() {
+        write_float(bytes, 176 + index * 4, extent as f32 / 1000.0);
+    }
+    write_float(bytes, 184, foliage.strength_micro() as f32 / 1_000_000.0);
+    let phase = match foliage.phase() {
+        worldrunner_render_plan::SceneWindPhase::WorldPosition => 0.0,
+        worldrunner_render_plan::SceneWindPhase::InstancePosition => 1.0,
+        worldrunner_render_plan::SceneWindPhase::VertexOcclusion => 2.0,
+    };
+    write_float(bytes, 188, phase);
+    for (index, band) in foliage.bands().into_iter().enumerate() {
+        let offset = 192 + index * 16;
+        write_float(
+            bytes,
+            offset + 12,
+            band.angular_frequency_micro() as f32 / 1_000_000.0,
+        );
+        write_float(bytes, offset + 4, band.perturb_micro() as f32 / 1_000_000.0);
+        write_float(
+            bytes,
+            offset + 8,
+            band.spatial_phase_micro() as f32 / 1_000_000.0,
+        );
+    }
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "mesh-local millimetres become scene metres"
+)]
+pub(crate) fn foliage_origin(wind: SceneWind) -> Option<glam::Vec3> {
+    wind.foliage()
+        .map(|value| glam::Vec3::from_array(value.origin_millimeters().map(|v| v as f32 / 1000.0)))
 }

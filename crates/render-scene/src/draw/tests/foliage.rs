@@ -1,7 +1,7 @@
 use super::*;
 use worldrunner_render_plan::{SceneAmbientOcclusion, SceneMaterialFeatures, SceneTint, SceneWind};
 
-fn cutout_texture() -> SceneTexture {
+pub(super) fn cutout_texture() -> SceneTexture {
     let mut bytes = bc1(WHITE_565);
     let offset = bytes.len() - 8;
     bytes[offset..].copy_from_slice(&[0, 0, 255, 255, 0xdd, 0xdd, 0xdd, 0xdd]);
@@ -309,7 +309,7 @@ pub(super) fn geometry_sources() -> [String; 4] {
     [forward, prepass, metadata, shadow]
 }
 
-fn coverage_depth(device: &Device) -> Texture {
+pub(super) fn coverage_depth(device: &Device) -> Texture {
     device.create_texture(&TextureDescriptor {
         label: None,
         size: Extent3d {
@@ -326,7 +326,7 @@ fn coverage_depth(device: &Device) -> Texture {
     })
 }
 
-fn copy_depth(encoder: &mut CommandEncoder, depth: &Texture, readback: &Buffer) {
+pub(super) fn copy_depth(encoder: &mut CommandEncoder, depth: &Texture, readback: &Buffer) {
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
             texture: depth,
@@ -401,7 +401,7 @@ fn mesh_card_transition_has_exact_complementary_coverage_in_all_passes() {
             let scene = if masked {
                 scene
             } else {
-                with_material(&scene, material(SceneAlphaMode::Opaque, true))
+                with_material(&scene, &material(SceneAlphaMode::Opaque, true))
             };
             let gpu = SceneGpu::upload(context.device(), &authority, &scene, &pipelines).unwrap();
             gpu.set_frame(context.queue(), frame_from(pose()));
@@ -430,9 +430,9 @@ fn mesh_card_transition_has_exact_complementary_coverage_in_all_passes() {
     }
 }
 
-fn with_material(scene: &RenderScene, material: SceneMaterial) -> RenderScene {
+fn with_material(scene: &RenderScene, material: &SceneMaterial) -> RenderScene {
     let mut materials = scene.resources().materials().to_vec();
-    materials[0] = material;
+    materials[0] = *material;
     RenderScene::new(SceneParts {
         resources: SceneResources::new(scene.resources().textures().to_vec(), materials).unwrap(),
         geometry: scene.geometry().clone(),
@@ -447,8 +447,8 @@ fn foliage_translucency_zero_is_stock_and_one_transmits_backlighting() {
     let context = context();
     let stock = scene(SceneAlphaMode::Opaque, true, 1);
     let base = stock.resources().materials()[0];
-    let neutral = with_material(&stock, base.with_translucency(0).unwrap());
-    let transmitted = with_material(&stock, base.with_translucency(1_000_000).unwrap());
+    let neutral = with_material(&stock, &base.with_translucency(0).unwrap());
+    let transmitted = with_material(&stock, &base.with_translucency(1_000_000).unwrap());
     let mut frame = frame_from(pose());
     frame.sun_direction = glam::Vec3::NEG_Z;
     frame.sun_irradiance = glam::Vec3::splat(0.5);
@@ -655,7 +655,7 @@ fn terrain_contact_uses_rendered_lod_triangles_not_discarded_height_samples() {
         .unwrap();
     assert_eq!(
         render_frame(&context, &scene, &frame),
-        render_frame(&context, &with_material(&scene, black), &frame)
+        render_frame(&context, &with_material(&scene, &black), &frame)
     );
 }
 

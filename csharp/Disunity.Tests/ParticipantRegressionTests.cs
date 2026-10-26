@@ -60,7 +60,9 @@ internal static class ParticipantRegressionTests
         DisunityHost.Step(0); RequireDiagnostic(output, "2 audio listeners");
         two.enabled = false; DisunityHost.Step(0); RequireDiagnostic(output, null);
         one.gameObject.SetActive(false); DisunityHost.Step(0); RequireDiagnostic(output, "no audio listeners");
-        DisunityHost.UnloadWorld(); output.GetStringBuilder().Clear();
+        one.gameObject.SetActive(true); DisunityHost.Step(0); RequireDiagnostic(output, null);
+        // Tearing the scene down removes the listener, which Unity does not report.
+        DisunityHost.UnloadWorld(); RequireDiagnostic(output, null);
         DisunityHost.LoadWorld(); DisunityHost.Step(0); RequireDiagnostic(output, "no audio listeners");
     }
     private static void RequireDiagnostic(StringWriter output, string? expected)

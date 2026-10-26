@@ -222,9 +222,9 @@ pub(super) fn render_resident(
     context: &GpuContext,
     gpu: &SceneGpu,
     pipelines: &ScenePipelines,
-    frame: FrameUniform,
+    frame: &FrameUniform,
 ) -> Capture {
-    gpu.set_frame(context.queue(), frame);
+    gpu.set_frame(context.queue(), *frame);
     capture(context, |encoder, color, depth| {
         draw(context.device(), encoder, gpu, pipelines, color, depth);
     })

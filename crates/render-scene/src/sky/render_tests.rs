@@ -160,11 +160,11 @@ impl Targets {
 fn render(settings: &SceneAtmosphere, exposure: f32, clear_depth: f32) -> (Vec<u8>, f32) {
     let mut frame = test_frame(exposure);
     frame.height_fog = settings.fog.map(super::height_fog);
-    render_frame(settings, frame, clear_depth)
+    render_frame(settings, &frame, clear_depth)
 }
 fn render_frame(
     settings: &SceneAtmosphere,
-    camera: FrameUniform,
+    camera: &FrameUniform,
     clear_depth: f32,
 ) -> (Vec<u8>, f32) {
     let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
@@ -268,7 +268,7 @@ fn orthographic_sky_covers_an_off_center_camera_extent() {
         glam::camera::rh::proj::directx::orthographic(5.0, 15.0, 5.0, 15.0, 0.1, 1000.0)
             * glam::camera::rh::view::look_at_mat4(Vec3::ZERO, Vec3::Y, Vec3::Z);
     assert_eq!(
-        &render_frame(&settings(), camera, 1.0).0[..8],
+        &render_frame(&settings(), &camera, 1.0).0[..8],
         &[0, 0x40, 0, 0x40, 0, 0x40, 0, 0x3c]
     );
 }

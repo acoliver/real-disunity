@@ -39,9 +39,9 @@ use worldrunner_render_plan::{
 
 /// Size in bytes of the frame uniform block.
 ///
-/// One `mat4x4<f32>` followed by six `vec4<f32>`. Every member is
-/// sixteen-byte aligned already, so the block needs no interior padding.
-pub const FRAME_UNIFORM_BYTES: usize = 160;
+/// The original 160-byte prefix is followed by nine padded SH coefficients
+/// and a lighting selection vector. All members are sixteen-byte aligned.
+pub const FRAME_UNIFORM_BYTES: usize = 320;
 
 /// Micro-unit scale shared by the effects domain.
 const MICRO_SCALE: f32 = 1_000_000.0;
@@ -81,6 +81,8 @@ pub enum FrameError {
 /// Per-frame data, including the uniform block and CPU selection coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameUniform {
+    /// Scene-space prepared SH9 diffuse, or the unchanged hemisphere default.
+    pub diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment,
     /// Optional exponential height fog. Packed into previously zero uniform lanes.
     pub height_fog: Option<worldrunner_render_lighting::atmosphere::HeightFog>,
     /// Clip-from-scene transform; the only field that leaves scene space.
@@ -124,7 +126,12 @@ impl FrameUniform {
             return Ok(Self::unlit(view));
         };
         validate_stock_effects(effects)?;
-        let (sky, ground) = ambient_radiance(*effects.sky(), effects.ambient())?;
+        let (sky, ground) = match effects.diffuse_environment() {
+            worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere => {
+                ambient_radiance(*effects.sky(), effects.ambient())?
+            }
+            worldrunner_render_plan::SceneDiffuseEnvironment::Sh9(_) => (Vec3::ZERO, Vec3::ZERO),
+        };
         let environment = EnvironmentConfig {
             frame: LightingFrame {
                 up: Vec3::Z,
@@ -143,6 +150,7 @@ impl FrameUniform {
         }
         .prepare()?;
         Ok(Self {
+            diffuse_environment: effects.diffuse_environment(),
             height_fog: effects
                 .atmosphere()
                 .and_then(|sky| sky.fog)
@@ -163,6 +171,7 @@ impl FrameUniform {
 
     pub fn unlit(view: &SceneView) -> Self {
         Self {
+            diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
             height_fog: None,
             view_projection: view.view_projection_matrix(),
             view: view.view_matrix(),
@@ -221,8 +230,32 @@ impl FrameUniform {
         bytes[offset..offset + 4].copy_from_slice(&self.animation_time_milliseconds.to_le_bytes());
         offset += 4;
         write_f32(&mut bytes, &mut offset, fog[5]);
+        self.write_lighting(&mut bytes, &mut offset);
         debug_assert_eq!(offset, FRAME_UNIFORM_BYTES, "the block is written in full");
         bytes
+    }
+}
+
+impl FrameUniform {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "bounded fixed-point lighting coefficients"
+    )]
+    fn write_lighting(self, bytes: &mut [u8; FRAME_UNIFORM_BYTES], offset: &mut usize) {
+        use worldrunner_render_plan::SceneDiffuseEnvironment;
+        let (coefficients, enabled) = match self.diffuse_environment {
+            SceneDiffuseEnvironment::Hemisphere => ([[0; 3]; 9], 0.0),
+            SceneDiffuseEnvironment::Sh9(sh) => (sh.coefficients_micro(), 1.0),
+        };
+        for coefficient in coefficients {
+            for channel in coefficient {
+                write_f32(bytes, offset, channel as f32 / MICRO_SCALE);
+            }
+            write_f32(bytes, offset, 0.0);
+        }
+        for value in [enabled, 0.0, 0.0, 0.0] {
+            write_f32(bytes, offset, value);
+        }
     }
 }
 

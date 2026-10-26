@@ -260,8 +260,8 @@ fn fitted_normals_match_baked_geometry_in_shading_and_normal_metadata() {
         target_millimeters: [0, 0, 3000],
     });
     assert_eq!(
-        render_frame(&context, &fitted, frame),
-        render_frame(&context, &baked, frame)
+        render_frame(&context, &fitted, &frame),
+        render_frame(&context, &baked, &frame)
     );
     let sources = geometry_sources();
     for source in [&sources[1], &sources[2]] {

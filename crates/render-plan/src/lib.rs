@@ -112,4 +112,6 @@ pub mod simulation;
 pub use scene::{SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, SceneHeightFog};
 pub use worldrunner_material::BuiltinMaterial;
 
+pub use scene::{SceneDiffuseEnvironment, SceneSh9};
+
 pub use scene::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};

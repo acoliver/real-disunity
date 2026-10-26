@@ -92,8 +92,8 @@ impl RendererConfiguration {
                 );
             }
             for water in &self.water {
-                set.buffer("water staging", 480, 3);
-                set.buffer("water body uniforms", 672, 3);
+                set.buffer("water staging", crate::water::STAGING_BYTES, 3);
+                set.buffer("water body uniforms", crate::water::UNIFORM_BYTES, 3);
                 set.buffer("water surface vertices", water_vertex_bytes(water), 1);
             }
         }

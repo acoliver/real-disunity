@@ -97,7 +97,7 @@ fn assert_rendered_factors(cases: &[(u32, u32)]) {
         let mapped = interior_rgb(&render_frame(
             &context,
             &factor_scene(true, roughness, metalness),
-            specular_frame(),
+            &specular_frame(),
         ));
         let scalar = interior_rgb(&render_frame(
             &context,
@@ -106,7 +106,7 @@ fn assert_rendered_factors(cases: &[(u32, u32)]) {
                 effective_scalar(ROUGHNESS_CHANNEL, roughness),
                 effective_scalar(METALNESS_CHANNEL, metalness),
             ),
-            specular_frame(),
+            &specular_frame(),
         ));
         // The oracle rounds effective factors by <= 0.5 micro-unit. Allow one
         // sRGB8 code for that rounding crossing a render-target quantization

@@ -68,7 +68,7 @@ fn water_camera_transmittance(position: vec3<f32>) -> f32 {
     let transmission = exp(-water.absorption.xyz * distance);
     let background = textureLoad(opaque_color, refracted, 0).rgb;
     let light = rd_toward_light(select(water.sun_direction.xyz, vec3<f32>(0.0, 0.0, 1.0), frame.grading.y != 0.0), false);
-    let ambient = rd_hemisphere(normal, vec3<f32>(0.0, 0.0, 1.0), frame.ambient_ground.xyz, water.ambient.xyz);
+    let ambient = scene_diffuse_environment(normal, frame.ambient_ground.xyz, water.ambient.xyz);
     let lighting = ambient + water.sun_radiance.xyz * max(dot(normal, light), 0.0) * visibility;
     let scattering = water.color_roughness.xyz * lighting;
     let view = normalize(scene_ray_origin(input.world) - input.world);

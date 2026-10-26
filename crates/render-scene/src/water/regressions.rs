@@ -132,14 +132,14 @@ fn checked_mips_layers_and_versions_reach_all_snapshot_producers() {
             .unwrap();
         encoder.finish().submit().unwrap();
         assert_eq!(probe.0, 1);
-        assert_checked_snapshot(&context, &mut renderer, frame);
+        assert_checked_snapshot(&context, &mut renderer, &frame);
     }
 }
 
 fn assert_checked_snapshot(
     context: &GpuContext,
     renderer: &mut crate::compositor::FrameRenderer,
-    frame: FrameUniform,
+    frame: &FrameUniform,
 ) {
     let (color, depth) = renderer.opaque_snapshot().unwrap();
     assert_eq!(
@@ -209,7 +209,7 @@ fn independent_readers_omit_unused_attachments_and_producers() {
             assert_only_producer(
                 &context,
                 renderer.targets().config(),
-                frame,
+                &frame,
                 (&mut passes, &mut views),
                 name,
             );
@@ -226,7 +226,7 @@ fn independent_readers_omit_unused_attachments_and_producers() {
 fn assert_only_producer(
     context: &GpuContext,
     config: FrameConfig,
-    frame: FrameUniform,
+    frame: &FrameUniform,
     plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
     name: &'static str,
 ) {
@@ -234,7 +234,7 @@ fn assert_only_producer(
     let (_, feature) = planning::snapshot_feature(
         context.device(),
         &mut snapshots,
-        (config, &frame, 0),
+        (config, frame, 0),
         plan,
         &[ResourceRef::new(name)],
         false,
@@ -270,7 +270,7 @@ fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
     )
     .unwrap();
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
-    let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5);
+    let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5);
     encoder.finish().submit().unwrap();
     draw_water_slot(&context, &renderer, 0);
     let before = read(&context, renderer.targets().texture());

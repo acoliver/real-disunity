@@ -163,7 +163,7 @@ fn render(context: &GpuContext, source: &RenderScene, samples: u32) -> FrameRend
         source,
         samples,
         &environment(context),
-        frame(source),
+        &frame(source),
     )
 }
 fn render_with_environment(
@@ -171,7 +171,7 @@ fn render_with_environment(
     source: &RenderScene,
     samples: u32,
     maps: &crate::sky::preparation::PreparedEnvironmentMaps,
-    frame: FrameUniform,
+    frame: &FrameUniform,
 ) -> FrameRenderer {
     let mut renderer = FrameRenderer::hdr(
         context,
@@ -207,7 +207,7 @@ fn render_with_environment(
         &mut encoder,
         (&mut gpu, &pipelines),
         (&color, &depth),
-        frame,
+        *frame,
     )
     .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
@@ -402,7 +402,7 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
             &source,
             samples,
             &maps,
-            texel_center_frame(&source),
+            &texel_center_frame(&source),
         );
         let ssr = renderer.ssr.as_ref().unwrap();
         assert!(

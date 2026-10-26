@@ -73,7 +73,7 @@ impl SceneMetadata {
         })
     }
 
-    pub fn upload(&self, context: &mut PrepareContext<'_>, frame: FrameUniform) {
+    pub fn upload(&self, context: &mut PrepareContext<'_>, frame: &FrameUniform) {
         let projection = frame.view_projection * frame.view.inverse();
         let mut data = Vec::new();
         for matrix in [frame.view, projection, projection.inverse()] {

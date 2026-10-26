@@ -14,7 +14,7 @@ impl OffscreenTarget {
         }
         let viewport = self.viewport();
         let request = scene
-            .terrain_residency_request(scene.resident_frame(), [viewport.width, viewport.height])
+            .terrain_residency_request(&scene.resident_frame(), [viewport.width, viewport.height])
             .expect("enabled terrain pages");
         while !scene.terrain_residency_ready(&request)? {
             let prepared = context
@@ -24,7 +24,7 @@ impl OffscreenTarget {
                         .prepare_terrain_pages(
                             context.device(),
                             encoder,
-                            scene.resident_frame(),
+                            &scene.resident_frame(),
                             [viewport.width, viewport.height],
                         )
                         .map_err(worldrunner_render_post::PostError::from)?;

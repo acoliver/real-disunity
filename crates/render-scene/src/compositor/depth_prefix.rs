@@ -21,7 +21,7 @@ impl FrameRenderer {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
-        frame: crate::frame::FrameUniform,
+        frame: &crate::frame::FrameUniform,
         source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
         let (gpu, pipelines) = scene;
@@ -37,12 +37,12 @@ impl FrameRenderer {
             publications: crate::draw::DrawPublications::default(),
             gpu,
             pipelines,
-            frame,
+            frame: *frame,
             screen: Some(source.geometry.clone()),
         };
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: source,
-            frame,
+            frame: *frame,
         };
         self.chain.encode_geometry_prefix(
             device,

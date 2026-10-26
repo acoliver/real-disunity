@@ -107,6 +107,7 @@ fn gpu_production_spiral_samples_distinct_reduced_levels_against_cpu() {
 fn prepare(context: &crate::device::GpuContext, screen: &SceneMetadata) {
     let projection = glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 100.0);
     let frame = FrameUniform {
+        diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         view: glam::Mat4::IDENTITY,
         view_projection: projection,
@@ -122,7 +123,7 @@ fn prepare(context: &crate::device::GpuContext, screen: &SceneMetadata) {
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
-    screen.upload(&mut prepare, frame);
+    screen.upload(&mut prepare, &frame);
     let _uploads = prepare.finish();
     encoder.finish().submit().unwrap();
     let normals: Vec<_> = (0..769 * 769)

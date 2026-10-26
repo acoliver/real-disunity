@@ -258,7 +258,7 @@ impl ShadowedScene {
                         context.device(),
                         encoder,
                         (&mut self.gpu, &self.pipelines),
-                        input.frame,
+                        &input.frame,
                         &input.metadata,
                     )?;
                     Ok::<_, ShadowError>(())
@@ -319,7 +319,7 @@ impl ShadowedScene {
                     context.device(),
                     encoder,
                     (&mut self.gpu, &self.pipelines),
-                    input.frame,
+                    &input.frame,
                     &input.metadata,
                 )?;
                 pending = Some(fitting.encode(

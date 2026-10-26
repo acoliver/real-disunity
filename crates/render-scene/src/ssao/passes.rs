@@ -246,7 +246,7 @@ impl PreparedFeature for ScreenFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.ssao.upload(context, self.frame);
+        self.ssao.upload(context, &self.frame);
     }
     fn draw(
         &self,

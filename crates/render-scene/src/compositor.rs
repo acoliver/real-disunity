@@ -454,7 +454,7 @@ impl FrameRenderer {
     fn set_water_input(
         &mut self,
         device: &wgpu::Device,
-        frame: crate::frame::FrameUniform,
+        frame: &crate::frame::FrameUniform,
         shadow: Option<&wgpu::BindGroup>,
         encoder: &wgpu::CommandEncoder,
     ) -> Result<(), FrameError> {
@@ -488,7 +488,7 @@ impl FrameRenderer {
         let mut passes = passes.to_vec();
         let mut views = views.to_vec();
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
-        self.set_water_input(device, frame, shadow, encoder)?;
+        self.set_water_input(device, &frame, shadow, encoder)?;
         let mut combined = reborrow_features(features);
         let mut screen = self
             .ssao
@@ -508,7 +508,7 @@ impl FrameRenderer {
         let mut reflection = self
             .ssr
             .as_ref()
-            .map(|ssr| ssr.feature(frame, (&passes, &views), config, water))
+            .map(|ssr| ssr.feature(&frame, (&passes, &views), config, water))
             .transpose()?;
         if let Some(reflection) = &mut reflection {
             let declaration = reflection.schedule(&mut passes, &mut views)?;

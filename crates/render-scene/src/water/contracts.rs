@@ -108,7 +108,7 @@ fn independent_snapshot_reader_and_post_water_depth_at_one_and_four_samples() {
             renderer.targets().depth().texture(),
         )
         .unwrap();
-        let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.25);
+        let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.25);
         encoder.finish().submit().unwrap();
         assert!(
             renderer.opaque_snapshot().is_none(),
@@ -125,7 +125,7 @@ fn independent_snapshot_reader_and_post_water_depth_at_one_and_four_samples() {
                 }),
             )
             .unwrap();
-        let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.25);
+        let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.25);
         encoder.finish().submit().unwrap();
         assert!(renderer.opaque_snapshot().is_none());
         let snapshot = renderer.snapshots.as_ref().unwrap()[0]
@@ -138,7 +138,7 @@ fn independent_snapshot_reader_and_post_water_depth_at_one_and_four_samples() {
             .collect();
         assert!(bytes.chunks_exact(8).all(|pixel| pixel == expected));
         assert_eq!(prepared.get(), 1);
-        assert_water_metadata(&context, &mut renderer, (&color, &depth), frame, samples);
+        assert_water_metadata(&context, &mut renderer, (&color, &depth), &frame, samples);
         assert_eq!(prepared.get(), 2);
         assert_eq!(read(&context, snapshot.texture()), bytes_for_color(0x3400));
     }
@@ -147,7 +147,7 @@ fn assert_water_metadata(
     context: &GpuContext,
     renderer: &mut crate::compositor::FrameRenderer,
     attachments: (&AttachmentView, &AttachmentView),
-    frame: FrameUniform,
+    frame: &FrameUniform,
     samples: u32,
 ) {
     renderer

@@ -200,11 +200,15 @@ pub(super) fn upload_terrain(
     // that helper takes only the resources it wires together, and so the
     // buffer's lifetime is visibly the caller's.
     let uniform_buffer = terrain_uniform_buffer(device, queue, uniform);
+    let layered_buffers = prepared
+        .layered
+        .as_ref()
+        .map_or_else(Vec::new, |source| source.buffers(device, queue));
     let bind_group = terrain_bind_group(
         device,
         layout,
         sampler,
-        (&uniform_buffer, &grid, &palettes),
+        (&uniform_buffer, &grid, &palettes, &layered_buffers),
         None,
     );
     let mut retained = palettes;
@@ -216,36 +220,12 @@ pub(super) fn upload_terrain(
         sampler: sampler.clone(),
         pages: None,
         bounds: prepared.bounds,
-        lod: GpuLod {
-            transition: None,
-            vertices: upload_buffer(
-                device,
-                queue,
-                "terrain vertices",
-                BufferUsages::VERTEX,
-                &mesh.vertices,
-            ),
-            indices: upload_buffer(
-                device,
-                queue,
-                "terrain indices",
-                BufferUsages::INDEX,
-                &mesh.indices,
-            ),
-            index_count: mesh.index_count,
-        },
-        // The identity placement. Terrain vertices are already in scene space,
-        // and giving terrain a transform would create a second place it could
-        // be positioned from.
-        instances: upload_buffer(
-            device,
-            queue,
-            "terrain instance",
-            BufferUsages::VERTEX,
-            &pack_instance(&TERRAIN_PLACEMENT),
-        ),
+        lod: terrain_lod(device, queue, mesh),
+        instances: terrain_instances(device, queue),
         bind_group,
         retained,
+        layered: prepared.layered.clone(),
+        layered_buffers,
     }))
 }
 /// Binds the terrain uniform, the type grid, the three palette arrays and the
@@ -260,10 +240,10 @@ pub(super) fn terrain_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     sampler: &Sampler,
-    resources: (&Buffer, &Texture, &[Texture]),
+    resources: (&Buffer, &Texture, &[Texture], &[Buffer]),
     pages: Option<(&TextureView, &Buffer)>,
 ) -> BindGroup {
-    let (uniform_buffer, grid, palettes) = resources;
+    let (uniform_buffer, grid, palettes, layered) = resources;
     let grid_view = grid.create_view(&TextureViewDescriptor::default());
     // The dimension has to be stated. A one-layer array defaults to a plain 2D
     // view, so a palette that happens to hold a single surface would fail
@@ -308,6 +288,12 @@ pub(super) fn terrain_bind_group(
         entries.push(BindGroupEntry {
             binding: 7,
             resource: table.as_entire_binding(),
+        });
+    }
+    for (index, buffer) in layered.iter().enumerate() {
+        entries.push(BindGroupEntry {
+            binding: u32::try_from(index + 8).expect("three inputs"),
+            resource: buffer.as_entire_binding(),
         });
     }
     device.create_bind_group(&BindGroupDescriptor {
@@ -408,8 +394,51 @@ pub(super) fn prepared_terrain(
         device,
         queue,
         &prepared.scene,
-        pipelines.terrain_layout(),
+        if prepared
+            .terrain
+            .as_ref()
+            .is_some_and(|terrain| terrain.layered.is_some())
+        {
+            &pipelines
+                .layered
+                .as_ref()
+                .ok_or(DrawError::LayeredLimit)?
+                .layout
+        } else {
+            pipelines.terrain_layout()
+        },
         sampler,
         prepared.terrain.as_ref(),
+    )
+}
+
+fn terrain_lod(device: &Device, queue: &Queue, mesh: &crate::terrain::TerrainMesh) -> GpuLod {
+    GpuLod {
+        transition: None,
+        vertices: upload_buffer(
+            device,
+            queue,
+            "terrain vertices",
+            BufferUsages::VERTEX,
+            &mesh.vertices,
+        ),
+        indices: upload_buffer(
+            device,
+            queue,
+            "terrain indices",
+            BufferUsages::INDEX,
+            &mesh.indices,
+        ),
+        index_count: mesh.index_count,
+    }
+}
+
+fn terrain_instances(device: &Device, queue: &Queue) -> Buffer {
+    upload_buffer(
+        device,
+        queue,
+        "terrain instance",
+        BufferUsages::VERTEX,
+        &pack_instance(&TERRAIN_PLACEMENT),
     )
 }

@@ -192,6 +192,10 @@ impl PendingPage {
             submitted: false,
         }
     }
+    pub fn key(&self) -> PageKey {
+        self.page.key
+    }
+
     pub fn slot(&self) -> u32 {
         self.page.slot
     }

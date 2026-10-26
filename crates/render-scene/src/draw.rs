@@ -39,6 +39,12 @@ use visibility::{MeshSelection, Selection};
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
 pub enum DrawError {
+    #[error("layered terrain is unsupported by the device limits")]
+    LayeredLimit,
+    #[error(transparent)]
+    LayeredGpu(#[from] crate::terrain::pages::layered_gpu::LayeredGpuError),
+    #[error(transparent)]
+    Layered(#[from] crate::terrain::pages::layered::LayeredError),
     #[error(transparent)]
     Atmosphere(#[from] crate::sky::preparation::PreparationError),
     /// The selected terrain contact samples cannot be sized in GPU address space.
@@ -141,6 +147,8 @@ struct GpuTerrain {
     sampler: Sampler,
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
     retained: Vec<Texture>,
+    layered: Option<std::sync::Arc<crate::terrain::pages::layered_gpu::LayeredGpuSource>>,
+    layered_buffers: Vec<Buffer>,
 }
 
 /// Resources the bind groups reference.
@@ -233,6 +241,7 @@ impl SceneGpu {
         let scene = &prepared.scene;
         let queue = authority.queue();
         validate_profile(scene, pipelines)?;
+        prepared.validate_device(device, pipelines)?;
         let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
         let (textures, views) = upload_textures(device, queue, &prepared.textures)?;
         let placeholder = placeholder_texture(device, queue);
@@ -409,10 +418,26 @@ impl SceneGpu {
                 .map(|pages| pages.borrow().draw_group());
             if !matches!(cached_group, Some(None)) {
                 if let Some(Some(group)) = cached_group {
-                    pass.set_pipeline(&pipelines.cached_terrain);
+                    pass.set_pipeline(if terrain.layered.is_some() {
+                        &pipelines
+                            .layered
+                            .as_ref()
+                            .expect("validated layered device")
+                            .cached
+                    } else {
+                        &pipelines.cached_terrain
+                    });
                     pass.set_bind_group(TERRAIN_GROUP, &group, &[]);
                 } else {
-                    pass.set_pipeline(pipelines.terrain());
+                    pass.set_pipeline(if terrain.layered.is_some() {
+                        &pipelines
+                            .layered
+                            .as_ref()
+                            .expect("validated layered device")
+                            .terrain
+                    } else {
+                        pipelines.terrain()
+                    });
                     pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
                 }
                 if let Some(shadow) = shadow {

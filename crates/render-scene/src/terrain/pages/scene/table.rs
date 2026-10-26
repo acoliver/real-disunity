@@ -17,7 +17,7 @@ pub(super) fn upload(
     let mut words = vec![
         u32::try_from(selection.leaves().len()).expect("leaf count"),
         u32::try_from(residents.len()).expect("resident count"),
-        0,
+        pages.cache.product_count() - 2,
         0,
         settings.parts().interior[0],
         settings.parts().interior[1],

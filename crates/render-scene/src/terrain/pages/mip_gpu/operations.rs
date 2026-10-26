@@ -29,7 +29,8 @@ pub(super) fn build(
             key,
             TextureRange {
                 mips: mip..mip + 1,
-                layers: pending.slot() * 2..pending.slot() * 2 + 2,
+                layers: pending.slot() * cache.product_count()
+                    ..(pending.slot() + 1) * cache.product_count(),
                 aspect: wgpu::TextureAspect::All,
             },
             1,

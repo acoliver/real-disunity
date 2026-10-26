@@ -10,7 +10,7 @@ mod expand;
 mod modify;
 pub(crate) mod read;
 mod value;
-mod views;
+pub(crate) mod views;
 
 use std::{
     collections::BTreeMap,

@@ -3,7 +3,8 @@
 use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
 use worldrunner_unity_import::{
-    Guid, ObjectId, Origin, Project, Reference, Scene, Textures, import_scene,
+    Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
+    import_scene,
 };
 
 const USAGE: &str = "usage: unity-import catalog <project>
@@ -208,7 +209,21 @@ fn sprites(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Reads every grid, tilemap, collider material and renderer material in the scene.
+/// The typed view of a package script component, for the scripts that have one.
+fn package_view(scene: &Scene, id: ObjectId) -> Option<String> {
+    let Some(Reference::Package(PackageAsset::Script(script))) = scene.script(id) else {
+        return None;
+    };
+    Some(match script {
+        PackageScript::Text => format!("{:?}", scene.text(id)),
+        PackageScript::CanvasScaler => format!("{:?}", scene.canvas_scaler(id)),
+        PackageScript::Light2D => format!("{:?}", scene.light_2d(id)),
+        PackageScript::UniversalAdditionalCameraData => format!("{:?}", scene.urp_camera(id)),
+        other => format!("{other:?}"),
+    })
+}
+
+/// Reads every typed component view in the scene.
 fn components(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
     let project = Project::open(root)?;
     let scene = import_scene(&project, path)?;
@@ -221,6 +236,12 @@ fn components(root: &Path, path: &Path) -> Result<(), Box<dyn Error>> {
             ),
             name if name.ends_with("Collider2D") => format!("{:?}", scene.collider_material(id)),
             "SpriteRenderer" | "TilemapRenderer" => format!("{:?}", scene.renderer_material(id)),
+            "Canvas" => format!("{:?}", scene.canvas(id)),
+            "RectTransform" => format!("{:?}", scene.rect_transform(id)),
+            "MonoBehaviour" => match package_view(&scene, id) {
+                Some(line) => line,
+                None => continue,
+            },
             _ => continue,
         };
         println!("{} {}: {line}", object.type_name, id.index());

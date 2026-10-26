@@ -1,18 +1,16 @@
 use super::ComponentError;
 use crate::{
-    guid::Guid,
+    package::{PackageAsset, PackageMaterial},
     scene::{ObjectId, Reference, Scene, Value},
 };
-
-/// fileID of Unity's built-in `Sprites-Default` material in the default resources.
-const SPRITES_DEFAULT: i64 = 10_754;
-const DEFAULT_RESOURCES: Guid = Guid::from_u128(0x0000_0000_0000_0000_f000_0000_0000_0000);
 
 /// The material a sprite or tilemap renderer draws with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RendererMaterial {
     /// Unity's built-in unlit, alpha-blended sprite material.
     SpritesDefault,
+    /// URP's lit sprite material, lit by 2D lights.
+    SpriteLitDefault,
 }
 
 impl Scene {
@@ -38,11 +36,10 @@ impl Scene {
             )));
         };
         match material.as_reference() {
-            Some(Reference::External { guid, file_id })
-                if guid == DEFAULT_RESOURCES && file_id == SPRITES_DEFAULT =>
-            {
-                Ok(RendererMaterial::SpritesDefault)
-            }
+            Some(Reference::Package(PackageAsset::Material(material))) => Ok(match material {
+                PackageMaterial::SpritesDefault => RendererMaterial::SpritesDefault,
+                PackageMaterial::SpriteLitDefault => RendererMaterial::SpriteLitDefault,
+            }),
             Some(Reference::Missing { guid, file_id }) => Err(error(format!(
                 "material {file_id} in {} is not in the project",
                 guid.map_or_else(|| "this file".to_owned(), |guid| guid.to_string())

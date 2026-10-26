@@ -6,14 +6,28 @@
 mod material;
 mod physics;
 mod tilemap;
+mod ui;
+mod urp;
 
-use crate::scene::{ObjectId, Origin, Scene};
+use crate::{
+    package::{PackageAsset, PackageScript},
+    scene::{ObjectId, Origin, Reference, Scene, Value},
+};
 
 pub use material::RendererMaterial;
 pub use physics::{Combine, PhysicsMaterial};
 pub use tilemap::{Grid, Tile, Tilemap};
+pub use ui::{
+    Canvas, CanvasScale, CanvasScaler, FontData, FontStyle, HorizontalOverflow, RectTransform,
+    RenderMode, ScreenMatch, Text, TextAnchor, VerticalOverflow,
+};
+pub use urp::{
+    Antialiasing, CameraOverride, CameraRenderType, Light2D, UrpCamera, UrpPostProcessing,
+};
 
 pub(crate) const RIGIDBODY_2D: i32 = 50;
+pub(crate) const MONO_BEHAVIOUR: i32 = 114;
+pub(crate) const CANVAS: i32 = 223;
 pub(crate) const PHYSICS_MATERIAL_2D: i32 = 62;
 pub(crate) const GRID: i32 = 156_049_354;
 pub(crate) const TILEMAP: i32 = 1_839_735_485;
@@ -56,10 +70,35 @@ impl Scene {
         id: ObjectId,
         class_id: i32,
         name: &str,
-    ) -> Result<&crate::scene::Value, ComponentError> {
+    ) -> Result<&Value, ComponentError> {
         match self.object(id) {
             Some(object) if object.class_id == class_id => Ok(&object.fields),
             _ => Err(self.component_error(id, format!("is not a {name}"))),
         }
+    }
+
+    /// The fields of a `MonoBehaviour` whose script is the package type `script`.
+    pub(crate) fn expect_script(
+        &self,
+        id: ObjectId,
+        script: PackageScript,
+    ) -> Result<&Value, ComponentError> {
+        let fields = self.expect_class(id, MONO_BEHAVIOUR, "MonoBehaviour")?;
+        let expected = Reference::Package(PackageAsset::Script(script));
+        if self.script(id) == Some(expected) {
+            Ok(fields)
+        } else {
+            Err(self.component_error(id, format!("is not a {}", script.type_name().1)))
+        }
+    }
+
+    /// `value`, or an error naming the malformed field `key` of `id`.
+    pub(crate) fn field<T>(
+        &self,
+        id: ObjectId,
+        key: &str,
+        value: Option<T>,
+    ) -> Result<T, ComponentError> {
+        value.ok_or_else(|| self.component_error(id, format!("invalid {key}")))
     }
 }

@@ -6,15 +6,20 @@
 
 pub mod components;
 pub mod guid;
+pub mod package;
 pub mod project;
 pub mod scene;
 pub mod texture;
 pub mod yaml;
 
 pub use components::{
-    Combine, ComponentError, Grid, PhysicsMaterial, RendererMaterial, Tile, Tilemap,
+    Antialiasing, CameraOverride, CameraRenderType, Canvas, CanvasScale, CanvasScaler, Combine,
+    ComponentError, FontData, FontStyle, Grid, HorizontalOverflow, Light2D, PhysicsMaterial,
+    RectTransform, RenderMode, RendererMaterial, ScreenMatch, Text, TextAnchor, Tile, Tilemap,
+    UrpCamera, UrpPostProcessing, VerticalOverflow,
 };
 pub use guid::{Guid, ObjectRef, ReferenceError};
+pub use package::{PackageAsset, PackageFont, PackageMaterial, PackageScript};
 pub use project::{Asset, ImportError, Project};
 pub use scene::{
     GameObject, Object, ObjectId, Origin, Reference, Scene, SceneError, Source, Transform, Value,

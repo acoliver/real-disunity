@@ -1,4 +1,6 @@
-use worldrunner_unity_import::{Guid, ObjectId, Origin, Reference, Scene, SceneError, Value};
+use worldrunner_unity_import::{
+    Guid, ObjectId, Origin, PackageAsset, PackageMaterial, Reference, Scene, SceneError, Value,
+};
 
 const ITEM: &str = "11111111111111111111111111111111";
 const CONFIG: &str = "22222222222222222222222222222222";
@@ -7,6 +9,8 @@ const SCRIPT: &str = "44444444444444444444444444444444";
 const OUTER: &str = "55555555555555555555555555555555";
 const LEGACY: &str = "66666666666666666666666666666666";
 
+#[path = "support/assets.rs"]
+mod assets;
 #[path = "support/fixture.rs"]
 mod fixture;
 #[path = "support/objects.rs"]
@@ -232,7 +236,7 @@ fn references_to_assets_load_them_and_unknown_targets_are_reported() {
     assert_eq!(at("sprite"), external(TEXTURE, 21_300_000));
     assert_eq!(
         at("builtin"),
-        external("0000000000000000f000000000000000", 10754)
+        Reference::Package(PackageAsset::Material(PackageMaterial::SpritesDefault))
     );
     let missing: Vec<_> = scene
         .missing_references()

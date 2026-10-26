@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     guid::{Guid, ObjectRef},
+    package,
     project::Project,
     yaml::{Document, Mapping, Node, Scalar},
 };
@@ -284,11 +285,13 @@ impl<'p> Importer<'p> {
             guid: Some(guid),
             file_id,
         };
-        if guid.is_builtin() {
-            return Ok(Reference::External { guid, file_id });
-        }
         let Some(asset) = self.project.asset(guid) else {
-            return Ok(missing);
+            // Files in the project win; only absent assets are looked up as package assets.
+            return Ok(match package::identify(guid, file_id) {
+                Some(known) => Reference::Package(known),
+                None if guid.is_builtin() => Reference::External { guid, file_id },
+                None => missing,
+            });
         };
         let origin = if asset.path.extension().is_some_and(|ext| ext == "prefab") {
             Origin::Template(guid)

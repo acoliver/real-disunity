@@ -124,7 +124,8 @@ impl World {
             .scripts
             .get(&script)
             .ok_or(WorldError::NotScript)?;
-        Ok(state.awake
+        Ok(!self.lifetime.components.contains(&script)
+            && state.awake
             && state.active
             && self.active_in_hierarchy(self.component(script)?.object)?)
     }
@@ -158,14 +159,16 @@ impl World {
     }
 
     pub fn take_cleanup(&mut self) -> Vec<LifecycleWork> {
-        std::mem::take(&mut self.lifecycle.cleanup)
+        let mut work = std::mem::take(&mut self.lifecycle.cleanup);
+        work.sort_by_key(|work| work.script);
+        work
     }
 
     pub(crate) fn refresh_lifecycle(&mut self, nodes: &[ObjectHandle], mutation: MutationId) {
         let mut awake = Vec::new();
         let mut transitions = Vec::new();
         for &object in nodes {
-            if self.is_unpublished(object) {
+            if self.is_unpublished(object) || self.lifetime.objects.contains(&object) {
                 continue;
             }
             let active = self.active_in_hierarchy(object).expect("live hierarchy");
@@ -174,7 +177,10 @@ impl World {
                 .scripts
                 .keys()
                 .copied()
-                .filter(|&script| self.component(script).is_ok_and(|c| c.object == object))
+                .filter(|&script| {
+                    !self.lifetime.components.contains(&script)
+                        && self.component(script).is_ok_and(|c| c.object == object)
+                })
                 .collect();
             for script in scripts {
                 let state = self

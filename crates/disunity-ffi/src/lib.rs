@@ -20,6 +20,7 @@ mod construction_tests;
 pub mod errors;
 pub mod hierarchy;
 pub mod input;
+pub mod input_axes;
 pub mod object_api;
 pub mod physics;
 #[cfg(test)]

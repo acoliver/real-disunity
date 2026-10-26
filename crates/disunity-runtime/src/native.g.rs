@@ -207,6 +207,20 @@ pub struct DisunityCallback {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct DisunityInputAxis {
+    pub negative: u32,
+    pub positive: u32,
+    pub alt_negative: u32,
+    pub alt_positive: u32,
+    pub gravity: f32,
+    pub sensitivity: f32,
+    pub dead: f32,
+    /// Bit 0: snap; bit 1: invert.
+    pub flags: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityBody2d {
     pub kind: u32,
@@ -217,6 +231,7 @@ pub struct DisunityBody2d {
     pub angular_velocity: f32,
     pub gravity_scale: f32,
     pub freeze_rotation: u32,
+    pub freeze_position: u32,
     pub restitution: f32,
 }
 
@@ -295,7 +310,7 @@ pub struct DisunityTransform {
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 3;
+pub const DISUNITY_ABI_VERSION: u32 = 4;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

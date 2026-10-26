@@ -1,10 +1,33 @@
 #[test]
-fn cloning_excludes_components_already_queued_for_removal() {
+fn cloning_copies_pending_components_without_inheriting_their_retirement() {
     let (mut world, object, script) = setup();
+    world
+        .set_script_fields(script, vec![("self".into(), FieldValue::Component(script))])
+        .unwrap();
     world.destroy_component(script).unwrap();
     let clone = world.instantiate(object, None).unwrap();
-    assert!(!clone.components.contains_key(&script));
-    assert!(world.lifecycle_work(clone.mutation).unwrap().is_empty());
+    let copied = clone.components[&script];
+    assert_eq!(
+        world.script_fields(copied).unwrap()[0].1,
+        FieldValue::Component(copied)
+    );
+    assert_eq!(
+        world
+            .lifecycle_work(clone.mutation)
+            .unwrap()
+            .iter()
+            .map(|work| work.message)
+            .collect::<Vec<_>>(),
+        [ScriptMessage::Awake, ScriptMessage::OnEnable]
+    );
+    assert!(world.component(script).is_ok());
+    assert!(!world.script_ready(script).unwrap());
+    assert!(world.script_ready(copied).unwrap());
+    world.finish_phase();
+    assert!(world.component(script).is_err());
+    assert!(world.component(copied).is_ok());
+    assert!(world.object(object).is_ok());
+    assert!(world.object(clone.root).is_ok());
 }
 
 use worldrunner_world_simulation::{
@@ -36,7 +59,8 @@ fn deferred_component_removal_suppresses_readiness_and_emits_cleanup_once() {
     let (mut world, object, script) = setup();
     world.set_active(object, true).unwrap();
     world.destroy_component(script).unwrap();
-    assert!(world.component(script).is_err());
+    assert!(world.component(script).is_ok());
+    assert!(!world.script_ready(script).unwrap());
     assert_eq!(world.storage_counts(), (1, 2));
     assert_eq!(
         world

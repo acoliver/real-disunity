@@ -64,7 +64,7 @@ impl World {
         )
     }
 
-    /// Invalidates the entire live subtree now; storage remains occupied until cleanup.
+    /// Marks the subtree pending; handles remain usable until final frame retirement.
     pub fn destroy(&mut self, object: ObjectHandle, when: DestroyWhen) -> Result<(), WorldError> {
         if self.lifetime.objects.contains(&object) {
             return Ok(());

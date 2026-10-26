@@ -127,7 +127,7 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
 }
 
 /// The ABI version of this library; see `disunity_interface.json`.
-pub const DISUNITY_ABI_VERSION: u32 = 3;
+pub const DISUNITY_ABI_VERSION: u32 = 4;
 
 pub(crate) fn translate_error(
     world: Option<u64>,

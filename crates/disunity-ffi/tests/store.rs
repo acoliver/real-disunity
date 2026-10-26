@@ -38,6 +38,10 @@ fn destroyed_object_handles_are_invalid() {
         unsafe { disunity_gameobject_destroy(world, object) }.code,
         result_code::OK
     );
+    assert_eq!(
+        unsafe { advance_frame(world, 0.0, 0) }.code,
+        result_code::OK
+    );
     // The stale handle must not address an object even after slot reuse.
     let stale = object;
     let mut replacement = 0;

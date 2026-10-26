@@ -32,6 +32,14 @@ fn abi_step_advances_the_same_native_physics_and_destroys_body_identity() {
         );
     }
     with_native_world(world, |native| {
+        assert!(native.component(body).is_ok());
+        assert!(native.component(collider).is_ok());
+    })
+    .unwrap();
+    unsafe {
+        assert_eq!(advance_frame(world, 0.0, 3).code, result_code::OK);
+    }
+    with_native_world(world, |native| {
         assert_eq!(
             native.component(body),
             Err(WorldError::StaleComponent(body))
@@ -43,7 +51,6 @@ fn abi_step_advances_the_same_native_physics_and_destroys_body_identity() {
     })
     .unwrap();
     unsafe {
-        assert_eq!(advance_frame(world, 0.0, 3).code, result_code::OK);
         assert_eq!(disunity_world_destroy(world).code, result_code::OK);
     }
 }

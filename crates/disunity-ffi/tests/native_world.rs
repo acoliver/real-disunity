@@ -42,6 +42,14 @@ fn abi_and_rust_observe_one_store_and_identical_results() {
         unsafe { disunity_gameobject_destroy(handle, object) }.code,
         result_code::OK
     );
+    assert_eq!(
+        with_native_world(handle, |w| w.snapshot().objects.len()).unwrap(),
+        1
+    );
+    assert_eq!(
+        unsafe { advance_frame(handle, 0.0, 3) }.code,
+        result_code::OK
+    );
     assert!(with_native_world(handle, |w| w.snapshot().objects.is_empty()).unwrap());
     assert!(with_native_world(handle, |w| w.snapshot().components.is_empty()).unwrap());
     assert_eq!(

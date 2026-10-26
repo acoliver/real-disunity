@@ -1,7 +1,7 @@
 use worldrunner_disunity_ffi::{abi::*, result_code, with_native_world};
 
 #[test]
-fn abi_destruction_invalidates_before_step_and_retires_at_phase_end() {
+fn abi_destruction_stays_visible_before_step_and_retires_at_phase_end() {
     let (mut world, mut object) = (0, 0);
     unsafe {
         assert_eq!(disunity_world_create(&mut world).code, result_code::OK);
@@ -23,10 +23,10 @@ fn abi_destruction_invalidates_before_step_and_retires_at_phase_end() {
             with_native_world(world, |w| w.storage_counts()).unwrap(),
             (1, 1)
         );
-        assert!(with_native_world(world, |w| w.object(native).is_err()).unwrap());
+        assert!(with_native_world(world, |w| w.object(native).is_ok()).unwrap());
         assert_eq!(
             disunity_gameobject_destroy(world, object).code,
-            result_code::INVALID_HANDLE
+            result_code::OK
         );
         assert_eq!(advance_frame(world, 0.0, 1).code, result_code::OK);
         assert!(with_native_world(world, |w| w.snapshot().components.is_empty()).unwrap());
@@ -75,7 +75,7 @@ unsafe fn advance_frame(
 }
 
 #[test]
-fn parent_destroy_rejects_child_reads_and_exports_no_stale_descendants() {
+fn parent_destroy_keeps_child_visible_until_retirement() {
     use worldrunner_disunity_ffi::{
         DisunityObjectState, hierarchy::*, scheduling::DisunityAdvance,
     };
@@ -100,11 +100,22 @@ fn parent_destroy_rejects_child_reads_and_exports_no_stale_descendants() {
         };
         assert_eq!(
             disunity_gameobject_read(world, child, &mut state).code,
-            result_code::INVALID_HANDLE
+            result_code::OK
         );
         let mut written = 99;
+        let mut objects = [state; 2];
         assert_eq!(
-            disunity_world_export_objects(world, &mut state, 1, &mut written).code,
+            disunity_world_export_objects(world, objects.as_mut_ptr(), 2, &mut written).code,
+            0
+        );
+        assert_eq!(written, 2);
+        assert_eq!(advance_frame(world, 0.0, 0).code, 0);
+        assert_eq!(
+            disunity_gameobject_read(world, child, &mut state).code,
+            result_code::INVALID_HANDLE
+        );
+        assert_eq!(
+            disunity_world_export_objects(world, objects.as_mut_ptr(), 2, &mut written).code,
             0
         );
         assert_eq!(written, 0);

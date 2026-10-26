@@ -17,6 +17,8 @@ pub mod presentation;
 mod scheduled_contacts;
 pub use scheduled_contacts::ContactId;
 mod input;
+mod input_axes;
+pub use input_axes::InputAxis;
 mod ratio;
 mod timeline;
 pub use clock::Clock;

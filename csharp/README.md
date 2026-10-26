@@ -1,8 +1,11 @@
 # Managed ABI and portable fixture
 
-`Disunity/NativeBindings.g.cs` and `Disunity/NativeRecords.g.cs` are checked in. The native FFI build generates a
-separate file in Cargo's `OUT_DIR` and compares **all bytes**, including complete
-signatures, calling conventions, and struct fields. A mismatch fails the build;
+`Disunity/NativeBindings.g.cs` and `Disunity/NativeRecords.g.cs` are checked in.
+The native FFI build generates imports and records in Cargo's `OUT_DIR`, splitting
+csbindgen's partial import class from its namespace-level records. It removes
+blank import lines to keep the combined surface under 750 lines and compares
+**all bytes** in both files, including complete signatures, calling conventions,
+and struct fields. A mismatch fails the build;
 normal builds never update the checked file. All ABI source files and the
 checked bindings are Cargo rerun inputs. Keep LF line endings as required by the
 repository attributes.
@@ -18,15 +21,17 @@ After an intentional ABI change:
    and layouts. Copy that generated file to the checked file **explicitly**:
    `cp <printed-OUT_DIR>/NativeBindings.g.cs csharp/Disunity/NativeBindings.g.cs`
    (PowerShell: `Copy-Item <printed-OUT_DIR>/NativeBindings.g.cs csharp/Disunity/NativeBindings.g.cs`).
-   Record declarations are emitted separately into `NativeRecords.g.cs` to keep
-   both generated files within the source-size target. Review and explicitly copy
-   that file from the same output directory when its comparison fails.
+   Review and copy `NativeRecords.g.cs` from that same output directory as well.
+   Both generated files must remain under 750 lines and both have byte-for-byte drift checks.
    Do not guess an old build directory: use the path from this invocation.
 3. Update `crates/disunity-ffi/disunity_interface.json` for new exports and
    record the current ABI revision. Removing or changing an export requires a new
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
+   Revision 4 retains revision 3 batch construction and object wake, and adds the
+   directional position mask to the body record, changing its size from 36 to
+   40 bytes. Native and managed hosts require revision 4. Rebuild all peers.
 4. Rerun the native build and
    `cargo test --locked --jobs 2 --package worldrunner-disunity-ffi`.
 
@@ -101,11 +106,26 @@ scripts through the ordinary `AddComponent` calls, and fields bind freely: no
 Activation runs every eligible `Awake`, then every `OnEnable`; `Start` follows before
 the next update. Disposing an unactivated construction removes its objects, scripts
 and native components. Clones and constructions share one unpublished mechanism in
-the native world.
+the native world. Discarding a construction does not retire unrelated objects
+already pending `Destroy`; they remain visible until frame cleanup. Native
+`create_object_in` takes a `Construction`, never an object handle. The ABI rejects
+an object handle passed as a construction, including a pending-destroyed object.
+A pending object remains a valid hierarchy parent until cleanup. Parenting a
+constructed child under it makes the child inherit retirement, suppresses its
+lifecycle, and retires both at frame cleanup, matching the pending-parent clone
+contract.
 
 `AddComponent` wakes a new script only when its object is active in the hierarchy.
 It never changes whether the object is active; an inactive object's scripts wake
 when it is activated.
+
+[Unity documents Instantiate](https://docs.unity3d.com/ScriptReference/Object.Instantiate.html)
+as copying children and components. Under the pending-visible destruction contract,
+cloning copies every still-existing component, including pending components, and
+remaps references before activation. An independent clone does not inherit the
+source's pending destruction. A clone attached to a pending parent does inherit
+that parent's retirement and cannot activate or tick. Capacity preflight counts
+all copied components, including each required Transform.
 `Transform.SetParent` and `GameObject.SetActive` also drain native lifecycle work.
 Script messages are resolved by name, including private methods, without requiring
 virtual overrides. Start may also return an IEnumerator, which begins synchronously on native Start delivery.
@@ -140,10 +160,23 @@ failures remain errors. Coroutine joins, end-of-frame and custom yields are not
 supported.
 
 Host PushKey, PushAxis and PushFocus accept timestamped input. Input.GetKey,
-GetKeyDown, GetKeyUp and the Horizontal/Vertical axes query native phase views.
-Fixed and dynamic edges are independent. Focus loss releases native held keys.
-The host converts external seconds once to integer nanoseconds, including the
-actual value represented by a float frame delta.
+GetKeyDown and GetKeyUp query native phase views. Fixed and dynamic edges are
+independent. The host converts external seconds once to integer nanoseconds,
+including the actual value represented by a float frame delta.
+
+Register project keyboard axes before advancing the world with
+`DisunityHost.RegisterInputAxis(ushort id, InputAxisDefinition definition)`.
+Definitions contain Name, Negative/Positive, AltNegative/AltPositive, Gravity,
+Sensitivity, Dead, Snap and Invert. IDs identify entries; replacing an ID resets
+its values. No names are implicitly registered. Input.GetAxis reads the native
+smoothed value; GetAxisRaw bypasses smoothing. Missing names throw ArgumentException.
+Duplicate names select the greatest absolute value, with the lowest ID breaking
+ties. PushAxis resolves the lowest matching ID. Smoothing advances once per
+projection using unscaled elapsed time, independently for fixed and dynamic
+views. Repeated reads never advance it. Simultaneous opposite keys cancel.
+Focus loss clears held keys and raw/smoothed axis values. Registry state belongs
+to the world and is released on unload. Mouse movement and joystick configuration
+are not represented by this keyboard registry.
 
 Canvas and RectTransform use native layout. SetViewport supplies presentation
 extent. RegisterFont accepts explicit font bytes; CreateText attaches native text
@@ -170,15 +203,29 @@ retiring a body releases its target.
 
 ScriptableObject.CreateInstance creates a standalone native-owned script asset,
 without a scene object or transform. Creation delivers Awake and OnEnable;
-Object.Destroy queues OnDisable and OnDestroy for frame-end retirement. World
-unload also retires live assets. Assets do not receive frame-update messages.
+Object.Destroy suppresses further ordinary callbacks immediately. Pending scene
+objects remain readable, writable, searchable and non-null until final frame
+cleanup, after Update, coroutines and LateUpdate and before presentation. Cleanup
+runs OnDisable then OnDestroy once in component order and drains nested Destroy
+requests before retiring handles. Destroy(obj, delay) uses scaled world seconds;
+duplicate requests retain the earliest deadline. World unload also retires live
+assets. Assets do not receive frame-update messages.
+
+Pending AudioListener, Light2D, GUILayer, FlareLayer and additional-camera-data
+components remain readable, writable and cloneable until their owner's retirement.
+Pending listeners are excluded from the active-listener count immediately, even
+if re-enabled, so a replacement can become the single active listener before
+cleanup. The zero/multiple-listener diagnostics count only non-pending, enabled
+listeners on active published objects. Components attached beneath a pending
+owner inherit its retirement; independent clones do not inherit it.
+
 Rigidbody2D.Sleep, IsSleeping and WakeUp use native body state. Sleeping bodies
 skip gravity and integration; collision impulses and explicit wake resume motion.
 
 Sprite and SpriteRenderer now use native immutable content identities and renderer
 state. Camera creation supports the native default orthographic lens and clear;
 broader managed camera controls remain unavailable. Missing surface includes
-object constructors, component destruction, body forces/constraints, broader
+object constructors, component destruction, body forces, broader
 colliders/queries, materials/resources, managed tilemaps, application/scene controls,
 CanvasScaler/camera binding, Text color/alignment/font reassignment and generic
 AddComponent<Text>. Three pinned external runtime-script trees compile unchanged
@@ -204,15 +251,21 @@ limits are generated from the ABI. Valid UTF-8 failure diagnostics are clipped
 at a character boundary before native ownership, so oversized messages cannot
 prevent failure teardown. The Rust host retains the full managed diagnostic.
 
-Regeneration covers four checked outputs: NativeErrors.g.cs,
-crates/disunity-runtime/src/native.g.rs, NativeLayouts.g.cs and NativeBindings.g.cs.
+Regeneration covers five checked outputs: NativeErrors.g.cs,
+crates/disunity-runtime/src/native.g.rs, NativeLayouts.g.cs, NativeBindings.g.cs
+and NativeRecords.g.cs.
 Build first, inspect the generated output named by the drift failure, copy that
 artifact explicitly, and rebuild until every drift check passes. Builds do not
-rewrite these files. The reason output is checked before native records,
-layouts and managed imports.
+rewrite these files. Managed imports and records are checked first, followed by
+reasons, native records and layouts.
 
 Dependency regressions inspect cargo metadata's resolved runtime edges,
 evaluated MSBuild project/package references, resolved assembly paths and the
 built consumer/engine assembly references. Imported managed references and
 aliased native dependencies have negative fixtures. Source policy searches are
 additional checks rather than dependency-graph evidence.
+
+Rigidbody2D.constraints supports FreezePositionX, FreezePositionY, FreezeRotation,
+FreezePosition and FreezeAll with Unity's flag values. Position masks constrain
+integration, MovePosition, continuous sweeps, impulses and penetration correction.
+The freezeRotation property preserves the position constraints.

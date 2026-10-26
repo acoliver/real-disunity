@@ -46,6 +46,7 @@ internal static class ConstructionTests
         {
             FieldsAndPeersAreBoundBeforeAnyAwake();
             DisposingRemovesEverythingTheConstructionCreated();
+            DisposingPreservesUnrelatedPendingDestroy();
             AddingScriptsNeverActivatesTheirObject();
             Console.WriteLine("PASS: batch construction binds before Awake, hides until activation and disposes cleanly");
         }
@@ -106,6 +107,27 @@ internal static class ConstructionTests
         Require(UnityEngine.Object.FindObjectsByType<Recorder>(FindObjectsSortMode.None).Length == 0,
             "disposed scripts must not be found");
         DisunityHost.Step(0.02f);
+        RequireLog();
+    }
+
+    private static void DisposingPreservesUnrelatedPendingDestroy()
+    {
+        var pending = DisunityHost.CreateGameObject();
+        UnityEngine.Object.Destroy(pending);
+        var before = HostTables();
+        GameObject created;
+        using (var construction = DisunityHost.BeginConstruction())
+        {
+            created = construction.CreateGameObject();
+            created.AddComponent<Recorder>();
+            created.AddComponent<SpriteRenderer>();
+        }
+        RequireLog();
+        Require(HostTables() == before, "abort must release only the construction's managed entries");
+        Require(pending != null, "unrelated pending Destroy must stay non-null before frame cleanup");
+        Require(created == null, "discarded construction object must be null immediately");
+        DisunityHost.Step(0.02f);
+        Require(pending == null, "unrelated pending Destroy must retire at frame cleanup");
         RequireLog();
     }
 

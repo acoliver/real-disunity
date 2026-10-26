@@ -1,5 +1,5 @@
 #[test]
-fn parent_destruction_invalidates_every_descendant_and_owned_component() {
+fn parent_destruction_keeps_descendants_visible_until_retirement() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let root = world.create_object(ObjectDesc::default()).unwrap();
     let child = world.create_object(ObjectDesc::default()).unwrap();
@@ -16,14 +16,11 @@ fn parent_destruction_invalidates_every_descendant_and_owned_component() {
     assert!(
         [root, child, leaf]
             .iter()
-            .all(|&object| world.object(object).is_err())
+            .all(|&object| world.object(object).is_ok())
     );
-    assert_eq!(
-        world.component(component),
-        Err(WorldError::StaleComponent(component))
-    );
+    assert!(world.component(component).is_ok());
     assert_eq!(world.storage_counts(), (3, 4));
-    assert!(world.snapshot().objects.is_empty());
+    assert_eq!(world.snapshot().objects.len(), 3);
     world.finish_phase();
     assert_eq!(world.storage_counts(), (0, 0));
     assert_eq!(
@@ -171,7 +168,7 @@ fn inactive_clones_wait_for_activation_and_cleanup_is_exactly_once() {
 }
 
 #[test]
-fn destruction_invalidates_immediately_retires_at_boundary_and_coalesces_subtrees() {
+fn destruction_stays_visible_retires_at_boundary_and_coalesces_subtrees() {
     let mut w = World::new(WorldSettings {
         max_objects: 2,
         max_components: 2,
@@ -184,14 +181,11 @@ fn destruction_invalidates_immediately_retires_at_boundary_and_coalesces_subtree
         .unwrap();
     w.destroy(child, DestroyWhen::EndOfFrame).unwrap();
     w.destroy(root, DestroyWhen::EndOfFrame).unwrap();
-    assert_eq!(w.object(child), Err(WorldError::StaleObject(child)));
-    assert_eq!(
-        w.component(transform),
-        Err(WorldError::StaleComponent(transform))
-    );
+    assert!(w.object(child).is_ok());
+    assert!(w.component(transform).is_ok());
     assert!(w.create_object(ObjectDesc::default()).is_err());
     assert_eq!(w.destroy(root, DestroyWhen::EndOfFrame), Ok(()));
-    assert!(w.snapshot().objects.is_empty());
+    assert_eq!(w.snapshot().objects.len(), 2);
     w.finish_phase();
     let replacement = w.create_object(ObjectDesc::default()).unwrap();
     assert_ne!(replacement, root);
@@ -209,7 +203,7 @@ fn detached_iteration_permits_creation_and_destruction() {
         w.destroy(object.handle, DestroyWhen::EndOfFrame).unwrap();
         w.create_object(ObjectDesc::default()).unwrap();
     }
-    assert_eq!(w.snapshot().objects.len(), 4);
+    assert_eq!(w.snapshot().objects.len(), 8);
     w.finish_phase();
     assert_eq!(w.snapshot().objects.len(), 4);
 }

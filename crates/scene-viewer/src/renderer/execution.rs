@@ -19,6 +19,7 @@ pub(super) struct SurfaceExecution {
     instance: wgpu::Instance,
     window: Arc<Window>,
     flight: FrameAdmission,
+    recreated: bool,
     #[cfg(all(test, target_os = "linux"))]
     pub(super) acquisitions: std::collections::VecDeque<wgpu::CurrentSurfaceTexture>,
     _event_thread: PhantomData<Rc<()>>,
@@ -35,6 +36,7 @@ impl SurfaceExecution {
             presenter,
             instance,
             window,
+            recreated: false,
             flight: FrameAdmission::new(capacity)
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?,
             #[cfg(all(test, target_os = "linux"))]
@@ -56,6 +58,10 @@ impl SurfaceExecution {
         self.window.pre_present_notify();
         context.queue().present(ready.frame);
         Ok(ticket)
+    }
+
+    pub fn take_recreated(&mut self) -> bool {
+        std::mem::take(&mut self.recreated)
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, size: [u32; 2]) -> Result<(), ViewerError> {
@@ -170,6 +176,7 @@ impl SurfaceOps for NativeSurface<'_> {
                 .presenter
                 .replace_surface(surface, &capabilities, self.context.device())
                 .map_err(surface_error)?;
+            execution.recreated = true;
         }
         Ok(())
     }

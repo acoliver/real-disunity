@@ -108,7 +108,8 @@ impl Renderer {
                 .then(|| Capture::new(self.context.device(), view.viewport()))
                 .transpose()?;
             let mut update: crate::SceneUpdate = Box::new(|_| Ok(()));
-            let Some(ticket) = self.render_admitted(view, &mut update, image.as_mut())? else {
+            let Some(ticket) = self.render_admitted(view, &mut update, image.as_mut(), None)?
+            else {
                 return Ok(None);
             };
             if let Some(image) = &mut image {

@@ -3,6 +3,15 @@ use worldrunner_render_plan::{SceneObject, SceneTransform};
 use super::{InstanceError, InstanceHandle, InstanceWrite, SceneGpu};
 
 impl SceneGpu {
+    /// Replaces the validated post description without changing resident geometry.
+    pub fn set_post_settings(
+        &mut self,
+        effects: &worldrunner_render_plan::SceneEffects,
+    ) -> Result<(), worldrunner_render_post::PostError> {
+        self.post = crate::post::settings(effects)?;
+        Ok(())
+    }
+
     pub(crate) fn caster_generation(&self) -> u64 {
         self.caster_generation
     }

@@ -5,6 +5,7 @@ use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
 mod execution;
 mod live;
+mod retained;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_scene::{
@@ -35,6 +36,7 @@ pub(super) struct Renderer {
     animation_start: std::time::Instant,
     live_upload: Option<live::Upload>,
     live_pending: Option<live::Pending>,
+    retained_objects: retained::Objects,
 }
 
 enum Resident {
@@ -101,6 +103,7 @@ impl Renderer {
             animation_start: std::time::Instant::now(),
             live_upload: None,
             live_pending: None,
+            retained_objects: retained::Objects::default(),
             execution,
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
@@ -147,39 +150,61 @@ impl Renderer {
         view: &SceneView,
         update: &mut crate::SceneUpdate,
     ) -> Result<bool, ViewerError> {
-        Ok(self.render_admitted(view, update, None)?.is_some())
+        Ok(self.render_admitted(view, update, None, None)?.is_some())
     }
 
     fn render_admitted(
         &mut self,
         view: &SceneView,
         update: &mut crate::SceneUpdate,
-        mut capture: Option<&mut live::Capture>,
+        capture: Option<&mut live::Capture>,
+        host: Option<&mut crate::RetainedHost>,
     ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
         self.poll()?;
         let resident = &mut self.resident;
         let upload = &mut self.live_upload;
+        let objects = &mut self.retained_objects;
+        let mut settings = None;
         let Some(ready) = self.execution.acquire(&self.context, || {
             if let Some(upload) = upload.take() {
                 resident.upload_live(&self.context, upload)?;
+            }
+            if let Some(host) = host {
+                settings = objects.apply(resident.scene_mut(), host)?;
             }
             update(resident.scene_mut()).map_err(ViewerError::from)
         })?
         else {
             return Ok(None);
         };
+        if let Some(settings) = settings {
+            self.retained_settings(&settings)?;
+        }
         self.prepare_frame(view, ready.admission.slot())?;
+        let output = ready
+            .frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let prepared = self.encode_frame(view, capture, &output)?;
+        let ticket = self
+            .execution
+            .submit_prepared(ready, prepared, &self.context)?;
+        self.check_errors()?;
+        Ok(Some(ticket))
+    }
+
+    fn encode_frame(
+        &mut self,
+        view: &SceneView,
+        mut capture: Option<&mut live::Capture>,
+        output: &wgpu::TextureView,
+    ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
         if capture.is_some()
             && let Resident::Shadowed(scene) = &mut self.resident
         {
             scene.request_shadow_capture();
         }
-        let output = ready
-            .frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self
-            .context
+        self.context
             .submission()
             .prepare(self.context.device(), |encoder, _| {
                 self.resident.render(
@@ -189,18 +214,13 @@ impl Renderer {
                     encoder,
                     self.presentation.scheduler.encoding(),
                 )?;
-                self.presentation.present(encoder, &output)?;
+                self.presentation.present(encoder, output)?;
                 if let Some(capture) = &mut capture {
                     capture.encode(encoder, self.presentation.targets.color.texture());
                 }
                 Ok::<_, ViewerError>(())
             })
-            .map_err(|error| ViewerError::Gpu(error.to_string()))?;
-        let ticket = self
-            .execution
-            .submit_prepared(ready, prepared, &self.context)?;
-        self.check_errors()?;
-        Ok(Some(ticket))
+            .map_err(|error| ViewerError::Gpu(error.to_string()))
     }
 
     /// Sizes the presentation targets and selects the admitted slot, clear and frame time.

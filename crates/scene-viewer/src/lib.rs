@@ -17,6 +17,11 @@ pub use live::{
 mod camera;
 mod presentation;
 mod renderer;
+mod retained;
+pub use retained::{
+    ObjectId, RetainedDriver, RetainedEvent, RetainedHost, RetainedInput, RetainedTick,
+    RetainedUpdate,
+};
 
 pub use camera::{OrbitCamera, OrbitLimits};
 use worldrunner_render_plan::{RenderScene, SceneCamera};

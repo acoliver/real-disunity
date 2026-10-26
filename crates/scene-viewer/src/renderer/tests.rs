@@ -1,3 +1,122 @@
+fn edit_retained_settings(
+    renderer: &mut Renderer,
+    host: &mut crate::RetainedHost,
+    replacement: &worldrunner_render_plan::SceneEffects,
+    profile: crate::FrameProfile,
+) {
+    present_retained(renderer, host);
+    let handles: Vec<_> = renderer.resident.scene_mut().instance_handles().collect();
+    let original = renderer.presentation.scheduler.configuration().clone();
+    if let crate::FrameProfile::HdrUpscaled { scale, upscale, .. } = profile {
+        assert_eq!(original.post.upscale, Some(upscale));
+        assert_eq!(
+            original.frame.size,
+            scale.extent(original.frame.output_extent()).unwrap()
+        );
+    }
+    host.apply(crate::RetainedUpdate::Settings(Box::new(
+        replacement.clone(),
+    )))
+    .unwrap();
+    present_retained(renderer, host);
+    assert!(host.pending.is_empty());
+    assert_eq!(
+        renderer
+            .resident
+            .scene_mut()
+            .instance_handles()
+            .collect::<Vec<_>>(),
+        handles
+    );
+    let settings = renderer.presentation.scheduler.configuration();
+    assert_eq!(settings.post.fxaa, Some(0.5));
+    assert_eq!(settings.post.upscale, original.post.upscale);
+    assert_eq!(settings.frame, original.frame);
+    renderer.resize([320, 240]).unwrap();
+    host.input(crate::RetainedInput::Resized([320, 240]));
+    present_retained(renderer, host);
+    let settings = renderer.presentation.scheduler.configuration();
+    assert_eq!(settings.post.fxaa, Some(0.5));
+    assert_eq!(settings.post.upscale, original.post.upscale);
+    assert_eq!(settings.frame.output_extent(), [320, 240]);
+    let expected = if let crate::FrameProfile::HdrUpscaled { scale, .. } = profile {
+        scale.extent([320, 240]).unwrap()
+    } else {
+        [320, 240]
+    };
+    assert_eq!(settings.frame.size, expected);
+    renderer.poll().unwrap();
+}
+
+fn retained_settings_present(event_loop: &EventLoop<()>, window: &Arc<Window>) {
+    use crate::{FrameProfile, RetainedHost, ToneMap};
+    let scale = crate::RenderScale::new(500_000).unwrap();
+    let upscale = crate::UpscaleSettings {
+        mode: crate::UpscaleMode::Easu,
+        sharpness: Some(0.0),
+    };
+    let scene = super::retained_tests::terrain_source();
+    let replacement = scene
+        .effects()
+        .unwrap()
+        .clone()
+        .with_hdr_post(worldrunner_render_plan::SceneHdrPost {
+            adaptive_exposure: None,
+            bloom: None,
+            fxaa_subpixel_micro: Some(500_000),
+        })
+        .unwrap();
+    for profile in [
+        FrameProfile::Hdr {
+            samples: 1,
+            tone_map: ToneMap::Reinhard,
+        },
+        FrameProfile::HdrUpscaled {
+            samples: 1,
+            tone_map: ToneMap::Reinhard,
+            scale,
+            upscale,
+        },
+    ] {
+        for shadows in [None, Some(super::retained_tests::shadow_settings())] {
+            let mut renderer = pollster::block_on(Renderer::new(
+                event_loop.owned_display_handle(),
+                window.clone(),
+                &scene,
+                shadows,
+                profile,
+                2,
+            ))
+            .unwrap();
+            let viewport = renderer.viewport.unwrap();
+            let mut host = RetainedHost::new(
+                scene.clone(),
+                crate::ViewerOptions {
+                    frame_profile: profile,
+                    shadows,
+                    size: [viewport.width, viewport.height],
+                    ..crate::tests::options()
+                },
+            )
+            .unwrap();
+            edit_retained_settings(&mut renderer, &mut host, &replacement, profile);
+        }
+    }
+}
+
+#[track_caller]
+fn present_retained(renderer: &mut Renderer, host: &mut crate::RetainedHost) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        renderer.poll().unwrap();
+        if renderer.render_retained(host).unwrap() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "retained frame timed out");
+        std::thread::yield_now();
+    }
+}
+
 mod live;
 mod recovery;
 mod teardown;
@@ -116,6 +235,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     );
     drop(presenter);
     drop((device, queue, adapter, instance));
+    retained_settings_present(&event_loop, &window);
     live::pending_survives_resize_and_surface_recovery(&mut event_loop, window.clone());
     teardown::assert_pending_submission_cleanup(
         pollster::block_on(Renderer::new(
@@ -140,6 +260,7 @@ fn assert_deferred_recovery(
 ) {
     let generation = presenter.configuration_generation();
     for _ in 0..8 {
+        device.poll(wgpu::PollType::Poll).unwrap();
         let frame = match presenter.acquire(device).unwrap() {
             AcquiredFrame::Frame(frame) => frame,
             other => panic!("{other:?}"),

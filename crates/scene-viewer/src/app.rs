@@ -27,11 +27,15 @@ pub(super) trait Content {
     }
     fn source(&self) -> SceneSource<'_>;
     fn event(&mut self, event: &WindowEvent, viewport: Option<Viewport>);
+    fn surface_size(&mut self, _size: [u32; 2]) {}
     fn close_immediately(&self) -> bool {
         true
     }
     fn exit_requested(&self) -> bool {
         false
+    }
+    fn take_failure(&mut self) -> Option<ViewerError> {
+        None
     }
     /// Returns true after the final frame has been presented.
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError>;
@@ -52,6 +56,12 @@ pub(super) fn run_live(
     options: LiveOptions,
 ) -> Result<(), ViewerError> {
     run_content(Box::new(crate::live::Session::new(driver, options)))
+}
+pub(super) fn run_retained(
+    host: crate::RetainedHost,
+    driver: &mut dyn crate::RetainedDriver,
+) -> Result<(), ViewerError> {
+    run_content(Box::new(crate::retained::Session::new(host, driver)))
 }
 
 fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
@@ -140,6 +150,8 @@ impl ApplicationHandler for App<'_> {
             return;
         }
         if let Some(renderer) = &self.renderer {
+            let size = renderer.window.inner_size();
+            self.content.surface_size([size.width, size.height]);
             renderer.window.request_redraw();
         }
     }
@@ -147,6 +159,7 @@ impl ApplicationHandler for App<'_> {
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
         self.suspended = true;
         self.content.event(&WindowEvent::Focused(false), None);
+        self.content.surface_size([0, 0]);
         if let Some(renderer) = &mut self.renderer
             && let Err(error) = renderer.resize([0, 0])
         {
@@ -162,6 +175,10 @@ impl ApplicationHandler for App<'_> {
             return;
         }
         self.content.event(&event, renderer.viewport);
+        if let Some(error) = self.content.take_failure() {
+            self.fail(event_loop, error);
+            return;
+        }
         if self.content.exit_requested() {
             event_loop.exit();
             return;
@@ -200,6 +217,10 @@ impl ApplicationHandler for App<'_> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(error) = self.content.take_failure() {
+            self.fail(event_loop, error);
+            return;
+        }
         let Some(renderer) = &self.renderer else {
             return;
         };

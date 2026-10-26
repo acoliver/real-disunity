@@ -127,6 +127,13 @@ impl Presentation {
         self.scheduler.encode_output(encoder, surface)?;
         Ok(())
     }
+
+    pub fn refresh_targets(&mut self) {
+        self.targets = Targets {
+            color: self.scheduler.targets().scene().clone(),
+            depth: self.scheduler.targets().depth().clone(),
+        };
+    }
 }
 
 impl Targets {

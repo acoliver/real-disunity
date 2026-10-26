@@ -113,6 +113,11 @@ CheckImport("disunity_ui_create", u64, u64, u32, u64, u64.MakePointerType());
 CheckImport("disunity_rect_write", u64, u64, AbiType("DisunityRect").MakePointerType());
 CheckImport("disunity_rect_read", u64, u64, AbiType("DisunityRect").MakePointerType());
 CheckImport("disunity_canvas_write", u64, u64, AbiType("DisunityCanvas").MakePointerType());
+CheckImport("disunity_canvas_scale_write", u64, u64, AbiType("DisunityCanvasScale").MakePointerType());
+CheckImport("disunity_canvas_scale_read", u64, u64, AbiType("DisunityCanvasScale").MakePointerType());
+CheckImport("disunity_canvas_scale_factor", u64, u64, u32, u32, f32.MakePointerType());
+CheckImport("disunity_text_style_write", u64, u64, AbiType("DisunityTextStyle").MakePointerType());
+CheckImport("disunity_text_style_read", u64, u64, AbiType("DisunityTextStyle").MakePointerType());
 CheckImport("disunity_canvas_read", u64, u64, AbiType("DisunityCanvas").MakePointerType());
 CheckImport("disunity_text_write", u64, u64, f32, bytes, u32);
 CheckImport("disunity_text_read", u64, u64, bytes, u32, u32.MakePointerType(), f32.MakePointerType());
@@ -146,6 +151,8 @@ CheckImport("disunity_sprite_validate", AbiType("DisunitySprite").MakePointerTyp
 CheckImport("disunity_world_export_sprites", u64, AbiType("DisunitySprite").MakePointerType(), AbiType("DisunityMatrix").MakePointerType(), u32, u32.MakePointerType());
 CheckImport("disunity_sprite_register", AbiType("DisunitySprite").MakePointerType());
 CheckImport("disunity_camera_create", u64, u64, u64.MakePointerType());
+CheckImport("disunity_camera_read", u64, u64, AbiType("DisunityCamera").MakePointerType());
+CheckImport("disunity_camera_write", u64, u64, AbiType("DisunityCamera").MakePointerType());
 CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
 CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
 CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
@@ -185,6 +192,7 @@ ReviewRegressionTests.Run();
 HostTests.Run();
 CloneTests.Run();
 ConstructionTests.Run();
+PresentationTests.Run();
 
 CoroutineInputTests.Run();
 

@@ -145,6 +145,41 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_body_sleeping(ulong world, ulong handle, uint* sleeping);
         /// <summary>
         ///  # Safety
+        ///  Output is writable for one Camera record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_read(ulong world, ulong handle, DisunityCamera* output);
+        /// <summary>
+        ///  Validates every setting before changing the camera. Perspective projection is reported as
+        ///  an unsupported `orthographic` field.
+        ///  # Safety
+        ///  Value is readable for one Camera record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_write(ulong world, ulong handle, DisunityCamera* value);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one canvas scale record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_scale_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_scale_read(ulong world, ulong handle, DisunityCanvasScale* output);
+        /// <summary>
+        ///  Validates the scale before changing the canvas.
+        ///  # Safety
+        ///  Value is readable for one canvas scale record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_scale_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_scale_write(ulong world, ulong handle, DisunityCanvasScale* value);
+        /// <summary>
+        ///  The factor the canvas scales its layout by on a `width` by `height` viewport, which is
+        ///  Unity's `Canvas.scaleFactor` for that screen.
+        ///  # Safety
+        ///  Output is writable for one factor.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_scale_factor", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_scale_factor(ulong world, ulong handle, uint width, uint height, float* output);
+        /// <summary>
+        ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_camera_layer_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -647,5 +682,19 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_gameobject_destroy_after", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_gameobject_destroy_after(ulong world, ulong @object, ulong numerator, ulong denominator);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one text style record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_text_style_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_text_style_read(ulong world, ulong handle, DisunityTextStyle* output);
+        /// <summary>
+        ///  Validates every field before changing the text. Bold or italic styles and best fit are
+        ///  reported as unsupported fields.
+        ///  # Safety
+        ///  Value is readable for one text style record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_text_style_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_text_style_write(ulong world, ulong handle, DisunityTextStyle* value);
     }
 }

@@ -8,12 +8,16 @@ mod font_data;
 mod fonts;
 mod layout;
 mod text;
+mod wrap;
 use crate::{ObjectHandle, WorldError};
 pub use atlas::GlyphAtlas;
 pub use fonts::{FontBook, UiLimits};
 use glam::{UVec2, Vec2};
 pub use layout::{RectLayout, UiLayout};
-pub use text::{GlyphLayout, HorizontalAlign, LineMetrics, TextLayout, TextRun, VerticalAlign};
+pub use text::{
+    GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun,
+    VerticalAlign, VerticalOverflow,
+};
 
 pub use crate::{FontId, UiError};
 

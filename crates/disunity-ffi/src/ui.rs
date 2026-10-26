@@ -7,7 +7,7 @@ use crate::{
 use glam::{UVec2, Vec2};
 use worldrunner_world_simulation::{
     ComponentDesc,
-    ui::{Canvas, CanvasMode, CanvasScale, RectTransform, TextRun},
+    ui::{Canvas, CanvasMode, RectTransform, TextRun},
 };
 
 #[repr(C)]
@@ -33,7 +33,6 @@ pub struct DisunityCanvas {
     pub camera: u64,
     pub orthographic_size: f32,
     pub plane_distance: f32,
-    pub scale: f32,
     pub sorting_order: i32,
 }
 
@@ -182,7 +181,13 @@ pub unsafe extern "C" fn disunity_rect_read(
     })
 }
 
-fn canvas(s: &crate::store::Session, v: DisunityCanvas) -> Result<Canvas, crate::errors::AbiError> {
+/// Applies a canvas record to `current`, keeping its scale and sorting layer, which the record
+/// does not carry.
+fn canvas(
+    s: &crate::store::Session,
+    current: Canvas,
+    v: DisunityCanvas,
+) -> Result<Canvas, crate::errors::AbiError> {
     if v.enabled > 1 {
         return Err("invalid Canvas flags".into());
     }
@@ -199,9 +204,8 @@ fn canvas(s: &crate::store::Session, v: DisunityCanvas) -> Result<Canvas, crate:
     Ok(Canvas {
         enabled: v.enabled == 1,
         mode,
-        scale: CanvasScale::Constant(v.scale),
         sorting_order: v.sorting_order,
-        ..Default::default()
+        ..current
     })
 }
 
@@ -218,18 +222,9 @@ pub unsafe extern "C" fn disunity_canvas_write(
     }
     let v = unsafe { *value };
     mutate(world, |s| {
-        let id = component(s, handle)?;
-        if !matches!(
-            s.native
-                .component(id)
-                .map_err(crate::errors::AbiError::from)?
-                .desc,
-            ComponentDesc::Canvas(_)
-        ) {
-            return Err("component is not a Canvas".into());
-        }
+        let (id, current) = crate::canvas::canvas(s, handle)?;
         s.native
-            .set_component(id, ComponentDesc::Canvas(canvas(s, v)?))
+            .set_component(id, ComponentDesc::Canvas(canvas(s, current, v)?))
             .map_err(crate::errors::AbiError::from)
     })
 }
@@ -258,10 +253,6 @@ pub unsafe extern "C" fn disunity_canvas_read(
             enabled: u32::from(c.enabled),
             sorting_order: c.sorting_order,
             ..Default::default()
-        };
-        v.scale = match c.scale {
-            CanvasScale::Constant(f) => f,
-            _ => return Err("unsupported Canvas scale projection".into()),
         };
         match c.mode {
             CanvasMode::ScreenSpaceOverlay => {}

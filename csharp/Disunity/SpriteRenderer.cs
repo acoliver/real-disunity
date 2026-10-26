@@ -71,6 +71,3 @@ public sealed class SpriteRenderer : NativeComponent
         }
     }
 }
-
-/// <summary>Native orthographic camera using the default lens and clear settings.</summary>
-public sealed class Camera : NativeComponent { }

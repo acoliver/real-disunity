@@ -8,8 +8,10 @@ pub mod buffers;
 #[cfg(test)]
 mod callback_tests;
 pub mod callbacks;
+pub mod camera;
 pub mod camera_data;
 pub mod camera_layers;
+pub mod canvas;
 pub mod cloning;
 #[cfg(test)]
 mod cloning_tests;
@@ -32,6 +34,7 @@ pub mod presentation;
 pub mod scheduling;
 pub mod sprites;
 mod store;
+pub mod text_style;
 #[cfg(test)]
 mod time_input_tests;
 pub mod ui;

@@ -9,7 +9,7 @@ Each section below links to the developer page with the exact contract, for when
 2D games draw from the native world. Each frame, the engine extracts sprites, tiles, UI text and the active camera, and draws them in the scene's color target.
 
 - **Sprites and tiles** take a texture region, pivot, pixels-per-unit, linear RGBA tint, flips and a sorting layer and order. Sorting is stable: equal keys keep their submission order. Screen-space UI draws after world sprites with its own sorting.
-- **Cameras** are orthographic. The enabled camera with the highest depth is drawn, and its clear color, including alpha, is kept.
+- **Cameras** are orthographic. The enabled camera with the highest depth is drawn. Solid Color and Skybox clear to the background color, including alpha; a skybox material is not drawn. Depth Only and Nothing need a camera below them and are rejected.
 - **Texture sampling** is set per texture: point, bilinear or trilinear filtering, and repeat, clamp or mirror wrapping on each axis independently.
 - **Lit sprites** use global 2D lights that multiply sprite color per sorting layer, following URP's behavior for global lights. Point, spot and freeform lights and 2D shadows are not implemented.
 - **UI text** is laid out natively from a Canvas and RectTransforms, rasterized from a TrueType font the game supplies, and drawn as sprites.

@@ -1,17 +1,19 @@
 // Synthetic triangle outlines and metrics, generated here without external font data.
 pub fn font() -> Vec<u8> {
-    font_with_contours(1)
+    font_with(1, 800, -200)
 }
 
-pub fn font_with_contours(contours: i16) -> Vec<u8> {
+/// A font with 1000 units per em, `contours` triangle contours per glyph, and the given
+/// vertical metrics, so its line height can differ from its em size.
+pub fn font_with(contours: i16, ascent: i16, descent: i16) -> Vec<u8> {
     let mut head = vec![0; 54];
     head[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
     head[12..16].copy_from_slice(&0x5f0f_3cf5_u32.to_be_bytes());
     head[18..20].copy_from_slice(&1000_u16.to_be_bytes());
     let mut hhea = vec![0; 36];
     hhea[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
-    hhea[4..6].copy_from_slice(&800_i16.to_be_bytes());
-    hhea[6..8].copy_from_slice(&(-200_i16).to_be_bytes());
+    hhea[4..6].copy_from_slice(&ascent.to_be_bytes());
+    hhea[6..8].copy_from_slice(&descent.to_be_bytes());
     hhea[34..36].copy_from_slice(&2_u16.to_be_bytes());
     let mut maxp = vec![0; 32];
     maxp[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());

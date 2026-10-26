@@ -22,6 +22,43 @@ namespace Disunity.Native
         public ulong detail;
     }
 
+    /// <summary>
+    ///  A camera's serialized settings. `clear_flags` uses Unity's `CameraClearFlags` values:
+    ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. Only orthographic cameras are supported.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityCamera
+    {
+        public uint enabled;
+        public uint clear_flags;
+        public uint orthographic;
+        public int depth;
+        public float orthographic_size;
+        public float near;
+        public float far;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+    }
+
+    /// <summary>
+    ///  How a canvas scales its layout. `mode` and `screen_match` use Unity's `ScaleMode` and
+    ///  `ScreenMatchMode` values. Supported: constant pixel size (0) with `factor`, and scale with
+    ///  screen size (1) matching width or height (0) against `reference_x` by `reference_y`, where
+    ///  `match_height` runs from 0 (match width) to 1 (match height).
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityCanvasScale
+    {
+        public uint mode;
+        public uint screen_match;
+        public float factor;
+        public float reference_x;
+        public float reference_y;
+        public float match_height;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunitySprite
     {
@@ -324,7 +361,6 @@ namespace Disunity.Native
         public ulong camera;
         public float orthographic_size;
         public float plane_distance;
-        public float scale;
         public int sorting_order;
     }
 
@@ -341,6 +377,29 @@ namespace Disunity.Native
         public float sx;
         public float sy;
         public float sz;
+    }
+
+    /// <summary>
+    ///  A text's style. `alignment` is Unity's `TextAnchor` (0 upper left to 8 lower right),
+    ///  `horizontal_overflow` its `HorizontalWrapMode` (0 Wrap, 1 Overflow), `vertical_overflow` its
+    ///  `VerticalWrapMode` (0 Truncate, 1 Overflow) and `font_style` its `FontStyle`. Only the normal
+    ///  font style without best fit is supported; `font` is a handle from `disunity_font_register`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTextStyle
+    {
+        public ulong font;
+        public uint alignment;
+        public uint horizontal_overflow;
+        public uint vertical_overflow;
+        public uint font_style;
+        public uint rich_text;
+        public uint best_fit;
+        public float line_spacing;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
     }
 
 

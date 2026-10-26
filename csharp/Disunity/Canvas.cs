@@ -16,7 +16,24 @@ public sealed class Canvas : NativeComponent
     public RenderMode renderMode { get => (RenderMode)Read().mode; set { var c = Read(); c.mode = (uint)value; Write(c); } }
     public bool enabled { get => Read().enabled == 1; set { var c = Read(); c.enabled = value ? 1u : 0u; Write(c); } }
     public int sortingOrder { get => Read().sorting_order; set { var c = Read(); c.sorting_order = value; Write(c); } }
-    public float scaleFactor { get => Read().scale; set { var c = Read(); c.scale = value; Write(c); } }
+    /// <summary>
+    /// The factor layout is scaled by on the current viewport, including scaling with screen
+    /// size. Setting it gives the canvas that constant factor, as setting it in Unity does.
+    /// </summary>
+    public unsafe float scaleFactor
+    {
+        get
+        {
+            float factor;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_scale_factor(DisunityHost.WorldHandle, Handle, DisunityHost.ViewportWidth, DisunityHost.ViewportHeight, &factor));
+            return factor;
+        }
+        set
+        {
+            var scale = new DisunityCanvasScale { mode = 0, factor = value };
+            DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_scale_write(DisunityHost.WorldHandle, Handle, &scale));
+        }
+    }
     public float planeDistance { get => Read().plane_distance; set { var c = Read(); c.plane_distance = value; Write(c); } }
 }
 public sealed class Font

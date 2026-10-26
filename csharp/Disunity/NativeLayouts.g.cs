@@ -109,9 +109,8 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCanvas>("camera").ToInt32() != 8) throw new InvalidOperationException("DisunityCanvas.camera offset");
         if (Marshal.OffsetOf<DisunityCanvas>("orthographic_size").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvas.orthographic_size offset");
         if (Marshal.OffsetOf<DisunityCanvas>("plane_distance").ToInt32() != 20) throw new InvalidOperationException("DisunityCanvas.plane_distance offset");
-        if (Marshal.OffsetOf<DisunityCanvas>("scale").ToInt32() != 24) throw new InvalidOperationException("DisunityCanvas.scale offset");
-        if (Marshal.OffsetOf<DisunityCanvas>("sorting_order").ToInt32() != 28) throw new InvalidOperationException("DisunityCanvas.sorting_order offset");
-        if (Marshal.SizeOf<DisunityCanvas>() != 32 || typeof(DisunityCanvas).GetFields().Length != 7) throw new InvalidOperationException("DisunityCanvas layout");
+        if (Marshal.OffsetOf<DisunityCanvas>("sorting_order").ToInt32() != 24) throw new InvalidOperationException("DisunityCanvas.sorting_order offset");
+        if (Marshal.SizeOf<DisunityCanvas>() != 32 || typeof(DisunityCanvas).GetFields().Length != 6) throw new InvalidOperationException("DisunityCanvas layout");
         if (Marshal.OffsetOf<DisunitySprite>("identity").ToInt32() != 0) throw new InvalidOperationException("DisunitySprite.identity offset");
         if (Marshal.OffsetOf<DisunitySprite>("texture").ToInt32() != 8) throw new InvalidOperationException("DisunitySprite.texture offset");
         if (Marshal.OffsetOf<DisunitySprite>("present").ToInt32() != 16) throw new InvalidOperationException("DisunitySprite.present offset");
@@ -224,10 +223,42 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityTransform>("sy").ToInt32() != 32) throw new InvalidOperationException("DisunityTransform.sy offset");
         if (Marshal.OffsetOf<DisunityTransform>("sz").ToInt32() != 36) throw new InvalidOperationException("DisunityTransform.sz offset");
         if (Marshal.SizeOf<DisunityTransform>() != 40 || typeof(DisunityTransform).GetFields().Length != 10) throw new InvalidOperationException("DisunityTransform layout");
+        if (Marshal.OffsetOf<DisunityCamera>("enabled").ToInt32() != 0) throw new InvalidOperationException("DisunityCamera.enabled offset");
+        if (Marshal.OffsetOf<DisunityCamera>("clear_flags").ToInt32() != 4) throw new InvalidOperationException("DisunityCamera.clear_flags offset");
+        if (Marshal.OffsetOf<DisunityCamera>("orthographic").ToInt32() != 8) throw new InvalidOperationException("DisunityCamera.orthographic offset");
+        if (Marshal.OffsetOf<DisunityCamera>("depth").ToInt32() != 12) throw new InvalidOperationException("DisunityCamera.depth offset");
+        if (Marshal.OffsetOf<DisunityCamera>("orthographic_size").ToInt32() != 16) throw new InvalidOperationException("DisunityCamera.orthographic_size offset");
+        if (Marshal.OffsetOf<DisunityCamera>("near").ToInt32() != 20) throw new InvalidOperationException("DisunityCamera.near offset");
+        if (Marshal.OffsetOf<DisunityCamera>("far").ToInt32() != 24) throw new InvalidOperationException("DisunityCamera.far offset");
+        if (Marshal.OffsetOf<DisunityCamera>("r").ToInt32() != 28) throw new InvalidOperationException("DisunityCamera.r offset");
+        if (Marshal.OffsetOf<DisunityCamera>("g").ToInt32() != 32) throw new InvalidOperationException("DisunityCamera.g offset");
+        if (Marshal.OffsetOf<DisunityCamera>("b").ToInt32() != 36) throw new InvalidOperationException("DisunityCamera.b offset");
+        if (Marshal.OffsetOf<DisunityCamera>("a").ToInt32() != 40) throw new InvalidOperationException("DisunityCamera.a offset");
+        if (Marshal.SizeOf<DisunityCamera>() != 44 || typeof(DisunityCamera).GetFields().Length != 11) throw new InvalidOperationException("DisunityCamera layout");
+        if (Marshal.OffsetOf<DisunityCanvasScale>("mode").ToInt32() != 0) throw new InvalidOperationException("DisunityCanvasScale.mode offset");
+        if (Marshal.OffsetOf<DisunityCanvasScale>("screen_match").ToInt32() != 4) throw new InvalidOperationException("DisunityCanvasScale.screen_match offset");
+        if (Marshal.OffsetOf<DisunityCanvasScale>("factor").ToInt32() != 8) throw new InvalidOperationException("DisunityCanvasScale.factor offset");
+        if (Marshal.OffsetOf<DisunityCanvasScale>("reference_x").ToInt32() != 12) throw new InvalidOperationException("DisunityCanvasScale.reference_x offset");
+        if (Marshal.OffsetOf<DisunityCanvasScale>("reference_y").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvasScale.reference_y offset");
+        if (Marshal.OffsetOf<DisunityCanvasScale>("match_height").ToInt32() != 20) throw new InvalidOperationException("DisunityCanvasScale.match_height offset");
+        if (Marshal.SizeOf<DisunityCanvasScale>() != 24 || typeof(DisunityCanvasScale).GetFields().Length != 6) throw new InvalidOperationException("DisunityCanvasScale layout");
+        if (Marshal.OffsetOf<DisunityTextStyle>("font").ToInt32() != 0) throw new InvalidOperationException("DisunityTextStyle.font offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("alignment").ToInt32() != 8) throw new InvalidOperationException("DisunityTextStyle.alignment offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("horizontal_overflow").ToInt32() != 12) throw new InvalidOperationException("DisunityTextStyle.horizontal_overflow offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("vertical_overflow").ToInt32() != 16) throw new InvalidOperationException("DisunityTextStyle.vertical_overflow offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("font_style").ToInt32() != 20) throw new InvalidOperationException("DisunityTextStyle.font_style offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("rich_text").ToInt32() != 24) throw new InvalidOperationException("DisunityTextStyle.rich_text offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("best_fit").ToInt32() != 28) throw new InvalidOperationException("DisunityTextStyle.best_fit offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("line_spacing").ToInt32() != 32) throw new InvalidOperationException("DisunityTextStyle.line_spacing offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("r").ToInt32() != 36) throw new InvalidOperationException("DisunityTextStyle.r offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("g").ToInt32() != 40) throw new InvalidOperationException("DisunityTextStyle.g offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("b").ToInt32() != 44) throw new InvalidOperationException("DisunityTextStyle.b offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("a").ToInt32() != 48) throw new InvalidOperationException("DisunityTextStyle.a offset");
+        if (Marshal.SizeOf<DisunityTextStyle>() != 56 || typeof(DisunityTextStyle).GetFields().Length != 12) throw new InvalidOperationException("DisunityTextStyle layout");
     }
 }
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 4;
+    internal const uint Version = 5;
 }

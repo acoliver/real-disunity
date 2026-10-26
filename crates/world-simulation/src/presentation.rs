@@ -127,13 +127,40 @@ impl Tilemap {
         Ok(())
     }
 }
+/// What a camera draws before its content, with Unity's `CameraClearFlags` values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum CameraClear {
+    /// The world has no skybox material, so Unity clears to the background colour.
+    Skybox = 1,
+    #[default]
+    SolidColor = 2,
+    /// Keeps a lower camera's colour, which a single-camera frame does not have.
+    DepthOnly = 3,
+    /// Keeps a lower camera's colour and depth, which a single-camera frame does not have.
+    Nothing = 4,
+}
+impl CameraClear {
+    pub fn from_flags(flags: u32) -> Option<Self> {
+        [
+            Self::Skybox,
+            Self::SolidColor,
+            Self::DepthOnly,
+            Self::Nothing,
+        ]
+        .into_iter()
+        .find(|clear| *clear as u32 == flags)
+    }
+}
+/// An orthographic camera. Unity's perspective projection is not supported.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
     pub enabled: bool,
     pub half_height: f32,
     pub near: f32,
     pub far: f32,
-    pub clear: [f64; 4],
+    pub clear: CameraClear,
+    pub background: [f64; 4],
     pub depth: i32,
 }
 impl Default for Camera {
@@ -143,7 +170,8 @@ impl Default for Camera {
             half_height: 5.,
             near: 0.01,
             far: 1000.,
-            clear: [0., 0., 0., 1.],
+            clear: CameraClear::SolidColor,
+            background: [0., 0., 0., 1.],
             depth: 0,
         }
     }
@@ -157,13 +185,22 @@ impl Camera {
             || self.near < 0.
             || self.far <= self.near
             || self
-                .clear
+                .background
                 .iter()
                 .any(|v| !v.is_finite() || !(0. ..=1.).contains(v))
         {
             return Err(invalid());
         }
         Ok(())
+    }
+    /// The colour a frame starts from. Clear modes that keep a lower camera's output are
+    /// rejected, because a frame has one camera.
+    pub fn clear_color(self) -> Result<[f64; 4], WorldError> {
+        match self.clear {
+            CameraClear::Skybox | CameraClear::SolidColor => Ok(self.background),
+            CameraClear::DepthOnly => Err(lighting::unsupported("clearFlags Depth")),
+            CameraClear::Nothing => Err(lighting::unsupported("clearFlags Nothing")),
+        }
     }
 }
 pub fn sprite_corners(sprite: Sprite, matrix: Mat4, flip_x: bool, flip_y: bool) -> [[f32; 3]; 4] {

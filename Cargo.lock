@@ -4127,6 +4127,7 @@ dependencies = [
  "png",
  "tempfile",
  "thiserror 2.0.21",
+ "worldrunner-original-games",
 ]
 
 [[package]]

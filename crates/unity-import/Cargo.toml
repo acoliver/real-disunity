@@ -18,6 +18,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+worldrunner-original-games = { path = "../original-games" }
 
 [lints]
 workspace = true

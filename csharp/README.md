@@ -29,9 +29,10 @@ After an intentional ABI change:
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 4 retains revision 3 batch construction and object wake, and adds the
-   directional position mask to the body record, changing its size from 36 to
-   40 bytes. Native and managed hosts require revision 4. Rebuild all peers.
+   Revision 5 retains revision 4 batch construction, object wake and body position
+   constraints, and moves canvas scale out of the Canvas record into
+   `disunity_canvas_scale_read`, `_write` and `_factor`. Native and managed hosts
+   require revision 5. Rebuild all peers.
 4. Rerun the native build and
    `cargo test --locked --jobs 2 --package worldrunner-disunity-ffi`.
 
@@ -180,9 +181,13 @@ are not represented by this keyboard registry.
 
 Canvas and RectTransform use native layout. SetViewport supplies presentation
 extent. RegisterFont accepts explicit font bytes; CreateText attaches native text
-using that selected font. No implicit replacement font is selected. Text.text and
-fontSize update native TextRun values, and unsupported text coverage fails without
-changing the old text. The test font consists of generated triangle outlines and
+using that selected font. No implicit replacement font is selected. Text.text,
+fontSize and the style properties (font, color, alignment, lineSpacing, both
+overflow modes, fontStyle, supportRichText, resizeTextForBestFit) update native
+TextRun values. Unsupported styles and text coverage fail without changing the old
+text. Canvas.scaleFactor reports the factor for the current viewport;
+DisunityHost.ScaleWithScreenSize applies a CanvasScaler's scale-with-screen-size
+settings. The test font consists of generated triangle outlines and
 metrics, without external font data. Screen Canvas and rectangle resize, text
 updates and cloned UI wrappers are exercised through production imports.
 
@@ -223,11 +228,12 @@ Rigidbody2D.Sleep, IsSleeping and WakeUp use native body state. Sleeping bodies
 skip gravity and integration; collision impulses and explicit wake resume motion.
 
 Sprite and SpriteRenderer now use native immutable content identities and renderer
-state. Camera creation supports the native default orthographic lens and clear;
-broader managed camera controls remain unavailable. Missing surface includes
+state. Camera exposes its orthographic lens, clip planes, clear flags, background
+colour, depth and enabled state; perspective projection is unsupported. Missing
+surface includes
 object constructors, component destruction, body forces, broader
 colliders/queries, materials/resources, managed tilemaps, application/scene controls,
-CanvasScaler/camera binding, Text color/alignment/font reassignment and generic
+the CanvasScaler component, bold/italic text, rich text markup, best fit and generic
 AddComponent<Text>. Three pinned external runtime-script trees compile unchanged
 against Disunity in projects outside this repository. This establishes source
 compilation, without claiming game execution or content import.

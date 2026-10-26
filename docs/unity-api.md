@@ -54,7 +54,7 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 | `SpriteRenderer` | `sprite`, `color`, `enabled`, `flipX`, `flipY`, `sortingLayerID`, `sortingLayerName` (only `Default`), `sortingOrder`, `bounds`, `sharedMaterial` |
 | `Sprite` | `rect`, `pivot`, `pixelsPerUnit`, `bounds`. Sprites are created by the host with `DisunityHost.CreateSprite`. |
 | `Material` | `Material.SpriteUnlit` and `Material.SpriteLit` |
-| `Camera` | Exists as a component. Its settings are not yet exposed to scripts. |
+| `Camera` | `enabled`, `clearFlags` (Skybox and Solid Color; Depth and Nothing are rejected when drawn), `backgroundColor`, `orthographic` (perspective is rejected), `orthographicSize`, `nearClipPlane`, `farClipPlane`, `depth` (whole numbers) |
 | `AudioListener`, `GUILayer`, `FlareLayer` | Exist as enable-able components. There is no audio output. |
 | `UnityEngine.Rendering.Universal.Light2D` | Global lights: `color`, `intensity`, `affectedSortingLayers`, blend style 0. Other light types throw `UnsupportedLight2DException`. |
 | `UnityEngine.Rendering.Universal.UniversalAdditionalCameraData` | Base camera without post-processing, antialiasing or shadows. Enabling an unsupported option throws `UnsupportedCameraSettingException`. |
@@ -63,11 +63,11 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 
 | Type | Supported |
 | --- | --- |
-| `Canvas` | `renderMode` (screen space overlay, screen space camera, world space), `enabled`, `sortingOrder`, `scaleFactor`, `planeDistance` |
+| `Canvas` | `renderMode` (screen space overlay, screen space camera, world space), `enabled`, `sortingOrder`, `scaleFactor` (the factor for the current screen), `planeDistance` |
 | `RectTransform` | `anchorMin`, `anchorMax`, `pivot`, `sizeDelta`, `anchoredPosition`, `rect` |
-| `UnityEngine.UI.Text` | `text`, `fontSize`. Fonts are TrueType files registered by the host with `DisunityHost.RegisterFont`; there is no built-in font. |
+| `UnityEngine.UI.Text` | `text`, `fontSize`, `font`, `color`, `alignment`, `lineSpacing`, `horizontalOverflow`, `verticalOverflow`, `supportRichText`; `fontStyle` Normal only; `resizeTextForBestFit` off only. Fonts are TrueType files registered by the host with `DisunityHost.RegisterFont`; there is no built-in font. |
 
-Text covers printable ASCII with line breaks and kerning. Other UI components (`Image`, `Button`, `CanvasScaler`, layout groups, the EventSystem) are not implemented.
+Text covers printable ASCII with line breaks and kerning. Font size is pixels per em. Wrap breaks at word boundaries, splitting words wider than the line, and Truncate drops lines that don't fit; glyphs are never clipped. Rich text is on by default, as in Unity, and markup is rejected while it is on because it isn't rendered. A `CanvasScaler`'s scale-with-screen-size settings are applied by the host with `DisunityHost.ScaleWithScreenSize`; the component itself, `Image`, `Button`, layout groups and the EventSystem are not implemented.
 
 ## Values and utilities
 

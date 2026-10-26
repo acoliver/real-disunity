@@ -14,6 +14,7 @@ pub fn generate(out: &Path) {
         ("buffers", "crate::buffers"),
         ("cloning", "crate::cloning"),
         ("callbacks", "crate::callbacks"),
+        ("input_axes", "crate::input_axes"),
         ("physics", "crate::physics"),
         ("physics_materials", "crate::physics_materials"),
         ("ui", "crate::ui"),

@@ -37,6 +37,7 @@ pub struct InputView {
     pub cutoff: TimeSpan,
     cursor: u64,
     device_axes: BTreeMap<AxisId, f32>,
+    pub(crate) smoothed: BTreeMap<AxisId, f32>,
 }
 impl Default for InputView {
     fn default() -> Self {
@@ -49,6 +50,7 @@ impl Default for InputView {
             cutoff: TimeSpan::ZERO,
             cursor: 0,
             device_axes: BTreeMap::new(),
+            smoothed: BTreeMap::new(),
         }
     }
 }
@@ -69,6 +71,7 @@ impl InputView {
                     if !focused {
                         self.up.extend(std::mem::take(&mut self.held));
                         self.device_axes.clear();
+                        self.smoothed.clear();
                     }
                 }
                 InputAction::Key(key, pressed) if self.focused => {
@@ -92,16 +95,21 @@ impl InputView {
 }
 #[derive(Clone, Default)]
 pub(crate) struct Input {
-    bindings: BTreeMap<AxisId, AxisBinding>,
+    pub(crate) bindings: BTreeMap<AxisId, AxisBinding>,
+    pub(crate) named: BTreeMap<AxisId, crate::InputAxis>,
     queue: VecDeque<(u64, InputEvent)>,
     sequence: u64,
     last_timestamp: TimeSpan,
     published: Option<TimeSpan>,
-    fixed: InputView,
-    dynamic: InputView,
+    pub(crate) fixed: InputView,
+    pub(crate) dynamic: InputView,
 }
 impl Input {
     pub(crate) fn project(&mut self, phase: InputPhase, cutoff: TimeSpan) {
+        let previous = match phase {
+            InputPhase::Fixed => self.fixed.cutoff,
+            InputPhase::Dynamic => self.dynamic.cutoff,
+        };
         match phase {
             InputPhase::Fixed => self.fixed.project(&self.queue, cutoff),
             InputPhase::Dynamic => self.dynamic.project(&self.queue, cutoff),
@@ -122,6 +130,11 @@ impl Input {
             .collect();
         view.axes
             .extend(view.device_axes.iter().map(|(&id, &value)| (id, value)));
+        crate::input_axes::project_named(
+            view,
+            &self.named,
+            cutoff.checked_sub(previous).expect("ordered cutoffs"),
+        );
         self.published = Some(self.published.map_or(cutoff, |old| old.max(cutoff)));
         let consumed = self.fixed.cursor.min(self.dynamic.cursor);
         while self.queue.front().is_some_and(|(id, _)| *id <= consumed) {
@@ -142,6 +155,9 @@ impl World {
             return Err(WorldError::InputCapacity);
         }
         self.input.bindings = bindings;
+        self.input.named.clear();
+        self.input.fixed.smoothed.clear();
+        self.input.dynamic.smoothed.clear();
         Ok(())
     }
     pub fn input(&self, phase: InputPhase) -> &InputView {

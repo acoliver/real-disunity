@@ -46,9 +46,7 @@ impl World {
         let components: Vec<_> = self
             .components
             .iter(self.identity)
-            .filter(|(_, c)| {
-                source.contains(&c.object) && !self.lifetime.components.contains(&c.handle)
-            })
+            .filter(|(_, c)| source.contains(&c.object))
             .map(|(_, c)| c.clone())
             .collect();
         self.objects.check_additional(source.len())?;
@@ -98,10 +96,7 @@ impl World {
             } else {
                 self.parent(old)?.map(|p| objects[&p])
             };
-            self.objects
-                .get_mut(objects[&old].0)
-                .expect("allocated clone")
-                .parent = new_parent;
+            self.attach_parent(objects[&old], new_parent)?;
         }
         Ok(Instantiation {
             root: objects[&template],
@@ -181,7 +176,7 @@ mod tests {
                 .unwrap();
             world.destroy(parent, DestroyWhen::EndOfFrame).unwrap();
             assert!(world.take_cleanup().is_empty());
-            assert!(world.object(clone.root).is_err());
+            assert!(world.object(clone.root).is_ok());
             if finish_first {
                 world.finish_phase();
             }

@@ -458,7 +458,10 @@ impl World {
             work.message,
             ScriptMessage::OnDisable | ScriptMessage::OnDestroy
         );
-        if !cleanup && self.component(work.script).is_err() {
+        if !cleanup
+            && (self.lifetime.components.contains(&work.script)
+                || self.component(work.script).is_err())
+        {
             return Ok(None);
         }
         if matches!(

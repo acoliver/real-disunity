@@ -7,6 +7,21 @@ pub enum ParentSpace {
 }
 
 impl World {
+    pub(crate) fn attach_parent(
+        &mut self,
+        object: ObjectHandle,
+        parent: Option<ObjectHandle>,
+    ) -> Result<(), WorldError> {
+        self.objects
+            .get_mut(object.0)
+            .expect("validated object")
+            .parent = parent;
+        if parent.is_some_and(|parent| self.lifetime.objects.contains(&parent)) {
+            self.destroy(object, crate::DestroyWhen::EndOfFrame)?;
+        }
+        Ok(())
+    }
+
     pub fn parent(&self, object: ObjectHandle) -> Result<Option<ObjectHandle>, WorldError> {
         Ok(self.live_object(object)?.parent)
     }
@@ -16,9 +31,7 @@ impl World {
         Ok(self
             .objects
             .iter(self.identity)
-            .filter(|(id, value)| {
-                value.parent == Some(object) && !self.lifetime.objects.contains(&ObjectHandle(*id))
-            })
+            .filter(|(_, value)| value.parent == Some(object))
             .map(|(id, _)| ObjectHandle(id))
             .collect())
     }
@@ -70,10 +83,7 @@ impl World {
         };
         let mutation = self.reserve_mutation()?;
         self.set_local_transform(object, local)?;
-        self.objects
-            .get_mut(object.0)
-            .expect("validated object")
-            .parent = parent;
+        self.attach_parent(object, parent)?;
         let nodes = self.subtree(object)?;
         self.refresh_lifecycle(&nodes, mutation);
         Ok(mutation)

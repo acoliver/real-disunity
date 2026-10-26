@@ -12,13 +12,15 @@ impl World {
         if body.sleeping {
             return Vec2::ZERO;
         }
-        if let Some(target) = self.physics.targets.get(&handle).filter(|_| dt > 0.0) {
+        let velocity = if let Some(target) = self.physics.targets.get(&handle).filter(|_| dt > 0.0)
+        {
             (*target - start) / dt
         } else if body.body_type == super::BodyType::Dynamic {
             body.velocity + self.physics.settings.gravity * body.gravity_scale * dt
         } else {
             body.velocity
-        }
+        };
+        velocity * body.linear_mask()
     }
 
     /// Requests motion through the next physics step, retaining collision resolution.

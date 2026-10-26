@@ -53,6 +53,15 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCallback>("normal_x").ToInt32() != 60) throw new InvalidOperationException("DisunityCallback.normal_x offset");
         if (Marshal.OffsetOf<DisunityCallback>("normal_y").ToInt32() != 64) throw new InvalidOperationException("DisunityCallback.normal_y offset");
         if (Marshal.SizeOf<DisunityCallback>() != 72 || typeof(DisunityCallback).GetFields().Length != 12) throw new InvalidOperationException("DisunityCallback layout");
+        if (Marshal.OffsetOf<DisunityInputAxis>("negative").ToInt32() != 0) throw new InvalidOperationException("DisunityInputAxis.negative offset");
+        if (Marshal.OffsetOf<DisunityInputAxis>("positive").ToInt32() != 4) throw new InvalidOperationException("DisunityInputAxis.positive offset");
+        if (Marshal.OffsetOf<DisunityInputAxis>("alt_negative").ToInt32() != 8) throw new InvalidOperationException("DisunityInputAxis.alt_negative offset");
+        if (Marshal.OffsetOf<DisunityInputAxis>("alt_positive").ToInt32() != 12) throw new InvalidOperationException("DisunityInputAxis.alt_positive offset");
+        if (Marshal.OffsetOf<DisunityInputAxis>("gravity").ToInt32() != 16) throw new InvalidOperationException("DisunityInputAxis.gravity offset");
+        if (Marshal.OffsetOf<DisunityInputAxis>("sensitivity").ToInt32() != 20) throw new InvalidOperationException("DisunityInputAxis.sensitivity offset");
+        if (Marshal.OffsetOf<DisunityInputAxis>("dead").ToInt32() != 24) throw new InvalidOperationException("DisunityInputAxis.dead offset");
+        if (Marshal.OffsetOf<DisunityInputAxis>("flags").ToInt32() != 28) throw new InvalidOperationException("DisunityInputAxis.flags offset");
+        if (Marshal.SizeOf<DisunityInputAxis>() != 32 || typeof(DisunityInputAxis).GetFields().Length != 8) throw new InvalidOperationException("DisunityInputAxis layout");
         if (Marshal.OffsetOf<DisunityBody2d>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityBody2d.kind offset");
         if (Marshal.OffsetOf<DisunityBody2d>("enabled").ToInt32() != 4) throw new InvalidOperationException("DisunityBody2d.enabled offset");
         if (Marshal.OffsetOf<DisunityBody2d>("mass").ToInt32() != 8) throw new InvalidOperationException("DisunityBody2d.mass offset");
@@ -61,8 +70,9 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityBody2d>("angular_velocity").ToInt32() != 20) throw new InvalidOperationException("DisunityBody2d.angular_velocity offset");
         if (Marshal.OffsetOf<DisunityBody2d>("gravity_scale").ToInt32() != 24) throw new InvalidOperationException("DisunityBody2d.gravity_scale offset");
         if (Marshal.OffsetOf<DisunityBody2d>("freeze_rotation").ToInt32() != 28) throw new InvalidOperationException("DisunityBody2d.freeze_rotation offset");
-        if (Marshal.OffsetOf<DisunityBody2d>("restitution").ToInt32() != 32) throw new InvalidOperationException("DisunityBody2d.restitution offset");
-        if (Marshal.SizeOf<DisunityBody2d>() != 36 || typeof(DisunityBody2d).GetFields().Length != 9) throw new InvalidOperationException("DisunityBody2d layout");
+        if (Marshal.OffsetOf<DisunityBody2d>("freeze_position").ToInt32() != 32) throw new InvalidOperationException("DisunityBody2d.freeze_position offset");
+        if (Marshal.OffsetOf<DisunityBody2d>("restitution").ToInt32() != 36) throw new InvalidOperationException("DisunityBody2d.restitution offset");
+        if (Marshal.SizeOf<DisunityBody2d>() != 40 || typeof(DisunityBody2d).GetFields().Length != 10) throw new InvalidOperationException("DisunityBody2d layout");
         if (Marshal.OffsetOf<DisunityCollider2d>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityCollider2d.kind offset");
         if (Marshal.OffsetOf<DisunityCollider2d>("enabled").ToInt32() != 4) throw new InvalidOperationException("DisunityCollider2d.enabled offset");
         if (Marshal.OffsetOf<DisunityCollider2d>("trigger").ToInt32() != 8) throw new InvalidOperationException("DisunityCollider2d.trigger offset");
@@ -219,5 +229,5 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 3;
+    internal const uint Version = 4;
 }

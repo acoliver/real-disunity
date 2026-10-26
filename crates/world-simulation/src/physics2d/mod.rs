@@ -87,7 +87,7 @@ struct Motion {
     angle: f32,
     velocity: Vec2,
     angular: f32,
-    inverse_mass: f32,
+    inverse_mass: Vec2,
     inverse_inertia: f32,
 }
 type Motions = BTreeMap<ObjectHandle, Motion>;

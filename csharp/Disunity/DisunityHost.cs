@@ -88,7 +88,6 @@ public static partial class DisunityHost
             else
             {
                 var script = Scripts[identity];
-                if (message == 7) script.gameObject.MarkDestroyed();
                 if (message == 8) DispatchCoroutine(payload);
                 else if (message == 9) DispatchContact(script, payload);
                 else ScriptMessages.Invoke(script, message);
@@ -98,7 +97,6 @@ public static partial class DisunityHost
         catch (Exception error) { failure ??= error; }
         finally
         {
-            if (message == 7) Scripts.Remove(identity);
             InputPhase = previousPhase;
             try { DrainCancelled(); }
             catch (Exception error) { failure ??= error; }

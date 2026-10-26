@@ -64,9 +64,6 @@ public sealed class GameObject : Object, IDisposable
         DisunityHost.EnsureLoaded();
         var result = NativeBindings.disunity_gameobject_destroy(DisunityHost.WorldHandle, _handle);
         DisunityHost.ThrowIfError(result);
-        DisunityHost.RemovePendingCommands(_handle);
-        _destroyed = true;
-        DisunityHost.PruneInvalidated();
     }
 
     public unsafe void SetActive(bool value)

@@ -21,6 +21,12 @@ public record struct Vector2(float x, float y)
 public abstract class NativeComponent : Component
 {
 }
+[Flags]
+public enum RigidbodyConstraints2D
+{
+    None = 0, FreezePositionX = 1, FreezePositionY = 2, FreezePosition = 3,
+    FreezeRotation = 4, FreezeAll = 7
+}
 public enum RigidbodyType2D { Dynamic, Kinematic, Static }
 public sealed class Rigidbody2D : NativeComponent
 {
@@ -39,6 +45,18 @@ public sealed class Rigidbody2D : NativeComponent
     public float mass { get => Read().mass; set { var b = Read(); b.mass = value; Write(b); } }
     public bool simulated { get => Read().enabled == 1; set { var b = Read(); b.enabled = value ? 1u : 0u; Write(b); } }
     public bool freezeRotation { get => Read().freeze_rotation == 1; set { var b = Read(); b.freeze_rotation = value ? 1u : 0u; Write(b); } }
+    public RigidbodyConstraints2D constraints
+    {
+        get { var b = Read(); return (RigidbodyConstraints2D)(b.freeze_position | (b.freeze_rotation << 2)); }
+        set
+        {
+            if (((uint)value & ~7u) != 0) throw new ArgumentOutOfRangeException(nameof(value));
+            var b = Read();
+            b.freeze_position = (uint)value & 3;
+            b.freeze_rotation = ((uint)value >> 2) & 1;
+            Write(b);
+        }
+    }
     public RigidbodyType2D bodyType { get => (RigidbodyType2D)Read().kind; set { var b = Read(); b.kind = (uint)value; Write(b); } }
     public void Sleep() => DisunityHost.ThrowIfError(NativeBindings.disunity_body_set_sleeping(DisunityHost.WorldHandle, Handle, 1));
     public void WakeUp() => DisunityHost.ThrowIfError(NativeBindings.disunity_body_set_sleeping(DisunityHost.WorldHandle, Handle, 0));

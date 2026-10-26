@@ -49,6 +49,8 @@ pub struct Body2d {
     pub angular_velocity: f32,
     pub gravity_scale: f32,
     pub freeze_rotation: bool,
+    /// Position axes excluded from motion and impulses: X = 1, Y = 2.
+    pub freeze_position: u8,
     pub restitution: f32,
 }
 impl Default for Body2d {
@@ -63,13 +65,22 @@ impl Default for Body2d {
             angular_velocity: 0.0,
             gravity_scale: 1.0,
             freeze_rotation: false,
+            freeze_position: 0,
             restitution: 0.0,
         }
     }
 }
 impl Body2d {
+    pub(crate) fn linear_mask(&self) -> Vec2 {
+        Vec2::new(
+            f32::from(self.freeze_position & 1 == 0),
+            f32::from(self.freeze_position & 2 == 0),
+        )
+    }
+
     pub(crate) fn validate(&self) -> Result<(), PhysicsError> {
-        if !self.mass.is_finite()
+        if self.freeze_position > 3
+            || !self.mass.is_finite()
             || self.mass <= 0.0
             || !self.velocity.is_finite()
             || !self.angular_velocity.is_finite()

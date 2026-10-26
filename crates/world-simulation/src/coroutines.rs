@@ -72,10 +72,12 @@ impl World {
         Ok(id)
     }
     pub fn coroutine_eligible(&self, script: ComponentHandle) -> bool {
-        self.lifecycle
-            .scripts
-            .get(&script)
-            .is_some_and(|state| state.awake)
+        !self.lifetime.components.contains(&script)
+            && self
+                .lifecycle
+                .scripts
+                .get(&script)
+                .is_some_and(|state| state.awake)
             && self
                 .component(script)
                 .is_ok_and(|component| self.active_in_hierarchy(component.object).unwrap_or(false))

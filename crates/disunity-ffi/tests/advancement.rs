@@ -1,3 +1,32 @@
+#[test]
+fn previous_body_layout_revision_is_rejected_before_body_access() {
+    for previous in [2, 3] {
+        assert_eq!(disunity_abi_check(previous).code, 4);
+    }
+    assert_eq!(disunity_abi_check(DISUNITY_ABI_VERSION).code, 0);
+    assert_eq!(
+        std::mem::size_of::<worldrunner_disunity_ffi::physics::DisunityBody2d>(),
+        40
+    );
+    assert_eq!(
+        std::mem::offset_of!(
+            worldrunner_disunity_ffi::physics::DisunityBody2d,
+            restitution
+        ),
+        36
+    );
+}
+
+#[test]
+fn checked_managed_bindings_fit_the_source_file_limit() {
+    for source in [
+        include_str!("../../../csharp/Disunity/NativeBindings.g.cs"),
+        include_str!("../../../csharp/Disunity/NativeRecords.g.cs"),
+    ] {
+        assert!(source.lines().count() < 750);
+    }
+}
+
 use worldrunner_disunity_ffi::{abi::*, scheduling::*};
 
 #[test]

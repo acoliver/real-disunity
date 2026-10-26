@@ -265,11 +265,11 @@ fn frozen_and_zero_angular_motion_preserve_exact_quaternion() {
 }
 
 #[test]
-fn destruction_invalidates_exact_handles_and_filters_pending_delivery() {
+fn destruction_defers_invalidation_and_filters_pending_delivery() {
     let (mut w, a, ca, cb) = pair(true);
     w.step_physics(0.01).unwrap();
     w.destroy_component(ca).unwrap();
-    assert_eq!(w.component(ca), Err(WorldError::StaleComponent(ca)));
+    assert!(w.component(ca).is_ok());
     assert!(w.next_contact().is_none());
     assert!(w.component(cb).is_ok());
     w.finish_phase();
@@ -282,11 +282,12 @@ fn destruction_invalidates_exact_handles_and_filters_pending_delivery() {
             .any(|c| c.collider_a == replacement && c.phase == ContactPhase::Enter)
     );
     w.destroy(a, DestroyWhen::EndOfFrame).unwrap();
-    assert_eq!(
-        w.component(replacement),
-        Err(WorldError::StaleComponent(replacement))
-    );
+    assert!(w.component(replacement).is_ok());
     assert!(w.next_contact().is_none());
+    assert!(w.component(cb).is_ok());
+    w.finish_phase();
+    assert!(w.object(a).is_err());
+    assert!(w.component(replacement).is_err());
     assert!(w.component(cb).is_ok());
 }
 

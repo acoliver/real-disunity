@@ -75,7 +75,7 @@ impl World {
                     angle: 0.0,
                     velocity,
                     angular,
-                    inverse_mass: if dynamic { 1.0 / b.mass } else { 0.0 },
+                    inverse_mass: b.linear_mask() * if dynamic { 1.0 / b.mass } else { 0.0 },
                     inverse_inertia: if dynamic && !b.freeze_rotation {
                         1.0 / inertia
                     } else {

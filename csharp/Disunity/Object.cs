@@ -37,6 +37,16 @@ public abstract class Object
         if (target is not GameObject owner) throw new NotSupportedException("component destruction is not exposed yet");
         owner.Destroy();
     }
+    public static void Destroy(Object? target, float delay)
+    {
+        if (!float.IsFinite(delay)) throw new ArgumentOutOfRangeException(nameof(delay));
+        if (delay <= 0) { Destroy(target); return; }
+        if (target is null || target.Destroyed) return;
+        if (target is not GameObject owner) throw new NotSupportedException("delayed destruction requires a scene object");
+        var nanos = checked((ulong)Math.Round((double)delay * 1_000_000_000));
+        DisunityHost.ThrowIfError(Disunity.Native.NativeBindings.disunity_gameobject_destroy_after(
+            DisunityHost.WorldHandle, owner.NativeHandle, nanos, 1_000_000_000));
+    }
     public static implicit operator bool(Object? value) => value is not null && !value.Destroyed;
     public static bool operator ==(Object? left, Object? right)
     {

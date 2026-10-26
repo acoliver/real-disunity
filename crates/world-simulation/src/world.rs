@@ -145,9 +145,6 @@ impl World {
         if handle.0.world != self.identity {
             return Err(WorldError::WrongWorld);
         }
-        if self.lifetime.objects.contains(&handle) {
-            return Err(WorldError::StaleObject(handle));
-        }
         self.objects
             .get(handle.0)
             .ok_or(WorldError::StaleObject(handle))
@@ -188,9 +185,6 @@ impl World {
     pub fn component(&self, handle: ComponentHandle) -> Result<&ComponentSnapshot, WorldError> {
         if handle.0.world != self.identity {
             return Err(WorldError::WrongWorld);
-        }
-        if self.lifetime.components.contains(&handle) {
-            return Err(WorldError::StaleComponent(handle));
         }
         self.components
             .get(handle.0)
@@ -269,12 +263,24 @@ impl World {
                 desc,
             },
         );
+        self.register_component_lifetime(handle, object, script);
+        Ok(handle)
+    }
+
+    fn register_component_lifetime(
+        &mut self,
+        handle: ComponentHandle,
+        object: ObjectHandle,
+        script: bool,
+    ) {
         if script {
             self.lifecycle
                 .scripts
                 .insert(handle, crate::lifecycle::ScriptState::default());
         }
-        Ok(handle)
+        if self.lifetime.objects.contains(&object) {
+            self.lifetime.components.insert(handle);
+        }
     }
 
     pub fn set_component(
@@ -336,19 +342,13 @@ impl World {
             objects: self
                 .objects
                 .iter(self.identity)
-                .filter(|(id, _)| {
-                    !self.lifetime.objects.contains(&ObjectHandle(*id))
-                        && !self.is_unpublished(ObjectHandle(*id))
-                })
+                .filter(|(id, _)| !self.is_unpublished(ObjectHandle(*id)))
                 .map(|(id, _)| self.object(ObjectHandle(id)).expect("live arena entry"))
                 .collect(),
             components: self
                 .components
                 .iter(self.identity)
-                .filter(|(id, value)| {
-                    !self.lifetime.components.contains(&ComponentHandle(*id))
-                        && !self.is_unpublished(value.object)
-                })
+                .filter(|(_, value)| !self.is_unpublished(value.object))
                 .map(|(_, value)| value.clone())
                 .collect(),
         }

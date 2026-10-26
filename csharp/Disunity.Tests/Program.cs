@@ -55,6 +55,7 @@ CheckImport("disunity_world_create", u64.MakePointerType());
 CheckImport("disunity_world_destroy", u64);
 CheckImport("disunity_gameobject_create", u64, u64.MakePointerType());
 CheckImport("disunity_gameobject_destroy", u64, u64);
+CheckImport("disunity_gameobject_destroy_after", u64, u64, u64, u64);
 CheckImport("disunity_transform_set_position", u64, u64, f32, f32, f32);
 CheckImport("disunity_transform_set_rotation_y", u64, u64, f32);
 CheckImport("disunity_command_buffer_submit", u64, command.MakePointerType(), u32);
@@ -159,6 +160,9 @@ CheckImport("disunity_camera_data_write", u64, u64, u32, u32);
 CheckImport("disunity_light2d_layers", u64, u64, typeof(int).MakePointerType(), u32);
 CheckImport("disunity_light2d_layers_read", u64, u64, typeof(int).MakePointerType(), u32, u32.MakePointerType());
 CheckImport("disunity_light2d_color", u64, u64, f32, f32, f32, f32);
+CheckImport("disunity_input_axis_register", u64, u32, bytes, u32, AbiType("DisunityInputAxis").MakePointerType());
+CheckImport("disunity_input_axis_read", u64, u32, bytes, u32, u32, f32.MakePointerType());
+CheckImport("disunity_input_axis_id", u64, bytes, u32, u32.MakePointerType());
 var unverified = bindings.GetMethods(Imports).Select(method => method.Name).Except(checkedImports).ToArray();
 Require(unverified.Length == 0, $"native imports without a signature check: {string.Join(", ", unverified)}");
 AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
@@ -196,5 +200,10 @@ GameApiTests.Run();
 AssetSleepTests.Run();
 
 CameraLayerTests.Run();
+PendingCameraComponentTests.Run();
 Light2dTests.Run();
 CameraDataTests.Run();
+PendingCloneTests.Run();
+
+NamedAxisTests.Run();
+DeferredDestroyTests.Run();

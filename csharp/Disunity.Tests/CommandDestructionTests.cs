@@ -111,6 +111,7 @@ internal static class CommandDestructionTests
             }
             handle = Marshal.PtrToStructure<ObjectState>(buffer).Object;
             victim.Destroy();
+            DisunityHost.Step(0);
         }
         var command = new Command { Object = handle, Kind = 0, X = 1, Y = 2, Z = 3 };
         var result = submit(DisunityHost.WorldHandle, ref command, 1);

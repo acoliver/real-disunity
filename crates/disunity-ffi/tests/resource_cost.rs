@@ -143,6 +143,10 @@ fn bulk_export_reads_live_handles_without_snapshot_allocations() {
         unsafe { disunity_gameobject_destroy(session.0, removed) }.code,
         result_code::OK
     );
+    assert_eq!(
+        unsafe { advance_frame(session.0, 0.0, 2) }.code,
+        result_code::OK
+    );
     let replacement = session.object();
     assert!(!objects.contains(&replacement));
     objects.push(replacement);

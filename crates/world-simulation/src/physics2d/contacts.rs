@@ -53,15 +53,20 @@ impl World {
         None
     }
     pub(crate) fn contact_eligible(&self, c: &ContactEvent) -> bool {
-        [c.collider_a, c.collider_b].iter().all(|h| {
-            self.component(*h).is_ok_and(|c| {
-                matches!(&c.desc, ComponentDesc::Collider2d(d) if d.enabled)
-                    && self.active_in_hierarchy(c.object).unwrap_or(false)
+        [Some(c.collider_a), Some(c.collider_b), c.body_a, c.body_b]
+            .into_iter()
+            .flatten()
+            .all(|h| !self.lifetime.components.contains(&h))
+            && [c.collider_a, c.collider_b].iter().all(|h| {
+                self.component(*h).is_ok_and(|c| {
+                    matches!(&c.desc, ComponentDesc::Collider2d(d) if d.enabled)
+                        && self.active_in_hierarchy(c.object).unwrap_or(false)
+                })
             })
-        }) && [c.body_a, c.body_b].iter().flatten().all(|h| {
-            self.component(*h)
-                .is_ok_and(|c| matches!(&c.desc, ComponentDesc::Body2d(d) if d.enabled))
-        })
+            && [c.body_a, c.body_b].iter().flatten().all(|h| {
+                self.component(*h)
+                    .is_ok_and(|c| matches!(&c.desc, ComponentDesc::Body2d(d) if d.enabled))
+            })
     }
     pub(super) fn finish_contacts(&mut self, touched: &Contacts, current: Contacts) {
         let mut events = Vec::new();

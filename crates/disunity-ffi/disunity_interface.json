@@ -1,6 +1,6 @@
 {
-  "abi_version": 3,
-  "description": "Disunity revision 3: batch construction publishes many objects before their lifecycle runs, and waking scripts no longer changes object activity.",
+  "abi_version": 4,
+  "description": "Disunity revision 4: retains revision 3 batch construction and object wake without activity changes, and adds directional position constraints to the body record.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -233,12 +233,32 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_gameobject_destroy_after",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_gameobject_read",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
     {
       "name": "disunity_gameobject_set_active",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_input_axis_id",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_input_axis_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_input_axis_register",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },

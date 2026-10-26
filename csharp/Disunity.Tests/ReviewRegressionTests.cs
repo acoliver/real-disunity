@@ -60,7 +60,10 @@ internal static class ReviewRegressionTests
         inactive.transform.SetParent(child.transform, false);
         inactive.SetActive(false);
         UnityEngine.Object.Destroy(parent);
-        Require(!child && !inactive && child == null && inactive.transform == null, "B2 subtree wrappers retire immediately");
+        Require(child && inactive && child != null && inactive.transform != null, "B2 pending subtree wrappers stay visible");
+        Require(UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None).Length == 2, "B2 active pending subtree stays searchable");
+        DisunityHost.Step(0);
+        Require(!child && !inactive && child == null && inactive.transform == null, "B2 subtree wrappers retire at frame barrier");
         try { _ = child!.transform.position; throw new Exception("B2 child read accepted"); }
         catch (ObjectDisposedException) { }
         Require(UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None).Length == 0, "B2 lookup after subtree invalidation");

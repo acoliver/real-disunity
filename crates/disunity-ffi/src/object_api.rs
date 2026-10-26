@@ -287,3 +287,25 @@ pub unsafe extern "C" fn disunity_script_retained(
         Ok(())
     })
 }
+
+/// Schedules destruction using scaled world seconds, without running cleanup inline.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_gameobject_destroy_after(
+    world: u64,
+    object: u64,
+    numerator: u64,
+    denominator: u64,
+) -> DisunityResult {
+    mutate(world, |s| {
+        let delay = worldrunner_world_simulation::TimeSpan::new(numerator, denominator)
+            .map_err(crate::errors::AbiError::from)?;
+        let when = if delay == worldrunner_world_simulation::TimeSpan::ZERO {
+            worldrunner_world_simulation::DestroyWhen::EndOfFrame
+        } else {
+            worldrunner_world_simulation::DestroyWhen::AfterScaled(delay)
+        };
+        s.native
+            .destroy(s.object(object)?, when)
+            .map_err(crate::errors::AbiError::from)
+    })
+}

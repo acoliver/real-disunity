@@ -235,6 +235,25 @@ namespace Disunity.Native
         public float normal_y;
     }
 
+    /// <summary>
+    ///  Missing buttons use 65536, outside the native key code range.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityInputAxis
+    {
+        public uint negative;
+        public uint positive;
+        public uint alt_negative;
+        public uint alt_positive;
+        public float gravity;
+        public float sensitivity;
+        public float dead;
+        /// <summary>
+        ///  Bit 0: snap; bit 1: invert.
+        /// </summary>
+        public uint flags;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityBody2d
     {
@@ -246,6 +265,7 @@ namespace Disunity.Native
         public float angular_velocity;
         public float gravity_scale;
         public uint freeze_rotation;
+        public uint freeze_position;
         public float restitution;
     }
 

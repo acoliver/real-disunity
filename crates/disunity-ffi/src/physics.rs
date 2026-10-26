@@ -17,6 +17,7 @@ pub struct DisunityBody2d {
     pub angular_velocity: f32,
     pub gravity_scale: f32,
     pub freeze_rotation: u32,
+    pub freeze_position: u32,
     pub restitution: f32,
 }
 
@@ -117,7 +118,7 @@ pub unsafe extern "C" fn disunity_physics_create(
 }
 
 fn body(value: DisunityBody2d) -> Result<Body2d, crate::errors::AbiError> {
-    if value.enabled > 1 || value.freeze_rotation > 1 {
+    if value.enabled > 1 || value.freeze_rotation > 1 || value.freeze_position > 3 {
         return Err(worldrunner_world_simulation::WorldError::Physics(
             worldrunner_world_simulation::physics2d::PhysicsError::InvalidBody,
         )
@@ -142,6 +143,7 @@ fn body(value: DisunityBody2d) -> Result<Body2d, crate::errors::AbiError> {
         angular_velocity: value.angular_velocity,
         gravity_scale: value.gravity_scale,
         freeze_rotation: value.freeze_rotation == 1,
+        freeze_position: u8::try_from(value.freeze_position).expect("validated mask"),
         restitution: value.restitution,
         sleeping: false,
         shared_material: None,
@@ -221,6 +223,7 @@ pub unsafe extern "C" fn disunity_body_read(
                 angular_velocity: b.angular_velocity,
                 gravity_scale: b.gravity_scale,
                 freeze_rotation: u32::from(b.freeze_rotation),
+                freeze_position: u32::from(b.freeze_position),
                 restitution: b.restitution,
             }
         };

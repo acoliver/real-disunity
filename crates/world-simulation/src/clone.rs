@@ -1,5 +1,6 @@
 use crate::{
-    ComponentDesc, ComponentHandle, MutationId, ObjectDesc, ObjectHandle, World, WorldError,
+    ComponentDesc, ComponentHandle, Construction, MutationId, ObjectDesc, ObjectHandle, World,
+    WorldError,
 };
 use std::collections::BTreeMap;
 
@@ -9,11 +10,30 @@ pub struct Instantiation {
     pub objects: BTreeMap<ObjectHandle, ObjectHandle>,
     pub components: BTreeMap<ComponentHandle, ComponentHandle>,
     pub mutation: MutationId,
+    construction: Construction,
+}
+
+impl Instantiation {
+    pub fn construction(&self) -> Construction {
+        self.construction
+    }
 }
 
 impl World {
-    /// All capacity and identity checks precede allocation. Activation follows field binding.
+    /// Clones `template` and publishes it, queueing its lifecycle work under `mutation`.
     pub fn instantiate(
+        &mut self,
+        template: ObjectHandle,
+        parent: Option<ObjectHandle>,
+    ) -> Result<Instantiation, WorldError> {
+        let clone = self.instantiate_unpublished(template, parent)?;
+        self.publish_construction(clone.construction)?;
+        Ok(clone)
+    }
+
+    /// Clones `template` into an open construction for foreign construction and field binding.
+    /// All capacity and identity checks precede allocation.
+    pub fn instantiate_unpublished(
         &mut self,
         template: ObjectHandle,
         parent: Option<ObjectHandle>,
@@ -33,74 +53,63 @@ impl World {
             .collect();
         self.objects.check_additional(source.len())?;
         self.components.check_additional(components.len())?;
-        let mutation = self.reserve_mutation()?;
+        let construction = self.begin_construction()?;
+        let result = self.clone_into(construction, template, parent, &source, &components);
+        if result.is_err() {
+            self.discard_construction(construction)?;
+        }
+        result
+    }
+
+    /// Discards an unpublished clone when managed construction or field binding fails.
+    pub fn discard_instantiation(&mut self, clone: &Instantiation) -> Result<(), WorldError> {
+        self.discard_construction(clone.construction)
+    }
+
+    fn clone_into(
+        &mut self,
+        construction: Construction,
+        template: ObjectHandle,
+        parent: Option<ObjectHandle>,
+        source: &[ObjectHandle],
+        components: &[crate::ComponentSnapshot],
+    ) -> Result<Instantiation, WorldError> {
         let mut objects = BTreeMap::new();
         let mut remap = BTreeMap::new();
-        for &old in &source {
+        for &old in source {
             let value = self.object(old)?;
-            let new = self.create_object(ObjectDesc {
-                name: value.name,
-                tag: value.tag,
-                layer: value.layer,
-                active: value.active,
-                local_transform: value.local_transform,
-            })?;
+            let new = self.create_object_in(
+                construction,
+                ObjectDesc {
+                    name: value.name,
+                    tag: value.tag,
+                    layer: value.layer,
+                    active: value.active,
+                    local_transform: value.local_transform,
+                },
+            )?;
             objects.insert(old, new);
             remap.insert(value.transform, self.object(new)?.transform);
         }
-        self.clone_components(&components, &objects, &mut remap)?;
-        for &old in &source {
-            let target = objects[&old];
+        self.clone_components(components, &objects, &mut remap)?;
+        for &old in source {
             let new_parent = if old == template {
                 parent
             } else {
                 self.parent(old)?.map(|p| objects[&p])
             };
             self.objects
-                .get_mut(target.0)
+                .get_mut(objects[&old].0)
                 .expect("allocated clone")
                 .parent = new_parent;
         }
-        let nodes: Vec<_> = source.iter().map(|old| objects[old]).collect();
-        self.refresh_lifecycle(&nodes, mutation);
         Ok(Instantiation {
             root: objects[&template],
             objects,
             components: remap,
-            mutation,
+            mutation: construction.mutation(),
+            construction,
         })
-    }
-
-    /// Reserves a clone for foreign construction without publishing lifecycle eligibility.
-    pub fn instantiate_unpublished(
-        &mut self,
-        template: ObjectHandle,
-        parent: Option<ObjectHandle>,
-    ) -> Result<Instantiation, WorldError> {
-        let clone = self.instantiate(template, parent)?;
-        self.lifecycle.unpublished.insert(
-            clone.mutation.sequence,
-            clone.objects.values().copied().collect(),
-        );
-        Ok(clone)
-    }
-
-    /// Discards an unpublished clone when managed construction or field binding fails.
-    pub fn discard_instantiation(&mut self, clone: &Instantiation) -> Result<(), WorldError> {
-        if clone.components.values().any(|script| {
-            self.lifecycle
-                .scripts
-                .get(script)
-                .is_some_and(|state| state.entered != crate::lifecycle::EnteredState::Dormant)
-        }) {
-            return Err(WorldError::NotReady);
-        }
-        self.lifecycle.unpublished.remove(&clone.mutation.sequence);
-        self.lifecycle.mutations.remove(&clone.mutation.sequence);
-        for &object in clone.objects.values() {
-            self.retire_subtree(object);
-        }
-        Ok(())
     }
 
     fn clone_components(

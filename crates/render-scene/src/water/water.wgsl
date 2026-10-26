@@ -33,16 +33,56 @@ fn water_camera_transmittance(position: vec3<f32>) -> f32 {
     return rd_height_fog_transmittance(log_density, falloff, frame.sun_irradiance.w,
         position - origin, vec3<f32>(0.0, 0.0, 1.0));
 }
+fn flow_texel(pixel: vec2<i32>, size: vec2<i32>) -> vec2<f32> {
+    let wrapped = ((pixel % size) + size) % size;
+    return textureLoad(surface_flow, wrapped, 0).rg * 2.0 - 1.0;
+}
+fn flow_velocity(uv: vec2<f32>) -> vec2<f32> {
+    // Interpolate velocity in float precision: sampler weight quantization is
+    // amplified by the advection period before the normal map is sampled.
+    let size = vec2<i32>(textureDimensions(surface_flow));
+    let coordinate = fract(uv) * vec2<f32>(size) - 0.5;
+    let base = vec2<i32>(floor(coordinate));
+    let fraction = fract(coordinate);
+    return mix(
+        mix(flow_texel(base, size), flow_texel(base + vec2<i32>(1, 0), size), fraction.x),
+        mix(flow_texel(base + vec2<i32>(0, 1), size),
+            flow_texel(base + vec2<i32>(1, 1), size), fraction.x), fraction.y);
+}
+
+fn flowing_normal(uv: vec2<f32>) -> vec3<f32> {
+    let xy = textureSampleLevel(surface_normal, surface_sampler, uv, 0.0).rg * 2.0 - 1.0;
+    return vec3<f32>(xy, sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0)));
+}
+// Vlachos (2010), "Water Flow in Portal 2": the resetting phase has zero weight.
+fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>) -> vec3<f32> {
+    let phase = fract(water.origin_time.w / water.absorption.w);
+    let other = fract(phase + 0.5);
+    let offset = velocity * water.absorption.w * water.surface.xy;
+    let uv = world * water.surface.xy;
+    let blended = mix(flowing_normal(uv + offset * phase),
+        flowing_normal(uv + offset * other), abs(1.0 - 2.0 * phase));
+    if dot(blended, blended) == 0.0 { return vec3<f32>(0.0, 0.0, 1.0); }
+    return normalize(blended);
+}
 @fragment fn fs_water(input: WaterVertex, @builtin(sample_index) sample: u32) -> WaterOutput {
     var velocity = water.extent.zw;
     if water.surface.w != 0.0 {
-        velocity += (textureSampleLevel(surface_flow, surface_sampler, input.world.xy * water.surface.xy, 0.0).rg * 2.0 - 1.0) * water.surface.w;
+        if water.absorption.w > 0.0 {
+            velocity += flow_velocity(input.world.xy * water.surface.xy) * water.surface.w;
+        } else {
+            velocity += (textureSampleLevel(surface_flow, surface_sampler, input.world.xy * water.surface.xy, 0.0).rg * 2.0 - 1.0) * water.surface.w;
+        }
     }
     let wave = input.world.xy - velocity * water.origin_time.w;
     var normal = normalize(vec3<f32>(sin(wave.x * 1.7 + water.origin_time.w) * 0.08, cos(wave.y * 2.1 + water.origin_time.w * 0.7) * 0.08, 1.0));
     if water.surface.z != 0.0 {
-        let xy = textureSampleLevel(surface_normal, surface_sampler, wave * water.surface.xy, 0.0).rg * 2.0 - 1.0;
-        normal = normalize(vec3<f32>(xy, sqrt(max(1.0 - dot(xy, xy), 0.0001))));
+        if water.absorption.w > 0.0 {
+            normal = two_phase_normal(input.world.xy, velocity);
+        } else {
+            let xy = textureSampleLevel(surface_normal, surface_sampler, wave * water.surface.xy, 0.0).rg * 2.0 - 1.0;
+            normal = normalize(vec3<f32>(xy, sqrt(max(1.0 - dot(xy, xy), 0.0001))));
+        }
     }
     let visibility = sunlight_visibility(input.world, normal);
     let size = vec2<i32>(textureDimensions(opaque_color));

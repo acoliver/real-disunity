@@ -5,6 +5,7 @@
 //! use to reference them.
 
 mod image;
+mod physics;
 mod settings;
 mod sprites;
 

@@ -6,6 +6,7 @@
 
 pub mod components;
 pub mod guid;
+pub mod input;
 pub mod package;
 pub mod project;
 pub mod scene;
@@ -21,6 +22,7 @@ pub use components::{
     UrpPostProcessing, VerticalOverflow,
 };
 pub use guid::{Guid, ObjectRef, ReferenceError};
+pub use input::{AxisKind, InputAxis, input_axes};
 pub use package::{PackageAsset, PackageFont, PackageMaterial, PackageScript};
 pub use project::{Asset, ImportError, Project};
 pub use scene::{

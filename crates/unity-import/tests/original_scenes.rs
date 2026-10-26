@@ -3,8 +3,8 @@
 use std::path::Path;
 use worldrunner_original_games::{Game, checkout};
 use worldrunner_unity_import::{
-    BodyType, ClearFlags, ColliderShape, Interpolation, Object, ObjectId, Project, Scene,
-    import_scene,
+    AxisKind, BodyType, ClearFlags, ColliderShape, InputAxis, Interpolation, Object, ObjectId,
+    Project, Scene, import_scene, input_axes,
 };
 
 fn scene(game: Game) -> Scene {
@@ -84,7 +84,11 @@ fn camera_bodies_and_colliders_carry_the_authored_values() {
     );
     let mut masses: Vec<_> = bodies.iter().map(|b| b.mass.to_string()).collect();
     masses.sort();
-    assert_eq!(masses, ["0.0001", "1000000", "1000000"], "the ball, then both paddles");
+    assert_eq!(
+        masses,
+        ["0.0001", "1000000", "1000000"],
+        "the ball, then both paddles"
+    );
     assert!(bodies.iter().all(|b| b.material.is_some()));
     let breakout = scene(Game::Breakout);
     let ball = breakout
@@ -105,4 +109,33 @@ fn camera_bodies_and_colliders_carry_the_authored_values() {
         (camera.orthographic_size, camera.background),
         (11., [0.; 4])
     );
+}
+
+#[test]
+fn input_axes_keep_file_order_and_unity_button_names() {
+    let pong = checkout(Game::Pong).unwrap();
+    let axes = input_axes(&Project::open(&pong).unwrap()).unwrap();
+    assert_eq!(axes.len(), 19);
+    let horizontal = &axes[0];
+    let expected = InputAxis {
+        name: "Horizontal".into(),
+        kind: AxisKind::KeyOrMouseButton,
+        negative: "left".into(),
+        positive: "right".into(),
+        alt_negative: "a".into(),
+        alt_positive: "d".into(),
+        gravity: 3.,
+        dead: 0.001,
+        sensitivity: 3.,
+        snap: true,
+        invert: false,
+    };
+    assert_eq!(*horizontal, expected);
+    let kinds: Vec<_> = axes
+        .iter()
+        .filter(|axis| axis.name == "Horizontal")
+        .map(|axis| axis.kind)
+        .collect();
+    assert_eq!(kinds, [AxisKind::KeyOrMouseButton, AxisKind::JoystickAxis]);
+    assert!(axes.iter().any(|axis| axis.name == "AlternateVertical"));
 }

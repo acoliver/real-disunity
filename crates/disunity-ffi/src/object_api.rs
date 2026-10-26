@@ -146,6 +146,51 @@ pub unsafe extern "C" fn disunity_object_text_read(
     DisunityResult::ok()
 }
 
+/// Moves the object to `layer`, 0 to 31.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_object_layer_write(
+    world: u64,
+    object: u64,
+    layer: u32,
+) -> DisunityResult {
+    let Ok(layer) = u8::try_from(layer) else {
+        return DisunityResult::invalid_argument();
+    };
+    mutate(world, |s| {
+        s.native
+            .set_layer(s.object(object)?, layer)
+            .map_err(crate::errors::AbiError::from)
+    })
+}
+
+/// # Safety
+/// `output` is writable for one layer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_object_layer_read(
+    world: u64,
+    object: u64,
+    output: *mut u32,
+) -> DisunityResult {
+    if output.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let layer = {
+        let store = crate::lock_store();
+        store.session(world).and_then(|s| {
+            s.native
+                .object(s.object(object)?)
+                .map_err(crate::errors::AbiError::from)
+        })
+    };
+    match layer {
+        Ok(object) => {
+            unsafe { *output = u32::from(object.layer) };
+            DisunityResult::ok()
+        }
+        Err(error) => crate::abi::translate_error(Some(world), &error),
+    }
+}
+
 /// # Safety
 /// `output` is writable for one bit mask: active self, active hierarchy.
 #[unsafe(no_mangle)]

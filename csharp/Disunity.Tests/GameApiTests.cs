@@ -69,6 +69,11 @@ internal static class GameApiTests
         value.tag = "Actor";
         Require(value.name == "probe" && value.CompareTag("Actor"), "native object metadata");
         Require(ReferenceEquals(GameObject.FindGameObjectWithTag("Actor"), value), "native tag lookup identity");
+        Require(value.layer == 0, "objects start on the Default layer");
+        value.layer = 8;
+        Require(value.layer == 8, "native layer round trip");
+        try { value.layer = 32; throw new InvalidOperationException("layer 32 was accepted"); }
+        catch (ArgumentException) { }
         var marker = value.AddComponent<Marker>();
         Require(ReferenceEquals(UnityEngine.Object.FindFirstObjectByType<Marker>(), marker), "native eligibility for type lookup");
         value.transform.localScale = new(2, 3, 4);
@@ -76,6 +81,7 @@ internal static class GameApiTests
         var clone = UnityEngine.Object.Instantiate(value, new Vector3(4, 5, 6), Quaternion.identity);
         Require(clone.transform.position == new Vector3(4, 5, 6) && Marker.LastAwakePosition == new Vector3(4, 5, 6), "clone world pose before activation");
         Require(clone.transform.rotation == Quaternion.identity, "clone world rotation");
+        Require(clone.layer == 8 && clone.name == "probe(Clone)", "clones keep the layer and take Unity's clone name");
         Require(clone.GetComponent<Marker>()!.Facing == Quaternion.identity && clone.GetComponent<Marker>()!.Cell == new Vector2Int(3, 7), "clone copies quaternion and integer vector values");
         DisunityHost.PushKey(0, KeyCode.A, true);
         DisunityHost.Step(0.01f);

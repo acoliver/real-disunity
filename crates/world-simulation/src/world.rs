@@ -163,6 +163,19 @@ impl World {
         })
     }
 
+    /// Moves the object to `layer`, one of Unity's 32 layers.
+    pub fn set_layer(&mut self, handle: ObjectHandle, layer: u8) -> Result<(), WorldError> {
+        self.live_object(handle)?;
+        if layer > 31 {
+            return Err(WorldError::InvalidObject);
+        }
+        self.objects
+            .get_mut(handle.0)
+            .expect("validated object")
+            .layer = layer;
+        Ok(())
+    }
+
     pub fn set_object_text(
         &mut self,
         handle: ObjectHandle,

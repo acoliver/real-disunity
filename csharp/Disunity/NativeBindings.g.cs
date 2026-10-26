@@ -646,6 +646,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_object_text_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_object_text_read(ulong world, ulong @object, uint field, byte* bytes, uint capacity, uint* written);
         /// <summary>
+        ///  Moves the object to `layer`, 0 to 31.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_object_layer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_layer_write(ulong world, ulong @object, uint layer);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one layer.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_object_layer_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_layer_read(ulong world, ulong @object, uint* output);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one bit mask: active self, active hierarchy.
         /// </summary>
@@ -726,22 +737,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_tile", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_tilemap_set_tile(ulong world, ulong handle, uint index, DisunityTile* tile, DisunitySprite* sprite);
-        /// <summary>
-        ///  Sets the physics shape of Sprite-collider tile `index`: `path_count` convex paths, path `i`
-        ///  holding `lengths[i]` points, read in order from `points` as x, y pairs in sprite units
-        ///  around the pivot. This is Unity's `Sprite.GetPhysicsShape` for the tile's sprite.
-        ///  # Safety
-        ///  Lengths is readable for path_count values and points for twice their sum; either may be
-        ///  null when path_count is zero.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_tile_shape", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_tilemap_set_tile_shape(ulong world, ulong handle, uint index, float* points, uint* lengths, uint path_count);
-        /// <summary>
-        ///  Replaces every cell. Positions must be distinct and each tile index must be in the palette.
-        ///  # Safety
-        ///  Cells is readable for count records, or null when count is zero.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_cells", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_tilemap_set_cells(ulong world, ulong handle, DisunityTileCell* cells, uint count);
     }
 }

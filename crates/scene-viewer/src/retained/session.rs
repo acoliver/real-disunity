@@ -1,4 +1,6 @@
 #[cfg(test)]
+pub(crate) mod pointer_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::{
@@ -7,10 +9,7 @@ use crate::{
     renderer::{Renderer, SceneSource},
 };
 use std::time::Instant;
-use winit::{
-    event::{ElementState, WindowEvent},
-    keyboard::{Key, PhysicalKey},
-};
+use winit::event::{DeviceEvent, WindowEvent};
 use worldrunner_render_scene::Viewport;
 
 pub(crate) struct Session<'a> {
@@ -86,6 +85,17 @@ impl Content for Session<'_> {
     fn size(&self) -> [u32; 2] {
         self.host.options.size
     }
+    fn cadence(&self) -> crate::PresentationCadence {
+        self.host.options.cadence
+    }
+    fn window_ready(&mut self, window: std::sync::Arc<winit::window::Window>) {
+        self.host.input_state.window = Some(window);
+    }
+    fn device_event(&mut self, event: &DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.input(RetainedInput::RawMotion([delta.0, delta.1]));
+        }
+    }
     fn source(&self) -> SceneSource<'_> {
         SceneSource::Static {
             scene: &self.host.initial_scene,
@@ -104,29 +114,8 @@ impl Content for Session<'_> {
         self.input(RetainedInput::Resized(size));
     }
     fn event(&mut self, event: &WindowEvent, _viewport: Option<Viewport>) {
-        match event {
-            WindowEvent::Resized(size) => {
-                self.input(RetainedInput::Resized([size.width, size.height]));
-            }
-            WindowEvent::Focused(focus) => self.input(RetainedInput::Focused(*focus)),
-            WindowEvent::Occluded(value) => self.input(RetainedInput::Occluded(*value)),
-            WindowEvent::CloseRequested => self.input(RetainedInput::CloseRequested),
-            WindowEvent::KeyboardInput { event, .. } => {
-                let key = match &event.logical_key {
-                    Key::Character(value) => value.to_lowercase(),
-                    Key::Named(value) => format!("{value:?}").to_lowercase(),
-                    _ => match event.physical_key {
-                        PhysicalKey::Code(code) => format!("{code:?}").to_lowercase(),
-                        PhysicalKey::Unidentified(_) => return,
-                    },
-                };
-                self.input(RetainedInput::Key {
-                    key,
-                    pressed: event.state == ElementState::Pressed,
-                    repeat: event.repeat,
-                });
-            }
-            _ => {}
+        if let Some(input) = super::input::window_input(event) {
+            self.input(input);
         }
     }
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {

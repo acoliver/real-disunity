@@ -250,6 +250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         scene(terrain),
         ViewerOptions {
             frames_in_flight: 2,
+            cadence: worldrunner_scene_viewer::PresentationCadence::default(),
             frame_profile: frame_profile(),
             camera: SceneCamera {
                 vertical_fov_millidegrees: 60_000,

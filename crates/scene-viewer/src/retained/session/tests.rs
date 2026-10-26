@@ -20,6 +20,8 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
     let mut session = Session::new(host, &mut consumer);
     session.input(RetainedInput::Key {
         key: "w".into(),
+        logical: crate::LogicalKey::Character("w".into()),
+        physical: crate::KeyCode::KeyW.into(),
         pressed: true,
         repeat: false,
     });
@@ -35,6 +37,8 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
         events[1],
         RetainedEvent::Input(RetainedInput::Key {
             key: "w".into(),
+            logical: crate::LogicalKey::Character("w".into()),
+            physical: crate::KeyCode::KeyW.into(),
             pressed: false,
             repeat: false,
         })

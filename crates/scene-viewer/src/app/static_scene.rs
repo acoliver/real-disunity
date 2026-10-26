@@ -64,6 +64,9 @@ impl Content for StaticScene {
     fn exit_requested(&self) -> bool {
         self.exit
     }
+    fn cadence(&self) -> crate::PresentationCadence {
+        self.options.cadence
+    }
     fn source(&self) -> SceneSource<'_> {
         SceneSource::Static {
             scene: &self.scene,

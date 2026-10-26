@@ -1,16 +1,18 @@
 //! CPU scene ownership and ordered edits for the shared native viewer.
 use crate::{ViewerError, ViewerOptions};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
-};
+use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod input;
+pub use input::{
+    CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
+    WheelDelta,
+};
 mod capture;
 pub use capture::{CaptureRequestError, RetainedCaptureOutcome};
 mod readiness;
-mod session;
+pub(crate) mod session;
 pub(crate) use session::Session;
 #[cfg(test)]
 mod tests;
@@ -48,15 +50,29 @@ pub enum RetainedUpdate {
     },
 }
 
-/// Logical OS input, independent of window-library and GPU types.
+/// Typed OS input, without application action mapping or GPU types.
 /// Key names follow `LiveInputEvent`'s lowercase convention.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RetainedInput {
     Key {
+        /// Lowercase name retained for held-key queries.
         key: String,
+        /// Unmodified logical identity from the OS.
+        logical: LogicalKey,
+        physical: PhysicalKey,
         pressed: bool,
         repeat: bool,
     },
+    /// Position in physical window pixels.
+    PointerMoved([f64; 2]),
+    Button {
+        button: MouseButton,
+        pressed: bool,
+    },
+    Wheel(WheelDelta),
+    RawMotion([f64; 2]),
+    CursorEntered,
+    CursorLeft,
     Focused(bool),
     Occluded(bool),
     Resized([u32; 2]),
@@ -64,7 +80,7 @@ pub enum RetainedInput {
     CloseRequested,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
     Input(RetainedInput),
     Capture {
@@ -103,7 +119,7 @@ pub struct RetainedHost {
     pub(crate) readiness: readiness::Readiness,
     pub(crate) options: ViewerOptions,
     objects: BTreeMap<ObjectId, SceneObject>,
-    held: BTreeSet<String>,
+    input_state: input::InputState,
     size: [u32; 2],
     exit: bool,
     occluded: bool,
@@ -136,7 +152,7 @@ impl RetainedHost {
             scene,
             options,
             objects,
-            held: BTreeSet::new(),
+            input_state: input::InputState::default(),
             size,
             exit: false,
             occluded: false,
@@ -152,9 +168,6 @@ impl RetainedHost {
     }
     pub fn size(&self) -> [u32; 2] {
         self.size
-    }
-    pub fn key_held(&self, key: &str) -> bool {
-        self.held.contains(key)
     }
     pub fn request_exit(&mut self) {
         self.exit = true;
@@ -267,27 +280,12 @@ impl RetainedHost {
         Ok(())
     }
 
-    /// Returns transitions to deliver in order, including synthesized key releases
-    /// before focus loss. Repeated focus loss never repeats a release.
+    /// Returns transitions to deliver in order. Focus loss first releases keys in
+    /// physical-key order, then buttons in button order, before the focus event.
+    /// Repeated focus loss never repeats a release.
     pub fn input(&mut self, input: RetainedInput) -> Vec<RetainedInput> {
-        let mut events = Vec::new();
+        let mut events = self.input_state.accept(&input);
         match &input {
-            RetainedInput::Key { key, pressed, .. } => {
-                if *pressed {
-                    self.held.insert(key.clone());
-                } else {
-                    self.held.remove(key);
-                }
-            }
-            RetainedInput::Focused(false) => {
-                for key in std::mem::take(&mut self.held) {
-                    events.push(RetainedInput::Key {
-                        key,
-                        pressed: false,
-                        repeat: false,
-                    });
-                }
-            }
             RetainedInput::Resized(size) => self.size = *size,
             RetainedInput::Occluded(value) => self.occluded = *value,
             RetainedInput::CloseRequested => self.exit = true,

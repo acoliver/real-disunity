@@ -131,5 +131,6 @@ fn options() -> ViewerOptions {
         shadows: None,
         frame_profile: FrameProfile::Legacy,
         frames_in_flight: 2,
+        cadence: worldrunner_scene_viewer::PresentationCadence::default(),
     }
 }

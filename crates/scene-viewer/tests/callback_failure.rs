@@ -40,6 +40,7 @@ fn main() {
     let options = ViewerOptions {
         frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
         frames_in_flight: 2,
+        cadence: worldrunner_scene_viewer::PresentationCadence::default(),
         title: "Callback failure regression".into(),
         size: [64, 64],
         camera: SceneCamera {

@@ -154,6 +154,13 @@ fn focus_loss_emits_releases_in_stable_order_and_clears_held_keys() {
     for key in ["w", "a"] {
         host.input(RetainedInput::Key {
             key: key.into(),
+            logical: crate::LogicalKey::Character(key.into()),
+            physical: if key == "a" {
+                crate::KeyCode::KeyA
+            } else {
+                crate::KeyCode::KeyW
+            }
+            .into(),
             pressed: true,
             repeat: false,
         });
@@ -164,11 +171,15 @@ fn focus_loss_emits_releases_in_stable_order_and_clears_held_keys() {
         vec![
             RetainedInput::Key {
                 key: "a".into(),
+                logical: crate::LogicalKey::Character("a".into()),
+                physical: crate::KeyCode::KeyA.into(),
                 pressed: false,
                 repeat: false
             },
             RetainedInput::Key {
                 key: "w".into(),
+                logical: crate::LogicalKey::Character("w".into()),
+                physical: crate::KeyCode::KeyW.into(),
                 pressed: false,
                 repeat: false
             },

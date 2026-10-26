@@ -5,18 +5,19 @@ use std::{
 
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    event::{DeviceEvent, DeviceId, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_scene::Viewport;
 
 use crate::{
-    LiveDriver, LiveOptions, ViewerError, ViewerOptions,
+    LiveDriver, LiveOptions, PresentationCadence, ViewerError, ViewerOptions,
     renderer::{Renderer, SceneSource},
 };
 
+mod cadence;
 mod static_scene;
 
 pub(super) trait Content {
@@ -25,6 +26,11 @@ pub(super) trait Content {
     fn interval(&self) -> Duration {
         Duration::from_millis(16)
     }
+    fn cadence(&self) -> PresentationCadence {
+        PresentationCadence::Fixed(self.interval())
+    }
+    fn window_ready(&mut self, _window: Arc<Window>) {}
+    fn device_event(&mut self, _event: &DeviceEvent) {}
     fn source(&self) -> SceneSource<'_>;
     fn event(&mut self, event: &WindowEvent, viewport: Option<Viewport>);
     fn surface_size(&mut self, _size: [u32; 2]) {}
@@ -127,7 +133,7 @@ impl<'a> App<'a> {
         {
             event_loop.exit();
         }
-        self.next_frame = Instant::now() + self.content.interval();
+        self.next_frame = cadence::next_frame(Instant::now(), self.content.cadence());
         Ok(())
     }
 }
@@ -162,6 +168,7 @@ impl ApplicationHandler for App<'_> {
         }
         if let Some(renderer) = &self.renderer {
             let size = renderer.window.inner_size();
+            self.content.window_ready(renderer.window.clone());
             self.content.surface_size([size.width, size.height]);
             renderer.window.request_redraw();
         }
@@ -174,6 +181,13 @@ impl ApplicationHandler for App<'_> {
         if let Some(renderer) = &mut self.renderer
             && let Err(error) = renderer.resize([0, 0])
         {
+            self.fail(event_loop, error);
+        }
+    }
+
+    fn device_event(&mut self, event_loop: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
+        self.content.device_event(&event);
+        if let Some(error) = self.content.take_failure() {
             self.fail(event_loop, error);
         }
     }
@@ -246,23 +260,19 @@ impl ApplicationHandler for App<'_> {
             event_loop.exit();
             return;
         }
-        let completion_poll = Instant::now() + Duration::from_millis(16);
-        if self.occluded || self.suspended || renderer.viewport.is_none() {
-            event_loop.set_control_flow(if pending {
-                ControlFlow::WaitUntil(completion_poll)
-            } else {
-                ControlFlow::Wait
-            });
-        } else {
-            if Instant::now() >= self.next_frame {
-                renderer.window.request_redraw();
-                self.next_frame = Instant::now() + self.content.interval();
-            }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(if pending {
-                self.next_frame.min(completion_poll)
-            } else {
-                self.next_frame
-            }));
+        let now = Instant::now();
+        let active = !self.occluded && !self.suspended && renderer.viewport.is_some();
+        let (redraw, flow) = cadence::schedule(
+            self.content.cadence(),
+            now,
+            self.next_frame,
+            active,
+            pending,
+        );
+        if redraw {
+            renderer.window.request_redraw();
+            self.next_frame = cadence::next_frame(now, self.content.cadence());
         }
+        event_loop.set_control_flow(flow);
     }
 }

@@ -172,6 +172,7 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
         let options = crate::ViewerOptions {
             frame_profile: crate::FrameProfile::Legacy,
             frames_in_flight: 2,
+            cadence: crate::PresentationCadence::default(),
             shadows,
             ..crate::tests::options()
         };

@@ -19,8 +19,9 @@ mod presentation;
 mod renderer;
 mod retained;
 pub use retained::{
-    CaptureRequestError, ObjectId, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
-    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate,
+    CaptureRequestError, CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton,
+    NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
+    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, WheelDelta,
 };
 
 pub use camera::{OrbitCamera, OrbitLimits};
@@ -48,6 +49,22 @@ pub struct ViewerOptions {
     pub frame_profile: FrameProfile,
     /// Maximum admitted submissions, in 1..=3. Select two for interactive presentation.
     pub frames_in_flight: usize,
+    /// Presentation scheduling; defaults to a 16 ms fixed interval.
+    pub cadence: PresentationCadence,
+}
+
+/// Presentation policy, independent of GPU submission admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PresentationCadence {
+    Fixed(std::time::Duration),
+    /// Redraw whenever the event loop runs, including input wakeups.
+    Uncapped,
+}
+
+impl Default for PresentationCadence {
+    fn default() -> Self {
+        Self::Fixed(std::time::Duration::from_millis(16))
+    }
 }
 
 /// Startup, presentation or scene rendering failed.
@@ -160,6 +177,13 @@ pub fn run_live<D: LiveDriver>(driver: &mut D, options: LiveOptions) -> Result<(
 }
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {
+    if let PresentationCadence::Fixed(interval) = options.cadence
+        && (interval.is_zero() || std::time::Instant::now().checked_add(interval).is_none())
+    {
+        return Err(ViewerError::InvalidOptions(
+            "frame interval must be positive and representable",
+        ));
+    }
     if !(1..=3).contains(&options.frames_in_flight) {
         return Err(ViewerError::InvalidOptions(
             "frames in flight must be in 1..=3",

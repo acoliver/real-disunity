@@ -65,9 +65,20 @@ fn validate_polygon(p: &[Vec2]) -> Result<(), PhysicsError> {
     Ok(())
 }
 
+/// Where a collider's shapes come from.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ColliderGeometry {
+    /// Shapes in the object's local units, offset by the collider's offset.
+    Shapes(Vec<Shape2d>),
+    /// Unity's `TilemapCollider2D`: the shapes are rebuilt each step from the `Tilemap` on the
+    /// same object, so cell edits reach physics without rewriting the collider. With no
+    /// `Tilemap` the collider has no shapes.
+    Tilemap,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Collider2d {
-    pub shapes: Vec<Shape2d>,
+    pub geometry: ColliderGeometry,
     pub offset: Vec2,
     pub enabled: bool,
     pub shared_material: Option<super::PhysicsMaterialHandle>,
@@ -77,9 +88,9 @@ pub struct Collider2d {
 impl Default for Collider2d {
     fn default() -> Self {
         Self {
-            shapes: vec![Shape2d::Box {
+            geometry: ColliderGeometry::Shapes(vec![Shape2d::Box {
                 half_extents: Vec2::splat(0.5),
-            }],
+            }]),
             offset: Vec2::ZERO,
             enabled: true,
             shared_material: None,
@@ -90,12 +101,15 @@ impl Default for Collider2d {
 }
 impl Collider2d {
     pub(crate) fn validate(&self) -> Result<(), PhysicsError> {
-        if !self.offset.is_finite() || self.shapes.len() > 4096 {
+        if !self.offset.is_finite() {
             return Err(PhysicsError::InvalidShape);
         }
-        for shape in &self.shapes {
-            shape.validate()?;
+        match &self.geometry {
+            ColliderGeometry::Shapes(shapes) if shapes.len() <= 4096 => {
+                shapes.iter().try_for_each(Shape2d::validate)
+            }
+            ColliderGeometry::Shapes(_) => Err(PhysicsError::InvalidShape),
+            ColliderGeometry::Tilemap => Ok(()),
         }
-        Ok(())
     }
 }

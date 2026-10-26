@@ -1,7 +1,8 @@
 #![cfg(feature = "simulation")]
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::simulation::{SpriteTextures, extract_world};
-use worldrunner_world_simulation::presentation::{Camera, Sprite, SpriteRenderer, Tile, Tilemap};
+use worldrunner_world_simulation::presentation::{Camera, Sprite, SpriteRenderer};
+use worldrunner_world_simulation::tilemap::{Tile, TileCell, Tilemap};
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
 };
@@ -45,6 +46,26 @@ fn sprites_keep_texture_tint_uv_flip_and_stable_sorting() {
     );
     assert!(Vec3::from_array(plan.quads[0].corners[0]).abs_diff_eq(Vec3::new(-0.5, 0., -1.), 1e-6));
 }
+/// A unit-grid tilemap holding one 2x2-unit tile, pivoted at its corner, at `position`.
+fn one_tile(transform: Mat4, position: [i32; 2]) -> Tilemap {
+    let sprite = Sprite {
+        identity: 0,
+        texture: 0,
+        rect: [0., 0., 2., 2.],
+        pivot: [0., 0.],
+        pixels_per_unit: 1.,
+        texture_size: [2, 2],
+    };
+    Tilemap {
+        tiles: vec![Tile {
+            sprite: Some(sprite),
+            transform,
+            ..Default::default()
+        }],
+        cells: vec![TileCell { position, tile: 0 }],
+        ..Default::default()
+    }
+}
 #[test]
 fn tile_matrix_and_object_hierarchy_are_composed_without_decomposition() {
     let mut w = world();
@@ -59,14 +80,6 @@ fn tile_matrix_and_object_hierarchy_are_composed_without_decomposition() {
             ..Default::default()
         })
         .unwrap();
-    let sprite = Sprite {
-        identity: 0,
-        texture: 0,
-        rect: [0., 0., 2., 2.],
-        pivot: [0., 0.],
-        pixels_per_unit: 1.,
-        texture_size: [2, 2],
-    };
     w.set_parent(
         object,
         Some(parent),
@@ -76,23 +89,15 @@ fn tile_matrix_and_object_hierarchy_are_composed_without_decomposition() {
     let shear = Mat4::from_cols_array(&[
         1., 0., 0., 0., 0.5, 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
     ]);
-    w.add_component(
-        object,
-        ComponentDesc::Tilemap(Tilemap {
-            tiles: vec![Tile {
-                sprite,
-                transform: shear,
-                color: [1.; 4],
-            }],
-            ..Default::default()
-        }),
-    )
-    .unwrap();
+    w.add_component(object, ComponentDesc::Tilemap(one_tile(shear, [1, -1])))
+        .unwrap();
     let plan = extract_world(&w, &SpriteTextures::default(), [20, 20]).unwrap();
     let basis = Mat4::from_cols_array(&[
         1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
     ]);
-    let matrix = basis * w.world_matrix(object).unwrap() * shear;
+    // Cell (1, -1) of a unit grid, anchored at its centre, then the tile's own transform.
+    let anchored = Mat4::from_translation(Vec3::new(1.5, -0.5, 0.));
+    let matrix = basis * w.world_matrix(object).unwrap() * anchored * shear;
     for (actual, local) in
         plan.quads[0]
             .corners

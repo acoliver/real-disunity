@@ -95,14 +95,7 @@ pub unsafe extern "C" fn disunity_sprite_write(
         };
         let lighting =
             worldrunner_world_simulation::presentation::SpriteLighting::try_from(v.lighting)?;
-        let sprite = (v.present == 1).then_some(Sprite {
-            identity: v.identity,
-            texture: v.texture,
-            rect: [v.x, v.y, v.w, v.h],
-            pivot: [v.pivot_x, v.pivot_y],
-            pixels_per_unit: v.pixels_per_unit,
-            texture_size: [v.width, v.height],
-        });
+        let sprite = (v.present == 1).then_some(content(&v));
         s.native
             .set_component(
                 id,
@@ -207,17 +200,21 @@ pub unsafe extern "C" fn disunity_sprite_validate(value: *const DisunitySprite) 
         return DisunityResult::invalid_argument();
     }
     let v = unsafe { *value };
-    let sprite = Sprite {
+    match content(&v).validate() {
+        Ok(()) => DisunityResult::ok(),
+        Err(e) => crate::abi::translate_error(None, &e.into()),
+    }
+}
+
+/// The immutable sprite content a record describes, ignoring its renderer fields.
+pub(crate) fn content(v: &DisunitySprite) -> Sprite {
+    Sprite {
         identity: v.identity,
         texture: v.texture,
         rect: [v.x, v.y, v.w, v.h],
         pivot: [v.pivot_x, v.pivot_y],
         pixels_per_unit: v.pixels_per_unit,
         texture_size: [v.width, v.height],
-    };
-    match sprite.validate() {
-        Ok(()) => DisunityResult::ok(),
-        Err(e) => crate::abi::translate_error(None, &e.into()),
     }
 }
 

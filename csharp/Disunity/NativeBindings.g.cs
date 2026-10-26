@@ -516,6 +516,8 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_body_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_body_read(ulong world, ulong handle, DisunityBody2d* output);
         /// <summary>
+        ///  Writes a box (kind 0), circle (kind 1) or tilemap (kind 2) collider. A tilemap collider takes
+        ///  its shapes from the Tilemap on its object, so its size and radius are ignored.
         ///  # Safety
         ///  `value` points to one readable collider record.
         /// </summary>
@@ -696,5 +698,50 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_text_style_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_text_style_write(ulong world, ulong handle, DisunityTextStyle* value);
+        /// <summary>
+        ///  Creates an empty enabled tilemap on a unit grid with a centred tile anchor.
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_create(ulong world, ulong @object, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  Value is readable for one tilemap record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_write(ulong world, ulong handle, DisunityTilemap* value);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one tilemap record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_read(ulong world, ulong handle, DisunityTilemap* output);
+        /// <summary>
+        ///  Sets palette entry `index`, replacing it or, at the palette's length, appending it. `sprite`
+        ///  may be null for a tile with no sprite; only its content fields are read. A Sprite collider
+        ///  starts with no physics shape; set it with `disunity_tilemap_set_tile_shape`.
+        ///  # Safety
+        ///  Tile is readable for one tile record; sprite is null or readable for one sprite record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_tile", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_set_tile(ulong world, ulong handle, uint index, DisunityTile* tile, DisunitySprite* sprite);
+        /// <summary>
+        ///  Sets the physics shape of Sprite-collider tile `index`: `path_count` convex paths, path `i`
+        ///  holding `lengths[i]` points, read in order from `points` as x, y pairs in sprite units
+        ///  around the pivot. This is Unity's `Sprite.GetPhysicsShape` for the tile's sprite.
+        ///  # Safety
+        ///  Lengths is readable for path_count values and points for twice their sum; either may be
+        ///  null when path_count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_tile_shape", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_set_tile_shape(ulong world, ulong handle, uint index, float* points, uint* lengths, uint path_count);
+        /// <summary>
+        ///  Replaces every cell. Positions must be distinct and each tile index must be in the palette.
+        ///  # Safety
+        ///  Cells is readable for count records, or null when count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_cells", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_set_cells(ulong world, ulong handle, DisunityTileCell* cells, uint count);
     }
 }

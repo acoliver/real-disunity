@@ -402,6 +402,59 @@ namespace Disunity.Native
         public float a;
     }
 
+    /// <summary>
+    ///  A tilemap's renderer settings and grid layout: cell size and gap from its `Grid`, and the
+    ///  tilemap's tile anchor as a fraction of a cell.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTilemap
+    {
+        public uint enabled;
+        public int sorting_layer;
+        public int sorting_order;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public float cell_x;
+        public float cell_y;
+        public float gap_x;
+        public float gap_y;
+        public float anchor_x;
+        public float anchor_y;
+    }
+
+    /// <summary>
+    ///  One palette entry besides its sprite. `collider` is Unity's `Tile.ColliderType`: 0 None,
+    ///  1 Sprite, 2 Grid. The tile transform is the 2D affine `[m00 m01 tx; m10 m11 ty]`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTile
+    {
+        public uint collider;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public float m00;
+        public float m01;
+        public float m10;
+        public float m11;
+        public float tx;
+        public float ty;
+    }
+
+    /// <summary>
+    ///  A cell at (`x`, `y`) using palette entry `tile`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTileCell
+    {
+        public int x;
+        public int y;
+        public uint tile;
+    }
+
 
 
 }

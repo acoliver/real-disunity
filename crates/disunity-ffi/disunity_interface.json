@@ -498,6 +498,36 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_tilemap_create",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_tilemap_read",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_tilemap_set_cells",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_tilemap_set_tile",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_tilemap_set_tile_shape",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_tilemap_write",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_transform_get_parent",
       "since": "2.0.0",
       "rets": "DisunityResult"

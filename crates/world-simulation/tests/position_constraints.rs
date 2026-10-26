@@ -96,7 +96,7 @@ fn both_bodies_frozen_on_contact_axis_advance_without_fault() {
 use glam::{Vec2, Vec3};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, LocalTransform, ObjectDesc, ObjectHandle, World, WorldSettings,
-    physics2d::{Body2d, Collider2d, Shape2d},
+    physics2d::{Body2d, Collider2d, ColliderGeometry, Shape2d},
 };
 
 fn body(world: &mut World, position: Vec2, value: Body2d) -> (ObjectHandle, ComponentHandle) {
@@ -116,9 +116,9 @@ fn body(world: &mut World, position: Vec2, value: Body2d) -> (ObjectHandle, Comp
         .add_component(
             object,
             ComponentDesc::Collider2d(Collider2d {
-                shapes: vec![Shape2d::Box {
+                geometry: ColliderGeometry::Shapes(vec![Shape2d::Box {
                     half_extents: Vec2::splat(0.5),
-                }],
+                }]),
                 ..Default::default()
             }),
         )

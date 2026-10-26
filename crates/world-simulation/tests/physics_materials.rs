@@ -1,6 +1,7 @@
 use glam::{Quat, Vec2};
 use worldrunner_world_simulation::physics2d::{
-    Body2d, Collider2d, PhysicsError, PhysicsMaterial2d, PhysicsMaterialHandle, Shape2d,
+    Body2d, Collider2d, ColliderGeometry, PhysicsError, PhysicsMaterial2d, PhysicsMaterialHandle,
+    Shape2d,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldError, WorldSettings,
@@ -50,9 +51,9 @@ fn scene(
     w.add_component(
         floor,
         ComponentDesc::Collider2d(Collider2d {
-            shapes: vec![Shape2d::Box {
+            geometry: ColliderGeometry::Shapes(vec![Shape2d::Box {
                 half_extents: Vec2::new(20.0, 0.5),
-            }],
+            }]),
             shared_material: Some(floor_material),
             ..Default::default()
         }),
@@ -80,7 +81,7 @@ fn scene(
     w.add_component(
         ball,
         ComponentDesc::Collider2d(Collider2d {
-            shapes: vec![Shape2d::Circle { radius: 0.5 }],
+            geometry: ColliderGeometry::Shapes(vec![Shape2d::Circle { radius: 0.5 }]),
             ..Default::default()
         }),
     )

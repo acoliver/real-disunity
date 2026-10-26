@@ -1,5 +1,6 @@
 @group(0) @binding(0) var source: texture_2d<f32>;
 override EXPOSURE: f32 = 1.0;
+override FILMIC: bool = false;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -29,6 +30,7 @@ fn tone_map(radiance: f32) -> f32 {
     if bitcast<u32>(exposed) == 0x7f800000u {
         return 1.0;
     }
+    if FILMIC { return aces_display(exposed); }
     return exposed / (1.0 + exposed);
 }
 @fragment

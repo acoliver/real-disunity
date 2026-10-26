@@ -7,11 +7,15 @@ pub mod contracts;
 #[cfg(test)]
 mod contracts_tests;
 #[cfg(test)]
+mod display_policy_tests;
+#[cfg(test)]
 mod filter_hand_computed_gpu_tests;
 #[cfg(test)]
 mod filter_reference;
 #[cfg(test)]
 mod filter_reference_gpu_tests;
+#[cfg(test)]
+mod fxaa_quality_gpu_tests;
 #[cfg(test)]
 mod operations_buffer_scope_tests;
 #[cfg(test)]
@@ -49,7 +53,10 @@ pub use gaussian::{
     BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS,
     MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_extents_with_terminal, gaussian_weights,
 };
+mod aces;
+mod fxaa;
 mod post_filters;
+pub use fxaa::{FxaaLuminance, FxaaQuality};
 mod tone_map;
 mod upscale;
 pub use hdr_post::{

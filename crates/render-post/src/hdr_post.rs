@@ -26,6 +26,7 @@ pub struct HdrPostSettings {
     pub bloom: Option<Bloom>,
     pub bloom_kernel: crate::BloomKernel,
     pub fxaa: Option<f32>,
+    pub fxaa_quality: crate::FxaaQuality,
     pub upscale: Option<crate::UpscaleSettings>,
 }
 impl HdrPostSettings {
@@ -99,6 +100,7 @@ impl HdrPostSettings {
             return Err(PostError::UnsupportedProfile("bloom settings"));
         }
         self.validate_bloom_policies()?;
+        self.fxaa_quality.validate()?;
         if self
             .fxaa
             .is_some_and(|v| !v.is_finite() || !(0.0..=1.0).contains(&v))
@@ -203,7 +205,7 @@ impl HdrPost {
         targets: &FrameTargets,
         slot: usize,
         format: wgpu::TextureFormat,
-        initial: f64,
+        display: (f64, crate::ToneMap),
     ) -> StageSet {
         let mut set = StageSet::default();
         let exposure = &self.exposure[slot];
@@ -224,7 +226,7 @@ impl HdrPost {
             targets,
             &self.settings,
             exposure,
-            (format, initial),
+            (format, display.0, display.1),
         );
         set
     }

@@ -108,3 +108,32 @@ fn channel_varying_fxaa_matches_hand_computed_cutoffs_and_tangents() {
         }
     }
 }
+
+#[test]
+fn configurable_fxaa_cutoffs_match_hand_computed_neighbors() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    for (base, step, edge, minimum, active) in [
+        (1.0 / 16.0, 15.0 / 1024.0, 0.0, 1.0 / 32.0, false),
+        (1.0 / 16.0, 16.0 / 1024.0, 0.0, 1.0 / 32.0, false),
+        (1.0 / 16.0, 17.0 / 1024.0, 0.0, 1.0 / 32.0, true),
+        (3.0 / 8.0, 63.0 / 1024.0, 0.25, 0.0, false),
+        (3.0 / 8.0, 64.0 / 1024.0, 0.25, 0.0, false),
+        (3.0 / 8.0, 65.0 / 1024.0, 0.25, 0.0, true),
+    ] {
+        for transpose in [false, true] {
+            let (input, expected) = cutoff_case(base, step, active, transpose);
+            run(
+                (&device, &queue),
+                "fxaa",
+                (&input, None),
+                &expected,
+                wgpu::TextureFormat::Rgba16Float,
+                &[
+                    ("FXAA", 1.0),
+                    ("EDGE_THRESHOLD", edge),
+                    ("MINIMUM_THRESHOLD", minimum),
+                ],
+            );
+        }
+    }
+}

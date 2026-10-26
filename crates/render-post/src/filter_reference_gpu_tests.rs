@@ -43,6 +43,19 @@ pub(super) fn run(
     format: wgpu::TextureFormat,
     constants: &[(&str, f64)],
 ) {
+    let actual = render(gpu, entry, inputs, expected, format, constants);
+    let bytes = expected_bytes(expected, format, entry);
+    assert_eq!(actual, bytes, "{entry}, {format:?}");
+}
+
+pub(super) fn render(
+    gpu: (&wgpu::Device, &wgpu::Queue),
+    entry: &str,
+    inputs: (&Image, Option<&Image>),
+    expected: &Image,
+    format: wgpu::TextureFormat,
+    constants: &[(&str, f64)],
+) -> Vec<u8> {
     let (device, queue) = gpu;
     let pipeline = pipeline(device, entry, format, constants);
     let source = upload(device, queue, inputs.0);
@@ -82,12 +95,10 @@ pub(super) fn run(
         &[&group],
     );
     queue.submit([encoder.finish()]);
-    let actual = Readback::new(device, FrameConfig::new(size, format, 1), 65536)
+    Readback::new(device, FrameConfig::new(size, format, 1), 65536)
         .unwrap()
         .read(device, &crate::test_authority(queue), &output)
-        .unwrap();
-    let bytes = expected_bytes(expected, format, entry);
-    assert_eq!(actual, bytes, "{entry}, {format:?}");
+        .unwrap()
 }
 
 fn fixture(size: [u16; 2]) -> Image {
@@ -182,7 +193,7 @@ fn pipeline(
 ) -> wgpu::RenderPipeline {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("reference filter comparison"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("post_filters.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(crate::aces::shader(include_str!("post_filters.wgsl"))),
     });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(entry),

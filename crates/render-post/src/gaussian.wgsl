@@ -88,7 +88,7 @@ fn quarter_average(p: vec2<f32>) -> vec3<f32> {
 }
 fn curve(x: f32) -> f32 {
     if REINHARD { return x / (1.0 + x); }
-    return x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14);
+    return aces_fitted(x);
 }
 fn tone_bright(c: vec3<f32>) -> vec3<f32> {
     let v = min(vec3<f32>(clean(c.r),clean(c.g),clean(c.b)), vec3<f32>(MAXIMUM));

@@ -63,21 +63,46 @@ Bloom prefilters unexposed radiance with a quadratic soft knee, downsamples
 with a normalized nine-tap binomial kernel, and upsamples with the same
 separable 3x3 tent. Each upsample averages its local and coarser levels,
 preserving constant radiance instead of multiplying brightness by pyramid
-depth. Bloom uses Rgba16Float intermediates and adds before Reinhard.
+depth. Bloom uses Rgba16Float intermediates and adds before the selected tone curve.
 NaN, infinities and negative channels contribute zero to metering and bloom.
 Positive infinity remains a white highlight in direct output but does not
 spread into neighbours or enter histogram arithmetic. Finite half-float
 highlights remain eligible. This extends the existing output special-value
 policy to finite statistical/filter inputs without changing direct tone mapping.
 
-FXAA uses the display-linear luminance proxy `(R + 2G + B) / 4` and skips
-contrast at or below the greater of 1/64 and 10% of the neighborhood maximum.
+`ToneMap::Reinhard` retains `x/(1+x)`. `ToneMap::Filmic` applies
+`clamp(x*(a*x+b)/(x*(c*x+d)+e),0,1)` with `(a,b,c,d,e) =
+(2.51,0.03,2.43,0.59,0.14)`, the fitted ACES approximation published by
+[Krzysztof Narkowicz (2016)](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/).
+This implements the published equation without importing shader code. It is a
+component-wise fit, without ACES color-space transforms. `aces.rs` owns the
+coefficients used by both shader generation and CPU references, including the
+unclamped bloom bright-extraction curve. Bloom is added before exposure, then
+the selected curve runs before the attachment's single sRGB encoding. Negative
+radiance and NaN map to zero; positive infinity maps to one. Zero exposure maps
+all radiance to zero. `ToneMap::evaluate` provides the display-linear CPU reference;
+`ToneMapOutput::evaluate` retains its existing Reinhard semantics.
+
+FXAA uses `(R + 2G + B) / 4` as its luminance proxy. `HdrPostSettings::fxaa`
+retains the optional filter strength. `fxaa_quality: FxaaQuality` sets the relative
+`edge_threshold`, absolute `minimum_threshold`, `subpixel_blend` strength multiplier,
+and `luminance` transfer. Each numeric setting must be finite and within `0..=1`,
+even while FXAA is disabled. Filtering skips contrast at or below
+`max(minimum_threshold, maximum * edge_threshold)`. Defaults are `0.1`, `1/64`,
+`1.0`, and `FxaaLuminance::Linear`, preserving the existing bytes and division by ten.
+`FxaaLuminance::Srgb` applies the sRGB OETF to the scalar linear luminance proxy
+before contrast and gradient calculations. It does not encode RGB or reinterpret
+the source texture: the chain always supplies display-linear RGB.
+
 A Sobel-derived tangent selects bilinear samples 1.5 texels away along its
-major axis, with center weight 1/2 and side weights 1/4. Its scene weight
-blends that result with the original pixel. An Rgba32Float LDR intermediate
-preserves flat-region precision. Only the final sRGB attachment applies output
-transfer; alpha is preserved. See the [post-filter derivation](../../dev-docs/rendering/post-filters.md)
-for the bloom and FXAA equations.
+major axis, with center weight 1/2 and side weights 1/4. The product of strength
+and `subpixel_blend` blends that result with the original pixel. Zero gradient
+or zero blend preserves the original. An Rgba32Float LDR intermediate preserves
+flat-region precision. Only the final sRGB attachment applies output transfer;
+alpha is preserved. The filter uses explicit integer loads and bilinear
+arithmetic, without implicit derivatives in divergent control flow. See the
+[post-filter derivation](../../dev-docs/rendering/post-filters.md) for the base
+kernel; the quality controls above extend its fixed contrast cutoff and strength.
 
 ## Reduced internal resolution
 

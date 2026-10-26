@@ -13,7 +13,7 @@ pub(super) fn fixture(size: [u16; 2]) -> Image {
 
 fn curve(x: f64, kind: BrightCurve) -> f64 {
     match kind {
-        BrightCurve::AcesFilmic => x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14),
+        BrightCurve::AcesFilmic => crate::aces::fitted(x),
         BrightCurve::Reinhard => x / (1.0 + x),
     }
 }

@@ -25,9 +25,8 @@ public static partial class DisunityHost
         foreach (var row in rows.Where(row => row.kind == 0))
         {
             var source = ResolveObject(row.source);
-            var target = new GameObject(row.target);
+            var target = Track(new GameObject(row.target));
             if (source.transform is RectTransform) target.Transform = new RectTransform { gameObject = target };
-            Tracked.Add(target);
             objects.Add(row.target, target);
             remap.Add(source, target);
             remap.Add(source.transform, target.transform);
@@ -69,15 +68,7 @@ public static partial class DisunityHost
         {
             try { ThrowIfError(NativeBindings.disunity_clone_abort(WorldHandle, root)); }
             catch (Exception rollback) { failure.Data["CloneRollbackFailure"] = rollback; }
-            foreach (var owner in objects.Values)
-            {
-                foreach (var identity in Scripts.Where(pair => ReferenceEquals(pair.Value.gameObject, owner)).Select(pair => pair.Key).ToArray())
-                    Scripts.Remove(identity);
-                foreach (var handle in NativeComponents.Where(pair => ReferenceEquals(pair.Value.gameObject, owner)).Select(pair => pair.Key).ToArray())
-                    NativeComponents.Remove(handle);
-                owner.MarkDestroyed();
-                Tracked.Remove(owner);
-            }
+            Release(objects.Values);
             throw;
         }
         DisunityAdvance work;

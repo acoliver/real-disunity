@@ -228,10 +228,13 @@ pub unsafe extern "C" fn disunity_script_register(
     }
 }
 
+/// Queues `Awake` and `OnEnable` for scripts on `object` and its children that are eligible,
+/// then runs them. Whether the object is active is unchanged, so scripts added to an inactive
+/// object wait until it is activated, and constructing objects wait for their construction.
 /// # Safety
-/// `output` is writable for one record.
+/// `output` is writable for one callback record.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_world_activate(
+pub unsafe extern "C" fn disunity_object_wake(
     world: u64,
     object: u64,
     output: *mut DisunityAdvance,
@@ -240,7 +243,7 @@ pub unsafe extern "C" fn disunity_world_activate(
         let object = session.object(object)?;
         let mutation = session
             .native
-            .set_active(object, true)
+            .wake(object)
             .map_err(crate::errors::AbiError::from)?;
         session
             .native

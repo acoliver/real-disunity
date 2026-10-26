@@ -23,7 +23,10 @@ After an intentional ABI change:
    that file from the same output directory when its comparison fails.
    Do not guess an old build directory: use the path from this invocation.
 3. Update `crates/disunity-ffi/disunity_interface.json` for new exports and
-   record the current ABI revision. Revision 2 removes the old direct frame-step export.
+   record the current ABI revision. Removing or changing an export requires a new
+   revision in `DISUNITY_ABI_VERSION`. The build generates that number into
+   `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
+   managed checks never repeat it. If those files drift too, copy them the same way.
 4. Rerun the native build and
    `cargo test --locked --jobs 2 --package worldrunner-disunity-ffi`.
 
@@ -70,8 +73,7 @@ are in `Disunity.Hosting`; generated imports are in `Disunity.Native`. There is 
 second managed object API. Object and script wrappers identify native storage.
 Transform reads and Time properties query that storage rather than a managed cache.
 
-Revision 2 replaces the direct frame-step export with `advance` and `resume`.
-Native state selects Awake, enable/disable, Start, fixed updates and physics,
+Native advancement uses `advance` and `resume`. Native state selects Awake, enable/disable, Start, fixed updates and physics,
 dynamic updates, LateUpdate and destruction. The host receives one owned work
 record, returns from the ABI call, invokes managed code, then resumes the checked
 ticket. Nested activation uses the same native dispatch stack. Invalid tickets,
@@ -91,6 +93,19 @@ native activation starts. Internal GameObject, Transform and script references,
 arrays and lists remap to their cloned identities. External references retain
 their identity. Nested Instantiate drains Awake and OnEnable before returning.
 Constructor or field-binding failure discards the unpublished native subtree.
+
+`DisunityHost.BeginConstruction` builds many objects whose scripts wake together, as
+a Unity scene load does. Objects created in a construction take components and
+scripts through the ordinary `AddComponent` calls, and fields bind freely: no
+`Awake` or `OnEnable` runs and searches do not see the objects until `Activate`.
+Activation runs every eligible `Awake`, then every `OnEnable`; `Start` follows before
+the next update. Disposing an unactivated construction removes its objects, scripts
+and native components. Clones and constructions share one unpublished mechanism in
+the native world.
+
+`AddComponent` wakes a new script only when its object is active in the hierarchy.
+It never changes whether the object is active; an inactive object's scripts wake
+when it is activated.
 `Transform.SetParent` and `GameObject.SetActive` also drain native lifecycle work.
 Script messages are resolved by name, including private methods, without requiring
 virtual overrides. Start may also return an IEnumerator, which begins synchronously on native Start delivery.

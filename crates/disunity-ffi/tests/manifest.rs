@@ -5,35 +5,29 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// Exports declared in `src/abi.rs`.
+/// Every Rust source under `src/`, so exports in new files are covered without a list here.
+fn sources(directory: &Path, found: &mut Vec<String>) {
+    for entry in std::fs::read_dir(directory).expect("read source directory") {
+        let path = entry.expect("source entry").path();
+        if path.is_dir() {
+            sources(&path, found);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            found.push(std::fs::read_to_string(&path).expect("read source"));
+        }
+    }
+}
+
+/// Exports declared anywhere in the crate's sources.
 fn declared_exports() -> BTreeSet<String> {
-    let source = concat!(
-        include_str!("../src/abi.rs"),
-        include_str!("../src/assets.rs"),
-        include_str!("../src/camera_layers.rs"),
-        include_str!("../src/camera_data.rs"),
-        "\n",
-        include_str!("../src/scheduling.rs"),
-        "\n",
-        include_str!("../src/buffers.rs"),
-        "\n",
-        include_str!("../src/cloning.rs"),
-        "\n",
-        include_str!("../src/hierarchy.rs"),
-        include_str!("../src/callbacks.rs"),
-        include_str!("../src/input.rs"),
-        include_str!("../src/physics.rs"),
-        include_str!("../src/physics_materials.rs"),
-        include_str!("../src/ui.rs"),
-        include_str!("../src/object_api.rs"),
-        include_str!("../src/sprites.rs"),
-        include_str!("../src/presentation.rs")
+    let mut files = Vec::new();
+    sources(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut files,
     );
     let mut names = BTreeSet::new();
-    for line in source.lines() {
+    for line in files.iter().flat_map(|file| file.lines()) {
         let line = line.trim();
         if let Some(rest) = line
-            .replace("pub extern", "pub unsafe extern")
             .strip_prefix("pub unsafe extern \"C\" fn ")
             .or_else(|| line.strip_prefix("pub extern \"C\" fn "))
         {
@@ -124,5 +118,22 @@ fn checked_managed_records_match_the_complete_generated_records() {
     assert_eq!(
         checked, generated,
         "complete generated record declarations drifted"
+    );
+}
+
+#[test]
+fn checked_bindings_import_every_export() {
+    let bindings = generated_bindings();
+    let imported: BTreeSet<String> = bindings
+        .split("EntryPoint = \"")
+        .skip(1)
+        .map(|rest| rest.split('"').next().unwrap_or_default().to_owned())
+        .collect();
+    let declared = declared_exports();
+    let missing: Vec<_> = declared.difference(&imported).collect();
+    let extra: Vec<_> = imported.difference(&declared).collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "bindings drift (list new ABI files in build.rs EXTERN_INPUTS): missing {missing:?}, extra {extra:?}"
     );
 }

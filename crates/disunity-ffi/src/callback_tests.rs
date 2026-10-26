@@ -10,7 +10,7 @@ fn world() -> u64 {
             0
         );
         let mut work = DisunityAdvance::default();
-        assert_eq!(disunity_world_activate(world, object, &mut work).code, 0);
+        assert_eq!(disunity_object_wake(world, object, &mut work).code, 0);
         drain(world, work);
         world
     }

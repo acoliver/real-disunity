@@ -214,3 +214,43 @@ fn activation_publishes_and_runs_awake_for_scenes_and_clones() {
         Some(WorldError::WrongMutation)
     );
 }
+
+#[test]
+fn waking_runs_new_scripts_without_changing_activity() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let active = world.create_object(named("Active", true)).unwrap();
+    let inactive = world.create_object(named("Inactive", false)).unwrap();
+    let added = script(&mut world, active, "Added");
+    let waiting = script(&mut world, inactive, "Waiting");
+    let mutation = world.wake(active).unwrap();
+    let work: Vec<_> = world
+        .lifecycle_work(mutation)
+        .unwrap()
+        .iter()
+        .map(|work| (work.script, work.message))
+        .collect();
+    assert_eq!(
+        work,
+        [
+            (added, ScriptMessage::Awake),
+            (added, ScriptMessage::OnEnable)
+        ]
+    );
+    let mutation = world.wake(inactive).unwrap();
+    assert!(world.lifecycle_work(mutation).unwrap().is_empty());
+    assert!(
+        !world.object(inactive).unwrap().active,
+        "waking never activates"
+    );
+    assert!(!world.script_ready(waiting).unwrap());
+    let construction = world.begin_construction().unwrap();
+    let pending = world
+        .create_object_in(construction, named("Pending", true))
+        .unwrap();
+    script(&mut world, pending, "Pending");
+    let mutation = world.wake(pending).unwrap();
+    assert!(
+        world.lifecycle_work(mutation).unwrap().is_empty(),
+        "constructing objects wait for their construction"
+    );
+}

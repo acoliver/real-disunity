@@ -334,11 +334,14 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_script_register(ulong world, ulong @object, ulong identity, ulong* output);
 
         /// <summary>
+        ///  Queues `Awake` and `OnEnable` for scripts on `object` and its children that are eligible,
+        ///  then runs them. Whether the object is active is unchanged, so scripts added to an inactive
+        ///  object wait until it is activated, and constructing objects wait for their construction.
         ///  # Safety
-        ///  `output` is writable for one record.
+        ///  `output` is writable for one callback record.
         /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_world_activate", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_world_activate(ulong world, ulong @object, DisunityAdvance* output);
+        [DllImport(__DllName, EntryPoint = "disunity_object_wake", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_wake(ulong world, ulong @object, DisunityAdvance* output);
 
         /// <summary>
         ///  # Safety

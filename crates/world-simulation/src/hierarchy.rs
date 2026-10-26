@@ -94,6 +94,16 @@ impl World {
         Ok(mutation)
     }
 
+    /// Queues `Awake` and `OnEnable` for scripts on `object` and its children that are now
+    /// eligible, without changing whether any object is active. Objects in an open
+    /// construction receive no work until it is published.
+    pub fn wake(&mut self, object: ObjectHandle) -> Result<MutationId, WorldError> {
+        let nodes = self.subtree(object)?;
+        let mutation = self.reserve_mutation()?;
+        self.refresh_lifecycle(&nodes, mutation);
+        Ok(mutation)
+    }
+
     pub(crate) fn local_from_world(
         &self,
         parent: Option<ObjectHandle>,

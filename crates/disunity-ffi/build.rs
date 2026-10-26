@@ -71,25 +71,7 @@ fn main() {
 fn generate_native_records() {
     let mut output =
         String::from("// Generated from disunity-ffi ABI definitions. Do not edit.\n\n");
-    for file in [
-        "src/abi.rs",
-        "src/assets.rs",
-        "src/camera_layers.rs",
-        "src/camera_data.rs",
-        "src/sprites.rs",
-        "src/presentation.rs",
-        "src/lib.rs",
-        "src/scheduling.rs",
-        "src/buffers.rs",
-        "src/cloning.rs",
-        "src/hierarchy.rs",
-        "src/callbacks.rs",
-        "src/input.rs",
-        "src/physics.rs",
-        "src/physics_materials.rs",
-        "src/ui.rs",
-        "src/object_api.rs",
-    ] {
+    for file in EXTERN_INPUTS {
         let source = std::fs::read_to_string(file).expect("read ABI definitions");
         for record in source.split("#[repr(C)]").skip(1) {
             let end = record.find("\n}").expect("flat C record ends") + 2;
@@ -98,6 +80,10 @@ fn generate_native_records() {
             output.push_str("\n\n");
         }
     }
+    output.push_str(&format!(
+        "/// The ABI revision these records belong to.\npub const DISUNITY_ABI_VERSION: u32 = {};\n\n",
+        abi_version()
+    ));
     let source = std::fs::read_to_string("src/abi.rs").expect("ABI reasons");
     let reason = source.split("#[repr(u64)]").nth(1).expect("reason enum");
     let end = reason.find("\n}").expect("enum end") + 2;
@@ -112,9 +98,8 @@ fn generate_native_records() {
     )
     .join("../disunity-runtime/src/native.g.rs");
     println!("cargo:rerun-if-changed={}", checked.display());
-    assert_eq!(
-        std::fs::read(&checked).unwrap_or_default(),
-        output.as_bytes(),
+    assert!(
+        std::fs::read(&checked).unwrap_or_default() == output.as_bytes(),
         "native ABI bindings drifted; copy {} to {}",
         path.display(),
         checked.display()
@@ -150,13 +135,25 @@ fn split_managed_records(generated: &std::path::Path, checked: &std::path::Path)
     std::fs::write(&output, records.as_bytes()).expect("write generated records");
     let tracked = checked.with_file_name("NativeRecords.g.cs");
     println!("cargo:rerun-if-changed={}", tracked.display());
-    assert_eq!(
-        std::fs::read(&tracked).unwrap_or_default(),
-        records.as_bytes(),
+    assert!(
+        std::fs::read(&tracked).unwrap_or_default() == records.as_bytes(),
         "managed record bindings drifted; copy {} to {}",
         output.display(),
         tracked.display()
     );
     std::fs::write(generated, format!("{}\n}}\n", &source[..class_end]))
         .expect("write generated imports");
+}
+
+/// The revision declared by `DISUNITY_ABI_VERSION` in `src/abi.rs`, so generated consumers never
+/// repeat the number.
+pub(crate) fn abi_version() -> u32 {
+    let source = std::fs::read_to_string("src/abi.rs").expect("ABI version source");
+    let line = source
+        .lines()
+        .find_map(|line| line.strip_prefix("pub const DISUNITY_ABI_VERSION: u32 = "))
+        .expect("ABI version constant");
+    line.trim_end_matches(';')
+        .parse()
+        .expect("numeric ABI version")
 }

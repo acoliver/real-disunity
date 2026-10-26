@@ -10,6 +10,7 @@ fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
         near.vertices()
             .iter()
             .map(|vertex| SceneVertex {
+                tangent_micro: None,
                 position_millimeters: vertex.position_millimeters.map(|v| v / 4),
                 ..*vertex
             })

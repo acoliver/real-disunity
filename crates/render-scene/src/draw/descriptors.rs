@@ -11,6 +11,7 @@ pub(crate) fn validate(scene: &RenderScene) -> Result<(), FrameError> {
     if let Some(terrain) = scene.terrain() {
         for surface in terrain.surfaces() {
             let material = &scene.resources().materials()[surface.material().raw() as usize];
+            validate_terrain_normals(material)?;
             if let Some(features) = material.features() {
                 validate_terrain_material(features)?;
             }
@@ -27,6 +28,20 @@ pub(crate) fn validate(scene: &RenderScene) -> Result<(), FrameError> {
                 "terrain contact requires a heightfield",
             ));
         }
+    }
+    Ok(())
+}
+fn validate_terrain_normals(
+    material: &worldrunner_render_plan::SceneMaterial,
+) -> Result<(), FrameError> {
+    use worldrunner_render_plan::{SceneNormalEncoding, SceneNormalY};
+    if material.normal_encoding() != SceneNormalEncoding::TwoChannelXy
+        || material.normal_y() != SceneNormalY::Up
+        || material.normal_scale_micro() != 1_000_000
+    {
+        return Err(FrameError::UnsupportedEffect(
+            "terrain material normal settings",
+        ));
     }
     Ok(())
 }

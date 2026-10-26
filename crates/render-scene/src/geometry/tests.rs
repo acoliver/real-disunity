@@ -23,6 +23,7 @@ fn f32_at(bytes: &[u8], offset: usize) -> f32 {
 /// Builds a vertex with the given position, normal and texture coordinate.
 fn vertex(position: [i64; 3], normal: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
     SceneVertex {
+        tangent_micro: None,
         position_millimeters: position,
         normal_micro: normal,
         texcoord_micro: texcoord,
@@ -231,7 +232,7 @@ fn the_billboard_mode_belongs_to_the_selected_mesh_level() {
     assert_eq!(attributes[4].shader_location, 7);
     assert_eq!(attributes[4].offset, 36);
     assert_eq!(
-        attributes[4].offset + attributes[4].format.size(),
+        attributes[5].offset + attributes[5].format.size(),
         VERTEX_STRIDE
     );
     for (policy, expected) in [
@@ -291,6 +292,7 @@ fn crossed_card_dimensions_preserve_both_authored_planes() {
         [0, 1000, 2000],
     ];
     let vertices = positions.map(|position| SceneVertex {
+        tangent_micro: None,
         position_millimeters: position,
         normal_micro: [0, -1_000_000, 0],
         texcoord_micro: [0; 2],
@@ -328,6 +330,7 @@ fn crossed_card_dimensions_preserve_both_authored_planes() {
 fn card_fitting_inverse_transposes_nonuniform_authored_normals() {
     use worldrunner_render_plan::SceneCard;
     let vertices = [[-1000, 0, 0], [1000, 0, 0], [1000, 0, 2000]].map(|position| SceneVertex {
+        tangent_micro: None,
         position_millimeters: position,
         normal_micro: [0, -1_000_000, 1_000_000],
         texcoord_micro: [0; 2],
@@ -349,4 +352,73 @@ fn card_fitting_inverse_transposes_nonuniform_authored_normals() {
         (normal - Vec3::new(0.0, -1.0, 1.0 / 3.0).normalize()).length() < 1e-7,
         "{normal:?}"
     );
+}
+
+#[test]
+fn stored_tangents_pack_signed_frames_and_reject_degeneracy() {
+    for handedness in [-MICRO, MICRO] {
+        let mut vertex = vertex([0; 3], [0, 0, MICRO], [0; 2]);
+        vertex.tangent_micro = Some([2 * MICRO, 0, MICRO, handedness]);
+        let packed = pack_vertices(&lod(vec![vertex; 3])).unwrap();
+        assert_eq!(&packed[40..44], &1.0_f32.to_le_bytes());
+        assert_eq!(&packed[44..48], &0.0_f32.to_le_bytes());
+        assert_eq!(&packed[48..52], &0.0_f32.to_le_bytes());
+        assert_eq!(
+            &packed[52..56],
+            &if handedness < 0 { -1.0_f32 } else { 1.0_f32 }.to_le_bytes()
+        );
+    }
+    for tangent in [[0, 0, MICRO, MICRO], [0; 4], [MICRO, 0, 0, 0]] {
+        let mut vertex = vertex([0; 3], [0, 0, MICRO], [0; 2]);
+        vertex.tangent_micro = Some(tangent);
+        assert_eq!(
+            pack_vertices(&lod(vec![vertex; 3])),
+            Err(GeometryError::InvalidTangent { index: 0 })
+        );
+    }
+}
+
+#[test]
+fn non_axis_aligned_parallel_tangents_are_rejected_before_orthogonalization() {
+    for normal in [[MICRO; 3], [MICRO, 2 * MICRO, 3 * MICRO]] {
+        let mut vertex = vertex([0; 3], normal, [0; 2]);
+        vertex.tangent_micro = Some([normal[0], normal[1], normal[2], MICRO]);
+        assert_eq!(
+            pack_vertices(&lod(vec![vertex; 3])),
+            Err(GeometryError::InvalidTangent { index: 0 })
+        );
+    }
+}
+
+#[test]
+fn nonuniform_card_fit_cannot_admit_a_parallel_authored_tangent() {
+    use worldrunner_render_plan::SceneCard;
+    let vertices = [[-1000, 0, 0], [1000, 0, 0], [1000, 0, 2000]].map(|position| {
+        let mut vertex = vertex(position, [MICRO; 3], [0; 2]);
+        vertex.tangent_micro = Some([MICRO; 4]);
+        vertex
+    });
+    let lod = SceneMeshLod::new(
+        0,
+        vertices.to_vec(),
+        vec![0, 1, 2],
+        Some(BillboardPolicy::CrossQuads),
+    )
+    .unwrap()
+    .with_card(SceneCard::new(BillboardPolicy::CrossQuads, [2000, 6000], 1_000_000).unwrap())
+    .unwrap();
+    assert_eq!(
+        pack_vertices(&lod),
+        Err(GeometryError::InvalidTangent { index: 0 })
+    );
+}
+
+#[test]
+fn absent_tangents_preserve_the_stock_vertex_prefix_and_zero_the_new_attribute() {
+    let packed = pack_vertices(&lod_with([0, 0, MICRO], [0; 2])).unwrap();
+    assert_eq!(vertex_attributes()[5].offset, 40);
+    assert_eq!(vertex_attributes()[5].shader_location, 11);
+    for vertex in packed.chunks_exact(super::VERTEX_BYTES) {
+        assert_eq!(&vertex[40..56], &[0; 16]);
+    }
 }

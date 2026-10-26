@@ -291,6 +291,7 @@ impl<'a> TerrainGrid<'a> {
         push_f32(bytes, position.y / TERRAIN_METERS_PER_TILE);
         bytes.extend_from_slice(&0_u32.to_le_bytes());
         push_f32(bytes, 1.0);
+        bytes.extend_from_slice(&[0; 16]);
     }
 }
 

@@ -50,6 +50,8 @@ impl MeshHandle {
 /// re-scaling. No per-vertex invariant exists beyond the types themselves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneVertex {
+    /// Optional tangent XYZ in micro-units and handedness W, exactly `+/-1_000_000`.
+    pub tangent_micro: Option<[i64; 4]>,
     /// Canonical position in whole millimeters.
     pub position_millimeters: [i64; 3],
     /// Authored surface direction in micro-units.
@@ -457,6 +459,7 @@ mod tests {
 
     fn vertex() -> SceneVertex {
         SceneVertex {
+            tangent_micro: None,
             position_millimeters: [0, 0, 0],
             normal_micro: [0, 1_000_000, 0],
             texcoord_micro: [0, 0],

@@ -88,6 +88,7 @@ pub(super) fn card(policy: BillboardPolicy) -> SceneMesh {
             lod.vertices()
                 .iter()
                 .map(|v| SceneVertex {
+                    tangent_micro: None,
                     position_millimeters: [v.position_millimeters[0], 0, v.position_millimeters[1]],
                     normal_micro: [0, -1_000_000, 0],
                     texcoord_micro: v.texcoord_micro,

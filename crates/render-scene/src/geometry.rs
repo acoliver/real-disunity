@@ -44,13 +44,16 @@ const MILLIMETERS_PER_METER: f64 = 1_000.0;
 /// Micro-units in one whole unit.
 const MICRO_SCALE: f64 = 1_000_000.0;
 
+/// Frames with sin(angle) <= 1e-6 are unusable at f32 precision, regardless of scale.
+const MIN_FRAME_SINE: f32 = 1e-6;
+
 /// Bytes occupied by one packed vertex, as a buffer length.
-pub(crate) const VERTEX_BYTES: usize = 40;
+pub(crate) const VERTEX_BYTES: usize = 56;
 
 /// Bytes occupied by one packed instance, as a buffer length.
 pub(crate) const INSTANCE_BYTES: usize = 80;
 
-/// Bytes occupied by one packed vertex: position, normal, UV, billboard mode and AO.
+/// Bytes occupied by one packed vertex: position, normal, UV, billboard mode, AO and optional tangent.
 pub const VERTEX_STRIDE: u64 = VERTEX_BYTES as u64;
 
 /// Bytes occupied by one packed instance: a column-major `mat4` and linear tint.
@@ -74,6 +77,9 @@ pub const BILLBOARD_SPHERICAL: u32 = 2;
 /// Governed geometry could not be packed for the GPU.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum GeometryError {
+    /// Tangents must define a direction independent of the normal and a signed frame.
+    #[error("vertex {index} has an invalid tangent frame")]
+    InvalidTangent { index: usize },
     /// A dimensioned card cannot be scaled from a flat or collapsed authored extent.
     #[error("card geometry must have nonzero horizontal and vertical extent")]
     DegenerateCardExtent,
@@ -109,6 +115,7 @@ pub fn pack_vertices(lod: &SceneMeshLod) -> Result<Vec<u8>, GeometryError> {
             .vertex_occlusion_micro()
             .map_or(1_000_000, |values| values[index]);
         push_f32(&mut bytes, narrow(f64::from(ao) / MICRO_SCALE));
+        pack_tangent(&vertex, normal_scale, index, &mut bytes)?;
     }
     Ok(bytes)
 }
@@ -137,6 +144,39 @@ fn pack_vertex(
     // clamping would collapse the repeat into a single stretched texel.
     push_f32(bytes, micro_to_unit(vertex.texcoord_micro[0]));
     push_f32(bytes, micro_to_unit(vertex.texcoord_micro[1]));
+    Ok(())
+}
+
+fn pack_tangent(
+    vertex: &SceneVertex,
+    normal_scale: Vec3,
+    index: usize,
+    bytes: &mut Vec<u8>,
+) -> Result<(), GeometryError> {
+    let Some([x, y, z, w]) = vertex.tangent_micro else {
+        bytes.extend_from_slice(&[0; 16]);
+        return Ok(());
+    };
+    let invalid = GeometryError::InvalidTangent { index };
+    if w != -1_000_000 && w != 1_000_000 {
+        return Err(invalid);
+    }
+    let normal = Vec3::from_array(vertex.normal_micro.map(micro_to_unit));
+    let tangent = Vec3::new(micro_to_unit(x), micro_to_unit(y), micro_to_unit(z));
+    let tangent_direction = tangent.try_normalize().ok_or(invalid)?;
+    // Test authored directions before the fit can make a parallel pair appear independent.
+    if normal.normalize().cross(tangent_direction).length_squared()
+        <= MIN_FRAME_SINE * MIN_FRAME_SINE
+    {
+        return Err(invalid);
+    }
+    let normal = (normal * normal_scale).normalize();
+    let tangent = tangent / normal_scale;
+    let tangent = (tangent - normal * normal.dot(tangent))
+        .try_normalize()
+        .ok_or(invalid)?;
+    push_vec3(bytes, tangent);
+    push_f32(bytes, micro_to_unit(w));
     Ok(())
 }
 
@@ -221,7 +261,7 @@ pub const fn billboard_mode(billboard: Option<BillboardPolicy>) -> u32 {
 
 /// Describes the packed vertex layout to `wgpu`.
 #[must_use]
-pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 5] {
+pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 6] {
     [
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x3,
@@ -247,6 +287,11 @@ pub const fn vertex_attributes() -> [wgpu::VertexAttribute; 5] {
             format: wgpu::VertexFormat::Float32,
             offset: 36,
             shader_location: 7,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 40,
+            shader_location: 11,
         },
     ]
 }

@@ -65,6 +65,7 @@ fn identity() -> SceneTransform {
 
 fn vertex(position: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
     SceneVertex {
+        tangent_micro: None,
         position_millimeters: position,
         normal_micro: [0, 0, MICRO],
         texcoord_micro: texcoord,

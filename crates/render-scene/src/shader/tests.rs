@@ -148,12 +148,11 @@ fn the_shader_flags_match_the_wgsl_constants() {
 
 #[test]
 fn the_normal_map_reconstructs_its_third_channel() {
-    // All 105 authored normal maps are BC5, which stores two channels. Sampling
-    // the blue channel would return zero and lay every normal flat into the
-    // surface, so the shader must rebuild z from the unit-length constraint.
+    // XY remains the default; RGB sources opt into their stored third channel.
     let module = validate();
-    let uses_blue = ENVIRONMENT_WGSL.contains("normal_texture, material_sampler, uv).rgb");
-    assert!(!uses_blue, "a BC5 normal map has no blue channel to sample");
+    assert!(
+        ENVIRONMENT_WGSL.contains("if (material.geometry_flags.w & 1u) != 0u { z = sampled.z; }")
+    );
     assert!(
         ENVIRONMENT_WGSL.contains("sqrt(max(0.0, 1.0 - dot(xy, xy)))"),
         "the shader must reconstruct the normal's third channel"

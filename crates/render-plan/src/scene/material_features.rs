@@ -22,9 +22,11 @@ pub(super) fn bounded(
 pub struct SceneTint([u32; 3]);
 impl SceneTint {
     pub const WHITE: Self = Self([1_000_000; 3]);
+    /// Largest supported linear brightening multiplier, in millionths.
+    pub const MAX_CHANNEL_MICRO: u32 = 4_000_000;
     pub fn new(channels: [u32; 3]) -> Result<Self, SceneValidationError> {
         for value in channels {
-            bounded("tint channel", value, 1_000_000)?;
+            bounded("tint channel", value, Self::MAX_CHANNEL_MICRO)?;
         }
         Ok(Self(channels))
     }
@@ -233,4 +235,18 @@ impl SceneTerrainContact {
             distance_millimeters,
         })
     }
+}
+
+/// Stored tangent-space normal channels. The default preserves existing XY decoding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneNormalEncoding {
+    Rgb,
+    TwoChannelXy,
+}
+
+/// Direction of the normal texture's green channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneNormalY {
+    Up,
+    Down,
 }

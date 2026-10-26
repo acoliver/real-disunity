@@ -322,6 +322,9 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    normal_encoding: super::SceneNormalEncoding,
+    normal_y: super::SceneNormalY,
+    normal_scale_micro: u32,
     translucency_micro: u32,
     terrain_contact: Option<super::SceneTerrainContact>,
     features: Option<super::SceneMaterialFeatures>,
@@ -337,6 +340,33 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    /// Selects normal channels and the source green-axis convention.
+    #[must_use]
+    pub const fn with_normal_encoding(
+        mut self,
+        encoding: super::SceneNormalEncoding,
+        y: super::SceneNormalY,
+    ) -> Self {
+        self.normal_encoding = encoding;
+        self.normal_y = y;
+        self
+    }
+    pub const fn normal_encoding(&self) -> super::SceneNormalEncoding {
+        self.normal_encoding
+    }
+    pub const fn normal_y(&self) -> super::SceneNormalY {
+        self.normal_y
+    }
+    /// Scales tangent-space XY by a factor between zero and four, in millionths.
+    pub fn with_normal_scale(mut self, micro: u32) -> Result<Self, SceneValidationError> {
+        super::material_features::bounded("normal scale", micro, 4_000_000)?;
+        self.normal_scale_micro = micro;
+        Ok(self)
+    }
+    pub const fn normal_scale_micro(&self) -> u32 {
+        self.normal_scale_micro
+    }
+
     /// Fraction of backlighting transmitted through a thin surface.
     pub fn with_translucency(mut self, value: u32) -> Result<Self, SceneValidationError> {
         require_unit_range("foliage translucency", u64::from(value))?;
@@ -378,6 +408,9 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            normal_encoding: super::SceneNormalEncoding::TwoChannelXy,
+            normal_y: super::SceneNormalY::Up,
+            normal_scale_micro: 1_000_000,
             translucency_micro: 0,
             terrain_contact: None,
             features: None,

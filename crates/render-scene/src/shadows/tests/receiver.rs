@@ -8,6 +8,7 @@ fn receiver_scene() -> RenderScene {
             let px = (x - 8) * 100;
             let py = (y - 8) * 100;
             vertices.push(SceneVertex {
+                tangent_micro: None,
                 position_millimeters: [
                     i64::from(px),
                     i64::from(py),

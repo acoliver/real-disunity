@@ -1,11 +1,21 @@
-// Reconstructs a full normal from the two channels BC5 preserves.
-fn sample_normal(uv: vec2<f32>, geometric: vec3<f32>, position: vec3<f32>) -> vec3<f32> {
+// Decode source channels before scaling tangent-space XY.
+fn sample_normal(uv: vec2<f32>, geometric: vec3<f32>, position: vec3<f32>, tangent: vec4<f32>) -> vec3<f32> {
     if (material.texture_flags & FLAG_NORMAL) == 0u {
         return geometric;
     }
-    let xy = textureSample(normal_texture, material_sampler, uv).rg * 2.0 - 1.0;
-    let z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
-    let frame_basis = cotangent_frame(geometric, position, uv);
+    let sampled = textureSample(normal_texture, material_sampler, uv).rgb * 2.0 - 1.0;
+    var xy = sampled.xy;
+    var z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
+    if (material.geometry_flags.w & 1u) != 0u { z = sampled.z; }
+    if (material.geometry_flags.w & 2u) != 0u { xy.y = -xy.y; }
+    let scale = bitcast<f32>(material.geometry_flags.z);
+    if scale == 0.0 { return geometric; }
+    xy *= scale;
+    var frame_basis = cotangent_frame(geometric, position, uv);
+    if tangent.w != 0.0 {
+        let t = normalize(tangent.xyz - geometric * dot(geometric, tangent.xyz));
+        frame_basis = mat3x3<f32>(t, cross(geometric, t) * tangent.w, geometric);
+    }
     return normalize(frame_basis * vec3<f32>(xy, z));
 }
 
@@ -22,7 +32,7 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
         geometric_normal = -geometric_normal;
     }
 
-    let normal = sample_normal(input.texcoord, geometric_normal, input.world_position);
+    let normal = sample_normal(input.texcoord, geometric_normal, input.world_position, input.world_tangent);
 
     var roughness = material.roughness;
     var metalness = material.metalness;

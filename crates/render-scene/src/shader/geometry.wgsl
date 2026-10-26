@@ -1,5 +1,5 @@
 // Metallic-roughness shading: roughness in green, metalness in blue.
-// Normal maps encode tangent-space X/Y; the positive Z component is reconstructed.
+// Normal maps select stored RGB or XY with reconstructed positive Z.
 
 
 // Frame state, the reflectance model and the derivative tangent frame arrive
@@ -43,6 +43,7 @@ struct VertexInput {
     @location(2) texcoord: vec2<f32>,
     @location(8) lod_billboard_mode: u32,
     @location(7) ambient_occlusion: f32,
+    @location(11) tangent: vec4<f32>,
 }
 
 struct InstanceInput {
@@ -114,6 +115,7 @@ struct VertexOutput {
     @location(3) tint: vec4<f32>,
     @location(4) ambient_occlusion: f32,
     @location(5) @interpolate(flat) coverage: u32,
+    @location(6) world_tangent: vec4<f32>,
 }
 
 fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
@@ -146,6 +148,8 @@ fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutpu
     out.clip_position = frame.view_projection * vec4<f32>(world_position, 1.0);
     out.world_position = world_position;
     out.world_normal = scene_normal(rotation, vertex.normal);
+    out.world_tangent = vec4<f32>(rotation * vertex.tangent.xyz,
+        vertex.tangent.w * sign(dot(rotation[0], cross(rotation[1], rotation[2]))));
     out.texcoord = vertex.texcoord;
     out.tint = vec4<f32>(1.0);
     out.ambient_occlusion = 1.0;

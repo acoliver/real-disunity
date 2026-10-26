@@ -1,7 +1,7 @@
 fn reflection_metadata(input: VertexOutput, front: bool, masked: bool) -> vec4<f32> {
     var albedo = scene_albedo(textureSample(albedo_texture, material_sampler, input.texcoord), input.tint);
     let geometric = normalize(input.world_normal) * select(-1.0, 1.0, front);
-    let normal = sample_normal(input.texcoord, geometric, input.world_position);
+    let normal = sample_normal(input.texcoord, geometric, input.world_position, input.world_tangent);
     var roughness = material.roughness;
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {

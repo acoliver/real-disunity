@@ -53,6 +53,13 @@ internal static class GameApiTests
         Require(received == 7, "event listener removal");
         Require(Mathf.Clamp(3, -1, 1) == 1 && Mathf.Min(2f, 3f) == 2, "math helpers");
         for (var i = 0; i < 100; i++) Require(UnityEngine.Random.Range(1, 3) is >= 1 and < 3, "integer random bounds");
+        float[] Draw() => Enumerable.Range(0, 8).Select(_ => UnityEngine.Random.value + UnityEngine.Random.Range(0, 1000)).ToArray();
+        UnityEngine.Random.InitState(7);
+        var first = Draw();
+        UnityEngine.Random.InitState(7);
+        Require(first.SequenceEqual(Draw()), "a seed repeats its sequence");
+        UnityEngine.Random.InitState(8);
+        Require(!first.SequenceEqual(Draw()), "another seed gives another sequence");
     }
     private sealed class Marker : MonoBehaviour
     {

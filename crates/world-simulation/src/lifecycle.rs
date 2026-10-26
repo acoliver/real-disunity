@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MutationId {
-    world: u64,
+    pub(crate) world: u64,
     pub(crate) sequence: usize,
 }
 

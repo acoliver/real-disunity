@@ -334,11 +334,14 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_script_register(ulong world, ulong @object, ulong identity, ulong* output);
 
         /// <summary>
+        ///  Queues `Awake` and `OnEnable` for scripts on `object` and its children that are eligible,
+        ///  then runs them. Whether the object is active is unchanged, so scripts added to an inactive
+        ///  object wait until it is activated, and constructing objects wait for their construction.
         ///  # Safety
-        ///  `output` is writable for one record.
+        ///  `output` is writable for one callback record.
         /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_world_activate", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_world_activate(ulong world, ulong @object, DisunityAdvance* output);
+        [DllImport(__DllName, EntryPoint = "disunity_object_wake", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_wake(ulong world, ulong @object, DisunityAdvance* output);
 
         /// <summary>
         ///  # Safety
@@ -414,6 +417,36 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_clone_abort", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_clone_abort(ulong world, ulong root);
+
+        /// <summary>
+        ///  Opens a construction and writes its handle into `output`.
+        ///  # Safety
+        ///  `output` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_construction_begin", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_construction_begin(ulong world, ulong* output);
+
+        /// <summary>
+        ///  Creates an object that stays unpublished until the construction is activated.
+        ///  # Safety
+        ///  `output` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_construction_object_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_construction_object_create(ulong world, ulong construction, ulong* output);
+
+        /// <summary>
+        ///  Publishes the construction and starts its lifecycle work. Drain `output` as for any advance.
+        ///  # Safety
+        ///  `output` is writable for one callback record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_construction_activate", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_construction_activate(ulong world, ulong construction, DisunityAdvance* output);
+
+        /// <summary>
+        ///  Removes everything the construction created, including its component and script identities.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_construction_abort", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_construction_abort(ulong world, ulong construction);
 
         /// <summary>
         ///  # Safety

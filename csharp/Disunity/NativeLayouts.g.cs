@@ -216,3 +216,8 @@ internal static class NativeLayouts
         if (Marshal.SizeOf<DisunityTransform>() != 40 || typeof(DisunityTransform).GetFields().Length != 10) throw new InvalidOperationException("DisunityTransform layout");
     }
 }
+/// The native ABI revision this assembly was built against.
+internal static class NativeAbi
+{
+    internal const uint Version = 3;
+}

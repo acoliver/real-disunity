@@ -26,7 +26,10 @@ pub fn generate(out: &Path) {
             append_record(record, module, &mut managed, &mut native);
         }
     }
-    managed.push_str("    }\n}\n");
+    managed.push_str(&format!(
+        "    }}\n}}\n/// The native ABI revision this assembly was built against.\ninternal static class NativeAbi\n{{\n    internal const uint Version = {};\n}}\n",
+        crate::abi_version()
+    ));
     std::fs::write(out.join("NativeLayouts.g.cs"), &managed).expect("managed layout expectations");
     std::fs::write(out.join("NativeLayouts.g.rs"), native).expect("native layout expectations");
     let checked = Path::new("../../csharp/Disunity/NativeLayouts.g.cs");

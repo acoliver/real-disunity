@@ -1,6 +1,6 @@
 {
-  "abi_version": 2,
-  "description": "Disunity revision 2: one native advancement model; generated C declarations and explicit revision admission.",
+  "abi_version": 3,
+  "description": "Disunity revision 3: batch construction publishes many objects before their lifecycle runs, and waking scripts no longer changes object activity.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -168,6 +168,26 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_construction_abort",
+      "since": "3.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_construction_activate",
+      "since": "3.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_construction_begin",
+      "since": "3.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_construction_object_create",
+      "since": "3.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_coroutine_cancelled",
       "since": "2.0.0",
       "rets": "DisunityResult"
@@ -275,6 +295,11 @@
     {
       "name": "disunity_object_text_write",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_object_wake",
+      "since": "3.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -454,11 +479,6 @@
     },
     {
       "name": "disunity_ui_rect",
-      "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_world_activate",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },

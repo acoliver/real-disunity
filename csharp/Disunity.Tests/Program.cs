@@ -19,8 +19,11 @@ void Require(bool condition, string message)
     if (!condition) { throw new InvalidOperationException(message); }
 }
 
+var checkedImports = new HashSet<string>();
+
 void CheckImport(string name, params Type[] parameters)
 {
+    checkedImports.Add(name);
     var method = bindings.GetMethod(name, Imports)
         ?? throw new InvalidOperationException($"missing import {name}");
     var import = method.GetCustomAttribute<DllImportAttribute>()
@@ -65,7 +68,11 @@ var buffer = AbiType("DisunityBuffer");
 var bytes = typeof(byte).MakePointerType();
 CheckImport("disunity_abi_check", u32);
 CheckImport("disunity_script_register", u64, u64, u64, u64.MakePointerType());
-CheckImport("disunity_world_activate", u64, u64, advance.MakePointerType());
+CheckImport("disunity_object_wake", u64, u64, advance.MakePointerType());
+CheckImport("disunity_construction_begin", u64, u64.MakePointerType());
+CheckImport("disunity_construction_object_create", u64, u64, u64.MakePointerType());
+CheckImport("disunity_construction_activate", u64, u64, advance.MakePointerType());
+CheckImport("disunity_construction_abort", u64, u64);
 CheckImport("disunity_world_advance", u64, u64, u64, advance.MakePointerType());
 CheckImport("disunity_world_resume", u64, u64, u32, bytes, u32, advance.MakePointerType());
 CheckImport("disunity_world_clock", u64, clock.MakePointerType());
@@ -152,7 +159,8 @@ CheckImport("disunity_camera_data_write", u64, u64, u32, u32);
 CheckImport("disunity_light2d_layers", u64, u64, typeof(int).MakePointerType(), u32);
 CheckImport("disunity_light2d_layers_read", u64, u64, typeof(int).MakePointerType(), u32, u32.MakePointerType());
 CheckImport("disunity_light2d_color", u64, u64, f32, f32, f32, f32);
-Require(bindings.GetMethods(Imports).Length == 100, "unexpected native import count");
+var unverified = bindings.GetMethods(Imports).Select(method => method.Name).Except(checkedImports).ToArray();
+Require(unverified.Length == 0, $"native imports without a signature check: {string.Join(", ", unverified)}");
 AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
 
 CheckLayout(result, 16, ("code", typeof(int), 0), ("detail", u64, 8));
@@ -163,7 +171,7 @@ CheckLayout(state, 32, ("object", u64, 0), ("x", f32, 8), ("y", f32, 12),
 CheckLayout(advance, 32, ("kind", u32, 0), ("message", u32, 4), ("ticket", u64, 8), ("script", u64, 16), ("frame", u64, 24));
 CheckLayout(clock, 24, ("delta", typeof(double), 0), ("time", typeof(double), 8), ("frame", u64, 16));
 CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
-Console.WriteLine("PASS: all 100 native import signatures and generated ABI layout expectations");
+Console.WriteLine($"PASS: all {checkedImports.Count} native import signatures and generated ABI layout expectations");
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
 DisunityHost.ConfigureNativeLibrary(args[0]);
 ParticipantRegressionTests.Run();
@@ -172,6 +180,7 @@ LifecycleTests.Run(args[0]);
 ReviewRegressionTests.Run();
 HostTests.Run();
 CloneTests.Run();
+ConstructionTests.Run();
 
 CoroutineInputTests.Run();
 

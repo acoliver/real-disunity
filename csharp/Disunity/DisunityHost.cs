@@ -22,7 +22,7 @@ public static partial class DisunityHost
     public static unsafe void LoadWorld()
     {
         EnsureLoaded();
-        ThrowIfError(NativeBindings.disunity_abi_check(2));
+        ThrowIfError(NativeBindings.disunity_abi_check(NativeAbi.Version));
         if (IsLoaded) throw new InvalidOperationException("a world is already loaded");
         ulong world;
         ThrowIfError(NativeBindings.disunity_world_create(&world));
@@ -36,9 +36,7 @@ public static partial class DisunityHost
         EnsureWorld();
         ulong handle;
         ThrowIfError(NativeBindings.disunity_gameobject_create(WorldHandle, &handle));
-        var value = new GameObject(handle);
-        Tracked.Add(value);
-        return value;
+        return Track(new GameObject(handle));
     }
 
     public static unsafe T AddComponent<T>(T behaviour) where T : MonoBehaviour
@@ -58,7 +56,7 @@ public static partial class DisunityHost
         ThrowIfError(NativeBindings.disunity_script_register(WorldHandle, behaviour.gameObject.NativeHandle, identity, &script));
         Scripts.Add(identity, behaviour);
         DisunityAdvance work;
-        ThrowIfError(NativeBindings.disunity_world_activate(WorldHandle, behaviour.gameObject.NativeHandle, &work));
+        ThrowIfError(NativeBindings.disunity_object_wake(WorldHandle, behaviour.gameObject.NativeHandle, &work));
         Drain(work);
         return behaviour;
     }

@@ -42,7 +42,7 @@ fn failed_nested_awake_releases_unbound_reservation_after_native_teardown() {
         let template = scene(world, 41);
         let parent = scene(world, 0);
         let mut work = DisunityAdvance::default();
-        assert_eq!(disunity_world_activate(world, template, &mut work).code, 0);
+        assert_eq!(disunity_object_wake(world, template, &mut work).code, 0);
         assert_eq!(finish(world, &mut work).code, 0);
         let (mut root, mut count) = (0, 0);
         assert_eq!(
@@ -50,7 +50,7 @@ fn failed_nested_awake_releases_unbound_reservation_after_native_teardown() {
             0
         );
         let nested = scene(world, 42);
-        assert_eq!(disunity_world_activate(world, nested, &mut work).code, 0);
+        assert_eq!(disunity_object_wake(world, nested, &mut work).code, 0);
         let failure = b"original nested Awake failure";
         let result = disunity_world_resume(
             world,

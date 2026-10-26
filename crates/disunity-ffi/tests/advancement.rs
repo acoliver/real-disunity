@@ -11,7 +11,7 @@ fn callback_records_are_owned_and_calls_release_the_store_lock() {
             0
         );
         let mut work = DisunityAdvance::default();
-        assert_eq!(disunity_world_activate(world, object, &mut work).code, 0);
+        assert_eq!(disunity_object_wake(world, object, &mut work).code, 0);
         assert_eq!(work.kind, 1);
         assert_eq!(work.script, 42);
         assert_eq!(work.message, 0);
@@ -46,7 +46,7 @@ fn invalid_utf8_and_outcomes_do_not_consume_callback_tickets() {
         disunity_gameobject_create(world, &mut object);
         disunity_script_register(world, object, 7, &mut script);
         let mut work = DisunityAdvance::default();
-        disunity_world_activate(world, object, &mut work);
+        disunity_object_wake(world, object, &mut work);
         let ticket = work.ticket;
         assert_eq!(
             disunity_world_resume(world, ticket, 1, [255].as_ptr(), 1, &mut work).code,
@@ -97,12 +97,12 @@ fn callback_ids_do_not_alias_between_worlds_or_after_unload() {
         disunity_world_create(&mut first);
         disunity_gameobject_create(first, &mut object);
         disunity_script_register(first, object, 1, &mut script);
-        disunity_world_activate(first, object, &mut a);
+        disunity_object_wake(first, object, &mut a);
         disunity_world_destroy(first);
         disunity_world_create(&mut second);
         disunity_gameobject_create(second, &mut object);
         disunity_script_register(second, object, 1, &mut script);
-        disunity_world_activate(second, object, &mut b);
+        disunity_object_wake(second, object, &mut b);
         assert_ne!(a.ticket, b.ticket);
         assert_eq!(
             disunity_world_resume(second, a.ticket, 0, std::ptr::null(), 0, &mut a).code,

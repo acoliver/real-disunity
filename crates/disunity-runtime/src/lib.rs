@@ -370,13 +370,11 @@ impl Drop for DisunityHost {
 }
 
 fn check_revision(actual: u32) -> Result<(), HostError> {
-    if actual == 2 {
+    let expected = native::DISUNITY_ABI_VERSION;
+    if actual == expected {
         Ok(())
     } else {
-        Err(HostError::AbiRevision {
-            expected: 2,
-            actual,
-        })
+        Err(HostError::AbiRevision { expected, actual })
     }
 }
 
@@ -407,9 +405,12 @@ mod tests {
     use super::{DisunityObjectState, DisunityResult};
 
     #[test]
-    fn rejects_a_wrong_revision() {
-        assert!(super::check_revision(1).is_err());
-        assert!(super::check_revision(2).is_ok());
+    fn accepts_only_the_generated_revision() {
+        let current = super::native::DISUNITY_ABI_VERSION;
+        assert!(super::check_revision(current).is_ok());
+        for other in [0, current - 1, current + 1] {
+            assert!(super::check_revision(other).is_err(), "{other}");
+        }
     }
 
     #[test]

@@ -14,6 +14,9 @@ pub mod cloning;
 #[cfg(test)]
 mod cloning_tests;
 mod commands;
+pub mod construction;
+#[cfg(test)]
+mod construction_tests;
 pub mod errors;
 pub mod hierarchy;
 pub mod input;

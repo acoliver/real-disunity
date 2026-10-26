@@ -87,7 +87,10 @@ pub use document::{
     WaterPlaneRecipe, WindRecipe,
 };
 
-pub use scene::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
+pub use scene::{
+    SceneAdaptiveExposure, SceneBloom, SceneDisplayGrading, SceneHdrPost, SceneToneMap,
+    SceneVignette,
+};
 
 pub use scene::{
     SceneAmbientOcclusion, SceneCard, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,

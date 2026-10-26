@@ -7,6 +7,7 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
     if let Some(post) = effects.hdr_post() {
         post.validate()
             .map_err(|_| PostError::UnsupportedProfile("HDR post quantities"))?;
+        apply_grading(post, &mut out);
         out.adaptive = post.adaptive_exposure.map(|a| AdaptiveExposure {
             log_range: [signed(a.log_min_milli), signed(a.log_max_milli)],
             percentiles: [
@@ -76,4 +77,29 @@ fn milli(value: u32) -> f32 {
 }
 fn signed(value: i32) -> f32 {
     f32::from(i16::try_from(value).expect("validated log range")) / 1000.0
+}
+
+fn apply_grading(post: &worldrunner_render_plan::SceneHdrPost, out: &mut HdrPostSettings) {
+    out.tone_map = post.tone_map.map(|t| match t {
+        worldrunner_render_plan::SceneToneMap::Reinhard => {
+            worldrunner_render_post::ToneMap::Reinhard
+        }
+        worldrunner_render_plan::SceneToneMap::Filmic => worldrunner_render_post::ToneMap::Filmic,
+        worldrunner_render_plan::SceneToneMap::AcesFitted => {
+            worldrunner_render_post::ToneMap::AcesFitted
+        }
+    });
+    if let Some(g) = post.grading {
+        out.grading = worldrunner_render_post::ColorGrading {
+            linear_scale: micro(g.linear_scale_micro),
+            display_power: g.display_power_micro.map(micro),
+            vignette: g.vignette.map(|v| worldrunner_render_post::Vignette {
+                axis_scale: v.axis_scale_micro.map(micro),
+                tint_range: v.tint_range_micro.map(micro),
+                tint: v.tint_micro.map(micro),
+                darken_range: v.darken_range_micro.map(micro),
+                darken_opacity: micro(v.darken_opacity_micro),
+            }),
+        };
+    }
 }

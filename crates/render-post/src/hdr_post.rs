@@ -22,6 +22,8 @@ pub struct Bloom {
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct HdrPostSettings {
+    pub grading: crate::ColorGrading,
+    pub tone_map: Option<crate::ToneMap>,
     pub adaptive: Option<AdaptiveExposure>,
     pub bloom: Option<Bloom>,
     pub bloom_kernel: crate::BloomKernel,
@@ -52,6 +54,7 @@ impl HdrPostSettings {
     }
 
     pub fn validate(self) -> Result<(), PostError> {
+        self.grading.validate()?;
         if let Some(upscale) = self.upscale {
             upscale.validate()?;
         }
@@ -124,7 +127,9 @@ impl HdrPostSettings {
         Ok(())
     }
     pub fn enabled(self) -> bool {
-        self.adaptive.is_some()
+        self.grading != crate::ColorGrading::default()
+            || self.tone_map.is_some()
+            || self.adaptive.is_some()
             || self.bloom.is_some()
             || self.fxaa.is_some()
             || self.upscale.is_some()

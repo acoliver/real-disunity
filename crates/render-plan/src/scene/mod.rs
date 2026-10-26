@@ -18,7 +18,10 @@ mod water_settings;
 pub use water::{SceneWaterBody, SceneWaterSurface};
 pub use water_settings::SceneWaterSettings;
 mod post;
-pub use post::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
+pub use post::{
+    SceneAdaptiveExposure, SceneBloom, SceneDisplayGrading, SceneHdrPost, SceneToneMap,
+    SceneVignette,
+};
 mod ssr;
 pub use ssr::SceneSsr;
 mod error;

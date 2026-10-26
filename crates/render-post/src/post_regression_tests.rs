@@ -216,6 +216,7 @@ fn gpu_empty_policy_removes_all_stages_and_restores_fixed_bytes() {
             upscale: None,
             bloom_kernel: crate::BloomKernel::Tent,
             fxaa_quality: crate::FxaaQuality::default(),
+            ..Default::default()
         },
         [17, 13],
     );

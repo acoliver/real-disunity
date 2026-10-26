@@ -32,10 +32,10 @@ pub(crate) struct Outcome {
 }
 
 pub(super) struct Capture {
-    buffer: wgpu::Buffer,
+    readback: worldrunner_render_post::Readback,
     mapping: Option<AsyncReadback>,
     viewport: Viewport,
-    pitch: u32,
+    format: wgpu::TextureFormat,
 }
 
 impl Renderer {
@@ -113,7 +113,7 @@ impl Renderer {
                 return Ok(None);
             };
             if let Some(image) = &mut image {
-                image.mapping = Some(AsyncReadback::begin(&image.buffer)?);
+                image.begin()?;
             }
             self.live_pending = Some(Pending {
                 ticket,
@@ -174,63 +174,72 @@ impl Resident {
 }
 
 impl Capture {
-    fn new(device: &wgpu::Device, viewport: Viewport) -> Result<Self, ViewerError> {
-        let config = FrameConfig::new(
-            [viewport.width, viewport.height],
-            super::super::presentation::COLOR,
-            1,
-        );
-        config.validate(&device.limits())?;
-        let pitch = (viewport.width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let size = u64::from(pitch) * u64::from(viewport.height);
-        if size > device.limits().max_buffer_size || size > 256 * 1024 * 1024 {
-            return Err(worldrunner_render_post::ReadbackError::Limit.into());
+    pub(super) fn new(device: &wgpu::Device, viewport: Viewport) -> Result<Self, ViewerError> {
+        Self::with_format(device, viewport, super::super::presentation::COLOR)
+    }
+    pub(super) fn for_texture(
+        device: &wgpu::Device,
+        texture: &wgpu::Texture,
+    ) -> Result<Self, ViewerError> {
+        if !texture.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+            return Err(ViewerError::UnsupportedScene("surface capture copies"));
         }
+        Self::with_format(
+            device,
+            Viewport {
+                width: texture.width(),
+                height: texture.height(),
+            },
+            texture.format(),
+        )
+    }
+    fn with_format(
+        device: &wgpu::Device,
+        viewport: Viewport,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, ViewerError> {
+        let config = FrameConfig::new([viewport.width, viewport.height], format, 1);
+        config.validate(&device.limits())?;
         Ok(Self {
-            buffer: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("live submitted capture"),
-                size,
-                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
+            readback: worldrunner_render_post::Readback::new(device, config, 256 * 1024 * 1024)?,
             mapping: None,
             viewport,
-            pitch,
+            format,
         })
     }
-    pub(super) fn encode(&self, encoder: &mut wgpu::CommandEncoder, source: &wgpu::Texture) {
-        encoder.copy_texture_to_buffer(
-            source.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &self.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.pitch),
-                    rows_per_image: Some(self.viewport.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: self.viewport.width,
-                height: self.viewport.height,
-                depth_or_array_layers: 1,
-            },
-        );
+    pub(super) fn matches(&self, texture: &wgpu::Texture) -> bool {
+        self.viewport.width == texture.width()
+            && self.viewport.height == texture.height()
+            && self.format == texture.format()
     }
-    fn try_read(&mut self) -> Result<Option<RgbaImage>, ViewerError> {
-        let Some(bytes) = self
-            .mapping
-            .as_mut()
-            .expect("submitted mapping")
-            .try_read()?
+    pub(super) fn begin(&mut self) -> Result<(), ViewerError> {
+        self.mapping = Some(self.readback.begin_async()?);
+        Ok(())
+    }
+    pub(super) fn encode(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::Texture,
+    ) -> Result<(), ViewerError> {
+        self.readback.encode(encoder, source)?;
+        Ok(())
+    }
+    pub(super) fn try_read(&mut self) -> Result<Option<RgbaImage>, ViewerError> {
+        let Some(mut pixels) = self
+            .readback
+            .try_read_async(self.mapping.as_mut().expect("submitted mapping"))?
         else {
             return Ok(None);
         };
-        let pixels = worldrunner_render_post::unpad_rows(
-            self.pitch,
-            self.viewport.width as usize * 4,
-            self.viewport.height,
-            &bytes,
-        )?;
+        self.mapping = None;
+        if matches!(
+            self.format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+        ) {
+            for pixel in pixels.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+        }
         Ok(Some(RgbaImage {
             viewport: self.viewport,
             pixels,

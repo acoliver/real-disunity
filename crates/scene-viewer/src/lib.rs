@@ -3,7 +3,7 @@
 //! No window or GPU is started until [`run`] is called. Geometry, materials,
 //! pipelines and optional shadows remain resident across frames. The caller
 //! owns scene construction, camera framing and shadow fit; this host adds no
-//! asset lookup, terrain policy, command-line parsing or readback.
+//! asset lookup, terrain policy or command-line parsing.
 //!
 //! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
 
@@ -19,8 +19,8 @@ mod presentation;
 mod renderer;
 mod retained;
 pub use retained::{
-    ObjectId, RetainedDriver, RetainedEvent, RetainedHost, RetainedInput, RetainedTick,
-    RetainedUpdate,
+    CaptureRequestError, ObjectId, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
+    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate,
 };
 
 pub use camera::{OrbitCamera, OrbitLimits};

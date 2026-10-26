@@ -3,6 +3,7 @@ use std::sync::{Arc, mpsc};
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
+mod capture;
 mod execution;
 mod live;
 mod readiness;
@@ -88,6 +89,7 @@ impl Renderer {
             &context,
             policy.format,
             initial.render,
+            initial.surface,
             profile,
             scene.effects(),
         )?;
@@ -124,6 +126,16 @@ impl Renderer {
             size,
             self.context.device().limits().max_texture_dimension_2d,
         )?;
+        if let Some(extents) = extents {
+            let [width, height] = self
+                .presentation
+                .scheduler
+                .configuration()
+                .frame
+                .output_extent();
+            self.presentation
+                .resize(&self.context, Viewport { width, height }, extents.surface)?;
+        }
         self.execution.resize(self.context.device(), size)?;
         self.viewport = extents.map(|extents| extents.surface);
         self.window.request_redraw();
@@ -159,7 +171,7 @@ impl Renderer {
         view: &SceneView,
         update: &mut crate::SceneUpdate,
         capture: Option<&mut live::Capture>,
-        host: Option<&mut crate::RetainedHost>,
+        mut host: Option<&mut crate::RetainedHost>,
     ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
         self.poll()?;
         let resident = &mut self.resident;
@@ -175,7 +187,7 @@ impl Renderer {
             return Ok(None);
         };
         let retained_view;
-        let view = if let Some(host) = host {
+        let view = if let Some(host) = host.as_deref_mut() {
             self.publish_retained(host)?;
             retained_view = host.view()?.expect("admitted retained extent");
             &retained_view
@@ -187,10 +199,24 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self.encode_frame(view, capture, &output)?;
+        let mut retained_capture = if let Some(host) = host.as_deref_mut() {
+            self.streaming
+                .captures
+                .prepare(self.context.device(), host, &ready.frame.texture)?
+        } else {
+            None
+        };
+        let capture_output = retained_capture.is_some();
+        let image = retained_capture.as_mut().map(|(_, image)| image);
+        let prepared = self.encode_frame(view, capture.or(image), &output, capture_output)?;
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
+        if let Some(host) = host {
+            self.streaming
+                .captures
+                .submitted(host, retained_capture, ticket.clone())?;
+        }
         self.check_errors()?;
         Ok(Some(ticket))
     }
@@ -200,6 +226,7 @@ impl Renderer {
         view: &SceneView,
         mut capture: Option<&mut live::Capture>,
         output: &wgpu::TextureView,
+        capture_output: bool,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
         if capture.is_some()
             && let Resident::Shadowed(scene) = &mut self.resident
@@ -218,7 +245,12 @@ impl Renderer {
                 )?;
                 self.presentation.present(encoder, output)?;
                 if let Some(capture) = &mut capture {
-                    capture.encode(encoder, self.presentation.targets.color.texture());
+                    let source = if capture_output {
+                        output.texture()
+                    } else {
+                        self.presentation.targets.color.texture()
+                    };
+                    capture.encode(encoder, source)?;
                 }
                 Ok::<_, ViewerError>(())
             })
@@ -238,7 +270,8 @@ impl Renderer {
         } else {
             extents.render
         };
-        self.presentation.resize(&self.context, render_size)?;
+        self.presentation
+            .resize(&self.context, render_size, extents.surface)?;
         if let Some(clear) = self.resident.clear_color() {
             self.presentation.scheduler.set_clear_color(clear)?;
         }
@@ -303,7 +336,8 @@ fn surface_policy(
         .ok_or(ViewerError::SurfaceFormat)?;
     Ok(SurfacePolicy {
         format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | (capabilities.usages & wgpu::TextureUsages::COPY_SRC),
         size,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,

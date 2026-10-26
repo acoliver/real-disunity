@@ -176,6 +176,31 @@ impl Readback {
         bytes
     }
 
+    /// Starts a nonblocking map of this slot's submitted copy.
+    pub fn begin_async(&self) -> Result<crate::contracts::AsyncReadback, ReadbackError> {
+        if !self.pending.get() {
+            return Err(ReadbackError::Callback);
+        }
+        crate::contracts::AsyncReadback::begin(&self.buffer)
+    }
+
+    /// Consumes a completed asynchronous map and releases the retained slot.
+    pub fn try_read_async(
+        &mut self,
+        mapping: &mut crate::contracts::AsyncReadback,
+    ) -> Result<Option<Vec<u8>>, ReadbackError> {
+        let Some(bytes) = mapping.try_read()? else {
+            return Ok(None);
+        };
+        self.pending.set(false);
+        Ok(Some(unpad_rows(
+            self.pitch,
+            self.row,
+            self.size[1],
+            &bytes,
+        )?))
+    }
+
     /// Include this retained slot's pending-state key in its capture segment write set.
     pub fn write_key(&self) -> worldrunner_render_gpu::submission::capture::WriteKey {
         use std::hash::{Hash, Hasher};

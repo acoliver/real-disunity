@@ -25,6 +25,7 @@ fn baked_effect_edits_prepare_then_publish_through_the_shared_renderer() {
         &context,
         crate::presentation::COLOR,
         size,
+        size,
         profile,
         source.effects(),
     )

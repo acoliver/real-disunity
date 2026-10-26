@@ -46,6 +46,13 @@ impl<'a> Session<'a> {
         }
     }
 
+    fn notifications(&mut self) -> Result<(), ViewerError> {
+        while let Some(event) = self.host.captures.take_event() {
+            self.driver.event(&event).map_err(ViewerError::Driver)?;
+        }
+        Ok(())
+    }
+
     fn tick(&mut self) -> Result<(), ViewerError> {
         let now = Instant::now();
         let tick = RetainedTick {
@@ -63,6 +70,16 @@ impl<'a> Session<'a> {
 }
 
 impl Content for Session<'_> {
+    fn poll(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {
+        let pending = renderer.collect_retained(&mut self.host)?;
+        self.notifications()?;
+        Ok(pending)
+    }
+    fn shutdown(&mut self) -> Result<(), ViewerError> {
+        self.host.exit = true;
+        self.host.captures.cancel();
+        self.notifications()
+    }
     fn title(&self) -> &str {
         &self.host.options.title
     }
@@ -126,6 +143,7 @@ impl Content for Session<'_> {
             self.frame += 1;
             self.pending = false;
         }
+        self.notifications()?;
         if renderer.take_surface_recreated() {
             self.input(RetainedInput::SurfaceRecreated);
         }

@@ -68,3 +68,33 @@ fn input_callback_error_is_available_without_a_redraw() {
         matches!(session.take_failure(), Some(ViewerError::Driver(error)) if error == "input failure")
     );
 }
+
+#[test]
+fn shutdown_delivers_cancellation_for_waiting_and_dispatched_requests() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let mut driver = Consumer(events.clone());
+    let mut host = RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap();
+    let first = host.request_capture(0).unwrap();
+    host.apply(crate::RetainedUpdate::Camera {
+        pose: crate::tests::options().pose,
+        lens: crate::tests::options().camera,
+    })
+    .unwrap();
+    let second = host.request_capture(1).unwrap();
+    host.captures.waiting.pop_front();
+    let mut session = Session::new(host, &mut driver);
+    session.shutdown().unwrap();
+    session.shutdown().unwrap();
+    let events = events.borrow();
+    assert_eq!(events.len(), 2);
+    for (event, id, generation) in [(&events[0], first, 0), (&events[1], second, 1)] {
+        assert_eq!(
+            *event,
+            RetainedEvent::Capture {
+                id,
+                generation,
+                outcome: crate::RetainedCaptureOutcome::Cancelled,
+            }
+        );
+    }
+}

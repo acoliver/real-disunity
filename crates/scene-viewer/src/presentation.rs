@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod capture_budget_tests;
+
 use crate::ViewerError;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::FrameConfig;
@@ -11,6 +14,7 @@ pub(super) struct Presentation {
     pub scheduler: ConfiguredFrameRenderer,
     pub targets: Targets,
     scale: Option<worldrunner_render_post::RenderScale>,
+    capture_size: Viewport,
 }
 
 pub(super) struct Targets {
@@ -25,13 +29,22 @@ impl Presentation {
         format: wgpu::TextureFormat,
         size: Viewport,
     ) -> Self {
-        Self::with_profile(context, format, size, crate::FrameProfile::Legacy, None).unwrap()
+        Self::with_profile(
+            context,
+            format,
+            size,
+            size,
+            crate::FrameProfile::Legacy,
+            None,
+        )
+        .unwrap()
     }
 
     pub fn with_profile(
         context: &worldrunner_render_scene::device::GpuContext,
         format: wgpu::TextureFormat,
         size: Viewport,
+        capture_size: Viewport,
         profile: crate::FrameProfile,
         effects: Option<&worldrunner_render_plan::SceneEffects>,
     ) -> Result<Self, ViewerError> {
@@ -72,12 +85,7 @@ impl Presentation {
         } else {
             None
         };
-        let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
-        settings.additional.buffer(
-            "live capture and CPU image",
-            pitch * u64::from(size.height),
-            2,
-        );
+        settings.additional = capture_allocations(capture_size);
         let scheduler =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1024 * 1024 * 1024))
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;
@@ -86,6 +94,7 @@ impl Presentation {
             scheduler,
             targets,
             scale,
+            capture_size,
         })
     }
 
@@ -93,9 +102,12 @@ impl Presentation {
         &mut self,
         context: &worldrunner_render_scene::device::GpuContext,
         size: Viewport,
+        capture_size: Viewport,
     ) -> Result<(), ViewerError> {
         self.scheduler.collect();
-        if self.scheduler.configuration().frame.output_extent() != [size.width, size.height] {
+        if self.scheduler.configuration().frame.output_extent() != [size.width, size.height]
+            || self.capture_size != capture_size
+        {
             let mut settings = self.scheduler.configuration().clone();
             settings.frame.size = [size.width, size.height];
             settings.frame.output_size = None;
@@ -104,17 +116,12 @@ impl Presentation {
                     .frame
                     .with_render_extent(scale.extent([size.width, size.height])?);
             }
-            settings.additional = worldrunner_render_gpu::configuration::AllocationSet::default();
-            let pitch = (u64::from(size.width) * 4).next_multiple_of(256);
-            settings.additional.buffer(
-                "live capture and CPU image",
-                pitch * u64::from(size.height),
-                2,
-            );
+            settings.additional = capture_allocations(capture_size);
             self.scheduler
                 .reconfigure(context, settings)
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;
             self.targets = Targets::new(context.device(), &self.scheduler, size);
+            self.capture_size = capture_size;
         }
         Ok(())
     }
@@ -134,6 +141,20 @@ impl Presentation {
             depth: self.scheduler.targets().depth().clone(),
         };
     }
+}
+
+fn capture_allocations(size: Viewport) -> worldrunner_render_gpu::configuration::AllocationSet {
+    let mut allocations = worldrunner_render_gpu::configuration::AllocationSet::default();
+    let extent = [size.width, size.height];
+    allocations.readback("capture staging slots", extent, 4, 3);
+    let padded = (u64::from(size.width) * 4).next_multiple_of(256) * u64::from(size.height);
+    // Collection holds earlier completed images while unpadding the next mapped read.
+    allocations.cpu("capture padded read", padded);
+    allocations.cpu(
+        "capture completed images",
+        u64::from(size.width) * u64::from(size.height) * 4 * 3,
+    );
+    allocations
 }
 
 impl Targets {

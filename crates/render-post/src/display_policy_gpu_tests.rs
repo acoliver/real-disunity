@@ -212,3 +212,6 @@ fn filmic_uses_published_adaptive_exposure() {
         assert_eq!(pixel[3], 64);
     }
 }
+
+#[path = "aces_fitted_gpu_tests.rs"]
+mod aces_fitted;

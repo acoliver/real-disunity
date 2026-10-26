@@ -9,14 +9,24 @@ pub enum ToneMap {
     Reinhard,
     /// Clamped fitted ACES approximation by Krzysztof Narkowicz (2016).
     Filmic,
+    /// Stephen Hill's matrix RRT/ODT fit, published in `BakingLab` under MIT:
+    /// <https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl>.
+    AcesFitted,
 }
 
 impl ToneMap {
     pub(crate) fn constant(self) -> f64 {
-        f64::from(u8::from(self == Self::Filmic))
+        match self {
+            Self::Reinhard => 0.0,
+            Self::Filmic => 1.0,
+            Self::AcesFitted => 2.0,
+        }
     }
     /// Display-linear reference. Exposure must satisfy the output constructor's range.
     pub fn evaluate(self, radiance: f64, exposure: f64) -> f64 {
+        if self == Self::AcesFitted {
+            return self.evaluate_rgb([radiance; 3], exposure)[0];
+        }
         if self == Self::Reinhard {
             return ToneMapOutput::evaluate(radiance, exposure);
         }
@@ -30,9 +40,19 @@ impl ToneMap {
         }
         crate::aces::fitted(x).clamp(0.0, 1.0)
     }
+    /// RGB reference. Matrix fitting mixes channels; scalar evaluate uses neutral RGB.
+    pub fn evaluate_rgb(self, rgb: [f64; 3], exposure: f64) -> [f64; 3] {
+        if self != Self::AcesFitted {
+            return rgb.map(|v| self.evaluate(v, exposure));
+        }
+        if exposure == 0.0 {
+            return [0.0; 3];
+        }
+        crate::aces::matrix_fit(rgb.map(|v| crate::display_grading::sanitize(v) * exposure))
+    }
 }
 
-/// Fixed linear exposure followed by the selected component-wise display curve.
+/// Fixed linear exposure followed by the selected display curve.
 /// The sRGB attachment alone performs transfer encoding.
 /// Negative radiance (including negative infinity) and NaN map to zero. Positive
 /// infinity maps to the curve's limit, one. Zero exposure maps all radiance to zero.
@@ -72,6 +92,9 @@ impl ToneMapOutput {
         settings: crate::HdrPostSettings,
     ) -> Result<Self, PostError> {
         settings.validate()?;
+        if let Some(curve) = settings.tone_map {
+            self.tone_map = curve;
+        }
         self.post = if settings.enabled() {
             Some(Box::new(crate::hdr_post::HdrPost::new(device, &settings)?))
         } else {
@@ -87,6 +110,9 @@ impl ToneMapOutput {
         previous: Option<&Self>,
     ) -> Result<Self, PostError> {
         settings.validate()?;
+        if let Some(curve) = settings.tone_map {
+            self.tone_map = curve;
+        }
         self.post = if let Some(post) = previous.and_then(|previous| previous.post.as_ref()) {
             let mut retained = post.clone();
             retained.settings = settings;
@@ -217,7 +243,7 @@ impl StageFactory for ToneMapOutput {
                 format: self.format,
                 constants: &[
                     ("EXPOSURE", self.exposure),
-                    ("FILMIC", self.tone_map.constant()),
+                    ("CURVE", self.tone_map.constant()),
                 ],
             },
         );

@@ -236,6 +236,8 @@ fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
         .unwrap()
         .clone()
         .with_hdr_post(SceneHdrPost {
+            tone_map: None,
+            grading: None,
             adaptive_exposure: Some(SceneAdaptiveExposure {
                 log_min_milli: -12_000,
                 log_max_milli: 12_000,
@@ -291,4 +293,45 @@ fn read_hdr(context: &GpuContext, frame: &FrameRenderer, size: [u32; 2]) -> Vec<
         frame.targets().texture(),
     )
     .unwrap()
+}
+
+#[test]
+fn authored_display_grade_reaches_the_existing_hdr_executor() {
+    use worldrunner_render_plan::{SceneDisplayGrading, SceneHdrPost, SceneToneMap};
+    let context = context();
+    let source = exposed(&scene(&[[0, 0, 1_000]], 600_000, None), 1_000_000);
+    let effects = source
+        .effects()
+        .unwrap()
+        .clone()
+        .with_hdr_post(SceneHdrPost {
+            tone_map: Some(SceneToneMap::AcesFitted),
+            grading: Some(SceneDisplayGrading {
+                linear_scale_micro: 2_000_000,
+                display_power_micro: [1_250_000, 1_000_000, 750_000],
+                vignette: None,
+            }),
+            adaptive_exposure: None,
+            bloom: None,
+            fxaa_subpixel_micro: None,
+        })
+        .unwrap();
+    let settings = crate::post_settings(&effects).unwrap();
+    assert_eq!(settings.tone_map, Some(ToneMap::AcesFitted));
+    assert_eq!(settings.grading.linear_scale.to_bits(), 2.0_f32.to_bits());
+    assert_eq!(
+        settings.grading.display_power.map(f32::to_bits),
+        [1.25_f32, 1.0, 0.75].map(f32::to_bits)
+    );
+    let graded = RenderScene::new(SceneParts {
+        resources: source.resources().clone(),
+        geometry: source.geometry().clone(),
+        terrain: None,
+        effects: Some(effects),
+    })
+    .unwrap();
+    let (plain_hdr, plain) = hdr_capture(&context, &source, 1, 0.001);
+    let (graded_hdr, image) = hdr_capture(&context, &graded, 1, 0.001);
+    assert_eq!(plain_hdr, graded_hdr);
+    assert_ne!(plain.pixels, image.pixels);
 }

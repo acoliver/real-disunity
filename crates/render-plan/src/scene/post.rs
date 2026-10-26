@@ -43,6 +43,12 @@ pub struct SceneBloom {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneHdrPost {
+    /// Optional display curve override; omission preserves the host selection.
+    #[serde(default)]
+    pub tone_map: Option<SceneToneMap>,
+    /// Optional complete grading recipe; omission is identity.
+    #[serde(default)]
+    pub grading: Option<SceneDisplayGrading>,
     #[serde(deserialize_with = "required_option")]
     pub adaptive_exposure: Option<SceneAdaptiveExposure>,
     #[serde(deserialize_with = "required_option")]
@@ -53,6 +59,9 @@ pub struct SceneHdrPost {
 }
 impl SceneHdrPost {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        self.grading
+            .map(SceneDisplayGrading::validate)
+            .transpose()?;
         if let Some(a) = self.adaptive_exposure {
             check(
                 "exposure log minimum",
@@ -101,14 +110,18 @@ impl SceneHdrPost {
                 check("capture exposure", exposure.into(), 0, 64_000_000)?;
             }
         }
+        self.validate_bloom()?;
+        if let Some(weight) = self.fxaa_subpixel_micro {
+            check("FXAA subpixel", weight.into(), 0, 1_000_000)?;
+        }
+        Ok(())
+    }
+    fn validate_bloom(&self) -> Result<(), SceneValidationError> {
         if let Some(b) = self.bloom {
             check("bloom threshold", b.threshold_micro.into(), 0, 64_000_000)?;
             check("bloom knee", b.soft_knee_micro.into(), 0, 1_000_000)?;
             check("bloom intensity", b.intensity_micro.into(), 0, 2_000_000)?;
             check("bloom levels", b.levels.into(), 1, 8)?;
-        }
-        if let Some(weight) = self.fxaa_subpixel_micro {
-            check("FXAA subpixel", weight.into(), 0, 1_000_000)?;
         }
         Ok(())
     }
@@ -129,4 +142,124 @@ fn required_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<Option<T>, D::Error> {
     Option::<T>::deserialize(deserializer)
+}
+
+/// Scene-owned display curve, independent of the GPU implementation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SceneToneMap {
+    Reinhard,
+    Filmic,
+    AcesFitted,
+}
+
+/// Linear scale and per-channel power in millionths, applied around the curve.
+/// Order: exposure, bloom addition, linear scale, curve, powers, vignette.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneDisplayGrading {
+    pub linear_scale_micro: u32,
+    pub display_power_micro: [u32; 3],
+    pub vignette: Option<SceneVignette>,
+}
+/// Display-linear radial tint and darkening, all quantities in millionths.
+/// Radius is `length((uv - 0.5) * axis_scale) / sqrt(0.5)`, at pixel centres.
+/// Each smoothstep accepts either endpoint order, but not equal endpoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneVignette {
+    pub axis_scale_micro: [u32; 2],
+    pub tint_range_micro: [u32; 2],
+    pub tint_micro: [u32; 4],
+    pub darken_range_micro: [u32; 2],
+    pub darken_opacity_micro: u32,
+}
+impl SceneDisplayGrading {
+    pub fn validate(self) -> Result<(), SceneValidationError> {
+        check(
+            "linear scale",
+            self.linear_scale_micro.into(),
+            0,
+            64_000_000,
+        )?;
+        for p in self.display_power_micro {
+            check("display power", p.into(), 10_000, 16_000_000)?;
+        }
+        if let Some(v) = self.vignette {
+            for x in v.axis_scale_micro {
+                check("vignette axis", x.into(), 0, 16_000_000)?;
+            }
+            for x in v.tint_micro.into_iter().chain([v.darken_opacity_micro]) {
+                check("vignette color or opacity", x.into(), 0, 1_000_000)?;
+            }
+            for r in [v.tint_range_micro, v.darken_range_micro] {
+                if r[0] == r[1] {
+                    return Err(SceneValidationError::PostSettings {
+                        part: "vignette endpoints",
+                    });
+                }
+                for x in r {
+                    check("vignette range", x.into(), 0, 16_000_000)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn grading_recipe_round_trip_and_invalid_ranges() {
+        let grading = SceneDisplayGrading {
+            linear_scale_micro: 2_000_000,
+            display_power_micro: [1_200_000, 900_000, 1_100_000],
+            vignette: Some(SceneVignette {
+                axis_scale_micro: [1_000_000, 750_000],
+                tint_range_micro: [0, 1_000_000],
+                tint_micro: [250_000; 4],
+                darken_range_micro: [1_000_000, 0],
+                darken_opacity_micro: 500_000,
+            }),
+        };
+        let recipe = SceneHdrPost {
+            tone_map: Some(SceneToneMap::AcesFitted),
+            grading: Some(grading),
+            adaptive_exposure: None,
+            bloom: None,
+            fxaa_subpixel_micro: None,
+        };
+        recipe.validate().unwrap();
+        let json = serde_json::to_string(&recipe).unwrap();
+        assert_eq!(serde_json::from_str::<SceneHdrPost>(&json).unwrap(), recipe);
+        assert!(
+            SceneDisplayGrading {
+                linear_scale_micro: 64_000_001,
+                ..grading
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            SceneDisplayGrading {
+                display_power_micro: [0; 3],
+                ..grading
+            }
+            .validate()
+            .is_err()
+        );
+        let v = grading.vignette.unwrap();
+        assert!(
+            SceneDisplayGrading {
+                vignette: Some(SceneVignette {
+                    darken_range_micro: [1; 2],
+                    ..v
+                }),
+                ..grading
+            }
+            .validate()
+            .is_err()
+        );
+    }
 }

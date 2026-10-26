@@ -54,6 +54,8 @@ pub use gaussian::{
     MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_extents_with_terminal, gaussian_weights,
 };
 mod aces;
+mod display_grading;
+pub use display_grading::{ColorGrading, Vignette};
 mod fxaa;
 mod post_filters;
 pub use fxaa::{FxaaLuminance, FxaaQuality};
@@ -286,3 +288,6 @@ mod upscale_hdr_tests;
 
 #[cfg(test)]
 mod bloom_policy_tests;
+
+#[cfg(test)]
+mod aces_fitted_tests;

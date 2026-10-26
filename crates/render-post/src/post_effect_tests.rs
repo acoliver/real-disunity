@@ -383,6 +383,7 @@ fn gpu_nonfinite_inputs_cannot_poison_histogram_or_bloom() {
             upscale: None,
             bloom_kernel: crate::BloomKernel::Tent,
             fxaa_quality: crate::FxaaQuality::default(),
+            ..Default::default()
         },
         [9, 7],
     );

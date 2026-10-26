@@ -61,6 +61,12 @@ fn retained_settings_present(event_loop: &EventLoop<()>, window: &Arc<Window>) {
         .unwrap()
         .clone()
         .with_hdr_post(worldrunner_render_plan::SceneHdrPost {
+            tone_map: Some(worldrunner_render_plan::SceneToneMap::AcesFitted),
+            grading: Some(worldrunner_render_plan::SceneDisplayGrading {
+                linear_scale_micro: 2_000_000,
+                display_power_micro: [1_250_000, 1_000_000, 750_000],
+                vignette: None,
+            }),
             adaptive_exposure: None,
             bloom: None,
             fxaa_subpixel_micro: Some(500_000),

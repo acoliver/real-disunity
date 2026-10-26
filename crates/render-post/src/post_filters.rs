@@ -36,7 +36,7 @@ impl<'a> Filters<'a> {
         output: (wgpu::TextureFormat, f64, crate::ToneMap),
     ) {
         let bloom = self.bloom_source(targets, settings, exposure, output.1);
-        let constants = [
+        let mut constants = vec![
             (
                 "GAUSSIAN",
                 f64::from(u8::from(matches!(
@@ -45,13 +45,18 @@ impl<'a> Filters<'a> {
                 ))),
             ),
             ("FIXED", output.1),
-            ("FILMIC", output.2.constant()),
+            ("CURVE", output.2.constant()),
             ("ADAPTIVE", f64::from(u8::from(settings.adaptive.is_some()))),
             (
                 "INTENSITY",
                 settings.bloom.map_or(0.0, |b| f64::from(b.intensity)),
             ),
         ];
+        constants.extend(settings.grading.constants());
+        constants.push((
+            "GRADE_COMPOSITION",
+            f64::from(u8::from(settings.grading != crate::ColorGrading::default())),
+        ));
         let fxaa = settings.fxaa.filter(|weight| *weight > 0.0);
         let upscale = settings
             .upscale

@@ -142,6 +142,67 @@ impl<'a> PreparedTexture<'a> {
     }
 }
 
+/// Owned prepared mip bytes for transfer from CPU workers to GPU publication.
+#[derive(Debug)]
+pub struct OwnedPreparedTexture {
+    format: TextureFormat,
+    width: u32,
+    height: u32,
+    mips: Vec<OwnedMip>,
+}
+
+#[derive(Debug)]
+struct OwnedMip {
+    width: u32,
+    height: u32,
+    bytes_per_row: u32,
+    rows: u32,
+    bytes: Box<[u8]>,
+}
+
+impl PreparedTexture<'_> {
+    /// Copies the prepared mip chain into transferable owned storage.
+    pub fn into_owned(self) -> OwnedPreparedTexture {
+        OwnedPreparedTexture {
+            format: self.format,
+            width: self.width,
+            height: self.height,
+            mips: self
+                .mips
+                .into_iter()
+                .map(|mip| OwnedMip {
+                    width: mip.width,
+                    height: mip.height,
+                    bytes_per_row: mip.bytes_per_row,
+                    rows: mip.rows,
+                    bytes: mip.bytes.into(),
+                })
+                .collect(),
+        }
+    }
+}
+impl OwnedPreparedTexture {
+    /// Borrows the prepared bytes without parsing or validating the source container.
+    pub fn as_prepared(&self) -> PreparedTexture<'_> {
+        PreparedTexture {
+            format: self.format,
+            width: self.width,
+            height: self.height,
+            mips: self
+                .mips
+                .iter()
+                .map(|mip| MipLevel {
+                    width: mip.width,
+                    height: mip.height,
+                    bytes_per_row: mip.bytes_per_row,
+                    rows: mip.rows,
+                    bytes: &mip.bytes,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Resolves a governed texture into an uploadable form without decoding it.
 ///
 /// # Errors

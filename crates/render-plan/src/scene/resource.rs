@@ -464,8 +464,8 @@ fn require_unit_range(part: &'static str, observed: u64) -> Result<(), SceneVali
 /// Closed tables of owned textures and materials addressed by dense handles.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneResources {
-    textures: Box<[SceneTexture]>,
-    materials: Box<[SceneMaterial]>,
+    textures: std::sync::Arc<[SceneTexture]>,
+    materials: std::sync::Arc<[SceneMaterial]>,
 }
 
 impl SceneResources {
@@ -481,8 +481,8 @@ impl SceneResources {
         materials: Vec<SceneMaterial>,
     ) -> Result<Self, SceneValidationError> {
         let resources = Self {
-            textures: textures.into_boxed_slice(),
-            materials: materials.into_boxed_slice(),
+            textures: textures.into(),
+            materials: materials.into(),
         };
         resources.validate()?;
         Ok(resources)
@@ -506,7 +506,7 @@ impl SceneResources {
     ///
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        for texture in &self.textures {
+        for texture in self.textures.iter() {
             texture.validate()?;
         }
         let limit = u64::try_from(self.textures.len()).map_err(|_| {
@@ -514,7 +514,7 @@ impl SceneResources {
                 part: "texture table length",
             }
         })?;
-        for material in &self.materials {
+        for material in self.materials.iter() {
             require_texture("material albedo", material.albedo(), limit)?;
             if let Some(normal) = material.normal() {
                 require_texture("material normal", normal, limit)?;

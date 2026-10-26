@@ -36,12 +36,8 @@ fn retained_lighting_settings_change_the_next_frame_without_reupload() {
         let handles: Vec<_> = resident.scene_mut().instance_handles().collect();
         host.apply(crate::RetainedUpdate::Settings(Box::new(effects.clone())))
             .unwrap();
-        let mut objects = super::retained::Objects::default();
-        let effects = objects
-            .apply(resident.scene_mut(), &mut host)
-            .unwrap()
-            .unwrap();
-        resident.set_retained_effects(&effects).unwrap();
+        let mut streaming = super::readiness::Streaming::new(shadows, crate::FrameProfile::Legacy);
+        publish(&context, &mut streaming, &mut resident, &mut host);
         assert_eq!(
             resident.scene_mut().instance_handles().collect::<Vec<_>>(),
             handles
@@ -59,7 +55,7 @@ fn retained_host_ordered_edits_reach_the_next_frame() {
         let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
         let mut resident =
             Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
-        let mut objects = super::retained::Objects::default();
+        let mut streaming = super::readiness::Streaming::new(shadows, crate::FrameProfile::Legacy);
         let mut target = OffscreenTarget::new(
             context.device(),
             Viewport {
@@ -69,7 +65,7 @@ fn retained_host_ordered_edits_reach_the_next_frame() {
         )
         .unwrap();
         let initial = frame(&mut resident, &context, &mut target);
-        let object = host.object(ObjectId(0)).unwrap();
+        let object = replace_tables(&mut host);
         host.apply(RetainedUpdate::Remove(ObjectId(0))).unwrap();
         host.apply(RetainedUpdate::Add {
             id: ObjectId(4),
@@ -88,7 +84,7 @@ fn retained_host_ordered_edits_reach_the_next_frame() {
             ),
         })
         .unwrap();
-        objects.apply(resident.scene_mut(), &mut host).unwrap();
+        publish(&context, &mut streaming, &mut resident, &mut host);
         let moved = frame(&mut resident, &context, &mut target);
         assert_ne!(initial, moved);
         host.apply(RetainedUpdate::Replace {
@@ -96,7 +92,7 @@ fn retained_host_ordered_edits_reach_the_next_frame() {
             object,
         })
         .unwrap();
-        objects.apply(resident.scene_mut(), &mut host).unwrap();
+        publish(&context, &mut streaming, &mut resident, &mut host);
         assert_eq!(frame(&mut resident, &context, &mut target), initial);
         assert!(host.apply(RetainedUpdate::Remove(ObjectId(0))).is_err());
     }
@@ -205,7 +201,7 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
     }
 }
 
-fn source() -> RenderScene {
+pub(crate) fn source() -> RenderScene {
     let texture = SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,
         color_space: TextureColorSpace::Srgb,
@@ -420,4 +416,45 @@ fn assert_fourth_cascade(resident: &Resident, expected: usize) {
         panic!("expected shadowed resident")
     };
     assert_eq!(renderer.cascade_view_stats(3).considered, expected);
+}
+
+fn publish(
+    context: &GpuContext,
+    streaming: &mut super::readiness::Streaming,
+    resident: &mut Resident,
+    host: &mut crate::RetainedHost,
+) {
+    let mut presentation = crate::presentation::Presentation::new(
+        context,
+        COLOR,
+        Viewport {
+            width: 64,
+            height: 64,
+        },
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while host.ready_generation() != host.accepted_generation() {
+        context.device().poll(wgpu::PollType::Poll).unwrap();
+        streaming
+            .publish(context, resident, &mut presentation, host)
+            .unwrap();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+}
+
+fn replace_tables(host: &mut crate::RetainedHost) -> SceneObject {
+    let mut meshes = host.scene.geometry().meshes().to_vec();
+    meshes.push(meshes[0].clone());
+    let mut materials = host.scene.resources().materials().to_vec();
+    materials.push(materials[0]);
+    let resources =
+        SceneResources::new(host.scene.resources().textures().to_vec(), materials).unwrap();
+    host.apply(crate::RetainedUpdate::Resources { resources, meshes })
+        .unwrap();
+    SceneObject::new(
+        *host.object(crate::ObjectId(0)).unwrap().transform(),
+        MeshHandle::from_raw(1),
+        MaterialHandle::from_raw(1),
+    )
 }

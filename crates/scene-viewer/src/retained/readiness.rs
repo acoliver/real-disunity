@@ -1,0 +1,153 @@
+use super::{
+    BTreeMap, CameraPose, ObjectId, RenderScene, RetainedHost, RetainedUpdate, SceneCamera,
+    SceneEffects, SceneObject, ViewerError, ViewerOptions,
+};
+use std::{collections::VecDeque, sync::mpsc};
+use worldrunner_render_plan::{SceneGeometry, SceneParts, SceneResources};
+use worldrunner_render_scene::draw::PreparedScene;
+
+pub(crate) struct Preparation {
+    pub generation: u64,
+    pub update: RetainedUpdate,
+    pub scene: Option<mpsc::Receiver<Result<PreparedScene, ViewerError>>>,
+    pub ids: Vec<ObjectId>,
+}
+
+pub(crate) struct Readiness {
+    pub queue: VecDeque<Preparation>,
+    pub limit: usize,
+    pub accepted: u64,
+    pub ready: u64,
+    pub camera: (CameraPose, SceneCamera),
+    #[cfg(test)]
+    pub preparation_hook: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl Readiness {
+    pub(crate) fn publish_front(&mut self) -> RetainedUpdate {
+        let front = self.queue.pop_front().expect("published front generation");
+        if let RetainedUpdate::Camera { pose, lens } = &front.update {
+            self.camera = (*pose, *lens);
+        }
+        assert_eq!(front.generation, self.ready + 1);
+        self.ready = front.generation;
+        front.update
+    }
+}
+
+impl RetainedHost {
+    /// Bounds accepted updates, including completed preparations awaiting publication.
+    /// A full queue returns `ViewerError::BackPressure` without changing scene state.
+    /// CPU texture, geometry and terrain preparation run off-thread. GPU allocation and upload still
+    /// run on the event thread at an admitted frame boundary, without GPU waits.
+    pub fn with_preparation_limit(
+        scene: RenderScene,
+        options: ViewerOptions,
+        limit: usize,
+    ) -> Result<Self, ViewerError> {
+        if limit == 0 {
+            return Err(ViewerError::InvalidOptions(
+                "preparation limit must be positive",
+            ));
+        }
+        let mut host = Self::new(scene, options)?;
+        host.readiness.limit = limit;
+        Ok(host)
+    }
+
+    pub fn ready_generation(&self) -> u64 {
+        self.readiness.ready
+    }
+
+    pub fn accepted_generation(&self) -> u64 {
+        self.readiness.accepted
+    }
+
+    pub fn preparations_in_flight(&self) -> usize {
+        self.readiness.queue.len()
+    }
+
+    pub(super) fn validate_streamed_effects(
+        &self,
+        effects: &SceneEffects,
+    ) -> Result<(), ViewerError> {
+        worldrunner_render_scene::post_settings(effects)?;
+        if let Some(water) = effects.water() {
+            worldrunner_render_scene::water::validate_settings(water)?;
+        }
+        if matches!(self.options.frame_profile, crate::FrameProfile::Legacy)
+            && (effects.ssao().is_some() || effects.ssr().is_some() || effects.water().is_some())
+        {
+            return Err(ViewerError::UnsupportedScene(
+                "water, SSAO and SSR streaming require HDR",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn snapshot(
+        &self,
+        resources: SceneResources,
+        meshes: Vec<worldrunner_render_plan::SceneMesh>,
+        objects: &BTreeMap<ObjectId, SceneObject>,
+        effects: Option<SceneEffects>,
+    ) -> Result<RenderScene, ViewerError> {
+        RenderScene::new(SceneParts {
+            resources,
+            geometry: SceneGeometry::new(meshes, objects.values().copied().collect())
+                .map_err(|error| ViewerError::Driver(error.to_string()))?,
+            terrain: self.scene.terrain().cloned(),
+            effects,
+        })
+        .map_err(|error| ViewerError::Driver(error.to_string()))
+    }
+
+    pub(super) fn enqueue(&mut self, update: RetainedUpdate, rebuild: bool) {
+        self.readiness.accepted += 1;
+        let scene = rebuild.then(|| {
+            let scene = self.scene.clone();
+            let (send, receive) = mpsc::sync_channel(1);
+            // GPU objects remain on the event thread. CPU content preparation
+            // runs here; publication never joins or waits for this worker.
+            #[cfg(test)]
+            let hook = self.readiness.preparation_hook.take();
+            std::thread::spawn(move || {
+                #[cfg(test)]
+                if let Some(hook) = hook {
+                    hook();
+                }
+                let result = prepare(&scene);
+                // A closed receiver means the host exited and cancelled this update.
+                let _ = send.send(result);
+            });
+            receive
+        });
+        self.readiness.queue.push_back(Preparation {
+            generation: self.readiness.accepted,
+            update,
+            scene,
+            ids: if rebuild {
+                self.objects.keys().copied().collect()
+            } else {
+                Vec::new()
+            },
+        });
+    }
+}
+
+fn prepare(scene: &RenderScene) -> Result<PreparedScene, ViewerError> {
+    Ok(PreparedScene::new(scene)?)
+}
+
+pub(super) fn resource_settings_changed(a: Option<&SceneEffects>, b: &SceneEffects) -> bool {
+    a.is_none_or(|a| {
+        a.ssao() != b.ssao()
+            || a.ssr() != b.ssr()
+            || a.water_bodies() != b.water_bodies()
+            || a.atmosphere() != b.atmosphere()
+            || a.sky() != b.sky()
+    })
+}
+
+#[cfg(test)]
+mod tests;

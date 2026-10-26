@@ -149,6 +149,25 @@ impl ShadowedScene {
         format: wgpu::TextureFormat,
         samples: u32,
     ) -> Result<Self, ShadowError> {
+        Self::with_prepared_target(
+            context,
+            crate::draw::PreparedScene::new(scene)?,
+            settings,
+            format,
+            samples,
+        )
+    }
+
+    /// Builds the existing shadow renderer from CPU-prepared upload data.
+    pub fn with_prepared_target(
+        context: &GpuContext,
+        prepared: crate::draw::PreparedScene,
+        settings: DirectionalShadowSettings,
+        format: wgpu::TextureFormat,
+        samples: u32,
+    ) -> Result<Self, ShadowError> {
+        let scene = prepared.scene().clone();
+        let scene = &scene;
         worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
             .validate_adapter(context.adapter())?;
         settings.validate(&context.device().limits())?;
@@ -161,7 +180,12 @@ impl ShadowedScene {
             resources::receiver_pipelines(context, scene, (format, samples), &shadow_layout)?;
         let (depth_pipelines, terrain_depth_pipeline) =
             resources::depth_pipelines(context.device(), &pipelines, settings);
-        let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
+        let gpu = SceneGpu::upload_prepared(
+            context.device(),
+            context.submission(),
+            prepared,
+            &pipelines,
+        )?;
         let depth_frames = resources::depth_frames(context, pipelines.frame_layout());
         let layers = u32::try_from(
             scene

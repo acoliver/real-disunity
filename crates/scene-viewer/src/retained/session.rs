@@ -71,7 +71,7 @@ impl Content for Session<'_> {
     }
     fn source(&self) -> SceneSource<'_> {
         SceneSource::Static {
-            scene: &self.host.scene,
+            scene: &self.host.initial_scene,
             shadows: self.host.options.shadows,
             profile: self.host.options.frame_profile,
             frames_in_flight: self.host.options.frames_in_flight,

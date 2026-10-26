@@ -1,11 +1,9 @@
 use super::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
     BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES, GpuLod, GpuMesh, GpuTerrain,
-    MaterialHandle, MaterialUniform, PreparedTexture, Queue, RenderScene, Sampler,
-    TERRAIN_PLACEMENT, TerrainUniformState, Texture, TextureHandle, TextureView,
-    TextureViewDescriptor, array, build_terrain_mesh, pack_indices, pack_instance, pack_vertices,
-    prepare_texture, upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
-    visibility,
+    MaterialUniform, Queue, RenderScene, Sampler, TERRAIN_PLACEMENT, TerrainUniformState, Texture,
+    TextureHandle, TextureView, TextureViewDescriptor, pack_instance, upload_buffer,
+    upload_palette_array, upload_texture, upload_type_grid,
 };
 
 pub(super) fn allocate_frame_slots(
@@ -53,14 +51,12 @@ pub(super) fn table_index(handle: TextureHandle) -> usize {
 pub(super) fn upload_textures(
     device: &Device,
     queue: &Queue,
-    scene: &RenderScene,
+    prepared: &[crate::texture::OwnedPreparedTexture],
 ) -> Result<(Vec<Texture>, Vec<TextureView>), DrawError> {
     let mut textures = Vec::new();
     let mut views = Vec::new();
-    for (index, texture) in scene.resources().textures().iter().enumerate() {
-        let prepared =
-            prepare_texture(texture).map_err(|source| DrawError::Texture { index, source })?;
-        let uploaded = upload_texture(device, queue, &prepared)?;
+    for texture in prepared {
+        let uploaded = upload_texture(device, queue, &texture.as_prepared())?;
         views.push(uploaded.create_view(&TextureViewDescriptor::default()));
         textures.push(uploaded);
     }
@@ -119,53 +115,47 @@ pub(super) fn upload_materials(
     (groups, uniforms)
 }
 
-/// Packs and uploads every level of every mesh.
+/// Uploads already packed mesh levels without processing source geometry.
 pub(super) fn upload_meshes(
     device: &Device,
     queue: &Queue,
-    scene: &RenderScene,
-) -> Result<Vec<GpuMesh>, DrawError> {
-    let mut meshes = Vec::new();
-    for (mesh, source) in scene.geometry().meshes().iter().enumerate() {
-        let mut lods = Vec::new();
-        for (level, lod) in source.lods().iter().enumerate() {
-            let vertices = pack_vertices(lod).map_err(|source| DrawError::Geometry {
-                mesh,
-                level,
-                source,
-            })?;
-            let indices = pack_indices(lod);
-            let transition =
-                transition_vertices(device, queue, source, level).map_err(|source| {
-                    DrawError::Geometry {
-                        mesh,
-                        level,
-                        source,
-                    }
-                })?;
-            lods.push(GpuLod {
-                transition,
-                vertices: upload_buffer(
-                    device,
-                    queue,
-                    "mesh vertices",
-                    BufferUsages::VERTEX,
-                    &vertices,
-                ),
-                indices: upload_buffer(
-                    device,
-                    queue,
-                    "mesh indices",
-                    BufferUsages::INDEX,
-                    &indices,
-                ),
-                index_count: u32::try_from(lod.indices().len())
-                    .expect("a validated index count fits a draw"),
-            });
-        }
-        meshes.push(GpuMesh { lods });
-    }
-    Ok(meshes)
+    meshes: &[super::prepared::PreparedMesh],
+) -> Vec<GpuMesh> {
+    meshes
+        .iter()
+        .map(|mesh| GpuMesh {
+            lods: mesh
+                .lods
+                .iter()
+                .map(|lod| GpuLod {
+                    transition: lod.transition.as_ref().map(|bytes| {
+                        upload_buffer(
+                            device,
+                            queue,
+                            "mesh card complement",
+                            BufferUsages::VERTEX,
+                            bytes,
+                        )
+                    }),
+                    vertices: upload_buffer(
+                        device,
+                        queue,
+                        "mesh vertices",
+                        BufferUsages::VERTEX,
+                        &lod.vertices,
+                    ),
+                    indices: upload_buffer(
+                        device,
+                        queue,
+                        "mesh indices",
+                        BufferUsages::INDEX,
+                        &lod.indices,
+                    ),
+                    index_count: lod.index_count,
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Builds the single terrain draw: its mesh, its uniform and its bind group.
@@ -183,13 +173,14 @@ pub(super) fn upload_terrain(
     scene: &RenderScene,
     layout: &BindGroupLayout,
     sampler: &Sampler,
+    prepared: Option<&super::prepared::PreparedTerrain>,
 ) -> Result<Option<GpuTerrain>, DrawError> {
     let Some(terrain) = scene.terrain() else {
         return Ok(None);
     };
-    let mesh = build_terrain_mesh(terrain).map_err(|source| DrawError::Terrain { source })?;
-    let uniform = TerrainUniformState::encode(terrain)
-        .map_err(|source| DrawError::TerrainUniform { source })?;
+    let prepared = prepared.expect("prepared terrain matches scene");
+    let mesh = &prepared.mesh;
+    let uniform = &prepared.uniform;
 
     // The grid goes up at full resolution regardless of the stride the mesh was
     // built at. That is the entire point: the geometry may be decimated because
@@ -203,12 +194,12 @@ pub(super) fn upload_terrain(
         terrain.rows(),
         terrain.surface_indices(),
     )?;
-    let palettes = upload_palettes(device, queue, scene, uniform.layer_materials())?;
+    let palettes = upload_palettes(device, queue, &prepared.palettes)?;
 
     // The uniform buffer is built here rather than inside the bind group so
     // that helper takes only the resources it wires together, and so the
     // buffer's lifetime is visibly the caller's.
-    let uniform_buffer = terrain_uniform_buffer(device, queue, &uniform);
+    let uniform_buffer = terrain_uniform_buffer(device, queue, uniform);
     let bind_group = terrain_bind_group(
         device,
         layout,
@@ -220,11 +211,11 @@ pub(super) fn upload_terrain(
     retained.push(grid);
     Ok(Some(GpuTerrain {
         page_bounds: page_bounds(terrain),
-        page_elevation: page_elevation(terrain),
+        page_elevation: prepared.elevation,
         uniform: uniform_buffer,
         sampler: sampler.clone(),
         pages: None,
-        bounds: visibility::terrain_bounds(&mesh.vertices),
+        bounds: prepared.bounds,
         lod: GpuLod {
             transition: None,
             vertices: upload_buffer(
@@ -340,29 +331,8 @@ pub(super) fn terrain_bind_group(
 pub(super) fn upload_palettes(
     device: &Device,
     queue: &Queue,
-    scene: &RenderScene,
-    layers: &[MaterialHandle],
+    prepared: &[Vec<crate::texture::OwnedPreparedTexture>; 3],
 ) -> Result<Vec<Texture>, DrawError> {
-    let materials = scene.resources().materials();
-    let textures = scene.resources().textures();
-    let mut prepared: [Vec<PreparedTexture>; 3] = array::from_fn(|_| Vec::new());
-    for (layer, handle) in layers.iter().enumerate() {
-        let material = &materials
-            [usize::try_from(handle.raw()).expect("a validated handle indexes its table")];
-        let maps = [
-            (Some(material.albedo()), "albedo"),
-            (material.normal(), "normal"),
-            (material.roughness_metallic(), "roughness-metallic"),
-        ];
-        for (slot, (handle, map)) in maps.into_iter().enumerate() {
-            let handle = handle.ok_or(DrawError::TerrainPaletteMap { layer, map })?;
-            let index = table_index(handle);
-            prepared[slot].push(
-                prepare_texture(&textures[index])
-                    .map_err(|source| DrawError::Texture { index, source })?,
-            );
-        }
-    }
     let labels = [
         "terrain-palette-albedo",
         "terrain-palette-normal",
@@ -372,7 +342,16 @@ pub(super) fn upload_palettes(
         .iter()
         .zip(labels)
         .map(|(layers, label)| {
-            upload_palette_array(device, queue, label, layers).map_err(DrawError::from)
+            upload_palette_array(
+                device,
+                queue,
+                label,
+                &layers
+                    .iter()
+                    .map(crate::texture::OwnedPreparedTexture::as_prepared)
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(DrawError::from)
         })
         .collect()
 }
@@ -398,32 +377,13 @@ fn terrain_uniform_buffer(device: &Device, queue: &Queue, uniform: &TerrainUnifo
     )
 }
 
-fn page_elevation(terrain: &worldrunner_render_plan::SceneTerrain) -> [f32; 2] {
+pub(super) fn page_elevation(terrain: &worldrunner_render_plan::SceneTerrain) -> [f32; 2] {
     let heights = terrain.heights_millimeters();
     [
         *heights.iter().min().expect("terrain heights"),
         *heights.iter().max().expect("terrain heights"),
     ]
     .map(|height| crate::geometry::millimeter_to_meter(i64::from(height)))
-}
-
-fn transition_vertices(
-    device: &Device,
-    queue: &Queue,
-    mesh: &worldrunner_render_plan::SceneMesh,
-    level: usize,
-) -> Result<Option<Buffer>, crate::geometry::GeometryError> {
-    let Some(card) = mesh.lods()[level].card().filter(|_| level > 0) else {
-        return Ok(None);
-    };
-    let bytes = crate::geometry::pack_transition(&mesh.lods()[level - 1], card.coverage_micro())?;
-    Ok(Some(upload_buffer(
-        device,
-        queue,
-        "mesh card complement",
-        BufferUsages::VERTEX,
-        &bytes,
-    )))
 }
 
 pub(super) fn post_settings(
@@ -435,4 +395,21 @@ pub(super) fn post_settings(
         .transpose()
         .map_err(|_| crate::frame::FrameError::UnsupportedEffect("post settings"))
         .map(Option::unwrap_or_default)
+}
+
+pub(super) fn prepared_terrain(
+    device: &Device,
+    queue: &Queue,
+    prepared: &super::PreparedScene,
+    pipelines: &super::ScenePipelines,
+    sampler: &Sampler,
+) -> Result<Option<GpuTerrain>, DrawError> {
+    upload_terrain(
+        device,
+        queue,
+        &prepared.scene,
+        pipelines.terrain_layout(),
+        sampler,
+        prepared.terrain.as_ref(),
+    )
 }

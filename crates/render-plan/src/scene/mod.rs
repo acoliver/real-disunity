@@ -75,7 +75,7 @@ pub struct SceneParts {
 /// Mesh table plus ordered objects of one scene.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneGeometry {
-    meshes: Box<[SceneMesh]>,
+    meshes: std::sync::Arc<[SceneMesh]>,
     objects: Box<[SceneObject]>,
 }
 
@@ -91,7 +91,7 @@ impl SceneGeometry {
         objects: Vec<SceneObject>,
     ) -> Result<Self, SceneValidationError> {
         let geometry = Self {
-            meshes: meshes.into_boxed_slice(),
+            meshes: meshes.into(),
             objects: objects.into_boxed_slice(),
         };
         geometry.validate()?;
@@ -116,7 +116,7 @@ impl SceneGeometry {
     ///
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        for mesh in &self.meshes {
+        for mesh in self.meshes.iter() {
             mesh.validate()?;
         }
         for object in &self.objects {
@@ -135,7 +135,7 @@ impl SceneGeometry {
 pub struct RenderScene {
     resources: SceneResources,
     geometry: SceneGeometry,
-    terrain: Option<SceneTerrain>,
+    terrain: Option<std::sync::Arc<SceneTerrain>>,
     effects: Option<SceneEffects>,
 }
 
@@ -150,10 +150,35 @@ impl RenderScene {
         let scene = Self {
             resources: parts.resources,
             geometry: parts.geometry,
-            terrain: parts.terrain,
+            terrain: parts.terrain.map(std::sync::Arc::new),
             effects: parts.effects,
         };
         scene.validate()?;
+        Ok(scene)
+    }
+
+    /// Replaces placements and effects while sharing immutable resource tables and terrain.
+    ///
+    /// # Errors
+    /// Returns an error for invalid transforms, effects or cross-table references.
+    pub fn with_objects_and_effects(
+        &self,
+        objects: Vec<SceneObject>,
+        effects: Option<SceneEffects>,
+    ) -> Result<Self, SceneValidationError> {
+        for object in &objects {
+            object.transform().validate()?;
+        }
+        let scene = Self {
+            resources: self.resources.clone(),
+            geometry: SceneGeometry {
+                meshes: self.geometry.meshes.clone(),
+                objects: objects.into_boxed_slice(),
+            },
+            terrain: self.terrain.clone(),
+            effects,
+        };
+        scene.validate_references()?;
         Ok(scene)
     }
 
@@ -171,8 +196,8 @@ impl RenderScene {
 
     /// Returns the optional terrain.
     #[must_use]
-    pub const fn terrain(&self) -> Option<&SceneTerrain> {
-        self.terrain.as_ref()
+    pub fn terrain(&self) -> Option<&SceneTerrain> {
+        self.terrain.as_deref()
     }
 
     /// Returns the optional environmental profile.
@@ -189,6 +214,13 @@ impl RenderScene {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.resources.validate()?;
         self.geometry.validate()?;
+        if let Some(terrain) = &self.terrain {
+            terrain.validate()?;
+        }
+        self.validate_references()
+    }
+
+    fn validate_references(&self) -> Result<(), SceneValidationError> {
         if let Some(effects) = &self.effects {
             effects.validate()?;
         }
@@ -225,7 +257,6 @@ impl RenderScene {
             )?;
         }
         if let Some(terrain) = &self.terrain {
-            terrain.validate()?;
             for surface in terrain.surfaces() {
                 require_handle(
                     "terrain surfaces",
@@ -405,6 +436,44 @@ mod tests {
             lod_policy: TerrainLodPolicy::FullResolution,
         })
         .expect("synthetic terrain validates")
+    }
+
+    #[test]
+    fn placement_edits_share_resource_generations_and_validate_new_references() {
+        let scene = scene_with(
+            vec![object(0, 0)],
+            Some(terrain(vec![MaterialHandle::from_raw(0)])),
+        )
+        .unwrap();
+        let edited = scene
+            .with_objects_and_effects(vec![object(0, 0)], scene.effects().cloned())
+            .unwrap();
+        assert_eq!(
+            scene.resources().textures().as_ptr(),
+            edited.resources().textures().as_ptr()
+        );
+        assert_eq!(
+            scene.resources().materials().as_ptr(),
+            edited.resources().materials().as_ptr()
+        );
+        assert_eq!(
+            scene.geometry().meshes().as_ptr(),
+            edited.geometry().meshes().as_ptr()
+        );
+        assert!(std::ptr::eq(
+            scene.terrain().unwrap(),
+            edited.terrain().unwrap()
+        ));
+        assert!(
+            scene
+                .with_objects_and_effects(vec![object(1, 0)], None)
+                .is_err()
+        );
+        assert!(
+            scene
+                .with_objects_and_effects(vec![object(0, 1)], None)
+                .is_err()
+        );
     }
 
     #[test]

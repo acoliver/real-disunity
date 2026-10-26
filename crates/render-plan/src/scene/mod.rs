@@ -17,7 +17,13 @@ mod water;
 mod water_settings;
 pub use water::{SceneWaterBody, SceneWaterSurface};
 pub use water_settings::SceneWaterSettings;
+mod bloom;
 mod post;
+pub use bloom::{
+    SceneBloomLevelSelection, SceneBloomRecipe, SceneBloomReduction, SceneBloomTerminal,
+    SceneBloomTintPass, SceneBrightCurve, SceneBrightExtraction, SceneGaussianKernelRule,
+    SceneGaussianLevel, SceneToneCurveBright,
+};
 pub use post::{
     SceneAdaptiveExposure, SceneBloom, SceneDisplayGrading, SceneHdrPost, SceneToneMap,
     SceneVignette,

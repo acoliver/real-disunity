@@ -1,4 +1,61 @@
 #[test]
+fn hdr_rejects_extent_invalid_bloom_before_buffer_allocation() {
+    use crate::{compositor::FrameRenderer, post_bloom_tests};
+    use worldrunner_render_post::{PostError, ToneMap};
+    let instance = worldrunner_render_gpu::device::headless_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_buffer_size: 8,
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+    .unwrap();
+    let context = GpuContext {
+        adapter,
+        device,
+        submission: worldrunner_render_gpu::submission::SubmissionAuthority::new(queue),
+    };
+    let mut bloom = post_bloom_tests::bloom();
+    bloom.recipe.as_mut().unwrap().terminal = worldrunner_render_plan::SceneBloomTerminal::Reject;
+    let effects = post_bloom_tests::effects(bloom);
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let result = FrameRenderer::hdr(
+        &context,
+        [2, 2],
+        TextureFormat::Rgba8UnormSrgb,
+        1,
+        ToneMap::Reinhard,
+        Some(&effects),
+    );
+    assert!(matches!(
+        result,
+        Err(PostError::UnsupportedProfile(
+            "Gaussian bloom levels exceed extent"
+        ))
+    ));
+    context.device().poll(wgpu::PollType::Poll).unwrap();
+    assert!(pollster::block_on(scope.pop()).is_none());
+    // The HDR factory's 16-byte buffers must exceed this device's limit.
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let _buffer = context.device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("preflight allocation sentinel"),
+        size: 16,
+        usage: wgpu::BufferUsages::UNIFORM,
+        mapped_at_creation: false,
+    });
+    context.device().poll(wgpu::PollType::Poll).unwrap();
+    assert!(pollster::block_on(scope.pop()).is_some());
+}
+
+#[test]
 fn timestamp_negotiation_reports_optional_and_rejects_required_absence() {
     use worldrunner_render_gpu::device::{DeviceRequirements, negotiate};
     use worldrunner_render_post::TimingMode;

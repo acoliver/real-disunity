@@ -256,6 +256,7 @@ fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
                 soft_knee_micro: 500_000,
                 intensity_micro: 500_000,
                 levels: 4,
+                recipe: None,
             }),
             fxaa_subpixel_micro: Some(750_000),
         })

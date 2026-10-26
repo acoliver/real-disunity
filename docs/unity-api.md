@@ -10,7 +10,7 @@ These cover creating, finding and destroying things, which nearly every script u
 
 | Type | Supported |
 | --- | --- |
-| `Object` | `Instantiate` (original; with parent; with position and rotation; with position, rotation and parent), `Destroy`, `FindObjectOfType`, `FindFirstObjectByType`, `FindObjectsByType`, Unity-style null and equality checks on destroyed objects |
+| `Object` | `Instantiate` (original; with parent; with position and rotation; with position, rotation and parent), `Destroy(obj)` for game objects and `ScriptableObject`s, `Destroy(obj, delay)` for game objects, `FindObjectOfType`, `FindFirstObjectByType`, `FindObjectsByType`, Unity-style null and equality checks on destroyed objects |
 | `GameObject` | `name`, `tag`, `CompareTag`, `activeSelf`, `activeInHierarchy`, `SetActive`, `GetComponent<T>`, `AddComponent<T>`, `transform`, `FindGameObjectWithTag` |
 | `Component` | `gameObject`, `transform`, `tag`, `CompareTag`, `GetComponent<T>` |
 | `Behaviour` | `enabled`, `isActiveAndEnabled` |
@@ -19,25 +19,25 @@ These cover creating, finding and destroying things, which nearly every script u
 | `ScriptableObject` | `CreateInstance<T>`, `CreateInstance(Type)` and `CreateInstance(string)`, with `Awake`, `OnEnable`, `OnDisable` and `OnDestroy` |
 | Attributes | `SerializeField`, `Header`, `Range`, `CreateAssetMenu` |
 
-Instantiated objects have their internal references remapped to the clone, as in Unity, and their `Awake` and `OnEnable` run before `Instantiate` returns. `Destroy` takes effect at the end of the frame.
+Instantiated objects have their internal references remapped to the clone, as in Unity, and their `Awake` and `OnEnable` run before `Instantiate` returns. `Destroy` follows Unity's timing: the object stops receiving update messages at once, but searches still find it and it compares non-null until the end of the frame, when `OnDisable` and `OnDestroy` run. Destroying a single component throws `NotSupportedException`.
 
 ## Time, input and coroutines
 
 | Type | Supported |
 | --- | --- |
 | `Time` | `deltaTime`, `fixedDeltaTime`, `time`, `frameCount` |
-| `Input` | `GetKey`, `GetKeyDown`, `GetKeyUp`; `GetAxis` and `GetAxisRaw` for `Horizontal` and `Vertical` |
+| `Input` | `GetKey`, `GetKeyDown`, `GetKeyUp`; `GetAxis` (smoothed) and `GetAxisRaw` for any axis the host registered |
 | `KeyCode` | `Space`, `A` to `Z`, the four arrow keys, `Return`, `Escape` |
 | `UnityEngine.InputSystem.Keyboard` | `Keyboard.current.aKey` and `dKey` with `isPressed` |
 | Yield instructions | `WaitForSeconds`, `WaitForSecondsRealtime`, `WaitForFixedUpdate`, `null` (next frame), nested `IEnumerator` |
 
-Mouse input, gamepads and Input System actions are not implemented. Coroutines cannot be joined by yielding a `Coroutine`, and `WaitForEndOfFrame` and custom yield instructions are not supported.
+No axes exist until the host registers them with `DisunityHost.RegisterInputAxis`, giving each a name, negative and positive keys, alternate keys, gravity, sensitivity, dead zone, snap and invert, as in Unity's Input Manager. Asking for an unregistered axis throws `ArgumentException`. Mouse input, gamepads and Input System actions are not implemented. Coroutines cannot be joined by yielding a `Coroutine`, and `WaitForEndOfFrame` and custom yield instructions are not supported.
 
 ## 2D physics
 
 | Type | Supported |
 | --- | --- |
-| `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial` |
+| `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `constraints` (`RigidbodyConstraints2D` freeze position X, Y and rotation), `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial` |
 | `Collider2D` | `enabled`, `isTrigger`, `offset`, `attachedRigidbody`, `sharedMaterial` |
 | `BoxCollider2D`, `CircleCollider2D` | `size`; `radius` |
 | `PhysicsMaterial2D` | `name`, `friction`, `bounciness` |

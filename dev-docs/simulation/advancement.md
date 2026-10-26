@@ -36,6 +36,8 @@ Input events have nondecreasing unscaled timestamps. Equal timestamps retain sub
 
 Focus loss releases every held key and clears device axes. Input while unfocused does not restore held state. Typed keyboard-axis bindings project negative and positive keys to raw -1/0/1 values, optionally inverted. Explicit normalized axis events override keyboard bindings for their axis.
 
+Named axes (`World::register_input_axis`, `crates/world-simulation/src/input_axes.rs`) layer Unity Input Manager semantics on those bindings: a name, gravity, sensitivity, dead zone and snap. `input_axis(phase, name, raw)` returns the raw value with dead zone and invert applied, or the smoothed value, which is tracked separately for the fixed and dynamic phases and reset by focus loss. Several IDs may share a name; the reading with the greatest magnitude wins, and the lowest ID breaks ties. No axes are registered implicitly, and an unknown name is an error.
+
 ## Coroutines, failure and host integration
 
 Managed iterator bodies remain managed. Native coroutine IDs own target eligibility, deadlines, phase selection and cancellation. `start_coroutine` registers a wait after the host has executed the initial iterator body. `Coroutine(id)` asks the host to run the next body. `Yielded(wait)` schedules the next resumption; `Returned` completes it. Dynamic waits cannot resume again in the same frame. Fixed waits resume after physics in an eligible fixed phase. Component disable preserves coroutine waits and resumptions while suppressing ordinary script phases. Object deactivation and target destruction cancel coroutines immediately, including destruction after the coroutine phase.

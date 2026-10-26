@@ -10,7 +10,7 @@ The native world decides when each message runs, using Unity's ordering: Awake a
 
 Script messages are found by name, including private methods, so the usual Unity style works without overrides. `Start` may return an `IEnumerator`.
 
-A script that uses a type or member `Disunity.Engine` does not define fails to compile. A member that exists but is called with something unsupported throws an exception that names it: `Input.GetAxis("Jump")` throws `NotSupportedException`, and a point light throws `UnsupportedLight2DException`. The [supported API list](unity-api.md) shows what exists.
+A script that uses a type or member `Disunity.Engine` does not define fails to compile. A member that exists but is called with something unsupported throws an exception that names it: `Input.GetAxis("Jump")` throws `ArgumentException` when no `Jump` axis is registered, and a point light throws `UnsupportedLight2DException`. The [supported API list](unity-api.md) shows what exists.
 
 ## Set up a project
 
@@ -87,7 +87,7 @@ A process runs C# scripts through `DisunityHost` in the `worldrunner-disunity-ru
 
 `crates/worldrunner/tests/native_sprite_equivalence.rs` is a complete example of steps 3 and 4. It builds the fixture assembly, boots the host, exports the C# world and checks that it renders the same quads as an equivalent world built in Rust.
 
-Input from the window reaches C# through `DisunityHost.PushKey`, `PushAxis` and `PushFocus`, with timestamps in seconds. `Input.GetKey`, `GetKeyDown`, `GetKeyUp` and `GetAxis` read the native input state for the current fixed or dynamic phase.
+Input from the window reaches C# through `DisunityHost.PushKey`, `PushAxis` and `PushFocus`, with timestamps in seconds. `Input.GetKey`, `GetKeyDown`, `GetKeyUp` and `GetAxis` read the native input state for the current fixed or dynamic phase. No input axes exist by default: register each one the scripts use, such as `Horizontal`, with `DisunityHost.RegisterInputAxis(id, new InputAxisDefinition("Horizontal", KeyCode.LeftArrow, KeyCode.RightArrow))` in `Run`.
 
 ## Unity projects
 

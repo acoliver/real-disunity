@@ -49,7 +49,7 @@ Three small open-source Unity games are the first targets. They will run from th
 | [Pong](https://github.com/mcrvaz/pong-tdd) | 2017.1 | Imports with no missing references. |
 | [Breakout](https://github.com/admtrv/Breakout) | 6000.3 | Imports with no missing references. |
 
-None of them runs yet, because of the missing scene loader. The engine features they need, such as named input axes, position constraints on 2D bodies and deferred `Destroy`, are tracked in [#70](https://github.com/acoliver/real-disunity/issues/70).
+None of them runs yet, because of the missing scene loader. The engine work they need is tracked in [#70](https://github.com/acoliver/real-disunity/issues/70). Named input axes, position constraints on 2D bodies and Unity's deferred `Destroy` timing are done; camera, `CanvasScaler` and `Text` style settings over the ABI and the loader itself remain.
 
 ## When a project does not import
 

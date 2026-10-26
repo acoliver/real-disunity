@@ -82,10 +82,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("ball height: {:.2}", world.world_matrix(ball)?.w_axis.y);
 
-    // Input is timestamped and becomes visible in the next advance.
+    // Input carries an unscaled timestamp later than the time the world has
+    // already reached (two seconds here), and is seen by the next advance.
     let space = KeyCode(32);
     world.push_input(&[InputEvent {
-        timestamp: world.clock().unscaled_time,
+        timestamp: TimeSpan::new(121, 60)?,
         action: InputAction::Key(space, true),
     }])?;
     world.advance(frame)?;
@@ -97,9 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 A few rules that the world enforces:
 
 - Every fallible operation returns a typed error. Invalid input, stale handles and exhausted limits are rejected before anything changes.
-- Handles are generation checked. Using a handle after its object is destroyed returns an error, even after the storage slot has been reused.
+- Handles are generation checked. `destroy` takes effect at the end of the frame, as in Unity; after that, using the handle returns an error, even once the storage slot has been reused.
 - `advance` returns `Advance::Callback` when a script needs to run. A Rust game without scripts only ever sees `Advance::Complete`. The C# host is the main user of callbacks.
-- Key codes and axis identifiers are numbers the game chooses. `World::set_input_axes` binds keys to axes.
+- Input timestamps must not go backwards, and an event at or before the time of the last completed frame is rejected with `InputOrder`.
+- Key codes and axis identifiers are numbers the game chooses. `World::register_input_axis` defines a named axis from negative and positive keys, with Unity-style gravity, sensitivity, dead zone and snap, and `World::input_axis(phase, name, raw)` reads it.
 
 Physics works in the XY plane by default, with gravity of -9.81 m/s² on Y. `World::set_physics_settings` selects the XZ plane, gravity and solver limits. Contacts are available from `World::contacts()` after each step, and `raycast`, `overlap_point` and `overlap_shape` query the same colliders.
 

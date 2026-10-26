@@ -8,7 +8,9 @@
 //! scene cannot exist.
 
 mod atmosphere;
+mod scattering;
 pub use atmosphere::{SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, SceneHeightFog};
+pub use scattering::{SceneScattering, SceneScatteringFormat, SceneScatteringModel};
 mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
 mod composition;

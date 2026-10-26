@@ -510,11 +510,21 @@ fn build_objects(
     })
 }
 
-pub(crate) fn celestial_pipelines(device: &Device, scene: &ScenePipelines) -> [RenderPipeline; 4] {
+pub(crate) fn celestial_pipelines(
+    device: &Device,
+    scene: &ScenePipelines,
+    physical: bool,
+) -> [RenderPipeline; 4] {
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",
         "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
     );
+    let source = if physical {
+        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
+            "return vec4<f32>(colour, albedo_sample.a);")
+    } else {
+        source
+    };
     let source = format!("{source}\n{}", crate::sky::meshes::VERTEX);
     let module = scene_shader(device, "celestial mesh lighting", &source);
     let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {

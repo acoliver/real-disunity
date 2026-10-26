@@ -7,8 +7,10 @@ use worldrunner_render_plan::{SceneAtmosphere, SceneCelestialDisc};
 mod mesh_target;
 pub(crate) mod meshes;
 pub mod preparation;
+mod scattering;
 const SOURCE: &str = concat!(
     worldrunner_render_lighting::lighting_wgsl!(),
+    include_str!("medium.wgsl"),
     include_str!("sky.wgsl"),
     include_str!("../shader/camera_rays.wgsl")
 );
@@ -71,6 +73,16 @@ fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
         ],
     })
 }
@@ -124,6 +136,8 @@ pub(crate) fn pipeline(
 pub(crate) struct Sky {
     pipeline: wgpu::RenderPipeline,
     groups: Vec<wgpu::BindGroup>,
+    lookup: Option<scattering::Lookup>,
+    identity: std::rc::Rc<()>,
 }
 impl Sky {
     pub fn upload(
@@ -132,12 +146,17 @@ impl Sky {
         pipelines: &crate::renderer::ScenePipelines,
         views: &[wgpu::TextureView],
         white: &wgpu::TextureView,
-    ) -> Option<Self> {
+    ) -> Result<Option<Self>, preparation::PreparationError> {
         scene
             .effects()
             .and_then(|effects| effects.atmosphere())
             .map(|settings| {
-                Self::new(
+                if let Some(physical) = settings.scattering {
+                    preparation::atmosphere_allocations(physical)?
+                        .validate(&device.limits())
+                        .map_err(|_| preparation::PreparationError::Budget)?;
+                }
+                Ok(Self::new(
                     device,
                     pipelines.frame_layout(),
                     (pipelines.color_format, pipelines.samples),
@@ -149,8 +168,9 @@ impl Sky {
                         worldrunner_render_plan::SceneSky::ProceduralHemisphere { .. } => None,
                     },
                     (views, white),
-                )
+                ))
             })
+            .transpose()
     }
 
     pub fn new(
@@ -161,6 +181,7 @@ impl Sky {
         dome: Option<worldrunner_render_plan::TextureHandle>,
         textures: (&[wgpu::TextureView], &wgpu::TextureView),
     ) -> Self {
+        settings.validate().expect("validated atmosphere");
         let (views, white) = textures;
         let (pipeline, layout) = pipeline(device, frame, target);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -170,6 +191,10 @@ impl Sky {
             address_mode_u: wgpu::AddressMode::Repeat,
             ..Default::default()
         });
+        let lookup = settings
+            .scattering
+            .map(|s| scattering::Lookup::new(device, s));
+        let columns = scattering::columns(device, lookup.as_ref());
         let groups = std::iter::once(None)
             .chain(settings.discs.iter().map(Some))
             .map(|disc| {
@@ -197,11 +222,49 @@ impl Sky {
                             binding: 2,
                             resource: wgpu::BindingResource::Sampler(&sampler),
                         },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(&columns),
+                        },
                     ],
                 })
             })
             .collect();
-        Self { pipeline, groups }
+        Self {
+            pipeline,
+            groups,
+            lookup,
+            identity: std::rc::Rc::new(()),
+        }
+    }
+    pub fn prepare(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        frame: &crate::frame::FrameUniform,
+    ) -> Result<(), preparation::PreparationError> {
+        if let Some(lookup) = &self.lookup {
+            crate::compositor::publication::encode(encoder, &self.identity, || {})?;
+            lookup.encode(
+                device,
+                encoder,
+                (frame.sun_direction, frame.camera_position.z.max(0.1)),
+                worldrunner_render_gpu::configuration::AllocationBudget(16 * 1024 * 1024),
+            )?;
+        }
+        Ok(())
+    }
+    pub fn write_key(&self) -> Option<worldrunner_render_gpu::submission::capture::WriteKey> {
+        self.lookup
+            .as_ref()
+            .map(|_| crate::compositor::publication::key(&self.identity))
+    }
+    pub fn requires_preparation(&self) -> bool {
+        self.lookup.is_some()
+    }
+    pub fn bind_background(&self, pass: &mut wgpu::RenderPass<'_>, frame: &wgpu::BindGroup) {
+        pass.set_bind_group(0, frame, &[]);
+        pass.set_bind_group(1, &self.groups[0], &[]);
     }
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, frame: &wgpu::BindGroup) {
         pass.set_pipeline(&self.pipeline);
@@ -248,6 +311,7 @@ fn uniform(settings: &SceneAtmosphere, disc: Option<&SceneCelestialDisc>, dome: 
         [0.0; 4],
         [0.0; 4],
     ];
+    scattering::parameters(settings.scattering, &mut lanes);
     if let Some(disc) = disc {
         let direction =
             Vec3::from_array(disc.direction.components_micro().map(|v| v as f32 / 1e6)).normalize();
@@ -320,6 +384,17 @@ pub fn allocations(
             "celestial instances",
             crate::geometry::INSTANCE_STRIDE,
             u32::try_from(settings.meshes.len()).expect("validated celestial count"),
+        );
+    }
+    if let Some(physical) = settings.scattering {
+        set.extend(scattering::allocations(physical));
+    } else {
+        set.texture(
+            "unused atmospheric columns",
+            [1, 1, 3],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            1,
         );
     }
     set

@@ -125,3 +125,5 @@ impl HeightFog {
 fn positive_color(value: Vec3) -> bool {
     value.is_finite() && value.cmpge(Vec3::ZERO).all()
 }
+
+pub mod scattering;

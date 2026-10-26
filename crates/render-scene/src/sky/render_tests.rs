@@ -5,8 +5,9 @@ use crate::{
 };
 use worldrunner_render_plan::SceneCamera;
 
-fn settings() -> SceneAtmosphere {
+pub(super) fn settings() -> SceneAtmosphere {
     SceneAtmosphere {
+        scattering: None,
         horizon_radiance_micro: [2_000_000; 3],
         zenith_radiance_micro: [2_000_000; 3],
         gradient_exponent_micro: 1_000_000,
@@ -33,7 +34,7 @@ fn solar_disc_uses_frame_sun_direction() {
     let (color, _) = render(&settings, 1.0, 1.0);
     assert_eq!(&color[..8], &[0, 0x48, 0, 0x48, 0, 0x48, 0, 0x3c]);
 }
-fn test_frame(exposure: f32) -> FrameUniform {
+pub(super) fn test_frame(exposure: f32) -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [0, 0, 0],
@@ -162,7 +163,7 @@ fn render(settings: &SceneAtmosphere, exposure: f32, clear_depth: f32) -> (Vec<u
     frame.height_fog = settings.fog.map(super::height_fog);
     render_frame(settings, &frame, clear_depth)
 }
-fn render_frame(
+pub(super) fn render_frame(
     settings: &SceneAtmosphere,
     camera: &FrameUniform,
     clear_depth: f32,
@@ -199,6 +200,7 @@ fn render_frame(
     let prepared = context
         .submission()
         .prepare(device, |encoder, _| {
+            sky.prepare(device, encoder, camera).unwrap();
             targets.draw(encoder, &sky, &frame, clear_depth);
             targets.copy(encoder);
             Ok::<_, std::convert::Infallible>(())

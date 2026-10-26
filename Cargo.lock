@@ -4064,6 +4064,7 @@ name = "worldrunner-render-scene"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "half",
  "naga",
  "pollster",
  "thiserror 2.0.21",

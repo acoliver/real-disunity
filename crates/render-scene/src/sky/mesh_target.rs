@@ -112,17 +112,14 @@ pub(super) fn pipeline(
     });
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("celestial composition"),
-        bind_group_layouts: &[Some(&group)],
+        bind_group_layouts: &[
+            Some(scene.frame_layout()),
+            Some(&super::layout(device)),
+            Some(&group),
+        ],
         immediate_size: 0,
     });
-    let mut source = include_str!("mesh_composite.wgsl").to_owned();
-    if scene.samples > 1 {
-        source = source.replace("texture_2d<f32>", "texture_multisampled_2d<f32>");
-    }
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("celestial composition"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
+    let module = composite_shader(device, scene.samples);
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("celestial composition"),
         layout: Some(&layout),
@@ -152,4 +149,24 @@ pub(super) fn pipeline(
         cache: None,
     });
     (pipeline, group)
+}
+
+fn composite_shader(device: &wgpu::Device, samples: u32) -> wgpu::ShaderModule {
+    let mut source = concat!(
+        worldrunner_render_lighting::lighting_wgsl!(),
+        include_str!("medium.wgsl"),
+        include_str!("../shader/camera_rays.wgsl"),
+        include_str!("mesh_composite.wgsl")
+    )
+    .to_owned();
+    if samples > 1 {
+        source = source.replace(
+            "var radiance:texture_2d<f32>",
+            "var radiance:texture_multisampled_2d<f32>",
+        );
+    }
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("celestial composition"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    })
 }

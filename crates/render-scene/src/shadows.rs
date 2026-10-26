@@ -439,6 +439,7 @@ impl ShadowedScene {
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
         scheduler.bind_water_inputs(&self.gpu.water_inputs);
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
+        self.gpu.prepare_sky(context.device(), encoder, &frame)?;
         self.gpu
             .prepare_terrain_pages(context.device(), encoder, &frame, color.size())?;
         let mut cascades = Self::prepare_cascades(

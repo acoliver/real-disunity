@@ -4,6 +4,35 @@ use crate::view::{CameraPose, OrthographicLens, SceneView, Viewport};
 use crate::{device::GpuContext, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines};
 use worldrunner_render_plan::*;
 
+#[test]
+fn physical_mesh_composition_preserves_depth_exposure_and_fog() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let mut sky = atmosphere(0);
+    sky.scattering = Some(super::scattering::tests::settings());
+    let objects = scene(0, true, false).geometry().objects().to_vec();
+    let occluded = render(&context, &custom(sky.clone(), quad(), objects), 1.0);
+    for pixel in [3, 5] {
+        assert!(occluded.depth(pixel) < 1.0);
+        assert!(occluded.rgb(pixel)[0] > 0.9);
+        assert!(occluded.rgb(pixel)[1] < 0.001);
+    }
+    let source = custom(sky.clone(), quad(), vec![]);
+    let unit = render(&context, &source, 1.0);
+    let twice = render(&context, &source, 2.0);
+    assert!(unit.rgb(4).into_iter().all(f32::is_finite));
+    for (actual, expected) in twice.rgb(4).into_iter().zip(unit.rgb(4)) {
+        assert!((actual - expected * 2.0).abs() < 0.005);
+    }
+    assert_eq!(unit.depth(4).to_bits(), 1.0_f32.to_bits());
+    sky.meshes.clear();
+    let background = render(&context, &custom(sky.clone(), quad(), vec![]), 1.0);
+    assert!(unit.rgb(4)[1] > background.rgb(4)[1]);
+    sky.meshes = atmosphere(0).meshes;
+    sky.fog = atmosphere(100_000).fog;
+    let fogged = render(&context, &custom(sky, quad(), vec![]), 1.0);
+    assert!(fogged.rgb(4)[2] > unit.rgb(4)[2]);
+}
+
 fn custom(sky: SceneAtmosphere, mesh: SceneMesh, objects: Vec<SceneObject>) -> RenderScene {
     RenderScene::new(SceneParts {
         resources: SceneResources::new(textures().to_vec(), vec![material(1), material(2)])

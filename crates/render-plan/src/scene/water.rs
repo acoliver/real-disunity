@@ -57,6 +57,13 @@ impl SceneWaterBody {
     /// an extent is zero or a maximum corner computation overflows.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.validate_surface()?;
+        if self.material.flow_period_milliseconds == Some(0)
+            || (self.material.flow_period_milliseconds.is_some() && self.material.normal.is_none())
+        {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "two-phase water requires a positive period and normal map",
+            });
+        }
         if self.material.tile_millimeters.contains(&0) {
             return Err(SceneValidationError::UnsupportedInput {
                 part: "water tile extent",

@@ -1,3 +1,6 @@
+#[path = "flow_tests.rs"]
+mod flow_tests;
+
 #[test]
 fn authored_map_representations_and_tiles_fail_before_allocation() {
     let mut body = settings();

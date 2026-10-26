@@ -520,7 +520,9 @@ impl PreparedFeature for WaterFeature {
                 s.absorption_micro
                     .map(|v| crate::view::meters_scalar(v) / 1000.0),
             );
-            data.push(0.0);
+            data.push(number(i64::from(
+                s.material.flow_period_milliseconds.unwrap_or(0),
+            )));
             data.extend(self.frame.sun_direction.to_array());
             data.push(0.0);
             data.extend(self.frame.sun_irradiance.to_array());

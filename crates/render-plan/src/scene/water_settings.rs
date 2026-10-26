@@ -11,6 +11,12 @@ pub struct SceneWaterSettings {
     /// Signed RG flow at unit encoding speed, added to constant body velocity.
     pub flow_speed_millimeters_per_second: u32,
     pub flow: Option<TextureHandle>,
+    /// Two-phase normal advection period. `None` preserves continuous scrolling.
+    /// Requires a normal map and a positive period. Positive velocity advances
+    /// sampling coordinates; the displacement per cycle is velocity times period.
+    /// A positive period enables the half-period triangle blend described by
+    /// Vlachos (2010), "Water Flow in Portal 2".
+    pub flow_period_milliseconds: Option<u32>,
     /// Authored maximum refraction displacement in millimetres, including zero.
     /// `None` preserves stock procedural refraction without an authored bound.
     /// Stock rendering rejects every `Some` bound until displacement limiting is implemented.
@@ -22,6 +28,7 @@ impl SceneWaterSettings {
         tile_millimeters: [1000; 2],
         flow_speed_millimeters_per_second: 1000,
         flow: None,
+        flow_period_milliseconds: None,
         refraction_millimeters: None,
     };
     pub(super) fn validate_handles(
@@ -55,5 +62,33 @@ mod tests {
             assert!(settings.validate_handles(1, 1).is_err());
             assert!(settings.validate_handles(2, 2).is_ok());
         }
+    }
+    #[test]
+    fn two_phase_flow_requires_a_positive_period_and_normal_map() {
+        let body = super::super::SceneWaterBody {
+            surface: super::super::SceneWaterSurface::Rectangle,
+            material: SceneWaterSettings::STOCK,
+            flow_millimeters_per_second: [0; 2],
+            height_millimeters: 0,
+            color_micro: [0; 3],
+            absorption_micro: [0; 3],
+            roughness_micro: 0,
+            east_min_millimeters: 0,
+            north_min_millimeters: 0,
+            east_extent_millimeters: 1000,
+            north_extent_millimeters: 1000,
+        };
+        assert!(body.validate().is_ok());
+        let mut authored = body;
+        authored.material.flow_period_milliseconds = Some(1000);
+        assert!(authored.validate().is_err());
+        authored.material.normal = Some(TextureHandle::from_raw(0));
+        assert!(authored.validate().is_ok());
+        authored.material.flow_period_milliseconds = Some(0);
+        assert!(authored.validate().is_err());
+        authored.material.flow_period_milliseconds = Some(1);
+        assert!(authored.validate().is_ok());
+        authored.material.flow_period_milliseconds = Some(u32::MAX);
+        assert!(authored.validate().is_ok());
     }
 }

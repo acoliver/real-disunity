@@ -8,7 +8,7 @@
 //! SSAO are optional; sky, sun, ambient, cascades, camera, grading, the post
 //! stack, and the anti-aliasing choice are explicit.
 
-use super::SceneWaterBody;
+use super::{SceneSsao, SceneWaterBody};
 use crate::scene::direction::SceneDirection;
 use crate::scene::error::SceneValidationError;
 use crate::scene::resource::TextureHandle;
@@ -193,74 +193,6 @@ impl SceneShadowCascades {
             }
         }
         Ok(())
-    }
-}
-
-/// Deterministic ambient occlusion sampling policy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SceneSsaoKernel {
-    /// Project samples from a view-normal oriented hemisphere.
-    Hemisphere,
-    /// Sample a screen-space spiral using averaged depth/normal footprints.
-    Spiral,
-}
-
-/// Depth-aware ambient occlusion reconstruction policy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SceneSsaoFilter {
-    /// Full-resolution five-by-five depth-aware tent.
-    DepthAwareBox,
-    /// Horizontal then vertical nine-tap Gaussian, spaced two pixels apart.
-    /// Depth differences at least one metre are excluded; accepted weights use
-    /// an exponential sharpness of seven per metre.
-    SeparableBilateral,
-}
-
-/// Screen-space ambient occlusion parameters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SceneSsao {
-    /// Sampling algorithm and its metadata reduction contract.
-    pub kernel: SceneSsaoKernel,
-    /// Reconstruction filter, independent of sampling.
-    pub filter: SceneSsaoFilter,
-    /// Number of deterministic samples, within 1..=64.
-    pub sample_count: u32,
-    /// Surface self-occlusion bias in millimetres.
-    pub bias_millimeters: u32,
-    /// Occlusion sample radius in millimeters; strictly positive.
-    pub radius_millimeters: u64,
-    /// Occlusion strength in micro-units within `0..=2_000_000`.
-    pub intensity_micro: u64,
-    /// Sample horizon limit in millidegrees within `0..=180_000`.
-    pub horizon_angle_millidegrees: u32,
-}
-
-impl SceneSsao {
-    /// Validates radius, intensity, and horizon bounds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SceneValidationError`] on the first out-of-bounds field.
-    pub fn validate(&self) -> Result<(), SceneValidationError> {
-        require_range("ssao sample_count", u64::from(self.sample_count), 1, 64)?;
-        require_range(
-            "ssao radius_millimeters",
-            self.radius_millimeters,
-            1,
-            u64::MAX,
-        )?;
-        require_range(
-            "ssao intensity_micro",
-            self.intensity_micro,
-            0,
-            2 * EFFECTS_MICRO_SCALE,
-        )?;
-        require_range(
-            "ssao horizon_angle_millidegrees",
-            u64::from(self.horizon_angle_millidegrees),
-            0,
-            180_000,
-        )
     }
 }
 

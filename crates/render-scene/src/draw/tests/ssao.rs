@@ -212,12 +212,26 @@ fn capture(
     let read = |texture: &wgpu::Texture| read_texture(context, size, texture);
     let ssao = renderer.ssao.as_ref().unwrap();
     let normals = read(&ssao.normals);
-    let ao = read(&ssao.passes.filtered)
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
-        .collect();
+    let ao = read_ao(context, &ssao.passes.filtered);
     (read(renderer.targets().texture()), normals, ao)
 }
+fn read_ao(context: &GpuContext, filtered: &wgpu::Texture) -> Vec<f32> {
+    let bytes = read_texture(context, [filtered.width(), filtered.height()], filtered);
+    if filtered.format() == wgpu::TextureFormat::Rg16Float {
+        bytes
+            .chunks_exact(4)
+            .map(|pixel| {
+                crate::ssao::tests::decode_half(u16::from_le_bytes(pixel[..2].try_into().unwrap()))
+            })
+            .collect()
+    } else {
+        bytes
+            .chunks_exact(4)
+            .map(|pixel| f32::from_le_bytes(pixel.try_into().unwrap()))
+            .collect()
+    }
+}
+
 #[test]
 fn gpu_ssao_ambient_only_and_msaa_combinations() {
     let context = context();
@@ -293,6 +307,38 @@ fn gpu_spiral_bilateral_coverage_and_composition_at_1x_and_4x() {
                 alpha,
                 worldrunner_render_plan::SceneSsaoKernel::Spiral,
                 worldrunner_render_plan::SceneSsaoFilter::SeparableBilateral,
+            )
+        };
+        let (baseline, normals, _) = capture(&context, &scene(0, 255), samples);
+        let (shaded, ao_normals, ao) = capture(&context, &scene(2_000_000, 255), samples);
+        assert_eq!(normals, ao_normals);
+        assert!(ao.iter().any(|value| *value < 0.99));
+        assert_ne!(baseline, shaded);
+        let (_, hidden, ao) = capture(&context, &scene(2_000_000, 100), samples);
+        assert!(hidden.iter().all(|byte| *byte == 0));
+        assert!(ao.iter().all(|value| value.to_bits() == 1.0f32.to_bits()));
+    }
+}
+
+#[test]
+fn gpu_scalable_shared_coverage_at_1x_and_4x() {
+    let context = context();
+    for samples in [1, 4] {
+        let scene = |intensity, alpha| {
+            source_with_policy(
+                intensity,
+                true,
+                alpha,
+                worldrunner_render_plan::SceneSsaoKernel::Scalable {
+                    turns_micro: 7_000_000,
+                    power_micro: 2_000_000,
+                },
+                worldrunner_render_plan::SceneSsaoFilter::ScalableBilateral {
+                    radius: 4,
+                    step: 2,
+                    sigma_scale_micro: 1_500_000,
+                    sharpness_micro: 7_000_000,
+                },
             )
         };
         let (baseline, normals, _) = capture(&context, &scene(0, 255), samples);

@@ -128,12 +128,20 @@ pub(super) fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<f32> {
         1_000_000,
     )
     .unwrap();
-    readback
+    let bytes = readback
         .read(context.device(), context.submission(), texture)
-        .unwrap()
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
-        .collect()
+        .unwrap();
+    if texture.format() == wgpu::TextureFormat::Rg16Float {
+        bytes
+            .chunks_exact(2)
+            .map(|word| decode_half(u16::from_le_bytes(word.try_into().unwrap())))
+            .collect()
+    } else {
+        bytes
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect()
+    }
 }
 pub(super) fn draw(
     context: &GpuContext,
@@ -309,3 +317,14 @@ fn gpu_bilateral_axes_have_exact_impulse_and_reject_depth_steps() {
 
 #[path = "numerical.rs"]
 mod numerical;
+
+pub(crate) fn decode_half(word: u16) -> f32 {
+    let exponent = i32::from((word >> 10) & 31);
+    let fraction = f32::from(word & 1023);
+    let value = if exponent == 0 {
+        fraction * 2.0f32.powi(-24)
+    } else {
+        (1.0 + fraction / 1024.0) * 2.0f32.powi(exponent - 15)
+    };
+    if word & 32768 == 0 { value } else { -value }
+}

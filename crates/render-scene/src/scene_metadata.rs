@@ -79,6 +79,16 @@ impl SceneMetadata {
         for matrix in [frame.view, projection, projection.inverse()] {
             data.extend(matrix.to_cols_array());
         }
+        let (turns, power) = match self.settings.kernel {
+            worldrunner_render_plan::SceneSsaoKernel::Scalable {
+                turns_micro,
+                power_micro,
+            } => (
+                crate::ssao::scalar(u64::from(turns_micro)) / 1_000_000.0,
+                crate::ssao::scalar(u64::from(power_micro)) / 1_000_000.0,
+            ),
+            _ => (0.0, 0.0),
+        };
         data.extend([
             crate::ssao::scalar(self.settings.radius_millimeters) / 1000.0,
             crate::ssao::scalar(self.settings.intensity_micro) / 1_000_000.0,
@@ -86,8 +96,8 @@ impl SceneMetadata {
             (crate::view::meters_scalar(self.settings.horizon_angle_millidegrees).to_radians())
                 .cos(),
             crate::ssao::scalar(u64::from(self.settings.sample_count)),
-            0.0,
-            0.0,
+            turns,
+            power,
             0.0,
         ]);
         context.upload_buffer(

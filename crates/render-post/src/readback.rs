@@ -64,7 +64,8 @@ impl Readback {
             | wgpu::TextureFormat::Rgba8UnormSrgb
             | wgpu::TextureFormat::Bgra8Unorm
             | wgpu::TextureFormat::Bgra8UnormSrgb
-            | wgpu::TextureFormat::R32Float => 4,
+            | wgpu::TextureFormat::R32Float
+            | wgpu::TextureFormat::Rg16Float => 4,
             wgpu::TextureFormat::Rgba16Float => 8,
             wgpu::TextureFormat::Rgba32Float => 16,
             _ => return Err(ReadbackError::Format(config.format)),

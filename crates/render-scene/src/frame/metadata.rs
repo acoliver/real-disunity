@@ -19,6 +19,8 @@ pub enum MetadataMeaning {
     ConservativeDepthMeters,
     /// Averaged depth and normal, for occlusion filtering, never conservative traversal.
     AverageDepthNormalMeters,
+    /// Mean positive view depth in metres, for filtered obscurance taps.
+    AverageDepthMeters,
 }
 
 /// Pixel-centre prepasses deliberately differ from forward MSAA edge coverage.
@@ -162,6 +164,15 @@ impl FrameProduct {
         product.resource.version = level;
         product
     }
+    pub fn averaged_depth(level: u32) -> Self {
+        let mut product = Self::stock(
+            "averaged occlusion depth",
+            MetadataMeaning::AverageDepthMeters,
+            TextureFormat::R32Float,
+        );
+        product.resource.version = level;
+        product
+    }
     pub fn opaque_depth(source_samples: u32) -> Self {
         Self::resolved_depth("opaque snapshot depth", source_samples)
     }
@@ -220,7 +231,9 @@ fn validate_representation(
 ) -> Result<(), MetadataError> {
     let expected = match meaning {
         MetadataMeaning::DeviceDepth => TextureFormat::Depth32Float,
-        MetadataMeaning::ConservativeDepthMeters => TextureFormat::R32Float,
+        MetadataMeaning::ConservativeDepthMeters | MetadataMeaning::AverageDepthMeters => {
+            TextureFormat::R32Float
+        }
         MetadataMeaning::ViewNormalCoverage
         | MetadataMeaning::MaterialF0Roughness
         | MetadataMeaning::EnvironmentSpecularLinear

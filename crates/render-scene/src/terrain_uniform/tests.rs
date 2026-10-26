@@ -101,6 +101,7 @@ fn authored_appearance_encodes_per_surface() {
             blur_radius_millimeters: 9000,
             tint_percent: [83, 108, 54],
             rotation_arcminutes: 2700,
+            layered: None,
         },
     )]))
     .expect("fixture encodes");

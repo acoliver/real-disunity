@@ -11,6 +11,7 @@ pub mod composition;
 pub mod gpu;
 #[cfg(test)]
 mod gpu_tests;
+pub mod layered;
 #[cfg(test)]
 mod lookup_work_tests;
 pub mod mip_gpu;

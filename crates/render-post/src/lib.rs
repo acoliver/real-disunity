@@ -48,9 +48,14 @@ pub use bloom_policy::{
     BloomLevelSelection, BloomPolicies, BloomReduction, BloomTerminal, BloomTintPass, BrightCurve,
     BrightExtraction, GaussianKernelRule, ToneCurveBright,
 };
+mod exposure_policy;
 mod gaussian;
 mod gaussian_gpu;
 mod hdr_post;
+pub use exposure_policy::{
+    ExposureAdaptation, ExposureMetering, PercentileExposure, luminance_key, metering_bin,
+    percentile_luminance,
+};
 pub use gaussian::{
     BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS,
     MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_extents_with_terminal, gaussian_weights,

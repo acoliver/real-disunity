@@ -1,6 +1,6 @@
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> bins: array<atomic<u32>, 256>;
-struct Exposure { value: f32, initialized: u32, pad: vec2<u32> }
+struct Exposure { value: f32, initialized: u32, luminance: f32, luminance_initialized: u32 }
 @group(0) @binding(2) var<storage, read_write> exposure: Exposure;
 struct Frame { delta: f32, reset: u32, initial: f32, pad: f32 }
 @group(0) @binding(3) var<uniform> frame: Frame;
@@ -14,6 +14,11 @@ override MAX_EXPOSURE: f32 = 64.0;
 override SPEED_UP: f32 = 3.0;
 override SPEED_DOWN: f32 = 1.0;
 override FIXED_EXPOSURE: f32 = -1.0;
+override PERCENTILE_METER: bool = false;
+override BLACK_THRESHOLD: f32 = 0.005;
+override PERCENTILE: f32 = 0.575;
+override KEY_BIAS: f32 = 1.0;
+override ADAPTATION: u32 = 0u;
 fn finite_positive(v: f32) -> f32 {
     let b = bitcast<u32>(v);
     if (b & 0x80000000u) != 0u || (b & 0x7f800000u) == 0x7f800000u { return 0.0; }
@@ -24,13 +29,66 @@ fn histogram(@builtin(global_invocation_id) id: vec3<u32>) {
     if any(id.xy >= textureDimensions(source)) { return; }
     let c = textureLoad(source, vec2<i32>(id.xy), 0).rgb;
     let l = dot(vec3<f32>(finite_positive(c.r), finite_positive(c.g), finite_positive(c.b)), vec3<f32>(0.2126, 0.7152, 0.0722));
+    if PERCENTILE_METER {
+        var bin = 0u;
+        if l >= BLACK_THRESHOLD {
+            let t = clamp((log2(l) - LOG_MIN) / (LOG_MAX - LOG_MIN), 0.0, 1.0);
+            bin = min(u32(t * 255.0 + 1.0), 255u);
+        }
+        atomicAdd(&bins[bin], 1u);
+        return;
+    }
     let t = clamp((log2(max(l, exp2(LOG_MIN))) - LOG_MIN) / (LOG_MAX - LOG_MIN), 0.0, 1.0);
     atomicAdd(&bins[min(u32(t * 256.0), 255u)], 1u);
+}
+fn measured_luminance(total: u32) -> f32 {
+    let rank = u32(f32(total) * PERCENTILE);
+    var cumulative = 0u;
+    var position = 0.0;
+    for (var i = 0u; i < 256u; i++) {
+        let count = atomicLoad(&bins[i]);
+        cumulative += count;
+        if cumulative > rank {
+            position = f32(i) + f32(cumulative - rank) / f32(count);
+            break;
+        }
+    }
+    return exp2((position - 1.0) / 256.0 * (LOG_MAX - LOG_MIN) + LOG_MIN);
+}
+fn curve_exposure(l: f32) -> f32 {
+    // Krawczyk, Myszkowski and Seidel (2005), Perceptual effects in real-time tone mapping.
+    let key = (1.03 - 2.0 / (2.0 + log(l + 1.0) / log(10.0))) * KEY_BIAS;
+    return max(key / l, MIN_EXPOSURE);
+}
+fn percentile_step(total: u32) {
+    var l = measured_luminance(total);
+    if ADAPTATION == 1u {
+        var previous = exposure.luminance;
+        if exposure.luminance_initialized == 0u || frame.reset != 0u { previous = l; }
+        let speed = select(SPEED_DOWN, SPEED_UP, l > previous);
+        l = mix(previous, l, 1.0 - exp(-speed * frame.delta));
+        exposure.luminance = l;
+        exposure.luminance_initialized = 1u;
+    }
+    if ADAPTATION != 1u { exposure.luminance_initialized = 0u; }
+    let desired = curve_exposure(l);
+    var value = desired;
+    if ADAPTATION == 0u {
+        var previous = exposure.value;
+        if exposure.initialized == 0u || frame.reset != 0u { previous = clamp(frame.initial, MIN_EXPOSURE, MAX_EXPOSURE); }
+        let speed = select(SPEED_DOWN, SPEED_UP, desired > previous);
+        value = mix(previous, desired, 1.0 - exp(-speed * frame.delta));
+    }
+    if ADAPTATION == 2u && frame.delta == 0.0 && exposure.initialized != 0u && frame.reset == 0u { value = exposure.value; }
+    exposure.value = value;
+    if FIXED_EXPOSURE >= 0.0 { exposure.value = FIXED_EXPOSURE; }
+    exposure.initialized = 1u;
 }
 @compute @workgroup_size(1)
 fn reduce() {
     var total = 0u;
     for (var i = 0u; i < 256u; i++) { total += atomicLoad(&bins[i]); }
+    if PERCENTILE_METER { percentile_step(total); return; }
     let lo = f32(total) * LOW;
     let hi = f32(total) * HIGH;
     var prefix = 0.0;
@@ -43,6 +101,7 @@ fn reduce() {
         retained += weight;
         prefix += count;
     }
+    exposure.luminance_initialized = 0u;
     let desired = clamp(KEY / exp2(weighted / max(retained, 0.000001)), MIN_EXPOSURE, MAX_EXPOSURE);
     var previous = exposure.value;
     if exposure.initialized == 0u || frame.reset != 0u { previous = clamp(frame.initial, MIN_EXPOSURE, MAX_EXPOSURE); }

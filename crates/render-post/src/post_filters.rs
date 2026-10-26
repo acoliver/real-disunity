@@ -52,6 +52,7 @@ impl<'a> Filters<'a> {
                 settings.bloom.map_or(0.0, |b| f64::from(b.intensity)),
             ),
         ];
+        constants.extend(crate::exposure_policy::output_constants(settings.adaptive));
         constants.extend(settings.grading.constants());
         constants.push((
             "GRADE_COMPOSITION",

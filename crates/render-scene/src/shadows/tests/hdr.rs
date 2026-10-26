@@ -239,6 +239,7 @@ fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
             tone_map: None,
             grading: None,
             adaptive_exposure: Some(SceneAdaptiveExposure {
+                metering: None,
                 log_min_milli: -12_000,
                 log_max_milli: 12_000,
                 low_percentile_micro: 10_000,

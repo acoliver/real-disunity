@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneAdaptiveExposure {
+    /// Omission preserves trimmed-mean metering and exposure-domain adaptation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metering: Option<super::ScenePercentileExposure>,
     /// Log2 luminance range endpoints in milli-stops, within `-24_000..=24_000`.
     pub log_min_milli: i32,
     pub log_max_milli: i32,
@@ -68,7 +71,21 @@ impl SceneHdrPost {
         self.grading
             .map(SceneDisplayGrading::validate)
             .transpose()?;
+        self.validate_exposure()?;
+        self.validate_bloom()?;
+        self.fxaa_quality
+            .map(super::SceneFxaaQuality::validate)
+            .transpose()?;
+        if let Some(weight) = self.fxaa_subpixel_micro {
+            check("FXAA subpixel", weight.into(), 0, 1_000_000)?;
+        }
+        Ok(())
+    }
+    fn validate_exposure(&self) -> Result<(), SceneValidationError> {
         if let Some(a) = self.adaptive_exposure {
+            a.metering
+                .map(super::ScenePercentileExposure::validate)
+                .transpose()?;
             check(
                 "exposure log minimum",
                 a.log_min_milli.into(),
@@ -115,13 +132,6 @@ impl SceneHdrPost {
             if let Some(exposure) = a.fixed_exposure_micro {
                 check("capture exposure", exposure.into(), 0, 64_000_000)?;
             }
-        }
-        self.validate_bloom()?;
-        self.fxaa_quality
-            .map(super::SceneFxaaQuality::validate)
-            .transpose()?;
-        if let Some(weight) = self.fxaa_subpixel_micro {
-            check("FXAA subpixel", weight.into(), 0, 1_000_000)?;
         }
         Ok(())
     }

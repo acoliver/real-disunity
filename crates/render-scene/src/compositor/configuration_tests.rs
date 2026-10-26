@@ -136,15 +136,7 @@ fn exposure_history_and_stock_output_survive_replacement() {
     let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     settings.frame.format = wgpu::TextureFormat::Rgba16Float;
     settings.hdr = Some((1.0, ToneMap::Reinhard));
-    settings.post.adaptive = Some(AdaptiveExposure {
-        log_range: [-8.0, 8.0],
-        percentiles: [0.0, 1.0],
-        key: 0.5,
-        exposure_range: [0.1, 8.0],
-        speeds: [2.0, 1.0],
-        fixed_delta: Some(0.25),
-        fixed_exposure: None,
-    });
+    settings.post.adaptive = Some(adaptive_settings());
     let mut control =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(100_000))
             .unwrap();
@@ -338,4 +330,17 @@ fn reflection_maps(
     .unwrap();
     encoder.finish().submit().unwrap();
     maps
+}
+
+fn adaptive_settings() -> AdaptiveExposure {
+    AdaptiveExposure {
+        metering: worldrunner_render_post::ExposureMetering::TrimmedMean,
+        log_range: [-8.0, 8.0],
+        percentiles: [0.0, 1.0],
+        key: 0.5,
+        exposure_range: [0.1, 8.0],
+        speeds: [2.0, 1.0],
+        fixed_delta: Some(0.25),
+        fixed_exposure: None,
+    }
 }

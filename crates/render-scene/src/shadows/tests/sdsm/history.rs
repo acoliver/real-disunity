@@ -57,6 +57,64 @@ fn gpu_capture_preserves_interactive_contraction_history_and_immediate_expansion
     assert_contracts(expanded, initial);
 }
 
+#[test]
+fn gpu_fixed_clock_contraction_ignores_host_delay_and_resets_on_rewind() {
+    use std::time::Duration;
+    let context = context();
+    let source = scene(&[], 600_000, None);
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    renderer
+        .set_depth_fitting(
+            &context,
+            Some(SdsmSettings {
+                policy: AdoptionPolicy::QuantizedPerBound {
+                    latency_frames: 1,
+                    contraction_delay: Duration::from_millis(20),
+                },
+                range: RangeFit {
+                    near_step: 0.01,
+                    far_step: 0.01,
+                    minimum_span: 0.01,
+                    ..policy()
+                },
+            }),
+        )
+        .unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let mut render = |frame, millis, scale| {
+        scale_receiver(&mut renderer, scale);
+        scheduler
+            .set_frame_time_duration(Duration::from_millis(millis))
+            .unwrap();
+        let fit = scheduler
+            .encoding()
+            .render_depth_fitted(
+                &context,
+                &view(),
+                (&target.color_attachment(), &target.depth_attachment()),
+                (Some(frame), false),
+                &mut renderer,
+            )
+            .unwrap();
+        context
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        fit
+    };
+    assert!(render(0, 100, 1_000_000).is_none());
+    let initial = render(1, 100, 1_000_000).unwrap();
+    render(2, 100, 100_000);
+    assert_eq!(render(3, 100, 100_000).unwrap().depth, initial.depth);
+    std::thread::sleep(Duration::from_millis(40));
+    assert_eq!(render(4, 100, 100_000).unwrap().depth, initial.depth);
+    let contracted = render(5, 120, 100_000).unwrap();
+    assert_contracts(initial, contracted);
+    assert!(render(6, 50, 100_000).is_none());
+    assert_eq!(render(7, 50, 100_000).unwrap().depth, contracted.depth);
+}
+
 fn scale_receiver(renderer: &mut ShadowedScene, scale_millionths: u64) {
     let receiver = renderer.scene_mut().instance_handles().next().unwrap();
     let original = *renderer

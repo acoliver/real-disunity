@@ -96,7 +96,7 @@ fn assert_capture(event: RetainedEvent, id: u64, size: worldrunner_render_scene:
         panic!("missing capture event");
     };
     assert_eq!((received, generation), (id, 1));
-    let RetainedCaptureOutcome::Completed { frame, image } = outcome else {
+    let RetainedCaptureOutcome::Completed { frame, image, .. } = outcome else {
         panic!("capture cancelled");
     };
     assert_eq!(frame, 0);

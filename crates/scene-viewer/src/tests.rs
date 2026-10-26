@@ -75,6 +75,7 @@ pub(crate) fn options() -> ViewerOptions {
         frame_profile: crate::FrameProfile::Legacy,
         frames_in_flight: 2,
         cadence: crate::PresentationCadence::default(),
+        render_clock: crate::RenderClock::default(),
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,

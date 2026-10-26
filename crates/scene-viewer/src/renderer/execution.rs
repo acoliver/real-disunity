@@ -9,7 +9,12 @@ use super::{GpuContext, ViewerError, surface_error};
 
 pub(super) struct ReadyFrame {
     pub admission: Admission,
-    pub frame: wgpu::SurfaceTexture,
+    pub frame: OutputFrame,
+}
+
+pub(super) struct OutputFrame {
+    pub texture: wgpu::Texture,
+    pub surface: Option<wgpu::SurfaceTexture>,
 }
 
 /// Surface and window operations stay on the event-loop thread on every platform.
@@ -56,7 +61,9 @@ impl SurfaceExecution {
             .submit_prepared(ready.admission, prepared)
             .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         self.window.pre_present_notify();
-        context.queue().present(ready.frame);
+        context
+            .queue()
+            .present(ready.frame.surface.expect("surface frame"));
         Ok(ticket)
     }
 
@@ -88,8 +95,15 @@ impl SurfaceExecution {
             execution: self,
             context,
         };
-        acquire_frame(&mut surface, &flight, update)
-            .map(|ready| ready.map(|(admission, frame)| ReadyFrame { admission, frame }))
+        acquire_frame(&mut surface, &flight, update).map(|ready| {
+            ready.map(|(admission, frame)| ReadyFrame {
+                admission,
+                frame: OutputFrame {
+                    texture: frame.texture.clone(),
+                    surface: Some(frame),
+                },
+            })
+        })
     }
 
     #[cfg(all(test, target_os = "linux"))]
@@ -107,7 +121,9 @@ impl SurfaceExecution {
             register,
         );
         self.window.pre_present_notify();
-        context.queue().present(ready.frame);
+        context
+            .queue()
+            .present(ready.frame.surface.expect("surface frame"));
         ticket
     }
 }

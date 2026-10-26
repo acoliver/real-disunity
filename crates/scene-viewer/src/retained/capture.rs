@@ -4,7 +4,11 @@ use worldrunner_render_scene::offscreen::RgbaImage;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RetainedCaptureOutcome {
-    Completed { frame: u64, image: RgbaImage },
+    Completed {
+        frame: u64,
+        time: std::time::Duration,
+        image: RgbaImage,
+    },
     Cancelled,
 }
 
@@ -39,12 +43,18 @@ impl Default for Captures {
     }
 }
 impl Captures {
-    pub(crate) fn complete(&mut self, id: u64, frame: u64, image: RgbaImage) {
+    pub(crate) fn complete(
+        &mut self,
+        id: u64,
+        frame: u64,
+        time: std::time::Duration,
+        image: RgbaImage,
+    ) {
         let generation = self.outstanding[&id];
         self.events.push_back(RetainedEvent::Capture {
             id,
             generation,
-            outcome: RetainedCaptureOutcome::Completed { frame, image },
+            outcome: RetainedCaptureOutcome::Completed { frame, time, image },
         });
     }
     pub(crate) fn take_event(&mut self) -> Option<RetainedEvent> {

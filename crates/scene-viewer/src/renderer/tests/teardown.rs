@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn assert_pending_submission_cleanup(mut renderer: Renderer) {
-    let window = Arc::downgrade(&renderer.window);
+    let window = Arc::downgrade(renderer.window.as_ref().unwrap());
     let ready = renderer
         .execution
         .acquire(&renderer.context, || Ok(()))
@@ -31,12 +31,14 @@ pub(super) fn assert_pending_submission_cleanup(mut renderer: Renderer) {
     }
     let commands = encoder.finish();
     let mut complete = None;
-    let ticket =
-        renderer
-            .execution
-            .submit_with_completion(ready, commands, &renderer.context, |callback| {
-                complete = Some(callback);
-            });
+    let ticket = renderer.execution.surface().submit_with_completion(
+        ready,
+        commands,
+        &renderer.context,
+        |callback| {
+            complete = Some(callback);
+        },
+    );
     // Finish GPU work but withhold the completion acknowledgment through production cleanup.
     ticket.wait(renderer.context.device()).unwrap();
     assert!(!ticket.is_complete());

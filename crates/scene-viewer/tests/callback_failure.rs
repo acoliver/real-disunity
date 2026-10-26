@@ -41,6 +41,7 @@ fn main() {
         frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
         frames_in_flight: 2,
         cadence: worldrunner_scene_viewer::PresentationCadence::default(),
+        render_clock: worldrunner_scene_viewer::RenderClock::default(),
         title: "Callback failure regression".into(),
         size: [64, 64],
         camera: SceneCamera {

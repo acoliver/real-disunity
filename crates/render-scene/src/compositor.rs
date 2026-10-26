@@ -1,9 +1,12 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
+mod clock;
 mod configuration;
 mod depth_prefix;
+mod environment;
 mod output;
 pub(crate) mod publication;
+mod validation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 use output::FrameOutput;
@@ -28,6 +31,8 @@ pub struct FrameRenderer {
     clear_color: wgpu::Color,
     post_requested: worldrunner_render_post::HdrPostSettings,
     elapsed_seconds: f32,
+    pub(crate) selected_time: Option<std::time::Duration>,
+    animation_time: Option<u32>,
     frame_delta: f32,
     post_time: std::rc::Rc<std::cell::Cell<f32>>,
     exposure_reset: std::rc::Rc<std::cell::Cell<bool>>,
@@ -88,6 +93,8 @@ impl FrameRenderer {
             clear_color: wgpu::Color::BLACK,
             post_requested: worldrunner_render_post::HdrPostSettings::default(),
             elapsed_seconds: 0.0,
+            selected_time: None,
+            animation_time: None,
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
@@ -143,6 +150,8 @@ impl FrameRenderer {
             clear_color: wgpu::Color::BLACK,
             post_requested: post,
             elapsed_seconds: 0.0,
+            selected_time: None,
+            animation_time: None,
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
@@ -223,103 +232,6 @@ impl FrameRenderer {
         Ok(())
     }
 
-    /// A fixed-exposure profile is immutable. Rebuild it when scene exposure changes.
-    /// Geometry stays unexposed only when this executor owns the post multiplier.
-    pub fn prepare_uniform(
-        &self,
-        mut frame: crate::frame::FrameUniform,
-    ) -> Result<crate::frame::FrameUniform, FrameError> {
-        if let FrameOutput::Hdr(factory) = self.chain.factory() {
-            if !factory.matches_exposure(frame.exposure) {
-                return Err(FrameError::FixedExposureMismatch);
-            }
-            frame.exposure = 1.0;
-        }
-        Ok(frame)
-    }
-
-    pub(crate) fn validate_ssao(
-        &self,
-        pipelines: &crate::renderer::ScenePipelines,
-        requested: Option<&worldrunner_render_plan::SceneSsao>,
-    ) -> Result<(), FrameError> {
-        if pipelines.ssao != self.ssao_requested.is_some() {
-            return Err(FrameError::UnsupportedEffect(
-                "SSAO pipeline/profile mismatch",
-            ));
-        }
-        if self.ssao_requested.as_ref() != requested {
-            return Err(FrameError::SsaoSettings(
-                "SSAO resident/profile settings mismatch",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn validate_post(
-        &self,
-        mut requested: worldrunner_render_post::HdrPostSettings,
-    ) -> Result<(), FrameError> {
-        // Scene effects never carry reconstruction; the frame profile owns it.
-        requested.upscale = self.post_requested.upscale;
-        if self.post_requested != requested {
-            return Err(FrameError::UnsupportedEffect(
-                "post resident/profile settings mismatch",
-            ));
-        }
-        Ok(())
-    }
-    pub(crate) fn validate_ssr(
-        &self,
-        requested: Option<&worldrunner_render_plan::SceneSsr>,
-    ) -> Result<(), FrameError> {
-        if self.ssr_requested.as_ref() != requested {
-            return Err(FrameError::SsrSettings(
-                "resident/profile settings mismatch",
-            ));
-        }
-        Ok(())
-    }
-    /// Supplies animation time for the next prepared frame, in seconds.
-    /// Adaptation uses time since the last encoded output, capped at ten seconds.
-    pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
-        if !seconds.is_finite() || seconds < 0.0 {
-            return Err(FrameError::WaterSettings(
-                "frame time must be finite and nonnegative",
-            ));
-        }
-        self.frame_delta = (seconds - self.post_time.get()).clamp(0.0, 10.0);
-        self.elapsed_seconds = seconds;
-        Ok(())
-    }
-    /// Explicit simulation delta in seconds. Fixed capture steps in the scene override it.
-    pub fn set_frame_delta(&mut self, delta: f32) -> Result<(), PostError> {
-        if !delta.is_finite() || !(0.0..=10.0).contains(&delta) {
-            return Err(PostError::FrameDelta);
-        }
-        self.frame_delta = delta;
-        Ok(())
-    }
-    /// Reset the ordered history at the next output, for camera cuts or capture restart.
-    pub fn reset_exposure(&self) {
-        self.exposure_reset.set(true);
-    }
-    pub(crate) fn validate_water(
-        &self,
-        requested: &[worldrunner_render_plan::SceneWaterBody],
-    ) -> Result<(), FrameError> {
-        if self
-            .water
-            .as_ref()
-            .map_or(&[][..], |water| water.settings.as_ref())
-            != requested
-        {
-            return Err(FrameError::WaterSettings(
-                "resident/profile settings mismatch; water requires HDR",
-            ));
-        }
-        Ok(())
-    }
     pub(crate) fn bind_water_inputs(&mut self, inputs: &[[Option<wgpu::TextureView>; 2]]) {
         if let Some(water) = &mut self.water {
             water.surface_inputs = inputs.to_vec();
@@ -378,57 +290,6 @@ impl FrameRenderer {
                     specular.create_view(&wgpu::TextureViewDescriptor::default()),
                 )
             })
-    }
-    /// Install shared linear environment maps and select environment replacement for SSR.
-    pub fn set_reflection_environment(
-        &mut self,
-        device: &wgpu::Device,
-        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
-    ) -> Result<(), crate::sky::preparation::PreparationError> {
-        let (cube, lut) = maps.views()?;
-        self.ssr
-            .as_mut()
-            .expect("SSR must be installed")
-            .environment = [cube.clone(), lut.clone()];
-        let screen = self.ssao.as_mut().expect("SSR metadata must be installed");
-        let group = crate::ssr::forward::group(device, screen, &[cube.clone(), lut.clone()]);
-        screen
-            .geometry
-            .forward
-            .as_mut()
-            .expect("SSR forward pipelines")
-            .1 = group;
-        self.ssr
-            .as_mut()
-            .expect("SSR must be installed")
-            .composition =
-            worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment;
-        if let Some(water) = &mut self.water {
-            water.environment = [cube, lut];
-        }
-        Ok(())
-    }
-    /// Select the reflection composition algorithm explicitly.
-    pub fn set_reflection_composition(
-        &mut self,
-        composition: worldrunner_render_lighting::reflections::Composition,
-    ) {
-        self.ssr
-            .as_mut()
-            .expect("SSR must be installed")
-            .composition = composition;
-    }
-    /// Install R7's submitted, prefiltered cube and integrated BRDF LUT.
-    pub fn set_water_environment(
-        &mut self,
-        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
-    ) -> Result<(), crate::sky::preparation::PreparationError> {
-        let (cube, lut) = maps.views()?;
-        self.water
-            .as_mut()
-            .expect("water must be installed")
-            .environment = [cube, lut];
-        Ok(())
     }
     /// Existing pixel-centre linear metre depth and normal coverage for shadow
     /// statistics. Callers rebind after resize; no additional prepass is allocated.

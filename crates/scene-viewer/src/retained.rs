@@ -4,6 +4,8 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod windowless;
+pub use windowless::WindowlessRetained;
 mod input;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
@@ -101,9 +103,13 @@ pub struct RetainedTick {
     pub dt: Duration,
 }
 
-/// Application callbacks run on the native event thread. No GPU calls are needed.
+/// Application callbacks run on the host calling thread. No GPU calls are needed.
 pub trait RetainedDriver {
     fn update(&mut self, host: &mut RetainedHost, tick: &RetainedTick) -> Result<(), String>;
+    /// Overrides the configured clock for the next frame.
+    fn render_clock(&self) -> Option<crate::RenderClock> {
+        None
+    }
     fn event(&mut self, _event: &RetainedEvent) -> Result<(), String> {
         Ok(())
     }
@@ -157,6 +163,11 @@ impl RetainedHost {
             exit: false,
             occluded: false,
         })
+    }
+
+    /// Selects shader time independently of CPU edit generations.
+    pub fn set_render_clock(&mut self, clock: crate::RenderClock) {
+        self.options.render_clock = clock;
     }
 
     pub fn objects(&self) -> impl Iterator<Item = (ObjectId, SceneObject)> + '_ {

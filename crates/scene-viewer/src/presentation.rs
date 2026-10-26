@@ -174,6 +174,10 @@ pub(super) struct Extents {
 }
 
 impl Extents {
+    pub fn for_device(size: [u32; 2], device: &wgpu::Device) -> Result<Option<Self>, ViewerError> {
+        Self::new(size, device.limits().max_texture_dimension_2d)
+    }
+
     pub fn placeholder() -> Self {
         Self {
             surface: Viewport {

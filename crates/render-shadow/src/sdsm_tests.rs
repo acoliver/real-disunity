@@ -25,6 +25,7 @@ fn range_and_splits_round_outward_without_escaping_camera() {
         far_step: 10.0,
         minimum_span: 2.0,
         split_lambda: 0.0,
+        split_policy: crate::SplitPolicy::Practical,
     };
     let range = fit
         .fit(

@@ -10,6 +10,8 @@ pub(super) struct CascadeViews {
     pub depth_bias: [f32; 4],
     pub splits: [f32; 4],
     pub blend: f32,
+    pub recurrence: Option<Vec<worldrunner_render_shadow::CascadeInterval>>,
+    pub multiplier: f32,
     pub camera_splits: bool,
     pub near: f32,
     pub view_depth: Vec4,
@@ -26,6 +28,8 @@ impl CascadeViews {
         let declared = effects.shadows();
         let mut value = Self {
             matrices: Vec::new(),
+            recurrence: None,
+            multiplier: 0.0,
             no_receivers: false,
             depth_bias: [0.0; 4],
             splits: [0.0; 4],
@@ -81,6 +85,24 @@ impl CascadeViews {
             return Ok(());
         };
         let count = self.matrices.len();
+        if let worldrunner_render_shadow::SplitPolicy::OverlapRecurrence {
+            multiplier,
+            overlap,
+        } = fitting.1.split_policy
+        {
+            let DepthRange::Receivers { near, far } = depth else {
+                unreachable!()
+            };
+            self.recurrence = Some(
+                fitting
+                    .1
+                    .split_policy
+                    .intervals(near, far, u16::try_from(count).expect("four cascades"))
+                    .map_err(|_| ShadowError::InvalidSettings)?,
+            );
+            self.blend = overlap;
+            self.multiplier = multiplier;
+        }
         let splits = fitting
             .1
             .splits(depth, u16::try_from(count).expect("four cascades"))
@@ -115,7 +137,9 @@ impl CascadeViews {
         sun: Vec3,
     ) -> Result<Mat4, ShadowError> {
         if self.camera_splits {
-            let start = if index == 0 {
+            let start = if let Some(intervals) = &self.recurrence {
+                intervals[index].start
+            } else if index == 0 {
                 self.near
             } else {
                 let previous_start = if index == 1 {

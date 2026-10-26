@@ -6,7 +6,9 @@
 //! and far-depth clear/store passes, validated directional configuration and shared sampling kernels. No scene, asset or filesystem inputs are used.
 
 mod sdsm;
+mod sdsm_policies;
 pub use sdsm::{DepthRange, RangeFilter, RangeFit};
+pub use sdsm_policies::{CascadeInterval, PerBoundHysteresis, SplitPolicy};
 mod config;
 pub use config::{DirectionalCoverage, DirectionalShadowConfig, InvalidShadowConfig, ShadowFilter};
 mod cascades;

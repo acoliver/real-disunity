@@ -20,8 +20,26 @@ pub(crate) struct SceneDepthFitting {
     pending: Vec<PendingReduction>,
     current: Option<AdoptedFit>,
     pub next_frame: u64,
+    started: std::time::Instant,
 }
 impl ShadowedScene {
+    pub fn set_scene_depth_fitting(
+        &mut self,
+        context: &GpuContext,
+        settings: Option<&worldrunner_render_plan::SceneDepthFitting>,
+    ) -> Result<(), ShadowError> {
+        if let Some(settings) = settings {
+            settings
+                .validate()
+                .map_err(|_| ShadowError::InvalidSettings)?;
+        }
+        let settings = settings.map(SdsmSettings::from);
+        if settings != self.depth_fitting_settings() {
+            self.set_depth_fitting(context, settings)?;
+        }
+        Ok(())
+    }
+
     /// Opt in to stock metadata-driven shadows. None keeps the original pass plan.
     pub fn set_depth_fitting(
         &mut self,
@@ -37,6 +55,7 @@ impl ShadowedScene {
                 pending: Vec::new(),
                 current: None,
                 next_frame: 0,
+                started: std::time::Instant::now(),
             });
         } else {
             self.depth_fitting = None;
@@ -79,6 +98,41 @@ impl ShadowedScene {
         result
     }
 
+    pub fn last_depth_fit(&self) -> Option<AdoptedFit> {
+        self.depth_fitting.as_ref().and_then(|state| state.current)
+    }
+
+    pub fn depth_fitting_settings(&self) -> Option<SdsmSettings> {
+        self.depth_fitting.as_ref().map(|state| state.settings)
+    }
+
+    pub fn render_depth_fitted_host(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        attachments: (&AttachmentView, &AttachmentView),
+        frame: (Option<u64>, bool),
+        scheduler: &mut crate::compositor::FrameRenderer,
+    ) -> Result<Option<AdoptedFit>, ShadowError> {
+        let mut state = self
+            .depth_fitting
+            .take()
+            .ok_or(ShadowError::UnsupportedFeature("depth fitting is disabled"))?;
+        let policy = state.settings.policy;
+        if frame.1 {
+            state.settings.policy = AdoptionPolicy::SameFrameCapture;
+        }
+        std::mem::swap(&mut self.scheduler, scheduler);
+        let source_frame = frame.0.unwrap_or(state.next_frame);
+        let result = self.render_sdsm(context, view, attachments, source_frame, &mut state);
+        self.scheduler.clear_capture_resources();
+        self.gpu.clear_capture_pages();
+        std::mem::swap(&mut self.scheduler, scheduler);
+        state.settings.policy = policy;
+        self.depth_fitting = Some(state);
+        result
+    }
+
     fn render_sdsm(
         &mut self,
         context: &GpuContext,
@@ -87,6 +141,9 @@ impl ShadowedScene {
         source_frame: u64,
         state: &mut SceneDepthFitting,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
+        if source_frame < state.next_frame {
+            return Err(SdsmError::FrameIdentity.into());
+        }
         let requested = u32::try_from(self.effects.shadows().extents_millimeters().len())
             .expect("four cascades");
         if requested != self.map.depth.layers() {
@@ -110,11 +167,21 @@ impl ShadowedScene {
         };
         let mut fitting = state.fitting.take().expect("fitting installed");
         let result = match state.settings.policy {
-            AdoptionPolicy::SameFrameCapture => self.render_capture(&input, state, &fitting),
-            AdoptionPolicy::Interactive { .. } => {
+            AdoptionPolicy::SameFrameCapture => {
+                let result = self.render_capture(&input, state, &fitting);
+                fitting.invalidate_pending();
+                state.pending.clear();
+                result
+            }
+            AdoptionPolicy::Interactive { .. } | AdoptionPolicy::QuantizedPerBound { .. } => {
                 self.render_interactive(&input, state, &mut fitting)
             }
         };
+        if result.is_err() {
+            fitting.invalidate();
+            state.pending.clear();
+            state.current = None;
+        }
         state.fitting = Some(fitting);
         if let Ok(fit) = &result {
             state.current = *fit;
@@ -237,9 +304,10 @@ impl ShadowedScene {
             }
         }
         let current = fitting
-            .adopt(
+            .adopt_at(
                 input.source_frame,
                 input.view.resolved_view().clip_distances_meters(),
+                state.started.elapsed(),
             )?
             .or(state.current);
         let mut pending = None;

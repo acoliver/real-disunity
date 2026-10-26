@@ -16,6 +16,9 @@ pub(super) struct Captures {
     frame: u64,
 }
 impl Captures {
+    pub(super) fn next_frame(&self) -> u64 {
+        self.frame
+    }
     pub(super) fn is_pending(&self) -> bool {
         !self.pending.is_empty()
     }

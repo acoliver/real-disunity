@@ -10,6 +10,25 @@ pub enum SceneSsrComposition {
     ReplaceEnvironment,
 }
 
+/// Depth-grid stepping and reduction used by reflection tracing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneSsrTraversal {
+    #[default]
+    Conservative,
+    /// Major-axis grid stepping with averaged depth levels and two endpoint samples.
+    Grid,
+}
+
+/// Roughness-dependent allowance for traversing behind visible depth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneSsrPassBehind {
+    pub minimum_steps: u32,
+    pub maximum_steps: u32,
+    pub roughness_start_micro: u32,
+    pub roughness_end_micro: u32,
+}
+
 /// Optional scene/document reflection settings. No temporal history is retained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,6 +37,8 @@ pub struct SceneSsr {
     pub enabled: bool,
     /// Hierarchical traversal budget, within 1..=256.
     pub max_steps: u32,
+    #[serde(default)]
+    pub traversal: SceneSsrTraversal,
     /// Base accepted depth penetration, within 1..=1000 millimetres.
     pub thickness_millimeters: u32,
     /// Additional thickness per metre of surface depth, within 0..=1000000.
@@ -33,6 +54,12 @@ pub struct SceneSsr {
     /// Zero rejects the first such span.
     #[serde(default)]
     pub pass_behind_steps: u32,
+    /// Overrides the constant count with a clamped, rounded roughness interpolation.
+    #[serde(default)]
+    pub roughness_pass_behind: Option<SceneSsrPassBehind>,
+    /// Gather application AO with exponential depth weights relative to the first tap.
+    #[serde(default)]
+    pub depth_relative_ao: bool,
     /// Optional start of the smooth roughness fade. None uses 75% of the cutoff.
     #[serde(default)]
     pub roughness_fade_start_micro: Option<u32>,
@@ -59,11 +86,14 @@ impl Default for SceneSsr {
         Self {
             enabled: true,
             max_steps: 256,
+            traversal: SceneSsrTraversal::Conservative,
             thickness_millimeters: 100,
             thickness_slope_micro: 0,
             max_distance_millimeters: 100_000,
             origin_skip_pixels: 2,
             pass_behind_steps: 0,
+            roughness_pass_behind: None,
+            depth_relative_ao: false,
             roughness_fade_start_micro: None,
             roughness_cutoff_micro: 600_000,
             luminance_limit_milli: None,
@@ -76,6 +106,27 @@ impl SceneSsr {
     /// Validates even disabled settings, so enabling never changes their interpretation.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.validate_traversal()?;
+        if let Some(curve) = self.roughness_pass_behind {
+            check("ssr pass behind minimum", curve.minimum_steps, 0, 256)?;
+            check(
+                "ssr pass behind maximum",
+                curve.maximum_steps,
+                curve.minimum_steps,
+                256,
+            )?;
+            check(
+                "ssr pass behind roughness end",
+                curve.roughness_end_micro,
+                1,
+                1_000_000,
+            )?;
+            check(
+                "ssr pass behind roughness start",
+                curve.roughness_start_micro,
+                0,
+                curve.roughness_end_micro - 1,
+            )?;
+        }
         let start = self.roughness_fade_start_micro.unwrap_or(0);
         check(
             "ssr roughness fade start",
@@ -148,6 +199,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unknown_traversal_fails_during_deserialization() {
+        let mut value = serde_json::to_value(SceneSsr::default()).unwrap();
+        value["traversal"] = serde_json::json!("Unknown");
+        assert!(serde_json::from_value::<SceneSsr>(value).is_err());
+    }
+
+    #[test]
     fn controls_validate_even_when_disabled() {
         let invalid = [
             SceneSsr {
@@ -200,6 +258,14 @@ mod tests {
         assert_eq!(defaults, SceneSsr::default());
         assert!(defaults.validate().is_ok());
         let authored = SceneSsr {
+            traversal: SceneSsrTraversal::Grid,
+            depth_relative_ao: true,
+            roughness_pass_behind: Some(SceneSsrPassBehind {
+                minimum_steps: 1,
+                maximum_steps: 9,
+                roughness_start_micro: 100_000,
+                roughness_end_micro: 700_000,
+            }),
             composition: SceneSsrComposition::ReplaceEnvironment,
             max_distance_millimeters: 25_000,
             thickness_slope_micro: 20_000,

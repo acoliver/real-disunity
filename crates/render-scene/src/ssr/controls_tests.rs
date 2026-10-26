@@ -3,7 +3,7 @@ use super::*;
 fn capture(context: &GpuContext, policy: SceneSsr, scale: f32, occluder: bool) -> Vec<u8> {
     capture_with_shader(context, policy, scale, occluder, None)
 }
-fn capture_with_shader(
+pub(super) fn capture_with_shader(
     context: &GpuContext,
     policy: SceneSsr,
     scale: f32,
@@ -36,7 +36,7 @@ fn capture_with_shader(
     upload(context, &opaque, &colors);
     draw_trace(context, &ssr, &frame, &opaque)
 }
-fn center_red(bytes: &[u8]) -> u16 {
+pub(super) fn center_red(bytes: &[u8]) -> u16 {
     let offset = (45 * 65 + 32) * 8;
     u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap())
 }
@@ -218,6 +218,10 @@ fn gpu_depth_scaled_thickness_matches_linear_depth_at_two_depths() {
 fn gpu_default_trace_bytes_match_fixed_traversal() {
     let context = context();
     let fixed = gpu::trace_source(1, false)
+        .replace(
+            "reflection_pass_count(roughness, camera.traversal.w, camera.behind)",
+            "0u",
+        )
         .replace("camera.traversal.x", "100.0")
         .replace("camera.traversal.z", "2.0")
         .replace("camera.traversal.w", "0.0")

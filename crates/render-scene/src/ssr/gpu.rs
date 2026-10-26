@@ -195,7 +195,7 @@ pub(super) fn radiance_textures(
     reflections
 }
 
-pub(super) fn controls(settings: &worldrunner_render_plan::SceneSsr) -> [f32; 8] {
+pub(super) fn controls(settings: &worldrunner_render_plan::SceneSsr) -> [f32; 12] {
     [
         scalar(settings.max_distance_millimeters) / 1000.0,
         scalar(settings.thickness_slope_micro) / 1_000_000.0,
@@ -208,7 +208,85 @@ pub(super) fn controls(settings: &worldrunner_render_plan::SceneSsr) -> [f32; 8]
         settings
             .luminance_limit_milli
             .map_or(0.0, |value| scalar(value) / 1000.0),
+        f32::from(u8::from(
+            settings.traversal == worldrunner_render_plan::SceneSsrTraversal::Grid,
+        )),
         0.0,
-        0.0,
+        settings
+            .roughness_pass_behind
+            .map_or(-1.0, |c| scalar(c.minimum_steps)),
+        settings
+            .roughness_pass_behind
+            .map_or(0.0, |c| scalar(c.maximum_steps)),
+        settings
+            .roughness_pass_behind
+            .map_or(0.0, |c| scalar(c.roughness_start_micro) / 1_000_000.0),
+        settings
+            .roughness_pass_behind
+            .map_or(1.0, |c| scalar(c.roughness_end_micro) / 1_000_000.0),
     ]
+}
+
+pub(super) fn configured_resolve_source(
+    levels: usize,
+    samples: u32,
+    water: bool,
+    ao: bool,
+    packed_depth: bool,
+) -> String {
+    let source = sampled_resolve_source(levels, samples, water);
+    if !ao {
+        return source;
+    }
+    let cosine = "clamp(dot(reflection_normal(normal.xyz), -reflection_incident(uv)), 0.0, 1.0)";
+    let published = "textureLoad(forward_environment, p, FORWARD_SAMPLE).a";
+    let source = source
+        .replace("var normals: texture_2d<f32>;", "var application_ao: texture_2d<f32>;")
+        .replace("textureLoad(normals, p, 0)", &format!("vec4<f32>(0.0, 0.0, 1.0, select(0.0, 1.0, {published} > 0.0))"))
+        .replace(&format!("let cosine = {cosine};"), &if water { format!("let cosine = select({published}, {cosine}, is_water);") } else { format!("let cosine = {published};") })
+        .replace("// APPLICATION_AO", if water {
+            "if !is_water { let visibility = gathered_visibility(p, cosine, surface.a, sample); factor *= visibility; }"
+        } else {
+            "let visibility = gathered_visibility(p, cosine, surface.a, sample); factor *= visibility;"
+        });
+    format!(
+        "{source}\n{}\n{}",
+        include_str!("application_ao.wgsl"),
+        include_str!("ao_math.wgsl")
+    )
+    .replace(
+        "APPLICATION_TAP_DEPTH",
+        if packed_depth {
+            "tap.g * reflection_far_depth()"
+        } else {
+            "textureLoad(opaque_depth, coordinates[i], 0).r"
+        },
+    )
+    .replace(
+        "FORWARD_SAMPLE",
+        if samples == 1 { "0" } else { "i32(sample)" },
+    )
+}
+
+pub(super) fn resolve_pipelines(
+    device: &wgpu::Device,
+    samples: u32,
+    levels: usize,
+    ao: bool,
+    packed_depth: bool,
+) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+    (
+        pipeline(
+            device,
+            &configured_resolve_source(levels, samples, false, ao, packed_depth),
+            samples,
+            true,
+        ),
+        pipeline(
+            device,
+            &configured_resolve_source(levels, samples, true, ao, packed_depth),
+            samples,
+            true,
+        ),
+    )
 }

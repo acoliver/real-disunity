@@ -1,7 +1,7 @@
 struct ReflectionCamera {
     projection: mat4x4<f32>, inverse_projection: mat4x4<f32>,
     settings: vec4<f32>, size: vec4<f32>,
-    traversal: vec4<f32>, limits: vec4<f32>,
+    traversal: vec4<f32>, limits: vec4<f32>, behind: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: ReflectionCamera;
 @group(0) @binding(1) var material: texture_2d<f32>;
@@ -32,6 +32,7 @@ struct ReflectionCamera {
         factor = textureLoad(forward_factor, p, FORWARD_SAMPLE).rgb;
         environment = textureLoad(forward_environment, p, FORWARD_SAMPLE).rgb;
     }
+    // APPLICATION_AO
     return vec4<f32>(reflection_delta(reflection.rgb, reflection.a, factor, environment, replacement) * roughness_fade, 0.0);
 }
 fn reflection_coordinates(uv: vec2<f32>, size: vec2<i32>, footprint: f32) -> mat3x2<f32> {

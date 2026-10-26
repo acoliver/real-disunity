@@ -7,11 +7,18 @@ use super::{
 pub(super) struct FinalDepth {
     levels: Vec<wgpu::Texture>,
     samples: u32,
+    indices: [usize; 4],
     copy: wgpu::RenderPipeline,
     reduce: wgpu::RenderPipeline,
 }
 impl FinalDepth {
-    pub fn new(device: &wgpu::Device, mut size: [u32; 2], samples: u32) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        mut size: [u32; 2],
+        samples: u32,
+        traversal: worldrunner_render_plan::SceneSsrTraversal,
+    ) -> Self {
+        let grid = traversal == worldrunner_render_plan::SceneSsrTraversal::Grid;
         let mut levels = Vec::new();
         loop {
             levels.push(crate::ssao::passes::texture(
@@ -25,22 +32,30 @@ impl FinalDepth {
             size = size.map(|side| side.div_ceil(2));
         }
         Self {
+            indices: if grid { [0, 1, 2, 3] } else { [0, 2, 4, 6] },
             levels,
             samples,
             copy: crate::ssao::passes::pipeline(device, include_str!("final_depth.wgsl")),
-            reduce: crate::ssao::passes::pipeline(device, include_str!("../ssao/reduce.wgsl")),
+            reduce: crate::ssao::passes::pipeline(
+                device,
+                if grid {
+                    include_str!("depth_average.wgsl")
+                } else {
+                    include_str!("../ssao/reduce.wgsl")
+                },
+            ),
         }
     }
     pub fn textures(&self) -> &[wgpu::Texture] {
         &self.levels
     }
     pub fn trace_levels(&self) -> Vec<wgpu::Texture> {
-        [0, 2, 4, 6]
+        self.indices
             .map(|i| self.levels[i.min(self.levels.len() - 1)].clone())
             .to_vec()
     }
     pub fn reads(&self) -> Vec<ResourceRef> {
-        [0, 2, 4, 6]
+        self.indices
             .map(|i| {
                 FrameProduct::reflection_depth(
                     u32::try_from(i.min(self.levels.len() - 1)).expect("depth levels"),

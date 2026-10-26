@@ -124,8 +124,7 @@ pub(super) fn water_fixture(context: &GpuContext, config: FrameConfig) -> crate:
 fn water_resolve(context: &GpuContext, samples: u32, confidence: f32, partial: bool) -> Vec<u8> {
     let size = [3, 3];
     let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
-    let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
-    let ssr = Ssr::new(context.device(), config, settings(), &mut screen).unwrap();
+    let ssr = application_ssr(context, config);
     let water = water_fixture(context, config);
     upload(context, &ssr.normals, &[0.0; 36]);
     if partial {
@@ -172,6 +171,7 @@ fn water_resolve(context: &GpuContext, samples: u32, confidence: f32, partial: b
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
     );
     feature.water.as_ref().unwrap().resolve_views(&mut views);
+    ssr.application_views(&mut views);
     let group = gpu::group(
         context.device(),
         &ssr.water_resolve,
@@ -350,4 +350,23 @@ fn replacement_settings() -> SceneSsr {
         composition: worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment,
         ..settings()
     }
+}
+
+fn application_settings() -> SceneSsr {
+    SceneSsr {
+        depth_relative_ao: true,
+        ..settings()
+    }
+}
+
+fn application_ssr(context: &GpuContext, config: FrameConfig) -> Ssr {
+    let size = config.size;
+    let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
+    Ssr::new(
+        context.device(),
+        config,
+        application_settings(),
+        &mut screen,
+    )
+    .unwrap()
 }

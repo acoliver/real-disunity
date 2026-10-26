@@ -48,7 +48,7 @@ pub use post::{
     SceneVignette,
 };
 mod ssr;
-pub use ssr::{SceneSsr, SceneSsrComposition};
+pub use ssr::{SceneSsr, SceneSsrComposition, SceneSsrPassBehind, SceneSsrTraversal};
 mod error;
 mod foliage_wind;
 #[cfg(test)]

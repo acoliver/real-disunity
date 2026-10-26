@@ -80,6 +80,13 @@ native library. Those tests check Unity's field binding rules on synthetic
 plans, then load each game and play it: Pong's launch, paddle axes and scoring
 through its scene-wired event, and Breakout's prefab instantiation and tile walls.
 
+`Disunity.Play` is the bridge the `play` command (`crates/play`) boots. Its `Run`
+reads a request naming a scene plan, the compiled game scripts and font files,
+loads the game assembly into the bridge's own load context so it binds the same
+`Disunity.Engine`, and calls `DisunityHost.LoadScene`. The Rust host then
+delivers keys with `DisunityHost::push_key`, advances the world and renders each
+frame; `Unload` disposes the scene's templates and unloads the world.
+
 CI defines Linux, Windows, and macOS managed jobs. A local Linux result does not
 establish Windows or macOS compatibility.
 

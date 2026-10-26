@@ -1,6 +1,13 @@
 # Importing Unity projects
 
-The goal for Unity projects is that you point the engine at an unmodified project and it plays: scenes are imported, scripts are compiled against `Disunity.Engine`, and the scene is built in the native world before any `Awake` runs. The importer half of that is in place. The loader that builds an imported scene in a running world is still being written ([#77](https://github.com/acoliver/real-disunity/issues/77)), so today you can inspect a project but not play it.
+The goal for Unity projects is that you point the engine at an unmodified project and it plays: scenes are imported, scripts are compiled against `Disunity.Engine`, and the scene is built in the native world before any `Awake` runs. `unity-import plan` turns a scene into a plan, `DisunityHost.LoadScene` builds the plan in a running world (see [Loading scenes](unity-api.md#loading-scenes)), and the `play` command runs a game in a window:
+
+```sh
+cargo build -p worldrunner-disunity-ffi
+cargo run -p worldrunner-play -- pong
+```
+
+`play` takes the three test games below by name; its options for scripted keys, fixed frame times and captures are in the [play crate's README](../crates/play/README.md).
 
 ## What the importer reads
 
@@ -56,10 +63,10 @@ Three small open-source Unity games are the first targets. They will run from th
 | Game | Unity version | Status |
 | --- | --- | --- |
 | [Snake](https://github.com/eguldali/Optimized-Snake-Game) | 6000.3 | Its scripts compile. Planning fails on one sprite that comes from Unity's 2D sprite package, whose exact metrics are not confirmed. |
-| [Pong](https://github.com/mcrvaz/pong-tdd) | 2017.1 | Loads and plays headless: the ball launches, the paddles follow their input axes and goals score. |
-| [Breakout](https://github.com/admtrv/Breakout) | 6000.3 | Loads and plays headless: bricks and the ball are instantiated from their prefabs and the tile walls keep the ball in play. |
+| [Pong](https://github.com/mcrvaz/pong-tdd) | 2017.1 | Plays in a window: the ball launches, W and S move the left paddle and goals score. |
+| [Breakout](https://github.com/admtrv/Breakout) | 6000.3 | Plays in a window: bricks and the ball come from their prefabs, A and D move the paddle, bricks break and the tile walls keep the ball in play. |
 
-"Headless" means scripts, physics, input and UI state run without a window; rendering and keyboard play through a window are tracked in [#70](https://github.com/acoliver/real-disunity/issues/70). The test that plays them is `crates/disunity-runtime/tests/original_scenes.rs`.
+Two tests play them. `crates/disunity-runtime/tests/original_scenes.rs` checks scripts, physics, input and UI state without a window, and `crates/play/tests/play_window.rs` checks the pixels of frames presented in a window. Pong's text uses a substitute for Unity's Arial, and the settings each scene uses that the engine does not reproduce, such as interpolated bodies and lit tilemaps, are printed when it loads.
 
 ## When a project does not import
 

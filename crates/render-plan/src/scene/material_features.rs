@@ -106,6 +106,7 @@ pub struct SceneWind {
     amplitude_millimeters: u32,
     period_milliseconds: u32,
     phase_micro: u32,
+    foliage: Option<super::SceneFoliageWind>,
 }
 impl SceneWind {
     pub fn new(
@@ -125,7 +126,18 @@ impl SceneWind {
             amplitude_millimeters,
             period_milliseconds,
             phase_micro,
+            foliage: None,
         })
+    }
+    /// Opts into curved deformation. Its bands supply frequency; the rigid period
+    /// is retained for the default mode. The phase offset applies to both bands.
+    #[must_use]
+    pub const fn with_foliage(mut self, foliage: super::SceneFoliageWind) -> Self {
+        self.foliage = Some(foliage);
+        self
+    }
+    pub const fn foliage(self) -> Option<super::SceneFoliageWind> {
+        self.foliage
     }
     pub const fn direction(self) -> SceneDirection {
         self.direction

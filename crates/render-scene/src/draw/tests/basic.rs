@@ -105,7 +105,7 @@ fn a_single_sided_quad_wound_the_other_way_is_culled_entirely() {
     let context = context();
     let scene = build(
         white_texture(),
-        material(SceneAlphaMode::Opaque, false),
+        &material(SceneAlphaMode::Opaque, false),
         reversed_quad(),
         1,
     );
@@ -122,7 +122,7 @@ fn a_double_sided_quad_wound_the_other_way_still_renders() {
     let context = context();
     let scene = build(
         white_texture(),
-        material(SceneAlphaMode::Opaque, true),
+        &material(SceneAlphaMode::Opaque, true),
         reversed_quad(),
         1,
     );
@@ -139,7 +139,7 @@ fn the_materials_own_albedo_reaches_the_shader_rather_than_the_placeholder() {
     let context = context();
     let scene = build(
         texture(RED_565),
-        material(SceneAlphaMode::Opaque, false),
+        &material(SceneAlphaMode::Opaque, false),
         quad(),
         1,
     );
@@ -176,7 +176,7 @@ fn an_unreadable_texture_names_the_offending_table_entry() {
             color_space: TextureColorSpace::Srgb,
             bytes: vec![0u8; 8].into(),
         },
-        material(SceneAlphaMode::Opaque, false),
+        &material(SceneAlphaMode::Opaque, false),
         quad(),
         1,
     );

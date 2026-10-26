@@ -21,6 +21,7 @@ pub const ENVIRONMENT_WGSL: &str = concat!(
     include_str!("shader/camera_rays.wgsl"),
     include_str!("shader/unshadowed.wgsl"),
     include_str!("shader/geometry.wgsl"),
+    include_str!("shader/foliage.wgsl"),
     include_str!("shader/environment.wgsl")
 );
 
@@ -76,3 +77,12 @@ mod tests;
 
 #[cfg(test)]
 mod gpu_math_tests;
+
+#[cfg(test)]
+mod foliage_tests;
+
+#[cfg(test)]
+mod foliage_reference_tests;
+
+#[cfg(test)]
+mod foliage_model_tests;

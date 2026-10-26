@@ -72,6 +72,7 @@ pub(crate) struct Instances {
     mesh_count: usize,
     pipelines: Vec<usize>,
     pub wind_extents: Vec<glam::Vec3>,
+    pub curved_wind: Vec<Option<glam::Vec3>>,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
 }
 
@@ -83,6 +84,7 @@ impl Instances {
                 value.checked_add(1)
             })
             .expect("resident scene identity exhausted");
+        let (wind_extents, curved_wind) = wind_bounds(scene);
         let mut instances = Self {
             scene: identity,
             slots: Vec::new(),
@@ -94,19 +96,8 @@ impl Instances {
                 .iter()
                 .map(|material| PipelineKey::from_material(material).index())
                 .collect(),
-            wind_extents: scene
-                .resources()
-                .materials()
-                .iter()
-                .map(|material| {
-                    material
-                        .features()
-                        .and_then(|features| features.wind)
-                        .map_or(glam::Vec3::ZERO, |wind| {
-                            crate::pipeline::features::wind_extent(wind)
-                        })
-                })
-                .collect(),
+            wind_extents,
+            curved_wind,
             batches: BTreeMap::new(),
         };
         for object in scene.geometry().objects() {
@@ -245,4 +236,19 @@ impl Instances {
             .set_visible(position, visible);
         Ok(())
     }
+}
+
+fn wind_bounds(scene: &RenderScene) -> (Vec<glam::Vec3>, Vec<Option<glam::Vec3>>) {
+    scene
+        .resources()
+        .materials()
+        .iter()
+        .map(|material| {
+            let wind = material.features().and_then(|features| features.wind);
+            (
+                wind.map_or(glam::Vec3::ZERO, crate::pipeline::features::wind_extent),
+                wind.and_then(crate::pipeline::features::foliage_origin),
+            )
+        })
+        .unzip()
 }

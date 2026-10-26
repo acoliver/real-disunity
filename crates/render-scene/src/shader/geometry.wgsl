@@ -19,6 +19,11 @@ struct Material {
     scattering_shape: vec4<f32>,
     scattering_colour: vec4<f32>,
     scattering_mode: vec4<f32>,
+    foliage_axis_curve: vec4<f32>,
+    foliage_extent_strength_phase: vec4<f32>,
+    foliage_primary: vec4<u32>,
+    foliage_radial: vec4<u32>,
+    foliage_origin: vec4<f32>,
 }
 
 const FLAG_NORMAL: u32 = 1u;
@@ -170,8 +175,7 @@ fn material_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput
             out.ground_fold = vec4<f32>(ground.xyz, vertex.position.z);
         }
     }
-    let displacement = scene_wind_offset(material.wind_direction_amplitude, material.wind_clock.xy,
-        bitcast<u32>(frame.grading.z));
+    let displacement = scene_geometry_displacement(out.world_position, vertex.ambient_occlusion, instance);
     if material.wind_clock.x != 0u {
         out.world_position += displacement;
         out.clip_position = frame.view_projection * vec4<f32>(out.world_position, 1.0);

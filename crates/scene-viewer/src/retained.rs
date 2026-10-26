@@ -7,6 +7,8 @@ use std::{
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod capture;
+pub use capture::{CaptureRequestError, RetainedCaptureOutcome};
 mod readiness;
 mod session;
 pub(crate) use session::Session;
@@ -65,6 +67,11 @@ pub enum RetainedInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RetainedEvent {
     Input(RetainedInput),
+    Capture {
+        id: u64,
+        generation: u64,
+        outcome: RetainedCaptureOutcome,
+    },
     /// The update was submitted and presented, without a GPU-completion claim.
     Presented {
         frame: u64,
@@ -90,6 +97,7 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    pub(crate) captures: capture::Captures,
     pub(crate) scene: RenderScene,
     pub(crate) initial_scene: RenderScene,
     pub(crate) readiness: readiness::Readiness,
@@ -114,6 +122,7 @@ impl RetainedHost {
             .collect();
         let size = options.size;
         Ok(Self {
+            captures: capture::Captures::default(),
             initial_scene: scene.clone(),
             readiness: readiness::Readiness {
                 queue: std::collections::VecDeque::new(),

@@ -59,7 +59,16 @@ impl Renderer {
         self.execution.take_recreated()
     }
 
+    pub fn collect_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
+        self.streaming
+            .collect(self.context.submission().completed_serial());
+        self.streaming.captures.collect(host)?;
+        Ok(self.streaming.captures.is_pending())
+    }
+
     pub fn render_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
+        self.poll()?;
+        self.collect_retained(host)?;
         let Some(view) = host.view()? else {
             return Ok(false);
         };

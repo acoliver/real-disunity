@@ -22,6 +22,9 @@ impl Streaming {
         host: &mut RetainedHost,
     ) -> Result<(), ViewerError> {
         self.collect(context.submission().completed_serial());
+        if host.captures.holds_generation(host.ready_generation()) {
+            return Ok(());
+        }
         let Some(front) = host.readiness.queue.front_mut() else {
             return Ok(());
         };
@@ -71,7 +74,7 @@ impl Streaming {
         host.readiness.publish_front();
         Ok(())
     }
-    fn collect(&mut self, completed: u64) {
+    pub(super) fn collect(&mut self, completed: u64) {
         while self.retired.front().is_some_and(|old| old.0 <= completed) {
             self.retired.pop_front();
         }
@@ -96,6 +99,7 @@ impl Streaming {
 }
 
 pub(super) struct Streaming {
+    pub captures: super::capture::Captures,
     pub objects: super::retained::Objects,
     pub retired: std::collections::VecDeque<(u64, Resident)>,
     pub shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
@@ -107,6 +111,7 @@ impl Streaming {
         profile: crate::FrameProfile,
     ) -> Self {
         Self {
+            captures: super::capture::Captures::default(),
             objects: super::retained::Objects::default(),
             retired: std::collections::VecDeque::new(),
             shadows,

@@ -117,6 +117,7 @@ fn present_retained(renderer: &mut Renderer, host: &mut crate::RetainedHost) {
     }
 }
 
+mod capture;
 mod live;
 mod recovery;
 mod streaming;
@@ -238,6 +239,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     drop((device, queue, adapter, instance));
     retained_settings_present(&event_loop, &window);
     streaming::streaming_present(&event_loop, &window);
+    capture::retained_capture_present(&event_loop, &window);
     live::pending_survives_resize_and_surface_recovery(&mut event_loop, window.clone());
     teardown::assert_pending_submission_cleanup(
         pollster::block_on(Renderer::new(

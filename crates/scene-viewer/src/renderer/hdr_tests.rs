@@ -2,6 +2,11 @@ use super::*;
 use crate::{FrameProfile, ToneMap};
 use worldrunner_render_scene::offscreen::OffscreenTarget;
 
+const INITIAL_SIZE: Viewport = Viewport {
+    width: 64,
+    height: 64,
+};
+
 #[test]
 fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
     let context =
@@ -17,10 +22,8 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
             let mut presentation = Presentation::with_profile(
                 &context,
                 crate::presentation::COLOR,
-                Viewport {
-                    width: 64,
-                    height: 64,
-                },
+                INITIAL_SIZE,
+                INITIAL_SIZE,
                 profile,
                 source.effects(),
             )
@@ -35,7 +38,7 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
                     height: 29,
                 },
             ] {
-                presentation.resize(&context, size).unwrap();
+                presentation.resize(&context, size, size).unwrap();
                 let options = crate::tests::options();
                 let view = crate::OrbitCamera::new(options.pose, options.orbit)
                     .unwrap()
@@ -87,17 +90,15 @@ fn viewer_reduced_resolution_reconfigures_scene_and_output_together() {
     let mut presentation = Presentation::with_profile(
         &context,
         crate::presentation::COLOR,
-        Viewport {
-            width: 64,
-            height: 64,
-        },
+        INITIAL_SIZE,
+        INITIAL_SIZE,
         profile,
         source.effects(),
     )
     .unwrap();
     for [width, height] in [[64, 64], [50, 26]] {
         let size = Viewport { width, height };
-        presentation.resize(&context, size).unwrap();
+        presentation.resize(&context, size, size).unwrap();
         let expected = scale.extent([width, height]).unwrap();
         assert_eq!(presentation.scheduler.targets().config().size, expected);
         assert_eq!(

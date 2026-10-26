@@ -37,6 +37,14 @@ pub(super) trait Content {
     fn take_failure(&mut self) -> Option<ViewerError> {
         None
     }
+    fn shutdown(&mut self) -> Result<(), ViewerError> {
+        Ok(())
+    }
+    /// Progresses submitted work without simulation updates or presentation.
+    /// Returns whether completion polling is still needed.
+    fn poll(&mut self, _renderer: &mut Renderer) -> Result<bool, ViewerError> {
+        Ok(false)
+    }
     /// Returns true after the final frame has been presented.
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError>;
 }
@@ -65,13 +73,16 @@ pub(super) fn run_retained(
 }
 
 fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
-    let event_loop = EventLoop::new()?;
     let mut app = App::new(content);
-    let result = event_loop.run_app(&mut app);
+    let result = EventLoop::new().and_then(|event_loop| event_loop.run_app(&mut app));
+    let shutdown = app.content.shutdown();
+    let drain = app.renderer.as_ref().map(Renderer::drain).transpose();
     cleanup(&mut app.renderer);
     if let Some(error) = app.failure {
         return Err(error);
     }
+    shutdown?;
+    drain?;
     result?;
     Ok(())
 }
@@ -221,21 +232,37 @@ impl ApplicationHandler for App<'_> {
             self.fail(event_loop, error);
             return;
         }
-        let Some(renderer) = &self.renderer else {
+        let Some(renderer) = &mut self.renderer else {
             return;
         };
-        if let Err(error) = renderer.poll() {
-            self.fail(event_loop, error);
+        let pending = match renderer.poll().and_then(|()| self.content.poll(renderer)) {
+            Ok(pending) => pending,
+            Err(error) => {
+                self.fail(event_loop, error);
+                return;
+            }
+        };
+        if self.content.exit_requested() {
+            event_loop.exit();
             return;
         }
+        let completion_poll = Instant::now() + Duration::from_millis(16);
         if self.occluded || self.suspended || renderer.viewport.is_none() {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            event_loop.set_control_flow(if pending {
+                ControlFlow::WaitUntil(completion_poll)
+            } else {
+                ControlFlow::Wait
+            });
         } else {
             if Instant::now() >= self.next_frame {
                 renderer.window.request_redraw();
                 self.next_frame = Instant::now() + self.content.interval();
             }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
+            event_loop.set_control_flow(ControlFlow::WaitUntil(if pending {
+                self.next_frame.min(completion_poll)
+            } else {
+                self.next_frame
+            }));
         }
     }
 }

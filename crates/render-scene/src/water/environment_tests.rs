@@ -20,7 +20,7 @@ fn prepared_environment_matches_replaceable_lobe_and_sample_receivers() {
         )
         .unwrap();
         let frame = FrameUniform::new(&fixture_view(), None).unwrap();
-        encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5)
+        encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5)
             .finish()
             .submit()
             .unwrap();

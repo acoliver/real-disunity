@@ -61,7 +61,7 @@ fn water_fog_composes_only_the_camera_segment_at_one_and_four_samples() {
             )
             .unwrap(),
         );
-        encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5)
+        encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5)
             .finish()
             .submit()
             .unwrap();
@@ -86,12 +86,54 @@ fn water_shader_uses_shared_lighting_and_sample_receiver_outputs() {
     let source = include_str!("water.wgsl");
     for required in [
         "rd_toward_light",
-        "rd_hemisphere",
+        "scene_diffuse_environment",
         "rd_height_fog_transmittance",
         "textureSampleLevel",
         "@builtin(sample_index)",
         "@location(3)",
     ] {
         assert!(source.contains(required), "missing {required}");
+    }
+}
+
+#[test]
+fn sh9_diffuse_reaches_water_scattering_at_one_and_four_samples() {
+    use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let mut coefficients = [[0; 3]; 9];
+    coefficients[0] = [250_000, 500_000, -250_000];
+    for samples in [1, 4] {
+        let mut renderer = regressions::renderer(&context, samples);
+        let mut body = settings();
+        body.color_micro = [500_000; 3];
+        body.absorption_micro = [10_000_000; 3];
+        renderer.install_water(context.device(), body).unwrap();
+        let color = AttachmentView::new(
+            ResourceRef::new("scene color"),
+            renderer.targets().scene().texture(),
+        )
+        .unwrap();
+        let depth = AttachmentView::new(
+            ResourceRef::new("scene depth"),
+            renderer.targets().depth().texture(),
+        )
+        .unwrap();
+        let mut frame = FrameUniform::new(&fixture_view(), None).unwrap();
+        frame.diffuse_environment =
+            SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap());
+        encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5)
+            .finish()
+            .submit()
+            .unwrap();
+        let output = read(&context, renderer.targets().texture());
+        let center = (16 * 32 + 16) * 8;
+        for (channel, expected) in [0.125, 0.25, 0.0].into_iter().enumerate() {
+            let offset = center + channel * 2;
+            let actual = numerical::positive_half(&output[offset..offset + 2]);
+            assert!(
+                (actual - expected).abs() < 0.0005,
+                "{samples}x, {channel}: {actual}"
+            );
+        }
     }
 }

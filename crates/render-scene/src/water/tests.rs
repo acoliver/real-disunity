@@ -103,7 +103,7 @@ fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_1x_and_4x() {
             renderer
                 .set_frame_time(if slot == 0 { 0.0 } else { 2.0 })
                 .unwrap();
-            let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, red);
+            let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, red);
             submissions.push(encoder.finish().submit().unwrap());
         }
         context
@@ -129,7 +129,7 @@ fn encode_fixture(
     context: &GpuContext,
     renderer: &mut crate::compositor::FrameRenderer,
     attachments: (&AttachmentView, &AttachmentView),
-    frame: FrameUniform,
+    frame: &FrameUniform,
     red: f64,
 ) -> worldrunner_render_gpu::submission::RecordingFrame {
     let (color, depth) = attachments;
@@ -150,7 +150,7 @@ fn encode_fixture(
             &mut encoder,
             (&[pass], &[color.clone(), depth.clone()]),
             &mut [],
-            (frame, None),
+            (*frame, None),
         )
         .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
@@ -305,7 +305,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
     let water = renderer.water.as_ref().unwrap();
     let feature = water.feature(
         context.device(),
-        FrameUniform::new(&fixture_view(), None).unwrap(),
+        &FrameUniform::new(&fixture_view(), None).unwrap(),
         (2.0, slot),
         None,
     );

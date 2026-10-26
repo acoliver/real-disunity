@@ -23,7 +23,7 @@ impl SceneGpu {
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        frame: crate::frame::FrameUniform,
+        frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) -> Result<(), FrameError> {
         if let Some(pages) = self
@@ -99,7 +99,7 @@ impl SceneGpu {
     /// Declares the exact camera selection and current source generation for capture.
     pub fn terrain_residency_request(
         &self,
-        frame: crate::frame::FrameUniform,
+        frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) -> Option<TerrainResidencyRequest> {
         self.select_terrain_pages(frame, viewport);
@@ -125,7 +125,7 @@ impl SceneGpu {
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        frame: crate::frame::FrameUniform,
+        frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) -> Result<(), FrameError> {
         if let Some(pages) = self
@@ -142,7 +142,7 @@ impl SceneGpu {
 
     pub(crate) fn select_terrain_pages(
         &self,
-        frame: crate::frame::FrameUniform,
+        frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) {
         if let Some(pages) = self

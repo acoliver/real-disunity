@@ -486,6 +486,7 @@ pub struct SceneEffectsParts {
 /// and SSAO may be absent within a profile; the other fields are explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneEffects {
+    pub(super) diffuse_environment: super::SceneDiffuseEnvironment,
     pub(super) depth_fitting: Option<super::SceneDepthFitting>,
     atmosphere: Option<super::SceneAtmosphere>,
     water_settings: Option<super::SceneWaterSettings>,
@@ -568,6 +569,7 @@ impl SceneEffects {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn new(parts: SceneEffectsParts) -> Result<Self, SceneValidationError> {
         let effects = Self {
+            diffuse_environment: super::SceneDiffuseEnvironment::Hemisphere,
             depth_fitting: None,
             atmosphere: None,
             water_settings: None,

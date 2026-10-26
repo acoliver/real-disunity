@@ -34,6 +34,7 @@ fn context() -> GpuContext {
 }
 fn frame() -> FrameUniform {
     FrameUniform {
+        diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         view: glam::Mat4::IDENTITY,
         view_projection: glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 200.0),
@@ -191,14 +192,14 @@ fn upload_hierarchy(context: &GpuContext, ssr: &Ssr, size: [u32; 2], depths: Vec
 fn draw_trace(
     context: &GpuContext,
     ssr: &Ssr,
-    frame: FrameUniform,
+    frame: &FrameUniform,
     opaque: &wgpu::Texture,
 ) -> Vec<u8> {
     let output = AttachmentView::new(ResourceRef::new("scene color"), opaque).unwrap();
     let mut feature = ReflectionFeature {
         water: None,
         ssr,
-        frame,
+        frame: *frame,
         color: output,
         groups: Vec::new(),
     };
@@ -246,7 +247,7 @@ fn draw_trace(
     read(context, &ssr.reflections[0])
 }
 fn mirror_data(
-    frame: FrameUniform,
+    frame: &FrameUniform,
     roughness: f32,
     target_uv: glam::Vec2,
     occluder: bool,
@@ -326,7 +327,7 @@ fn trace_fixture_normal(
     .unwrap();
     let frame = frame();
     let (depths, mut normals, materials, colors) =
-        mirror_data(frame, roughness, target_uv, occluder);
+        mirror_data(&frame, roughness, target_uv, occluder);
     for (index, depth) in depths.iter().enumerate() {
         if depth.to_bits() == 5.0f32.to_bits() {
             normals[index * 4..index * 4 + 4].copy_from_slice(&target_normal);
@@ -338,7 +339,7 @@ fn trace_fixture_normal(
         crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::Rgba16Float);
     upload(context, &opaque, &colors);
     upload_hierarchy(context, &ssr, size, depths);
-    draw_trace(context, &ssr, frame, &opaque)
+    draw_trace(context, &ssr, &frame, &opaque)
 }
 
 #[test]

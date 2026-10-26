@@ -7,6 +7,9 @@ pub(crate) mod surface;
 #[cfg(test)]
 mod tests;
 
+pub(crate) const STAGING_BYTES: u64 = 320 + crate::frame::FRAME_UNIFORM_BYTES as u64;
+pub(crate) const UNIFORM_BYTES: u64 = 512 + crate::frame::FRAME_UNIFORM_BYTES as u64;
+
 use crate::frame::FrameUniform;
 use snapshots::Snapshots;
 use worldrunner_render_plan::SceneWaterBody;
@@ -213,7 +216,7 @@ impl Water {
     pub fn feature(
         &self,
         device: &wgpu::Device,
-        frame: FrameUniform,
+        frame: &FrameUniform,
         timing: (f32, usize),
         shadow: Option<&wgpu::BindGroup>,
     ) -> WaterFeature {
@@ -230,7 +233,7 @@ impl Water {
         WaterFeature {
             water: self.clone(),
             snapshots: snapshots.clone(),
-            frame,
+            frame: *frame,
             time,
             slot,
             groups,
@@ -267,7 +270,7 @@ impl Water {
                 uniform_entry(0, 0, 320),
                 surface::binding(1, &color),
                 surface::binding(2, &depth),
-                uniform_entry(3, 512, 160),
+                uniform_entry(3, 512, crate::frame::FRAME_UNIFORM_BYTES as u64),
                 surface::binding(4, &self.environment[0]),
                 surface::binding(5, &self.environment[1]),
                 wgpu::BindGroupEntry {
@@ -579,7 +582,7 @@ impl Body {
             uniforms: std::array::from_fn(|_| {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("water body frame"),
-                    size: 672,
+                    size: UNIFORM_BYTES,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 })

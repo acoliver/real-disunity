@@ -164,7 +164,7 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
                 context.device(),
                 encoder,
                 (&mut renderer.gpu, &renderer.pipelines),
-                frame,
+                &frame,
                 &metadata,
             )
         })

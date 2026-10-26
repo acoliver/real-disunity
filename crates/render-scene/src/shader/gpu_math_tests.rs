@@ -106,7 +106,7 @@ fn configured_environment_reaches_production_lighting_with_exactly_one_exposure_
         vec3(0.5), 1.0, 0.0, 1.0)), frame.grading.x);
 }
 ",
-            Some(frame),
+            Some(&frame),
         );
         let expected = (0.98 / std::f32::consts::PI + 0.4) * multiplier;
         for actual in &values[..3] {
@@ -146,6 +146,7 @@ fn configured_frame(
     .prepare()
     .unwrap();
     crate::frame::FrameUniform {
+        diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         unlit: false,
         animation_time_milliseconds: 0,
@@ -164,7 +165,7 @@ fn configured_frame(
 fn evaluate(
     context: &GpuContext,
     entry: &str,
-    frame: Option<crate::frame::FrameUniform>,
+    frame: Option<&crate::frame::FrameUniform>,
 ) -> Vec<f32> {
     evaluate_with_ground(context, entry, frame, None)
 }
@@ -172,7 +173,7 @@ fn evaluate(
 fn evaluate_with_ground(
     context: &GpuContext,
     entry: &str,
-    frame: Option<crate::frame::FrameUniform>,
+    frame: Option<&crate::frame::FrameUniform>,
     ground: Option<&[f32]>,
 ) -> Vec<f32> {
     let device = context.device();
@@ -201,7 +202,7 @@ fn evaluate_with_ground(
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
-    let uniform = frame.map(|frame| frame_buffer(context, frame));
+    let uniform = frame.as_ref().map(|frame| frame_buffer(context, frame));
     let mut entries = vec![wgpu::BindGroupEntry {
         binding: 1,
         resource: output.as_entire_binding(),
@@ -233,7 +234,7 @@ fn evaluate_with_ground(
     read_values(device, &readback)
 }
 
-fn frame_buffer(context: &GpuContext, frame: crate::frame::FrameUniform) -> wgpu::Buffer {
+fn frame_buffer(context: &GpuContext, frame: &crate::frame::FrameUniform) -> wgpu::Buffer {
     let device = context.device();
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -469,5 +470,44 @@ fn high_temperature_and_cross_branch_warming_match_independent_values() {
         .zip([0.190_972, 0.354_928_1, 0.076_935_69])
     {
         assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+    }
+}
+
+#[test]
+fn sh9_frame_coefficients_match_cpu_polynomial_for_every_slot_and_axis() {
+    use glam::Vec3;
+    use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    for slot in 0..9 {
+        let mut coefficients = [[0; 3]; 9];
+        coefficients[slot] = [250_000, -125_000, 500_000];
+        let mut frame = configured_frame(ExposureOwnership::SceneLinear(1.0));
+        frame.diffuse_environment =
+            SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap());
+        let mut polynomial = [Vec3::ZERO; 9];
+        polynomial[slot] = Vec3::new(0.25, -0.125, 0.5);
+        for normal in [
+            Vec3::X,
+            Vec3::Y,
+            Vec3::Z,
+            Vec3::NEG_Z,
+            Vec3::new(1.0, 2.0, 3.0).normalize(),
+        ] {
+            let entry = format!(
+                r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    result[0] = vec4(scene_diffuse_environment(vec3({},{},{}), vec3(99.0), vec3(99.0)), 1.0);
+}}",
+                normal.x, normal.y, normal.z
+            );
+            let actual = evaluate(&context, &entry, Some(&frame));
+            let expected = worldrunner_render_lighting::irradiance_polynomial(normal, &polynomial)
+                .max(Vec3::ZERO);
+            for (actual, expected) in actual.iter().zip(expected.to_array()) {
+                assert!((actual - expected).abs() < 1e-6, "slot {slot}, {normal:?}");
+            }
+        }
     }
 }

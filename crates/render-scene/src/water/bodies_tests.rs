@@ -72,7 +72,7 @@ fn multiple_heights_order_independently_of_body_order_at_one_and_four_samples() 
             )
             .unwrap();
             let frame = FrameUniform::new(&fixture_view(), None).unwrap();
-            encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5)
+            encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5)
                 .finish()
                 .submit()
                 .unwrap();
@@ -82,7 +82,7 @@ fn multiple_heights_order_independently_of_body_order_at_one_and_four_samples() 
             assert!((4.0..6.0).contains(&f32::from_le_bytes(
                 bytes[offset..offset + 4].try_into().unwrap()
             )));
-            let cancelled = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.25);
+            let cancelled = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.25);
             drop(cancelled);
             assert_eq!(
                 read(&context, renderer.post_water_depth().unwrap().texture()),
@@ -123,7 +123,7 @@ fn empty_bodies_do_not_enable_water_or_snapshots() {
     )
     .unwrap();
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
-    encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5)
+    encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5)
         .finish()
         .submit()
         .unwrap();

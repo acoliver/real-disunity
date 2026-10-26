@@ -29,7 +29,7 @@ fn final_trace(context: &GpuContext, foreground: bool, scale: f32, unmatched: bo
     )
     .unwrap();
     let (mut depths, normals, materials, colors) =
-        mirror_data(frame(), 0.0, glam::Vec2::new(0.65, 0.35), false);
+        mirror_data(&frame(), 0.0, glam::Vec2::new(0.65, 0.35), false);
     for depth in &mut depths {
         *depth *= scale;
     }
@@ -55,7 +55,7 @@ fn final_trace(context: &GpuContext, foreground: bool, scale: f32, unmatched: bo
     let opaque =
         crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::Rgba16Float);
     upload(context, &opaque, &colors);
-    draw_trace(context, &ssr, frame(), &opaque)
+    draw_trace(context, &ssr, &frame(), &opaque)
 }
 
 #[test]

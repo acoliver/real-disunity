@@ -253,7 +253,7 @@ fn brightening_tint_reaches_shaded_output_linearly() {
             effects: scene.effects().cloned(),
         })
         .unwrap();
-        let pixels = render_frame(&context, &tinted, frame);
+        let pixels = render_frame(&context, &tinted, &frame);
         let actual = pixels[(32 * TARGET as usize + 32) * 4];
         let factor = match factor {
             1_000_000 => 1.0,
@@ -312,4 +312,43 @@ fn decoded_normal(
         z,
     )
     .normalize()
+}
+
+#[test]
+fn sh9_diffuse_produces_the_same_radiance_for_mesh_terrain_and_cards() {
+    use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
+    let context = context();
+    let mut coefficients = [[0; 3]; 9];
+    coefficients[0] = [250_000, 375_000, 125_000];
+    let frame = FrameUniform {
+        diffuse_environment: SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap()),
+        sun_irradiance: Vec3::ZERO,
+        ..frame_from(pose())
+    };
+    let expected = [0.25, 0.375, 0.125].map(|linear| srgb(linear) * 255.0);
+    for code in expected {
+        assert!((code.fract() - 0.5).abs() >= 0.1);
+    }
+    let scenes = [
+        scene(SceneAlphaMode::Opaque, false, 1),
+        terrain_scene(1),
+        card_scene(Some(BillboardPolicy::YawLocked), identity().rotation),
+    ];
+    for source in scenes {
+        let pixels = render_frame(&context, &source, &frame);
+        let covered: Vec<_> = pixels
+            .chunks_exact(4)
+            .filter(|pixel| pixel[0] != 0)
+            .collect();
+        assert!(!covered.is_empty());
+        for pixel in covered {
+            for (channel, code) in expected.iter().enumerate() {
+                assert!(
+                    (f32::from(pixel[channel]) - code).abs() < 0.5,
+                    "channel {channel}: {} vs {code}",
+                    pixel[channel]
+                );
+            }
+        }
+    }
 }

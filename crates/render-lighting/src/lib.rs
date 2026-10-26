@@ -11,6 +11,10 @@ mod shader;
 pub const WGSL: &str = crate::lighting_wgsl!();
 
 /// Visibility includes the Cook–Torrance denominator, not just the geometry term.
+/// Height-correlated Smith: Heitz (2014), Understanding the Masking-Shadowing Function
+/// in Microfacet-Based BRDFs, <https://jcgt.org/published/0003/02/03/>.
+/// Schlick-Smith hotness reduction: Karis (2013), Real Shading in Unreal Engine 4,
+/// <https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf>.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VisibilityAlgorithm {
     SmithCorrelated,
@@ -89,6 +93,7 @@ mod math_parity_gpu_tests;
 
 pub mod atmosphere;
 pub mod ibl;
+pub mod sh9;
 
 pub mod reflections;
 

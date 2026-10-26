@@ -71,7 +71,7 @@ pub(super) fn environment_entries() -> [wgpu::BindGroupLayoutEntry; 4] {
     frame.ty = wgpu::BindingType::Buffer {
         ty: wgpu::BufferBindingType::Uniform,
         has_dynamic_offset: false,
-        min_binding_size: wgpu::BufferSize::new(160),
+        min_binding_size: wgpu::BufferSize::new(crate::frame::FRAME_UNIFORM_BYTES as u64),
     };
     let mut cube = super::texture_entry(4);
     cube.ty = wgpu::BindingType::Texture {

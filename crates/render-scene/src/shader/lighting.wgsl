@@ -9,6 +9,8 @@ struct Frame {
     // x is exposure; y selects unlit rendering when no environment is authored.
     // z holds the animation clock as u32 bits; w is reserved and zero.
     grading: vec4<f32>,
+    diffuse_sh: array<vec4<f32>, 9>,
+    lighting_options: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -36,6 +38,16 @@ fn visibility_smith(normal_dot_view: f32, normal_dot_light: f32, roughness: f32)
 
 fn fresnel_schlick(cosine: f32, f0: vec3<f32>) -> vec3<f32> {
     return rd_fresnel_schlick(cosine, f0);
+}
+
+// Prepared E/pi polynomial, shared by all material passes in native Z-up space.
+fn scene_diffuse_environment(normal: vec3<f32>, ground: vec3<f32>, sky: vec3<f32>) -> vec3<f32> {
+    if frame.lighting_options.x == 0.0 {
+        return rd_hemisphere(normal, vec3<f32>(0.0, 0.0, 1.0), ground, sky);
+    }
+    var coefficients: array<vec3<f32>, 9>;
+    for (var i = 0u; i < 9u; i++) { coefficients[i] = frame.diffuse_sh[i].xyz; }
+    return max(vec3<f32>(0.0), rd_irradiance_polynomial(normal, coefficients));
 }
 
 // Resolves one surface's outgoing radiance from the sun and the ambient
@@ -78,7 +90,7 @@ fn surface_lighting(
     // Hemisphere ambient about the scene's own up axis. Scene space is Z-up, so
     // the sky/ground blend reads the z component; using y here would light the
     // world as though the horizon ran vertically.
-    let ambient = rd_hemisphere(normal, vec3<f32>(0.0, 0.0, 1.0), frame.ambient_ground.rgb, frame.ambient_sky.rgb)
+    let ambient = scene_diffuse_environment(normal, frame.ambient_ground.rgb, frame.ambient_sky.rgb)
         * diffuse_colour
         * ambient_occlusion /* SCREEN_AMBIENT_FACTOR */;
 

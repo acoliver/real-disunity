@@ -174,7 +174,7 @@ impl Ssr {
     }
     pub fn feature<'a>(
         &'a self,
-        frame: FrameUniform,
+        frame: &FrameUniform,
         plan: (&[PassDeclaration], &[AttachmentView]),
         config: FrameConfig,
         mut water: Option<water::Inputs>,
@@ -187,7 +187,7 @@ impl Ssr {
         Ok(ReflectionFeature {
             ssr: self,
             water,
-            frame,
+            frame: *frame,
             color,
             groups: Vec::new(),
         })

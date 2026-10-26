@@ -121,12 +121,12 @@ fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
         )
         .unwrap();
     encoder.finish().submit().unwrap();
-    assert_sample_reduction(&context, &renderer, frame);
+    assert_sample_reduction(&context, &renderer, &frame);
 }
 fn assert_sample_reduction(
     context: &GpuContext,
     renderer: &crate::compositor::FrameRenderer,
-    frame: FrameUniform,
+    frame: &FrameUniform,
 ) {
     let (color, depth) = renderer.opaque_snapshot().unwrap();
     assert_eq!(
@@ -204,7 +204,7 @@ fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_sam
         // Isolate absorption from the procedural normal's hemisphere weighting.
         frame.ambient_ground = frame.ambient_sky;
         frame.sun_irradiance = glam::Vec3::ZERO;
-        let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5);
+        let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5);
         encoder.finish().submit().unwrap();
         let center = 16 * 32 + 16;
         let surface = read(&context, renderer.post_water_depth().unwrap().texture());
@@ -275,7 +275,7 @@ fn animation_changes_refraction_with_identical_scene_and_frame_slot() {
         for time in [0.0, 2.0] {
             renderer.select_frame_slot(0);
             renderer.set_frame_time(time).unwrap();
-            let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), frame, 0.5);
+            let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5);
             encoder.finish().submit().unwrap();
             let snapshot = &renderer.snapshots.as_ref().unwrap()[0];
             upload_snapshot(&context, &snapshot.color, &colors, 8);

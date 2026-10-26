@@ -94,7 +94,7 @@ pub fn encode_scene(
     renderer.validate_post(gpu.post)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
-    gpu.prepare_terrain_pages(device, encoder, frame, color.size())?;
+    gpu.prepare_terrain_pages(device, encoder, &frame, color.size())?;
     let color_id = attachment_resource("scene color", color);
     let depth_id = attachment_resource("scene depth", depth);
     let mut opaque = PassDeclaration::new(PassSlot::Opaque);

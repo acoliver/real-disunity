@@ -184,6 +184,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
     let ssao = SceneMetadata::new(context.device(), [6, 1], settings()).unwrap();
     let projection = glam::Mat4::IDENTITY;
     let frame = FrameUniform {
+        diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         view: projection,
         view_projection: projection,
@@ -199,7 +200,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
-    ssao.upload(&mut prepare, frame);
+    ssao.upload(&mut prepare, &frame);
     let _uploads = prepare.finish();
     encoder.finish().submit().unwrap();
     let depth = upload(&context, [6, 1], &[1.0, 1.0, 1.0, 3.0, 3.0, 3.0]);

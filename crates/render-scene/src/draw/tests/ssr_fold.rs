@@ -121,8 +121,8 @@ fn intermediate_fold_matches_unit_normal_in_directional_environment_and_ssr() {
     let folded = fold_reflection_scene(true);
     let reference = fold_reflection_scene(false);
     let frame = reflection_frame(&folded);
-    let actual = render_with_environment(&context, &folded, 1, &maps, frame);
-    let expected = render_with_environment(&context, &reference, 1, &maps, frame);
+    let actual = render_with_environment(&context, &folded, 1, &maps, &frame);
+    let expected = render_with_environment(&context, &reference, 1, &maps, &frame);
     for component in 0..3 {
         compare_reflections(&context, &actual, &expected, component);
     }

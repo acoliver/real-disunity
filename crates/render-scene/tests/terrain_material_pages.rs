@@ -71,7 +71,7 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
         assert!(!gpu.terrain_pages_ready());
         let request = gpu
             .terrain_residency_request(
-                worldrunner_render_scene::frame::FrameUniform::unlit(&view),
+                &worldrunner_render_scene::frame::FrameUniform::unlit(&view),
                 [view.viewport().width, view.viewport().height],
             )
             .unwrap();

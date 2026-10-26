@@ -565,10 +565,10 @@ fn render(context: &GpuContext, scene: &RenderScene) -> Vec<u8> {
 }
 
 fn render_from(context: &GpuContext, scene: &RenderScene, pose: CameraPose) -> Vec<u8> {
-    render_frame(context, scene, frame_from(pose))
+    render_frame(context, scene, &frame_from(pose))
 }
 
-fn render_frame(context: &GpuContext, scene: &RenderScene, frame: FrameUniform) -> Vec<u8> {
+fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform) -> Vec<u8> {
     let device = context.device();
     let queue = context.queue();
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
@@ -579,7 +579,7 @@ fn render_frame(context: &GpuContext, scene: &RenderScene, frame: FrameUniform) 
         &pipelines,
     )
     .expect("the fixture scene uploads");
-    gpu.set_frame(queue, frame);
+    gpu.set_frame(queue, *frame);
 
     let color = color_target(device);
     let color_view = color.create_view(&TextureViewDescriptor::default());

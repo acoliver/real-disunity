@@ -99,8 +99,8 @@ fn lit() -> FrameUniform {
 fn the_block_matches_the_size_the_shader_declares() {
     // A mismatch here is not a compile error in either language; it silently
     // shifts every field after the first disagreement.
-    assert_eq!(FRAME_UNIFORM_BYTES, 160);
-    assert_eq!(lit().to_bytes().len(), 160);
+    assert_eq!(FRAME_UNIFORM_BYTES, 320);
+    assert_eq!(lit().to_bytes().len(), 320);
 }
 
 #[test]
@@ -412,4 +412,53 @@ fn atmospheric_packing_preserves_the_disabled_abi() {
     }
     frame.height_fog = None;
     assert_eq!(frame.to_bytes(), original);
+}
+
+#[test]
+fn lighting_extension_preserves_the_legacy_prefix_and_zero_default_tail() {
+    use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
+    let frame = lit();
+    let bytes = frame.to_bytes();
+    assert!(bytes[160..].iter().all(|byte| *byte == 0));
+    let mut sh_frame = frame;
+    let mut coefficients = [[0; 3]; 9];
+    coefficients[3] = [250_000, -500_000, 1_000_000];
+    sh_frame.diffuse_environment =
+        SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap());
+    let sh_bytes = sh_frame.to_bytes();
+    assert_eq!(&bytes[..160], &sh_bytes[..160]);
+    assert_eq!(read_f32(&sh_bytes, 208).to_bits(), 0.25_f32.to_bits());
+    assert_eq!(read_f32(&sh_bytes, 212).to_bits(), (-0.5_f32).to_bits());
+    assert_eq!(read_f32(&sh_bytes, 216).to_bits(), 1.0_f32.to_bits());
+    assert_eq!(read_f32(&sh_bytes, 304).to_bits(), 1.0_f32.to_bits());
+}
+
+#[test]
+fn explicit_sh9_does_not_derive_ambient_from_a_dome_texture() {
+    use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
+    let mut coefficients = [[0; 3]; 9];
+    coefficients[0] = [250_000; 3];
+    let diffuse = SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap());
+    let authored = effects(
+        SceneSky::DomeTexture {
+            texture: worldrunner_render_plan::TextureHandle::from_raw(0),
+        },
+        SceneSun {
+            direction: east(),
+            irradiance_micro: 0,
+        },
+        SceneAmbient {
+            sky_irradiance_micro: 1_000_000,
+            ground_irradiance_micro: 1_000_000,
+        },
+    )
+    .with_diffuse_environment(diffuse);
+    let frame = FrameUniform::new(&view(), Some(&authored)).unwrap();
+    assert_eq!(frame.diffuse_environment, diffuse);
+    assert_eq!(frame.ambient_sky, Vec3::ZERO);
+    assert_eq!(frame.ambient_ground, Vec3::ZERO);
+    assert_eq!(
+        read_f32(&frame.to_bytes(), 160).to_bits(),
+        0.25_f32.to_bits()
+    );
 }

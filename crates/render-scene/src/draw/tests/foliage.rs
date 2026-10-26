@@ -456,12 +456,12 @@ fn foliage_translucency_zero_is_stock_and_one_transmits_backlighting() {
     frame.ambient_ground = glam::Vec3::ZERO;
     frame.exposure = 1.0;
     assert_eq!(
-        render_frame(&context, &stock, frame),
-        render_frame(&context, &neutral, frame)
+        render_frame(&context, &stock, &frame),
+        render_frame(&context, &neutral, &frame)
     );
     assert_ne!(
-        render_frame(&context, &stock, frame),
-        render_frame(&context, &transmitted, frame)
+        render_frame(&context, &stock, &frame),
+        render_frame(&context, &transmitted, &frame)
     );
 }
 
@@ -527,8 +527,8 @@ fn terrain_contact_full_and_zero_endpoints_match_exact_material_bytes() {
     frame.exposure = 1.0;
     for (height, black) in [(-500, true), (0, false)] {
         assert_eq!(
-            render_frame(&context, &contact_scene(height, true, false), frame),
-            render_frame(&context, &contact_scene(height, false, black), frame)
+            render_frame(&context, &contact_scene(height, true, false), &frame),
+            render_frame(&context, &contact_scene(height, false, black), &frame)
         );
     }
 }
@@ -654,8 +654,8 @@ fn terrain_contact_uses_rendered_lod_triangles_not_discarded_height_samples() {
         })
         .unwrap();
     assert_eq!(
-        render_frame(&context, &scene, frame),
-        render_frame(&context, &with_material(&scene, black), frame)
+        render_frame(&context, &scene, &frame),
+        render_frame(&context, &with_material(&scene, black), &frame)
     );
 }
 

@@ -38,6 +38,9 @@ pub use worldrunner_render_post as executor;
 pub use view::{CameraPose, OrthographicLens, SceneView, ViewError, Viewport};
 
 mod post;
+mod post_bloom;
+#[cfg(test)]
+mod post_bloom_tests;
 
 pub mod simulation;
 pub mod sky;

@@ -37,6 +37,9 @@ pub struct SceneBloom {
     pub intensity_micro: u32,
     /// Maximum pyramid levels, within 1..=8.
     pub levels: u32,
+    /// Omission preserves the existing tent bloom and default policies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<super::SceneBloomRecipe>,
 }
 
 /// Optional v4 document extension. All members of a present recipe are explicit.
@@ -122,6 +125,9 @@ impl SceneHdrPost {
             check("bloom knee", b.soft_knee_micro.into(), 0, 1_000_000)?;
             check("bloom intensity", b.intensity_micro.into(), 0, 2_000_000)?;
             check("bloom levels", b.levels.into(), 1, 8)?;
+            if let Some(recipe) = b.recipe {
+                recipe.validate(b.levels)?;
+            }
         }
         Ok(())
     }

@@ -126,6 +126,7 @@ impl FrameRenderer {
             .map(crate::post::settings)
             .transpose()?
             .unwrap_or_default();
+        post.validate_frame(config)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();

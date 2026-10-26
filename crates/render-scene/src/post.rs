@@ -20,13 +20,14 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
             fixed_delta: a.fixed_delta_microseconds.map(micro),
             fixed_exposure: a.fixed_exposure_micro.map(micro),
         });
-        out.bloom = post.bloom.map(|b| Bloom {
-            policies: worldrunner_render_post::BloomPolicies::default(),
-            threshold: micro(b.threshold_micro),
-            knee: micro(b.soft_knee_micro),
-            intensity: micro(b.intensity_micro),
-            levels: b.levels,
-        });
+        if let Some(b) = post.bloom {
+            let pyramid = crate::post_bloom::pyramid(b);
+            out.bloom = Some(pyramid.bloom);
+            if b.recipe.is_some() {
+                out.bloom_kernel =
+                    worldrunner_render_post::BloomKernel::SeparablePyramid(pyramid.levels);
+            }
+        }
         out.fxaa = post.fxaa_subpixel_micro.map(micro);
     }
     for stage in effects.post() {
@@ -68,7 +69,7 @@ pub(crate) fn requested(effects: &SceneEffects) -> bool {
         || !effects.post().is_empty()
         || *effects.anti_alias() != SceneAntiAlias::Disabled
 }
-fn micro(value: u32) -> f32 {
+pub(crate) fn micro(value: u32) -> f32 {
     milli(value) / 1000.0
 }
 fn milli(value: u32) -> f32 {

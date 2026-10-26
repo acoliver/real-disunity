@@ -26,6 +26,8 @@ pub enum UiError {
     InvalidText,
     #[error("unsupported shaping or control character: {0:?}")]
     UnsupportedShaping(char),
+    #[error("rich text markup is not supported")]
+    UnsupportedRichText,
     #[error("font has no glyph: {0:?}")]
     MissingGlyph(char),
     #[error("glyph count limit")]

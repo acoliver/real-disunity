@@ -1,5 +1,5 @@
-use super::{FontId, GlyphAtlas, UiError, UiLimits, atlas::AtlasBuilder};
-use ab_glyph::{Font, FontArc, GlyphId, ScaleFont, point};
+use super::{FontId, GlyphAtlas, UiError, UiLimits, atlas::AtlasBuilder, wrap};
+use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use glam::{UVec2, Vec2};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,6 +35,25 @@ impl VerticalAlign {
     }
 }
 
+/// Unity's `HorizontalWrapMode`: wrap lines at word boundaries inside the rectangle, or keep
+/// each line whole however wide it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HorizontalOverflow {
+    #[default]
+    Wrap,
+    Overflow,
+}
+/// Unity's `VerticalWrapMode`: drop the lines that do not fit the rectangle's height, or keep
+/// them all.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VerticalOverflow {
+    #[default]
+    Truncate,
+    Overflow,
+}
+
+/// A Unity `Text`. `font_size` is pixels per em, as in Unity. Glyphs are not clipped to the
+/// rectangle; the overflow modes decide which lines exist.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextRun {
     pub enabled: bool,
@@ -45,9 +64,11 @@ pub struct TextRun {
     pub horizontal: HorizontalAlign,
     pub vertical: VerticalAlign,
     pub line_spacing: f32,
-    pub wrap: bool,
-    /// When false, raster output is clipped to the rectangle.
-    pub overflow: bool,
+    pub horizontal_overflow: HorizontalOverflow,
+    pub vertical_overflow: VerticalOverflow,
+    /// Unity enables rich text by default. Text without markup lays out the same either way, so
+    /// only markup in rich text is rejected.
+    pub rich_text: bool,
 }
 impl TextRun {
     pub fn new(font: FontId) -> Self {
@@ -60,8 +81,9 @@ impl TextRun {
             horizontal: HorizontalAlign::Left,
             vertical: VerticalAlign::Top,
             line_spacing: 1.,
-            wrap: false,
-            overflow: false,
+            horizontal_overflow: HorizontalOverflow::Wrap,
+            vertical_overflow: VerticalOverflow::Truncate,
+            rich_text: true,
         }
     }
     pub(crate) fn validate(&self) -> Result<(), UiError> {
@@ -73,6 +95,9 @@ impl TextRun {
         }
         if self.text.len() > 65536 {
             return Err(UiError::GlyphLimit);
+        }
+        if self.rich_text && self.text.contains('<') {
+            return Err(UiError::UnsupportedRichText);
         }
         for c in self.text.chars() {
             if !(c.is_ascii_graphic() || c == ' ' || c == '\n' || c == '\r') {
@@ -106,67 +131,26 @@ pub struct TextLayout {
     pub glyphs: Vec<GlyphLayout>,
     pub atlas: GlyphAtlas,
 }
-struct Line {
-    characters: Vec<char>,
-    width: f32,
-}
-
-fn lines(
-    font: &FontArc,
-    run: &TextRun,
-    size: Vec2,
-    limits: UiLimits,
-) -> Result<Vec<Line>, UiError> {
-    let scaled = font.as_scaled(run.font_size);
-    let mut lines = Vec::new();
-    let mut line = Line {
-        characters: Vec::new(),
-        width: 0.,
-    };
-    let mut previous = None;
-    let mut count = 0;
-    for c in run.text.chars() {
-        if c == '\r' {
-            continue;
-        }
-        count += 1;
-        if count > limits.max_glyphs {
-            return Err(UiError::GlyphLimit);
-        }
-        if c == '\n' {
-            lines.push(line);
-            line = Line {
-                characters: Vec::new(),
-                width: 0.,
-            };
-            previous = None;
-            continue;
-        }
-        let id = scaled.glyph_id(c);
-        if id == GlyphId(0) {
-            return Err(UiError::MissingGlyph(c));
-        }
-        let kern = previous.map_or(0., |p| scaled.kern(p, id));
-        let advance = scaled.h_advance(id);
-        if run.wrap && !line.characters.is_empty() && line.width + kern + advance > size.x {
-            lines.push(line);
-            line = Line {
-                characters: Vec::new(),
-                width: 0.,
-            };
-            previous = None;
-        }
-        line.width += previous.map_or(0., |p| scaled.kern(p, id)) + advance;
-        line.characters.push(c);
-        previous = Some(id);
-    }
-    if !run.text.is_empty() {
-        lines.push(line);
-    }
-    if lines.iter().any(|line| !line.width.is_finite()) {
+/// Unity font sizes are pixels per em; `ab_glyph` scales by ascent minus descent.
+fn scale(font: &FontArc, font_size: f32) -> Result<PxScale, UiError> {
+    let em = font.units_per_em().ok_or(UiError::InvalidFont)?;
+    let scale = font_size * font.height_unscaled() / em;
+    if !scale.is_finite() || scale <= 0. {
         return Err(UiError::InvalidFont);
     }
-    Ok(lines)
+    Ok(PxScale::from(scale))
+}
+
+/// How many of `count` lines of height `line`, with `spacing` between baselines, fit in
+/// `available`.
+fn fitting(count: usize, line: f32, spacing: f32, available: f32) -> usize {
+    let mut extent = line;
+    let mut fits = 0;
+    while fits < count && extent <= available {
+        fits += 1;
+        extent += spacing;
+    }
+    fits
 }
 
 pub(super) fn layout(
@@ -175,9 +159,14 @@ pub(super) fn layout(
     size: Vec2,
     limits: UiLimits,
 ) -> Result<TextLayout, UiError> {
-    let lines = lines(font, run, size, limits)?;
-    let scaled = font.as_scaled(run.font_size);
+    let px = scale(font, run.font_size)?;
+    let scaled = font.as_scaled(px);
+    let wrap_width = (run.horizontal_overflow == HorizontalOverflow::Wrap).then_some(size.x);
+    let mut lines = wrap::lines(&scaled, &run.text, wrap_width, limits)?;
     let spacing = (scaled.height() + scaled.line_gap()) * run.line_spacing;
+    if run.vertical_overflow == VerticalOverflow::Truncate {
+        lines.truncate(fitting(lines.len(), scaled.height(), spacing, size.y));
+    }
     let height = scaled.height()
         + spacing
             * f32::from(
@@ -203,10 +192,9 @@ pub(super) fn layout(
         for c in line.characters {
             let id = scaled.glyph_id(c);
             x += previous.map_or(0., |p| scaled.kern(p, id));
-            let glyph = id.with_scale_and_position(run.font_size, point(x, -baseline));
+            let glyph = id.with_scale_and_position(px, point(x, -baseline));
             if let Some(outlined) = font.outline_glyph(glyph)
-                && let Some(glyph) =
-                    raster(&mut atlas, &outlined, c, size, run, Vec2::new(x, baseline))?
+                && let Some(glyph) = raster(&mut atlas, &outlined, c, Vec2::new(x, baseline))?
             {
                 glyphs.push(glyph);
             }
@@ -225,17 +213,11 @@ fn raster(
     atlas: &mut AtlasBuilder,
     glyph: &ab_glyph::OutlinedGlyph,
     character: char,
-    size: Vec2,
-    run: &TextRun,
     origin: Vec2,
 ) -> Result<Option<GlyphLayout>, UiError> {
     let bounds = glyph.px_bounds();
-    let mut min = Vec2::new(bounds.min.x, bounds.min.y);
-    let mut max = Vec2::new(bounds.max.x, bounds.max.y);
-    if !run.overflow {
-        min = min.max(Vec2::new(0., -size.y).ceil());
-        max = max.min(Vec2::new(size.x, 0.).floor());
-    }
+    let min = Vec2::new(bounds.min.x, bounds.min.y);
+    let max = Vec2::new(bounds.max.x, bounds.max.y);
     if max.cmple(min).any() {
         return Ok(None);
     }

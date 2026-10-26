@@ -335,6 +335,23 @@ pub struct DisunityTransform {
     pub sz: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityTextStyle {
+    pub font: u64,
+    pub alignment: u32,
+    pub horizontal_overflow: u32,
+    pub vertical_overflow: u32,
+    pub font_style: u32,
+    pub rich_text: u32,
+    pub best_fit: u32,
+    pub line_spacing: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
 /// The ABI revision these records belong to.
 pub const DISUNITY_ABI_VERSION: u32 = 5;
 

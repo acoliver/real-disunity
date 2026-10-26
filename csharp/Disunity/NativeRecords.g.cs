@@ -379,6 +379,29 @@ namespace Disunity.Native
         public float sz;
     }
 
+    /// <summary>
+    ///  A text's style. `alignment` is Unity's `TextAnchor` (0 upper left to 8 lower right),
+    ///  `horizontal_overflow` its `HorizontalWrapMode` (0 Wrap, 1 Overflow), `vertical_overflow` its
+    ///  `VerticalWrapMode` (0 Truncate, 1 Overflow) and `font_style` its `FontStyle`. Only the normal
+    ///  font style without best fit is supported; `font` is a handle from `disunity_font_register`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTextStyle
+    {
+        public ulong font;
+        public uint alignment;
+        public uint horizontal_overflow;
+        public uint vertical_overflow;
+        public uint font_style;
+        public uint rich_text;
+        public uint best_fit;
+        public float line_spacing;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+    }
+
 
 
 }

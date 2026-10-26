@@ -321,7 +321,6 @@ fn fonts_text_alignment_wrapping_empty_and_deterministic_metrics() {
         font: id,
         text: "AAA".into(),
         font_size: 20.,
-        wrap: true,
         horizontal: HorizontalAlign::Center,
         vertical: VerticalAlign::Middle,
         ..TextRun::new(id)

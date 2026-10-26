@@ -34,6 +34,7 @@ pub mod presentation;
 pub mod scheduling;
 pub mod sprites;
 mod store;
+pub mod text_style;
 #[cfg(test)]
 mod time_input_tests;
 pub mod ui;

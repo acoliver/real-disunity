@@ -37,8 +37,12 @@ public static partial class DisunityHost
         ulong handle;
         fixed (byte* pointer = bytes)
             ThrowIfError(NativeBindings.disunity_font_register(WorldHandle, pointer, checked((uint)bytes.Length), &handle));
-        return new Font(handle, WorldHandle);
+        var font = new Font(handle, WorldHandle);
+        Fonts.Add(handle, font);
+        return font;
     }
+    private static readonly Dictionary<ulong, Font> Fonts = new();
+    internal static Font ResolveFont(ulong handle) => Fonts[handle];
     public static unsafe Text CreateText(GameObject owner, Font font)
     {
         ArgumentNullException.ThrowIfNull(font);

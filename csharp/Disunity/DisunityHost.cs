@@ -179,7 +179,7 @@ public static partial class DisunityHost
             finally
             {
                 foreach (var value in Tracked) value.MarkDestroyed();
-                Tracked.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
+                Tracked.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
                 var world = WorldHandle;
                 WorldHandle = 0;
                 _listenerDiagnostic = null;

@@ -24,7 +24,7 @@ fn book() -> FontBook {
 #[test]
 fn overlapping_contours_saturate_alpha_without_panicking() {
     let mut fonts = book();
-    let id = fonts.register(ui_font::font_with_contours(2)).unwrap();
+    let id = fonts.register(ui_font::font_with(2, 800, -200)).unwrap();
     let text = fonts
         .layout(
             &TextRun {

@@ -27,6 +27,7 @@ const ABI_SOURCES: &[&str] = &[
     "src/physics_materials.rs",
     "src/ui.rs",
     "src/object_api.rs",
+    "src/text_style.rs",
 ];
 
 fn main() {

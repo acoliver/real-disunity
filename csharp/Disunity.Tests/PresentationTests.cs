@@ -1,7 +1,8 @@
 using Disunity.Hosting;
 using UnityEngine;
+using UnityEngine.UI;
 
-internal static class CameraTests
+internal static class PresentationTests
 {
     private static void Require(bool condition, string message)
     {
@@ -22,7 +23,8 @@ internal static class CameraTests
         {
             CameraSettingsRoundTrip();
             CanvasScaleFollowsTheViewport();
-            Console.WriteLine("PASS: native camera clear and lens settings, canvas screen-size scaling");
+            TextStyleRoundTrip();
+            Console.WriteLine("PASS: native camera clear and lens settings, canvas screen-size scaling, text style");
         }
         finally
         {
@@ -77,6 +79,33 @@ internal static class CameraTests
         canvas.scaleFactor = 2;
         Require(canvas.scaleFactor == 2, "setting scaleFactor gives a constant factor");
         UnityEngine.Object.Destroy(canvas.gameObject);
+        DisunityHost.Step(0.02f);
+    }
+
+    private static void TextStyleRoundTrip()
+    {
+        var font = DisunityHost.RegisterFont(SyntheticFont.Bytes());
+        var text = DisunityHost.CreateText(DisunityHost.CreateGameObject(), font);
+        Require(text.font == font, "text keeps its font");
+        Require(text.alignment == TextAnchor.UpperLeft && text.supportRichText, "Unity text defaults");
+        Require(text.horizontalOverflow == HorizontalWrapMode.Wrap && text.verticalOverflow == VerticalWrapMode.Truncate, "Unity overflow defaults");
+        text.supportRichText = false;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = new Color(1, 1, 1, 0.5f);
+        text.lineSpacing = 1.25f;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+        Require(text.alignment == TextAnchor.MiddleCenter && !text.supportRichText, "alignment and rich text");
+        Require(text.color == new Color(1, 1, 1, 0.5f) && text.lineSpacing == 1.25f, "colour and line spacing");
+        Require(text.verticalOverflow == VerticalWrapMode.Overflow, "vertical overflow");
+        Rejects<DisunityException>(() => text.fontStyle = FontStyle.Bold, "bold is unsupported");
+        Rejects<DisunityException>(() => text.resizeTextForBestFit = true, "best fit is unsupported");
+        Rejects<DisunityException>(() => text.lineSpacing = 0, "zero line spacing");
+        Require(text.fontStyle == FontStyle.Normal && !text.resizeTextForBestFit && text.lineSpacing == 1.25f,
+            "rejected writes leave the style unchanged");
+        text.text = "<b>7</b>";
+        Rejects<DisunityException>(() => text.supportRichText = true, "markup needs rich text rendering");
+        Require(!text.supportRichText && text.text == "<b>7</b>", "markup stays literal");
+        UnityEngine.Object.Destroy(text.gameObject);
         DisunityHost.Step(0.02f);
     }
 }

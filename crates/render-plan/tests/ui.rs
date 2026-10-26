@@ -75,7 +75,7 @@ fn glyph_contributions_reuse_scene_texture_and_preserve_alpha_and_order() {
         .add_component(root, ComponentDesc::Canvas(Canvas::default()))
         .unwrap();
     let mut fonts = FontBook::new(UiLimits::default()).unwrap();
-    let font = fonts.register(test_font::font_with_contours(2)).unwrap();
+    let font = fonts.register(test_font::font_with(2, 800, -200)).unwrap();
     let text = world
         .add_component(
             root,

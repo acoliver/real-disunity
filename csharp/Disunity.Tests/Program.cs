@@ -116,6 +116,8 @@ CheckImport("disunity_canvas_write", u64, u64, AbiType("DisunityCanvas").MakePoi
 CheckImport("disunity_canvas_scale_write", u64, u64, AbiType("DisunityCanvasScale").MakePointerType());
 CheckImport("disunity_canvas_scale_read", u64, u64, AbiType("DisunityCanvasScale").MakePointerType());
 CheckImport("disunity_canvas_scale_factor", u64, u64, u32, u32, f32.MakePointerType());
+CheckImport("disunity_text_style_write", u64, u64, AbiType("DisunityTextStyle").MakePointerType());
+CheckImport("disunity_text_style_read", u64, u64, AbiType("DisunityTextStyle").MakePointerType());
 CheckImport("disunity_canvas_read", u64, u64, AbiType("DisunityCanvas").MakePointerType());
 CheckImport("disunity_text_write", u64, u64, f32, bytes, u32);
 CheckImport("disunity_text_read", u64, u64, bytes, u32, u32.MakePointerType(), f32.MakePointerType());
@@ -190,7 +192,7 @@ ReviewRegressionTests.Run();
 HostTests.Run();
 CloneTests.Run();
 ConstructionTests.Run();
-CameraTests.Run();
+PresentationTests.Run();
 
 CoroutineInputTests.Run();
 

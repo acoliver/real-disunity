@@ -242,6 +242,19 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCanvasScale>("reference_y").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvasScale.reference_y offset");
         if (Marshal.OffsetOf<DisunityCanvasScale>("match_height").ToInt32() != 20) throw new InvalidOperationException("DisunityCanvasScale.match_height offset");
         if (Marshal.SizeOf<DisunityCanvasScale>() != 24 || typeof(DisunityCanvasScale).GetFields().Length != 6) throw new InvalidOperationException("DisunityCanvasScale layout");
+        if (Marshal.OffsetOf<DisunityTextStyle>("font").ToInt32() != 0) throw new InvalidOperationException("DisunityTextStyle.font offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("alignment").ToInt32() != 8) throw new InvalidOperationException("DisunityTextStyle.alignment offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("horizontal_overflow").ToInt32() != 12) throw new InvalidOperationException("DisunityTextStyle.horizontal_overflow offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("vertical_overflow").ToInt32() != 16) throw new InvalidOperationException("DisunityTextStyle.vertical_overflow offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("font_style").ToInt32() != 20) throw new InvalidOperationException("DisunityTextStyle.font_style offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("rich_text").ToInt32() != 24) throw new InvalidOperationException("DisunityTextStyle.rich_text offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("best_fit").ToInt32() != 28) throw new InvalidOperationException("DisunityTextStyle.best_fit offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("line_spacing").ToInt32() != 32) throw new InvalidOperationException("DisunityTextStyle.line_spacing offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("r").ToInt32() != 36) throw new InvalidOperationException("DisunityTextStyle.r offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("g").ToInt32() != 40) throw new InvalidOperationException("DisunityTextStyle.g offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("b").ToInt32() != 44) throw new InvalidOperationException("DisunityTextStyle.b offset");
+        if (Marshal.OffsetOf<DisunityTextStyle>("a").ToInt32() != 48) throw new InvalidOperationException("DisunityTextStyle.a offset");
+        if (Marshal.SizeOf<DisunityTextStyle>() != 56 || typeof(DisunityTextStyle).GetFields().Length != 12) throw new InvalidOperationException("DisunityTextStyle layout");
     }
 }
 /// The native ABI revision this assembly was built against.

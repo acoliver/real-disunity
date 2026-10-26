@@ -8,6 +8,10 @@ mod contracts;
 mod lighting_tests;
 #[path = "numerical.rs"]
 mod numerical;
+#[path = "optical_render_tests.rs"]
+mod optical_render_tests;
+#[path = "optics_tests.rs"]
+mod optics_tests;
 #[path = "regressions.rs"]
 mod regressions;
 #[path = "review_tests.rs"]

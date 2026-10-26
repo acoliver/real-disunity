@@ -101,7 +101,7 @@ pub use scene::{
     SceneTranslucencyParts, SceneWind,
 };
 
-pub use scene::SceneWaterSettings;
+pub use scene::{SceneWaterOptics, SceneWaterSettings, SceneWaterShoreline, SceneWaterTint};
 
 #[cfg(feature = "ui")]
 pub mod ui;

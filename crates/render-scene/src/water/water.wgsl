@@ -2,6 +2,8 @@ struct WaterFrame {
     clip: mat4x4<f32>, view: mat4x4<f32>, inverse_clip: mat4x4<f32>,
     origin_time: vec4<f32>, extent: vec4<f32>, color_roughness: vec4<f32>, absorption: vec4<f32>,
     sun_direction: vec4<f32>, sun_radiance: vec4<f32>, ambient: vec4<f32>, surface: vec4<f32>,
+    optics: vec4<f32>, scattering: vec4<f32>, shoreline: vec4<f32>, refraction: vec4<f32>,
+    tint_deep: vec4<f32>, tint_shallow: vec4<f32>, tint_controls: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> water: WaterFrame;
 @group(0) @binding(1) var opaque_color: texture_2d<f32>;
@@ -50,22 +52,31 @@ fn flow_velocity(uv: vec2<f32>) -> vec2<f32> {
             flow_texel(base + vec2<i32>(1, 1), size), fraction.x), fraction.y);
 }
 
-fn flowing_normal(uv: vec2<f32>) -> vec3<f32> {
+fn flowing_normal(uv: vec2<f32>, depth: f32) -> vec3<f32> {
     let xy = textureSampleLevel(surface_normal, surface_sampler, uv, 0.0).rg * 2.0 - 1.0;
-    return vec3<f32>(xy, sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0)));
+    let normal = vec3<f32>(xy, sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0)));
+    if water.shoreline.w != 0.0 { return water_normal_at_depth(normal, depth); }
+    return normal;
 }
 // Vlachos (2010), "Water Flow in Portal 2": the resetting phase has zero weight.
-fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>) -> vec3<f32> {
+fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>, depth: f32) -> vec3<f32> {
     let phase = fract(water.origin_time.w / water.absorption.w);
     let other = fract(phase + 0.5);
     let offset = velocity * water.absorption.w * water.surface.xy;
     let uv = world * water.surface.xy;
-    let blended = mix(flowing_normal(uv + offset * phase),
-        flowing_normal(uv + offset * other), abs(1.0 - 2.0 * phase));
+    var blended = mix(flowing_normal(uv + offset * phase, depth),
+        flowing_normal(uv + offset * other, depth), abs(1.0 - 2.0 * phase));
+    if water.shoreline.w != 0.0 { blended = vec3<f32>(blended.xy * water.shoreline.y, blended.z); }
     if dot(blended, blended) == 0.0 { return vec3<f32>(0.0, 0.0, 1.0); }
     return normalize(blended);
 }
 @fragment fn fs_water(input: WaterVertex, @builtin(sample_index) sample: u32) -> WaterOutput {
+    let size = vec2<i32>(textureDimensions(opaque_color));
+    let original = clamp(vec2<i32>(input.position.xy), vec2<i32>(0), size - vec2<i32>(1));
+    let original_surface_depth = -(water.view * vec4<f32>(input.world, 1.0)).z;
+    let original_distance = max(textureLoad(opaque_depth, original, 0).r - original_surface_depth, 0.0);
+    var shore_depth = 0.0;
+    if water.shoreline.w != 0.0 { shore_depth = original_distance / water.shoreline.x; }
     var velocity = water.extent.zw;
     if water.surface.w != 0.0 {
         if water.absorption.w > 0.0 {
@@ -74,21 +85,37 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>) -> vec3<f32> {
             velocity += (textureSampleLevel(surface_flow, surface_sampler, input.world.xy * water.surface.xy, 0.0).rg * 2.0 - 1.0) * water.surface.w;
         }
     }
+    if water.shoreline.w != 0.0 { velocity *= water_flow_at_depth(shore_depth); }
     let wave = input.world.xy - velocity * water.origin_time.w;
     var normal = normalize(vec3<f32>(sin(wave.x * 1.7 + water.origin_time.w) * 0.08, cos(wave.y * 2.1 + water.origin_time.w * 0.7) * 0.08, 1.0));
     if water.surface.z != 0.0 {
         if water.absorption.w > 0.0 {
-            normal = two_phase_normal(input.world.xy, velocity);
+            normal = two_phase_normal(input.world.xy, velocity, shore_depth);
         } else {
             let xy = textureSampleLevel(surface_normal, surface_sampler, wave * water.surface.xy, 0.0).rg * 2.0 - 1.0;
             normal = normalize(vec3<f32>(xy, sqrt(max(1.0 - dot(xy, xy), 0.0001))));
         }
     }
+    if water.shoreline.w != 0.0 && water.absorption.w == 0.0 {
+        let shaped = water_normal_at_depth(normal, shore_depth);
+        let adjusted = vec3<f32>(shaped.xy * water.shoreline.y, shaped.z);
+        normal = vec3<f32>(0.0, 0.0, 1.0);
+        if dot(adjusted, adjusted) > 0.0 { normal = normalize(adjusted); }
+    }
     let visibility = sunlight_visibility(input.world, normal);
-    let size = vec2<i32>(textureDimensions(opaque_color));
-    let original = clamp(vec2<i32>(input.position.xy), vec2<i32>(0), size - vec2<i32>(1));
     var refracted = clamp(original + vec2<i32>(normal.xy * 24.0 * (1.0 - water.color_roughness.w)), vec2<i32>(0), size - vec2<i32>(1));
-    var surface_depth = -(water.view * vec4<f32>(input.world, 1.0)).z;
+    if water.refraction.y != 0.0 {
+        let offset = water_refraction_offset(normal.xy, original_distance, water.refraction.x);
+        let displaced_clip = water.clip * vec4<f32>(input.world + vec3<f32>(offset, 0.0), 1.0);
+        let surface_clip = water.clip * vec4<f32>(input.world, 1.0);
+        refracted = original;
+        if displaced_clip.w > 0.0 && displaced_clip.z >= 0.0 {
+            let pixels = (displaced_clip.xy / displaced_clip.w - surface_clip.xy / surface_clip.w)
+                * vec2<f32>(0.5, -0.5) * vec2<f32>(size);
+            refracted = clamp(original + vec2<i32>(pixels), vec2<i32>(0), size - vec2<i32>(1));
+        }
+    }
+    var surface_depth = original_surface_depth;
     // Preserve this invocation's sample position when moving to the candidate ray.
     let candidate_pixel = vec2<f32>(refracted) + fract(input.position.xy);
     let ndc = candidate_pixel / vec2<f32>(size) * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
@@ -105,12 +132,19 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>) -> vec3<f32> {
         surface_depth = candidate_depth;
     }
     let distance = max(textureLoad(opaque_depth, refracted, 0).r - surface_depth, 0.0);
-    let transmission = exp(-water.absorption.xyz * distance);
+    var optical_distance = distance;
+    if water.optics.z != 0.0 || water.refraction.y != 0.0 || water.shoreline.w != 0.0 { optical_distance = original_distance; }
+    let transmission = exp(-water.absorption.xyz * optical_distance);
     let background = textureLoad(opaque_color, refracted, 0).rgb;
     let light = rd_toward_light(select(water.sun_direction.xyz, vec3<f32>(0.0, 0.0, 1.0), frame.grading.y != 0.0), false);
     let ambient = scene_diffuse_environment(normal, frame.ambient_ground.xyz, water.ambient.xyz);
     let lighting = ambient + water.sun_radiance.xyz * max(dot(normal, light), 0.0) * visibility;
-    var scattering = water.color_roughness.xyz * lighting;
+    var base_color = water.color_roughness.xyz;
+    if water.tint_deep.w != 0.0 {
+        base_color = water_tint_color(background, original_distance, water.tint_deep.xyz,
+            water.tint_shallow.xyz, water.tint_controls);
+    }
+    var scattering = base_color * lighting;
     let view = normalize(scene_ray_origin(input.world) - input.world);
     let no_v = clamp(dot(normal, view), 0.0001, 1.0);
     let roughness = water.color_roughness.w;
@@ -121,23 +155,39 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>) -> vec3<f32> {
     let coefficients = textureSampleLevel(environment_brdf, environment_sampler, vec2<f32>(no_v, environment_roughness), 0.0).rg;
     let reflected = reflect(-view, normal);
     let radiance = textureSampleLevel(environment_cube, environment_sampler, reflected, environment_roughness * f32(textureNumLevels(environment_cube) - 1u)).rgb;
-    var environment_specular = radiance * rd_split_sum(vec3<f32>(0.02037), coefficients);
+    var f0 = 0.02037;
+    if water.optics.z != 0.0 { f0 = water.optics.x; }
+    var environment_specular = radiance * rd_split_sum(vec3<f32>(f0), coefficients);
     if SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u {
-        environment_specular = radiance * scene_environment_factor(vec3<f32>(0.02037), coefficients, no_v, 1.0, environment_roughness);
+        environment_specular = radiance * scene_environment_factor(vec3<f32>(f0), coefficients, no_v, 1.0, environment_roughness);
     }
     var specular = environment_specular;
     if (SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u) && frame.grading.y == 0.0 {
-        let lit = scene_surface_lighting(input.world, normal, water.color_roughness.xyz,
-            vec3<f32>(roughness, 0.0, 1.0), vec3<f32>(0.02037));
+        let lit = scene_surface_lighting(input.world, normal, base_color,
+            vec3<f32>(roughness, 0.0, 1.0), vec3<f32>(f0));
         scattering = lit.diffuse;
         specular += lit.specular;
+    }
+    var reflection_gain = 1.0;
+    if water.optics.z != 0.0 {
+        let gain = water.optics.y * water.optics.y;
+        reflection_gain = gain;
+        specular *= gain;
+        environment_specular *= gain;
     }
     let air = water_camera_transmittance(input.world);
     let fog = vec3<f32>(frame.ambient_sky.w, frame.ambient_ground.w, frame.grading.w);
     // The snapshot already contains camera fog. Preserve its transmitted share,
     // and fog only the water's newly added scattering and reflection.
-    let color = rd_compose_water_fog(background, transmission, scattering, specular, air, fog);
+    var color = rd_compose_water_fog(background, transmission, scattering, specular, air, fog);
+    if water.optics.z != 0.0 { color += water_view_scattering(view, water.scattering.xyz) * air; }
+    if water.shoreline.w != 0.0 {
+        let opacity = water_opacity_at_depth(shore_depth) * water.shoreline.z;
+        color = mix(textureLoad(opaque_color, original, 0).rgb, color, opacity);
+        environment_specular *= opacity;
+        reflection_gain *= opacity;
+    }
     let receiver_clip = water.clip * vec4<f32>(input.world, 1.0);
     let receiver_pixel = (receiver_clip.xy / receiver_clip.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5)) * vec2<f32>(size);
-    return WaterOutput(vec4<f32>(color, 1.0), vec4<f32>(normalize((water.view * vec4<f32>(normal, 0.0)).xyz), 1.0), vec4<f32>(receiver_pixel - floor(input.position.xy), 0.02037, environment_roughness), vec4<f32>(environment_specular * air, air));
+    return WaterOutput(vec4<f32>(color, 1.0), vec4<f32>(normalize((water.view * vec4<f32>(normal, 0.0)).xyz), 1.0), vec4<f32>(receiver_pixel - floor(input.position.xy), f0, environment_roughness), vec4<f32>(environment_specular * air, air * reflection_gain));
 }

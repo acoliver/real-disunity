@@ -26,7 +26,7 @@ fn authored_map_representations_and_tiles_fail_before_allocation() {
         );
     }
     body.material.refraction_millimeters = Some(0);
-    assert!(validate_settings(&body).is_err());
+    assert!(validate_settings(&body).is_ok());
 }
 fn filtered(u: f32, values: [u8; 4]) -> f32 {
     let x = u.rem_euclid(1.0) * 4.0;

@@ -270,11 +270,6 @@ pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), Frame
     {
         return Err(FrameError::UnsupportedEffect("color grading"));
     }
-    for body in effects.water_bodies() {
-        if body.material.refraction_millimeters.is_some() {
-            return Err(FrameError::UnsupportedEffect("water refraction bound"));
-        }
-    }
     if let Some(settings) = effects.ssao() {
         crate::ssao::validate_settings(settings)
             .map_err(|_| FrameError::UnsupportedEffect("SSAO settings"))?;

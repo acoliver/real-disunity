@@ -35,13 +35,22 @@ fn two_phase_weights_partition_unity_and_hide_both_resets() {
     );
 }
 
-fn expected_normal(position: glam::Vec3, right: bool, time: f32, field: bool) -> glam::Vec3 {
-    let velocity = 0.5
+fn expected_normal(
+    position: glam::Vec3,
+    right: bool,
+    time: f32,
+    field: bool,
+    shore: bool,
+) -> glam::Vec3 {
+    let mut velocity = 0.5
         + if field {
             filtered(position.x * 0.5, [0, 255, 0, 255]) * 2.0 - 1.0
         } else {
             0.0
         };
+    if shore {
+        velocity *= 0.2;
+    }
     let (phase, weight) = phases(time, 4.0);
     let fixed = 128.0 / 255.0 * 2.0 - 1.0;
     let normals = phase.map(|phase| {
@@ -52,12 +61,23 @@ fn expected_normal(position: glam::Vec3, right: bool, time: f32, field: bool) ->
         } else {
             glam::Vec2::new(q, fixed)
         };
-        xy.extend((1.0 - xy.length_squared()).clamp(0.0, 1.0).sqrt())
+        let z = (1.0 - xy.length_squared()).clamp(0.0, 1.0).sqrt();
+        if shore {
+            xy.abs().extend(z)
+        } else {
+            xy.extend(z)
+        }
     });
-    (normals[0] * weight[0] + normals[1] * weight[1]).normalize()
+    let mut blended = normals[0] * weight[0] + normals[1] * weight[1];
+    if shore {
+        blended.x *= -0.5;
+        blended.y *= -0.5;
+    }
+    blended.normalize()
 }
 
-fn check_phased_normal(bytes: &[u8], samples: u32, sample: u32, time: f32, field: bool) {
+fn check_phased_normal(bytes: &[u8], samples: u32, sample: u32, time: f32, options: (bool, bool)) {
+    let (field, shore) = options;
     let offset = if samples == 1 {
         [0.5, 0.5]
     } else {
@@ -86,7 +106,7 @@ fn check_phased_normal(bytes: &[u8], samples: u32, sample: u32, time: f32, field
         let position = a + (b - a) * (-a.z / (b.z - a.z));
         let expected = frame
             .view
-            .transform_vector3(expected_normal(position, right, time, field));
+            .transform_vector3(expected_normal(position, right, time, field, shore));
         let base = (16 * 32 + usize::from(x)) * 8;
         for (channel, target) in expected.to_array().into_iter().enumerate() {
             let index = base + channel * 2;
@@ -101,7 +121,7 @@ fn check_phased_normal(bytes: &[u8], samples: u32, sample: u32, time: f32, field
     }
 }
 
-fn phased_scene(field: bool) -> (Vec<SceneWaterBody>, RenderScene) {
+fn phased_scene(field: bool, shore: bool) -> (Vec<SceneWaterBody>, RenderScene) {
     let (mut bodies, _) = authored_scene();
     for body in &mut bodies {
         body.flow_millimeters_per_second = [500, -250];
@@ -120,6 +140,15 @@ fn phased_scene(field: bool) -> (Vec<SceneWaterBody>, RenderScene) {
             .into_boxed_slice(),
         indices: vec![0, 1, 2, 0, 2, 3].into_boxed_slice(),
     };
+    if shore {
+        for body in &mut bodies {
+            body.material.shoreline = Some(SceneWaterShoreline {
+                depth_millimeters: 1000,
+                normal_gain_micro: -500_000,
+                opacity_micro: 1_000_000,
+            });
+        }
+    }
     let source = scene(
         bodies.clone(),
         vec![
@@ -135,8 +164,8 @@ fn phased_scene(field: bool) -> (Vec<SceneWaterBody>, RenderScene) {
 fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in [1, 4] {
-        for field in [false, true] {
-            let (bodies, source) = phased_scene(field);
+        for (field, shore) in [(false, false), (true, false), (false, true), (true, true)] {
+            let (bodies, source) = phased_scene(field, shore);
             let pipelines = crate::renderer::ScenePipelines::with_samples(
                 context.device(),
                 wgpu::TextureFormat::Rgba16Float,
@@ -170,7 +199,7 @@ fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh(
                         normal.texture(),
                         sample,
                     );
-                    check_phased_normal(&bytes, samples, sample, time, field);
+                    check_phased_normal(&bytes, samples, sample, time, (field, shore));
                     if sample == 0 && matches!(index, 0 | 6) {
                         periodic.push(bytes);
                     }

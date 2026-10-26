@@ -1,5 +1,6 @@
 //! Planar water reads immutable opaque snapshots and writes surface depth.
 mod geometry;
+mod optics;
 pub(crate) mod planning;
 pub(crate) mod receivers;
 pub(crate) mod snapshots;
@@ -7,7 +8,7 @@ pub(crate) mod surface;
 #[cfg(test)]
 mod tests;
 
-pub(crate) const STAGING_BYTES: u64 = 320 + crate::frame::FRAME_UNIFORM_BYTES as u64;
+pub(crate) const STAGING_BYTES: u64 = 432 + crate::frame::FRAME_UNIFORM_BYTES as u64;
 pub(crate) const UNIFORM_BYTES: u64 = 512 + crate::frame::FRAME_UNIFORM_BYTES as u64;
 
 use crate::frame::FrameUniform;
@@ -96,11 +97,6 @@ impl PreparedFeature for WaterPrepared {
 
 /// Validates the bounded stock water model before allocating GPU resources.
 pub fn validate_settings(settings: &SceneWaterBody) -> Result<(), FrameError> {
-    if settings.material.refraction_millimeters.is_some() {
-        return Err(FrameError::WaterSettings(
-            "authored refraction bound is unsupported",
-        ));
-    }
     if settings.roughness_micro > 1_000_000 {
         return Err(FrameError::WaterSettings("roughness must be 0..=1000000"));
     }
@@ -286,7 +282,7 @@ impl Water {
             label: Some("water snapshots"),
             layout: &self.layout,
             entries: &[
-                uniform_entry(0, 0, 320),
+                uniform_entry(0, 0, 432),
                 surface::binding(1, &color),
                 surface::binding(2, &depth),
                 uniform_entry(3, 512, crate::frame::FRAME_UNIFORM_BYTES as u64),
@@ -336,8 +332,24 @@ fn pipeline(
     shadows: bool,
     options: [u32; 3],
 ) -> wgpu::RenderPipeline {
+    pipeline_with_source(
+        device,
+        samples,
+        layout,
+        shadows,
+        options,
+        &water_source(shadows),
+    )
+}
+fn pipeline_with_source(
+    device: &wgpu::Device,
+    samples: u32,
+    layout: &wgpu::BindGroupLayout,
+    shadows: bool,
+    options: [u32; 3],
+    source: &str,
+) -> wgpu::RenderPipeline {
     let constants = crate::renderer::specular_constants(options);
-    let source = water_source(shadows);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("planar water"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -410,7 +422,11 @@ pub(crate) fn water_source(shadows: bool) -> String {
         worldrunner_render_post::post_wgsl!(),
         include_str!("shader/lighting.wgsl").replace("@binding(0)", "@binding(3)"),
         include_str!("shader/camera_rays.wgsl"),
-        include_str!("water/water.wgsl")
+        concat!(
+            include_str!("water/optics.wgsl"),
+            "\n",
+            include_str!("water/water.wgsl")
+        )
     )
 }
 
@@ -536,6 +552,7 @@ impl PreparedFeature for WaterFeature {
                 number(i64::from(s.material.flow_speed_millimeters_per_second))
                     * f32::from(u8::from(s.material.flow.is_some())),
             ]);
+            data.extend(optics::uniforms(s));
             context.upload_buffer(&body.uniforms[self.slot], 512, &self.frame.to_bytes());
             context.upload_buffer(
                 &body.uniforms[self.slot],

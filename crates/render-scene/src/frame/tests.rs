@@ -369,7 +369,7 @@ fn stock_water_is_admitted_without_an_authored_refraction_bound() {
 }
 
 #[test]
-fn authored_refraction_bounds_are_rejected_before_upload() {
+fn authored_refraction_bounds_are_admitted_before_upload() {
     for bound in [0, 125] {
         let effects = water_effects()
             .with_water_settings(worldrunner_render_plan::SceneWaterSettings {
@@ -377,13 +377,7 @@ fn authored_refraction_bounds_are_rejected_before_upload() {
                 ..worldrunner_render_plan::SceneWaterSettings::STOCK
             })
             .unwrap();
-        assert!(
-            matches!(
-                FrameUniform::new(&view(), Some(&effects)),
-                Err(FrameError::UnsupportedEffect("water refraction bound"))
-            ),
-            "authored bound {bound} must not be silently ignored"
-        );
+        assert!(FrameUniform::new(&view(), Some(&effects)).is_ok());
     }
 }
 

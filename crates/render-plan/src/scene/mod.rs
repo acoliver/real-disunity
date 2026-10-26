@@ -25,8 +25,10 @@ pub use lighting::{
 };
 pub use obscurance::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel};
 mod water;
+mod water_optics;
 mod water_settings;
 pub use water::{SceneWaterBody, SceneWaterSurface};
+pub use water_optics::{SceneWaterOptics, SceneWaterShoreline, SceneWaterTint};
 pub use water_settings::SceneWaterSettings;
 mod bloom;
 mod exposure;

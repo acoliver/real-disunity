@@ -1,10 +1,10 @@
 # Quality gates
 
-All checks operate on the current checkout. No source history or historical exception baseline is required. Cargo subprocesses that compile code are bounded to two jobs. Formatting is check-only. Dependency resolution is locked except for a disposable external facade-consumer probe, which resolves offline and writes only to a unique temporary directory.
+All checks operate on the current checkout, with no baseline of accepted exceptions. Cargo subprocesses that compile code are bounded to two jobs. Formatting is check-only. Dependency resolution is locked except for a disposable external facade-consumer probe, which resolves offline and writes only to a unique temporary directory.
 
 ## Commands and runners
 
-Existing `fmt`, `lint`, `complexity`, `check`, `build`, `test`, `policy`, `source-size`, and `ci` commands remain available. Standalone compilation commands and `ci` select the entire workspace with all features; they require the prerequisites of every selected package, including graphics and the managed host. Tests and doctests are separate invocations.
+`cargo xtask` accepts `fmt`, `lint`, `complexity`, `check`, `build`, `test`, `policy`, `source-size`, `ci`, and the three CI profiles below. Standalone compilation commands and `ci` select the entire workspace with all features; they require the prerequisites of every selected package, including graphics and the managed host. Tests and doctests are separate invocations.
 
 - `ci-cpu`: strict lint, complexity, check, build, tests, and doctests for explicitly classified CPU packages, the content tool, and xtask. Also performs each check separately for `worldrunner --no-default-features`. It neither selects GPU packages nor the CLR host for compilation. All-package metadata resolution and repository-wide formatting/source-size checks still apply.
 - `ci-gpu`: the same checks for all workspace packages except the managed host, with all features and targets. This includes the renderer, desktop host, facade examples, and any workspace games. Required GPU mode runs **all** tests and doctests, including ignored tests, serially, without test-name filters. Current renderer tests fail when device acquisition fails; the task runner does not turn unavailable adapters into success. Linux CI selects the lavapipe Vulkan ICD explicitly and verifies the reported device before testing.
@@ -45,11 +45,11 @@ The no-default facade graph is obtained from a separate temporary consumer with 
 - Numeric literals in explicitly listed production policy files must be algebraic primitives (`0`, `1`, `-1`, `0.5`, `2`), structural array lengths/tuple indices, or occur inside a specifically registered constant with a nonempty ownership rationale. Numeric macro arguments are scanned too. Unused ownership entries fail. Owned constants do not authorize unrelated numbers elsewhere. Attributes are not numeric-policy expressions.
 - CPU source is also scanned for process environment lookup calls and environment-capable imports, including common nested imports and macro arguments. This auxiliary rule is **not** the explicit-policy system and does not prove absence of all ambient inputs.
 
-### Initial enforced scope and remaining gaps
+### Current scope and gaps
 
-The DTO registry initially covers `RtsTuning` (13 fields) and `ViewConvention` (handedness), backed by the existing camera consumer tests. The no-Default registry additionally covers `CameraTuning`, `ResolutionPolicy`, `RuntimeProfileLimits`, and `RuntimeProfileDiscoveryLimits`. Numeric ownership applies to camera `profile.rs` and runtime `profile_discovery.rs`; there are initially no owned numeric exceptions.
+The DTO registry covers `RtsTuning` (13 fields) and `ViewConvention` (handedness), backed by the camera consumer tests. The no-Default registry also covers `CameraTuning`, `ResolutionPolicy`, `RuntimeProfileLimits`, and `RuntimeProfileDiscoveryLimits`. Numeric ownership applies to camera `profile.rs` and runtime `profile_discovery.rs`, with no owned numeric exceptions.
 
-This is intentionally not a claim that every engine policy has been registered. Other camera DTOs, generation/render documents, authored runtime handler contracts (some legitimately have optional fields), package build/reader defaults, and numeric/WGSL policy outside the two listed files remain outside these type/literal obligations. Expanding scope requires meaningful consumer tests and, where needed, source/API changes by the owning component; it must not be achieved with blanket exemptions. The no-Default check does not outlaw every named preset constructor.
+Most engine policy is not registered. Other camera DTOs, generation/render documents, authored runtime handler contracts (some legitimately have optional fields), package build/reader defaults, and numeric/WGSL policy outside the two listed files remain outside these type/literal obligations. Expanding scope requires meaningful consumer tests and, where needed, source/API changes by the owning component; it must not be achieved with blanket exemptions. The no-Default check does not outlaw every named preset constructor.
 
 These are source-level syntactic checks, not a Rust type resolver or procedural-macro expander. Arbitrary macro-generated types/impls, indirect function-pointer environment calls, and unregistered wrapper types require compiler/tests/review coverage. Inline `#[cfg(test)]` items are excluded from production type/literal checks; external source files are scanned conservatively regardless of their filenames. Ordinary test directories are read when referenced by the coverage index. A unique test function's existence does not prove its module is wired into a test target.
 
@@ -68,3 +68,13 @@ cargo xtask ci-managed   # requires .NET 8 plus native hosting dependencies
 ```
 
 The tooling tests exercise real Cargo metadata over disposable workspaces and reject reversed layers, renamed/target/build/dev/optional dependencies, transitive GPU/CLR reachability, escaping paths, excluded game dependencies, unclassified packages, and a leaking no-default facade. Other fixtures reject permissive/defaulted DTOs, default/alias evasions, unowned numbers, missing/stale/fake consumer entries, malformed configuration, and incomplete source scans.
+
+## Running the CI profiles locally
+
+CI (`.github/workflows/quality.yml` and `software-vulkan.yml`) runs `ci-cpu` and `ci-managed` on Linux, Windows and macOS, and `ci-gpu` on Linux with Mesa lavapipe under Xvfb. Run the same commands before pushing. On Linux without a GPU, select lavapipe explicitly:
+
+```sh
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-gpu
+```
+
+A passing Linux run does not show that Windows or macOS pass. Code must not assume `/` path separators, `/dev/urandom`, symlink-free temporary directories or non-verbatim canonical paths.

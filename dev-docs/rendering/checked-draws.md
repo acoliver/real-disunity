@@ -1,6 +1,6 @@
-# Incremental draw-provider adoption
+# Checked draw providers
 
-A consumer can retain its own shaders and draw providers while adopting the engine executor and submission authority. Run the procedural example with `cargo run -p worldrunner-render-post --example bridge`. The example needs a GPU adapter and opens no window.
+A host can keep its own shaders and draw code and still run them inside the engine executor and submission authority, mixed with stock draws. Run the procedural example with `cargo run -p worldrunner-render-post --example bridge`. The example needs a GPU adapter and opens no window.
 
 Providers contribute immutable `CheckedDraw` packets to `TypedWork::Draws`. Packet order is draw order within one executor-owned render pass. The executor performs the declared clear, load, store and attachment resolves once for that pass. A provider cannot begin or end a pass, obtain an encoder or queue, or insert an undeclared clear.
 

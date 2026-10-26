@@ -1,7 +1,8 @@
 # Render planning
 
 `worldrunner-render-plan` is the CPU-only scene and document boundary for Real
-Disunity. The package name is retained for application API compatibility.
+Disunity. It also extracts native `world-simulation` sprites, tiles, cameras and
+UI into scene contributions (the `simulation` and `ui` features).
 
 - `RenderScene` owns validated geometry, materials, textures, optional terrain,
   and an optional environmental profile. No profile means unlit albedo plus
@@ -16,11 +17,10 @@ Disunity. The package name is retained for application API compatibility.
 - `ContractDocument` describes caller-authored recipes and exact routes. Its
   schema is `real-disunity.render-contract.v4`, version 4. Discovery selects
   `urn:real-disunity:capability:render-contract:v4` exactly. Other schema families
-  are rejected; there is no implicit migration or alias. Its `EffectsRecipe`
-  remains mandatory, including sky and SSAO fields. Omitting these authored
-  fields fails deserialization. Version 4 adds required water `height_millimeters`, linear `color_micro`,
-  per-metre `absorption_micro` and `roughness_micro`. Version 3 documents and
-  discovery bindings are rejected. SSAO `sample_count` and `bias_millimeters` remain required.
+  and versions are rejected, with no conversion or alias. Its `EffectsRecipe` is
+  mandatory, including sky, SSAO (`sample_count`, `bias_millimeters`) and water
+  (`height_millimeters`, linear `color_micro`, per-metre `absorption_micro`,
+  `roughness_micro`) fields. Omitting an authored field fails deserialization.
   Runtime `RenderScene` profile optionality does not change the document contract. There is no stock document-to-scene
   interpreter; the application composition factory chooses the runtime profile
   and which authored requests it implements.
@@ -42,31 +42,25 @@ supply engine artifacts or construct scenes through the validated public API.
 
 The optional `ssr` effects recipe carries `enabled`, `max_steps`,
 `thickness_millimeters`, `roughness_cutoff_micro` and `resolution_scale_micro`.
-All quantities are required within a present recipe. Existing v4 documents may
-omit the whole recipe, so the document identity remains v4. `SceneEffects::with_ssr`
+All quantities are required within a present recipe. A v4 document may omit the
+whole recipe. `SceneEffects::with_ssr`
 installs the corresponding validated runtime policy; factories explicitly copy
 `EffectsRecipe::ssr()` when composing runtime effects.
 
 The HDR compositor traces the immutable after-opaque colour snapshot against
 single-sample prepass depth and shading normals. A separate matching geometry
 pass records material F0 and roughness, including metallic-roughness textures
-and terrain blends. Reflections contribute only environment specular. The
-forward model currently contains no environment-specular term, so there is no
-existing contribution to subtract. Direct specular and diffuse ambient remain
-unchanged. Reflection textures carry premultiplied confidence and use up to six
-ceil-divided blur levels. No temporal history is retained.
-
-Water does not receive SSR in this profile. The final-depth snapshot masks
-opaque receivers covered by water; water's authored roughness and animated
-normal remain local to its shading feature and are not exported as reflection
-metadata. Water is absent from the opaque reflected source, which contains no
-transparent surfaces. This is a screen-space approximation with a
-100-metre maximum ray length and no offscreen reflection data.
+and terrain blends. Reflections affect only the environment-specular lobe;
+direct specular and diffuse ambient are unchanged. Reflection textures carry
+premultiplied confidence and use up to six ceil-divided blur levels. No
+temporal history is retained. This is a screen-space approximation with a
+100-metre maximum ray length and no offscreen reflection data. Composition with
+installed environment maps and water receivers is described in
+[screen-space reflection composition](../../dev-docs/rendering/reflections.md).
 
 ## HDR post processing
 
-The optional `hdr_post` recipe keeps document version 4: existing documents may
-omit the whole recipe. A present recipe requires `adaptive_exposure`, `bloom`
+The optional `hdr_post` recipe may be omitted from a v4 document. A present recipe requires `adaptive_exposure`, `bloom`
 and `fxaa_subpixel_micro`, with explicit null for disabled options. Factories
 adopt it with `SceneEffects::with_hdr_post`. All nested quantities are required.
 Adaptive exposure defines a 256-bin log2 luminance range in milli-stops, a

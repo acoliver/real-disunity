@@ -1,0 +1,86 @@
+# Supported UnityEngine API
+
+`Disunity.Engine` implements a subset of the `UnityEngine` API. This page lists what exists today, grouped the way a game uses it. If a type or member is not listed here, it does not exist yet, and code that uses it will not compile. Where a member exists but a particular setting is unsupported, it throws an exception naming the setting.
+
+The source of truth is `csharp/Disunity`. Each type lives in a file of the same name, so `csharp/Disunity/Physics2D.cs` holds `Rigidbody2D` and the 2D colliders. Writing scripts and hosting them is covered in [Writing C# scripts](csharp-games.md).
+
+## Objects, components and lifecycle
+
+These cover creating, finding and destroying things, which nearly every script uses.
+
+| Type | Supported |
+| --- | --- |
+| `Object` | `Instantiate` (original; with parent; with position and rotation; with position, rotation and parent), `Destroy`, `FindObjectOfType`, `FindFirstObjectByType`, `FindObjectsByType`, Unity-style null and equality checks on destroyed objects |
+| `GameObject` | `name`, `tag`, `CompareTag`, `activeSelf`, `activeInHierarchy`, `SetActive`, `GetComponent<T>`, `AddComponent<T>`, `transform`, `FindGameObjectWithTag` |
+| `Component` | `gameObject`, `transform`, `tag`, `CompareTag`, `GetComponent<T>` |
+| `Behaviour` | `enabled`, `isActiveAndEnabled` |
+| `MonoBehaviour` | Messages `Awake`, `OnEnable`, `Start` (also as a coroutine), `FixedUpdate`, `Update`, `LateUpdate`, `OnDisable`, `OnDestroy`, `OnCollisionEnter2D`/`Stay2D`/`Exit2D`, `OnTriggerEnter2D`/`Stay2D`/`Exit2D`; `StartCoroutine`, `StopCoroutine`, `StopAllCoroutines` |
+| `Transform` | `position`, `rotation`, `localPosition`, `localRotation`, `localScale`, `parent`, `SetParent(parent, worldPositionStays)` |
+| `ScriptableObject` | `CreateInstance<T>`, `CreateInstance(Type)` and `CreateInstance(string)`, with `Awake`, `OnEnable`, `OnDisable` and `OnDestroy` |
+| Attributes | `SerializeField`, `Header`, `Range`, `CreateAssetMenu` |
+
+Instantiated objects have their internal references remapped to the clone, as in Unity, and their `Awake` and `OnEnable` run before `Instantiate` returns. `Destroy` takes effect at the end of the frame.
+
+## Time, input and coroutines
+
+| Type | Supported |
+| --- | --- |
+| `Time` | `deltaTime`, `fixedDeltaTime`, `time`, `frameCount` |
+| `Input` | `GetKey`, `GetKeyDown`, `GetKeyUp`; `GetAxis` and `GetAxisRaw` for `Horizontal` and `Vertical` |
+| `KeyCode` | `Space`, `A` to `Z`, the four arrow keys, `Return`, `Escape` |
+| `UnityEngine.InputSystem.Keyboard` | `Keyboard.current.aKey` and `dKey` with `isPressed` |
+| Yield instructions | `WaitForSeconds`, `WaitForSecondsRealtime`, `WaitForFixedUpdate`, `null` (next frame), nested `IEnumerator` |
+
+Mouse input, gamepads and Input System actions are not implemented. Coroutines cannot be joined by yielding a `Coroutine`, and `WaitForEndOfFrame` and custom yield instructions are not supported.
+
+## 2D physics
+
+| Type | Supported |
+| --- | --- |
+| `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial` |
+| `Collider2D` | `enabled`, `isTrigger`, `offset`, `attachedRigidbody`, `sharedMaterial` |
+| `BoxCollider2D`, `CircleCollider2D` | `size`; `radius` |
+| `PhysicsMaterial2D` | `name`, `friction`, `bounciness` |
+| `Collision2D` | `collider`, `otherCollider`, `gameObject`, `transform`, `rigidbody`, `contacts`, `contactCount`, `GetContact` |
+| `Physics2D` | `Raycast` (nearest hit), `OverlapCircle` (first hit) |
+| `RaycastHit2D` | `collider`, `point`, `normal`, `distance`, conversion to `bool` |
+
+Physics uses continuous collision detection for all bodies. Joints, effectors, polygon and edge colliders in C#, forces and impulses (`AddForce`), and 3D physics are not implemented.
+
+## Sprites, cameras and lights
+
+| Type | Supported |
+| --- | --- |
+| `SpriteRenderer` | `sprite`, `color`, `enabled`, `flipX`, `flipY`, `sortingLayerID`, `sortingLayerName` (only `Default`), `sortingOrder`, `bounds`, `sharedMaterial` |
+| `Sprite` | `rect`, `pivot`, `pixelsPerUnit`, `bounds`. Sprites are created by the host with `DisunityHost.CreateSprite`. |
+| `Material` | `Material.SpriteUnlit` and `Material.SpriteLit` |
+| `Camera` | Exists as a component. Its settings are not yet exposed to scripts. |
+| `AudioListener`, `GUILayer`, `FlareLayer` | Exist as enable-able components. There is no audio output. |
+| `UnityEngine.Rendering.Universal.Light2D` | Global lights: `color`, `intensity`, `affectedSortingLayers`, blend style 0. Other light types throw `UnsupportedLight2DException`. |
+| `UnityEngine.Rendering.Universal.UniversalAdditionalCameraData` | Base camera without post-processing, antialiasing or shadows. Enabling an unsupported option throws `UnsupportedCameraSettingException`. |
+
+## UI
+
+| Type | Supported |
+| --- | --- |
+| `Canvas` | `renderMode` (screen space overlay, screen space camera, world space), `enabled`, `sortingOrder`, `scaleFactor`, `planeDistance` |
+| `RectTransform` | `anchorMin`, `anchorMax`, `pivot`, `sizeDelta`, `anchoredPosition`, `rect` |
+| `UnityEngine.UI.Text` | `text`, `fontSize`. Fonts are TrueType files registered by the host with `DisunityHost.RegisterFont`; there is no built-in font. |
+
+Text covers printable ASCII with line breaks and kerning. Other UI components (`Image`, `Button`, `CanvasScaler`, layout groups, the EventSystem) are not implemented.
+
+## Values and utilities
+
+| Type | Supported |
+| --- | --- |
+| `Vector2` | Constructor, `x`, `y`, `zero`, `one`, `up`, `right`, `magnitude`, `sqrMagnitude`, `normalized`, `+`, `-`, `*`, `/` |
+| `Vector3` | Constructor, `x`, `y`, `z`, `zero`, `one`, multiplication by a scalar, conversion to and from `Vector2` |
+| `Vector2Int` | Constructor, `x`, `y`, `zero`, `up`, `down`, `left`, `right`, `+`, division by an integer |
+| `Quaternion` | Constructor and `identity` |
+| `Color`, `Rect`, `Bounds`, `LayerMask` | Value types with their fields; `Color.white`, `Color.clear` |
+| `Mathf` | `Min`, `Clamp` |
+| `Random` | `value`, `Range(int, int)`, `Range(float, float)`. Not seedable. |
+| `Debug` | `Log`, `LogError`, written to the console |
+| `UnityEngine.Events.UnityEvent<T>` | `AddListener`, `RemoveListener`, `RemoveAllListeners`, `Invoke`. Persistent listeners set in the editor are not loaded yet. |
+
+The math types are deliberately small and grow as games need them. Adding a missing helper such as `Vector3` addition is a welcome contribution; see the [developer guide](../dev-docs/README.md).

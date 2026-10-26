@@ -8,19 +8,19 @@ Call `advance(elapsed)` once per frame. An `Advance::Callback` transfers an owne
 
 The order is:
 
-1. Pending Awake and activation transitions from E2 readiness data.
+1. Pending Awake and activation transitions from native lifecycle readiness (`lifecycle.rs`).
 2. Start for eligible scripts that have not started.
-3. Each admitted fixed step: fixed input projection, Start if newly eligible, FixedUpdate, E3 physics, contact callbacks, fixed coroutine resumptions.
+3. Each admitted fixed step: fixed input projection, Start if newly eligible, FixedUpdate, 2D physics, contact callbacks, fixed coroutine resumptions.
 4. Dynamic input projection, Start if newly eligible, Update.
 5. Due next-frame, scaled and unscaled coroutine resumptions.
 6. Start if newly eligible, LateUpdate.
 7. Disable/destroy cleanup and native storage retirement.
 
-Stable component-handle order determines each ordinary script phase. Contact order is the E3 pair/phase order followed by recipient handle order. Contacts reach scripts on collider objects and body owners, with duplicate recipients removed. `Contact2d` carries a native contact ID, resolved with `contact_event`; contact eligibility is checked again before every delivery. A callback mutation can suppress a later contact recipient.
+Stable component-handle order determines each ordinary script phase. Contact order is the physics pair/phase order followed by recipient handle order. Contacts reach scripts on collider objects and body owners, with duplicate recipients removed. `Contact2d` carries a native contact ID, resolved with `contact_event`; contact eligibility is checked again before every delivery. A callback mutation can suppress a later contact recipient.
 
 Each phase snapshots its candidates when it starts. Between callbacks the scheduler drains new lifecycle transitions and discovers new scripts. It rechecks live eligibility before ordinary work. Start is recorded only when actually dispatched. A script introduced during Update receives immediate lifecycle work, then Start before LateUpdate; it does not receive an Update from a phase whose candidate list already exists. Disabling a script suppresses its remaining ordinary callbacks. Destroying a subtree suppresses ordinary work immediately and defers storage retirement until cleanup.
 
-E2's `awake` and `active` flags represent native lifecycle readiness and scheduled transitions. The scheduler separately records whether Awake or OnEnable has entered, using Dormant, Awake and Enabled states. An obsolete pending OnEnable cannot enter twice without OnDisable. A peer deactivated before its pending Awake waits for reactivation. If a new activation batch reaches that peer first, Awake enters before OnEnable and the older pending Awake is coalesced. Queued disable transitions retain their batch order, including a disable queued before the initial enable entered. The scheduler consumes E2 mutation batches rather than deriving a second activation policy. Existing low-level E2 batch APIs remain available for native consumers; a host driving `advance/resume` must not also consume those batches or retire storage independently.
+The lifecycle `awake` and `active` flags represent native lifecycle readiness and scheduled transitions. The scheduler separately records whether Awake or OnEnable has entered, using Dormant, Awake and Enabled states. An obsolete pending OnEnable cannot enter twice without OnDisable. A peer deactivated before its pending Awake waits for reactivation. If a new activation batch reaches that peer first, Awake enters before OnEnable and the older pending Awake is coalesced. Queued disable transitions retain their batch order, including a disable queued before the initial enable entered. The scheduler consumes lifecycle mutation batches rather than deriving a second activation policy. The low-level batch APIs (`lifecycle_work`, `take_lifecycle_work`) are available to native consumers; a host driving `advance/resume` must not also consume those batches or retire storage independently.
 
 ## Immediate clone lifecycle
 
@@ -44,6 +44,4 @@ Managed iterator bodies remain managed. Native coroutine IDs own target eligibil
 
 `Failed(ScriptFailure)` cancels ordinary callbacks and coroutines, invalidates all live objects, and dispatches disable/destroy work before retiring storage. Unentered teardown tasks survive abandonment of ordinary scopes, including when the first failure occurs during cleanup. Already entered or completed cleanup is not repeated. New allocation is rejected during failed-advance teardown, so cleanup cannot replenish the world indefinitely. Cleanup failures do not replace the first failure or restart teardown. After cleanup, the original failure is returned and later advancement fails with `Faulted`. Exceptions never cross the C ABI.
 
-The current C ABI and `DisunityHost` call sites remain unchanged in E4. E6 will replace their prototype scheduling with this native contract. No new ABI export or generated binding is introduced here. The existing ABI's direct physics step remains usable by that host. Standalone native physics tests retain `step_physics`, but a direct physics step during an active callback scope is rejected to prevent double stepping. Scheduled frames invoke the same E3 implementation internally.
-
-The rational reduction, accumulator admission, separate input cursors, focus release and keyboard-axis projection algorithms were recovered selectively from the repository's PR #35. Their typed implementations contain no serialization, source tags or alternate time/input paths.
+The C ABI exposes this contract as `disunity_world_advance` and `disunity_world_resume` in `crates/disunity-ffi/src/scheduling.rs`, and `DisunityHost` drives managed scripts through them. There is no separate ABI physics step. Native callers without scripts can still call `step_physics` directly, but a direct physics step during an active callback scope is rejected to prevent double stepping. Scheduled frames invoke the same physics implementation internally.

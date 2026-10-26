@@ -78,11 +78,12 @@ with `&mut SceneGpu` in either rendering mode and flushes edits automatically.
 
 ## LOD and per-view visibility
 
-Packed-layout migration: vertex stride changes from 32 to 36 bytes and instance
-stride from 68 to 64 bytes. Billboard mode moves from instance offset 64,
-shader location 7, to vertex offset 32, shader location 8. `pack_instance` now
-takes only a transform. Update custom buffer layouts and previously packed bytes
-to match.
+Packed vertices are `geometry::VERTEX_STRIDE` (40) bytes: position, normal, UV,
+billboard mode and AO. Packed instances are `geometry::INSTANCE_STRIDE` (80)
+bytes: a column-major `mat4` and linear tint. Billboard mode is a per-vertex
+attribute, so LOD selection can change billboard policy without rewriting
+instance transforms. Custom buffer layouts
+must use these constants and the engine packing helpers.
 
 A single-level `SceneMesh::new` needs no distance policy. Multi-level meshes use
 `SceneMesh::with_distances(lods, max_distances_millimeters)`, with one positive,
@@ -130,8 +131,8 @@ The shadow adapter supports one to four layers at the chosen resolution.
 centred on `DirectionalShadowSettings::focus_meters`. Selection uses the smallest
 containing box and blends over the final authored fraction of its half-width.
 Fixed coverage boxes remain independent of camera motion and share the exact focus,
-so strictly increasing extents remain nested. One declared coverage box retains the
-explicit settings fit for existing callers.
+so strictly increasing extents remain nested. With one declared coverage box the
+fit comes directly from the explicit shadow settings.
 
 `SceneShadowCascades::camera_splits` instead declares each slice's far distance
 in camera-view millimetres. Distances must increase strictly, exceed camera near
@@ -200,7 +201,6 @@ The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 
 `DirectionalShadowSettings::refresh_policy` defaults to
 `CascadeRefreshPolicy::default()`: every cascade renders every submitted frame.
-The default keeps the existing fits, uniform values and pass sequence.
 An opt-in policy declares four frame intervals and periodic phases, a maximum
 number of ordinary non-near refreshes, a light-angle threshold in radians and
 an XY projection-motion threshold in texels. For example, intervals `[1, 2, 4, 4]`,

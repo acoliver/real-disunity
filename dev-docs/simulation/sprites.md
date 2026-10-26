@@ -6,7 +6,7 @@ With the `simulation` feature, `render-plan::simulation::extract_world` produces
 
 The built-in `SpriteUnlit` material selects the existing dynamic-quad straight-alpha pipeline. Tint is linear RGBA. Mark authored color textures as sRGB and coverage textures as linear. The shared scene target handles output encoding and 1x or 4x MSAA. Sorting uses ascending layer and order with stable submission ties. Screen overlays follow world quads, then use their own sorting keys.
 
-With `ui`, pass E5's `extract_ui` output to `append_ui`. Coverage becomes white RGBA with the original alpha, then follows the same material and quad path. Overlay vertices use the selected camera's inverse projection. A layout from a different viewport is rejected; regenerate layout and extraction on resize.
+With `ui`, pass the `extract_ui` output to `append_ui`. Coverage becomes white RGBA with the original alpha, then follows the same material and quad path. Overlay vertices use the selected camera's inverse projection. A layout from a different viewport is rejected; regenerate layout and extraction on resize.
 
 `WorldSceneContribution::new` prepares the texture table and explicit quad corners for either headless scene rendering or `LiveFrame::from_world`. `SceneGpu::set_dynamic_contribution` replaces textures and geometry together. Rejected uploads retain the old contribution. `clear_dynamic` releases runtime texture, geometry and index-buffer ownership; dropping the resident scene also releases it.
 
@@ -16,4 +16,6 @@ Mixed hosts call `DisunityHost::export_presentation(viewport, next_texture)` on 
 
 Managed Sprite content receives a native immutable identity. Assignment, repeated property reads, sharing between renderers and Instantiate resolve the same managed wrapper while a reference remains alive. Renderer tint and enabled state are independent of that identity. Serialized Color and Bounds fields retain their values, including in arrays and lists. Unsupported serialized types throw NotSupportedException before clone activation.
 
-Texture replacement still uploads each frame, and distinct explicit corners generally prevent draw grouping. The current GPU checks demonstrate visible replacement and clear, without measuring resident allocation retirement. Linux and Windows execution has not been verified locally.
+## Known limits
+
+Texture replacement uploads each frame, and distinct explicit corners generally prevent draw grouping. The GPU tests check visible replacement and clear; they do not measure resident allocation retirement.

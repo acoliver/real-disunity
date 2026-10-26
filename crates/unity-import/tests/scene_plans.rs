@@ -113,15 +113,37 @@ fn pong_plans_scripts_text_scene_events_and_axes() {
 }
 
 #[test]
-fn snake_fails_on_the_square_sprite_its_scene_misses() {
-    let error = original(Game::Snake, "Assets/Scenes/GameScene.unity").unwrap_err();
-    assert!(
-        error.starts_with("SpriteRenderer ") && error.contains("GameScene.unity"),
-        "{error}"
+fn snake_plans_its_config_asset_segment_template_and_package_square() {
+    let plan = original(Game::Snake, "Assets/Scenes/GameScene.unity").unwrap();
+    let value = json(&plan);
+    let segment = index(&value, "SneakSegment");
+    assert_eq!(value["objects"][segment]["template"], true);
+    assert_eq!(
+        fields(&value, "SnakeView")["segmentPrefab"],
+        json!({ "$transform": segment })
     );
-    assert!(
-        error.contains("311925a002f4447b3a28927169b83ea6"),
-        "{error}"
+    assert_eq!(fields(&value, "GameLoop")["config"], json!({ "$asset": 0 }));
+    assert_eq!(value["assets"][0]["class"], "GameConfig");
+    assert_eq!(
+        value["assets"][0]["fields"]["gridSize"],
+        json!({ "x": "40", "y": "20" })
+    );
+    // The food and the segment draw the 2D Sprite package's Square, tinted.
+    assert_eq!(
+        value["sprites"],
+        json!([{
+            "texture": 0, "name": "Square", "rect": [0.0, 0.0, 256.0, 256.0],
+            "pivot": [0.5, 0.5], "pixels_per_unit": 256.0, "border": [0.0, 0.0, 0.0, 0.0],
+            "physics_shape": null
+        }])
+    );
+    assert_eq!(
+        value["textures"],
+        json!([{
+            "guid": "311925a002f4447b3a28927169b83ea6",
+            "path": "Packages/com.unity.2d.sprite/Editor/ObjectMenuCreation/DefaultAssets/Textures/v2/Square.png",
+            "width": 256, "height": 256, "filter": "Bilinear", "wrap": ["Clamp", "Clamp"], "srgb": true
+        }])
     );
 }
 

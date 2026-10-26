@@ -15,7 +15,7 @@ cargo run -p worldrunner-play -- pong
 
 - **Project catalog**: every asset and its `.meta` GUID, the importer type of each asset, and `.meta` files whose asset is missing.
 - **Scenes and prefabs**: Unity's text YAML, for both current editors and Unity 2017. Prefab instances are expanded from their prefab files with the scene's overrides applied, including stripped references. Prefabs and `ScriptableObject` assets that the scene refers to are loaded once as templates.
-- **Textures and sprites**: PNG and JPEG images with their import settings (filter, wrap, color space, pixels per unit) and the sprite rectangles and pivots in single and multiple sprite mode.
+- **Textures and sprites**: PNG and JPEG images with their import settings (filter, wrap, color space, pixels per unit) and the sprite rectangles and pivots in single and multiple sprite mode. The `Square` sprite of Unity's built-in 2D Sprite package, which Snake draws, comes from the package rather than the project; the importer describes it from the package's own import settings and its uniformly white pixels, so no package file is copied.
 - **Components with typed views**: orthographic `Camera` and the `AudioListener`, `GUILayer` and `FlareLayer` beside it; `SpriteRenderer` and `TilemapRenderer`; `Rigidbody2D`; `BoxCollider2D`, `CircleCollider2D` and `TilemapCollider2D` with their physics materials; `Grid` and `Tilemap`; `Canvas` and `RectTransform`; and the package components `Text`, `CanvasScaler`, URP `Light2D` and `UniversalAdditionalCameraData`. Package script identities are resolved from their DLL GUID and file ID. Settings the engine does not implement, such as perspective cameras, a scene skybox material, sprite masks, body damping, effectors or composite colliders, fail with the component named.
 - **Input axes** from `ProjectSettings/InputManager.asset`, in file order with Unity's button names.
 - **Sprite physics shapes** for tiles that collide with their sprite. A fully opaque sprite without an authored shape collides with its rectangle, as Unity generates it. Authored shapes and outlines traced from transparent pixels are not supported yet.
@@ -62,7 +62,7 @@ Three small open-source Unity games are the first targets. They will run from th
 
 | Game | Unity version | Status |
 | --- | --- | --- |
-| [Snake](https://github.com/eguldali/Optimized-Snake-Game) | 6000.3 | Its scripts compile. Planning fails on one sprite that comes from Unity's 2D sprite package, whose exact metrics are not confirmed. |
+| [Snake](https://github.com/eguldali/Optimized-Snake-Game) | 6000.3 | Plays in a window: W, A, S and D steer the snake on its wrapping grid, it grows when it eats, and the food moves. |
 | [Pong](https://github.com/mcrvaz/pong-tdd) | 2017.1 | Plays in a window: the ball launches, W and S move the left paddle and goals score. |
 | [Breakout](https://github.com/admtrv/Breakout) | 6000.3 | Plays in a window: bricks and the ball come from their prefabs, A and D move the paddle, bricks break and the tile walls keep the ball in play. |
 

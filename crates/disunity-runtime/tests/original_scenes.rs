@@ -1,4 +1,4 @@
-//! Loads Pong and Breakout from their original scenes and plays them headless.
+//! Loads Pong, Breakout and Snake from their original scenes and plays them headless.
 //!
 //! The games come from `original-games` at their pinned revisions, their scenes from
 //! `unity-import plan`, and their scripts are compiled unchanged against Disunity. The tools run
@@ -86,7 +86,7 @@ fn prepare(root: &Path, output: &Path, game: &str, project: &str, scene: &str) -
 }
 
 #[test]
-fn pong_and_breakout_load_from_their_scenes_and_play() {
+fn the_original_games_load_from_their_scenes_and_play() {
     let root = workspace();
     let output = target(&root).join("scene-tests");
     std::fs::create_dir_all(&output).expect("scene test output");
@@ -110,6 +110,13 @@ fn pong_and_breakout_load_from_their_scenes_and_play() {
         "Breakout",
         "Assets/Scenes/SampleScene.unity",
     );
+    let snake = prepare(
+        &root,
+        &output,
+        "snake",
+        "Snake",
+        "Assets/Scenes/GameScene.unity",
+    );
     let library = target(&root).join("debug").join(format!(
         "{}worldrunner_disunity_ffi{}",
         std::env::consts::DLL_PREFIX,
@@ -121,7 +128,7 @@ fn pong_and_breakout_load_from_their_scenes_and_play() {
         .arg("-p:TreatWarningsAsErrors=true")
         .arg("--")
         .arg(library)
-        .args([pong, breakout]));
+        .args([pong, breakout, snake]));
     println!("{passed}");
-    assert_eq!(passed.matches("PASS:").count(), 3, "{passed}");
+    assert_eq!(passed.matches("PASS:").count(), 4, "{passed}");
 }

@@ -1,4 +1,4 @@
-//! Plays Pong and Breakout in a real window and checks the captured frames.
+//! Plays Pong, Breakout and Snake in a real window and checks the captured frames.
 //!
 //! Each game runs in its own process, as one window per process is the desktop host's rule. The
 //! child processes drop `WAYLAND_DISPLAY` so the window opens on the X display `xvfb-run`
@@ -25,12 +25,13 @@ mod scenarios {
             match case.as_str() {
                 "pong" => pong(),
                 "breakout" => breakout(),
+                "snake" => snake(),
                 other => panic!("unknown case {other}"),
             }
             return;
         }
         let library = engine_library();
-        for case in ["pong", "breakout"] {
+        for case in ["pong", "breakout", "snake"] {
             let status = Command::new(std::env::current_exe().unwrap())
                 .arg(format!("--case={case}"))
                 .env_remove("WAYLAND_DISPLAY")
@@ -231,6 +232,64 @@ mod scenarios {
         assert!(
             moved + 60 < start,
             "A moved the paddle left: {start} -> {moved}"
+        );
+    }
+
+    /// The centre of the pixels matching `colour`, if any.
+    fn centre(frame: &Capture, colour: impl Fn([u8; 3]) -> bool) -> Option<[f64; 2]> {
+        let pixels: Vec<(u32, u32)> = (0..SIZE[1])
+            .flat_map(|y| (0..SIZE[0]).map(move |x| (x, y)))
+            .filter(|&(x, y)| colour(frame.rgb(x, y)))
+            .collect();
+        let count = f64::from(u32::try_from(pixels.len()).ok()?);
+        let sum = pixels.iter().fold([0.0, 0.0], |[sx, sy], &(x, y)| {
+            [sx + f64::from(x), sy + f64::from(y)]
+        });
+        (count > 0.0).then(|| [sum[0] / count, sum[1] / count])
+    }
+
+    /// Snake's camera at (19.5, 9.5) shows 22 units over 270 rows, so grid cell `(x, y)` is
+    /// centred on column `240 + (x - 19.5) * 270 / 22` and row `135 - (y - 9.5) * 270 / 22`. Both
+    /// the white package Square, tinted red for the food and green for the snake, are drawn.
+    fn snake() {
+        let frames = play(
+            Game::Snake,
+            61,
+            vec![key(30, "w", true), key(32, "w", false)],
+            &[0, 29, 60],
+        );
+        let scale = 270.0 / 22.0;
+        let cell = |[x, y]: [f64; 2]| [240.0 + (x - 19.5) * scale, 135.0 - (y - 9.5) * scale];
+        let green = |[r, g, b]: [u8; 3]| g > 200 && r < 80 && b < 80;
+        let red = |[r, g, b]: [u8; 3]| r > 200 && g < 80 && b < 80;
+        let near = |found: Option<[f64; 2]>, cell: [f64; 2], what: &str| {
+            let found = found.unwrap_or_else(|| panic!("{what} drawn"));
+            assert!(
+                (found[0] - cell[0]).abs() < 2.0 && (found[1] - cell[1]).abs() < 2.0,
+                "{what} at {found:?}, expected {cell:?}"
+            );
+        };
+        assert!(centre(&frames[0], red).is_some(), "the food is drawn");
+        assert!(
+            centre(&frames[0], green).is_none(),
+            "no segment before the first tick"
+        );
+        // Four ticks of 1/8 s move the head right from the centre of the 40x20 grid.
+        near(
+            centre(&frames[1], green),
+            cell([24.0, 10.0]),
+            "the head moving right",
+        );
+        // W turns it up; by frame 60 five more ticks have moved it to row 15.
+        near(
+            centre(&frames[2], green),
+            cell([24.0, 15.0]),
+            "the head turned up",
+        );
+        assert_eq!(
+            centre(&frames[2], red),
+            centre(&frames[0], red),
+            "the food stays until eaten"
         );
     }
 }

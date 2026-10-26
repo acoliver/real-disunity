@@ -10,7 +10,8 @@ mod objects;
 use fixture::Fixture;
 use objects::{game_object, import, transform};
 use worldrunner_unity_import::{
-    PackageAsset, PackageMaterial, PackageScript, Reference, RendererMaterial, Scene,
+    PackageAsset, PackageMaterial, PackageScript, PackageSprite, Reference, RendererMaterial,
+    Scene,
     package::{identify, script_file_id},
 };
 
@@ -52,6 +53,17 @@ fn fixed_identities_need_both_guid_and_file_id() {
         Some(PackageAsset::Script(PackageScript::Tile))
     );
     assert_eq!(identify(builtin, 10_001), None);
+    let square = PackageSprite::Square;
+    assert_eq!(
+        identify(square.texture_guid(), 7_482_667_652_216_324_306),
+        Some(PackageAsset::Sprite(square))
+    );
+    assert_eq!(square.file_id(), 7_482_667_652_216_324_306);
+    assert_eq!(
+        square.texture_guid().to_string(),
+        "311925a002f4447b3a28927169b83ea6"
+    );
+    assert_eq!(identify(square.texture_guid(), 21_300_000), None);
 }
 
 fn holder(references: &[(&str, &str)]) -> String {

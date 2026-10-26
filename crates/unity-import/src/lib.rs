@@ -24,7 +24,7 @@ pub use components::{
 };
 pub use guid::{Guid, ObjectRef, ReferenceError};
 pub use input::{AxisKind, InputAxis, input_axes};
-pub use package::{PackageAsset, PackageFont, PackageMaterial, PackageScript};
+pub use package::{PackageAsset, PackageFont, PackageMaterial, PackageScript, PackageSprite};
 pub use plan::{
     PlanAsset, PlanCollider, PlanComponent, PlanError, PlanObject, PlanSprite, PlanTexture,
     ScenePlan, plan_scene,

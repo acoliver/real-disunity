@@ -16,6 +16,7 @@ fn interval_policy(step: f32, span: f32) -> RangeFit {
         far_step: step,
         minimum_span: span,
         split_lambda: 0.5,
+        split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
     }
 }
 fn capture_state(range: RangeFit) -> AdoptionState {
@@ -213,6 +214,7 @@ fn gpu_sdsm_adopted_interval_is_not_fitted_twice() {
                 far_step: step,
                 minimum_span: span,
                 split_lambda: 0.5,
+                split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
             };
             let mut state = AdoptionState::new(SdsmSettings {
                 policy: adoption,

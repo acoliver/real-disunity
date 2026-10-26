@@ -60,7 +60,20 @@ fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
         if selected > 0 { start = shadow.splits[selected - 1]; }
         progress = (distance - start) / (shadow.splits[selected] - start);
     }
-    let weight = clamp((progress - (1.0 - shadow.policy.y)) / shadow.policy.y, 0.0, 1.0);
+    var fade_fraction = shadow.policy.y;
+    if shadow.policy.z > 1.5 {
+        var width = shadow.splits[0] - shadow.policy.w;
+        var start = shadow.policy.w;
+        var fade = width * shadow.policy.y;
+        for (var i = 0; i < selected; i += 1) {
+            start += width - fade;
+            width *= shadow.bias.x;
+            fade = (width - fade) * shadow.policy.y;
+        }
+        progress = (distance - start) / width;
+        fade_fraction = fade / width;
+    }
+    let weight = clamp((progress - (1.0 - fade_fraction)) / fade_fraction, 0.0, 1.0);
     let next = cascade_visibility(coordinates[selected + 1], gradients[selected + 1], selected + 1);
     return mix(current, next, weight);
 }

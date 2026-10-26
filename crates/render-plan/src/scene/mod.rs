@@ -12,7 +12,9 @@ pub use atmosphere::{SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, Sc
 mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
 mod composition;
+mod depth_fitting;
 mod effects;
+pub use depth_fitting::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
 mod water;
 mod water_settings;
 pub use water::{SceneWaterBody, SceneWaterSurface};

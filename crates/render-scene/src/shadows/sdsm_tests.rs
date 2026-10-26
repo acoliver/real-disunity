@@ -1,3 +1,83 @@
+#[test]
+fn pending_invalidation_preserves_each_contraction_timer_and_rejects_old_evidence() {
+    use std::time::Duration;
+    let mut state = AdoptionState::new(config(AdoptionPolicy::QuantizedPerBound {
+        latency_frames: 1,
+        contraction_delay: Duration::from_secs(100),
+    }))
+    .unwrap();
+    let r = |near, far| DepthRange::Receivers { near, far };
+    for (frame, seconds, depth) in [
+        (1, 0, r(2.0, 20.0)),
+        (2, 10, r(4.0, 20.0)),
+        (3, 20, r(4.0, 18.0)),
+    ] {
+        state.complete(&state.ticket(frame - 1), depth).unwrap();
+        assert_eq!(
+            state
+                .adopt_at(frame, [0.1, 40.0], Duration::from_secs(seconds))
+                .unwrap()
+                .unwrap()
+                .depth,
+            r(2.0, 20.0)
+        );
+    }
+    let old_ticket = state.ticket(3);
+    state.complete(&old_ticket, r(1.0, 30.0)).unwrap();
+    state.invalidate_pending();
+    assert!(matches!(
+        state.complete(&old_ticket, r(1.0, 30.0)),
+        Err(SdsmError::StaleResource)
+    ));
+    assert!(
+        state
+            .adopt_at(4, [0.1, 40.0], Duration::from_secs(30))
+            .unwrap()
+            .is_none()
+    );
+    for (frame, seconds, candidate, expected) in [
+        (5, 30, r(4.0, 18.0), r(2.0, 20.0)),
+        (6, 110, r(4.0, 18.0), r(4.0, 20.0)),
+        (7, 120, r(4.0, 18.0), r(4.0, 18.0)),
+        (8, 121, r(1.0, 30.0), r(1.0, 30.0)),
+    ] {
+        state.complete(&state.ticket(frame - 1), candidate).unwrap();
+        assert_eq!(
+            state
+                .adopt_at(frame, [0.1, 40.0], Duration::from_secs(seconds))
+                .unwrap()
+                .unwrap()
+                .depth,
+            expected
+        );
+    }
+}
+
+#[test]
+fn quantized_per_bound_uses_elapsed_time_after_outward_snapping() {
+    let mut state = AdoptionState::new(config(AdoptionPolicy::QuantizedPerBound {
+        latency_frames: 1,
+        contraction_delay: std::time::Duration::from_millis(100),
+    }))
+    .unwrap();
+    let r = |near, far| DepthRange::Receivers { near, far };
+    let mut step = |frame, millis, depth| {
+        state.complete(&state.ticket(frame - 1), depth).unwrap();
+        state
+            .adopt_at(frame, [0.1, 40.0], std::time::Duration::from_millis(millis))
+            .unwrap()
+            .unwrap()
+            .depth
+    };
+    assert_eq!(step(1, 0, r(2.7, 12.2)), r(2.5, 13.0));
+    assert_eq!(step(2, 10, r(3.7, 12.2)), r(2.5, 13.0));
+    assert_eq!(step(3, 60, r(3.7, 10.2)), r(2.5, 13.0));
+    assert_eq!(step(4, 110, r(3.7, 10.2)), r(3.5, 13.0));
+    assert_eq!(step(5, 160, r(1.7, 10.2)), r(1.5, 11.0));
+    assert_eq!(step(6, 170, r(2.7, 20.2)), r(1.5, 21.0));
+    assert_eq!(step(7, 180, DepthRange::EmptyDepth), DepthRange::EmptyDepth);
+}
+
 use super::*;
 fn config(policy: AdoptionPolicy) -> SdsmSettings {
     SdsmSettings {
@@ -7,6 +87,7 @@ fn config(policy: AdoptionPolicy) -> SdsmSettings {
             far_step: 1.0,
             minimum_span: 1.0,
             split_lambda: 0.5,
+            split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
         },
     }
 }

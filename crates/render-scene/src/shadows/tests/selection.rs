@@ -67,6 +67,8 @@ fn upload_probe(
     })[..count]
         .to_vec();
     let views = super::super::cascades::CascadeViews {
+        recurrence: None,
+        multiplier: 0.0,
         no_receivers: false,
         matrices,
         depth_bias: [0.0; 4],

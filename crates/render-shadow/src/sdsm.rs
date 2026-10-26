@@ -47,9 +47,11 @@ pub struct RangeFit {
     pub far_step: f32,
     pub minimum_span: f32,
     pub split_lambda: f32,
+    pub split_policy: crate::SplitPolicy,
 }
 impl RangeFit {
     pub fn validate(self) -> Result<(), InvalidFit> {
+        self.split_policy.validate()?;
         if [self.near_step, self.far_step, self.minimum_span]
             .iter()
             .any(|v| !v.is_finite() || *v <= 0.0)
@@ -88,9 +90,16 @@ impl RangeFit {
         self.validate()?;
         match depth {
             DepthRange::EmptyDepth => Ok(Vec::new()),
-            DepthRange::Receivers { near, far } => {
-                practical_splits(near, far, count, self.split_lambda)
-            }
+            DepthRange::Receivers { near, far } => match self.split_policy {
+                crate::SplitPolicy::Practical => {
+                    practical_splits(near, far, count, self.split_lambda)
+                }
+                policy @ crate::SplitPolicy::OverlapRecurrence { .. } => Ok(policy
+                    .intervals(near, far, count)?
+                    .into_iter()
+                    .map(|v| v.end)
+                    .collect()),
+            },
         }
     }
 }

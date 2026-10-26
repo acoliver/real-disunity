@@ -72,6 +72,7 @@ fn range() -> RangeFit {
         far_step: 1.0,
         minimum_span: 1.0,
         split_lambda: 0.5,
+        split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
     }
 }
 fn state() -> AdoptionState {
@@ -337,4 +338,48 @@ fn gpu_interactive_readback_preserves_delayed_source_and_rebind_invalidates_it()
         fitting.complete(&old, Ok(depth)),
         Err(SdsmError::StaleResource)
     ));
+}
+
+#[test]
+fn failed_readback_invalidates_queued_ranges_but_empty_depth_is_successful() {
+    let context = context();
+    let source = source(&context, [3.0; 4], true);
+    let mut fitting = DepthFitting::new(
+        context.device(),
+        SdsmSettings {
+            policy: AdoptionPolicy::Interactive {
+                latency_frames: 2,
+                contraction_frames: 0,
+            },
+            range: range(),
+        },
+        (&source.0, &source.1),
+    )
+    .unwrap();
+    let old = fitting.ticket(10);
+    fitting
+        .complete(
+            &old,
+            Ok(DepthRange::Receivers {
+                near: 2.0,
+                far: 9.0,
+            }),
+        )
+        .unwrap();
+    assert!(matches!(
+        fitting.complete(&fitting.ticket(11), Err(SdsmError::Callback)),
+        Err(SdsmError::Callback)
+    ));
+    assert_eq!(fitting.adopt(12, [0.1, 20.0]).unwrap(), None);
+    assert!(matches!(
+        fitting.complete(&old, Ok(DepthRange::EmptyDepth)),
+        Err(SdsmError::StaleResource)
+    ));
+    fitting
+        .complete(&fitting.ticket(12), Ok(DepthRange::EmptyDepth))
+        .unwrap();
+    assert_eq!(
+        fitting.adopt(14, [0.1, 20.0]).unwrap().unwrap().depth,
+        DepthRange::EmptyDepth
+    );
 }

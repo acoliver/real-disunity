@@ -1,4 +1,5 @@
 mod gaps;
+mod history;
 use super::*;
 use crate::shadows::cascades::CascadeViews;
 use worldrunner_render_shadow::{DepthRange, RangeFit};
@@ -8,6 +9,7 @@ fn policy() -> RangeFit {
         far_step: 1.0,
         minimum_span: 1.0,
         split_lambda: 0.5,
+        split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
     }
 }
 #[test]

@@ -96,6 +96,17 @@ pub(super) fn configure_effects(
         *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
     }
     resident.set_retained_effects(effects)?;
+    match resident {
+        Resident::Shadowed(scene) => {
+            scene.set_scene_depth_fitting(context, effects.depth_fitting())?;
+        }
+        Resident::Plain(_) if effects.depth_fitting().is_some() => {
+            return Err(ViewerError::UnsupportedScene(
+                "depth fitting requires directional shadows",
+            ));
+        }
+        Resident::Plain(_) => {}
+    }
     presentation
         .scheduler
         .reconfigure(context, settings)

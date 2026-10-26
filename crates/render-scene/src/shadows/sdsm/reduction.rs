@@ -268,6 +268,7 @@ mod tests {
                 far_step: 1.0,
                 minimum_span: 1.0,
                 split_lambda: 0.5,
+                split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
             },
         })
         .unwrap();

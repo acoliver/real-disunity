@@ -199,6 +199,7 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let source_frame = host.as_ref().map(|_| self.streaming.captures.next_frame());
         let mut retained_capture = if let Some(host) = host.as_deref_mut() {
             self.streaming
                 .captures
@@ -208,7 +209,13 @@ impl Renderer {
         };
         let capture_output = retained_capture.is_some();
         let image = retained_capture.as_mut().map(|(_, image)| image);
-        let prepared = self.encode_frame(view, capture.or(image), &output, capture_output)?;
+        let prepared = self.encode_frame(
+            view,
+            capture.or(image),
+            &output,
+            capture_output,
+            source_frame,
+        )?;
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
@@ -227,22 +234,32 @@ impl Renderer {
         mut capture: Option<&mut live::Capture>,
         output: &wgpu::TextureView,
         capture_output: bool,
+        source_frame: Option<u64>,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
         if capture.is_some()
             && let Resident::Shadowed(scene) = &mut self.resident
         {
             scene.request_shadow_capture();
         }
+        let fitted = self.resident.render_depth_fitted(
+            &self.context,
+            view,
+            &self.presentation.targets,
+            self.presentation.scheduler.encoding(),
+            (source_frame, capture.is_some()),
+        )?;
         self.context
             .submission()
             .prepare(self.context.device(), |encoder, _| {
-                self.resident.render(
-                    &self.context,
-                    view,
-                    &self.presentation.targets,
-                    encoder,
-                    self.presentation.scheduler.encoding(),
-                )?;
+                if !fitted {
+                    self.resident.render(
+                        &self.context,
+                        view,
+                        &self.presentation.targets,
+                        encoder,
+                        self.presentation.scheduler.encoding(),
+                    )?;
+                }
                 self.presentation.present(encoder, output)?;
                 if let Some(capture) = &mut capture {
                     let source = if capture_output {
@@ -381,14 +398,28 @@ impl Resident {
     ) -> Result<Self, ViewerError> {
         let scene = prepared.scene().clone();
         Ok(if let Some(settings) = shadows {
-            Self::Shadowed(Box::new(ShadowedScene::with_prepared_target(
+            let mut shadowed = ShadowedScene::with_prepared_target(
                 context,
                 prepared,
                 settings,
                 profile.target().0,
                 profile.target().1,
-            )?))
+            )?;
+            shadowed.set_scene_depth_fitting(
+                context,
+                scene.effects().and_then(|effects| effects.depth_fitting()),
+            )?;
+            Self::Shadowed(Box::new(shadowed))
         } else {
+            if scene
+                .effects()
+                .and_then(|effects| effects.depth_fitting())
+                .is_some()
+            {
+                return Err(ViewerError::UnsupportedScene(
+                    "depth fitting requires directional shadows",
+                ));
+            }
             let constructor = if scene.effects().and_then(|effects| effects.ssao()).is_some() {
                 ScenePipelines::with_ssao
             } else {
@@ -408,6 +439,33 @@ impl Resident {
                 clear: None,
             }))
         })
+    }
+    fn render_depth_fitted(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        targets: &crate::presentation::Targets,
+        mut scheduler: worldrunner_render_scene::compositor::FrameEncoding<'_>,
+        frame: (Option<u64>, bool),
+    ) -> Result<bool, ViewerError> {
+        let Self::Shadowed(scene) = self else {
+            return Ok(false);
+        };
+        if scene.depth_fitting_settings().is_none() {
+            return Ok(false);
+        }
+        let color = worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene color"),
+            targets.color.texture(),
+        )
+        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        let depth = worldrunner_render_post::AttachmentView::new(
+            worldrunner_render_post::ResourceRef::new("scene depth"),
+            targets.depth.texture(),
+        )
+        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        scheduler.render_depth_fitted(context, view, (&color, &depth), frame, scene)?;
+        Ok(true)
     }
     fn render(
         &mut self,
@@ -453,3 +511,6 @@ pub(crate) mod retained_tests;
 
 #[cfg(test)]
 mod hdr_tests;
+
+#[cfg(test)]
+mod sdsm_tests;

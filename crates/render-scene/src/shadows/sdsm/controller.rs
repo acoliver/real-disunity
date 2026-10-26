@@ -55,7 +55,13 @@ impl DepthFitting {
         ticket: &super::ReductionTicket,
         reading: Result<DepthRange, SdsmError>,
     ) -> Result<(), SdsmError> {
-        self.state.complete(ticket, reading?)
+        match reading {
+            Ok(depth) => self.state.complete(ticket, depth),
+            Err(error) => {
+                self.state.invalidate();
+                Err(error)
+            }
+        }
     }
     pub fn adopt(
         &mut self,
@@ -63,6 +69,20 @@ impl DepthFitting {
         clip_meters: [f32; 2],
     ) -> Result<Option<AdoptedFit>, SdsmError> {
         self.state.adopt(frame, clip_meters)
+    }
+    pub fn adopt_at(
+        &mut self,
+        frame: u64,
+        clip: [f32; 2],
+        elapsed: std::time::Duration,
+    ) -> Result<Option<AdoptedFit>, SdsmError> {
+        self.state.adopt_at(frame, clip, elapsed)
+    }
+    pub fn invalidate_pending(&mut self) {
+        self.state.invalidate_pending();
+    }
+    pub fn invalidate(&mut self) {
+        self.state.invalidate();
     }
     pub fn reducer(&self) -> &DepthReducer {
         &self.reducer

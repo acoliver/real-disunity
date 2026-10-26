@@ -71,6 +71,8 @@ pub use terrain_layered::{
     TerrainColorization, TerrainColorizationChannels, TerrainLayer, TerrainLayeredSource,
     TerrainSplatFilter, TerrainTypeGrid,
 };
+mod terrain_page_policy;
+pub use terrain_page_policy::TerrainPagePolicy;
 mod terrain_pages;
 pub use terrain_pages::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 #[cfg(test)]
@@ -219,6 +221,42 @@ impl RenderScene {
             effects,
         };
         scene.validate_references()?;
+        Ok(scene)
+    }
+
+    /// Replaces resource tables while retaining the immutable terrain allocation.
+    ///
+    /// # Errors
+    /// Returns an error if any existing terrain or object reference becomes invalid.
+    pub fn with_resources(
+        &self,
+        resources: SceneResources,
+        geometry: SceneGeometry,
+        effects: Option<SceneEffects>,
+    ) -> Result<Self, SceneValidationError> {
+        let scene = Self {
+            resources,
+            geometry,
+            terrain: self.terrain.clone(),
+            effects,
+        };
+        scene.validate()?;
+        Ok(scene)
+    }
+
+    /// Installs, replaces or removes shared immutable terrain, including its layered source.
+    ///
+    /// # Errors
+    /// Returns an error when terrain or its resource references are invalid.
+    pub fn with_terrain(
+        &self,
+        terrain: Option<std::sync::Arc<SceneTerrain>>,
+    ) -> Result<Self, SceneValidationError> {
+        let scene = Self {
+            terrain,
+            ..self.clone()
+        };
+        scene.validate()?;
         Ok(scene)
     }
 

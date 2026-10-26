@@ -98,3 +98,27 @@ fn terrain_pages_expose_only_filter_safe_mips() {
     .unwrap();
     assert_eq!(narrow.maximum_sampling_mip(), 0);
 }
+
+#[test]
+fn terrain_page_policy_requires_bounded_slots_and_allocation() {
+    use super::{TerrainPagePolicy, TerrainPageSettingsError};
+    let settings = TerrainPageSettings::new(parts()).unwrap();
+    assert_eq!(
+        TerrainPagePolicy::new(settings, 84, 10_000_000),
+        Err(TerrainPageSettingsError::SelectionBounds)
+    );
+    assert_eq!(
+        TerrainPagePolicy::new(settings, 85, 1),
+        Err(TerrainPageSettingsError::Budget)
+    );
+    let policy = TerrainPagePolicy::new(settings, 85, 10_000_000).unwrap();
+    assert_eq!(policy.settings(), settings);
+    assert_eq!(policy.slots(), 85);
+    assert_eq!(policy.budget_bytes(), 10_000_000);
+    let root = TerrainPageSettings::new(TerrainPageSettingsParts {
+        maximum_depth: 0,
+        ..parts()
+    })
+    .unwrap();
+    assert!(TerrainPagePolicy::new(root, 1, 10_000_000).is_ok());
+}

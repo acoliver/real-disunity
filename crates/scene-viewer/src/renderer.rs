@@ -200,9 +200,13 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         let source_frame = host.as_ref().map(|_| self.streaming.captures.next_frame());
         let mut retained_capture = if let Some(host) = host.as_deref_mut() {
-            self.streaming
-                .captures
-                .prepare(self.context.device(), host, &ready.frame.texture)?
+            let pages_ready = self.retained_pages_ready(host, view)?;
+            self.streaming.captures.prepare(
+                self.context.device(),
+                host,
+                &ready.frame.texture,
+                pages_ready,
+            )?
         } else {
             None
         };

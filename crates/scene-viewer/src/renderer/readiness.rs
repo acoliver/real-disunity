@@ -3,6 +3,45 @@ use crate::RetainedHost;
 use std::sync::mpsc::TryRecvError;
 
 impl Renderer {
+    pub(crate) fn view_pages_ready(
+        &mut self,
+        view: &worldrunner_render_scene::SceneView,
+    ) -> Result<bool, ViewerError> {
+        let color = self.presentation.targets.color.texture();
+        let viewport = [color.width(), color.height()];
+        let frame = worldrunner_render_scene::frame::FrameUniform::new(view, None)?;
+        let gpu = self.resident.scene_mut();
+        let request = gpu
+            .terrain_residency_request(&frame, viewport)
+            .expect("validated page dependency requires paging");
+        gpu.terrain_residency_ready(&request)
+            .map_err(|error| ViewerError::Gpu(error.to_string()))
+    }
+
+    pub(super) fn retained_pages_ready(
+        &mut self,
+        host: &mut RetainedHost,
+        view: &worldrunner_render_scene::SceneView,
+    ) -> Result<bool, ViewerError> {
+        let needs_pages = host.readiness.page_wait
+            || host
+                .captures
+                .waiting
+                .iter()
+                .any(|r| r.1 == host.readiness.published && r.2);
+        if !needs_pages {
+            return Ok(false);
+        }
+        let ready = self.view_pages_ready(view)?;
+        if ready && host.readiness.page_wait {
+            host.readiness.page_wait = false;
+            host.readiness.ready = host.readiness.published;
+        }
+        Ok(ready)
+    }
+}
+
+impl Renderer {
     pub(super) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
         self.streaming.publish(
             &self.context,
@@ -22,7 +61,7 @@ impl Streaming {
         host: &mut RetainedHost,
     ) -> Result<(), ViewerError> {
         self.collect(context.submission().completed_serial());
-        if host.captures.holds_generation(host.ready_generation()) {
+        if host.readiness.page_wait || host.captures.holds_generation(host.ready_generation()) {
             return Ok(());
         }
         let Some(front) = host.readiness.queue.front_mut() else {

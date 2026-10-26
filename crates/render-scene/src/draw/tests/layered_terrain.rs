@@ -242,3 +242,48 @@ fn layered_prepared_scene_pixels_match_cpu_reference_with_metallic() {
         }
     }
 }
+
+#[test]
+fn scene_policy_installs_layered_pages_and_enforces_allocation_budget() {
+    let context = context();
+    let source = layered_scene(TerrainSplatFilter::Bilinear);
+    let config = page_source();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let authority = SubmissionAuthority::new(context.queue().clone());
+    for budget in [config.budget.0, config.settings.page_bytes()] {
+        let policy =
+            worldrunner_render_plan::TerrainPagePolicy::new(config.settings, config.slots, budget)
+                .unwrap();
+        let terrain = source
+            .terrain()
+            .unwrap()
+            .clone()
+            .with_page_policy(Some(policy))
+            .unwrap();
+        let scene = source
+            .with_terrain(Some(std::sync::Arc::new(terrain)))
+            .unwrap();
+        let uploaded = SceneGpu::upload(context.device(), &authority, &scene, &pipelines);
+        if budget != config.budget.0 {
+            assert!(matches!(uploaded, Err(DrawError::TerrainPages(_))));
+            continue;
+        }
+        let gpu = uploaded.unwrap();
+        assert!(gpu.has_terrain_pages());
+        let frame = matching_frame();
+        gpu.set_frame(context.queue(), frame);
+        let request = gpu.terrain_residency_request(&frame, [TARGET; 2]).unwrap();
+        assert!(!gpu.terrain_residency_ready(&request).unwrap());
+        let mut transaction = authority.begin(context.device()).unwrap();
+        gpu.prepare_terrain_pages(context.device(), &mut transaction, &frame, [TARGET; 2])
+            .unwrap();
+        transaction.finish().submit().unwrap();
+        context
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        assert!(gpu.terrain_residency_ready(&request).unwrap());
+        let actual = draw_pixels(&context, &authority, &gpu, &pipelines);
+        assert_eq!(actual, render_prepared(&context, &source, true));
+    }
+}

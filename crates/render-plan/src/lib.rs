@@ -72,7 +72,9 @@ pub use scene::{
     TerrainLodPolicy, TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter,
     TextureHandle, TextureSampler, TextureWrap,
 };
-pub use scene::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
+pub use scene::{
+    TerrainPagePolicy, TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts,
+};
 
 pub use document::{
     AmbientLightMicro, AssetBinding, AssetResolutionPolicy, AxisDirection, BindingElementPolicy,

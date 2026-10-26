@@ -6,6 +6,8 @@ use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 mod windowless;
 pub use windowless::WindowlessRetained;
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) use windowless::tests::pages::layered_scene;
 mod input;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
@@ -19,6 +21,8 @@ pub(crate) use session::Session;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod terrain_tests;
 /// Caller-selected identity. Initial objects have IDs 0 through `object_count - 1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ObjectId(pub u64);
@@ -42,6 +46,9 @@ pub enum RetainedUpdate {
     /// Lighting and post settings, prepared before atomic frame publication.
     /// Water, SSAO and SSR edits require an HDR frame profile.
     Settings(Box<SceneEffects>),
+    /// Installs, replaces or removes terrain and its layered material source.
+    /// Preparation and publication use the same bounded queue as resource edits.
+    Terrain(Option<std::sync::Arc<worldrunner_render_plan::SceneTerrain>>),
     /// Replace resource tables before adding or replacing objects that reference them.
     /// Existing objects and terrain must remain valid against the new tables.
     /// Textures requiring features absent from the initial device are rejected
@@ -152,6 +159,12 @@ impl RetainedHost {
                 limit: 64,
                 accepted: 0,
                 ready: 0,
+                published: 0,
+                pages_enabled: scene
+                    .terrain()
+                    .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
+                    .is_some(),
+                page_wait: false,
                 camera: (options.pose, options.camera),
                 #[cfg(test)]
                 preparation_hook: None,
@@ -187,7 +200,7 @@ impl RetainedHost {
 
     /// Invalid edits fail before changing CPU state or enqueuing GPU work.
     pub fn apply(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
-        if self.readiness.queue.len() == self.readiness.limit {
+        if self.preparations_in_flight() == self.readiness.limit {
             return Err(ViewerError::BackPressure {
                 limit: self.readiness.limit,
             });
@@ -199,6 +212,20 @@ impl RetainedHost {
             self.enqueue(update, false);
             return Ok(());
         }
+        if let RetainedUpdate::Terrain(terrain) = &update {
+            let scene = self
+                .scene
+                .with_terrain(terrain.clone())
+                .map_err(|error| ViewerError::Driver(error.to_string()))?;
+            crate::validate(&scene, &self.options)?;
+            self.scene = scene;
+            self.enqueue(update, true);
+            return Ok(());
+        }
+        self.apply_scene_update(update)
+    }
+
+    fn apply_scene_update(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
         let mut objects = self.objects.clone();
         let mut effects = self.scene.effects().cloned();
         let mut replacement = None;
@@ -223,7 +250,9 @@ impl RetainedHost {
                     .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))? = *object;
                 false
             }
-            RetainedUpdate::Camera { .. } => unreachable!("camera accepted above"),
+            RetainedUpdate::Camera { .. } | RetainedUpdate::Terrain(_) => {
+                unreachable!("camera and terrain accepted above")
+            }
             RetainedUpdate::Settings(next) => {
                 self.validate_streamed_effects(next)?;
                 let rebuild = readiness::resource_settings_changed(self.scene.effects(), next);

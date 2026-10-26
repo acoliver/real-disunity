@@ -20,12 +20,14 @@ pub enum CaptureRequestError {
     UnknownGeneration { generation: u64 },
     #[error("generation {generation} was superseded by {ready}")]
     Superseded { generation: u64, ready: u64 },
+    #[error("page dependency requires paging for generation {generation}")]
+    PagingDisabled { generation: u64 },
     #[error("host is exiting")]
     Exiting,
 }
 
 pub(crate) struct Captures {
-    pub waiting: VecDeque<(u64, u64)>,
+    pub waiting: VecDeque<(u64, u64, bool)>,
     outstanding: BTreeMap<u64, u64>,
     pub events: VecDeque<RetainedEvent>,
     limit: usize,
@@ -97,17 +99,28 @@ impl RetainedHost {
     /// A pending successor closes admission for the ready generation with
     /// `BackPressure`, so its finite accepted cohort drains before publication.
     pub fn request_capture(&mut self, generation: u64) -> Result<u64, CaptureRequestError> {
+        self.request_capture_with_dependency(generation, false)
+    }
+
+    fn request_capture_with_dependency(
+        &mut self,
+        generation: u64,
+        require_pages: bool,
+    ) -> Result<u64, CaptureRequestError> {
         if self.exit {
             return Err(CaptureRequestError::Exiting);
         }
         if generation > self.accepted_generation() {
             return Err(CaptureRequestError::UnknownGeneration { generation });
         }
-        if generation < self.ready_generation() {
+        if generation < self.readiness.published {
             return Err(CaptureRequestError::Superseded {
                 generation,
-                ready: self.ready_generation(),
+                ready: self.readiness.published,
             });
+        }
+        if require_pages && !self.readiness.pages_enabled_for(generation) {
+            return Err(CaptureRequestError::PagingDisabled { generation });
         }
         if (generation == self.ready_generation() && !self.readiness.queue.is_empty())
             || self.captures.outstanding.len() == self.captures.limit
@@ -119,8 +132,19 @@ impl RetainedHost {
         let id = self.captures.next;
         self.captures.next = id.checked_add(1).expect("capture ID overflow");
         self.captures.outstanding.insert(id, generation);
-        self.captures.waiting.push_back((id, generation));
+        self.captures
+            .waiting
+            .push_back((id, generation, require_pages));
         Ok(id)
+    }
+
+    /// Captures the first frame whose current-view selected material pages are resident.
+    /// Disabled paging is rejected without consuming request capacity.
+    pub fn request_capture_with_pages(
+        &mut self,
+        generation: u64,
+    ) -> Result<u64, CaptureRequestError> {
+        self.request_capture_with_dependency(generation, true)
     }
 }
 

@@ -90,7 +90,7 @@ Text covers printable ASCII with line breaks and kerning. Font size is pixels pe
 | `Color`, `Rect`, `Bounds`, `LayerMask` | Value types with their fields; `Color.white`, `Color.clear` |
 | Formatting | `ToString` on `Vector2`, `Vector3`, `Vector2Int`, `Quaternion` and `Color` prints as current Unity does, for example `(1.00, 2.00)` and `RGBA(1.000, 0.000, 0.000, 1.000)` |
 | `Mathf` | `Min`, `Clamp` |
-| `Random` | `value`, `Range(int, int)`, `Range(float, float)`. Not seedable. |
+| `Random` | `value`, `Range(int, int)`, `Range(float, float)`, `InitState`. A seed always repeats its sequence, but the values differ from Unity's for the same seed. |
 | `Debug` | `Log`, `LogError`, written to the console |
 | `UnityEngine.Events.UnityEvent<T>` | `AddListener`, `RemoveListener`, `RemoveAllListeners`, `Invoke`, `GetPersistentEventCount`, `GetPersistentMethodName`, `GetPersistentTarget`. Calls set in the editor load with the scene and run before runtime listeners, in authored order, with the event's argument or their fixed one; `RemoveAllListeners` leaves them, as in Unity. Clones call their own copies of the targets. |
 

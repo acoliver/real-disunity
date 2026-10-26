@@ -123,3 +123,43 @@ fn zero_advance_and_intentionally_empty_glyphs_remain_valid() {
     assert!(text.lines[0].width > 0.);
     assert!(text.glyphs.is_empty());
 }
+
+/// The default font with `extra` appended as glyph 2, which no character maps to.
+fn font_with_glyph(extra: Vec<u8>) -> Vec<u8> {
+    ui_font::assemble(&[Vec::new(), ui_font::glyph(1), extra], 800, -200)
+}
+
+/// A composite glyph: one record per `(glyph, more)` component, offset by word arguments.
+fn composite(components: &[(u16, bool)]) -> Vec<u8> {
+    let mut glyf = Vec::new();
+    for n in [-1_i16, 0, 0, 0, 0] {
+        glyf.extend(n.to_be_bytes());
+    }
+    for &(component, more) in components {
+        let flags = 0x0003_u16 | if more { 0x0020 } else { 0 };
+        for n in [flags, component, 0, 0] {
+            glyf.extend(n.to_be_bytes());
+        }
+    }
+    glyf
+}
+
+#[test]
+fn composites_of_empty_glyphs_are_empty_glyphs() {
+    // Fonts such as Liberation Sans draw no-break spaces as a composite of the space glyph.
+    let empty = composite(&[(0, false)]);
+    assert!(book().register(font_with_glyph(empty)).is_ok());
+    let drawn = composite(&[(1, false)]);
+    assert!(book().register(font_with_glyph(drawn)).is_ok());
+    for (components, case) in [
+        (vec![(9, false)], "a component past the glyph count"),
+        (vec![(2, false)], "a composite of itself"),
+        (
+            vec![(0, true)],
+            "records that end before their last component",
+        ),
+    ] {
+        let bytes = font_with_glyph(composite(&components));
+        assert_eq!(book().register(bytes), Err(UiError::InvalidFont), "{case}");
+    }
+}

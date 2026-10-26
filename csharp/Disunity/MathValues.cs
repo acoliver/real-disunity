@@ -39,10 +39,15 @@ public static class Mathf
     public static float Clamp(float value, float min, float max) => Math.Clamp(value, min, max);
 }
 
+/// <summary>Unity's random numbers. Unseeded, the sequence differs every run, as in Unity.
+/// After <see cref="InitState"/> a seed always gives the same sequence, though not the values
+/// Unity's generator gives for that seed.</summary>
 public static class Random
 {
-    public static float value => System.Random.Shared.NextSingle();
-    public static int Range(int minInclusive, int maxExclusive) => System.Random.Shared.Next(minInclusive, maxExclusive);
+    private static System.Random _source = new();
+    public static void InitState(int seed) => _source = new System.Random(seed);
+    public static float value => _source.NextSingle();
+    public static int Range(int minInclusive, int maxExclusive) => _source.Next(minInclusive, maxExclusive);
     public static float Range(float minInclusive, float maxInclusive) => minInclusive + value * (maxInclusive - minInclusive);
 }
 

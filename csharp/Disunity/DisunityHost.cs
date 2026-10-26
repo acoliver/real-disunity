@@ -61,7 +61,15 @@ public static partial class DisunityHost
         return behaviour;
     }
 
-    public static unsafe void Step(float deltaTime)
+    public static void Step(float deltaTime)
+    {
+        Advance(deltaTime);
+        ReportAudioListenerDiagnostic();
+    }
+
+    /// <summary>Advances without Unity's per-frame scene diagnostics, which do not apply while
+    /// the world is being torn down.</summary>
+    private static unsafe void Advance(float deltaTime)
     {
         EnsureWorld();
         SubmitPending();
@@ -70,7 +78,6 @@ public static partial class DisunityHost
         DisunityAdvance work;
         ThrowIfError(NativeBindings.disunity_world_advance(WorldHandle, nanos, denominator, &work));
         Drain(work);
-        ReportAudioListenerDiagnostic();
     }
 
     public static unsafe void Dispatch(ulong identity, uint message)
@@ -170,7 +177,7 @@ public static partial class DisunityHost
             {
                 foreach (var asset in Assets.Values.ToArray()) UnityEngine.Object.Destroy(asset);
                 foreach (var value in Tracked.ToArray()) value.Destroy();
-                Step(0);
+                Advance(0);
             }
         }
         finally

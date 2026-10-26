@@ -3994,6 +3994,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "worldrunner-play"
+version = "0.1.0"
+dependencies = [
+ "png",
+ "serde_json",
+ "thiserror 2.0.21",
+ "worldrunner-disunity-runtime",
+ "worldrunner-original-games",
+ "worldrunner-render-plan",
+ "worldrunner-render-scene",
+ "worldrunner-scene-viewer",
+ "worldrunner-unity-import",
+]
+
+[[package]]
 name = "worldrunner-render-gpu"
 version = "0.1.0"
 dependencies = [

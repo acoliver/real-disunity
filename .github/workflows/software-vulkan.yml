@@ -21,8 +21,14 @@ jobs:
           components: rustfmt, clippy
       # The live-window tests send real X11 key and focus events with xdotool, take focus
       # with an xmessage window (x11-utils) and pin the keymap with setxkbmap (x11-xkb-utils).
+      # The play-window test draws Pong's score in Liberation Sans (fonts-liberation), the
+      # metric-compatible stand-in for Unity's Arial.
       - name: Install software Vulkan implementation and isolated X11 display
-        run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth libxkbcommon-x11-0 xdotool x11-utils x11-xkb-utils
+        run: sudo apt-get update && sudo apt-get install --yes mesa-vulkan-drivers vulkan-tools xvfb xauth libxkbcommon-x11-0 xdotool x11-utils x11-xkb-utils fonts-liberation fontconfig
+      # The play-window test compiles the original games' scripts and the managed bridge.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
       - uses: Swatinem/rust-cache@v2
       - name: Select lavapipe explicitly and verify the device
         shell: bash

@@ -71,6 +71,7 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-disunity-runtime", Layer::Managed),
     ("worldrunner-content-tool", Layer::Tool),
     ("worldrunner-unity-import", Layer::Tool),
+    ("worldrunner-original-games", Layer::Tool),
     ("xtask", Layer::Tool),
     ("worldrunner", Layer::Facade),
 ];

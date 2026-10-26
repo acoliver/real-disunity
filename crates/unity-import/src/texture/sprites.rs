@@ -22,6 +22,8 @@ pub struct Sprite {
     pub pixels_per_unit: f64,
     /// Nine-slice border: left, bottom, right, top, in pixels.
     pub border: [f64; 4],
+    /// Whether the importer settings hold a custom physics shape for this sprite.
+    pub authored_physics_shape: bool,
 }
 
 pub(super) fn read(
@@ -32,7 +34,7 @@ pub(super) fn read(
 ) -> Result<Vec<Sprite>, String> {
     let sprites = match settings.sprite_mode {
         SpriteMode::None => Vec::new(),
-        SpriteMode::Single => vec![single(path, settings, image)?],
+        SpriteMode::Single => vec![single(path, importer, settings, image)?],
         SpriteMode::Multiple => multiple(importer, settings, image)?,
     };
     let mut ids = BTreeSet::new();
@@ -44,7 +46,12 @@ pub(super) fn read(
     Ok(sprites)
 }
 
-fn single(path: &Path, settings: &TextureSettings, image: &Image) -> Result<Sprite, String> {
+fn single(
+    path: &Path,
+    importer: &Mapping,
+    settings: &TextureSettings,
+    image: &Image,
+) -> Result<Sprite, String> {
     let name = path
         .file_stem()
         .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
@@ -55,6 +62,7 @@ fn single(path: &Path, settings: &TextureSettings, image: &Image) -> Result<Spri
         pivot: pivot(settings.alignment, settings.pivot)?,
         pixels_per_unit: settings.pixels_per_unit,
         border: [0.0; 4],
+        authored_physics_shape: has_shape(importer.get("spriteSheet")),
     })
 }
 
@@ -110,8 +118,17 @@ fn entry_sprite(
         pivot: pivot(alignment, custom).map_err(context)?,
         pixels_per_unit: settings.pixels_per_unit,
         border: [border[0], border[1], border[2], border[3]],
+        authored_physics_shape: has_shape(Some(entry)),
         name,
     })
+}
+
+/// Whether `owner` lists a non-empty `physicsShape`.
+fn has_shape(owner: Option<&Node>) -> bool {
+    owner
+        .and_then(|owner| owner.get("physicsShape"))
+        .and_then(Node::as_sequence)
+        .is_some_and(|paths| !paths.is_empty())
 }
 
 /// Current Unity stores each sprite's `internalID`. Unity 2017 maps fileIDs to sprite names in

@@ -3,8 +3,11 @@
 //! Each view reads one object of an imported [`Scene`]. Settings the engine does not implement
 //! fail with the object's location instead of importing with different behavior.
 
+mod body;
+mod camera;
 mod material;
 mod physics;
+mod renderer;
 mod tilemap;
 mod ui;
 mod urp;
@@ -14,8 +17,11 @@ use crate::{
     scene::{ObjectId, Origin, Reference, Scene, Value},
 };
 
+pub use body::{BodyType, Collider, Collider2D, ColliderShape, Interpolation, Rigidbody2D};
+pub use camera::{Camera, CameraParticipant, ClearFlags};
 pub use material::RendererMaterial;
 pub use physics::{Combine, PhysicsMaterial};
+pub use renderer::{RendererSettings, SpriteRenderer, TilemapRenderer};
 pub use tilemap::{Grid, Tile, Tilemap};
 pub use ui::{
     Canvas, CanvasScale, CanvasScaler, FontData, FontStyle, HorizontalOverflow, RectTransform,

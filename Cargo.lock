@@ -3974,6 +3974,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "worldrunner-original-games"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "worldrunner-package"
 version = "0.1.0"
 dependencies = [
@@ -4119,6 +4127,7 @@ dependencies = [
  "png",
  "tempfile",
  "thiserror 2.0.21",
+ "worldrunner-original-games",
 ]
 
 [[package]]

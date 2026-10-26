@@ -174,7 +174,9 @@ replacing the live generation; a rejected extent leaves the old generation usabl
 Geometry retains unexposed linear radiance, including values above one. Output
 first resolves stored colour samples, then applies the scene contract's linear
 `exposure_micro / 1_000_000` multiplier. Component-wise Reinhard maps
-`x = max(radiance, 0) * exposure` to `x / (1 + x)`. At this output boundary,
+`x = max(radiance, 0) * exposure` to `x / (1 + x)`. `ToneMap::Filmic` applies
+[the fitted ACES curve](../render-post/README.md#stock-hdr-effects)
+to the same exposed input. At this output boundary,
 negative radiance (including negative infinity) and NaN map to zero. Positive
 infinity, including half-float storage overflow, maps to the curve's limit of one.
 Zero exposure maps every radiance input to zero, including positive infinity.
@@ -189,7 +191,7 @@ bloom and FXAA. `set_frame_time` derives the step since the preceding encoded ou
 capped at ten seconds after long pauses;
 `set_frame_delta` supplies an explicit simulation step. Fixed capture policies
 override wall-clock timing. `reset_exposure` resets the ordered history once at the next output.
-The shared temporal carry and slot-local published results survive resize. Filmic curves, nonneutral grading and TAA remain
+The shared temporal carry and slot-local published results survive resize. Nonneutral grading and TAA remain
 rejected, including requests with zero weights. MSAA and FXAA may run together.
 
 `FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with

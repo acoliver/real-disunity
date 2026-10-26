@@ -102,7 +102,7 @@ fn sh9_diffuse_reaches_water_scattering_at_one_and_four_samples() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let mut coefficients = [[0; 3]; 9];
     coefficients[0] = [250_000, 500_000, -250_000];
-    for samples in [1, 4] {
+    for (samples, selected) in [(1, false), (4, false), (1, true), (4, true)] {
         let mut renderer = regressions::renderer(&context, samples);
         let mut body = settings();
         body.color_micro = [500_000; 3];
@@ -119,6 +119,15 @@ fn sh9_diffuse_reaches_water_scattering_at_one_and_four_samples() {
         )
         .unwrap();
         let mut frame = FrameUniform::new(&fixture_view(), None).unwrap();
+        if selected {
+            frame.unlit = false;
+            frame.sun_direction = glam::Vec3::Z;
+            frame.specular_convention = worldrunner_render_plan::SceneSpecularConvention {
+                roughness: worldrunner_render_plan::SceneRoughnessRemap::Perceptual04,
+                visibility: worldrunner_render_plan::SceneSpecularVisibility::SchlickSmith,
+                occlusion: worldrunner_render_plan::SceneSpecularOcclusion::RoughnessAware,
+            };
+        }
         frame.diffuse_environment =
             SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap());
         encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5)

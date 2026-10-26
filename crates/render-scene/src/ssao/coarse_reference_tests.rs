@@ -107,6 +107,7 @@ fn gpu_production_spiral_samples_distinct_reduced_levels_against_cpu() {
 fn prepare(context: &crate::device::GpuContext, screen: &SceneMetadata) {
     let projection = glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 100.0);
     let frame = FrameUniform {
+        specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         view: glam::Mat4::IDENTITY,

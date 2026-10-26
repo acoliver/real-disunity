@@ -321,6 +321,7 @@ fn sh9_diffuse_produces_the_same_radiance_for_mesh_terrain_and_cards() {
     let mut coefficients = [[0; 3]; 9];
     coefficients[0] = [250_000, 375_000, 125_000];
     let frame = FrameUniform {
+        specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap()),
         sun_irradiance: Vec3::ZERO,
         ..frame_from(pose())

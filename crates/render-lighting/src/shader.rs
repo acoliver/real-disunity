@@ -15,14 +15,24 @@ fn rd_distribution_ggx(no_h: f32, roughness: f32, epsilon: f32, guard_normalized
 }
 // algorithm 0: height-correlated Smith; 1: Schlick-Smith with hotness reduction.
 fn rd_visibility(no_v: f32, no_l: f32, roughness: f32, algorithm: u32) -> f32 {
-    if algorithm == 1u {
-        let k = max((roughness + 1.0) * (roughness + 1.0) * 0.125, 1e-5);
+    if algorithm != 0u {
+        let k = max(select((roughness + 1.0) * (roughness + 1.0) * 0.125, roughness * roughness * 0.5, algorithm == 2u), 1e-5);
         return 0.25 / ((no_l * (1.0-k) + k) * (no_v * (1.0-k) + k));
     }
     let a2 = roughness * roughness * roughness * roughness;
     let v = no_l * sqrt(no_v * no_v * (1.0-a2) + a2);
     let l = no_v * sqrt(no_l * no_l * (1.0-a2) + a2);
     return 0.5 / max(v+l, 1e-7);
+}
+fn rd_remap_roughness(value: f32, remap: u32) -> f32 {
+    if remap == 2u { return sqrt(clamp(value, 0.0, 1.0)); }
+    return value;
+}
+fn rd_specular_occlusion(no_v: f32, ao: f32, roughness: f32) -> f32 {
+    return clamp(pow(abs(no_v + ao), exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
+}
+fn rd_split_sum(f0: vec3<f32>, coefficients: vec2<f32>) -> vec3<f32> {
+    return f0 * coefficients.x + vec3<f32>(coefficients.y);
 }
 fn rd_fresnel_schlick(cosine: f32, f0: vec3<f32>) -> vec3<f32> {
     let t = clamp(1.0-cosine, 0.0, 1.0);

@@ -232,3 +232,25 @@ fn water_body_collection_replaces_single_input_and_validates_every_body() {
             .is_err()
     );
 }
+
+#[test]
+fn scene_specular_selection_is_explicit_and_default_is_unchanged() {
+    use crate::{
+        SceneRoughnessRemap, SceneSpecularConvention, SceneSpecularOcclusion,
+        SceneSpecularVisibility,
+    };
+    let effects = SceneEffects::new(parts()).unwrap();
+    assert_eq!(
+        effects.specular_convention(),
+        SceneSpecularConvention::default()
+    );
+    assert_eq!(effects.specular_convention().shader_options(), [0; 3]);
+    let selected = SceneSpecularConvention {
+        roughness: SceneRoughnessRemap::Perceptual04,
+        visibility: SceneSpecularVisibility::SchlickSmith,
+        occlusion: SceneSpecularOcclusion::RoughnessAware,
+    };
+    let effects = effects.with_specular_convention(selected);
+    assert_eq!(effects.specular_convention(), selected);
+    assert_eq!(selected.shader_options(), [1; 3]);
+}

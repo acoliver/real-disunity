@@ -4,14 +4,14 @@ use worldrunner_render_post::{
 };
 
 pub(crate) fn source(source: &str, terrain: bool) -> String {
-    let source = source.replace("return direct * sunlight_visibility(world_position, normal) + ambient;",
-        "return direct * sunlight_visibility(world_position, normal) + ambient + forward_reflection(world_position, normal, f0, roughness);");
+    let source = source.replace("vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
+        "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao);");
     let source = if terrain {
         source
     } else {
         source.replace(
-            "forward_reflection(world_position, normal, f0, roughness)",
-            "forward_reflection(world_position, scene_environment_normal(normal), f0, roughness)",
+            "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao)",
+            "forward_reflection(world_position, scene_environment_normal(normal), f0, scene_environment_roughness(roughness_in), ao)",
         ) + "\nfn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { if material.contact_surface.z > 0.0 { return reflection_normal(normal); } return normal; }"
     };
     let source = if terrain {

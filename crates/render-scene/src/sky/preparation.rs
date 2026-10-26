@@ -6,9 +6,13 @@ use worldrunner_render_gpu::{
     submission::{Publications, TransactionStatus},
 };
 
-const SOURCE: &str = include_str!("preparation.wgsl");
+const SOURCE: &str = concat!(
+    worldrunner_render_lighting::lighting_wgsl!(),
+    include_str!("preparation.wgsl")
+);
 #[derive(Clone, Copy, Debug)]
 pub struct EnvironmentPreparation {
+    pub convention: worldrunner_render_plan::SceneSpecularConvention,
     pub cube_size: u32,
     pub mip_count: u32,
     pub lut_size: u32,
@@ -65,8 +69,12 @@ pub struct PreparedEnvironmentMaps {
     cube: wgpu::Texture,
     lut: wgpu::Texture,
     transaction: Publications,
+    convention: worldrunner_render_plan::SceneSpecularConvention,
 }
 impl PreparedEnvironmentMaps {
+    pub const fn convention(&self) -> worldrunner_render_plan::SceneSpecularConvention {
+        self.convention
+    }
     /// Queue ordering permits use after submission without a CPU wait.
     pub fn views(&self) -> Result<(wgpu::TextureView, wgpu::TextureView), PreparationError> {
         if self.transaction.status() != TransactionStatus::Submitted {
@@ -132,6 +140,7 @@ pub fn encode(
         cube,
         lut,
         transaction,
+        convention: settings.convention,
     })
 }
 struct Integration<'a> {
@@ -195,8 +204,8 @@ impl<'a> Integration<'a> {
             u32::from(is_lut),
             layers,
             roughness.to_bits(),
-            0,
-            0,
+            settings.convention.shader_options()[0],
+            settings.convention.shader_options()[1],
             0,
         ]
         .into_iter()

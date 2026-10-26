@@ -19,7 +19,10 @@ mod effects;
 mod lighting;
 mod obscurance;
 pub use depth_fitting::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
-pub use lighting::{SceneDiffuseEnvironment, SceneSh9};
+pub use lighting::{
+    SceneDiffuseEnvironment, SceneRoughnessRemap, SceneSh9, SceneSpecularConvention,
+    SceneSpecularOcclusion, SceneSpecularVisibility,
+};
 pub use obscurance::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel};
 mod water;
 mod water_settings;

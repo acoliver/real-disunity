@@ -4,8 +4,8 @@ struct Parameters {
     lut:u32,
     layers:u32,
     roughness:f32,
-    padding0:f32,
-    padding1:f32,
+    remap:u32,
+    visibility:u32,
     padding2:f32,
 }
 @group(0) @binding(0) var<uniform> params:Parameters;
@@ -40,18 +40,16 @@ fn cube_ray(face:u32,uv:vec2<f32>)->vec3<f32> {
     }
     return normalize(ray);
 }
-fn brdf(no_v:f32,roughness:f32)->vec2<f32> {
+fn brdf(no_v:f32,input_roughness:f32)->vec2<f32> {
+    let roughness=rd_remap_roughness(input_roughness,params.remap);
     let v=vec3(sqrt(1.0-no_v*no_v),0.0,no_v);
-    let a2=roughness*roughness*roughness*roughness;
     var sum=vec2(0.0);
     for(var i=0u;i<params.samples;i++) {
         let h=sample_half(i,roughness);
         let vo_h=max(dot(v,h),0.0);
         let l=2.0*vo_h*h-v;
         if l.z>0.0 {
-            let gv=l.z*sqrt(no_v*no_v*(1.0-a2)+a2);
-            let gl=no_v*sqrt(l.z*l.z*(1.0-a2)+a2);
-            let visibility=0.5/max(gv+gl,1e-7);
+            let visibility=rd_visibility(no_v,l.z,roughness,params.visibility*2u);
             let weight=4.0*visibility*l.z*vo_h/max(h.z,1e-7);
             let fc=pow(1.0-vo_h,5.0);
             sum+=vec2(1.0-fc,fc)*weight;
@@ -60,6 +58,7 @@ fn brdf(no_v:f32,roughness:f32)->vec2<f32> {
     return sum/f32(params.samples);
 }
 fn filtered(n:vec3<f32>)->vec3<f32> {
+    let roughness=rd_remap_roughness(params.roughness,params.remap);
     var seed=vec3(0.0,0.0,1.0);
     if abs(n.z)>=0.999 { seed=vec3(1.0,0.0,0.0); }
     let tangent=normalize(cross(seed,n));
@@ -67,14 +66,14 @@ fn filtered(n:vec3<f32>)->vec3<f32> {
     var sum=vec3(0.0);
     var weight=0.0;
     for(var i=0u;i<params.samples;i++) {
-        let local=sample_half(i,params.roughness);
+        let local=sample_half(i,roughness);
         let h=tangent*local.x+bitangent*local.y+n*local.z;
         let l=2.0*dot(n,h)*h-n;
         let no_l=max(dot(n,l),0.0);
         if no_l>0.0 {
             var mip=0.0;
-            if params.roughness>0.0 {
-                let alpha2=pow(params.roughness,4.0);
+            if roughness>0.0 {
+                let alpha2=pow(roughness,4.0);
                 let no_h=max(dot(n,h),0.0);
                 let denominator=no_h*no_h*(alpha2-1.0)+1.0;
                 // V=N, so the GGX reflection PDF D*NoH/(4*VoH) reduces to D/4.

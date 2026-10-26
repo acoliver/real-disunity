@@ -1,3 +1,46 @@
+fn math_layout(device: &wgpu::Device, uniform: Option<u32>, ground: bool) -> wgpu::PipelineLayout {
+    let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    };
+    // Specialization can remove every frame read, but the harness still uploads its input.
+    let mut entries = vec![entry(
+        1,
+        wgpu::BufferBindingType::Storage { read_only: false },
+    )];
+    if let Some(binding) = uniform {
+        entries.push(entry(binding, wgpu::BufferBindingType::Uniform));
+    }
+    let mut groups = vec![
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &entries,
+        }),
+    ];
+    if ground {
+        groups.push(
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[entry(
+                    7,
+                    wgpu::BufferBindingType::Storage { read_only: true },
+                )],
+            }),
+        );
+    }
+    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &groups.iter().map(Some).collect::<Vec<_>>(),
+        immediate_size: 0,
+    })
+}
+
 #[test]
 fn foliage_wind_fixed_time_and_integer_period_are_deterministic() {
     let context = pollster::block_on(crate::device::GpuContext::request_with_features(
@@ -146,6 +189,7 @@ fn configured_frame(
     .prepare()
     .unwrap();
     crate::frame::FrameUniform {
+        specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
         unlit: false,
@@ -176,20 +220,19 @@ fn evaluate_with_ground(
     frame: Option<&crate::frame::FrameUniform>,
     ground: Option<&[f32]>,
 ) -> Vec<f32> {
+    evaluate_source(context, ENVIRONMENT_WGSL, entry, frame, ground)
+}
+
+pub(crate) fn evaluate_source(
+    context: &GpuContext,
+    source: &str,
+    entry: &str,
+    frame: Option<&crate::frame::FrameUniform>,
+    ground: Option<&[f32]>,
+) -> Vec<f32> {
     let device = context.device();
-    let source = format!("{ENVIRONMENT_WGSL}\n{entry}");
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: None,
-        layout: None,
-        module: &shader,
-        entry_point: Some("evaluate_math"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    });
+    let source = format!("{source}\n{entry}");
+    let (pipeline, uniform_binding) = math_pipeline(device, &source, frame, ground.is_some());
     let output = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: 16,
@@ -209,7 +252,7 @@ fn evaluate_with_ground(
     }];
     if let Some(uniform) = &uniform {
         entries.push(wgpu::BindGroupEntry {
-            binding: 0,
+            binding: uniform_binding,
             resource: uniform.as_entire_binding(),
         });
     }
@@ -511,3 +554,166 @@ fn sh9_frame_coefficients_match_cpu_polynomial_for_every_slot_and_axis() {
         }
     }
 }
+
+#[test]
+fn selected_specular_conventions_reach_production_kernels() {
+    use worldrunner_render_plan::{
+        SceneRoughnessRemap, SceneSpecularConvention, SceneSpecularOcclusion,
+        SceneSpecularVisibility,
+    };
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    for (remap, expected) in [
+        (SceneRoughnessRemap::Perceptual045, 0.045),
+        (SceneRoughnessRemap::Perceptual04, 0.04),
+        (SceneRoughnessRemap::LinearAlpha, 0.04),
+    ] {
+        let mut frame = configured_frame(ExposureOwnership::SceneLinear(1.0));
+        frame.specular_convention = SceneSpecularConvention {
+            roughness: remap,
+            visibility: SceneSpecularVisibility::SchlickSmith,
+            occlusion: SceneSpecularOcclusion::RoughnessAware,
+        };
+        let values = evaluate(
+            &context,
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    result[0] = vec4(scene_roughness(0.0), scene_roughness(0.25),
+        scene_specular_ao(0.5,0.5,0.5), scene_specular_brdf(vec4(0.5,0.5,0.5,0.5),0.5,vec3(0.07)).x);
+}",
+            Some(&frame),
+        );
+        assert!((values[0] - expected).abs() < 1e-6);
+        let remapped = if remap == SceneRoughnessRemap::LinearAlpha {
+            0.5
+        } else {
+            0.25
+        };
+        assert!((values[1] - remapped).abs() < 1e-6);
+        assert!((values[2] - 0.5).abs() < 1e-6);
+        let reference = worldrunner_render_lighting::distribution_ggx(0.5, 0.5, 1e-8)
+            * worldrunner_render_lighting::visibility(
+                0.5,
+                0.5,
+                0.5,
+                worldrunner_render_lighting::VisibilityAlgorithm::SchlickSmithHotness,
+            )
+            * 0.07;
+        assert!((values[3] - reference).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn composition_coverage_shared_lighting_in_mesh_terrain_and_water_sources() {
+    use worldrunner_render_plan::{
+        SceneRoughnessRemap, SceneSpecularConvention, SceneSpecularOcclusion,
+        SceneSpecularVisibility,
+    };
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let water = crate::water::water_source(false);
+    let sources = [
+        ENVIRONMENT_WGSL,
+        super::TERRAIN_WGSL,
+        ENVIRONMENT_WGSL,
+        &water,
+    ];
+    let entry = r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    let terms = scene_surface_lighting(vec3(0.0), vec3(0.0,0.0,1.0), vec3(0.3,0.5,0.7), vec3(0.25,0.2,0.4), vec3(0.092,0.132,0.172));
+    result[0] = vec4(terms.color, terms.diffuse.x + terms.specular.x);
+}";
+    for roughness in [
+        SceneRoughnessRemap::Perceptual045,
+        SceneRoughnessRemap::Perceptual04,
+        SceneRoughnessRemap::LinearAlpha,
+    ] {
+        let mut frame = configured_frame(ExposureOwnership::SceneLinear(1.0));
+        frame.specular_convention = SceneSpecularConvention {
+            roughness,
+            visibility: SceneSpecularVisibility::SchlickSmith,
+            occlusion: SceneSpecularOcclusion::RoughnessAware,
+        };
+        let expected = evaluate_source(&context, sources[0], entry, Some(&frame), None);
+        assert!((expected[0] - expected[3]).abs() < 1e-6);
+        for source in &sources[1..] {
+            let actual = evaluate_source(&context, source, entry, Some(&frame), None);
+            for (a, b) in actual.iter().zip(&expected) {
+                assert!((a - b).abs() < 1e-6);
+            }
+        }
+    }
+}
+
+#[test]
+fn default_specular_lighting_preserves_retired_float_bytes() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let stock = concat!(
+        worldrunner_render_lighting::lighting_wgsl!(),
+        worldrunner_render_post::post_wgsl!(),
+        include_str!("../draw/tests/fixtures/previous_scene_lighting.wgsl"),
+        include_str!("camera_rays.wgsl"),
+        include_str!("unshadowed.wgsl")
+    );
+    let frame = configured_frame(ExposureOwnership::SceneLinear(1.0));
+    for (roughness, metalness) in [(0.0, 0.0), (0.045, 0.75), (0.5, 0.0), (1.0, 1.0)] {
+        let entry = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    result[0] = vec4(surface_lighting(vec3(0.0),vec3(0.0,0.0,1.0),vec3(0.3,0.5,0.7),{roughness},{metalness},0.4),1.0);
+}}"
+        );
+        let previous = evaluate_source(&context, stock, &entry, Some(&frame), None);
+        let current = evaluate_source(&context, ENVIRONMENT_WGSL, &entry, Some(&frame), None);
+        assert_eq!(
+            previous.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            current.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            "roughness={roughness}, metalness={metalness}"
+        );
+    }
+}
+
+fn math_pipeline(
+    device: &wgpu::Device,
+    source: &str,
+    frame: Option<&crate::frame::FrameUniform>,
+    ground: bool,
+) -> (wgpu::ComputePipeline, u32) {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let options = frame.map_or([0; 3], |frame| frame.specular_convention.shader_options());
+    let constants = [
+        ("SCENE_ROUGHNESS_REMAP", f64::from(options[0])),
+        ("SCENE_SPECULAR_VISIBILITY", f64::from(options[1])),
+        ("SCENE_SPECULAR_OCCLUSION", f64::from(options[2])),
+    ];
+    let constants = if source.contains("override SCENE_ROUGHNESS_REMAP") {
+        constants.as_slice()
+    } else {
+        &[]
+    };
+    let uniform_binding = if source.contains("struct WaterFrame") {
+        3
+    } else {
+        0
+    };
+    let layout = math_layout(device, frame.map(|_| uniform_binding), ground);
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: None,
+        layout: Some(&layout),
+        module: &shader,
+        entry_point: Some("evaluate_math"),
+        compilation_options: wgpu::PipelineCompilationOptions {
+            constants,
+            ..Default::default()
+        },
+        cache: None,
+    });
+    (pipeline, uniform_binding)
+}
+
+#[path = "specular_tests.rs"]
+mod specular_tests;

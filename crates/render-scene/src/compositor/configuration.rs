@@ -491,12 +491,11 @@ impl ConfiguredFrameRenderer {
         let post_time = previous.post_time.clone();
         let reset = previous.exposure_reset.clone();
         let timing = previous.chain.timing_state();
-        let elapsed = previous.elapsed_seconds;
-        let animation_time = previous.animation_time;
-        let selected_time = previous.selected_time;
-        let delta = previous.frame_delta;
+        let (elapsed, animation_time) = (previous.elapsed_seconds, previous.animation_time);
+        let (selected_time, delta) = (previous.selected_time, previous.frame_delta);
         let history_bank = self.history.as_ref();
         let water = previous.water.clone();
+        let environment_conventions = previous.environment_conventions;
         let reflection = previous
             .ssr
             .as_ref()
@@ -506,6 +505,7 @@ impl ConfiguredFrameRenderer {
                 let mut next = allocate(context, &settings, history_bank, Some(timing))?;
                 retain_water_inputs(&mut next, water.as_ref());
                 retain_reflection_inputs(context.device(), &mut next, reflection.as_ref());
+                next.retain_environment_conventions(environment_conventions);
                 next.post_time = post_time;
                 next.exposure_reset = reset;
                 next.elapsed_seconds = elapsed;
@@ -566,6 +566,7 @@ fn build(
     };
     let mut renderer = FrameRenderer {
         chain: PostChain::new(device, settings.frame, Resources::default(), factory)?,
+        environment_conventions: [None; 2],
         water: None,
         water_state: std::rc::Rc::default(),
         snapshots: None,

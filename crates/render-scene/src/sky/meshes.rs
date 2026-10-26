@@ -76,6 +76,11 @@ pub(crate) struct MeshDraw {
 #[derive(Debug)]
 pub(crate) struct Meshes {
     pipelines: [wgpu::RenderPipeline; 4],
+    device: wgpu::Device,
+    scene: crate::renderer::ScenePipelines,
+    physical: bool,
+    specializations:
+        std::cell::RefCell<std::collections::BTreeMap<[u32; 3], [wgpu::RenderPipeline; 4]>>,
     draws: Vec<MeshDraw>,
     composite: wgpu::RenderPipeline,
     samples: u32,
@@ -92,6 +97,10 @@ impl Meshes {
         let (composite, layout) = super::mesh_target::pipeline(device, pipelines);
         Self {
             composite,
+            device: device.clone(),
+            scene: pipelines.clone(),
+            physical,
+            specializations: std::cell::RefCell::default(),
             samples: pipelines.samples,
             layout,
             target: std::cell::RefCell::new(None),
@@ -130,9 +139,31 @@ impl Meshes {
         pass.set_bind_group(2, &target.group, &[]);
         pass.draw(0..3, 0..1);
     }
-    pub fn draw_geometry(&self, pass: &mut wgpu::RenderPass<'_>, frame: &wgpu::BindGroup) {
+    pub fn draw_geometry(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        frame: &wgpu::BindGroup,
+        convention: worldrunner_render_plan::SceneSpecularConvention,
+    ) {
+        let options = convention.shader_options();
+        let pipelines = if options == [0; 3] {
+            self.pipelines.clone()
+        } else {
+            self.specializations
+                .borrow_mut()
+                .entry(options)
+                .or_insert_with(|| {
+                    crate::renderer::celestial_specialization(
+                        &self.device,
+                        &self.scene,
+                        self.physical,
+                        options,
+                    )
+                })
+                .clone()
+        };
         for draw in &self.draws {
-            pass.set_pipeline(&self.pipelines[draw.key.index()]);
+            pass.set_pipeline(&pipelines[draw.key.index()]);
             pass.set_bind_group(0, frame, &[]);
             pass.set_bind_group(1, &draw.material, &[]);
             pass.set_vertex_buffer(0, draw.vertices.slice(..));
@@ -185,7 +216,22 @@ mod tests {
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
         );
-        let _ = crate::renderer::celestial_pipelines(context.device(), &scene, false);
+        for physical in [false, true] {
+            let meshes = Meshes::new(context.device(), &scene, Vec::new(), physical);
+            assert_eq!(meshes.physical, physical);
+            for roughness in 0..3 {
+                for visibility in 0..2 {
+                    for occlusion in 0..2 {
+                        let _ = crate::renderer::celestial_specialization(
+                            context.device(),
+                            &scene,
+                            meshes.physical,
+                            [roughness, visibility, occlusion],
+                        );
+                    }
+                }
+            }
+        }
         assert!(pollster::block_on(scope.pop()).is_none());
     }
 }

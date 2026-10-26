@@ -81,6 +81,8 @@ pub enum FrameError {
 /// Per-frame data, including the uniform block and CPU selection coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameUniform {
+    /// Scene-wide specular BRDF selection, shared with environment preparation.
+    pub specular_convention: worldrunner_render_plan::SceneSpecularConvention,
     /// Scene-space prepared SH9 diffuse, or the unchanged hemisphere default.
     pub diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment,
     /// Optional exponential height fog. Packed into previously zero uniform lanes.
@@ -150,6 +152,7 @@ impl FrameUniform {
         }
         .prepare()?;
         Ok(Self {
+            specular_convention: effects.specular_convention(),
             diffuse_environment: effects.diffuse_environment(),
             height_fog: effects
                 .atmosphere()
@@ -171,6 +174,7 @@ impl FrameUniform {
 
     pub fn unlit(view: &SceneView) -> Self {
         Self {
+            specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
             height_fog: None,
             view_projection: view.view_projection_matrix(),

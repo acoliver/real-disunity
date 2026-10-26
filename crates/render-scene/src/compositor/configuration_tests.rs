@@ -259,6 +259,7 @@ fn reflection_maps_and_composition_survive_both_replacement_paths() {
     use worldrunner_render_lighting::reflections::Composition;
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let preparation = EnvironmentPreparation {
+        convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 2,
         mip_count: 2,
         lut_size: 1,

@@ -26,7 +26,7 @@ fn gpu_replacement_preserves_diffuse_and_interpolates_confidence() {
         let incident = vec3<f32>(1.0) * confidence;
         return vec4<f32>(shaded + reflection_delta(incident, confidence, vec3<f32>(0.5), environment, true), 1.0);
         }}",
-        include_str!("replacement.wgsl")
+        concat!(worldrunner_render_lighting::lighting_wgsl!(), include_str!("replacement.wgsl"))
     );
     let pipeline = gpu::pipeline(context.device(), &source, 1, false);
     let target =

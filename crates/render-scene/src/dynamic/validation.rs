@@ -57,17 +57,14 @@ pub(super) fn validate_quad(
     {
         return Err(invalid("rect"));
     }
-    if !quad
-        .uv_rect
-        .into_iter()
-        .all(|value| value.is_finite() && (0.0..=1.0).contains(&value))
-    {
+    if !quad.uv_rect.into_iter().all(f32::is_finite) {
         return Err(invalid("uv_rect"));
     }
     if !quad
         .tint
         .into_iter()
-        .all(|value| value.is_finite() && (0.0..=1.0).contains(&value))
+        .all(|value| value.is_finite() && value >= 0.)
+        || quad.tint[3] > 1.
     {
         return Err(invalid("tint"));
     }

@@ -33,6 +33,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_audio_listener_count",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_body_move_position",
       "since": "2.0.0",
       "rets": "DisunityResult"
@@ -84,6 +89,31 @@
     },
     {
       "name": "disunity_camera_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_data_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_data_write",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_layer_create",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_layer_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_layer_write",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },
@@ -199,6 +229,31 @@
     },
     {
       "name": "disunity_input_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light2d_color",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light2d_layers",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light2d_layers_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light2d_read",
+      "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light2d_write",
       "since": "2.0.0",
       "rets": "DisunityResult"
     },

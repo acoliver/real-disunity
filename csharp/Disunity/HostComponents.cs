@@ -9,10 +9,15 @@ public static partial class DisunityHost
     internal static Collider2D ResolveCollider(ulong handle) => (Collider2D)NativeComponents[handle];
     internal static unsafe T AttachComponent<T>(GameObject owner, T value) where T : Component
     {
-        if (value is MonoBehaviour script) return (T)(Component)Attach(owner, script);
-        if (value is not NativeComponent && value is not RectTransform) throw new NotSupportedException($"component {typeof(T)}");
+        if (value is MonoBehaviour script && !NativeBehaviourState.IsNative(value)) return (T)(Component)Attach(owner, script);
+        if (value is not NativeComponent && value is not RectTransform && !NativeBehaviourState.IsNative(value)) throw new NotSupportedException($"component {typeof(T)}");
         ulong handle;
-        if (value is Camera)
+        if (NativeBehaviourState.IsNative(value))
+        {
+            uint kind = value switch { UnityEngine.Rendering.Universal.Light2D => 114, UnityEngine.Rendering.Universal.UniversalAdditionalCameraData => 115, AudioListener => 81, GUILayer => 92, FlareLayer => 124, _ => throw new NotSupportedException($"component {typeof(T)}") };
+            ThrowIfError(NativeBindings.disunity_camera_layer_create(WorldHandle, owner.NativeHandle, kind, &handle));
+        }
+        else if (value is Camera)
             ThrowIfError(NativeBindings.disunity_camera_create(WorldHandle, owner.NativeHandle, &handle));
         else if (value is SpriteRenderer)
         {

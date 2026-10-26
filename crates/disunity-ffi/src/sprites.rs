@@ -32,6 +32,7 @@ pub struct DisunitySprite {
     pub flip_y: u32,
     pub sorting_layer: i32,
     pub sorting_order: i32,
+    pub lighting: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -86,6 +87,14 @@ pub unsafe extern "C" fn disunity_sprite_write(
     }
     mutate(world, |s| {
         let id = component(s, handle)?;
+        let ComponentDesc::Sprite(_) = s.native.component(id)?.desc else {
+            return Err(worldrunner_world_simulation::WorldError::InvalidComponent(
+                worldrunner_world_simulation::ComponentError::KindMismatch,
+            )
+            .into());
+        };
+        let lighting =
+            worldrunner_world_simulation::presentation::SpriteLighting::try_from(v.lighting)?;
         let sprite = (v.present == 1).then_some(Sprite {
             identity: v.identity,
             texture: v.texture,
@@ -105,6 +114,7 @@ pub unsafe extern "C" fn disunity_sprite_write(
                     flip_y: v.flip_y == 1,
                     sorting_layer: v.sorting_layer,
                     sorting_order: v.sorting_order,
+                    lighting,
                 }),
             )
             .map_err(crate::errors::AbiError::from)
@@ -222,6 +232,7 @@ pub(crate) fn encode(r: &SpriteRenderer) -> DisunitySprite {
         flip_y: u32::from(r.flip_y),
         sorting_layer: r.sorting_layer,
         sorting_order: r.sorting_order,
+        lighting: r.lighting as u32,
         ..Default::default()
     };
     if let Some(sprite) = r.sprite {

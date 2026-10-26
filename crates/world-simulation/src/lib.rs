@@ -10,6 +10,7 @@
 //! ```
 
 mod assets;
+mod camera_layers;
 mod clock;
 mod coroutines;
 pub mod presentation;
@@ -63,6 +64,8 @@ pub enum LimitKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ComponentError {
+    #[error("unsupported presentation field: {0}")]
+    UnsupportedField(&'static str),
     #[error("duplicate singleton component")]
     Duplicate,
     #[error("invalid presentation component")]

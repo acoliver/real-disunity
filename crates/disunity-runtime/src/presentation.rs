@@ -98,6 +98,8 @@ fn camera_state(h: native::DisunityPresentation) -> CameraState {
 }
 fn decode_quad(q: native::DisunityQuad) -> SpriteQuad {
     SpriteQuad {
+        lighting: worldrunner_world_simulation::presentation::SpriteLighting::try_from(q.lighting)
+            .expect("native quad material is validated"),
         overlay: q.overlay == 1,
         corners: [
             [q.p0_x, q.p0_y, q.p0_z],

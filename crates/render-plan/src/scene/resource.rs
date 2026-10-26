@@ -102,6 +102,11 @@ pub enum TextureColorSpace {
 /// One owned texture as either an explicit texel grid or one exact encoded payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SceneTexture {
+    /// Per-texture sampling with an unchanged owned payload.
+    Sampled {
+        texture: Box<SceneTexture>,
+        sampler: super::TextureSampler,
+    },
     /// An explicit texel grid with its own mip chain payload.
     Texels {
         /// Closed texel format of every level.
@@ -133,6 +138,7 @@ impl SceneTexture {
     #[must_use]
     pub const fn color_space(&self) -> TextureColorSpace {
         match self {
+            Self::Sampled { texture, .. } => texture.color_space(),
             Self::Texels { color_space, .. } | Self::Encoded { color_space, .. } => *color_space,
         }
     }
@@ -147,6 +153,7 @@ impl SceneTexture {
     /// content carries an empty payload.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         match self {
+            Self::Sampled { texture, .. } => texture.validate(),
             Self::Texels {
                 format,
                 width,

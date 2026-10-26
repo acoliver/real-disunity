@@ -162,6 +162,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_eq!(host.store_statistics().0, 0);
     assert_failed_runs_drain(&mut host, &root);
     assert_lifecycle_soak(&mut host, &fixture);
+    assert_managed_lighting(&mut host, &root);
     host.run_slice(&fixture).unwrap();
     assert_cross_language_writes(&mut host);
     drop(host);
@@ -222,4 +223,26 @@ fn assert_cross_language_writes(host: &mut DisunityHost) {
         .find(|row| row.object == object)
         .unwrap();
     assert_eq!([native.x, native.y, native.z], [17.0, 23.0, 31.0]);
+}
+
+fn assert_managed_lighting(host: &mut DisunityHost, root: &Path) {
+    use worldrunner_world_simulation::presentation::SpriteLighting;
+    host.run_slice(&root.join("csharp/PortableFixture/lit-sprites.fixture"))
+        .unwrap();
+    for expected in [[0.05, 0.2, 0.450_000_02, 0.5], [0.1, 0.1, 0.6, 0.5]] {
+        let sprites = host.export_sprites().unwrap();
+        assert_eq!(sprites.len(), 3);
+        for (sprite, _) in sprites {
+            assert_eq!(sprite.lighting, SpriteLighting::Global);
+            assert_eq!(sprite.color.map(f32::to_bits), expected.map(f32::to_bits));
+        }
+        let frame = host.export_presentation([80, 40], 8).unwrap();
+        assert_eq!(frame.quads.len(), 3);
+        for quad in frame.quads {
+            assert_eq!(quad.lighting, SpriteLighting::Global);
+            assert_eq!(quad.color.map(f32::to_bits), expected.map(f32::to_bits));
+        }
+        host.advance(1, 100).unwrap();
+    }
+    host.unload_slice().unwrap();
 }

@@ -10,6 +10,8 @@ fn declared_exports() -> BTreeSet<String> {
     let source = concat!(
         include_str!("../src/abi.rs"),
         include_str!("../src/assets.rs"),
+        include_str!("../src/camera_layers.rs"),
+        include_str!("../src/camera_data.rs"),
         "\n",
         include_str!("../src/scheduling.rs"),
         "\n",
@@ -109,4 +111,18 @@ fn checked_bindings_match_complete_generated_signatures_and_layouts() {
     let generated = std::fs::read(Path::new(env!("OUT_DIR")).join("NativeBindings.g.cs"))
         .expect("the build generates bindings in OUT_DIR without changing the checked file");
     assert_eq!(generated, generated_bindings().as_bytes());
+}
+
+#[test]
+fn checked_managed_records_match_the_complete_generated_records() {
+    let generated = std::fs::read(Path::new(env!("OUT_DIR")).join("NativeRecords.g.cs"))
+        .expect("build generates managed records without changing checked sources");
+    let checked = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../csharp/Disunity/NativeRecords.g.cs"),
+    )
+    .expect("generated managed record declarations are tracked");
+    assert_eq!(
+        checked, generated,
+        "complete generated record declarations drifted"
+    );
 }

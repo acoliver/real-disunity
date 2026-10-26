@@ -24,6 +24,7 @@ struct QuadBindings<'a> {
     layout: &'a BindGroupLayout,
     placeholder: &'a TextureView,
     views: &'a [TextureView],
+    samplers: &'a [Sampler],
     sampler: &'a Sampler,
 }
 
@@ -39,6 +40,7 @@ struct QuadDraw {
 #[derive(Debug, Default)]
 pub(crate) struct DynamicGpu {
     textures: Vec<Texture>,
+    samplers: Vec<Sampler>,
     draws: Vec<QuadDraw>,
     indices: Option<Buffer>,
 }
@@ -67,6 +69,10 @@ impl DynamicGpu {
             .iter()
             .map(|texture| upload_texture(device, queue, texture))
             .collect::<Result<Vec<_>, _>>()?;
+        self.samplers = textures
+            .iter()
+            .map(|t| super::sampling::create_sampler(device, t.sampler()))
+            .collect();
         self.textures = uploaded;
         self.draws.clear();
         Ok(())
@@ -105,6 +111,7 @@ impl DynamicGpu {
             layout: bindings.pipelines.material_layout(),
             placeholder: &placeholder,
             views: &views,
+            samplers: &self.samplers,
             sampler: bindings.sampler,
         };
         for group in ordered.chunk_by(|a, b| {
@@ -185,7 +192,10 @@ impl QuadDraw {
         let albedo = quad
             .texture
             .map_or(bindings.placeholder, |index| &bindings.views[index]);
-        let material = quad_material(device, queue, bindings, albedo);
+        let sampler = quad
+            .texture
+            .map_or(bindings.sampler, |index| &bindings.samplers[index]);
+        let material = quad_material(device, queue, bindings, albedo, sampler);
         Self {
             vertices: upload_buffer(
                 device,
@@ -239,6 +249,7 @@ fn quad_material(
     queue: &Queue,
     bindings: &QuadBindings<'_>,
     albedo: &TextureView,
+    sampler: &Sampler,
 ) -> wgpu::BindGroup {
     let mut bound = [bindings.placeholder; 5];
     bound[0] = albedo;
@@ -256,12 +267,5 @@ fn quad_material(
         BufferUsages::STORAGE,
         &[0u8; 48],
     );
-    crate::upload::material_group(
-        device,
-        bindings.layout,
-        &uniform,
-        &bound,
-        bindings.sampler,
-        &heights,
-    )
+    crate::upload::material_group(device, bindings.layout, &uniform, &bound, sampler, &heights)
 }

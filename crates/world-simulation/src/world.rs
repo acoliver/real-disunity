@@ -197,23 +197,26 @@ impl World {
             .ok_or(WorldError::StaleComponent(handle))
     }
 
-    pub fn add_component(
-        &mut self,
+    fn duplicate_component(
+        &self,
         object: ObjectHandle,
-        mut desc: ComponentDesc,
-    ) -> Result<ComponentHandle, WorldError> {
-        self.ensure_allocation_allowed()?;
+        desc: &ComponentDesc,
+    ) -> Result<bool, WorldError> {
         let owner = self.live_object(object)?;
-        desc.validate()?;
-        self.validate_physics_material(&desc)?;
-        desc.register_presentation()?;
-        let duplicate = match desc {
+        Ok(match desc {
             ComponentDesc::Transform(_) => true,
-            ComponentDesc::Sprite(_) | ComponentDesc::Tilemap(_) | ComponentDesc::Camera(_) => {
+            ComponentDesc::Sprite(_)
+            | ComponentDesc::Tilemap(_)
+            | ComponentDesc::Camera(_)
+            | ComponentDesc::GlobalLight2d(_)
+            | ComponentDesc::UniversalAdditionalCameraData(_)
+            | ComponentDesc::AudioListener { .. }
+            | ComponentDesc::GUILayer { .. }
+            | ComponentDesc::FlareLayer { .. } => {
                 self.components.iter(self.identity).any(|(_, c)| {
                     c.object == object
                         && !self.lifetime.components.contains(&c.handle)
-                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(&desc)
+                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
                 })
             }
             #[cfg(feature = "ui")]
@@ -221,17 +224,32 @@ impl World {
                 self.components.iter(self.identity).any(|(_, c)| {
                     c.object == object
                         && !self.lifetime.components.contains(&c.handle)
-                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(&desc)
+                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
                 })
             }
             ComponentDesc::Renderer { .. } => owner.renderer.is_some(),
-            ComponentDesc::Script { .. } | ComponentDesc::Collider2d(_) => false,
+            ComponentDesc::ShadowCaster2d
+            | ComponentDesc::Script { .. }
+            | ComponentDesc::Collider2d(_) => false,
             ComponentDesc::Body2d(_) => self.components.iter(self.identity).any(|(_, c)| {
                 c.object == object
                     && !self.lifetime.components.contains(&c.handle)
                     && matches!(c.desc, ComponentDesc::Body2d(_))
             }),
-        };
+        })
+    }
+
+    pub fn add_component(
+        &mut self,
+        object: ObjectHandle,
+        mut desc: ComponentDesc,
+    ) -> Result<ComponentHandle, WorldError> {
+        self.ensure_allocation_allowed()?;
+        self.live_object(object)?;
+        desc.validate()?;
+        self.validate_physics_material(&desc)?;
+        desc.register_presentation()?;
+        let duplicate = self.duplicate_component(object, &desc)?;
         if duplicate {
             return Err(WorldError::InvalidComponent(ComponentError::Duplicate));
         }

@@ -53,6 +53,7 @@ impl Sprite {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpriteRenderer {
+    pub lighting: SpriteLighting,
     pub enabled: bool,
     pub sprite: Option<Sprite>,
     /// Linear straight-alpha tint.
@@ -65,6 +66,7 @@ pub struct SpriteRenderer {
 impl Default for SpriteRenderer {
     fn default() -> Self {
         Self {
+            lighting: SpriteLighting::Unlit,
             enabled: true,
             sprite: None,
             color: [1.; 4],
@@ -220,3 +222,8 @@ impl crate::ComponentDesc {
         Ok(())
     }
 }
+
+pub mod camera_data;
+pub mod lighting;
+pub use camera_data::UniversalAdditionalCameraData;
+pub use lighting::{GlobalLight2d, Light2dType, SpriteLighting};

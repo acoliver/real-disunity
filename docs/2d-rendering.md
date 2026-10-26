@@ -1,0 +1,33 @@
+# 2D textures, lighting and camera participants
+
+The native world owns sprite material selection and global light state. Presentation extraction resolves global lighting into the existing quad tint. Sprite and dynamic-quad draws use the same renderer, attachments and ordering. No render stage is added.
+
+## Texture sampling
+
+`SceneTexture::with_sampler(TextureSampler)` sets sampling on an individual texture. `TextureFilter` selects Point, Bilinear or Trilinear. `TextureWrap` selects Repeat, Clamp or Mirror independently on U and V. Point sampling selects the nearest texel and mip. Bilinear filters texels linearly within the nearest mip. Trilinear also blends between mip levels, as described in [Unity's sprite texture settings](https://docs.unity3d.com/6000.0/Documentation/Manual/texture-type-sprite.html).
+
+Unspecified sampling retains the historical linear texel and linear mip filtering with repeat wrapping. Explicit Bilinear remains distinct from that unspecified state. Texture identity determines both its uploaded texture and sampler, including when multiple textures appear in one frame. Dynamic quad UVs may be any finite coordinates; the sampler resolves out-of-range coordinates. Per-texture samplers are consumed by the dynamic and native sprite uploader. Resident material upload paths still use their common sampler; this API does not promise per-texture sampling for those paths.
+
+## Global lighting
+
+Set `SpriteRenderer::lighting` to `SpriteLighting::Global` for the built-in lit sprite material. Unlit is the default. Managed renderers select the same native state through `SpriteRenderer.sharedMaterial = Material.SpriteLit` or `Material.SpriteUnlit`; `Material(BuiltinSpriteMaterial)` validates the typed choice. The sprite ABI and both presentation exports preserve that identity while native extraction applies lighting once. Add `ComponentDesc::GlobalLight2d` with color, nonnegative intensity and signed target sorting-layer IDs. Enabled lights on active, published objects contribute RGB multiplied by intensity. Contributions sum independently for each targeted layer and multiply the sprite's linear RGB. Sprite alpha is unchanged.
+
+When no active lights exist, lit sprites equal unlit sprites. When active lights exist but none target a sprite's sorting layer, that lit sprite receives zero RGB. Unlit sprites ignore all lights. Light intensity can produce HDR RGB; the target format determines clipping or encoding. An extraction-local layer summary scans lights once per extraction. Non-finite accumulation fails with a typed native presentation error.
+
+This subset follows URP's no-light and untargeted-layer behavior: [DrawRenderer2DPass](https://github.com/Unity-Technologies/Graphics/blob/6000.0/staging/Packages/com.unity.render-pipelines.universal/Runtime/2D/Rendergraph/DrawRenderer2DPass.cs) and [CombinedShapeLightShared.hlsl](https://github.com/Unity-Technologies/Graphics/blob/6000.0/staging/Packages/com.unity.render-pipelines.universal/Shaders/2D/Include/CombinedShapeLightShared.hlsl). Tilemap lighting selection and imported game execution are outside this change.
+
+The supported light type is Global and the supported blend style is 0, multiply. Other light types, other blend styles and `ShadowCaster2d` return `ComponentError::UnsupportedField`. Rejected component edits preserve the previous state. Managed equivalents are `UnityEngine.Rendering.Universal.Light2D` and `ShadowCaster2D`. Unsupported managed light settings throw `UnsupportedLight2DException` with the field name.
+
+## Camera participants
+
+`AudioListener`, `GUILayer` and `FlareLayer` are native enabled components with ordinary hierarchy, clone and lifetime behavior. Their managed types derive from `Behaviour`. There is no audio output or source implementation; a listener without sources is silent. The managed listener exposes global volume and pause controls. The host writes zero/multiple active-listener diagnostics to stderr after a completed managed `Step`, once per diagnostic transition. It resets that state on load/unload. `DisunityHost.AudioListenerDiagnostic` also permits inspection without rejecting the world.
+
+`UniversalAdditionalCameraData` is native state with a managed `MonoBehaviour` surface. The current pipeline accepts base-camera rendering without post-processing, antialiasing, shadow rendering, NaN filtering, dithering or forced depth/color texture copies. Depth/color overrides accept Off and UsePipelineSettings because the current pipeline requests neither copy. Volume masks and XR permission are retained; neither activates a rendering feature. Enabling an unsupported feature returns a typed error naming its field. The managed exception is `UnsupportedCameraSettingException`.
+
+Unity's [UniversalAdditionalCameraData source](https://github.com/Unity-Technologies/Graphics/blob/6000.0/staging/Packages/com.unity.render-pipelines.universal/Runtime/UniversalAdditionalCameraData.cs) defines `CameraOverrideOption` as Off = 0, On = 1, UsePipelineSettings = 2. Boolean false selects Off = 0. Forced On rejects with the field-specific error and preserves the preceding state. Defaults describe the admitted subset, including `renderShadows = false`, rather than all Unity defaults. `SetRenderer(-1)` and `SetRenderer(0)` are equivalent only in this single-renderer setup.
+
+Settings are validated before publication. Native code can inspect and update the admitted camera settings with `get` and `set`; the ABI uses the same validated operations. Camera lens and clear descriptors remain separate from additional camera data.
+
+## Tests
+
+Synthetic GPU tests assert exact sRGB RGBA bytes at 1x and 4x MSAA for point and bilinear filters, wrap modes, independently sampled textures, summed global lights, untargeted layers, disabled lights and absent lights. Test geometry covers the inspected pixels at every sample position. Constant sampling coordinates isolate texel and wrap cases; a contrasting two-mip case uses fractional LOD to distinguish Bilinear from Trilinear and compares complete unspecified/default images. Chosen linear colors map away from sRGB rounding boundaries. Feature-off tests compare complete images and pass identities, including StageIds.

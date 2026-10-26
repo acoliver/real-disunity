@@ -6,6 +6,7 @@ use worldrunner_asset_id::{ContentHash, LogicalAssetId};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuiltinMaterial {
     SpriteUnlit,
+    SpriteLit,
 }
 
 const MAGIC: [u8; 8] = *b"RDMATL01";

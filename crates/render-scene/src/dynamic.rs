@@ -23,6 +23,7 @@
 //! ```
 
 mod gpu;
+mod sampling;
 mod validation;
 pub(crate) use gpu::{DynamicBindings, DynamicGpu};
 
@@ -43,7 +44,7 @@ pub struct DynamicQuad {
     pub rect: [f32; 4],
     /// Top-left UV rectangle, u0/v0/u1/v1. Reverse endpoints to flip.
     pub uv_rect: [f32; 4],
-    /// Linear straight-alpha RGBA multiplier, each channel in 0..=1.
+    /// Linear straight-alpha multiplier. RGB permits nonnegative HDR light; alpha is 0..=1.
     pub tint: [f32; 4],
     /// Index into the dynamic texture table; None uses opaque white.
     pub texture: Option<usize>,

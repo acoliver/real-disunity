@@ -172,6 +172,79 @@ namespace Disunity.Native
         ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_layer_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_layer_create(ulong world, ulong @object, uint kind, ulong* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one enabled flag.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_layer_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_layer_read(ulong world, ulong handle, uint* output);
+
+        /// <summary>
+        ///  Writes native enabled state for a camera-side component.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_layer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_layer_write(ulong world, ulong handle, uint enabled);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one active listener count.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_audio_listener_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_audio_listener_count(ulong world, uint* output);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one floating point light property.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light2d_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light2d_read(ulong world, ulong handle, uint property, float* output);
+
+        /// <summary>
+        ///  Writes one native global light property, validating the complete component before publication.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light2d_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light2d_write(ulong world, ulong handle, uint property, float value);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one scalar camera setting.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_data_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_data_read(ulong world, ulong handle, uint property, uint* output);
+
+        /// <summary>
+        ///  Validates the named camera setting before publishing any state.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_data_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_data_write(ulong world, ulong handle, uint property, uint value);
+
+        /// <summary>
+        ///  # Safety
+        ///  Layers is readable for count signed sorting-layer IDs, or null when count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light2d_layers", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light2d_layers(ulong world, ulong handle, int* layers, uint count);
+
+        /// <summary>
+        ///  Sets all four channels atomically after native component validation.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light2d_color", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light2d_color(ulong world, ulong handle, float r, float g, float b, float a);
+
+        /// <summary>
+        ///  # Safety
+        ///  Written is writable. Output is writable for capacity layer IDs, or null for a size query.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light2d_layers_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light2d_layers_read(ulong world, ulong handle, int* output, uint capacity, uint* written);
+
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_sprite_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_sprite_create(ulong world, ulong @object, ulong* output);
 
@@ -631,317 +704,5 @@ namespace Disunity.Native
 
 
     }
-
-    /// <summary>
-    ///  Result of every ABI call. For ERROR, detail is a DisunityErrorReason tag.
-    ///  Diagnostic text is copied through disunity_error_take and explicitly freed.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityResult
-    {
-        public int code;
-        public ulong detail;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunitySprite
-    {
-        public ulong identity;
-        public ulong texture;
-        public uint present;
-        public uint width;
-        public uint height;
-        public float x;
-        public float y;
-        public float w;
-        public float h;
-        public float pivot_x;
-        public float pivot_y;
-        public float pixels_per_unit;
-        public float r;
-        public float g;
-        public float b;
-        public float a;
-        public uint enabled;
-        public uint flip_x;
-        public uint flip_y;
-        public int sorting_layer;
-        public int sorting_order;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityBounds
-    {
-        public float min_x;
-        public float min_y;
-        public float min_z;
-        public float max_x;
-        public float max_y;
-        public float max_z;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityMatrix
-    {
-        public float m0;
-        public float m1;
-        public float m2;
-        public float m3;
-        public float m4;
-        public float m5;
-        public float m6;
-        public float m7;
-        public float m8;
-        public float m9;
-        public float m10;
-        public float m11;
-        public float m12;
-        public float m13;
-        public float m14;
-        public float m15;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityPresentation
-    {
-        public uint present;
-        public uint quads;
-        public uint textures;
-        public uint width;
-        public uint height;
-        public double eye_x;
-        public double eye_y;
-        public double eye_z;
-        public double forward_x;
-        public double forward_y;
-        public double forward_z;
-        public double up_x;
-        public double up_y;
-        public double up_z;
-        public double half_height;
-        public double near;
-        public double far;
-        public double r;
-        public double g;
-        public double b;
-        public double a;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityQuad
-    {
-        public ulong texture;
-        public uint textured;
-        public uint overlay;
-        public int sorting_layer;
-        public int sorting_order;
-        public float p0_x;
-        public float p0_y;
-        public float p0_z;
-        public float p1_x;
-        public float p1_y;
-        public float p1_z;
-        public float p2_x;
-        public float p2_y;
-        public float p2_z;
-        public float p3_x;
-        public float p3_y;
-        public float p3_z;
-        public float u0;
-        public float v0;
-        public float u1;
-        public float v1;
-        public float r;
-        public float g;
-        public float b;
-        public float a;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityCoverage
-    {
-        public ulong identity;
-        public uint width;
-        public uint height;
-        public uint length;
-    }
-
-    /// <summary>
-    ///  A blittable frame intent: `object` is the target handle, `kind` selects the
-    ///  operation, and `x`/`y`/`z` carry the operands. `SET_POSITION` uses all
-    ///  three; `SET_ROTATION_Y` and `SET_MATERIAL_SLOT` use `x` (slots stay exact
-    ///  because they are small integers).
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityCommand
-    {
-        public ulong @object;
-        public uint kind;
-        public float x;
-        public float y;
-        public float z;
-    }
-
-    /// <summary>
-    ///  A blittable snapshot of one live object, for bulk extraction by a host
-    ///  renderer. Batched like the command buffer: one call, no per-object FFI.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityObjectState
-    {
-        public ulong @object;
-        public float x;
-        public float y;
-        public float z;
-        public float rotation_y_radians;
-        public uint material_slot;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityAdvance
-    {
-        /// <summary>
-        ///  0: frame complete, 1: callback, 2: lifecycle complete.
-        /// </summary>
-        public uint kind;
-        public uint message;
-        public ulong ticket;
-        public ulong script;
-        public ulong frame;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityClock
-    {
-        public double delta;
-        public double time;
-        public ulong frame;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityBuffer
-    {
-        public ulong handle;
-        public uint length;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityCloneRow
-    {
-        public ulong source;
-        public ulong target;
-        public ulong owner;
-        /// <summary>
-        ///  0: object, 1: managed script, 2: native component.
-        /// </summary>
-        public uint kind;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityCallback
-    {
-        public ulong ticket;
-        public ulong script;
-        public ulong routine;
-        public ulong collider;
-        public ulong other;
-        public uint phase;
-        public uint trigger;
-        public uint input_phase;
-        public float point_x;
-        public float point_y;
-        public float normal_x;
-        public float normal_y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityBody2d
-    {
-        public uint kind;
-        public uint enabled;
-        public float mass;
-        public float velocity_x;
-        public float velocity_y;
-        public float angular_velocity;
-        public float gravity_scale;
-        public uint freeze_rotation;
-        public float restitution;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityCollider2d
-    {
-        public uint kind;
-        public uint enabled;
-        public uint trigger;
-        public uint layers;
-        public float offset_x;
-        public float offset_y;
-        public float size_x;
-        public float size_y;
-        public float radius;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityRayHit
-    {
-        public ulong collider;
-        public float point_x;
-        public float point_y;
-        public float normal_x;
-        public float normal_y;
-        public float distance;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityPhysicsMaterial2d
-    {
-        public float friction;
-        public float bounciness;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityRect
-    {
-        public float min_x;
-        public float min_y;
-        public float max_x;
-        public float max_y;
-        public float pivot_x;
-        public float pivot_y;
-        public float size_x;
-        public float size_y;
-        public float position_x;
-        public float position_y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityCanvas
-    {
-        public uint mode;
-        public uint enabled;
-        public ulong camera;
-        public float orthographic_size;
-        public float plane_distance;
-        public float scale;
-        public int sorting_order;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityTransform
-    {
-        public float x;
-        public float y;
-        public float z;
-        public float qx;
-        public float qy;
-        public float qz;
-        public float qw;
-        public float sx;
-        public float sy;
-        public float sz;
-    }
-
-
 
 }

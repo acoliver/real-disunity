@@ -69,7 +69,8 @@ pub use scene::{
     SceneSky, SceneSsao, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, SceneSun, SceneTerrain,
     SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform,
     SceneValidationError, SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy,
-    TexelFormat, TextureColorSpace, TextureEncoding, TextureHandle,
+    TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
+    TextureWrap,
 };
 pub use scene::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 

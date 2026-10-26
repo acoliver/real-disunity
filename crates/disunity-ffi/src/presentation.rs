@@ -40,8 +40,12 @@ pub unsafe extern "C" fn disunity_world_export_sprites(
     }
     mutate(world, |s| {
         let mut rows = vec![];
+        let lighting =
+            worldrunner_world_simulation::presentation::lighting::GlobalLighting::from_world(
+                &s.native,
+            )?;
         for component in s.native.snapshot().components {
-            let ComponentDesc::Sprite(renderer) = component.desc else {
+            let ComponentDesc::Sprite(mut renderer) = component.desc else {
                 continue;
             };
             if !s
@@ -56,6 +60,7 @@ pub unsafe extern "C" fn disunity_world_export_sprites(
                 .world_matrix(component.object)
                 .map_err(crate::errors::AbiError::from)?
                 .to_cols_array();
+            renderer.color = lighting.color(&renderer);
             rows.push((encode(&renderer), matrix));
         }
         unsafe { *written = u32::try_from(rows.len()).map_err(|_| "sprite count overflow")? };
@@ -66,24 +71,7 @@ pub unsafe extern "C" fn disunity_world_export_sprites(
             return Err("sprite copy capacity is too small".into());
         }
         for (index, (sprite, matrix)) in rows.into_iter().enumerate() {
-            let row = DisunityMatrix {
-                m0: matrix[0],
-                m1: matrix[1],
-                m2: matrix[2],
-                m3: matrix[3],
-                m4: matrix[4],
-                m5: matrix[5],
-                m6: matrix[6],
-                m7: matrix[7],
-                m8: matrix[8],
-                m9: matrix[9],
-                m10: matrix[10],
-                m11: matrix[11],
-                m12: matrix[12],
-                m13: matrix[13],
-                m14: matrix[14],
-                m15: matrix[15],
-            };
+            let row = DisunityMatrix::from(matrix);
             unsafe {
                 sprites.add(index).write(sprite);
                 matrices.add(index).write(row);
@@ -124,6 +112,7 @@ pub struct DisunityQuad {
     pub texture: u64,
     pub textured: u32,
     pub overlay: u32,
+    pub lighting: u32,
     pub sorting_layer: i32,
     pub sorting_order: i32,
     pub p0_x: f32,
@@ -248,6 +237,7 @@ pub unsafe extern "C" fn disunity_presentation_quad(
             texture: q.texture.unwrap_or(0),
             textured: u32::from(q.texture.is_some()),
             overlay: u32::from(q.overlay),
+            lighting: q.lighting as u32,
             sorting_layer: q.sorting_layer,
             sorting_order: q.sorting_order,
             p0_x: q.corners[0][0],
@@ -325,3 +315,26 @@ pub unsafe extern "C" fn disunity_presentation_coverage(
 #[cfg(test)]
 #[path = "presentation_tests.rs"]
 mod tests;
+
+impl From<[f32; 16]> for DisunityMatrix {
+    fn from(matrix: [f32; 16]) -> Self {
+        Self {
+            m0: matrix[0],
+            m1: matrix[1],
+            m2: matrix[2],
+            m3: matrix[3],
+            m4: matrix[4],
+            m5: matrix[5],
+            m6: matrix[6],
+            m7: matrix[7],
+            m8: matrix[8],
+            m9: matrix[9],
+            m10: matrix[10],
+            m11: matrix[11],
+            m12: matrix[12],
+            m13: matrix[13],
+            m14: matrix[14],
+            m15: matrix[15],
+        }
+    }
+}

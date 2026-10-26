@@ -32,6 +32,11 @@ public sealed class SpriteRenderer : NativeComponent
     }
     private unsafe void Write(DisunitySprite value) => DisunityHost.ThrowIfError(
         NativeBindings.disunity_sprite_write(DisunityHost.WorldHandle, Handle, &value));
+    public Material sharedMaterial
+    {
+        get => Material.FromNative(Read().lighting);
+        set { ArgumentNullException.ThrowIfNull(value); var v = Read(); v.lighting = (uint)value.SpriteMaterial; Write(v); }
+    }
     public Sprite? sprite
     {
         get { var value = Read(); return value.present == 0 ? null : DisunityHost.ResolveSprite(value); }

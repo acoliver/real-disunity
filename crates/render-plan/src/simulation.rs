@@ -65,7 +65,14 @@ pub fn from_presentation(
 }
 fn from_quad(q: native::SpriteQuad) -> SpriteQuad {
     SpriteQuad {
-        material: crate::BuiltinMaterial::SpriteUnlit,
+        material: match q.lighting {
+            worldrunner_world_simulation::presentation::SpriteLighting::Unlit => {
+                crate::BuiltinMaterial::SpriteUnlit
+            }
+            worldrunner_world_simulation::presentation::SpriteLighting::Global => {
+                crate::BuiltinMaterial::SpriteLit
+            }
+        },
         overlay: q.overlay,
         corners: q.corners,
         uv_rect: q.uv_rect,
@@ -78,6 +85,14 @@ fn from_quad(q: native::SpriteQuad) -> SpriteQuad {
 #[cfg(feature = "ui")]
 fn into_quad(q: SpriteQuad) -> native::SpriteQuad {
     native::SpriteQuad {
+        lighting: match q.material {
+            crate::BuiltinMaterial::SpriteUnlit => {
+                worldrunner_world_simulation::presentation::SpriteLighting::Unlit
+            }
+            crate::BuiltinMaterial::SpriteLit => {
+                worldrunner_world_simulation::presentation::SpriteLighting::Global
+            }
+        },
         overlay: q.overlay,
         corners: q.corners,
         uv_rect: q.uv_rect,

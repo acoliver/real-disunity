@@ -80,6 +80,8 @@ fn decode(
         flip_y: v.flip_y == 1,
         sorting_layer: v.sorting_layer,
         sorting_order: v.sorting_order,
+        lighting: worldrunner_world_simulation::presentation::SpriteLighting::try_from(v.lighting)
+            .expect("native sprite material is validated"),
     };
     let matrix = glam::Mat4::from_cols_array(&[
         matrix.m0, matrix.m1, matrix.m2, matrix.m3, matrix.m4, matrix.m5, matrix.m6, matrix.m7,

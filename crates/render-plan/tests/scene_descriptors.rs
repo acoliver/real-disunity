@@ -24,6 +24,7 @@ fn material_descriptors_preserve_every_base_field() {
         tint: SceneTint::new([250_000, 500_000, 1_000_000]).unwrap(),
         ambient_occlusion: SceneAmbientOcclusion::new(250_000, true).unwrap(),
         wind: None,
+        translucency: None,
         layer: Some(
             SceneLayerBlend::new(MaterialHandle::from_raw(1), 750_000, SceneLayerMode::Height)
                 .unwrap(),
@@ -74,6 +75,7 @@ fn material_layer_uses_existing_material_identity() {
         tint: SceneTint::WHITE,
         ambient_occlusion: SceneAmbientOcclusion::UNOCCLUDED,
         wind: None,
+        translucency: None,
         layer: Some(
             SceneLayerBlend::new(MaterialHandle::from_raw(1), 500_000, SceneLayerMode::Linear)
                 .unwrap(),

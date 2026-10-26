@@ -44,7 +44,7 @@ fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: ve
     // WATER_RECEIVER_SELECTION
     if packed.a == 0.0 || roughness >= camera.settings.z || camera.settings.w != 0.0 { return vec4<f32>(0.0); }
     let centre = reflection_position(origin_uv, origin_depth);
-    let normal = normalize(packed.xyz);
+    let normal = reflection_normal(packed.xyz);
     let direction = reflect(reflection_incident(origin_uv), normal);
     let start = centre + normal * 0.005;
     var distance = 100.0;

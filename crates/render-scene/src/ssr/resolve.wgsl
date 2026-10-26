@@ -21,7 +21,7 @@ struct ReflectionCamera {
     let upper = min(lower+1u, REFLECTION_LEVELSu);
     let reflection = mix(reflected(lower, uv, sample), reflected(upper, uv, sample), fract(lod));
     if reflection.a <= 0.0 { discard; }
-    let cosine = clamp(dot(normalize(normal.xyz), -reflection_incident(uv)), 0.0, 1.0);
+    let cosine = clamp(dot(reflection_normal(normal.xyz), -reflection_incident(uv)), 0.0, 1.0);
     let fresnel = surface.rgb + (vec3<f32>(1.0)-surface.rgb)*pow(1.0-cosine,5.0);
     let roughness_fade = 1.0 - smoothstep(camera.settings.z * 0.75, camera.settings.z, surface.a);
     var factor = reflection_factor(fresnel, vec2<f32>(1.0, 0.0));

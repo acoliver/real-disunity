@@ -32,8 +32,9 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
         geometric_normal = -geometric_normal;
     }
 
-    let normal = sample_normal(input.texcoord, geometric_normal, input.world_position, input.world_tangent);
+    let mapped_normal = sample_normal(input.texcoord, geometric_normal, input.world_position, input.world_tangent);
 
+    let normal = scene_fold_direction(mapped_normal, input.ground_fold, material.contact_surface.zw);
     var roughness = material.roughness;
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {
@@ -57,7 +58,21 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
         ).r;
     }
 
-    ambient_occlusion *= input.ambient_occlusion;
+    var packed_occlusion = ambient_occlusion;
+    if material.scattering_mode.y != 0.0 {
+        packed_occlusion = min(ambient_occlusion, input.ambient_occlusion);
+        ambient_occlusion = packed_occlusion * material.tint_ao.a;
+    } else {
+        ambient_occlusion *= input.ambient_occlusion;
+    }
+
+    var masked_amount = 0.0;
+    if material.scattering_mode.y != 0.0 {
+        let response = scene_mask_response(metalness, packed_occlusion, ambient_occlusion,
+            (material.texture_flags & FLAG_ROUGH_METAL) != 0u);
+        metalness = response.x;
+        masked_amount = response.y;
+    }
 
     var colour = surface_lighting(
         input.world_position,
@@ -68,6 +83,15 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
         ambient_occlusion,
     );
 
+    if material.scattering_mode.y != 0.0 && frame.grading.y == 0.0 {
+        let toward_sun = rd_toward_light(frame.sun_direction.xyz, false);
+        let ray = normalize(input.world_position - scene_ray_origin(input.world_position));
+        let visibility = sunlight_visibility(input.world_position, normal);
+        let intensity = scene_backlight_strength(ray, toward_sun, normal,
+            material.scattering_shape, vec3<f32>(material.scattering_colour.x, masked_amount, visibility));
+        colour += scene_scattering_tint(albedo_sample.rgb, material.scattering_colour,
+            material.scattering_mode.x) * frame.sun_irradiance.rgb * intensity;
+    }
     let translucency = bitcast<f32>(material.geometry_flags.y);
     if translucency != 0.0 && frame.grading.y == 0.0 {
         let light = rd_toward_light(frame.sun_direction.xyz, false);

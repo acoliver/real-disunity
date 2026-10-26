@@ -187,21 +187,54 @@ pub struct SceneMaterialFeatures {
     pub ambient_occlusion: SceneAmbientOcclusion,
     pub wind: Option<SceneWind>,
     pub layer: Option<SceneLayerBlend>,
+    pub translucency: Option<super::SceneTranslucency>,
 }
 
 /// Constant terrain-contact surface values in linear scene units.
 /// `tint` supplies target linear albedo, not a multiplier. Roughness and metalness
-/// interpolate toward the target without changing alpha or the surface normal.
+/// interpolate toward the target without changing alpha. Normal folding is opt-in.
 /// Weight is one at the rendered heightfield and zero one distance away, on
 /// either side. There is no contact outside the heightfield extent.
+///
+/// Normal folding assumes the instance origin sits on the terrain and samples
+/// the ground normal at that origin. Its height is the authored, unscaled local
+/// Z above the mesh origin, before wind. Translation, rotation and scale do not
+/// change fold weights, even when the instance is raised off the terrain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneTerrainContact {
     tint: SceneTint,
     roughness_micro: u32,
     metalness_micro: u32,
     distance_millimeters: u32,
+    normal_fold: Option<[u32; 2]>,
 }
 impl SceneTerrainContact {
+    /// Enables folding with height in millimetres and minimum mesh weight in millionths.
+    /// The mesh weight is `w = clamp(max(0, local_z) / height + minimum / 1_000_000, 0, 1)`,
+    /// so vertices below the mesh origin keep the additive minimum weight.
+    /// The minimum is additive, including at contact, rather than a lower bound.
+    /// The result is `ground_normal * (1 - w) + mapped_mesh_normal * w`, deliberately
+    /// unnormalized for surface lighting, backlight and normal metadata. Reflection
+    /// consumers normalize at their input boundary, before reflection direction
+    /// and Fresnel evaluation, in both forward environment sampling and SSR.
+    pub fn with_normal_fold(
+        mut self,
+        height: u32,
+        minimum: u32,
+    ) -> Result<Self, SceneValidationError> {
+        if height == 0 {
+            return Err(SceneValidationError::ExtentNotPositive {
+                part: "normal fold height",
+            });
+        }
+        bounded("normal fold minimum", minimum, 1_000_000)?;
+        self.normal_fold = Some([height, minimum]);
+        Ok(self)
+    }
+    pub const fn normal_fold(self) -> Option<[u32; 2]> {
+        self.normal_fold
+    }
+
     pub const fn tint(self) -> SceneTint {
         self.tint
     }
@@ -233,6 +266,7 @@ impl SceneTerrainContact {
             roughness_micro,
             metalness_micro,
             distance_millimeters,
+            normal_fold: None,
         })
     }
 }

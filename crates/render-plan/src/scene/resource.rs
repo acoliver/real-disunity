@@ -367,6 +367,23 @@ impl SceneMaterial {
         self.normal_scale_micro
     }
 
+    /// Reinterprets the metalness channel as a thin-surface mask.
+    #[must_use]
+    pub fn with_translucency_mask(mut self, value: super::SceneTranslucency) -> Self {
+        let features = self.features.get_or_insert(super::SceneMaterialFeatures {
+            tint: super::SceneTint::WHITE,
+            ambient_occlusion: super::SceneAmbientOcclusion::UNOCCLUDED,
+            wind: None,
+            layer: None,
+            translucency: None,
+        });
+        features.translucency = Some(value);
+        self
+    }
+    pub fn translucency_mask(&self) -> Option<super::SceneTranslucency> {
+        self.features.and_then(|features| features.translucency)
+    }
+
     /// Fraction of backlighting transmitted through a thin surface.
     pub fn with_translucency(mut self, value: u32) -> Result<Self, SceneValidationError> {
         require_unit_range("foliage translucency", u64::from(value))?;

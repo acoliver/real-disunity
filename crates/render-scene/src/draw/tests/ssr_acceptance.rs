@@ -215,6 +215,12 @@ fn render_with_environment(
     renderer
 }
 fn environment(context: &GpuContext) -> crate::sky::preparation::PreparedEnvironmentMaps {
+    environment_faces(context, false)
+}
+fn environment_faces(
+    context: &GpuContext,
+    directional: bool,
+) -> crate::sky::preparation::PreparedEnvironmentMaps {
     let source = context.device().create_texture(&TextureDescriptor {
         label: Some("acceptance environment"),
         size: Extent3d {
@@ -233,9 +239,21 @@ fn environment(context: &GpuContext) -> crate::sky::preparation::PreparedEnviron
         .into_iter()
         .flat_map(u16::to_le_bytes)
         .collect();
+    let faces = if directional {
+        [0x3000u16, 0x3c00, 0x3400, 0x3800, 0x4000, 0x2c00]
+            .into_iter()
+            .flat_map(|red| {
+                [red, 0x3400, 0x3000, 0x3c00]
+                    .into_iter()
+                    .flat_map(u16::to_le_bytes)
+            })
+            .collect()
+    } else {
+        bytes.repeat(6)
+    };
     context.queue().write_texture(
         source.as_image_copy(),
-        &bytes.repeat(6),
+        &faces,
         TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(8),
@@ -553,3 +571,6 @@ fn channel_source(texture: &Texture, sample: u32, component: u32) -> String {
         "@group(0) @binding(0) var image: {kind};\n@fragment fn fs_screen(@builtin(position) p: vec4<f32>) -> @location(0) f32 {{ return textureLoad(image, vec2<i32>(p.xy) + vec2<i32>({offset}, 0), {index}){component}; }}"
     )
 }
+
+#[path = "ssr_fold.rs"]
+mod fold_reflections;

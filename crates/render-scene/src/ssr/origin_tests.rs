@@ -57,7 +57,7 @@ fn sample_depth(context: &GpuContext, config: FrameConfig) -> wgpu::Texture {
 fn probe_source(samples: u32, incident: bool) -> String {
     let source = gpu::trace_source(samples, true);
     let prefix = source
-        .split("    let normal = normalize(packed.xyz);")
+        .split("    let normal = reflection_normal(packed.xyz);")
         .next()
         .unwrap();
     let helpers = source.split("fn reflection_near(").nth(1).unwrap();

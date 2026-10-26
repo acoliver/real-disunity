@@ -32,6 +32,7 @@ use worldrunner_render_plan::{
     TextureEncoding, TextureHandle,
 };
 mod environment;
+mod fold_translucency;
 mod foliage;
 mod foliage_fixes;
 mod lod;

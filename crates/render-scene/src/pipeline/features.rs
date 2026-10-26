@@ -17,6 +17,9 @@ pub(super) fn encode(
         write_float(bytes, 16 + index * 4, value as f32 / 1_000_000.0);
     }
     if let Some(features) = features {
+        if let Some(value) = features.translucency {
+            encode_translucency(bytes, value);
+        }
         bytes[64..68]
             .copy_from_slice(&u32::from(features.ambient_occlusion.vertex()).to_le_bytes());
         if let Some(wind) = features.wind {
@@ -73,5 +76,32 @@ pub(super) fn encode_surface(
         write_float(bytes, 92, contact.distance_millimeters() as f32 / 1000.0);
         write_float(bytes, 96, contact.roughness_micro() as f32 / 1_000_000.0);
         write_float(bytes, 100, contact.metalness_micro() as f32 / 1_000_000.0);
+        if let Some([height, minimum]) = contact.normal_fold() {
+            write_float(bytes, 104, height as f32 / 1000.0);
+            write_float(bytes, 108, minimum as f32 / 1_000_000.0);
+        }
     }
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "validated quantized inputs become GPU floats"
+)]
+fn encode_translucency(bytes: &mut [u8], value: worldrunner_render_plan::SceneTranslucency) {
+    let p = value.parts();
+    let values = [
+        p.distortion_micro,
+        p.falloff_micro,
+        p.sun_scale_micro,
+        p.ambient_scale_micro,
+        p.scale_micro,
+        p.luminance_micro,
+        p.saturation_micro,
+    ];
+    for (index, value) in values.into_iter().enumerate() {
+        write_float(bytes, 112 + index * 4, value as f32 / 1_000_000.0);
+    }
+    write_float(bytes, 140, p.base_kelvin as f32);
+    write_float(bytes, 144, p.warming_kelvin as f32);
+    write_float(bytes, 148, 1.0);
 }

@@ -13,6 +13,7 @@ pub mod modules;
 pub mod original;
 pub mod patches;
 mod sandbox;
+pub mod threads;
 pub mod world;
 
 pub use api::ScriptApi;
@@ -22,4 +23,5 @@ pub use host::{API_VERSION, DEFAULT_MEMORY_LIMIT, HookContext, HookResult, Recor
 pub use modules::{AssetResolver, AssetsApi, WorldApi};
 pub use original::GameScripts;
 pub use patches::{Edit, Overlay, Patch, PatchError, PatchSet, Patched, sha256_hex};
+pub use threads::{SchedulerNames, ThreadFailure};
 pub use world::{EntityHandle, WorldView};

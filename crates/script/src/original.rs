@@ -34,6 +34,10 @@ pub struct GameScripts {
     instructions: Arc<AtomicU64>,
     natives: BTreeMap<String, Function>,
     sources: BTreeMap<String, Table>,
+    scheduler: crate::threads::Shared,
+    /// Marks a scheduler sleep among a thread's yields; scripts cannot obtain it.
+    sleep_token: Table,
+    budget: Budget,
 }
 
 impl GameScripts {
@@ -50,12 +54,16 @@ impl GameScripts {
         let budget = Budget::new(config.instruction_budget, Arc::clone(&instructions));
         budget.hook_main(&lua);
         crate::coroutines::install(&lua, &budget)?;
+        let sleep_token = lua.create_table()?;
         Ok(Self {
             lua,
             config,
             instructions,
             natives: BTreeMap::new(),
             sources: BTreeMap::new(),
+            scheduler: crate::threads::Shared::default(),
+            sleep_token,
+            budget,
         })
     }
 
@@ -187,6 +195,26 @@ impl GameScripts {
         }
         self.lua.set_memory_limit(bytes)?;
         Ok(())
+    }
+
+    pub(crate) fn lua(&self) -> &Lua {
+        &self.lua
+    }
+
+    pub(crate) fn scheduler(&self) -> &crate::threads::Shared {
+        &self.scheduler
+    }
+
+    pub(crate) fn sleep_token(&self) -> &Table {
+        &self.sleep_token
+    }
+
+    pub(crate) fn instructions(&self) -> &Arc<AtomicU64> {
+        &self.instructions
+    }
+
+    pub(crate) fn budget(&self) -> &Budget {
+        &self.budget
     }
 
     fn environment(&self, source: &str) -> Result<Table, ScriptError> {

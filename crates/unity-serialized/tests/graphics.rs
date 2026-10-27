@@ -7,8 +7,9 @@ use worldrunner_unity_serialized::{
     ClassId, SerializedError,
     graphics::{
         Material, MeshFilter, MeshRenderer, Mipmaps, Renderer, RendererSettings, SavedProperties,
-        StreamingInfo, TexEnv, Texture2D, TextureSettings,
+        SkinnedMeshRenderer, StreamingInfo, TexEnv, Texture2D, TextureSettings,
     },
+    mesh::Aabb,
     object::{Layout, PPtr},
     write::ObjectWriter,
 };
@@ -25,6 +26,23 @@ fn mesh_filter_bytes(big_endian: bool) -> Vec<u8> {
 
 fn mesh_renderer_bytes(big_endian: bool) -> Vec<u8> {
     let mut w = ObjectWriter::new(big_endian);
+    write_renderer(&mut w);
+    w.pptr(ptr(0, 14)).pptr(ptr(0, 0));
+    w.finish()
+}
+
+fn skinned_renderer_bytes(big_endian: bool) -> Vec<u8> {
+    let mut w = ObjectWriter::new(big_endian);
+    write_renderer(&mut w);
+    w.i32(4).u8(0).u8(1).align().pptr(ptr(0, 20));
+    w.pptrs(&[ptr(0, 21), ptr(0, 22)]).unwrap();
+    w.i32(2).f32(0.5).f32(25.0).pptr(ptr(0, 21));
+    w.floats(&[0.0, 1.0, 0.0, 2.0, 2.0, 2.0]).u8(1).align();
+    w.finish()
+}
+
+/// The fields every renderer starts with, with byte-sized values that need padding.
+fn write_renderer(w: &mut ObjectWriter) {
     w.pptr(ptr(0, 8)).u8(1);
     // Twelve byte-sized settings, 1 through 12, then padding.
     w.bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).align();
@@ -40,9 +58,7 @@ fn mesh_renderer_bytes(big_endian: bool) -> Vec<u8> {
         .pptr(ptr(0, 12))
         .pptr(ptr(0, 13))
         .align();
-    w.i32(9).i16(-2).i16(5).align().i32(1).align();
-    w.pptr(ptr(0, 14)).pptr(ptr(0, 0));
-    w.finish()
+    w.i32(9).i16(-2).i16(5).i32(1);
 }
 
 fn material_bytes(big_endian: bool) -> Vec<u8> {
@@ -138,8 +154,8 @@ fn decodes_mesh_filters_in_both_byte_orders() {
     assert_eq!(filter.mesh, ptr(1, 2));
 }
 
-#[test]
-fn decodes_mesh_renderers_in_both_byte_orders() {
+/// The renderer base [`write_renderer`] writes.
+fn expected_renderer() -> Renderer {
     let settings = RendererSettings {
         cast_shadows: 1,
         receive_shadows: 2,
@@ -154,35 +170,65 @@ fn decodes_mesh_renderers_in_both_byte_orders() {
         ray_tracing_build_flags: 11,
         small_mesh_culling: 12,
     };
+    Renderer {
+        game_object: ptr(0, 8),
+        enabled: true,
+        settings,
+        force_mesh_lod: -1,
+        mesh_lod_selection_bias: 0.25,
+        rendering_layer_mask: u32::MAX,
+        renderer_priority: -3,
+        lightmap_index: 65_535,
+        lightmap_index_dynamic: 7,
+        lightmap_tiling_offset: [1.0, 1.0, 0.0, 0.0],
+        lightmap_tiling_offset_dynamic: [2.0, 2.0, 0.5, 0.5],
+        materials: vec![ptr(0, 3), ptr(2, -4)],
+        static_batch: [1, 2],
+        static_batch_root: ptr(0, 11),
+        probe_anchor: ptr(0, 12),
+        light_probe_volume_override: ptr(0, 13),
+        sorting_layer_id: 9,
+        sorting_layer: -2,
+        sorting_order: 5,
+        mask_interaction: 1,
+    }
+}
+
+#[test]
+fn decodes_mesh_renderers_in_both_byte_orders() {
     let expected = MeshRenderer {
-        renderer: Renderer {
-            game_object: ptr(0, 8),
-            enabled: true,
-            settings,
-            force_mesh_lod: -1,
-            mesh_lod_selection_bias: 0.25,
-            rendering_layer_mask: u32::MAX,
-            renderer_priority: -3,
-            lightmap_index: 65_535,
-            lightmap_index_dynamic: 7,
-            lightmap_tiling_offset: [1.0, 1.0, 0.0, 0.0],
-            lightmap_tiling_offset_dynamic: [2.0, 2.0, 0.5, 0.5],
-            materials: vec![ptr(0, 3), ptr(2, -4)],
-            static_batch: [1, 2],
-            static_batch_root: ptr(0, 11),
-            probe_anchor: ptr(0, 12),
-            light_probe_volume_override: ptr(0, 13),
-            sorting_layer_id: 9,
-            sorting_layer: -2,
-            sorting_order: 5,
-            mask_interaction: 1,
-        },
+        renderer: expected_renderer(),
         additional_vertex_streams: ptr(0, 14),
         enlighten_vertex_stream: ptr(0, 0),
     };
     for big_endian in [false, true] {
         let bytes = mesh_renderer_bytes(big_endian);
         let decoded: MeshRenderer = decode_one(ClassId::MESH_RENDERER, bytes, big_endian).unwrap();
+        assert_eq!(decoded, expected);
+    }
+}
+
+#[test]
+fn decodes_skinned_mesh_renderers_in_both_byte_orders() {
+    let expected = SkinnedMeshRenderer {
+        renderer: expected_renderer(),
+        quality: 4,
+        update_when_offscreen: false,
+        skinned_motion_vectors: true,
+        mesh: ptr(0, 20),
+        bones: vec![ptr(0, 21), ptr(0, 22)],
+        blend_shape_weights: vec![0.5, 25.0],
+        root_bone: ptr(0, 21),
+        aabb: Aabb {
+            center: [0.0, 1.0, 0.0],
+            extent: [2.0; 3],
+        },
+        dirty_aabb: true,
+    };
+    for big_endian in [false, true] {
+        let bytes = skinned_renderer_bytes(big_endian);
+        let decoded: SkinnedMeshRenderer =
+            decode_one(ClassId::SKINNED_MESH_RENDERER, bytes, big_endian).unwrap();
         assert_eq!(decoded, expected);
     }
 }

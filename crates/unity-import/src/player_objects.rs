@@ -10,7 +10,8 @@ use std::{
 use worldrunner_unity_serialized::{
     ClassId, ObjectInfo, SerializedError, SerializedFile,
     classes::{GameObject, MonoBehaviour, MonoScript, RectTransform, Transform},
-    graphics::{Material, MeshFilter, MeshRenderer, Texture2D},
+    graphics::{Material, MeshFilter, MeshRenderer, SkinnedMeshRenderer, Texture2D},
+    mesh::Mesh,
     object::{Layout, decode},
 };
 
@@ -132,24 +133,26 @@ pub fn describe_object(open: &mut OpenFile, path_id: i64) -> Result<String, Play
     check(&bytes, &object, open.file.header.big_endian).map_err(|source| open.error(source))
 }
 
+/// A layout's class with its check. The class comes from the layout, so the two cannot drift.
+const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
+    (T::CLASS, check::<T>)
+}
+
 /// The classes with layouts, each with the check [`decode_census`] runs on its objects.
-const LAYOUTS: [(ClassId, Check); 9] = [
-    (ClassId::GAME_OBJECT, check::<GameObject>),
-    (ClassId::TRANSFORM, check::<Transform>),
-    (ClassId::RECT_TRANSFORM, check::<RectTransform>),
-    (ClassId::MONO_SCRIPT, check::<MonoScript>),
-    (ClassId::MONO_BEHAVIOUR, check::<MonoBehaviour>),
-    (ClassId::MESH_FILTER, check::<MeshFilter>),
-    (ClassId::MESH_RENDERER, check::<MeshRenderer>),
-    (ClassId::MATERIAL, check::<Material>),
-    (ClassId::TEXTURE_2D, check::<Texture2D>),
+const LAYOUTS: [(ClassId, Check); 11] = [
+    layout::<GameObject>(),
+    layout::<Transform>(),
+    layout::<RectTransform>(),
+    layout::<MonoScript>(),
+    layout::<MonoBehaviour>(),
+    layout::<MeshFilter>(),
+    layout::<MeshRenderer>(),
+    layout::<SkinnedMeshRenderer>(),
+    layout::<Material>(),
+    layout::<Texture2D>(),
+    layout::<Mesh>(),
 ];
 const FAILURES_KEPT: usize = 5;
-
-/// The classes [`decode_census`] decodes.
-pub fn decoded_classes() -> impl Iterator<Item = ClassId> {
-    LAYOUTS.iter().map(|&(class, _)| class)
-}
 
 fn layout_check(class: ClassId) -> Option<Check> {
     LAYOUTS
@@ -158,7 +161,7 @@ fn layout_check(class: ClassId) -> Option<Check> {
         .map(|&(_, check)| check)
 }
 
-/// Decodes every object of the [`decoded_classes`] in the given files and counts the results.
+/// Decodes every object whose class has a layout in the given files and counts the results.
 ///
 /// # Errors
 /// Fails if a file cannot be opened or an object cannot be read; decoding failures are

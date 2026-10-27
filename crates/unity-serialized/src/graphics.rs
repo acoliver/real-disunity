@@ -4,11 +4,10 @@ use std::ops::Range;
 
 use crate::{
     ClassId, SerializedError,
-    object::{Layout, ObjectReader, PPtr},
+    mesh::Aabb,
+    object::{Layout, ObjectReader, PPTR_LEN, PPtr},
 };
 
-/// Bytes of a [`PPtr`].
-const PPTR_LEN: usize = 12;
 /// Fewest bytes of a serialized string: its 32-bit length.
 const STRING_LEN: usize = 4;
 
@@ -116,16 +115,10 @@ impl Renderer {
             static_batch_root: r.pptr()?,
             probe_anchor: r.pptr()?,
             light_probe_volume_override: r.pptr()?,
-            sorting_layer_id: {
-                r.align()?;
-                r.i32()?
-            },
+            sorting_layer_id: r.i32()?,
             sorting_layer: r.i16()?,
             sorting_order: r.i16()?,
-            mask_interaction: {
-                r.align()?;
-                r.i32()?
-            },
+            mask_interaction: r.i32()?,
         })
     }
 }
@@ -141,13 +134,51 @@ impl Layout for MeshRenderer {
     const CLASS: ClassId = ClassId::MESH_RENDERER;
 
     fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
-        let renderer = Renderer::read(r)?;
-        r.align()?;
         Ok(Self {
-            renderer,
+            renderer: Renderer::read(r)?,
             additional_vertex_streams: r.pptr()?,
             enlighten_vertex_stream: r.pptr()?,
         })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkinnedMeshRenderer {
+    pub renderer: Renderer,
+    /// Most bones that may affect one vertex; 0 uses the quality setting.
+    pub quality: i32,
+    pub update_when_offscreen: bool,
+    pub skinned_motion_vectors: bool,
+    pub mesh: PPtr,
+    pub bones: Vec<PPtr>,
+    pub blend_shape_weights: Vec<f32>,
+    pub root_bone: PPtr,
+    pub aabb: Aabb,
+    pub dirty_aabb: bool,
+}
+
+impl Layout for SkinnedMeshRenderer {
+    const CLASS: ClassId = ClassId::SKINNED_MESH_RENDERER;
+
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        let renderer = Renderer::read(r)?;
+        let quality = r.i32()?;
+        let [update_when_offscreen, skinned_motion_vectors] = [r.bool()?, r.bool()?];
+        r.align()?;
+        let value = Self {
+            renderer,
+            quality,
+            update_when_offscreen,
+            skinned_motion_vectors,
+            mesh: r.pptr()?,
+            bones: r.pptrs("bone")?,
+            blend_shape_weights: r.array("blend shape weight", 4, ObjectReader::f32)?,
+            root_bone: r.pptr()?,
+            aabb: Aabb::read(r)?,
+            dirty_aabb: r.bool()?,
+        };
+        r.align()?;
+        Ok(value)
     }
 }
 
@@ -297,7 +328,7 @@ pub struct StreamingInfo {
 }
 
 impl StreamingInfo {
-    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+    pub(crate) fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         Ok(Self {
             offset: r.u64()?,
             size: r.u32()?,

@@ -17,6 +17,7 @@ mod error;
 mod file;
 pub mod graphics;
 mod header;
+pub mod mesh;
 pub mod object;
 mod type_tree;
 pub mod write;

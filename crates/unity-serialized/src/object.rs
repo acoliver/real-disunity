@@ -24,7 +24,7 @@ impl PPtr {
 }
 
 /// Bytes of a [`PPtr`]: a 32-bit file ID and a 64-bit path ID.
-const PPTR_LEN: usize = 12;
+pub(crate) const PPTR_LEN: usize = 12;
 
 /// A class layout: reads the class's fields in their serialized order.
 pub trait Layout: Sized {

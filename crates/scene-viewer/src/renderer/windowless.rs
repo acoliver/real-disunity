@@ -14,7 +14,7 @@ impl Renderer {
             .await?;
         let context =
             GpuContext::from_adapter_with_features(adapter, required_features(scene)).await?;
-        let errors = device_errors(context.device(), context.submission().clone());
+        let errors = device_errors(context.device(), context.submission());
         let extents = Extents::new(
             options.size,
             context.device().limits().max_texture_dimension_2d,

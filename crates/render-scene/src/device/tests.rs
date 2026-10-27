@@ -1,4 +1,43 @@
 #[test]
+fn dropping_context_releases_its_queue_without_waiting_for_device_loss() {
+    let instance = worldrunner_render_gpu::device::headless_instance();
+    for _ in 0..3 {
+        let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
+        assert_eq!(
+            instance
+                .generate_report()
+                .unwrap()
+                .hub
+                .queues
+                .num_kept_from_user,
+            1
+        );
+        drop(context);
+        assert!(instance.generate_report().unwrap().hub.queues.is_empty());
+        assert!(instance.generate_report().unwrap().hub.devices.is_empty());
+    }
+}
+
+#[test]
+fn device_loss_callback_still_rejects_submissions() {
+    let context = context();
+    context.device().destroy();
+    context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(5)),
+        })
+        .unwrap();
+    assert!(matches!(
+        context.submission().check_device(),
+        Err(worldrunner_render_gpu::submission::SubmitError::DeviceLost(
+            _
+        ))
+    ));
+}
+
+#[test]
 fn hdr_rejects_extent_invalid_bloom_before_buffer_allocation() {
     use crate::{compositor::FrameRenderer, post_bloom_tests};
     use worldrunner_render_post::{PostError, ToneMap};

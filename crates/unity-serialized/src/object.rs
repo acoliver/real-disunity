@@ -210,6 +210,18 @@ impl<'a> ObjectReader<'a> {
         self.cursor.u64()
     }
 
+    /// # Errors
+    /// Fails when the data ends early.
+    pub fn i64(&mut self) -> Result<i64, SerializedError> {
+        self.cursor.i64()
+    }
+
+    /// # Errors
+    /// Fails when the data ends early.
+    pub fn i8(&mut self) -> Result<i8, SerializedError> {
+        self.cursor.u8().map(|byte| i8::from_ne_bytes([byte]))
+    }
+
     /// A length-prefixed array padded to four bytes, each element read by `read`.
     /// `min_entry` is the fewest bytes one element can take, which bounds the count.
     ///

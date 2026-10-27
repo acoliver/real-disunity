@@ -21,6 +21,9 @@ mod header;
 pub mod light;
 pub mod mesh;
 pub mod object;
+pub mod shader;
+pub mod shader_program;
+pub mod shader_state;
 mod type_tree;
 pub mod write;
 

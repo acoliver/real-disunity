@@ -355,6 +355,11 @@ impl ObjectWriter {
         self
     }
 
+    pub fn i64(&mut self, value: i64) -> &mut Self {
+        self.inner.i64(value);
+        self
+    }
+
     /// A length-prefixed byte array padded to four bytes.
     ///
     /// # Errors

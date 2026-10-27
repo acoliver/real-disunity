@@ -150,3 +150,162 @@ fn ui_extraction_is_pathless_and_omits_inactive_rectangles() {
             .is_empty()
     );
 }
+
+mod pixel_perfect {
+    use super::test_font;
+    use glam::{Vec2, Vec3};
+    use worldrunner_render_plan::ui::extract_ui;
+    use worldrunner_world_simulation::ui::{
+        Canvas, CanvasMode, FontBook, RectTransform, TextRun, UiLimits,
+    };
+    use worldrunner_world_simulation::{
+        ComponentDesc, LocalTransform, ObjectDesc, ParentSpace, World, WorldSettings,
+    };
+
+    /// The screen position (pixels, and depth) of each glyph's top-left corner for "AV" placed
+    /// at a fractional pixel position on a canvas in `mode`.
+    fn glyph_corners(mode: fn(&mut World) -> CanvasMode, pixel_perfect: bool) -> Vec<Vec3> {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let mode = mode(&mut world);
+        let root = world.create_object(ObjectDesc::default()).unwrap();
+        world
+            .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
+            .unwrap();
+        world
+            .add_component(
+                root,
+                ComponentDesc::Canvas(Canvas {
+                    mode,
+                    pixel_perfect,
+                    ..Canvas::default()
+                }),
+            )
+            .unwrap();
+        let label = world.create_object(ObjectDesc::default()).unwrap();
+        world
+            .add_component(
+                label,
+                ComponentDesc::RectTransform(RectTransform {
+                    anchored_position: Vec2::new(10.3, -20.6),
+                    size_delta: Vec2::new(200., 60.),
+                    ..RectTransform::default()
+                }),
+            )
+            .unwrap();
+        world
+            .set_parent(label, Some(root), ParentSpace::KeepLocal)
+            .unwrap();
+        let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+        let font = fonts.register(test_font::font()).unwrap();
+        world
+            .add_component(
+                label,
+                ComponentDesc::Text(TextRun {
+                    text: "AV".into(),
+                    ..TextRun::new(font)
+                }),
+            )
+            .unwrap();
+        let plan = extract_ui(&world, &fonts, [800, 600]).unwrap();
+        let pixels = plan.layout.rect(label).unwrap().pixels_from_world.unwrap();
+        plan.texts[0]
+            .quads
+            .iter()
+            .map(|quad| pixels.transform_point3(Vec3::from(quad.corners[3])))
+            .collect()
+    }
+
+    fn overlay(_: &mut World) -> CanvasMode {
+        CanvasMode::ScreenSpaceOverlay
+    }
+
+    /// Pong's canvas mode, through a camera that is itself off the pixel grid.
+    fn camera(world: &mut World) -> CanvasMode {
+        let camera = world
+            .create_object(ObjectDesc {
+                local_transform: LocalTransform {
+                    translation: Vec3::new(0.0137, -0.0211, -10.),
+                    ..LocalTransform::default()
+                },
+                ..ObjectDesc::default()
+            })
+            .unwrap();
+        CanvasMode::ScreenSpaceCamera {
+            camera,
+            orthographic_size: 5.,
+            plane_distance: 10.37,
+        }
+    }
+
+    fn off_grid(point: Vec3) -> f32 {
+        let pixel = point.truncate();
+        (pixel - pixel.round()).abs().max_element()
+    }
+
+    #[test]
+    fn the_first_glyph_lands_on_a_whole_pixel_and_the_rest_keep_their_spacing() {
+        for mode in [overlay as fn(&mut World) -> CanvasMode, camera] {
+            let free = glyph_corners(mode, false);
+            let snapped = glyph_corners(mode, true);
+            assert_eq!(free.len(), 2);
+            assert!(
+                off_grid(free[0]) > 0.05,
+                "the fixture is off the grid: {free:?}"
+            );
+            assert!(off_grid(snapped[0]) < 1e-3, "{snapped:?}");
+            let moved = snapped[0] - free[0];
+            assert!(moved.abs().max_element() <= 0.5 + 1e-3, "{moved:?}");
+            assert!(
+                (snapped[0].z - free[0].z).abs() < 1e-4,
+                "depth is not snapped"
+            );
+            let spacing = |c: &[Vec3]| c[1] - c[0];
+            assert!(
+                (spacing(&snapped) - spacing(&free)).abs().max_element() < 1e-3,
+                "glyphs move together"
+            );
+        }
+    }
+
+    #[test]
+    fn world_space_canvases_ignore_pixel_perfect() {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let root = world.create_object(ObjectDesc::default()).unwrap();
+        world
+            .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
+            .unwrap();
+        let canvas = world
+            .add_component(
+                root,
+                ComponentDesc::Canvas(Canvas {
+                    mode: CanvasMode::WorldSpace,
+                    pixel_perfect: true,
+                    ..Canvas::default()
+                }),
+            )
+            .unwrap();
+        let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+        let font = fonts.register(test_font::font()).unwrap();
+        world
+            .add_component(
+                root,
+                ComponentDesc::Text(TextRun {
+                    text: "A".into(),
+                    ..TextRun::new(font)
+                }),
+            )
+            .unwrap();
+        let snapped = extract_ui(&world, &fonts, [800, 600]).unwrap();
+        world
+            .set_component(
+                canvas,
+                ComponentDesc::Canvas(Canvas {
+                    mode: CanvasMode::WorldSpace,
+                    ..Canvas::default()
+                }),
+            )
+            .unwrap();
+        let free = extract_ui(&world, &fonts, [800, 600]).unwrap();
+        assert_eq!(snapped.texts[0].quads, free.texts[0].quads);
+    }
+}

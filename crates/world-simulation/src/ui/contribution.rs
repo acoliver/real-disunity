@@ -4,8 +4,9 @@
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
 use crate::presentation::CoverageTexture as SceneTexture;
-use crate::ui::{CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout};
+use crate::ui::{Canvas, CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
+use glam::Vec3;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiGlyphQuad {
@@ -60,8 +61,22 @@ pub fn extract_ui(
             text.atlas.alpha.len(),
             fonts.limits(),
         )?;
-        let overlay = snapshot.components.iter().any(|c| c.object == rect.canvas && matches!(c.desc, ComponentDesc::Canvas(canvas) if canvas.mode == CanvasMode::ScreenSpaceOverlay));
-        texts.push(contribution(rect, text, overlay, run.color));
+        let canvas = snapshot
+            .components
+            .iter()
+            .find_map(|c| match c.desc {
+                ComponentDesc::Canvas(canvas) if c.object == rect.canvas => Some(canvas),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let mut text = contribution(
+            rect,
+            text,
+            canvas.mode == CanvasMode::ScreenSpaceOverlay,
+            run.color,
+        );
+        snap_to_pixels(&mut text, rect, canvas);
+        texts.push(text);
     }
     texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.object));
     Ok(UiRenderPlan { layout, texts })
@@ -112,6 +127,26 @@ fn contribution(
         color,
         texture,
         quads,
+    }
+}
+
+/// Unity's `Text` on a pixel-perfect canvas: the first vertex (the first glyph's top-left
+/// corner) moves to the nearest whole screen pixel, and every glyph moves with it, so glyphs
+/// keep their subpixel spacing.
+fn snap_to_pixels(text: &mut UiTextContribution, rect: &RectLayout, canvas: Canvas) {
+    let Some(pixels) = rect.pixels_from_world.filter(|_| canvas.pixel_perfect) else {
+        return;
+    };
+    let Some(first) = text.quads.first().map(|quad| Vec3::from(quad.corners[3])) else {
+        return;
+    };
+    let screen = pixels.transform_point3(first);
+    let offset = (screen.round() - screen) * Vec3::new(1., 1., 0.);
+    let shift = pixels.inverse().transform_vector3(offset);
+    for quad in &mut text.quads {
+        for corner in &mut quad.corners {
+            *corner = (Vec3::from(*corner) + shift).to_array();
+        }
     }
 }
 

@@ -27,7 +27,7 @@ A host loads a Unity scene from the plan `unity-import plan` writes, with `Disun
 
 Serialized fields bind as Unity deserializes them. Public and `[SerializeField]` fields are set; static, readonly and `[NonSerialized]` fields are not. A field the scene does not mention keeps its initializer, and scene data for a field the script no longer declares is ignored. Supported field types are numbers, `bool`, enums, `string`, `Vector2`, `Vector3`, `Vector2Int`, `Quaternion`, `Color`, `Rect`, `LayerMask`, references to objects, components, sprites, fonts and `ScriptableObject` assets, `[Serializable]` classes, arrays, `List<T>` and `UnityEvent<T>`. Any other type fails the load.
 
-`LoadedScene.UnregisteredAxes` lists input axes that need mouse, joystick or keys the engine does not deliver; reading one fails as an unregistered axis does. `LoadedScene.Differences` lists authored presentation settings the engine does not reproduce, such as extrapolated bodies, lit tilemaps and pixel-perfect canvases. `LoadedScene.Textures` gives the identity each scene texture's sprites use, for the host to upload.
+`LoadedScene.UnregisteredAxes` lists input axes that need mouse, joystick or keys the engine does not deliver; reading one fails as an unregistered axis does. `LoadedScene.Differences` lists authored presentation settings the engine does not reproduce, such as extrapolated bodies and lit tilemaps. `LoadedScene.Textures` gives the identity each scene texture's sprites use, for the host to upload.
 
 ## Time, input and coroutines
 
@@ -75,7 +75,7 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 
 | Type | Supported |
 | --- | --- |
-| `Canvas` | `renderMode` (screen space overlay, screen space camera, world space), `enabled`, `sortingOrder`, `scaleFactor` (the factor for the current screen), `planeDistance`, `worldCamera` (read; the host sets it with `DisunityHost.RenderThroughCamera`) |
+| `Canvas` | `renderMode` (screen space overlay, screen space camera, world space), `enabled`, `sortingOrder`, `scaleFactor` (the factor for the current screen), `planeDistance`, `worldCamera` (read; the host sets it with `DisunityHost.RenderThroughCamera`), `pixelPerfect` (on a screen-space canvas, each text moves so its first glyph starts on a whole screen pixel, as Unity's `Text` does; world-space canvases ignore it) |
 | `RectTransform` | `anchorMin`, `anchorMax`, `pivot`, `sizeDelta`, `anchoredPosition`, `rect` |
 | `UnityEngine.UI.Text` | `text`, `fontSize`, `font`, `color`, `alignment`, `lineSpacing`, `horizontalOverflow`, `verticalOverflow`, `supportRichText`; `fontStyle` Normal only; `resizeTextForBestFit` off only. Fonts are TrueType files registered by the host with `DisunityHost.RegisterFont`; there is no built-in font. |
 

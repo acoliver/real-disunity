@@ -178,3 +178,62 @@ fn factor_queries_reject_empty_viewports_and_null_output() {
     assert_eq!(result.code, result_code::INVALID_ARGUMENT);
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
+
+fn pixel_perfect(world: u64, canvas: u64) -> u32 {
+    let mut value = 7;
+    assert_eq!(
+        unsafe { disunity_canvas_pixel_perfect_read(world, canvas, &mut value) }.code,
+        0
+    );
+    value
+}
+
+#[test]
+fn pixel_perfect_round_trips_and_survives_canvas_and_scale_writes() {
+    let (world, canvas) = canvas_world();
+    assert_eq!(pixel_perfect(world, canvas), 0);
+    assert_eq!(
+        disunity_canvas_pixel_perfect_write(world, canvas, 1).code,
+        0
+    );
+    assert_eq!(pixel_perfect(world, canvas), 1);
+    let mut record = DisunityCanvas::default();
+    assert_eq!(
+        unsafe { disunity_canvas_read(world, canvas, &mut record) }.code,
+        0
+    );
+    record.sorting_order = 3;
+    assert_eq!(
+        unsafe { disunity_canvas_write(world, canvas, &record) }.code,
+        0
+    );
+    assert_eq!(write(world, canvas, pong()).code, 0);
+    assert_eq!(
+        pixel_perfect(world, canvas),
+        1,
+        "other writes keep the flag"
+    );
+    assert_ne!(
+        disunity_canvas_pixel_perfect_write(world, canvas, 2).code,
+        0
+    );
+    assert_eq!(
+        pixel_perfect(world, canvas),
+        1,
+        "a bad value changes nothing"
+    );
+    assert_eq!(
+        disunity_canvas_pixel_perfect_write(world, canvas, 0).code,
+        0
+    );
+    assert_eq!(pixel_perfect(world, canvas), 0);
+    assert_ne!(
+        unsafe { disunity_canvas_pixel_perfect_read(world, canvas, std::ptr::null_mut()) }.code,
+        0
+    );
+    assert_ne!(
+        disunity_canvas_pixel_perfect_write(world, 0xdead, 1).code,
+        0
+    );
+    unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
+}

@@ -11,6 +11,18 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  # Safety
+        ///  Value is readable for one tilemap record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_write(ulong world, ulong handle, DisunityTilemap* value);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one tilemap record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_read(ulong world, ulong handle, DisunityTilemap* output);
+        /// <summary>
         ///  Sets palette entry `index`, replacing it or, at the palette's length, appending it. `sprite`
         ///  may be null for a tile with no sprite; only its content fields are read. A Sprite collider
         ///  starts with no physics shape; set it with `disunity_tilemap_set_tile_shape`.

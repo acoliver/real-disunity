@@ -16,8 +16,14 @@ mod optics_tests;
 mod regressions;
 #[path = "review_tests.rs"]
 mod review_tests;
+#[path = "screen_tests.rs"]
+mod screen_tests;
 #[path = "shoreline_tests.rs"]
 mod shoreline_tests;
+#[path = "terms_tests.rs"]
+mod terms_tests;
+#[path = "wind_clock_tests.rs"]
+mod wind_clock_tests;
 
 use super::*;
 use crate::{CameraPose, SceneView, Viewport, device::GpuContext};
@@ -110,10 +116,7 @@ fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_1x_and_4x() {
             let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, red);
             submissions.push(encoder.finish().submit().unwrap());
         }
-        context
-            .device()
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
+        wait(context.device());
         assert_snapshots(&context, &renderer);
         assert_surface_depth(&context, &renderer);
         assert_foreground_rejection(&context, &renderer);
@@ -213,10 +216,7 @@ fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::Fram
         &[&group],
     );
     encoder.finish().submit().unwrap();
-    context
-        .device()
-        .poll(wgpu::PollType::wait_indefinitely())
-        .unwrap();
+    wait(context.device());
     let bytes = read(context, &texture);
     let offset = (16 * 32 + 16) * 4;
     let depth = f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
@@ -361,8 +361,14 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
     }
     renderer.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
-    context
-        .device()
-        .poll(wgpu::PollType::wait_indefinitely())
+    wait(context.device());
+}
+
+fn wait(device: &wgpu::Device) {
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
         .unwrap();
 }

@@ -106,7 +106,10 @@ pub use scene::{
     SceneTranslucencyParts, SceneWind, SceneWindBand, SceneWindPhase,
 };
 
-pub use scene::{SceneWaterOptics, SceneWaterSettings, SceneWaterShoreline, SceneWaterTint};
+pub use scene::{
+    SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterOptics, SceneWaterSettings,
+    SceneWaterShoreline, SceneWaterSunDisk, SceneWaterTint, SceneWaterWind,
+};
 
 #[cfg(feature = "ui")]
 pub mod ui;

@@ -5,11 +5,12 @@ pub(crate) mod planning;
 pub(crate) mod receivers;
 pub(crate) mod snapshots;
 pub(crate) mod surface;
+mod terms;
 #[cfg(test)]
 mod tests;
 
-pub(crate) const STAGING_BYTES: u64 = 432 + crate::frame::FRAME_UNIFORM_BYTES as u64;
-pub(crate) const UNIFORM_BYTES: u64 = 512 + crate::frame::FRAME_UNIFORM_BYTES as u64;
+pub(crate) const STAGING_BYTES: u64 = 560 + crate::frame::FRAME_UNIFORM_BYTES as u64;
+pub(crate) const UNIFORM_BYTES: u64 = 768 + crate::frame::FRAME_UNIFORM_BYTES as u64;
 
 use crate::frame::FrameUniform;
 use snapshots::Snapshots;
@@ -144,14 +145,14 @@ pub(crate) struct Water {
     shadow_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     specializations: std::rc::Rc<
-        std::cell::RefCell<std::collections::BTreeMap<[u32; 3], [wgpu::RenderPipeline; 2]>>,
+        std::cell::RefCell<std::collections::BTreeMap<[u32; 4], [wgpu::RenderPipeline; 2]>>,
     >,
     samples: u32,
     pub receivers: [[wgpu::Texture; 3]; 3],
     pub environment: [wgpu::TextureView; 2],
     sampler: wgpu::Sampler,
     surface_sampler: wgpu::Sampler,
-    pub surface_inputs: Vec<[Option<wgpu::TextureView>; 2]>,
+    pub surface_inputs: Vec<[Option<wgpu::TextureView>; 3]>,
 }
 impl Water {
     pub fn resized(
@@ -187,8 +188,8 @@ impl Water {
             ));
         }
         let layout = input_layout(device);
-        let plain_pipeline = pipeline(device, config.samples, &layout, false, [0; 3]);
-        let shadow_pipeline = pipeline(device, config.samples, &layout, true, [0; 3]);
+        let plain_pipeline = pipeline(device, config.samples, &layout, false, [0; 4]);
+        let shadow_pipeline = pipeline(device, config.samples, &layout, true, [0; 4]);
         let bodies = geometry
             .into_iter()
             .map(|vertices| Body::new(device, &vertices))
@@ -203,7 +204,7 @@ impl Water {
                 mipmap_filter: wgpu::MipmapFilterMode::Linear,
                 ..Default::default()
             }),
-            surface_inputs: vec![[None, None]; settings.len()],
+            surface_inputs: vec![[None, None, None]; settings.len()],
             surface_sampler: surface::sampler(device),
             bodies,
             settings: settings.into(),
@@ -233,8 +234,9 @@ impl Water {
             })
             .collect();
         let mut water = self.clone();
-        let options = frame.specular_convention.shader_options();
-        if options != [0; 3] {
+        let base = frame.specular_convention.shader_options();
+        let options = [base[0], base[1], base[2], terms::mask(&self.settings)];
+        if options != [0; 4] {
             let mut cache = self.specializations.borrow_mut();
             let selected = cache.entry(options).or_insert_with(|| {
                 [
@@ -282,10 +284,10 @@ impl Water {
             label: Some("water snapshots"),
             layout: &self.layout,
             entries: &[
-                uniform_entry(0, 0, 432),
+                uniform_entry(0, 0, 560),
                 surface::binding(1, &color),
                 surface::binding(2, &depth),
-                uniform_entry(3, 512, crate::frame::FRAME_UNIFORM_BYTES as u64),
+                uniform_entry(3, 768, crate::frame::FRAME_UNIFORM_BYTES as u64),
                 surface::binding(4, &self.environment[0]),
                 surface::binding(5, &self.environment[1]),
                 wgpu::BindGroupEntry {
@@ -295,6 +297,12 @@ impl Water {
                 surface::binding(
                     7,
                     self.surface_inputs[index][0]
+                        .as_ref()
+                        .unwrap_or(&self.environment[1]),
+                ),
+                surface::binding(
+                    10,
+                    self.surface_inputs[index][2]
                         .as_ref()
                         .unwrap_or(&self.environment[1]),
                 ),
@@ -330,7 +338,7 @@ fn pipeline(
     samples: u32,
     layout: &wgpu::BindGroupLayout,
     shadows: bool,
-    options: [u32; 3],
+    options: [u32; 4],
 ) -> wgpu::RenderPipeline {
     pipeline_with_source(
         device,
@@ -346,14 +354,15 @@ fn pipeline_with_source(
     samples: u32,
     layout: &wgpu::BindGroupLayout,
     shadows: bool,
-    options: [u32; 3],
+    options: [u32; 4],
     source: &str,
 ) -> wgpu::RenderPipeline {
-    let constants = crate::renderer::specular_constants(options);
+    let constants = terms::constants(options);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("planar water"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
+    let vertex_constants = terms::vertex_constants(options);
     let shadow_layout = crate::shadows::water_layout(device);
     let layouts = if shadows {
         vec![Some(layout), Some(&shadow_layout)]
@@ -371,7 +380,10 @@ fn pipeline_with_source(
         vertex: wgpu::VertexState {
             module: &module,
             entry_point: Some("vs_water"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &vertex_constants,
+                ..Default::default()
+            },
             buffers: &[Some(vertex_layout())],
         },
         fragment: Some(wgpu::FragmentState {
@@ -425,7 +437,11 @@ pub(crate) fn water_source(shadows: bool) -> String {
         concat!(
             include_str!("water/optics.wgsl"),
             "\n",
-            include_str!("water/water.wgsl")
+            include_str!("water/water.wgsl"),
+            "\n",
+            include_str!("water/screen.wgsl"),
+            "\n",
+            include_str!("water/terms.wgsl")
         )
     )
 }
@@ -509,51 +525,9 @@ impl PreparedFeature for WaterFeature {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        let inverse = self.frame.view_projection.inverse();
         for (s, body) in self.water.settings.iter().zip(self.water.bodies.iter()) {
-            let mut data = Vec::new();
-            for matrix in [self.frame.view_projection, self.frame.view, inverse] {
-                data.extend(matrix.to_cols_array());
-            }
-            data.extend([
-                number(s.east_min_millimeters),
-                number(s.north_min_millimeters),
-                number(s.height_millimeters),
-                self.time,
-            ]);
-            data.extend([
-                number(i64::try_from(s.east_extent_millimeters).expect("validated extent")),
-                number(i64::try_from(s.north_extent_millimeters).expect("validated extent")),
-                number(i64::from(s.flow_millimeters_per_second[0])),
-                number(i64::from(s.flow_millimeters_per_second[1])),
-            ]);
-            data.extend(
-                s.color_micro
-                    .map(|v| crate::view::meters_scalar(v) / 1000.0),
-            );
-            data.push(crate::view::meters_scalar(s.roughness_micro) / 1000.0);
-            data.extend(
-                s.absorption_micro
-                    .map(|v| crate::view::meters_scalar(v) / 1000.0),
-            );
-            data.push(number(i64::from(
-                s.material.flow_period_milliseconds.unwrap_or(0),
-            )));
-            data.extend(self.frame.sun_direction.to_array());
-            data.push(0.0);
-            data.extend(self.frame.sun_irradiance.to_array());
-            data.push(0.0);
-            data.extend(self.frame.ambient_sky.to_array());
-            data.push(0.0);
-            data.extend([
-                1.0 / number(i64::from(s.material.tile_millimeters[0])),
-                1.0 / number(i64::from(s.material.tile_millimeters[1])),
-                f32::from(u8::from(s.material.normal.is_some())),
-                number(i64::from(s.material.flow_speed_millimeters_per_second))
-                    * f32::from(u8::from(s.material.flow.is_some())),
-            ]);
-            data.extend(optics::uniforms(s));
-            context.upload_buffer(&body.uniforms[self.slot], 512, &self.frame.to_bytes());
+            let data = uniform_data(&self.frame, self.time, s);
+            context.upload_buffer(&body.uniforms[self.slot], 768, &self.frame.to_bytes());
             context.upload_buffer(
                 &body.uniforms[self.slot],
                 0,
@@ -665,4 +639,55 @@ fn input_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         .chain(surface::entries())
         .collect::<Vec<_>>(),
     })
+}
+
+fn uniform_data(frame: &FrameUniform, time: f32, s: &SceneWaterBody) -> Vec<f32> {
+    let mut data = Vec::new();
+    for matrix in [
+        frame.view_projection,
+        frame.view,
+        frame.view_projection.inverse(),
+    ] {
+        data.extend(matrix.to_cols_array());
+    }
+    data.extend([
+        number(s.east_min_millimeters),
+        number(s.north_min_millimeters),
+        number(s.height_millimeters),
+        time,
+    ]);
+    data.extend([
+        number(i64::try_from(s.east_extent_millimeters).expect("validated extent")),
+        number(i64::try_from(s.north_extent_millimeters).expect("validated extent")),
+        number(i64::from(s.flow_millimeters_per_second[0])),
+        number(i64::from(s.flow_millimeters_per_second[1])),
+    ]);
+    data.extend(
+        s.color_micro
+            .map(|v| crate::view::meters_scalar(v) / 1000.0),
+    );
+    data.push(crate::view::meters_scalar(s.roughness_micro) / 1000.0);
+    data.extend(
+        s.absorption_micro
+            .map(|v| crate::view::meters_scalar(v) / 1000.0),
+    );
+    data.push(number(i64::from(
+        s.material.flow_period_milliseconds.unwrap_or(0),
+    )));
+    data.extend(frame.sun_direction.to_array());
+    data.push(0.0);
+    data.extend(frame.sun_irradiance.to_array());
+    data.push(0.0);
+    data.extend(frame.ambient_sky.to_array());
+    data.push(0.0);
+    data.extend([
+        1.0 / number(i64::from(s.material.tile_millimeters[0])),
+        1.0 / number(i64::from(s.material.tile_millimeters[1])),
+        f32::from(u8::from(s.material.normal.is_some())),
+        number(i64::from(s.material.flow_speed_millimeters_per_second))
+            * f32::from(u8::from(s.material.flow.is_some())),
+    ]);
+    data.extend(optics::uniforms(s));
+    data.extend(terms::uniforms(s, frame.animation_time_milliseconds));
+    data
 }

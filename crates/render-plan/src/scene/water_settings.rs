@@ -21,6 +21,26 @@ pub struct SceneWaterSettings {
     /// Applied in the surface plane, scaled by camera-axis thickness clamped to one metre.
     /// `None` preserves stock procedural refraction without an authored bound.
     pub refraction_millimeters: Option<u32>,
+    /// Screen-UV displacement per unit surface normal, in millionths (`0..=1_000_000`).
+    /// Scaled by camera-axis thickness clamped to one metre. Zero disables displacement.
+    /// Mutually exclusive with the world-plane refraction bound.
+    pub screen_refraction_micro: Option<u32>,
+    /// Lighting-only XY normal scale, in millionths (`0..=10_000_000`).
+    pub lighting_normal_micro: Option<u32>,
+    /// Metal fraction in millionths (`0..=1_000_000`).
+    pub metallic_micro: Option<u32>,
+    /// Use derivative-selected normal mip levels instead of explicit level zero.
+    pub normal_mips: bool,
+    /// Independent reflected environment amplitude and shoreline attenuation.
+    pub environment: Option<super::SceneWaterEnvironment>,
+    /// Compose the lit surface directly, without Beer-weighting it as medium scattering.
+    pub direct_surface: bool,
+    /// Finite solar highlight with a fixed 0.0027-radian angular radius.
+    pub sun_disk: Option<super::SceneWaterSunDisk>,
+    /// Independent world-to-flow-seed texture coordinates.
+    pub flow_coordinates: Option<super::SceneWaterFlowCoordinates>,
+    /// Optional vertex-sampled scene wind driving the flow seeds and normal gain.
+    pub wind: Option<super::SceneWaterWind>,
     /// Optional reflectance and additional scattering controls.
     pub optics: Option<super::SceneWaterOptics>,
     /// Optional depth-driven flow, normal and opacity shaping.
@@ -34,6 +54,15 @@ impl SceneWaterSettings {
         flow: None,
         flow_period_milliseconds: None,
         refraction_millimeters: None,
+        screen_refraction_micro: None,
+        lighting_normal_micro: None,
+        metallic_micro: None,
+        normal_mips: false,
+        environment: None,
+        direct_surface: false,
+        sun_disk: None,
+        flow_coordinates: None,
+        wind: None,
         optics: None,
         shoreline: None,
     };
@@ -42,8 +71,48 @@ impl SceneWaterSettings {
         textures: u64,
         _meshes: u64,
     ) -> Result<(), SceneValidationError> {
-        for texture in [self.normal, self.flow].into_iter().flatten() {
+        for texture in [
+            self.normal,
+            self.flow,
+            self.wind.map(|wind| wind.field.texture()),
+        ]
+        .into_iter()
+        .flatten()
+        {
             super::require_handle("water surface", texture.raw(), "texture", textures)?;
+        }
+        Ok(())
+    }
+    pub(super) fn validate_refraction(self) -> Result<(), SceneValidationError> {
+        super::water_terms::validate(&self)?;
+        if let Some(value) = self.metallic_micro {
+            super::effects::require_range("water metallic", u64::from(value), 0, 1_000_000)?;
+        }
+        if self.normal_mips && self.normal.is_none() {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "water normal mips require a normal map",
+            });
+        }
+        if let Some(value) = self.lighting_normal_micro {
+            super::effects::require_range(
+                "water lighting normal",
+                u64::from(value),
+                0,
+                10_000_000,
+            )?;
+        }
+        if let Some(value) = self.screen_refraction_micro {
+            super::effects::require_range(
+                "water screen refraction",
+                u64::from(value),
+                0,
+                1_000_000,
+            )?;
+            if self.refraction_millimeters.is_some() {
+                return Err(SceneValidationError::UnsupportedInput {
+                    part: "water refraction coordinate systems are mutually exclusive",
+                });
+            }
         }
         Ok(())
     }

@@ -44,10 +44,25 @@ fn expected_normal(
 ) -> glam::Vec3 {
     let mut velocity = 0.5
         + if field {
-            filtered(position.x * 0.5, [0, 255, 0, 255]) * 2.0 - 1.0
+            filtered(
+                if shore {
+                    (position.x - 1.0) / 3.0
+                } else {
+                    position.x * 0.5
+                },
+                [0, 255, 0, 255],
+            ) * 2.0
+                - 1.0
         } else {
             0.0
         };
+    if field && shore {
+        let seed = filtered((position.x - 1.0) / 3.0, [0, 255, 0, 255]) * 2.0 - 1.0;
+        let force = glam::Vec2::new(1.0, 1.0 / 255.0);
+        let direction = force.normalize();
+        let strength = (force.x + force.y) * 0.25;
+        velocity = 0.5 + (seed * strength.clamp(0.2, 1.0) - strength) * direction.x;
+    }
     if shore {
         velocity *= 0.2;
     }
@@ -72,6 +87,10 @@ fn expected_normal(
     if shore {
         blended.x *= -0.5;
         blended.y *= -0.5;
+        if field {
+            blended.x *= (1.0 + 1.0 / 255.0) * 0.5;
+            blended.y *= (1.0 + 1.0 / 255.0) * 0.5;
+        }
     }
     blended.normalize()
 }
@@ -140,6 +159,26 @@ fn phased_scene(field: bool, shore: bool) -> (Vec<SceneWaterBody>, RenderScene) 
             .into_boxed_slice(),
         indices: vec![0, 1, 2, 0, 2, 3].into_boxed_slice(),
     };
+    if field && shore {
+        for body in &mut bodies {
+            body.material.wind = Some(worldrunner_render_plan::SceneWaterWind {
+                field: worldrunner_render_plan::ScenePlanarWindField::new(
+                    TextureHandle::from_raw(3),
+                    [0; 2],
+                    [1000; 2],
+                    [None; 2],
+                )
+                .unwrap(),
+                band: worldrunner_render_plan::SceneWindBand::new(1_000_000, 0, 0).unwrap(),
+                amplitude_micro: 1_000_000,
+            });
+            body.material.flow_coordinates =
+                Some(worldrunner_render_plan::SceneWaterFlowCoordinates {
+                    origin_millimeters: [1000, 0],
+                    tile_millimeters: [3000, 2000],
+                });
+        }
+    }
     if shore {
         for body in &mut bodies {
             body.material.shoreline = Some(SceneWaterShoreline {
@@ -155,6 +194,7 @@ fn phased_scene(field: bool, shore: bool) -> (Vec<SceneWaterBody>, RenderScene) 
             map(vec![64, 128, 192, 128, 64, 128, 192, 128]),
             map(vec![128, 192, 128, 64, 128, 192, 128, 64]),
             map(vec![0, 128, 255, 128, 0, 128, 255, 128]),
+            map(vec![255, 128, 255, 128, 255, 128, 255, 128]),
         ],
     );
     (bodies, source)
@@ -209,10 +249,7 @@ fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh(
                 periodic[0], periodic[1],
                 "full period preserves every receiver byte"
             );
-            context
-                .device()
-                .poll(wgpu::PollType::wait_indefinitely())
-                .unwrap();
+            wait(context.device());
         }
     }
 }

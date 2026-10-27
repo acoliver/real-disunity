@@ -54,7 +54,7 @@ pub(super) fn trace_source(source: &str, samples: u32) -> String {
     let source = source.replace("// WATER_RECEIVER_SELECTION", r"
     let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);
     if water_normal.a != 0.0 {
-        packed = water_normal;
+        packed = water_receiver_normal(water_normal);
         let water_surface = textureLoad(water_material, p, SAMPLE_INDEX);
         roughness = water_surface.a;
         origin_uv = (vec2<f32>(p) + water_surface.rg) / camera.size.xy;
@@ -67,14 +67,15 @@ pub(super) fn trace_source(source: &str, samples: u32) -> String {
         if samples == 1 { "0" } else { "lane" }));
     sampled(
         &format!(
-            "{source}\n@group(0) @binding(10) var water_normals: WATER_TEXTURE;\n@group(0) @binding(11) var water_material: WATER_TEXTURE;\n@group(0) @binding(12) var water_depth: WATER_DEPTH;"
+            "{source}\n@group(0) @binding(10) var water_normals: WATER_TEXTURE;\n@group(0) @binding(11) var water_material: WATER_TEXTURE;\n@group(0) @binding(12) var water_depth: WATER_DEPTH;\n{}",
+            include_str!("water_receiver.wgsl")
         ),
         samples,
     )
 }
 pub(super) fn resolve_source(source: &str, levels: usize, samples: u32) -> String {
     let source = source.replace("let surface = textureLoad(material, p, 0);", "var surface = textureLoad(material, p, 0);")
-        .replace("let normal = textureLoad(normals, p, 0);", "var normal = textureLoad(normals, p, 0);\n    let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);\n    let is_water = water_normal.a != 0.0;\n    if is_water { normal = water_normal; let water_surface = textureLoad(water_material, p, SAMPLE_INDEX); surface = vec4<f32>(vec3<f32>(water_surface.b), water_surface.a); }")
+        .replace("let normal = textureLoad(normals, p, 0);", "var normal = textureLoad(normals, p, 0);\n    let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);\n    let is_water = water_normal.a != 0.0;\n    if is_water { normal = water_receiver_normal(water_normal); let water_surface = textureLoad(water_material, p, SAMPLE_INDEX); surface = vec4<f32>(water_receiver_f0(water_normal, water_surface), water_surface.a); }")
         .replace("if abs(textureLoad(final_depth", "if !is_water && abs(textureLoad(final_depth")
         .replace("let uv = pixel.xy / camera.size.xy;", "let uv = select(pixel.xy / camera.size.xy, (vec2<f32>(p) + textureLoad(water_material, p, SAMPLE_INDEX).rg) / camera.size.xy, is_water);")
         .replace("let replacement = camera.size.w != 0.0;", "let replacement = camera.size.w != 0.0 || is_water;")
@@ -94,7 +95,11 @@ pub(super) fn resolve_source(source: &str, levels: usize, samples: u32) -> Strin
             first + 1,
             first + 2,
             first + 3,
-            include_str!("water_lut.wgsl")
+            concat!(
+                include_str!("water_lut.wgsl"),
+                "\n",
+                include_str!("water_receiver.wgsl")
+            )
         ),
         samples,
     )

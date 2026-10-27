@@ -200,7 +200,7 @@ fn tint_ramp_endpoints_midpoints_and_offsets_match_cpu() {
     }
 }
 
-fn compute(context: &GpuContext, source: &str) -> Vec<f32> {
+pub(super) fn compute(context: &GpuContext, source: &str) -> Vec<f32> {
     let device = context.device();
     let output = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("water optical equation results"),
@@ -247,8 +247,10 @@ fn compute(context: &GpuContext, source: &str) -> Vec<f32> {
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    rx.recv().unwrap().unwrap();
+    super::wait(device);
+    rx.recv_timeout(std::time::Duration::from_secs(30))
+        .unwrap()
+        .unwrap();
     let result = readback
         .slice(..)
         .get_mapped_range()

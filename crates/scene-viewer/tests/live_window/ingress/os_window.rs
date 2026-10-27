@@ -1,6 +1,6 @@
 use super::{Driver, IngressOrigin, LiveInputEvent, LiveInputSample};
 use std::{
-    process::Command,
+    process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
 
@@ -16,14 +16,41 @@ pub(super) fn window(title: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-pub(super) fn wait_window(title: &str) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while window(title).is_none() {
-        assert!(
-            Instant::now() < deadline,
-            "focus sink window startup timed out"
-        );
-        std::thread::yield_now();
+/// Blocks until the X server reports a mapped window named `title`, the condition focusing it
+/// needs. `xdotool search --sync --onlyvisible` waits on the server itself, so a slow start on
+/// a loaded runner only delays the test. The sink exiting first fails at once with its status,
+/// and the guard only stops a run that would otherwise hang.
+pub(super) fn wait_window(title: &str, sink: &mut Child) {
+    const HANG_GUARD: Duration = Duration::from_mins(2);
+    let mut search = Command::new("xdotool")
+        .args(["search", "--sync", "--onlyvisible", "--name", title])
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = Instant::now();
+    let outcome = loop {
+        if let Some(status) = search.try_wait().unwrap() {
+            break status
+                .success()
+                .then_some(())
+                .ok_or(format!("xdotool search failed: {status}"));
+        }
+        if let Some(status) = sink.try_wait().unwrap() {
+            break Err(format!(
+                "the focus sink exited before mapping its window: {status}"
+            ));
+        }
+        if started.elapsed() > HANG_GUARD {
+            break Err(format!("no mapped focus sink window after {HANG_GUARD:?}"));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    if outcome.is_err() {
+        let _ = search.kill();
+    }
+    let _ = search.wait();
+    if let Err(message) = outcome {
+        panic!("{message}");
     }
 }
 

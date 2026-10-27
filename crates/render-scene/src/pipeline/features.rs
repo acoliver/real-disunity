@@ -72,6 +72,9 @@ pub(super) fn encode_surface(
 ) {
     write_float(bytes, 68, translucency as f32 / 1_000_000.0);
     if let Some(contact) = contact {
+        if contact.fold_sampling() == worldrunner_render_plan::SceneFoldSampling::Vertex {
+            bytes[60..64].copy_from_slice(&1_u32.to_le_bytes());
+        }
         for (index, value) in contact.tint().channels().into_iter().enumerate() {
             write_float(bytes, 80 + index * 4, value as f32 / 1_000_000.0);
         }
@@ -122,6 +125,14 @@ fn encode_foliage(bytes: &mut [u8], wind: SceneWind) {
         write_float(bytes, 160 + index * 4, value);
     }
     write_float(bytes, 172, foliage.curve_micro() as f32 / 1_000_000.0);
+    write_float(
+        bytes,
+        236,
+        match foliage.arc() {
+            worldrunner_render_plan::SceneWindArc::StraightLimit => 0.0,
+            worldrunner_render_plan::SceneWindArc::MinimumHalfDegree => 1.0,
+        },
+    );
     for (index, value) in foliage.origin_millimeters().into_iter().enumerate() {
         write_float(bytes, 224 + index * 4, value as f32 / 1000.0);
     }
@@ -181,9 +192,15 @@ pub(super) fn encode_impostor(
     );
     if let Some(band) = value.fade() {
         for (index, v) in band.millimeters().into_iter().enumerate() {
-            write_float(bytes, 280 + index * 4, v as f32 / 1000.0);
+            let direction = if index == 1 && band.terminal() {
+                -1.0
+            } else {
+                1.0
+            };
+            write_float(bytes, 280 + index * 4, v as f32 / 1000.0 * direction);
         }
     }
+    encode_atlas_policy(bytes, value);
     let frames = value.frames();
     let layout = match value.layout() {
         worldrunner_render_plan::SceneImpostorLayout::AzimuthElevation => 1.0,
@@ -238,5 +255,31 @@ fn encode_field(bytes: &mut [u8], wind: SceneWind) {
             write_float(bytes, offset + 16 + j * 4, v as f32 / 1000.0);
         }
         write_float(bytes, offset + 24, m.strength_millimeters() as f32 / 1000.0);
+    }
+}
+
+fn encode_atlas_policy(bytes: &mut [u8], value: worldrunner_render_plan::SceneImpostor) {
+    use worldrunner_render_plan::{SceneAtlasSampling, SceneImpostorChannels};
+    let flags = u32::from(value.pass_cutoffs_micro().is_some())
+        | (u32::from(
+            value.channels() == SceneImpostorChannels::RoughTranslucencyEmissionOcclusion,
+        ) << 1)
+        | (u32::from(value.sampling() == SceneAtlasSampling::Implicit) << 2);
+    bytes[56..60].copy_from_slice(&flags.to_le_bytes());
+    if let Some(cutoffs) = value.pass_cutoffs_micro() {
+        for (i, v) in cutoffs.into_iter().enumerate() {
+            write_float(
+                bytes,
+                328 + i * 4,
+                crate::geometry::millimeter_to_meter(i64::from(v)) / 1000.0,
+            );
+        }
+    }
+    for (i, v) in value.capture_center_millimeters().into_iter().enumerate() {
+        write_float(
+            bytes,
+            308 + i * 4,
+            crate::geometry::millimeter_to_meter(i64::from(v)),
+        );
     }
 }

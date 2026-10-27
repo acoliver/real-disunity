@@ -69,11 +69,17 @@ mod foliage_wind;
 #[cfg(test)]
 mod foliage_wind_tests;
 mod geometry;
+mod lod_material;
+pub use lod_material::SceneLodMaterialSlot;
+mod lod_policy;
+pub use lod_policy::SceneFoldSampling;
 mod impostor;
 mod material_features;
-pub use impostor::{SceneFadeBand, SceneImpostor, SceneImpostorLayout};
+pub use impostor::{
+    SceneAtlasSampling, SceneFadeBand, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout,
+};
 
-pub use foliage_wind::{SceneFoliageWind, SceneWindBand, SceneWindPhase};
+pub use foliage_wind::{SceneFoliageWind, SceneWindArc, SceneWindBand, SceneWindPhase};
 mod translucency;
 pub use translucency::{SceneTranslucency, SceneTranslucencyParts};
 mod resource;
@@ -331,6 +337,20 @@ impl RenderScene {
         self.validate_references()
     }
 
+    fn validate_lod_materials(&self, limit: u64) -> Result<(), SceneValidationError> {
+        for lod in self.geometry.meshes().iter().flat_map(SceneMesh::lods) {
+            for slot in lod.material_slots().into_iter().flatten() {
+                require_handle(
+                    "LOD material slot",
+                    slot.material().raw(),
+                    "material",
+                    limit,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     fn validate_references(&self) -> Result<(), SceneValidationError> {
         if let Some(effects) = &self.effects {
             effects.validate()?;
@@ -358,6 +378,7 @@ impl RenderScene {
                 )?;
             }
         }
+        self.validate_lod_materials(material_limit)?;
         for object in self.geometry.objects() {
             require_handle("scene object", object.mesh().raw(), "mesh", mesh_limit)?;
             require_handle(

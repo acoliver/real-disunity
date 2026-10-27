@@ -599,6 +599,7 @@ impl SceneResources {
                 require_texture("wind force field", field.texture(), limit)?;
             }
             if let Some(atlas) = material.impostor() {
+                atlas.validate_channels(material)?;
                 if let Some((depth, _)) = atlas.relief() {
                     require_texture("impostor depth", depth, limit)?;
                 }

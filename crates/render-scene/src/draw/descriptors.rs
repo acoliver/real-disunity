@@ -130,6 +130,7 @@ fn validate_linear(
     textures: &[crate::texture::OwnedPreparedTexture],
 ) -> Result<(), FrameError> {
     let atlas = material.impostor();
+    let packed = atlas.filter(|a| a.channels() == worldrunner_render_plan::SceneImpostorChannels::RoughTranslucencyEmissionOcclusion);
     let field = material
         .features()
         .and_then(|f| f.wind)
@@ -138,6 +139,9 @@ fn validate_linear(
         atlas.and_then(|a| a.relief().map(|v| v.0)),
         atlas.and_then(worldrunner_render_plan::SceneImpostor::borders),
         field.map(worldrunner_render_plan::ScenePlanarWindField::texture),
+        packed.and(material.roughness_metallic()),
+        packed.and(material.ambient_occlusion()),
+        packed.and(material.normal()),
         atlas
             .and_then(worldrunner_render_plan::SceneImpostor::relief)
             .and(material.normal()),

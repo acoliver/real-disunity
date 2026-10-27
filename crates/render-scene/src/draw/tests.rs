@@ -40,6 +40,7 @@ mod foliage_fixes;
 mod impostor;
 mod layered_terrain;
 mod lod;
+mod lod_material;
 mod material_factors;
 mod normal_frames;
 mod retained;
@@ -641,3 +642,5 @@ fn lit_pixels(pixels: &[u8]) -> usize {
 mod basic;
 
 mod impostor_fixes;
+
+mod impostor_policy;

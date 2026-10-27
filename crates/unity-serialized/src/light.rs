@@ -33,18 +33,24 @@ pub struct ShadowSettings {
 }
 
 impl ShadowSettings {
-    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
-        Ok(Self {
-            kind: r.i32()?,
-            resolution: r.i32()?,
-            custom_resolution: r.i32()?,
-            strength: r.f32()?,
-            bias: r.f32()?,
-            normal_bias: r.f32()?,
-            near_plane: r.f32()?,
-            culling_matrix_override: optional(r, ObjectReader::floats)?,
-            // Serialized near the end of the light; `Light::read` sets it.
-            use_view_frustum_for_caster_culling: false,
+    /// Reads the settings serialized together. The view frustum flag is serialized near the
+    /// end of the light, so this returns a constructor that takes it.
+    fn read(
+        r: &mut ObjectReader<'_>,
+    ) -> Result<impl FnOnce(bool) -> Self + use<>, SerializedError> {
+        let [kind, resolution, custom_resolution] = [r.i32()?, r.i32()?, r.i32()?];
+        let [strength, bias, normal_bias, near_plane] = r.floats()?;
+        let culling_matrix_override = optional(r, ObjectReader::floats)?;
+        Ok(move |use_view_frustum_for_caster_culling| Self {
+            kind,
+            resolution,
+            custom_resolution,
+            strength,
+            bias,
+            normal_bias,
+            near_plane,
+            culling_matrix_override,
+            use_view_frustum_for_caster_culling,
         })
     }
 }
@@ -156,7 +162,7 @@ impl Layout for Light {
         let color = r.floats()?;
         let [intensity, range, angle, inner_angle] = r.floats()?;
         let cookie_size = r.floats()?;
-        let mut shadows = ShadowSettings::read(r)?;
+        let shadows = ShadowSettings::read(r)?;
         let cookie = r.pptr()?;
         let draw_halo = r.bool()?;
         r.align()?;
@@ -168,7 +174,7 @@ impl Layout for Light {
         let area_size = r.floats()?;
         let bounce_intensity = r.f32()?;
         let tail = LightTail::read(r)?;
-        shadows.use_view_frustum_for_caster_culling = tail.use_view_frustum_for_caster_culling;
+        let shadows = shadows(tail.use_view_frustum_for_caster_culling);
         Ok(Self {
             game_object,
             enabled,

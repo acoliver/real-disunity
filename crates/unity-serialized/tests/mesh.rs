@@ -52,22 +52,28 @@ fn write_compressed(w: &mut ObjectWriter) {
     w.u32(9);
 }
 
+/// The mesh with compression 2, readable, without kept vertices, with kept indices.
 fn mesh_bytes(big_endian: bool) -> Vec<u8> {
+    mesh_bytes_with(big_endian, [2, 1, 0, 1])
+}
+
+/// A mesh whose compression and three keep flags are `flags`.
+fn mesh_bytes_with(big_endian: bool, flags: [u8; 4]) -> Vec<u8> {
     let mut w = ObjectWriter::new(big_endian);
     w.string("Hex").unwrap();
     w.i32(1)
-        .u32(0)
+        .u32(2)
         .u32(6)
-        .i32(0)
-        .u32(0)
-        .u32(0)
+        .i32(1)
+        .u32(3)
+        .u32(5)
         .u32(4)
         .floats(&BOX);
     write_shapes(&mut w);
     write_skin(&mut w);
-    w.u8(0).u8(1).u8(0).u8(1).align().i32(0);
+    w.bytes(&flags).align().i32(0);
     w.byte_array(&[0, 0, 1, 0, 2, 0]).unwrap();
-    w.u32(4).i32(2).bytes(&[0, 0, 0, 3, 0, 12, 0, 3]);
+    w.u32(4).i32(2).bytes(&[0, 0, 0, 3, 1, 12, 2, 3]);
     w.byte_array(&[9, 9, 9, 9, 9]).unwrap().align();
     write_compressed(&mut w);
     w.floats(&BOX)
@@ -168,8 +174,8 @@ fn expected_mesh() -> Mesh {
         center: [1.0, 2.0, 3.0],
         extent: [0.5; 3],
     };
-    let channel = |offset, format, dimension| ChannelInfo {
-        stream: 0,
+    let channel = |stream, offset, format, dimension| ChannelInfo {
+        stream,
         offset,
         format,
         dimension,
@@ -177,17 +183,17 @@ fn expected_mesh() -> Mesh {
     Mesh {
         name: "Hex".into(),
         sub_meshes: vec![SubMesh {
-            first_byte: 0,
+            first_byte: 2,
             index_count: 6,
-            topology: 0,
-            base_vertex: 0,
-            first_vertex: 0,
+            topology: 1,
+            base_vertex: 3,
+            first_vertex: 5,
             vertex_count: 4,
             local_aabb: aabb,
         }],
         blend_shapes: expected_shapes(),
         skin: expected_skin(),
-        compression: 0,
+        compression: 2,
         is_readable: true,
         keep_vertices: false,
         keep_indices: true,
@@ -195,7 +201,7 @@ fn expected_mesh() -> Mesh {
         index_buffer: 292..298,
         vertex_data: VertexData {
             vertex_count: 4,
-            channels: vec![channel(0, 0, 3), channel(12, 0, 3)],
+            channels: vec![channel(0, 0, 0, 3), channel(1, 12, 2, 3)],
             data: 320..325,
         },
         compressed: expected_compressed(),
@@ -226,6 +232,21 @@ fn decodes_every_part_of_a_mesh_in_both_byte_orders() {
     for big_endian in [false, true] {
         let decoded: Mesh = decode_one(ClassId::MESH, mesh_bytes(big_endian), big_endian).unwrap();
         assert_eq!(decoded, expected_mesh());
+    }
+}
+
+#[test]
+fn each_keep_flag_decodes_to_its_own_field() {
+    for (set, flags) in [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        .into_iter()
+        .enumerate()
+    {
+        let mesh: Mesh = decode_one(ClassId::MESH, mesh_bytes_with(false, flags), false).unwrap();
+        let decoded = [mesh.is_readable, mesh.keep_vertices, mesh.keep_indices];
+        assert_eq!(
+            decoded.map(usize::from),
+            [0, 1, 2].map(|i| usize::from(i == set))
+        );
     }
 }
 

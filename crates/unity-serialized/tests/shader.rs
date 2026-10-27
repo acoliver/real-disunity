@@ -9,7 +9,7 @@ use worldrunner_unity_serialized::{
     shader::{CompiledBlobs, ParsedShader, Shader, ShaderProperty, StagePrograms, SubShader},
     shader_program::{
         BindChannels, Binding, ConstantBuffer, PlayerSubProgram, Program, ProgramParameters,
-        StructParam, SubProgram, TextureParam, UavParam, ValueParam,
+        SamplerParam, StructParam, SubProgram, TextureParam, UavParam, ValueParam,
     },
     shader_state::{ShaderState, StateValue},
     write::ObjectWriter,
@@ -32,7 +32,11 @@ fn write_state(w: &mut ObjectWriter) {
             // Blend values end; the separate blend flag comes before the depth values.
             w.u8(1).align();
         }
-        let property = if value == DEPTH_TEST { "_ZTest" } else { "" };
+        let property = if value == DEPTH_TEST {
+            "_ZTest"
+        } else {
+            "<noninit>"
+        };
         w.f32(f32::from(value)).string(property).unwrap();
     }
     w.string("_FogColor").unwrap().i32(2).i32(77);
@@ -64,18 +68,23 @@ fn write_parameters(w: &mut ObjectWriter, full: bool) {
     // One constant buffer with no matrices, one vector and one struct.
     w.i32(1).i32(11).i32(0).i32(1);
     value_param(w, 12);
-    w.i32(1).i32(14).i32(15).i32(16).i32(17).i32(0).i32(0);
+    // The struct has one vector and no matrices.
+    w.i32(1).i32(14).i32(15).i32(16).i32(17).i32(1);
+    value_param(w, 30);
+    w.i32(0);
     w.i32(64).u8(1).align();
     w.i32(1).i32(11).i32(0).i32(1);
     w.i32(1).i32(18).i32(19).i32(20);
     w.i32(1).u32(21).u32(22);
 }
 
-fn write_program(w: &mut ObjectWriter, full: bool) {
+/// A program whose keyword state mask holds `marker`, so each stage is told apart; with or
+/// without variants and parameters.
+fn write_program(w: &mut ObjectWriter, marker: u16, full: bool) {
     if !full {
         w.i32(0).i32(0).i32(0);
         write_parameters(w, false);
-        w.i32(0);
+        w.i32(1).u16(marker).align();
         return;
     }
     w.i32(1)
@@ -93,7 +102,7 @@ fn write_program(w: &mut ObjectWriter, full: bool) {
     w.u32(5).i32(2).u16(0).u16(1).align().i64(0).u8(9).align();
     w.i32(1).i32(2).u32(6).u32(7);
     write_parameters(w, true);
-    w.i32(2).u16(7).u16(8).align();
+    w.i32(1).u16(marker).align();
 }
 
 fn write_pass(w: &mut ObjectWriter) {
@@ -107,16 +116,18 @@ fn write_pass(w: &mut ObjectWriter) {
     w.i32(0);
     write_state(w);
     w.u32(3);
-    write_program(w, true);
-    (0..5).for_each(|_| write_program(w, false));
+    write_program(w, 1, true);
+    for marker in 2..=6 {
+        write_program(w, marker, false);
+    }
     w.u8(1)
         .u8(0)
         .align()
-        .string("")
+        .string("Hidden/Base/CASTER")
         .unwrap()
         .string("ForwardLit")
         .unwrap()
-        .string("")
+        .string("_GrabTexture")
         .unwrap();
     w.i32(1)
         .string("LightMode")
@@ -171,9 +182,10 @@ fn shader_bytes(big_endian: bool) -> Vec<u8> {
     let mut w = ObjectWriter::new(big_endian);
     w.string("Test").unwrap();
     write_parsed(&mut w);
-    w.i32(1).u32(21);
+    // Two platforms; the second has no compiled chunks.
+    w.i32(2).u32(21).u32(5);
     for pair in [[0, 40], [40, 20], [100, 50]] {
-        w.i32(1).i32(2).u32(pair[0]).u32(pair[1]);
+        w.i32(2).i32(2).u32(pair[0]).u32(pair[1]).i32(0);
     }
     w.byte_array(&[9; 7]).unwrap().i32(2).u32(2).u32(1);
     w.pptrs(&[ptr(1, 9)]).unwrap();
@@ -231,10 +243,10 @@ fn decodes_shader_declarations_and_compiled_tables() {
         assert_eq!(shader.parsed, expected_declarations());
         let blob_start = shader.compiled.blob.start;
         let compiled = CompiledBlobs {
-            platforms: vec![21],
-            offsets: vec![vec![0, 40]],
-            compressed_lengths: vec![vec![40, 20]],
-            decompressed_lengths: vec![vec![100, 50]],
+            platforms: vec![21, 5],
+            offsets: vec![vec![0, 40], Vec::new()],
+            compressed_lengths: vec![vec![40, 20], Vec::new()],
+            decompressed_lengths: vec![vec![100, 50], Vec::new()],
             blob: blob_start..blob_start + 7,
             stage_counts: vec![2, 1],
         };
@@ -302,6 +314,10 @@ fn decodes_pass_render_state_in_serialized_order() {
             ("ForwardLit", 3, 0)
         );
         assert_eq!(
+            (pass.use_name.as_str(), pass.texture_name.as_str()),
+            ("Hidden/Base/CASTER", "_GrabTexture")
+        );
+        assert_eq!(
             pass.tags,
             [("LightMode".to_owned(), "UniversalForward".to_owned())]
         );
@@ -313,16 +329,22 @@ fn decodes_pass_render_state_in_serialized_order() {
             .collect();
         let expected: Vec<u32> = (1..=STATE_VALUES).map(|v| f32::from(v).to_bits()).collect();
         assert_eq!(values, expected);
-        assert_eq!(state.depth.test.property, "_ZTest");
+        assert_eq!(state.name, "PassState");
+        assert_eq!(state.depth.test.property.as_deref(), Some("_ZTest"));
+        let with_property = state_values(state)
+            .iter()
+            .filter(|v| v.property.is_some())
+            .count();
+        assert_eq!(with_property, 1, "only the depth test reads a property");
         assert!(state.separate_blend && state.lighting);
         assert_eq!(
             (
-                state.fog.color_property.as_str(),
+                state.fog.color_property.as_deref(),
                 state.fog.mode,
                 state.gpu_program_id,
                 state.lod
             ),
-            ("_FogColor", 2, 77, 150)
+            (Some("_FogColor"), 2, 77, 150)
         );
         assert_eq!(state.tags, [("Queue".to_owned(), "Geometry".to_owned())]);
     }
@@ -334,7 +356,7 @@ fn value(name: i32) -> ValueParam {
         index: name + 1,
         array_size: 0,
         kind: 0,
-        columns: 4,
+        dimension: 4,
     }
 }
 
@@ -364,7 +386,7 @@ fn expected_parameters() -> ProgramParameters {
                 index: 15,
                 array_size: 16,
                 struct_size: 17,
-                vectors: Vec::new(),
+                vectors: vec![value(30)],
                 matrices: Vec::new(),
             }],
             size: 64,
@@ -380,7 +402,10 @@ fn expected_parameters() -> ProgramParameters {
             index: 19,
             original_index: 20,
         }],
-        samplers: vec![[21, 22]],
+        samplers: vec![SamplerParam {
+            sampler: 21,
+            bind_point: 22,
+        }],
     }
 }
 
@@ -408,7 +433,7 @@ fn expected_program() -> Program {
         player_sub_programs: vec![vec![variant(4, &[0], 16), variant(5, &[0, 1], 0)]],
         parameter_blob_indices: vec![vec![6, 7]],
         common_parameters: expected_parameters(),
-        keyword_state_mask: vec![7, 8],
+        keyword_state_mask: vec![1],
     }
 }
 
@@ -417,9 +442,17 @@ fn decodes_programs_variants_and_parameters() {
     for big_endian in [false, true] {
         let shader = decoded(big_endian);
         let programs = &shader.parsed.sub_shaders[0].passes[0].programs;
+        let marked = |marker| Program {
+            keyword_state_mask: vec![marker],
+            ..Program::default()
+        };
         let expected = StagePrograms {
             vertex: expected_program(),
-            ..StagePrograms::default()
+            fragment: marked(2),
+            geometry: marked(3),
+            hull: marked(4),
+            domain: marked(5),
+            ray_tracing: marked(6),
         };
         assert_eq!(programs, &expected);
     }

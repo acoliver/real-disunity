@@ -1,4 +1,4 @@
-//! The `Camera` and `Light` layouts.
+//! The `Camera` layout.
 
 use crate::{
     ClassId, SerializedError,

@@ -5,21 +5,31 @@ use crate::{SerializedError, object::ObjectReader};
 /// Fewest bytes of a serialized string: its 32-bit length.
 const STRING_LEN: usize = 4;
 
-/// A state value. When `property` is not empty, the value comes from that material property
-/// at draw time and `value` is its default.
+/// The name Unity stores for a state value that no material property supplies.
+const FIXED: &str = "<noninit>";
+
+/// A state value: fixed in the shader, or read from a material property at draw time, in
+/// which case `value` is the default.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StateValue {
     pub value: f32,
-    pub property: String,
+    /// The material property, such as `_ZTest`, or `None` for a fixed value.
+    pub property: Option<String>,
 }
 
 impl StateValue {
     fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         Ok(Self {
             value: r.f32()?,
-            property: r.string()?,
+            property: property_name(r)?,
         })
     }
+}
+
+/// A state property name, or `None` for Unity's name for a fixed value.
+fn property_name(r: &mut ObjectReader<'_>) -> Result<Option<String>, SerializedError> {
+    let name = r.string()?;
+    Ok((name != FIXED).then_some(name))
 }
 
 /// Blending for one render target. Values are Unity's `BlendMode`, `BlendOp` and
@@ -71,9 +81,11 @@ impl StencilOps {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stencil {
-    /// Operations for both faces, then for front and back faces.
+    /// Operations a pass sets for both faces at once.
     pub both: StencilOps,
+    /// Operations for front faces only.
     pub front: StencilOps,
+    /// Operations for back faces only.
     pub back: StencilOps,
     pub read_mask: StateValue,
     pub write_mask: StateValue,
@@ -99,9 +111,10 @@ pub struct Fog {
     pub start: StateValue,
     pub end: StateValue,
     pub density: StateValue,
-    /// Color as x, y, z and w values, and the color property it comes from.
+    /// Color as x, y, z and w values.
     pub color: [StateValue; 4],
-    pub color_property: String,
+    /// The material property the whole color comes from, or `None` for a fixed color.
+    pub color_property: Option<String>,
     pub mode: i32,
 }
 
@@ -116,6 +129,8 @@ pub struct ShaderState {
     pub stencil: Stencil,
     pub fog: Fog,
     pub gpu_program_id: i32,
+    /// Pass tags, such as `LIGHTMODE` and `RenderPipeline`. Unity stores some keys in upper
+    /// case.
     pub tags: Vec<(String, String)>,
     pub lod: i32,
     pub lighting: bool,
@@ -123,6 +138,16 @@ pub struct ShaderState {
 
 /// Render targets with their own blend state.
 const BLEND_TARGETS: usize = 8;
+
+/// State values: 7 per blend target, 8 depth values, 3 stencil operation sets of 4, 3
+/// stencil values, 3 fog values and 4 fog color values.
+const STATE_VALUES: usize = 7 * BLEND_TARGETS + 8 + 3 * 4 + 3 + 3 + 4;
+
+/// Fewest bytes of a pass's state: its name, every value with an empty property name, the
+/// padded blend flag, the fog color name, fog mode, program ID, tag count, LOD and the
+/// padded lighting flag.
+pub(crate) const STATE_LEN: usize =
+    STRING_LEN + STATE_VALUES * (4 + STRING_LEN) + 4 + STRING_LEN + 4 * 4 + 4;
 
 impl ShaderState {
     pub(crate) fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
@@ -188,7 +213,7 @@ fn read_fog(r: &mut ObjectReader<'_>) -> Result<Fog, SerializedError> {
         end,
         density,
         color,
-        color_property: r.string()?,
+        color_property: property_name(r)?,
         mode: r.i32()?,
     })
 }

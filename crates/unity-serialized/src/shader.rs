@@ -9,12 +9,16 @@ use std::ops::Range;
 use crate::{
     ClassId, SerializedError,
     object::{Layout, ObjectReader, PPtr},
-    shader_program::Program,
-    shader_state::{ShaderState, string_pairs},
+    shader_program::{PROGRAM_LEN, Program},
+    shader_state::{STATE_LEN, ShaderState, string_pairs},
 };
 
 /// Fewest bytes of a serialized string: its 32-bit length.
 const STRING_LEN: usize = 4;
+
+/// Fewest bytes of a pass: name index count, kind, state, program mask, six empty
+/// programs, the two padded flags, three strings and the tag count.
+const PASS_LEN: usize = 8 + STATE_LEN + 4 + 6 * PROGRAM_LEN + 4 + 3 * STRING_LEN + 4;
 
 /// A material property the shader declares.
 #[derive(Clone, Debug, PartialEq)]
@@ -66,7 +70,9 @@ pub struct Pass {
     /// Unity's pass type: 0 normal, 1 `UsePass`, 2 `GrabPass`.
     pub kind: i32,
     pub state: ShaderState,
-    /// Which stages have programs, one bit per stage.
+    /// Stages the pass declares, as bit `i + 1` for vertex, fragment, geometry, hull, domain
+    /// and ray tracing in turn (Unity's `ShaderType`). Variant stripping can leave a
+    /// declared stage with no variants.
     pub program_mask: u32,
     pub programs: StagePrograms,
     pub has_instancing_variant: bool,
@@ -76,7 +82,8 @@ pub struct Pass {
     pub name: String,
     /// The texture a `GrabPass` writes.
     pub texture_name: String,
-    /// Pass tags, such as `LightMode`.
+    /// A second tag map, empty in all 705 passes of the Unity 6000.3.15f1 player checked;
+    /// pass tags are in [`ShaderState::tags`].
     pub tags: Vec<(String, String)>,
 }
 
@@ -117,7 +124,7 @@ impl Pass {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SubShader {
     pub passes: Vec<Pass>,
-    /// Sub-shader tags, such as `RenderPipeline` and `Queue`.
+    /// Sub-shader tags, such as `RenderType` and `QUEUE`. Unity stores some keys in upper case.
     pub tags: Vec<(String, String)>,
     pub lod: i32,
 }
@@ -145,7 +152,7 @@ impl ParsedShader {
         let properties = r.array("shader property", 7 * 4 + 4 * 4, ShaderProperty::read)?;
         let sub_shaders = r.array("sub-shader", 12, |r| {
             Ok(SubShader {
-                passes: r.array("pass", 64, Pass::read)?,
+                passes: r.array("pass", PASS_LEN, Pass::read)?,
                 tags: string_pairs(r, "sub-shader tag")?,
                 lod: r.i32()?,
             })

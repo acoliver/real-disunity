@@ -2,7 +2,7 @@
 
 use crate::{SerializedError, object::ObjectReader};
 
-/// A vector or matrix uniform. `columns` is a vector's dimension or a matrix's row count.
+/// A vector or matrix uniform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ValueParam {
     /// Index into the pass's name indices.
@@ -12,7 +12,8 @@ pub struct ValueParam {
     pub array_size: i32,
     /// Unity's `ShaderParamType`: float, int, bool, half, short or uint.
     pub kind: i8,
-    pub columns: i8,
+    /// A vector's component count, or a matrix's row count.
+    pub dimension: i8,
 }
 
 /// Fewest bytes of a value parameter: three `i32`s, two `i8`s and padding.
@@ -25,7 +26,7 @@ impl ValueParam {
             index: r.i32()?,
             array_size: r.i32()?,
             kind: r.i8()?,
-            columns: r.i8()?,
+            dimension: r.i8()?,
         };
         r.align()?;
         Ok(param)
@@ -140,6 +141,14 @@ pub struct UavParam {
     pub original_index: i32,
 }
 
+/// Sampler state and the binding it applies to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SamplerParam {
+    /// Packed sampler state: filtering, wrapping and comparison.
+    pub sampler: u32,
+    pub bind_point: i32,
+}
+
 /// The parameters a program reads and where each is bound.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProgramParameters {
@@ -150,8 +159,7 @@ pub struct ProgramParameters {
     pub constant_buffers: Vec<ConstantBuffer>,
     pub constant_buffer_bindings: Vec<Binding>,
     pub uavs: Vec<UavParam>,
-    /// Sampler state and the binding it applies to.
-    pub samplers: Vec<[u32; 2]>,
+    pub samplers: Vec<SamplerParam>,
 }
 
 impl ProgramParameters {
@@ -170,13 +178,25 @@ impl ProgramParameters {
                     original_index: r.i32()?,
                 })
             })?,
-            samplers: r.array("sampler", 8, |r| Ok([r.u32()?, r.u32()?]))?,
+            samplers: r.array("sampler", 8, |r| {
+                Ok(SamplerParam {
+                    sampler: r.u32()?,
+                    bind_point: r.i32()?,
+                })
+            })?,
         })
     }
 }
 
 /// Fewest bytes of empty program parameters: eight array counts.
 const PARAMETERS_LEN: usize = 32;
+
+/// Fewest bytes of a sub-program: blob index, channel count, source map, keyword count, the
+/// padded tier and type, parameters and requirements.
+const SUB_PROGRAM_LEN: usize = 5 * 4 + PARAMETERS_LEN + 8;
+
+/// Fewest bytes of an empty program: four array counts and empty common parameters.
+pub(crate) const PROGRAM_LEN: usize = 4 * 4 + PARAMETERS_LEN;
 
 /// How vertex data channels map to shader inputs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,8 +207,8 @@ pub struct BindChannels {
     pub source_map: i32,
 }
 
-/// One compiled variant of a program, with its own parameters. Used by shaders compiled
-/// before player sub-programs existed; current players use [`PlayerSubProgram`].
+/// One compiled variant of a program, with its own parameters. Every program in the Unity
+/// 6000.3.15f1 player checked has none, and stores variants as [`PlayerSubProgram`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubProgram {
     /// Index into the shader's blob entries for this platform.
@@ -263,7 +283,7 @@ pub struct Program {
 impl Program {
     pub(crate) fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         Ok(Self {
-            sub_programs: r.array("sub-program", 24 + PARAMETERS_LEN, SubProgram::read)?,
+            sub_programs: r.array("sub-program", SUB_PROGRAM_LEN, SubProgram::read)?,
             player_sub_programs: r.array("platform sub-programs", 4, |r| {
                 r.array("player sub-program", 20, PlayerSubProgram::read)
             })?,

@@ -196,9 +196,15 @@ fn material_vertex_pass(vertex: VertexInput, instance: InstanceInput, relief: bo
     if material.impostor_grid.w != 0.0 && (vertex.lod_billboard_mode & 3u) != 0u {
         let scale = length(instance.model_column_0.xyz);
         let inverse = mat3x3<f32>(instance.model_column_0.xyz, instance.model_column_1.xyz, instance.model_column_2.xyz) * (1.0 / (scale * scale));
+        let capture_center = instance.model_column_3.xyz + mat3x3<f32>(instance.model_column_0.xyz, instance.model_column_1.xyz, instance.model_column_2.xyz) * material.wind_field_mode.yzw;
+        if any(material.wind_field_mode.yzw != vec3<f32>(0.0)) {
+            var centered = instance;
+            centered.model_column_3 = vec4<f32>(capture_center, instance.model_column_3.w);
+            out = transform_vertex(vertex, centered);
+        }
         var camera = frame.camera_position.xyz;
-        if material.impostor_grid.w == 2.0 { camera.z = max(camera.z, instance.model_column_3.z + 0.01); }
-        let eye = camera - instance.model_column_3.xyz;
+        if material.impostor_grid.w == 2.0 { camera.z = max(camera.z, capture_center.z + 0.01); }
+        let eye = camera - capture_center;
         out.atlas_eye = vec4<f32>(inverse * eye, scale);
         out.capture_rotation_0 = instance.model_column_0.xyz / scale;
         out.capture_rotation_1 = instance.model_column_1.xyz / scale;
@@ -212,23 +218,25 @@ fn material_vertex_pass(vertex: VertexInput, instance: InstanceInput, relief: bo
             let plane = (vertex.texcoord - 0.5) * material.impostor_settings.zw * (1.0-crop);
             out.texcoord = plane / material.impostor_settings.zw + 0.5;
             let shaped = vec3<f32>(plane.x, 0.0, plane.y);
-            out.world_position = instance.model_column_3.xyz + billboard_basis(vertex.lod_billboard_mode & 3u, instance.model_column_3.xyz) * scale * shaped;
+            out.world_position = capture_center + billboard_basis(vertex.lod_billboard_mode & 3u, capture_center) * scale * shaped;
             out.clip_position = frame.view_projection * vec4<f32>(out.world_position,1.0);
         }
-        out.atlas_point = inverse * (out.world_position - instance.model_column_3.xyz);
+        out.atlas_point = inverse * (out.world_position - capture_center);
         let coordinates = scene_atlas_vertex_uv(out);
         out.atlas_uv01 = coordinates.first;
         out.atlas_uv23 = coordinates.second;
     }
     if material.contact_surface.z > 0.0 {
-        let ground = scene_ground(instance.model_column_3.xyz);
+        var ground_position = instance.model_column_3.xyz;
+        if material.wind_clock.w == 1u { ground_position = out.world_position; }
+        let ground = scene_ground(ground_position);
         if dot(ground.xyz, ground.xyz) != 0.0 {
             out.ground_fold = vec4<f32>(ground.xyz, vertex.position.z);
         }
     }
     var band = material.impostor_relief.zw;
-    if instance.model_column_1.w > 0.0 { band = vec2<f32>(instance.model_column_0.w, instance.model_column_1.w); }
-    if band.y > 0.0 { out.atlas_rotation.z = scene_distance_coverage(length(frame.camera_position.xyz-instance.model_column_3.xyz),band); }
+    if instance.model_column_1.w != 0.0 { band = vec2<f32>(instance.model_column_0.w, instance.model_column_1.w); }
+    if band.y != 0.0 { out.atlas_rotation.z = scene_distance_coverage(length(frame.camera_position.xyz-instance.model_column_3.xyz),band); }
     let displacement = scene_geometry_displacement(out.world_position, vertex.ambient_occlusion, instance);
     if material.wind_clock.x != 0u {
         out.world_position += displacement;
@@ -290,7 +298,14 @@ fn scene_normal(linear: mat3x3<f32>, normal: vec3<f32>) -> vec3<f32> {
 }
 
 fn scene_alpha_covered(alpha: f32, input: VertexOutput) -> bool {
-    return alpha >= material.alpha_cutoff && scene_geometry_covered(input);
+    return scene_alpha_covered_pass(alpha, input, false);
+}
+fn scene_alpha_covered_pass(alpha: f32, input: VertexOutput, shadow: bool) -> bool {
+    var cutoff = material.alpha_cutoff;
+    if input.atlas_eye.w != 0.0 && (material.wind_clock.z & 1u) != 0u {
+        cutoff = select(material.alpha_factor_reserved.z, material.alpha_factor_reserved.w, shadow);
+    }
+    return alpha >= cutoff && scene_geometry_covered(input);
 }
 
 fn scene_material_alpha(filtered_alpha: f32) -> f32 {
@@ -391,6 +406,10 @@ fn scene_mask_response(channel: f32, packed_ao: f32, self_ao: f32, mapped: bool)
 }
 
 fn scene_distance_coverage(distance: f32, band: vec2<f32>) -> f32 {
+    if band.y < 0.0 {
+        if distance <= band.x { return 1.0; }
+        return max(0.0, (-band.y-distance)/max(1.0,-band.y-band.x));
+    }
     if distance < band.x { return 0.0; }
     if distance > band.y { return 1.0; }
     return 1.0 - (band.y-distance)/max(1.0,band.y-band.x);

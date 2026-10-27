@@ -9,8 +9,9 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {
         let rm = scene_atlas_sample(rough_metal_texture, input);
-        roughness *= rm.g;
-        metalness *= rm.b;
+        let surface = scene_surface_channels(input, rm);
+        roughness = surface.x;
+        metalness = surface.y;
     }
     let contact_weight = scene_contact(input.world_position);
     if contact_weight != 0.0 {
@@ -19,7 +20,8 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
         roughness = surface.x;
         metalness = surface.y;
     }
-    if material.scattering_mode.y != 0.0 { metalness = 0.0; }
+    if material.scattering_mode.y != 0.0 && (!scene_packed_atlas(input) || metalness > 0.05) { metalness = 0.0; }
+    if scene_packed_atlas(input) && metalness > 0.05 { metalness = 0.0; }
     scene_apply_coverage(input);
     if masked && !scene_alpha_covered(albedo.a, input) { discard; }
     return METADATA_OUTPUT;

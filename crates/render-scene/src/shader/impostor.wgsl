@@ -70,17 +70,21 @@ fn scene_atlas_sample(map: texture_2d<f32>, input: VertexOutput) -> vec4<f32> {
     let octahedral = material.impostor_grid.w == 2.0;
     let selected = scene_atlas_selection(input);
     let dimensions = vec2<f32>(textureDimensions(map));
-    let inset = max(vec2<f32>(material.impostor_grid.z), 0.5 * grid / dimensions);
+    let inset = scene_atlas_inset(dimensions);
     var value = vec4<f32>(0.0);
     for (var i = 0u; i < 4u; i++) {
+        var uv = input.texcoord;
+        if octahedral {
+            let coordinates = array<vec2<f32>, 4>(input.atlas_uv01.xy, input.atlas_uv01.zw, input.atlas_uv23.xy, input.atlas_uv23.zw);
+            uv = coordinates[i];
+        }
+        let atlas_uv = scene_atlas_uv(uv, selected.cells[i], grid, inset);
+        let dx = dpdx(atlas_uv);
+        let dy = dpdy(atlas_uv);
         if selected.weights[i] > 0.0 {
-            var uv = input.texcoord;
-            if octahedral {
-                let coordinates = array<vec2<f32>, 4>(input.atlas_uv01.xy, input.atlas_uv01.zw, input.atlas_uv23.xy, input.atlas_uv23.zw);
-                uv = coordinates[i];
-            }
-            // Level zero keeps the bilinear footprint inside the authored cell.
-            value += textureSampleLevel(map, material_sampler, scene_atlas_uv(uv, selected.cells[i], grid, inset), 0.0) * selected.weights[i];
+            var sampled = textureSampleLevel(map, material_sampler, atlas_uv, 0.0);
+            if (material.wind_clock.z & 4u) != 0u { sampled = textureSampleGrad(map, material_sampler, atlas_uv, dx, dy); }
+            value += sampled * selected.weights[i];
         }
     }
     return value;
@@ -121,13 +125,17 @@ fn scene_relief_decode(encoded: vec2<f32>) -> vec3<f32> {
 fn scene_relief_normal(input: VertexOutput) -> vec3<f32> {
     let selected = scene_atlas_selection(input);
     let grid = material.impostor_grid.xy;
-    let inset = max(vec2<f32>(material.impostor_grid.z), 0.5 * grid / vec2<f32>(textureDimensions(normal_texture)));
+    let inset = scene_atlas_inset(vec2<f32>(textureDimensions(normal_texture)));
     let coordinates = array<vec2<f32>,4>(input.atlas_uv01.xy,input.atlas_uv01.zw,input.atlas_uv23.xy,input.atlas_uv23.zw);
     var normal = vec3<f32>(0.0);
     for (var i=0u; i<4u; i++) {
+        let uv = scene_atlas_uv(coordinates[i],selected.cells[i],grid,inset);
+        let dx = dpdx(uv);
+        let dy = dpdy(uv);
         if selected.weights[i] > 0.0 {
-            let uv = scene_atlas_uv(coordinates[i],selected.cells[i],grid,inset);
-            normal += scene_relief_decode(textureSampleLevel(normal_texture,material_sampler,uv,0.0).rg) * selected.weights[i];
+            var sampled = textureSampleLevel(normal_texture,material_sampler,uv,0.0);
+            if (material.wind_clock.z & 4u) != 0u { sampled = textureSampleGrad(normal_texture,material_sampler,uv,dx,dy); }
+            normal += scene_relief_decode(sampled.rg) * selected.weights[i];
         }
     }
     let n = normalize(normal);
@@ -168,4 +176,29 @@ fn scene_relief_raster(clip: vec4<f32>, amount: f32) -> vec4<f32> {
     result.z = 0.0;
     if biased.w > 0.0 { result.z = max(0.0, biased.z / biased.w) * clip.w; }
     return result;
+}
+
+fn scene_packed_atlas(input: VertexOutput) -> bool {
+    return input.atlas_eye.w != 0.0 && (material.wind_clock.z & 2u) != 0u;
+}
+fn scene_atlas_first(map: texture_2d<f32>, input: VertexOutput) -> vec4<f32> {
+    let selected = scene_atlas_selection(input);
+    var uv = input.texcoord;
+    if material.impostor_grid.w == 2.0 { uv = input.atlas_uv01.xy; }
+    let grid = material.impostor_grid.xy;
+    let inset = scene_atlas_inset(vec2<f32>(textureDimensions(map)));
+    let coord = scene_atlas_uv(uv, selected.cells[0], grid, inset);
+    let sampled = textureSample(map, material_sampler, coord);
+    if (material.wind_clock.z & 4u) != 0u { return sampled; }
+    return textureSampleLevel(map, material_sampler, coord, 0.0);
+}
+fn scene_surface_channels(input: VertexOutput, sampled: vec4<f32>) -> vec2<f32> {
+    if scene_packed_atlas(input) { return scene_atlas_first(rough_metal_texture, input).rg; }
+    return vec2<f32>(material.roughness * sampled.g, material.metalness * sampled.b);
+}
+
+fn scene_atlas_inset(dimensions: vec2<f32>) -> vec2<f32> {
+    let border = vec2<f32>(material.impostor_grid.z);
+    if (material.wind_clock.z & 4u) != 0u { return border; }
+    return max(border, 0.5 * material.impostor_grid.xy / dimensions);
 }

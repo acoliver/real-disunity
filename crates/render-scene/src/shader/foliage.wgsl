@@ -1,9 +1,12 @@
 // The authored force basis is deliberately not orthogonalized.
 // Curvature, rather than radius, represents the straight limit without infinity.
 fn scene_arc(sample: vec3<f32>, force: vec3<f32>, curvature: f32) -> vec4<f32> {
+    return scene_arc_policy(sample, force, curvature, false);
+}
+fn scene_arc_policy(sample: vec3<f32>, force: vec3<f32>, curvature: f32, minimum_arc: bool) -> vec4<f32> {
     let distance = length(sample);
     if distance == 0.0 { return vec4<f32>(0.0); }
-    if curvature == 0.0 || length(force) == 0.0 { return vec4<f32>(sample, 0.0); }
+    if curvature == 0.0 || (length(force) == 0.0 && !minimum_arc) { return vec4<f32>(sample, 0.0); }
     let angle = min(distance * curvature, 0.5 * PI);
     var lateral: f32;
     var axial: f32;
@@ -20,7 +23,12 @@ fn scene_arc(sample: vec3<f32>, force: vec3<f32>, curvature: f32) -> vec4<f32> {
 }
 
 fn scene_arc_curvature(force: vec3<f32>, extent: f32) -> f32 {
-    return 2.0 * atan(length(force) / extent) / extent;
+    return scene_arc_curvature_policy(force, extent, false);
+}
+fn scene_arc_curvature_policy(force: vec3<f32>, extent: f32, minimum_arc: bool) -> f32 {
+    let angle = 2.0 * atan(length(force) / extent);
+    if minimum_arc { return max(PI / 360.0, angle) / extent; }
+    return angle / extent;
 }
 
 fn scene_band(seed: vec3<f32>, band: vec4<u32>, time: u32, phase: f32) -> f32 {
@@ -48,12 +56,15 @@ fn scene_curved_position(input: SceneBendInput) -> vec3<f32> {
     return scene_curved_position_forces(input,input.force*input.radial_factor);
 }
 fn scene_curved_position_forces(input: SceneBendInput, radial_force: vec3<f32>) -> vec3<f32> {
-    if all(input.force == vec3<f32>(0.0)) && all(radial_force == vec3<f32>(0.0)) { return input.position; }
+    return scene_curved_position_policy(input, radial_force, false);
+}
+fn scene_curved_position_policy(input: SceneBendInput, radial_force: vec3<f32>, minimum_arc: bool) -> vec3<f32> {
+    if !minimum_arc && all(input.force == vec3<f32>(0.0)) && all(radial_force == vec3<f32>(0.0)) { return input.position; }
     let height = min(dot(input.position, input.axis), input.extents.x);
     let attachment = input.position - input.axis * height;
-    let curvature = min(2.0, scene_arc_curvature(input.force, input.extents.x));
+    let curvature = min(2.0, scene_arc_curvature_policy(input.force, input.extents.x, minimum_arc));
     let weight = pow(clamp(abs(height) / input.extents.x, 0.0, 1.0), input.curve - 1.0);
-    let bent = scene_arc(height * input.axis, input.force, curvature * max(weight, 0.0000001));
+    let bent = scene_arc_policy(height * input.axis, input.force, curvature * max(weight, 0.0000001), minimum_arc);
     var rotated = attachment;
     let hinge = cross(input.force, input.axis);
     // Parallel force has no rotation axis. Zero-length vectors have no tangent.
@@ -64,7 +75,7 @@ fn scene_curved_position_forces(input: SceneBendInput, radial_force: vec3<f32>) 
             + unit * dot(unit, attachment) * (1.0 - cos(angle));
     }
     let detail_force = radial_force;
-    let detail = scene_arc(rotated, detail_force, scene_arc_curvature(detail_force, input.extents.y));
+    let detail = scene_arc_policy(rotated, detail_force, scene_arc_curvature_policy(detail_force, input.extents.y, minimum_arc), minimum_arc);
     let blend = clamp((height / input.extents.x - 0.3) * 8.0, 0.0, 1.0);
     return bent.xyz + mix(rotated, detail.xyz, blend);
 }
@@ -99,8 +110,9 @@ fn scene_geometry_displacement(position: vec3<f32>, vertex_seed: f32, instance: 
     let detail = scene_band(seed, material.foliage_radial, time, phase) * settings.z;
     let relative = position - origin;
     let input = SceneBendInput(relative, axis, force, settings.xy, material.foliage_axis_curve.w, detail);
-    if material.wind_field_mode.x == 0.0 { return scene_curved_position(input) - relative; }
-    return scene_curved_position_forces(input, base_force * gain * detail + modifiers) - relative;
+    let minimum_arc = material.foliage_origin.w != 0.0;
+    if material.wind_field_mode.x == 0.0 { return scene_curved_position_policy(input, input.force * input.radial_factor, minimum_arc) - relative; }
+    return scene_curved_position_policy(input, base_force * gain * detail + modifiers, minimum_arc) - relative;
 }
 
 fn scene_static_modifier(position: vec3<f32>, center_height: vec4<f32>, shape: vec4<f32>) -> vec3<f32> {

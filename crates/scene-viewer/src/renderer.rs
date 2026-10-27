@@ -76,7 +76,7 @@ impl Renderer {
             .await?;
         let features = required_features(scene);
         let context = GpuContext::from_adapter_with_features(adapter, features).await?;
-        let errors = device_errors(context.device(), context.submission().clone());
+        let errors = device_errors(context.device(), context.submission());
         let size = window.inner_size();
         let extents = Extents::for_device([size.width, size.height], context.device())?;
         let initial = extents.unwrap_or_else(Extents::placeholder);
@@ -325,15 +325,16 @@ fn required_features(scene: &RenderScene) -> wgpu::Features {
 
 fn device_errors(
     device: &wgpu::Device,
-    authority: worldrunner_render_gpu::submission::SubmissionAuthority,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
 ) -> mpsc::Receiver<String> {
     let (send, errors) = mpsc::channel();
     let lost_send = send.clone();
+    let report_loss = authority.device_loss_reporter();
     device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
         let _ = send.send(error.to_string());
     }));
     device.set_device_lost_callback(move |reason, message| {
-        authority.report_device_loss(format!("{reason:?}: {message}"));
+        report_loss(format!("{reason:?}: {message}"));
         let _ = lost_send.send(format!("device lost ({reason:?}): {message}"));
     });
     errors

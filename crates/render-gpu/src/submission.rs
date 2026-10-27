@@ -183,7 +183,7 @@ struct Inner {
     queue: wgpu::Queue,
     state: Mutex<State>,
     in_flight: AtomicUsize,
-    lost: Mutex<Option<String>>,
+    lost: Arc<Mutex<Option<String>>>,
     submitted: AtomicU64,
     completed: AtomicU64,
 }
@@ -197,7 +197,7 @@ impl SubmissionAuthority {
             queue,
             state: Mutex::new(State::default()),
             in_flight: AtomicUsize::new(0),
-            lost: Mutex::new(None),
+            lost: Arc::new(Mutex::new(None)),
             submitted: AtomicU64::new(0),
             completed: AtomicU64::new(0),
         }))
@@ -211,6 +211,11 @@ impl SubmissionAuthority {
     }
     pub fn report_device_loss(&self, message: String) {
         *self.0.lost.lock().unwrap() = Some(message);
+    }
+    /// Reports loss without retaining the queue, which itself retains the device.
+    pub fn device_loss_reporter(&self) -> impl Fn(String) + Send + 'static {
+        let lost = Arc::clone(&self.0.lost);
+        move |message| *lost.lock().unwrap() = Some(message)
     }
     pub fn check_device(&self) -> Result<(), SubmitError> {
         if let Some(lost) = &*self.0.lost.lock().unwrap() {

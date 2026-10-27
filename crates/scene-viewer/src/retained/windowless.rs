@@ -38,7 +38,7 @@ impl WindowlessRetained<'_> {
     }
 
     /// Requests one update/submission through the same session as desktop mode.
-    /// Returns false if admission or a zero extent prevents submission.
+    /// Returns false if no ordinary frame is submitted, including capture-only subframes.
     pub fn frame(&mut self) -> Result<bool, ViewerError> {
         self.ensure_open()?;
         if self.session.host.exit {

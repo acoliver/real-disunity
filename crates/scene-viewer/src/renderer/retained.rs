@@ -69,6 +69,9 @@ impl Renderer {
     pub fn render_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
         self.poll()?;
         self.collect_retained(host)?;
+        if self.render_recipe(host)?.is_some() {
+            return Ok(false);
+        }
         let Some(view) = host.view()? else {
             return Ok(false);
         };

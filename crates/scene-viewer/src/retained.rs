@@ -14,7 +14,10 @@ pub use input::{
     WheelDelta,
 };
 mod capture;
-pub use capture::{CaptureRequestError, RetainedCaptureOutcome};
+pub use capture::{
+    CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureOutcome,
+    RetainedCaptureProducts, RetainedCaptureRecipe,
+};
 mod readiness;
 pub(crate) mod session;
 pub(crate) use session::Session;

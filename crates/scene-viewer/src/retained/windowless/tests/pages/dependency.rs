@@ -202,3 +202,40 @@ fn disabled_paging_rejects_dependencies_before_accepting_work() {
         Err(crate::CaptureRequestError::Exiting)
     );
 }
+
+#[test]
+fn recipes_share_page_dependency_admission_and_accumulation_waits_for_residency() {
+    for (factor, samples) in [(1, 1), (1, 2), (2, 2)] {
+        let mut driver = Driver::default();
+        let events = driver.events.clone();
+        let mut run = paged_host().windowless(&mut driver).unwrap();
+        let recipe = crate::RetainedCaptureRecipe::new(
+            factor,
+            samples,
+            if samples == 1 {
+                crate::CaptureJitter::None
+            } else {
+                crate::CaptureJitter::Halton23
+            },
+            false,
+            vec![crate::CaptureOutput::Srgb8],
+            4 * 1024 * 1024,
+        )
+        .unwrap()
+        .with_page_dependency();
+        let id = run.host_mut().request_capture_recipe(0, recipe).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            run.frame().unwrap();
+            run.renderer.drain().unwrap();
+            run.poll().unwrap();
+            if events.borrow().iter().any(|event| matches!(event,
+                RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { products, .. }, .. }
+                    if *actual == id && products.srgb8.as_ref().unwrap().viewport.width == 64)) {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+        }
+        run.shutdown().unwrap();
+    }
+}

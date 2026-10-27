@@ -322,6 +322,7 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    impostor: Option<super::SceneImpostor>,
     normal_encoding: super::SceneNormalEncoding,
     normal_y: super::SceneNormalY,
     normal_scale_micro: u32,
@@ -340,6 +341,16 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    /// Enables multi-view sampling on billboard geometry only.
+    #[must_use]
+    pub const fn with_impostor(mut self, value: super::SceneImpostor) -> Self {
+        self.impostor = Some(value);
+        self
+    }
+    pub const fn impostor(&self) -> Option<super::SceneImpostor> {
+        self.impostor
+    }
+
     /// Selects normal channels and the source green-axis convention.
     #[must_use]
     pub const fn with_normal_encoding(
@@ -425,6 +436,7 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            impostor: None,
             normal_encoding: super::SceneNormalEncoding::TwoChannelXy,
             normal_y: super::SceneNormalY::Up,
             normal_scale_micro: 1_000_000,
@@ -566,6 +578,21 @@ impl SceneResources {
         })?;
         for material in self.materials.iter() {
             require_texture("material albedo", material.albedo(), limit)?;
+            if let Some(field) = material
+                .features()
+                .and_then(|f| f.wind)
+                .and_then(super::SceneWind::field)
+            {
+                require_texture("wind force field", field.texture(), limit)?;
+            }
+            if let Some(atlas) = material.impostor() {
+                if let Some((depth, _)) = atlas.relief() {
+                    require_texture("impostor depth", depth, limit)?;
+                }
+                if let Some(border) = atlas.borders() {
+                    require_texture("impostor borders", border, limit)?;
+                }
+            }
             if let Some(normal) = material.normal() {
                 require_texture("material normal", normal, limit)?;
             }

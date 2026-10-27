@@ -20,16 +20,33 @@ pub(crate) fn source(source: &str, terrain: bool) -> String {
             "fn shaded_terrain(input: TerrainVertexOutput) -> vec4<f32>",
         ) + "\n@fragment fn fs_terrain(input: TerrainVertexOutput) -> ReflectionOutput { return reflection_output(shaded_terrain(input)); }"
     } else {
-        source.replace("@fragment\nfn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>",
-            "fn shaded_opaque(input: VertexOutput, front_facing: bool) -> vec4<f32>")
-            .replace("@fragment\nfn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>",
-                "fn shaded_masked(input: VertexOutput, front_facing: bool) -> vec4<f32>")
-            + "\n@fragment fn fs_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { return reflection_output(shaded_opaque(input, front)); }\n@fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { return reflection_output(shaded_masked(input, front)); }"
+        source.replace("@fragment\nfn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
+            "fn shaded_opaque(input: VertexOutput, front_facing: bool) -> SceneSurfaceOutput")
+            .replace("@fragment\nfn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
+                "fn shaded_masked(input: VertexOutput, front_facing: bool) -> SceneSurfaceOutput")
+            + "\n@fragment fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { let shaded = shaded_opaque(input, front); var out = reflection_output(shaded.colour); out.depth = shaded.depth; return out; }\n@fragment fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { let shaded = shaded_masked(input, front); var out = reflection_output(shaded.colour); out.depth = shaded.depth; return out; }"
+    };
+    let source = if terrain {
+        source
+    } else {
+        source.replace("@fragment\nfn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>", "fn stock_opaque(input: VertexOutput, front_facing: bool) -> vec4<f32>")
+        .replace("@fragment\nfn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>", "fn stock_masked(input: VertexOutput, front_facing: bool) -> vec4<f32>")
+        + "\n@fragment fn fs_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionStockOutput { return reflection_stock_output(stock_opaque(input,front)); }\n@fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionStockOutput { return reflection_stock_output(stock_masked(input,front)); }"
     };
     format!(
         "{source}\n{}\n{}",
         include_str!("normal.wgsl"),
-        include_str!("forward.wgsl")
+        if terrain {
+            include_str!("forward.wgsl").to_owned()
+        } else {
+            include_str!("forward.wgsl")
+                .replace(
+                    "struct ReflectionOutput {",
+                    "struct ReflectionOutput { @builtin(frag_depth) depth: f32,",
+                )
+                .replace("ReflectionOutput(color,", "ReflectionOutput(0.0,color,")
+                + "\nstruct ReflectionStockOutput { @location(0) color: vec4<f32>, @location(1) environment: vec4<f32>, @location(2) factor: vec4<f32>, }\nfn reflection_stock_output(color:vec4<f32>) -> ReflectionStockOutput { let x=reflection_output(color); return ReflectionStockOutput(x.color,x.environment,x.factor); }"
+        }
     )
 }
 pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {

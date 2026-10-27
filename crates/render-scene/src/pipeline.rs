@@ -8,7 +8,7 @@ use crate::shader;
 const MICRO_SCALE: f32 = 1_000_000.0;
 
 /// Size in bytes of the shader's `Material` uniform block.
-pub const MATERIAL_UNIFORM_BYTES: usize = 240;
+pub const MATERIAL_UNIFORM_BYTES: usize = 432;
 
 /// The fixed-function and shader-program state one material requires.
 ///
@@ -16,6 +16,7 @@ pub const MATERIAL_UNIFORM_BYTES: usize = 240;
 /// draw, and it names only the properties that cannot vary within a pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PipelineKey {
+    pub relief: bool,
     /// Whether the fragment shader discards texels below the alpha cutoff.
     pub masked: bool,
     /// Whether back faces are drawn rather than culled.
@@ -25,33 +26,56 @@ pub struct PipelineKey {
 impl PipelineKey {
     /// Every pipeline this renderer can require, in a stable order.
     ///
-    /// The set is closed and tiny, so pipelines can be built once up front
-    /// rather than created lazily on first use. Building them eagerly means a
-    /// shader compilation failure surfaces at startup rather than as a stall
-    /// the first time the camera turns toward an unusual material.
-    pub const ALL: [Self; 4] = [
+    /// The stable indices address the shared material-variant cache. Variants
+    /// compile on first use so unused relief shaders do not delay ordinary scenes.
+    pub const ALL: [Self; 8] = [
         Self {
             masked: false,
             double_sided: false,
+            relief: false,
         },
         Self {
             masked: false,
             double_sided: true,
+            relief: false,
         },
         Self {
             masked: true,
             double_sided: false,
+            relief: false,
         },
         Self {
             masked: true,
             double_sided: true,
+            relief: false,
+        },
+        Self {
+            masked: false,
+            double_sided: false,
+            relief: true,
+        },
+        Self {
+            masked: false,
+            double_sided: true,
+            relief: true,
+        },
+        Self {
+            masked: true,
+            double_sided: false,
+            relief: true,
+        },
+        Self {
+            masked: true,
+            double_sided: true,
+            relief: true,
         },
     ];
 
     /// Derives the pipeline state one governed material requires.
     #[must_use]
-    pub const fn from_material(material: &SceneMaterial) -> Self {
+    pub fn from_material(material: &SceneMaterial) -> Self {
         Self {
+            relief: material.impostor().is_some_and(|a| a.relief().is_some()),
             masked: matches!(material.alpha_mode(), SceneAlphaMode::Mask { .. }),
             double_sided: material.double_sided(),
         }
@@ -66,7 +90,7 @@ impl PipelineKey {
     /// render as opaque rectangles.
     #[must_use]
     pub fn index(self) -> usize {
-        usize::from(self.masked) * 2 + usize::from(self.double_sided)
+        usize::from(self.relief) * 4 + usize::from(self.masked) * 2 + usize::from(self.double_sided)
     }
 
     #[must_use]
@@ -94,6 +118,7 @@ impl PipelineKey {
 /// The per-material numbers the shader reads, as distinct from pipeline state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialUniform {
+    pub impostor: Option<worldrunner_render_plan::SceneImpostor>,
     pub normal_encoding: worldrunner_render_plan::SceneNormalEncoding,
     pub normal_y: worldrunner_render_plan::SceneNormalY,
     pub normal_scale_micro: u32,
@@ -121,7 +146,7 @@ pub struct MaterialUniform {
 impl MaterialUniform {
     /// Extracts the numeric material parameters from a governed material.
     #[must_use]
-    pub const fn from_material(material: &SceneMaterial) -> Self {
+    pub fn from_material(material: &SceneMaterial) -> Self {
         let alpha_cutoff_micro = match material.alpha_mode() {
             SceneAlphaMode::Mask { cutoff_micro } => cutoff_micro,
             SceneAlphaMode::Opaque => 0,
@@ -140,6 +165,7 @@ impl MaterialUniform {
             texture_flags |= shader::FLAG_SELF_ILLUMINATION;
         }
         Self {
+            impostor: material.impostor(),
             normal_encoding: material.normal_encoding(),
             normal_y: material.normal_y(),
             normal_scale_micro: material.normal_scale_micro(),
@@ -172,7 +198,8 @@ impl MaterialUniform {
         bytes[4..8].copy_from_slice(&roughness.to_le_bytes());
         bytes[8..12].copy_from_slice(&metalness.to_le_bytes());
         bytes[12..16].copy_from_slice(&self.texture_flags.to_le_bytes());
-        features::encode(&mut bytes, self.features);
+        features::encode(&mut bytes, self.features.as_ref());
+        features::encode_impostor(&mut bytes, self.impostor);
         features::encode_surface(&mut bytes, self.translucency_micro, self.terrain_contact);
         let scale = self.normal_scale_micro as f32 / MICRO_SCALE;
         bytes[72..76].copy_from_slice(&scale.to_le_bytes());

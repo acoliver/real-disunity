@@ -45,7 +45,10 @@ struct SceneBendInput {
 }
 
 fn scene_curved_position(input: SceneBendInput) -> vec3<f32> {
-    if all(input.force == vec3<f32>(0.0)) { return input.position; }
+    return scene_curved_position_forces(input,input.force*input.radial_factor);
+}
+fn scene_curved_position_forces(input: SceneBendInput, radial_force: vec3<f32>) -> vec3<f32> {
+    if all(input.force == vec3<f32>(0.0)) && all(radial_force == vec3<f32>(0.0)) { return input.position; }
     let height = min(dot(input.position, input.axis), input.extents.x);
     let attachment = input.position - input.axis * height;
     let curvature = min(2.0, scene_arc_curvature(input.force, input.extents.x));
@@ -60,7 +63,7 @@ fn scene_curved_position(input: SceneBendInput) -> vec3<f32> {
         rotated = attachment * cos(angle) + cross(unit, attachment) * sin(angle)
             + unit * dot(unit, attachment) * (1.0 - cos(angle));
     }
-    let detail_force = input.force * input.radial_factor;
+    let detail_force = radial_force;
     let detail = scene_arc(rotated, detail_force, scene_arc_curvature(detail_force, input.extents.y));
     let blend = clamp((height / input.extents.x - 0.3) * 8.0, 0.0, 1.0);
     return bent.xyz + mix(rotated, detail.xyz, blend);
@@ -80,9 +83,31 @@ fn scene_geometry_displacement(position: vec3<f32>, vertex_seed: f32, instance: 
     if settings.w == 2.0 { seed = vec3<f32>(vertex_seed); }
     let phase = f32(material.wind_clock.y) / 1000000.0 * (2.0 * PI);
     let gain = scene_band(seed, material.foliage_primary, time, phase) * settings.z;
-    let force = material.wind_direction_amplitude.xyz * material.wind_direction_amplitude.w * gain;
+    var base_force = material.wind_direction_amplitude.xyz * material.wind_direction_amplitude.w;
+    var modifiers = vec3<f32>(0.0);
+    if material.wind_field_mode.x != 0.0 {
+        let uv = (position.xy-material.wind_field_domain.xy)/material.wind_field_domain.zw;
+        let inset = 0.5 / vec2<f32>(textureDimensions(wind_force_field));
+        base_force = vec3<f32>(textureSampleLevel(wind_force_field,material_sampler,clamp(uv,inset,1.0-inset),0.0).rg*2.0-1.0,0.0) * material.wind_direction_amplitude.w;
+        for (var i=0u; i<3u; i++) {
+            let shape = material.wind_modifiers[i*2u+1u];
+            if shape.z != 0.0 { modifiers += scene_static_modifier(position,material.wind_modifiers[i*2u],shape); }
+        }
+        modifiers *= settings.z;
+    }
+    let force = base_force * gain + modifiers;
     let detail = scene_band(seed, material.foliage_radial, time, phase) * settings.z;
     let relative = position - origin;
     let input = SceneBendInput(relative, axis, force, settings.xy, material.foliage_axis_curve.w, detail);
-    return scene_curved_position(input) - relative;
+    if material.wind_field_mode.x == 0.0 { return scene_curved_position(input) - relative; }
+    return scene_curved_position_forces(input, base_force * gain * detail + modifiers) - relative;
+}
+
+fn scene_static_modifier(position: vec3<f32>, center_height: vec4<f32>, shape: vec4<f32>) -> vec3<f32> {
+    var delta = position-center_height.xyz;
+    delta.z -= clamp(delta.z,-center_height.w,center_height.w);
+    let distance = length(delta);
+    var direction = vec3<f32>(1.0,0.0,0.0);
+    if distance >= 0.00001 { direction = delta/distance; }
+    return direction * shape.z * smoothstep(0.0,1.0,1.0-(distance-shape.x)/(shape.y-shape.x));
 }

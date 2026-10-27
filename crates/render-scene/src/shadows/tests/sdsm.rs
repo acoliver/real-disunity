@@ -216,8 +216,11 @@ fn adopted_stock_fit(
         assert!(first.is_none());
         context
             .device()
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(30)),
+            })
+            .expect("SDSM interactive frame 10 GPU work did not finish within 30 seconds");
         assert!(
             renderer
                 .render_depth_fitted(

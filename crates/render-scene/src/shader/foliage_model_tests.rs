@@ -223,3 +223,75 @@ fn curved_material_retains_authored_shading_frame() {
     );
     assert_eq!(evaluate(&context, &body), vec![0.0, -0.5, 0.5, -1.0]);
 }
+
+#[test]
+fn planar_field_and_static_modifier_deform_at_fixed_clock() {
+    let context = context();
+    let actual = evaluate(
+        &context,
+        r"
+        frame.grading.z=bitcast<f32>(1000u);
+        material.wind_clock=vec4<u32>(1000u,0u,0u,0u);
+        material.wind_direction_amplitude=vec4(1.0,0.0,0.0,0.5);
+        material.foliage_axis_curve=vec4(0.0,0.0,1.0,1.0);
+        material.foliage_extent_strength_phase=vec4(2.0,1.0,1.0,0.0);
+        material.foliage_primary=vec4(0u,bitcast<u32>(0.2),0u,bitcast<u32>(1.0));
+        material.foliage_radial=vec4(0u,0u,0u,bitcast<u32>(1.0));
+        material.wind_field_mode.x=1.0;
+        material.wind_field_domain=vec4(0.0,0.0,1.0,1.0);
+        material.wind_modifiers[0]=vec4(0.0,0.0,0.0,2.0);
+        material.wind_modifiers[1]=vec4(1.0,2.0,0.25,0.0);
+        var instance: InstanceInput;
+        instance.model_column_0=vec4(1.0,0.0,0.0,0.0);
+        instance.model_column_1=vec4(0.0,1.0,0.0,0.0);
+        instance.model_column_2=vec4(0.0,0.0,1.0,0.0);
+        result[0]=vec4(scene_geometry_displacement(vec3(0.0,0.0,1.0),1.0,instance),0.0);
+    ",
+    );
+    let gain = 1.0 + 0.2_f64 * 1.0_f64.sin();
+    let force = DVec3::new(0.5 * gain + 0.25, 0.5 * gain, 0.0);
+    let expected = integrate(DVec3::Z, force, 2.0 * (force.length() / 2.0).atan() / 2.0) - DVec3::Z;
+    for (actual, expected) in actual.iter().zip(expected.to_array()) {
+        assert!((f64::from(*actual) - expected).abs() < TRIG_ERROR + ROUNDING_ERROR);
+    }
+}
+
+#[test]
+fn relief_raster_bias_matches_linear_depth_oracle() {
+    let context = context();
+    let projection =
+        glam::camera::rh::proj::directx::perspective(std::f32::consts::FRAC_PI_2, 1.0, 1.0, 101.0);
+    let columns = projection.to_cols_array();
+    let literal = columns
+        .chunks_exact(4)
+        .map(|c| format!("vec4({:?},{:?},{:?},{:?})", c[0], c[1], c[2], c[3]))
+        .collect::<Vec<_>>()
+        .join(",");
+    for distance in [3.0_f32, 11.0, 40.0] {
+        let values = evaluate(
+            &context,
+            &format!(
+                "frame.view_projection=mat4x4({literal}); let clip=frame.view_projection*vec4(0.0,0.0,-{distance},1.0); let biased=scene_relief_raster(clip,2.0); result[0]=vec4(biased.z/biased.w,biased.xy,biased.w);"
+            ),
+        );
+        // Invert z = far/(far-near) - near*far/((far-near)*distance).
+        let decoded = 101.0 / (101.0 - f64::from(values[0]) * 100.0);
+        assert!((decoded - (f64::from(distance) - 2.0)).abs() < 0.0002);
+        assert_eq!(&values[1..], &[0.0, 0.0, distance]);
+    }
+    let values = evaluate(
+        &context,
+        "frame.view_projection=mat4x4(vec4(1.0,0.0,0.0,0.0),vec4(0.0,1.0,0.0,0.0),vec4(0.0,0.0,-0.1,0.0),vec4(0.0,0.0,0.0,1.0)); result[0]=scene_relief_raster(vec4(0.0,0.0,0.4,1.0),2.0);",
+    );
+    assert_eq!(values, [0.0, 0.0, 0.2, 1.0]);
+}
+
+#[test]
+fn orthographic_relief_does_not_divide_by_main_camera_light_angle() {
+    let context = context();
+    let values = evaluate(
+        &context,
+        "frame.camera_position=vec4(1000.0,0.0,0.0,1.0); frame.view_projection=mat4x4(vec4(1.0,0.0,0.0,0.0),vec4(0.0,1.0,0.0,0.0),vec4(0.0,0.0,-0.1,0.0),vec4(0.0,0.0,0.0,1.0)); result[0]=vec4(scene_relief_offset(vec3(0.0,0.0,-4.0),2.0),1.0);",
+    );
+    assert_eq!(values, [0.0, 0.0, -2.0, 1.0]);
+}

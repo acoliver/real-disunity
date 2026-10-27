@@ -1,7 +1,9 @@
 #[test]
 fn band_reduces_complete_phase_before_calling_sine() {
     let context = context();
-    let source = ENVIRONMENT_WGSL.replace("sin(", "recorded_sin(");
+    let foliage = include_str!("foliage.wgsl");
+    assert_eq!(ENVIRONMENT_WGSL.matches(foliage).count(), 1);
+    let source = ENVIRONMENT_WGSL.replace(foliage, &foliage.replace("sin(", "recorded_sin("));
     for spatial in [-7.0_f64, -0.1, 2.9, 7.0] {
         for phase in [
             0.0_f64,

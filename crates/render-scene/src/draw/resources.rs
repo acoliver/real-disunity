@@ -107,8 +107,25 @@ pub(super) fn upload_materials(
             BufferUsages::UNIFORM,
             &MaterialUniform::from_material(material).to_bytes(),
         );
-        groups.push(crate::upload::material_group(
-            device, layout, &uniform, &bound, sampler, heights,
+        let atlas = material.impostor();
+        let extra = [
+            optional(atlas.and_then(|a| a.relief().map(|v| v.0))),
+            optional(atlas.and_then(worldrunner_render_plan::SceneImpostor::borders)),
+            optional(
+                material
+                    .features()
+                    .and_then(|f| f.wind)
+                    .and_then(worldrunner_render_plan::SceneWind::field)
+                    .map(worldrunner_render_plan::ScenePlanarWindField::texture),
+            ),
+        ];
+        groups.push(crate::upload::extended_material_group(
+            device,
+            layout,
+            &uniform,
+            crate::upload::MaterialTextureBindings { maps: bound, extra },
+            sampler,
+            heights,
         ));
         uniforms.push(uniform);
     }

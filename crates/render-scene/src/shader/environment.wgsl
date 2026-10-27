@@ -1,9 +1,10 @@
 // Decode source channels before scaling tangent-space XY.
-fn sample_normal(uv: vec2<f32>, geometric: vec3<f32>, position: vec3<f32>, tangent: vec4<f32>) -> vec3<f32> {
+fn sample_normal(input: VertexOutput, geometric: vec3<f32>, position: vec3<f32>, tangent: vec4<f32>) -> vec3<f32> {
     if (material.texture_flags & FLAG_NORMAL) == 0u {
         return geometric;
     }
-    let sampled = textureSample(normal_texture, material_sampler, uv).rgb * 2.0 - 1.0;
+    if input.atlas_eye.w != 0.0 && material.impostor_relief.x != 0.0 { return scene_relief_normal(input); }
+    let sampled = scene_atlas_sample(normal_texture, input).rgb * 2.0 - 1.0;
     var xy = sampled.xy;
     var z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
     if (material.geometry_flags.w & 1u) != 0u { z = sampled.z; }
@@ -11,7 +12,7 @@ fn sample_normal(uv: vec2<f32>, geometric: vec3<f32>, position: vec3<f32>, tange
     let scale = bitcast<f32>(material.geometry_flags.z);
     if scale == 0.0 { return geometric; }
     xy *= scale;
-    var frame_basis = cotangent_frame(geometric, position, uv);
+    var frame_basis = cotangent_frame(geometric, position, input.texcoord);
     if tangent.w != 0.0 {
         let t = normalize(tangent.xyz - geometric * dot(geometric, tangent.xyz));
         frame_basis = mat3x3<f32>(t, cross(geometric, t) * tangent.w, geometric);
@@ -21,8 +22,10 @@ fn sample_normal(uv: vec2<f32>, geometric: vec3<f32>, position: vec3<f32>, tange
 
 // Shades one fragment. Both entry points funnel here so that the masked and
 // opaque pipelines cannot drift apart in anything except the cutout test.
-fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
-    var albedo_sample = scene_albedo(textureSample(albedo_texture, material_sampler, input.texcoord), input.tint);
+fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
+    var input = original;
+    input.world_position = scene_relief_position(original);
+    var albedo_sample = scene_albedo(scene_atlas_sample(albedo_texture, input), input.tint);
 
     // A double-sided card is one sheet of geometry standing in for a leaf with
     // two faces. Its stored normal describes the front, so the back must be
@@ -32,13 +35,13 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
         geometric_normal = -geometric_normal;
     }
 
-    let mapped_normal = sample_normal(input.texcoord, geometric_normal, input.world_position, input.world_tangent);
+    let mapped_normal = sample_normal(input, geometric_normal, input.world_position, input.world_tangent);
 
     let normal = scene_fold_direction(mapped_normal, input.ground_fold, material.contact_surface.zw);
     var roughness = material.roughness;
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {
-        let rough_metal = textureSample(rough_metal_texture, material_sampler, input.texcoord);
+        let rough_metal = scene_atlas_sample(rough_metal_texture, input);
         roughness *= rough_metal.g;
         metalness *= rough_metal.b;
     }
@@ -51,11 +54,7 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
     }
     var ambient_occlusion = 1.0;
     if (material.texture_flags & FLAG_AMBIENT_OCCLUSION) != 0u {
-        ambient_occlusion = textureSample(
-            ambient_occlusion_texture,
-            material_sampler,
-            input.texcoord,
-        ).r;
+        ambient_occlusion = scene_atlas_sample(ambient_occlusion_texture, input).r;
     }
 
     var packed_occlusion = ambient_occlusion;
@@ -103,11 +102,7 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
     if (material.texture_flags & FLAG_SELF_ILLUMINATION) != 0u {
         // The mask is a single channel, so it carries intensity and not colour;
         // the emitted hue can only come from the surface's own albedo.
-        let emission = textureSample(
-            self_illumination_texture,
-            material_sampler,
-            input.texcoord,
-        ).r;
+        let emission = scene_atlas_sample(self_illumination_texture, input).r;
         colour += albedo_sample.rgb * emission;
     }
 
@@ -117,25 +112,38 @@ fn shade(input: VertexOutput, front_facing: bool) -> vec4<f32> {
 }
 
 @fragment
-fn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let shaded = shade(input, front_facing);
     scene_apply_coverage(input);
-    return vec4<f32>(shaded.rgb, 1.0);
+    return SceneSurfaceOutput(vec4<f32>(shaded.rgb, 1.0), scene_relief_depth(input));
 }
 
 
 @fragment
-fn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let shaded = shade(input, front_facing);
     // Cutout, not blending: the fragment is either present or absent, so no
     // draw ordering is required and the depth buffer stays authoritative.
     if !scene_alpha_covered(shaded.a, input) {
         discard;
     }
-    return vec4<f32>(shaded.rgb, 1.0);
+    return SceneSurfaceOutput(vec4<f32>(shaded.rgb, 1.0), scene_relief_depth(input));
 }
 
 @fragment
 fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(albedo_texture, material_sampler, input.texcoord) * input.tint;
+    return scene_atlas_sample(albedo_texture, input) * input.tint;
+}
+
+@fragment
+fn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    let shaded = shade(input,front_facing);
+    scene_apply_coverage(input);
+    return vec4<f32>(shaded.rgb,1.0);
+}
+@fragment
+fn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    let shaded = shade(input,front_facing);
+    if !scene_alpha_covered(shaded.a,input) { discard; }
+    return vec4<f32>(shaded.rgb,1.0);
 }

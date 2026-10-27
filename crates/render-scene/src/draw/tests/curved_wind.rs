@@ -319,7 +319,8 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
         assert!(main.chunks_exact(4).any(|v| v != 1.0_f32.to_le_bytes()));
         for (pipelines, state) in [
             (
-                metadata.object_pipelines(),
+                metadata.object_pipelines()
+                    as &dyn std::ops::Index<usize, Output = wgpu::RenderPipeline>,
                 (Some(TextureFormat::Rgba16Float), Some(&group)),
             ),
             (
@@ -341,10 +342,10 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
     }
 }
 
-fn read_depth(
+pub(super) fn read_depth(
     context: &GpuContext,
     gpu: &SceneGpu,
-    pipelines: &[wgpu::RenderPipeline; 4],
+    pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
     state: (Option<TextureFormat>, Option<&wgpu::BindGroup>),
 ) -> Vec<u8> {
     let device = context.device();

@@ -55,6 +55,7 @@ impl PreparedScene {
                     .map_err(|source| DrawError::Texture { index, source })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        descriptors::validate_atlases(scene, &textures)?;
         let meshes = prepare_meshes(scene)?;
         let terrain = scene
             .terrain()
@@ -98,6 +99,13 @@ impl PreparedScene {
         device: &wgpu::Device,
         pipelines: &super::ScenePipelines,
     ) -> Result<(), DrawError> {
+        // Six material maps, one shadow array and three screen-space inputs.
+        if device.limits().max_sampled_textures_per_shader_stage < 10 {
+            return Err(crate::frame::FrameError::UnsupportedEffect(
+                "material texture-stage budget",
+            )
+            .into());
+        }
         if let Some(source) = self
             .terrain
             .as_ref()

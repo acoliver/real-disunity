@@ -45,9 +45,11 @@
 //! while the near plane is governed in millimetres, and that ratio is exactly
 //! what drives depth fighting on distant coplanar surfaces.
 
+mod objects;
 mod pages;
 mod specular;
 mod unlit;
+pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::constants as specular_constants;
 
 use std::borrow::Cow;
@@ -82,7 +84,7 @@ pub struct ScenePipelines {
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
-    pipelines: [RenderPipeline; 4],
+    pipelines: ObjectPipelines,
     terrain: RenderPipeline,
     pub(crate) cached_terrain: RenderPipeline,
     pub(crate) layered: Option<pages::LayeredPipelines>,
@@ -92,12 +94,10 @@ pub struct ScenePipelines {
 }
 
 impl ScenePipelines {
-    /// Builds every pipeline variant for one colour target format.
+    /// Builds shared layouts and terrain pipelines for one colour target format.
     ///
-    /// All four are built up front rather than on first use. The set is closed
-    /// and tiny, and building eagerly means a shader or layout fault is a
-    /// startup failure rather than a stall the first time the camera turns to
-    /// face an unusual material.
+    /// Material variants are shared and compiled on demand. Relief variants
+    /// must not add shader compilation cost to scenes that never use them.
     #[must_use]
     pub fn new(device: &Device, color_format: TextureFormat) -> Self {
         Self::with_environment(
@@ -204,14 +204,8 @@ impl ScenePipelines {
         let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
         let targets = source_targets(source, color_format);
 
-        let pipelines = build_objects(
-            device,
-            &layout,
-            &buffers,
-            &targets,
-            &module,
-            (samples, &constants),
-        );
+        let pipelines =
+            ObjectPipelines::new(device, &layout, &targets, &module, (samples, &constants));
         groups[1] = Some(&terrain_layout);
         let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
             device,
@@ -249,7 +243,7 @@ impl ScenePipelines {
         &self.unlit_alpha
     }
 
-    pub(crate) const fn object_pipelines(&self) -> &[RenderPipeline; 4] {
+    pub(crate) const fn object_pipelines(&self) -> &ObjectPipelines {
         &self.pipelines
     }
 
@@ -513,40 +507,11 @@ fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
     })]
 }
 
-fn build_objects(
-    device: &Device,
-    layout: &PipelineLayout,
-    buffers: &[Option<VertexBufferLayout<'_>>],
-    targets: &[Option<ColorTargetState>],
-    module: &wgpu::ShaderModule,
-    target: (u32, &[(&str, f64)]),
-) -> [RenderPipeline; 4] {
-    let (samples, constants) = target;
-    PipelineKey::ALL.map(|key| {
-        build(
-            device,
-            key,
-            layout,
-            buffers,
-            samples,
-            FragmentState {
-                module,
-                entry_point: Some(shader::fragment_entry_point(key.masked)),
-                compilation_options: PipelineCompilationOptions {
-                    constants,
-                    ..Default::default()
-                },
-                targets,
-            },
-        )
-    })
-}
-
 pub(crate) fn celestial_pipelines(
     device: &Device,
     scene: &ScenePipelines,
     physical: bool,
-) -> [RenderPipeline; 4] {
+) -> [RenderPipeline; 8] {
     celestial_specialization(device, scene, physical, [0; 3])
 }
 pub(crate) fn celestial_specialization(
@@ -554,7 +519,7 @@ pub(crate) fn celestial_specialization(
     scene: &ScenePipelines,
     physical: bool,
     options: [u32; 3],
-) -> [RenderPipeline; 4] {
+) -> [RenderPipeline; 8] {
     let constants = specular_constants(options);
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",

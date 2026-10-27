@@ -186,12 +186,13 @@ pub(super) fn upload_meshes(
 /// terrainless scene costs no pipeline switch.
 pub(super) fn upload_terrain(
     device: &Device,
-    queue: &Queue,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
     scene: &RenderScene,
     layout: &BindGroupLayout,
     sampler: &Sampler,
     prepared: Option<&super::prepared::PreparedTerrain>,
 ) -> Result<Option<GpuTerrain>, DrawError> {
+    let queue = authority.queue();
     let Some(terrain) = scene.terrain() else {
         return Ok(None);
     };
@@ -230,6 +231,10 @@ pub(super) fn upload_terrain(
     );
     let mut retained = palettes;
     retained.push(grid);
+    let lod = terrain_lod(device, queue, mesh);
+    let streaming = terrain
+        .streaming_policy()
+        .map(|_| super::streaming::Streaming::new(scene.clone(), lod.clone(), authority));
     Ok(Some(GpuTerrain {
         page_bounds: page_bounds(terrain),
         page_elevation: prepared.elevation,
@@ -237,7 +242,8 @@ pub(super) fn upload_terrain(
         sampler: sampler.clone(),
         pages: None,
         bounds: prepared.bounds,
-        lod: terrain_lod(device, queue, mesh),
+        lod: streaming.is_none().then_some(lod),
+        streaming,
         instances: terrain_instances(device, queue),
         bind_group,
         retained,
@@ -402,14 +408,14 @@ pub(super) fn post_settings(
 
 pub(super) fn prepared_terrain(
     device: &Device,
-    queue: &Queue,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
     prepared: &super::PreparedScene,
     pipelines: &super::ScenePipelines,
     sampler: &Sampler,
 ) -> Result<Option<GpuTerrain>, DrawError> {
     upload_terrain(
         device,
-        queue,
+        authority,
         &prepared.scene,
         if prepared
             .terrain

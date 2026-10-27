@@ -45,6 +45,7 @@ mod retained;
 mod ssao;
 mod ssr;
 mod ssr_acceptance;
+mod streaming;
 mod terrain_blend;
 
 /// The colour format every test renders into.

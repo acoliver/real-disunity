@@ -13,6 +13,7 @@ impl Renderer {
         let gpu = self.resident.scene_mut();
         let request = gpu
             .terrain_residency_request(&frame, viewport)
+            .map_err(|error| ViewerError::Gpu(error.to_string()))?
             .expect("validated page dependency requires paging");
         gpu.terrain_residency_ready(&request)
             .map_err(|error| ViewerError::Gpu(error.to_string()))

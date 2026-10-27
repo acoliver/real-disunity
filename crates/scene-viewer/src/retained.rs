@@ -216,7 +216,24 @@ impl RetainedHost {
             self.enqueue(update, false);
             return Ok(());
         }
+        if self
+            .scene
+            .terrain()
+            .is_some_and(|terrain| terrain.streaming_policy().is_some())
+        {
+            return Err(ViewerError::UnsupportedScene(
+                "streaming terrain retained edits",
+            ));
+        }
         if let RetainedUpdate::Terrain(terrain) = &update {
+            if terrain
+                .as_ref()
+                .is_some_and(|value| value.streaming_policy().is_some())
+            {
+                return Err(ViewerError::UnsupportedScene(
+                    "streaming terrain retained edits",
+                ));
+            }
             let scene = self
                 .scene
                 .with_terrain(terrain.clone())

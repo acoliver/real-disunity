@@ -33,6 +33,7 @@ fn layered_production_capture_bakes_cold_and_invalidated_pages() {
         }
         let request = gpu
             .terrain_residency_request(&matching_frame(), [TARGET; 2])
+            .unwrap()
             .unwrap();
         assert!(!gpu.terrain_residency_ready(&request).unwrap());
         capture(

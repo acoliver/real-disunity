@@ -29,10 +29,12 @@ mod dynamic;
 mod pages;
 mod publication;
 mod retained;
+mod streaming;
 pub(crate) use publication::{DrawPublications, SelectionPublication};
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
+use resources::prepared_terrain;
 pub use visibility::ViewStats;
 use visibility::{MeshSelection, Selection};
 
@@ -122,7 +124,7 @@ pub enum DrawError {
 }
 
 /// One mesh level held as the buffer pair a draw needs.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct GpuLod {
     transition: Option<Buffer>,
     vertices: Buffer,
@@ -144,7 +146,8 @@ struct GpuMesh {
 /// only obscure that.
 #[derive(Debug)]
 struct GpuTerrain {
-    lod: GpuLod,
+    lod: Option<GpuLod>,
+    streaming: Option<streaming::Streaming>,
     instances: Buffer,
     bind_group: BindGroup,
     bounds: visibility::Bounds,
@@ -267,7 +270,7 @@ impl SceneGpu {
             },
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
-        let terrain = resources::prepared_terrain(device, queue, &prepared, pipelines, &sampler)?;
+        let terrain = prepared_terrain(device, authority, &prepared, pipelines, &sampler)?;
         let mesh_selection = prepared.selection;
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
@@ -487,10 +490,15 @@ impl SceneGpu {
     }
 
     fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) {
-        pass.set_vertex_buffer(0, terrain.lod.vertices.slice(..));
+        if let Some(streaming) = &terrain.streaming {
+            streaming.draw(pass, &terrain.instances);
+            return;
+        }
+        let lod = terrain.lod.as_ref().expect("nonstreaming mesh");
+        pass.set_vertex_buffer(0, lod.vertices.slice(..));
         pass.set_vertex_buffer(1, terrain.instances.slice(..));
-        pass.set_index_buffer(terrain.lod.indices.slice(..), IndexFormat::Uint32);
-        pass.draw_indexed(0..terrain.lod.index_count, 0, 0..1);
+        pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(0..lod.index_count, 0, 0..1);
     }
 
     pub(crate) fn draw_objects(

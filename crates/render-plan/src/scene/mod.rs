@@ -687,3 +687,5 @@ mod tests {
 
 mod wind_field;
 pub use wind_field::{ScenePlanarWindField, SceneStaticWindModifier};
+mod terrain_streaming;
+pub use terrain_streaming::TerrainStreamingPolicy;

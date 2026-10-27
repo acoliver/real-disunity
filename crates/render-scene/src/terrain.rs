@@ -1,6 +1,8 @@
 //! Tessellates canonical Z-up terrain using the shared mesh upload layout.
 
+pub(crate) mod chunks;
 pub mod pages;
+pub mod streaming;
 use glam::{DVec3, Vec3};
 use thiserror::Error;
 use worldrunner_render_plan::{SceneRotation, SceneTerrain, SceneTransform, TerrainLodPolicy};
@@ -54,6 +56,9 @@ pub enum TerrainError {
     /// A sample position left the signed millimetre range the domain uses.
     #[error("terrain sample positions leave the signed millimeter range")]
     ExtentOverflow,
+    /// This terrain consumer has not adopted resident chunks.
+    #[error("streaming terrain does not yet support {feature}")]
+    StreamingUnsupported { feature: &'static str },
 }
 
 /// The whole terrain surface, packed as one mesh.
@@ -92,7 +97,16 @@ pub struct TerrainMesh {
 /// Returns [`TerrainError`] when the reduced grid outgrows the `u32` a draw
 /// indexes with, or when sample positions leave the signed millimetre range.
 pub fn build_terrain_mesh(terrain: &SceneTerrain) -> Result<TerrainMesh, TerrainError> {
+    if terrain.streaming_policy().is_some() {
+        return Err(TerrainError::StreamingUnsupported {
+            feature: "whole-mesh tessellation",
+        });
+    }
     let grid = TerrainGrid::new(terrain)?;
+    build_grid_mesh(&grid)
+}
+
+fn build_grid_mesh(grid: &TerrainGrid<'_>) -> Result<TerrainMesh, TerrainError> {
     let (columns, rows) = (grid.columns.len(), grid.rows.len());
     require_addressable(columns, rows)?;
 
@@ -297,3 +311,6 @@ impl<'a> TerrainGrid<'a> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod streaming_tests;

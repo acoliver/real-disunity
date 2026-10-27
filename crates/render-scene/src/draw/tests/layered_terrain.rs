@@ -272,7 +272,10 @@ fn scene_policy_installs_layered_pages_and_enforces_allocation_budget() {
         assert!(gpu.has_terrain_pages());
         let frame = matching_frame();
         gpu.set_frame(context.queue(), frame);
-        let request = gpu.terrain_residency_request(&frame, [TARGET; 2]).unwrap();
+        let request = gpu
+            .terrain_residency_request(&frame, [TARGET; 2])
+            .unwrap()
+            .unwrap();
         assert!(!gpu.terrain_residency_ready(&request).unwrap());
         let mut transaction = authority.begin(context.device()).unwrap();
         gpu.prepare_terrain_pages(context.device(), &mut transaction, &frame, [TARGET; 2])

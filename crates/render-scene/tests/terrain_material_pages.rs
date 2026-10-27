@@ -69,11 +69,10 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
             worldrunner_render_scene::frame::FrameUniform::unlit(&view),
         );
         assert!(!gpu.terrain_pages_ready());
+        let frame = worldrunner_render_scene::frame::FrameUniform::unlit(&view);
         let request = gpu
-            .terrain_residency_request(
-                &worldrunner_render_scene::frame::FrameUniform::unlit(&view),
-                [view.viewport().width, view.viewport().height],
-            )
+            .terrain_residency_request(&frame, [view.viewport().width, view.viewport().height])
+            .unwrap()
             .unwrap();
         let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
         let image = target.render(&context, &gpu, &pipelines).unwrap();

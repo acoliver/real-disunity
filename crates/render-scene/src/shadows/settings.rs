@@ -149,6 +149,12 @@ pub(super) fn validate_effects(effects: &SceneEffects) -> Result<(), ShadowError
 }
 
 pub(super) fn validate_scene(scene: &RenderScene) -> Result<(), ShadowError> {
+    if scene
+        .terrain()
+        .is_some_and(|terrain| terrain.streaming_policy().is_some())
+    {
+        return Err(ShadowError::UnsupportedFeature("streaming terrain shadows"));
+    }
     validate_effects(scene.effects().ok_or(ShadowError::UnsupportedFeature(
         "shadows require an environmental profile",
     ))?)?;

@@ -42,6 +42,7 @@ impl PreparedScene {
     /// # Errors
     /// Returns the same CPU preparation failures as [`SceneGpu::upload`].
     pub fn new(scene: &RenderScene) -> Result<Self, DrawError> {
+        super::streaming::validate(scene)?;
         descriptors::validate(scene)?;
         crate::water::surface::validate(scene)?;
         let textures = scene
@@ -60,8 +61,15 @@ impl PreparedScene {
         let terrain = scene
             .terrain()
             .map(|terrain| {
-                let mesh =
-                    build_terrain_mesh(terrain).map_err(|source| DrawError::Terrain { source })?;
+                let mesh = if let Some(policy) = terrain.streaming_policy() {
+                    crate::terrain::chunks::build(
+                        terrain,
+                        crate::terrain::streaming::TerrainChunk::root(terrain, policy),
+                    )
+                } else {
+                    build_terrain_mesh(terrain)
+                }
+                .map_err(|source| DrawError::Terrain { source })?;
                 let uniform = TerrainUniformState::encode(terrain)
                     .map_err(|source| DrawError::TerrainUniform { source })?;
                 let palettes = prepare_palettes(scene, uniform.layer_materials())?;

@@ -1,5 +1,5 @@
-//! Bounds-checked reads over a byte slice. Positions are absolute offsets into the file, so
-//! alignment matches Unity's, which aligns relative to the start of the file.
+//! Bounds-checked reads over a byte slice. Alignment uses offsets into that slice: file
+//! offsets for metadata and object-relative offsets for an individual object's fields.
 
 use crate::SerializedError;
 
@@ -60,6 +60,22 @@ impl<'a> Cursor<'a> {
     }
 
     numbers!(u16: u16, i16: i16, u32: u32, i32: i32, u64: u64, i64: i64);
+
+    pub(crate) fn f32(&mut self) -> Result<f32, SerializedError> {
+        self.u32().map(f32::from_bits)
+    }
+
+    /// Reads a string stored as a 32-bit byte length, UTF-8 bytes and padding to four bytes:
+    /// the encoding of `string` fields in object data.
+    pub(crate) fn sized_string(&mut self) -> Result<String, SerializedError> {
+        let len = self.count("string byte", 1)?;
+        let offset = self.pos;
+        let text = std::str::from_utf8(self.take(len)?)
+            .map_err(|_| SerializedError::InvalidString { offset })?
+            .to_owned();
+        self.align4()?;
+        Ok(text)
+    }
 
     pub(crate) fn u8(&mut self) -> Result<u8, SerializedError> {
         Ok(self.take(1)?[0])

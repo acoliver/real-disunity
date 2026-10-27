@@ -47,6 +47,13 @@ cargo run -p worldrunner-unity-import -- <command> <project> [path]
 | `axes <project>` | The project's input axes from `ProjectSettings/InputManager.asset`, in file order. |
 | `plan <project> <scene>` | The scene plan as JSON: what the managed loader builds. Planning fails, naming the object, on anything the engine cannot build as authored. |
 | `player <data directory>` | For a built player's `<Game>_Data` directory: each serialized file (`globalgamemanagers`, `level0`, `*.assets`) with its Unity version, format version, externals and objects counted by class, then the totals. Reading built players is in progress ([#147](https://github.com/acoliver/real-disunity/issues/147)); this command reads file metadata only. |
+| `player-decode <data directory>` | Counts decoded GameObject, Transform, RectTransform, MonoScript and MonoBehaviour headers across the player's files. Reports the first five errors per class and exits unsuccessfully if any decode fails. MonoBehaviour script fields remain an opaque byte range; this does not validate their contents. |
+| `player-scene <data directory> <scene file>` | The serialized scene's transform hierarchy with positions, active state and component class names. Script names resolve through same-file or external MonoScript references. Invalid parent/child links, cycles and hierarchies deeper than 256 levels fail explicitly. Cross-file hierarchy links are unsupported. |
+
+The five object layouts have been checked against Unity 6000.3.15f1 player data.
+Exact byte consumption detects size differences, but does not establish compatibility
+with other Unity versions or layouts of the same size. These commands inspect content;
+they do not instantiate or run the player.
 
 For a project with one scene holding one object, `scene` prints:
 

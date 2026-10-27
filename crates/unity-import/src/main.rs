@@ -4,7 +4,10 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
-    import_scene, input_axes, plan_scene, read_player,
+    import_scene, input_axes, plan_scene,
+    player_objects::decode_census,
+    player_scene::{SceneNode, read_scene_hierarchy},
+    read_player,
 };
 
 const USAGE: &str = "usage: unity-import catalog <project>
@@ -15,7 +18,9 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import texture <project> <texture path>
        unity-import sprites <project> <scene path>
        unity-import components <project> <scene path>
-       unity-import player <player data directory>";
+       unity-import player <player data directory>
+       unity-import player-decode <player data directory>
+       unity-import player-scene <player data directory> <scene file>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -33,6 +38,13 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         [command, project] if command == "catalog" => catalog(Path::new(project)),
         [command, project] if command == "axes" => axes(Path::new(project)),
         [command, data] if command == "player" => player(Path::new(data)),
+        [command, data] if command == "player-decode" => player_decode(Path::new(data)),
+        [command, data, scene] if command == "player-scene" => {
+            for root in read_scene_hierarchy(Path::new(data), scene)? {
+                print_node(&root, 0);
+            }
+            Ok(())
+        }
         [command, project, scene] if command == "plan" => {
             plan(Path::new(project), Path::new(scene))
         }
@@ -53,6 +65,46 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         }
         _ => Err(USAGE.into()),
     }
+}
+
+fn print_node(node: &SceneNode, depth: usize) {
+    let inactive = if node.active { "" } else { " (inactive)" };
+    let [x, y, z] = node.local_position;
+    println!(
+        "{:indent$}{}{inactive} at ({x}, {y}, {z}): {}",
+        "",
+        node.name,
+        node.components.join(", "),
+        indent = depth * 2
+    );
+    for child in &node.children {
+        print_node(child, depth + 1);
+    }
+}
+
+/// Decodes every object whose class has a layout in every serialized file of a player, and
+/// prints the counts and the first failures. Fails when any object fails to decode.
+fn player_decode(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    let census = decode_census(&paths)?;
+    let mut failed = 0;
+    for (class, entry) in &census {
+        println!(
+            "{class}: {} decoded, {} failed",
+            entry.decoded, entry.failed
+        );
+        for example in &entry.examples {
+            println!("  {example}");
+        }
+        failed += entry.failed;
+    }
+    if failed > 0 {
+        return Err(format!("{failed} objects failed to decode").into());
+    }
+    Ok(())
 }
 
 /// Prints each serialized file of a built player with its objects counted by class, then

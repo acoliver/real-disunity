@@ -147,9 +147,9 @@ impl GpuContext {
 
         let submission =
             worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
-        let observer = submission.clone();
+        let report_loss = submission.device_loss_reporter();
         device.set_device_lost_callback(move |reason, message| {
-            observer.report_device_loss(format!("{reason:?}: {message}"));
+            report_loss(format!("{reason:?}: {message}"));
         });
         Ok(Self {
             adapter,

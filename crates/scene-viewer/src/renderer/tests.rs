@@ -1,3 +1,35 @@
+#[test]
+fn device_error_observer_does_not_retain_the_context_queue() {
+    let instance = worldrunner_render_gpu::device::headless_instance();
+    let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
+    let errors = super::device_errors(context.device(), context.submission());
+    drop(context);
+    assert!(instance.generate_report().unwrap().hub.queues.is_empty());
+    assert!(instance.generate_report().unwrap().hub.devices.is_empty());
+    drop(errors);
+}
+
+#[test]
+fn device_error_observer_reports_loss_to_the_host_and_submission_authority() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let errors = super::device_errors(context.device(), context.submission());
+    context.device().destroy();
+    context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(5)),
+        })
+        .unwrap();
+    assert!(errors.try_recv().unwrap().contains("device lost"));
+    assert!(matches!(
+        context.submission().check_device(),
+        Err(worldrunner_render_gpu::submission::SubmitError::DeviceLost(
+            _
+        ))
+    ));
+}
+
 fn fxaa_recipe() -> worldrunner_render_plan::SceneHdrPost {
     worldrunner_render_plan::SceneHdrPost {
         tone_map: Some(worldrunner_render_plan::SceneToneMap::AcesFitted),

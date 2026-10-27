@@ -12,11 +12,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use mlua::{ChunkMode, Function, HookTriggers, Lua, StdLib, UserData, UserDataMethods, VmState};
+use mlua::{ChunkMode, Function, Lua, StdLib, UserData, UserDataMethods};
 
 use crate::api::ScriptApi;
 use crate::config::ScriptConfig;
 use crate::error::ScriptError;
+use crate::sandbox::{install_budget, lua_value_to_json, restrict_base, table_to_json};
 
 /// Version of the `worldrunner` API surface this host installs.
 pub const API_VERSION: &str = "0.1.0";
@@ -126,20 +127,7 @@ impl ScriptHost {
         let records: Arc<Mutex<Vec<Record>>> = Arc::new(Mutex::new(Vec::new()));
         let modules: Arc<RwLock<HashMap<String, Vec<u8>>>> = Arc::new(RwLock::new(HashMap::new()));
 
-        let budget = config.instruction_budget;
-        let counter = Arc::clone(&instructions);
-        lua.set_hook(
-            HookTriggers::new().every_nth_instruction(1024),
-            move |_, _| {
-                let spent = counter.fetch_add(1024, Ordering::Relaxed) + 1024;
-                if spent > u64::from(budget) {
-                    return Err(mlua::Error::RuntimeError(format!(
-                        "instruction budget of {budget} exceeded"
-                    )));
-                }
-                Ok(VmState::Continue)
-            },
-        );
+        install_budget(&lua, config.instruction_budget, &instructions);
 
         let worldrunner = lua.create_table()?;
         worldrunner.raw_set("api_version", lua.create_function(|_, ()| Ok(API_VERSION))?)?;
@@ -344,26 +332,6 @@ impl ScriptHost {
     }
 }
 
-/// Removes the base library's file loaders and makes `load` compile text only, keeping its
-/// other arguments as given: an explicit `env` of `nil` differs from an absent one.
-fn restrict_base(lua: &Lua) -> Result<(), ScriptError> {
-    let globals = lua.globals();
-    for name in ["dofile", "loadfile"] {
-        globals.raw_set(name, mlua::Value::Nil)?;
-    }
-    let load: Function = globals.raw_get("load")?;
-    let text_only = lua.create_function(move |lua, args: mlua::MultiValue| {
-        let mut args: Vec<mlua::Value> = args.into_iter().take(4).collect();
-        if args.len() < 3 {
-            args.resize(3, mlua::Value::Nil);
-        }
-        args[2] = mlua::Value::String(lua.create_string("t")?);
-        load.call::<mlua::MultiValue>(mlua::MultiValue::from_iter(args))
-    })?;
-    globals.raw_set("load", text_only)?;
-    Ok(())
-}
-
 fn install_log(
     lua: &Lua,
     worldrunner: &mlua::Table,
@@ -459,43 +427,4 @@ fn install_require(
         })?,
     )?;
     Ok(())
-}
-
-fn table_to_json(table: &mlua::Table) -> Result<serde_json::Value, mlua::Error> {
-    // Arrays stay arrays; keyed tables become objects; recursion is bounded
-    // by Lua's own table depth, which the budget hook caps in instructions.
-    let mut map = serde_json::Map::new();
-    let mut array = Vec::new();
-    for pair in table.pairs::<mlua::Value, mlua::Value>() {
-        let (key, value) = pair?;
-        match key {
-            mlua::Value::Integer(i) => array.push((i, lua_value_to_json(&value))),
-            other => {
-                let key = match other {
-                    mlua::Value::String(s) => s.to_string_lossy().to_owned(),
-                    ref v => format!("{v:?}"),
-                };
-                map.insert(key, lua_value_to_json(&value));
-            }
-        }
-    }
-    if map.is_empty() && !array.is_empty() {
-        array.sort_by_key(|(i, _)| *i);
-        return Ok(serde_json::Value::Array(
-            array.into_iter().map(|(_, v)| v).collect(),
-        ));
-    }
-    Ok(serde_json::Value::Object(map))
-}
-
-fn lua_value_to_json(value: &mlua::Value) -> serde_json::Value {
-    match value {
-        mlua::Value::Nil => serde_json::Value::Null,
-        mlua::Value::Boolean(b) => serde_json::Value::Bool(*b),
-        mlua::Value::Integer(i) => serde_json::json!(i),
-        mlua::Value::Number(n) => serde_json::json!(n),
-        mlua::Value::String(s) => serde_json::Value::String(s.to_string_lossy().to_owned()),
-        mlua::Value::Table(t) => table_to_json(t).unwrap_or(serde_json::Value::Null),
-        other => serde_json::Value::String(format!("{other:?}")),
-    }
 }

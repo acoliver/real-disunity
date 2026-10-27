@@ -9,7 +9,32 @@
 
 Every hook fire runs under an instruction budget (`ScriptConfig::instruction_budget`). A script that exceeds it is halted with `ScriptError::BudgetExceeded`, so a runaway loop cannot hang a frame. The budget counts instructions, and a single `string.rep` can allocate gigabytes in one, so memory has its own limit: 256 MiB by default (`DEFAULT_MEMORY_LIMIT`), changed with `ScriptHost::set_memory_limit`. An allocation past it fails with a Lua memory error, which reaches the host as `ScriptError::Memory` unless the script catches it.
 
-Support for running a game's original scripts is being added in [#147](https://github.com/acoliver/real-disunity/issues/147). Patch overlays are the first part.
+Support for running a game's original scripts is being added in [#147](https://github.com/acoliver/real-disunity/issues/147). The profile below and patch overlays are done; threads, timers and saving Lua state are next.
+
+## Running a game's original scripts
+
+`ScriptHost` is the strict profile for scripts written for this engine. A game's own scripts expect the API their original engine exposed, so they run in `GameScripts`, which has the same sandbox, budget and memory limit and adds the `coroutine` library:
+
+```rust
+use worldrunner_script::{GameScripts, ScriptConfig};
+
+let mut scripts = GameScripts::new(ScriptConfig::default())?;
+scripts.register_native("GetMapName", |_, ()| Ok("Crater"))?;
+scripts.register_native("terrain.GetHeight", |_, (x, y): (f64, f64)| Ok(height(x, y)))?;
+scripts.register_native("SaveFile", |_, path: String| save(&path))?;
+scripts.add_source("game", &["GetMapName", "terrain.GetHeight", "SaveFile"])?;
+scripts.add_source("mod:better-ui", &["GetMapName"])?;
+scripts.run("game", "Lua/Map.lua", &map_lua)?;
+scripts.run("mod:better-ui", "UI.lua", &mod_lua)?;
+let title: String = scripts.call("MapTitle", ())?;
+```
+
+- **Natives** are the game's Rust functions, registered under a name or a dotted path such as `terrain.GetHeight`. They are all registered before the first source, and a path is either a function or a namespace, never both.
+- **Sources** are the groups of scripts the game distinguishes: its own files, its patches, each mod. A source can call exactly the natives the game grants it.
+- **Globals are shared.** Every global a script reads or writes that is not one of its natives lives in one namespace shared by all sources, as in the original engine: game files define globals that other files and mods use. A native namespace such as `terrain` shows the game's own `terrain` entries next to the natives, and the natives stay visible however the game rebinds or extends `terrain`.
+- **Capabilities bound direct access.** A function keeps the natives of the source that defined it, so a mod calling a game function runs game code with the game's natives, and a source can hand a native it holds to others. Code compiled with `load` runs in the shared namespace, which holds no natives. Sources can replace each other's functions, as they could in the original engine.
+- **Coroutines run under the budget.** Instructions inside coroutines, however deeply nested, count against the budget of the `run` or `call` that resumed them. `coroutine.resume` returns an error's message without a stack traceback, as Lua's does; an error value that is not a string arrives as its text.
+- `run` compiles source text only, and `run_patched` applies the file's patches first. `call` invokes a function in the shared namespace, as the engine calls a game's entry points; each `run` and `call` gets the full instruction budget.
 
 ## Patching a game's original scripts
 

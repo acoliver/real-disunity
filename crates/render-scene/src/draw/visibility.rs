@@ -53,6 +53,7 @@ impl Bounds {
 
 #[derive(Debug)]
 pub(super) struct MeshSelection {
+    pub(super) material_slots: Vec<Option<Vec<worldrunner_render_plan::SceneLodMaterialSlot>>>,
     bounds: Bounds,
     billboard_radius: Option<f32>,
     ceilings_squared: Vec<u128>,
@@ -78,6 +79,11 @@ impl MeshSelection {
             )
         });
         Self {
+            material_slots: mesh
+                .lods()
+                .iter()
+                .map(|lod| lod.material_slots().map(<[_]>::to_vec))
+                .collect(),
             bounds: Bounds { min, max },
             billboard_radius: billboard.then(|| radius_squared.sqrt()),
             ceilings_squared: mesh
@@ -100,8 +106,9 @@ impl MeshSelection {
         transform: &SceneTransform,
         extent: Vec3,
         curved: Option<Vec3>,
-        shaped_radius: f32,
+        shape: [f32; 2],
     ) -> Bounds {
+        let [shaped_radius, capture_radius] = shape;
         let mut bounds = self.world_bounds(transform);
         let model = model_matrix(transform);
         let scale = model.x_axis.truncate().length();
@@ -123,7 +130,8 @@ impl MeshSelection {
             .max(self.bounds.max.abs())
             .length()
             .max(self.billboard_radius.unwrap_or(0.0))
-            .max(shaped_radius);
+            .max(shaped_radius)
+            + capture_radius;
         bounds.expanded(Vec3::splat((6.0 * radius + 7.0 * origin.length()) * scale))
     }
 
@@ -132,15 +140,43 @@ impl MeshSelection {
         transform: &SceneTransform,
         wind: Vec3,
         curved: Option<Vec3>,
-        impostor: [f32; 2],
+        impostor: [f32; 3],
         relief_stretch: f32,
     ) -> Bounds {
-        self.wind_bounds(transform, wind, curved, impostor[0])
+        self.wind_bounds(transform, wind, curved, [impostor[0], impostor[2]])
+            .expanded(Vec3::splat(
+                impostor[2] * model_matrix(transform).x_axis.truncate().length(),
+            ))
             .expanded(impostor_extent(
                 [0.0, impostor[1]],
                 transform,
                 relief_stretch,
             ))
+    }
+
+    fn placement_bounds(
+        &self,
+        instances: &Instances,
+        transform: &SceneTransform,
+        material: usize,
+        stretch: f32,
+    ) -> Bounds {
+        let bounds_for = |material: usize| {
+            self.material_bounds(
+                transform,
+                instances.wind_extents[material],
+                instances.curved_wind[material],
+                instances.impostor_extents[material],
+                stretch,
+            )
+        };
+        let mut bounds = bounds_for(material);
+        for slot in self.material_slots.iter().flatten().flatten() {
+            let other = bounds_for(slot.material().raw() as usize);
+            bounds.min = bounds.min.min(other.min);
+            bounds.max = bounds.max.max(other.max);
+        }
+        bounds
     }
 
     pub fn world_bounds(&self, transform: &SceneTransform) -> Bounds {
@@ -270,11 +306,10 @@ impl Selection {
             for (slot, object, visible) in batch.placements() {
                 self.stats.considered += 1;
                 if !visible
-                    || !frustum.intersects(mesh.material_bounds(
+                    || !frustum.intersects(mesh.placement_bounds(
+                        instances,
                         object.transform(),
-                        instances.wind_extents[key.2],
-                        instances.curved_wind[key.2],
-                        instances.impostor_extents[key.2],
+                        key.2,
                         relief_stretch,
                     ))
                 {
@@ -327,13 +362,7 @@ pub(super) fn caster_matrix(
         for (_, object, visible) in batch.placements().filter(|(_, _, visible)| *visible) {
             debug_assert!(visible);
             near = near.min(caster_near(
-                meshes[mesh].material_bounds(
-                    object.transform(),
-                    instances.wind_extents[material],
-                    instances.curved_wind[material],
-                    instances.impostor_extents[material],
-                    0.0,
-                ),
+                meshes[mesh].placement_bounds(instances, object.transform(), material, 0.0),
                 receiver,
             ));
         }
@@ -383,3 +412,6 @@ pub(super) fn terrain_bounds(vertices: &[u8]) -> Bounds {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod policy_tests;

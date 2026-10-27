@@ -432,7 +432,7 @@ fn relief_survives_culling_when_only_displaced_surface_intersects() {
     let mut selection = Selection::default();
     selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
     assert_eq!(selection.stats.culled, 1);
-    instances.impostor_extents[0] = [0.0, 2.0];
+    instances.impostor_extents[0] = [0.0, 2.0, 0.0];
     selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
     // The card spans Z=2.7..3.3; its two-metre relief spans Z=0.7..1.3.
     assert_eq!(selection.stats.culled, 0);
@@ -467,21 +467,26 @@ fn enlarged_plane_with_oblique_curvature_keeps_analytically_visible_tip() {
         .unwrap();
     let meshes = [MeshSelection::new(&source.geometry().meshes()[0])];
     let late_shape = meshes[0]
-        .wind_bounds(&placement, Vec3::ZERO, Some(Vec3::ZERO), 0.0)
+        .wind_bounds(&placement, Vec3::ZERO, Some(Vec3::ZERO), [0.0; 2])
         .expanded(impostor_extent([20.0, 0.0], &placement, 1.0));
     assert!(!Frustum::new(Mat4::IDENTITY).intersects(late_shape));
     let mut selection = Selection::default();
     selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
     assert_eq!(selection.stats.culled, 0);
-    let bounds =
-        meshes[0].material_bounds(&placement, Vec3::ZERO, Some(Vec3::ZERO), [20.0, 0.0], 1.0);
+    let bounds = meshes[0].material_bounds(
+        &placement,
+        Vec3::ZERO,
+        Some(Vec3::ZERO),
+        [20.0, 0.0, 0.0],
+        1.0,
+    );
     assert!(point.cmpge(bounds.min).all() && point.cmple(bounds.max).all());
 }
 
 #[test]
 fn enlarged_card_overlapping_receiver_xy_extends_caster_depth() {
     let mut instances = Instances::new(&scene());
-    instances.impostor_extents[0] = [4.0, 0.0];
+    instances.impostor_extents[0] = [4.0, 0.0, 0.0];
     instances
         .add(
             SceneObject::new(
@@ -578,4 +583,24 @@ fn small_capture_card() -> SceneMesh {
         .unwrap(),
     ])
     .unwrap()
+}
+
+#[test]
+fn slot_material_displacement_expands_culling_and_caster_bounds() {
+    let lod = level(0)
+        .with_material_slots(vec![
+            SceneLodMaterialSlot::new(MaterialHandle::from_raw(1), 0..3).unwrap(),
+        ])
+        .unwrap();
+    let selection = MeshSelection::new(&SceneMesh::new(vec![lod]).unwrap());
+    let mut instances = Instances::new(&scene());
+    instances.wind_extents.push(Vec3::new(2.0, 0.0, 0.0));
+    instances.curved_wind.push(None);
+    instances.impostor_extents.push([0.0; 3]);
+    let placement = transform([0; 3]);
+    let original = selection.world_bounds(&placement);
+    let expanded = selection.placement_bounds(&instances, &placement, 0, 1.0);
+    assert!(expanded.min.x < -2.1 && expanded.max.x > 2.1);
+    assert_eq!(expanded.min.y.to_bits(), original.min.y.to_bits());
+    assert_eq!(expanded.max.z.to_bits(), original.max.z.to_bits());
 }

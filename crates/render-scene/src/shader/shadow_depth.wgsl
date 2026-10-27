@@ -4,4 +4,4 @@ fn vs_shadow(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
 }
 
 @fragment fn fs_depth_opaque(input: VertexOutput) { scene_apply_coverage(input); }
-@fragment fn fs_depth_masked(input: VertexOutput) { if !scene_alpha_covered(scene_atlas_sample(albedo_texture,input).a,input) { discard; } }
+@fragment fn fs_depth_masked(input: VertexOutput) { if !scene_alpha_covered(scene_material_alpha(scene_atlas_sample(albedo_texture,input).a),input) { discard; } }

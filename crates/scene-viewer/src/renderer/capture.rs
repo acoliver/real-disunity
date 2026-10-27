@@ -46,11 +46,8 @@ impl Captures {
         if self.pending.len() == 3 {
             return Ok(None);
         }
-        let generation = host.ready_generation();
         let Some(&(id, _, _)) = host.captures.waiting.iter().find(|r| {
-            r.1 == generation
-                && !host.readiness.page_wait
-                && (!r.2 || pages_ready)
+            host.capture_ready(r, pages_ready)
                 && !host
                     .captures
                     .recipes

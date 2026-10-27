@@ -405,14 +405,25 @@ impl Resident {
         shadows: Option<DirectionalShadowSettings>,
         profile: crate::FrameProfile,
     ) -> Result<Self, ViewerError> {
+        Self::from_prepared_reusing(context, prepared, shadows, profile, None)
+    }
+
+    fn from_prepared_reusing(
+        context: &GpuContext,
+        prepared: worldrunner_render_scene::draw::PreparedScene,
+        shadows: Option<DirectionalShadowSettings>,
+        profile: crate::FrameProfile,
+        previous: Option<&SceneGpu>,
+    ) -> Result<Self, ViewerError> {
         let scene = prepared.scene().clone();
         Ok(if let Some(settings) = shadows {
-            let mut shadowed = ShadowedScene::with_prepared_target(
+            let mut shadowed = ShadowedScene::with_prepared_target_reusing(
                 context,
                 prepared,
                 settings,
                 profile.target().0,
                 profile.target().1,
+                previous,
             )?;
             shadowed.set_scene_depth_fitting(
                 context,
@@ -435,11 +446,12 @@ impl Resident {
                 ScenePipelines::with_samples
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
-            let gpu = SceneGpu::upload_prepared(
+            let gpu = SceneGpu::upload_prepared_reusing(
                 context.device(),
                 context.submission(),
                 prepared,
                 &pipelines,
+                previous,
             )?;
             Self::Plain(Box::new(PlainScene {
                 gpu,

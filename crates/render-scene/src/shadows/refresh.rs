@@ -101,6 +101,14 @@ impl RefreshCache {
 }
 
 impl super::ShadowedScene {
+    pub(super) fn refresh_for_frame(&self, replaced: bool) -> RefreshCache {
+        // Quadtree leaves cover the complete source, including off-camera casters.
+        // Cascades share those buffers and must refresh when streaming changes them.
+        self.refresh
+            .borrow()
+            .clone_for_frame(replaced || self.gpu.has_streaming_terrain())
+    }
+
     /// Invalidates every retained cascade on the next submitted frame.
     pub fn invalidate_shadows(&mut self) {
         self.refresh.borrow_mut().invalidate();

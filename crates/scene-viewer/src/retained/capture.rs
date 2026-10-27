@@ -21,8 +21,6 @@ pub enum RetainedCaptureOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CaptureRequestError {
-    #[error("streaming terrain capture dependencies are not supported")]
-    StreamingTerrain,
     #[error("invalid capture recipe")]
     InvalidRecipe,
     #[error("capture recipe execution mode is not supported")]
@@ -47,6 +45,8 @@ pub enum CaptureRequestError {
 
 pub(crate) struct Captures {
     pub waiting: VecDeque<(u64, u64, bool)>,
+    pub geometry: std::collections::BTreeSet<u64>,
+    pub geometry_ready: bool,
     outstanding: BTreeMap<u64, u64>,
     pub(crate) recipes: BTreeMap<u64, RetainedCaptureRecipe>,
     reservations: BTreeMap<u64, u64>,
@@ -58,6 +58,8 @@ impl Default for Captures {
     fn default() -> Self {
         Self {
             waiting: VecDeque::new(),
+            geometry: std::collections::BTreeSet::new(),
+            geometry_ready: false,
             outstanding: BTreeMap::new(),
             recipes: BTreeMap::new(),
             reservations: BTreeMap::new(),
@@ -134,12 +136,14 @@ impl Captures {
         if let RetainedEvent::Capture { id, .. } = &event {
             self.outstanding.remove(id).expect("outstanding capture");
             self.recipes.remove(id);
+            self.geometry.remove(id);
             self.reservations.remove(id);
         }
         Some(event)
     }
     pub(crate) fn cancel(&mut self) {
         self.waiting.clear();
+        self.geometry.clear();
         self.events.clear();
         for (&id, &generation) in &self.outstanding {
             self.events.push_back(RetainedEvent::Capture {
@@ -161,6 +165,14 @@ pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) 
 }
 
 impl RetainedHost {
+    pub(crate) fn capture_ready(&self, request: &(u64, u64, bool), pages: bool) -> bool {
+        request.1 == self.ready_generation()
+            && !self.readiness.page_wait
+            && !self.readiness.geometry_wait
+            && (!request.2 || pages)
+            && (!self.captures.geometry.contains(&request.0) || self.captures.geometry_ready)
+    }
+
     fn validate_capture_features(
         &self,
         generation: u64,
@@ -233,6 +245,9 @@ impl RetainedHost {
             return Err(CaptureRequestError::HdrRequired);
         }
         let id = self.request_capture_with_dependency(generation, recipe.require_pages)?;
+        if recipe.require_geometry {
+            self.captures.geometry.insert(id);
+        }
         self.captures.recipes.insert(id, recipe);
         self.captures.reservations.insert(id, required);
         Ok(id)
@@ -262,13 +277,6 @@ impl RetainedHost {
         generation: u64,
         require_pages: bool,
     ) -> Result<u64, CaptureRequestError> {
-        if self
-            .scene
-            .terrain()
-            .is_some_and(|terrain| terrain.streaming_policy().is_some())
-        {
-            return Err(CaptureRequestError::StreamingTerrain);
-        }
         if self.exit {
             return Err(CaptureRequestError::Exiting);
         }
@@ -297,6 +305,17 @@ impl RetainedHost {
         self.captures
             .waiting
             .push_back((id, generation, require_pages));
+        Ok(id)
+    }
+
+    /// Captures after the current view meets the terrain geometry sampling threshold.
+    /// Insufficient residency budgets keep the request pending rather than weakening it.
+    pub fn request_capture_with_geometry(
+        &mut self,
+        generation: u64,
+    ) -> Result<u64, CaptureRequestError> {
+        let id = self.request_capture(generation)?;
+        self.captures.geometry.insert(id);
         Ok(id)
     }
 

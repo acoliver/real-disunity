@@ -166,6 +166,18 @@ impl ShadowedScene {
         format: wgpu::TextureFormat,
         samples: u32,
     ) -> Result<Self, ShadowError> {
+        Self::with_prepared_target_reusing(context, prepared, settings, format, samples, None)
+    }
+
+    /// Builds a retained generation sharing unchanged streamed chunk buffers.
+    pub fn with_prepared_target_reusing(
+        context: &GpuContext,
+        prepared: crate::draw::PreparedScene,
+        settings: DirectionalShadowSettings,
+        format: wgpu::TextureFormat,
+        samples: u32,
+        previous: Option<&SceneGpu>,
+    ) -> Result<Self, ShadowError> {
         let scene = prepared.scene().clone();
         let scene = &scene;
         worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
@@ -180,11 +192,12 @@ impl ShadowedScene {
             resources::receiver_pipelines(context, scene, (format, samples), &shadow_layout)?;
         let (depth_pipelines, terrain_depth_pipeline) =
             resources::depth_pipelines(context.device(), &pipelines, settings);
-        let gpu = SceneGpu::upload_prepared(
+        let gpu = SceneGpu::upload_prepared_reusing(
             context.device(),
             context.submission(),
             prepared,
             &pipelines,
+            previous,
         )?;
         let depth_frames = resources::depth_frames(context, pipelines.frame_layout());
         let layers = u32::try_from(
@@ -433,22 +446,21 @@ impl ShadowedScene {
         ),
     ) -> Result<(), ShadowError> {
         let mut replacement = self.replacement_map(context)?;
+        let mut next_refresh = self.refresh_for_frame(replacement.is_some());
         let (scheduler, fitting) = input;
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
         scheduler.bind_water_inputs(&self.gpu.water_inputs);
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
-        self.gpu.prepare_sky(context.device(), encoder, &frame)?;
         self.gpu
-            .prepare_terrain_pages(context.device(), encoder, &frame, color.size())?;
+            .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
         let mut cascades = Self::prepare_cascades(
             (&self.gpu, &self.effects, self.settings),
             view,
             frame.sun_direction,
             fitting,
         )?;
-        let mut next_refresh = self.refresh.borrow().clone_for_frame(replacement.is_some());
         let refresh = next_refresh.prepare(
             &mut cascades,
             self.settings,

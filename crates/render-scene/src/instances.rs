@@ -23,9 +23,6 @@ pub struct InstanceHandle {
 /// An instance edit was rejected without changing the scene.
 #[derive(Debug, thiserror::Error)]
 pub enum InstanceError {
-    /// Geometry streaming does not yet support resident placement edits.
-    #[error("streaming terrain does not support resident instance edits")]
-    StreamingTerrain,
     /// The handle belongs to another resident scene.
     #[error("instance handle belongs to another scene")]
     ForeignHandle,

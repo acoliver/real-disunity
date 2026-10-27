@@ -18,7 +18,7 @@ pub use capture::{
     CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureOutcome,
     RetainedCaptureProducts, RetainedCaptureRecipe,
 };
-mod readiness;
+pub(crate) mod readiness;
 pub(crate) mod session;
 pub(crate) use session::Session;
 #[cfg(test)]
@@ -169,6 +169,7 @@ impl RetainedHost {
                     .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
                     .is_some(),
                 page_wait: false,
+                geometry_wait: false,
                 camera: (options.pose, options.camera),
                 #[cfg(test)]
                 preparation_hook: None,
@@ -216,24 +217,7 @@ impl RetainedHost {
             self.enqueue(update, false);
             return Ok(());
         }
-        if self
-            .scene
-            .terrain()
-            .is_some_and(|terrain| terrain.streaming_policy().is_some())
-        {
-            return Err(ViewerError::UnsupportedScene(
-                "streaming terrain retained edits",
-            ));
-        }
         if let RetainedUpdate::Terrain(terrain) = &update {
-            if terrain
-                .as_ref()
-                .is_some_and(|value| value.streaming_policy().is_some())
-            {
-                return Err(ViewerError::UnsupportedScene(
-                    "streaming terrain retained edits",
-                ));
-            }
             let scene = self
                 .scene
                 .with_terrain(terrain.clone())

@@ -25,7 +25,7 @@ impl FrameRenderer {
         source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
         let (gpu, pipelines) = scene;
-        gpu.reject_streaming("streaming terrain prepasses")?;
+        gpu.prepare_terrain_geometry(device, encoder, frame, source.size)?;
         gpu.prepare_depth_prefix_pages(device, encoder, frame, source.size)?;
         let mut passes = Vec::new();
         let mut views = Vec::new();

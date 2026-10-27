@@ -19,6 +19,21 @@ impl Renderer {
             .map_err(|error| ViewerError::Gpu(error.to_string()))
     }
 
+    fn view_geometry_ready(
+        &mut self,
+        view: &worldrunner_render_scene::SceneView,
+    ) -> Result<bool, ViewerError> {
+        let color = self.presentation.targets.color.texture();
+        let viewport = [color.width(), color.height()];
+        let frame = worldrunner_render_scene::frame::FrameUniform::new(view, None)?;
+        let gpu = self.resident.scene_mut();
+        let Some(request) = gpu.terrain_geometry_request(&frame, viewport) else {
+            return Ok(true);
+        };
+        gpu.terrain_geometry_ready(&request)
+            .map_err(|error| ViewerError::Gpu(error.to_string()))
+    }
+
     pub(super) fn retained_pages_ready(
         &mut self,
         host: &mut RetainedHost,
@@ -30,12 +45,20 @@ impl Renderer {
                 .waiting
                 .iter()
                 .any(|r| r.1 == host.readiness.published && r.2);
-        if !needs_pages {
-            return Ok(false);
-        }
-        let ready = self.view_pages_ready(view)?;
-        if ready && host.readiness.page_wait {
+        let ready = needs_pages && self.view_pages_ready(view)?;
+        let needs_geometry =
+            host.readiness.geometry_wait
+                || host.captures.waiting.iter().any(|r| {
+                    r.1 == host.readiness.published && host.captures.geometry.contains(&r.0)
+                });
+        host.captures.geometry_ready = !needs_geometry || self.view_geometry_ready(view)?;
+        if ready {
             host.readiness.page_wait = false;
+        }
+        if host.captures.geometry_ready {
+            host.readiness.geometry_wait = false;
+        }
+        if !host.readiness.page_wait && !host.readiness.geometry_wait {
             host.readiness.ready = host.readiness.published;
         }
         Ok(ready)
@@ -62,29 +85,21 @@ impl Streaming {
         host: &mut RetainedHost,
     ) -> Result<(), ViewerError> {
         self.collect(context.submission().completed_serial());
-        if host.readiness.page_wait || host.captures.holds_generation(host.ready_generation()) {
+        if host.readiness.page_wait
+            || host.readiness.geometry_wait
+            || host.captures.holds_generation(host.readiness.published)
+        {
             return Ok(());
         }
         let Some(front) = host.readiness.queue.front_mut() else {
             return Ok(());
         };
-        let scene = if let Some(receive) = &front.scene {
-            match receive.try_recv() {
-                Ok(result) => Some(result?),
-                Err(TryRecvError::Empty) => return Ok(()),
-                Err(TryRecvError::Disconnected) => {
-                    return Err(ViewerError::Driver(
-                        "scene preparation worker disconnected".into(),
-                    ));
-                }
-            }
-        } else {
-            None
-        };
-        if let Some(prepared) = scene {
-            let scene = prepared.scene().clone();
-            let serial = context.submission().submitted_serial();
-            let mut next_resident = self.prepare_retained_scene(context, prepared)?;
+        let serial = context.submission().submitted_serial();
+        if !self.advance_preparation(context, resident, front)? {
+            return Ok(());
+        }
+        if let Some((mut next_resident, scene)) = self.preparing.take() {
+            next_resident.scene_mut().finish_retained_terrain();
             if let Some(effects) = scene.effects() {
                 super::retained::configure_effects(
                     context,
@@ -114,6 +129,56 @@ impl Streaming {
         host.readiness.publish_front();
         Ok(())
     }
+    fn advance_preparation(
+        &mut self,
+        context: &super::GpuContext,
+        resident: &mut Resident,
+        front: &crate::retained::readiness::Preparation,
+    ) -> Result<bool, ViewerError> {
+        let scene = if self.preparing.is_some() {
+            None
+        } else if let Some(receive) = &front.scene {
+            match receive.try_recv() {
+                Ok(result) => Some(result?),
+                Err(TryRecvError::Empty) => return Ok(false),
+                Err(TryRecvError::Disconnected) => {
+                    return Err(ViewerError::Driver(
+                        "scene preparation worker disconnected".into(),
+                    ));
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(prepared) = scene {
+            let source = prepared.scene().clone();
+            let next = self.prepare_retained_scene(context, prepared, resident.scene_mut())?;
+            self.preparing = Some((next, source));
+        }
+        if let Some((next, _)) = &mut self.preparing {
+            if next.scene_mut().retained_terrain_ready() {
+                return Ok(true);
+            }
+            let mut ready = false;
+            let prepared = context
+                .submission()
+                .prepare(context.device(), |encoder, _| {
+                    let mut upload =
+                        worldrunner_render_post::PrepareContext::new(context.device(), encoder)?;
+                    ready = next.scene_mut().prepare_retained_terrain(&mut upload)?;
+                    upload.finish();
+                    Ok::<_, worldrunner_render_post::FrameError>(())
+                })
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            prepared
+                .submit()
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            if !ready {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
     pub(super) fn collect(&mut self, completed: u64) {
         while self.retired.front().is_some_and(|old| old.0 <= completed) {
             self.retired.pop_front();
@@ -124,6 +189,7 @@ impl Streaming {
         &self,
         context: &super::GpuContext,
         prepared: worldrunner_render_scene::draw::PreparedScene,
+        previous: &worldrunner_render_scene::draw::SceneGpu,
     ) -> Result<Resident, ViewerError> {
         if !context
             .device()
@@ -134,7 +200,13 @@ impl Streaming {
                 "streamed textures require unavailable device features",
             ));
         }
-        Resident::from_prepared(context, prepared, self.shadows, self.profile)
+        Resident::from_prepared_reusing(
+            context,
+            prepared,
+            self.shadows,
+            self.profile,
+            Some(previous),
+        )
     }
 }
 
@@ -144,6 +216,7 @@ pub(super) struct Streaming {
     pub retired: std::collections::VecDeque<(u64, Resident)>,
     pub shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
     pub profile: crate::FrameProfile,
+    preparing: Option<(Resident, worldrunner_render_plan::RenderScene)>,
 }
 impl Streaming {
     pub fn new(
@@ -156,6 +229,7 @@ impl Streaming {
             retired: std::collections::VecDeque::new(),
             shadows,
             profile,
+            preparing: None,
         }
     }
 }

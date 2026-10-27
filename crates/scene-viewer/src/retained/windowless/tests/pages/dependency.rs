@@ -241,7 +241,7 @@ fn recipes_share_page_dependency_admission_and_accumulation_waits_for_residency(
 }
 
 #[test]
-fn streamed_page_dependency_rejects_before_accepting_camera_work() {
+fn streamed_page_dependency_accepts_camera_work() {
     let source = layered_scene();
     let terrain = source
         .terrain()
@@ -251,44 +251,50 @@ fn streamed_page_dependency_rejects_before_accepting_camera_work() {
             worldrunner_render_plan::TerrainStreamingPolicy::new(1, 5, 4, 1000).unwrap(),
         ));
     let mut host = host(source.with_terrain(Some(Arc::new(terrain))).unwrap());
-    let before_camera = host.readiness.camera;
-    let before_options = (host.options.pose, host.options.camera);
-    let before = (
-        host.accepted_generation(),
-        host.ready_generation(),
-        host.readiness.published,
-        host.preparations_in_flight(),
-        host.readiness.page_wait,
-    );
-    let pose = worldrunner_render_scene::CameraPose {
-        eye_millimeters: [0, -4000, 3000],
-        target_millimeters: [0; 3],
-    };
-    let update = || RetainedUpdate::Camera {
-        pose,
-        lens: crate::tests::options().camera,
-    };
-    assert!(matches!(
-        host.apply_with_pages(update()),
-        Err(ViewerError::UnsupportedScene(
-            "streaming terrain page dependencies"
-        ))
-    ));
-    assert_eq!(
-        (
-            host.accepted_generation(),
-            host.ready_generation(),
-            host.readiness.published,
-            host.preparations_in_flight(),
-            host.readiness.page_wait
-        ),
-        before
-    );
-    assert_eq!(host.readiness.camera, before_camera);
-    assert_eq!((host.options.pose, host.options.camera), before_options);
-    assert!(host.readiness.queue.is_empty());
-    host.apply(update()).unwrap();
+    host.apply_with_geometry_and_pages(RetainedUpdate::Camera {
+        pose: host.options.pose,
+        lens: host.options.camera,
+    })
+    .unwrap();
     assert_eq!(host.accepted_generation(), 1);
-    assert_eq!(host.preparations_in_flight(), 1);
-    assert!(!host.readiness.queue.front().unwrap().require_pages);
+    assert!(host.readiness.queue.front().unwrap().require_pages);
+    assert!(host.readiness.queue.front().unwrap().require_geometry);
+    host.request_capture_with_pages(1).unwrap();
+}
+
+#[test]
+fn streamed_accumulation_combines_geometry_and_page_dependencies() {
+    let source = layered_scene();
+    let terrain = source
+        .terrain()
+        .unwrap()
+        .clone()
+        .with_streaming_policy(Some(TerrainStreamingPolicy::new(1, 9, 4, 1000).unwrap()));
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = host(source.with_terrain(Some(Arc::new(terrain))).unwrap())
+        .windowless(&mut driver)
+        .unwrap();
+    let recipe = crate::RetainedCaptureRecipe::new(
+        2,
+        2,
+        crate::CaptureJitter::Halton23,
+        false,
+        vec![crate::CaptureOutput::Srgb8],
+        4 * 1024 * 1024,
+    )
+    .unwrap()
+    .with_page_dependency()
+    .with_geometry_dependency();
+    let id = run.host_mut().request_capture_recipe(0, recipe).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !events.borrow().iter().any(|event| matches!(event,
+        RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { .. }, .. }
+            if *actual == id)) {
+        assert!(Instant::now() < deadline);
+        run.frame().unwrap();
+        run.renderer.drain().unwrap();
+        run.poll().unwrap();
+    }
+    run.shutdown().unwrap();
 }

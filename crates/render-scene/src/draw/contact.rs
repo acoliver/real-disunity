@@ -36,6 +36,9 @@ pub(super) fn height_buffer(
 }
 
 fn stride(terrain: &SceneTerrain) -> u32 {
+    if terrain.streaming_policy().is_some() {
+        return 1;
+    }
     match terrain.lod_policy() {
         TerrainLodPolicy::FullResolution => 1,
         TerrainLodPolicy::UniformSteps { steps } => 1u32 << steps,
@@ -169,5 +172,14 @@ mod tests {
             .collect();
         assert_eq!(heights, [0.0, 4.0, 5.0, 18.0, 22.0, 23.0]);
         assert_eq!(bytes.len(), 56);
+        let streamed = terrain.with_streaming_policy(Some(
+            worldrunner_render_plan::TerrainStreamingPolicy::new(1, 9, 4, 1000).unwrap(),
+        ));
+        let bytes = height_bytes(Some(&streamed), &wgpu::Limits::default()).unwrap();
+        let heights: Vec<_> = bytes[32..]
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+            .collect();
+        assert_eq!(heights, (0_u16..24).map(f32::from).collect::<Vec<_>>());
     }
 }

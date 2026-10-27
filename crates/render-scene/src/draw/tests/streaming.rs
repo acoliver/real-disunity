@@ -1,3 +1,4 @@
+mod replacement;
 use super::*;
 use crate::offscreen::OffscreenTarget;
 use worldrunner_render_plan::TerrainStreamingPolicy;
@@ -64,15 +65,18 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
         .unwrap();
 }
 #[test]
-fn unsupported_consumers_reject_streaming_before_using_a_whole_mesh() {
+fn streaming_admits_contact_pages_and_capture_publications() {
     let context = context();
     let scene = streamed_scene();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_from(pose());
-    assert!(gpu.terrain_residency_request(&frame, [TARGET; 2]).is_err());
-    assert!(gpu.capture_write_keys(context.device()).is_err());
-    assert!(gpu.reject_streaming("shadows").is_err());
+    assert!(
+        gpu.terrain_residency_request(&frame, [TARGET; 2])
+            .unwrap()
+            .is_none()
+    );
+    assert!(gpu.capture_write_keys(context.device()).is_ok());
     let contact = worldrunner_render_plan::SceneTerrainContact::new(
         worldrunner_render_plan::SceneTint::WHITE,
         1_000_000,
@@ -80,29 +84,29 @@ fn unsupported_consumers_reject_streaming_before_using_a_whole_mesh() {
         1000,
     )
     .unwrap();
-    let materials = scene
-        .resources()
-        .materials()
-        .iter()
-        .copied()
-        .map(|m| m.with_terrain_contact(contact))
-        .collect();
+    let mut materials = scene.resources().materials().to_vec();
+    materials.push(materials[0].with_terrain_contact(contact));
     let resources = SceneResources::new(scene.resources().textures().to_vec(), materials).unwrap();
+    let objects = scene
+        .geometry()
+        .objects()
+        .iter()
+        .map(|object| {
+            SceneObject::new(
+                *object.transform(),
+                object.mesh(),
+                MaterialHandle::from_raw(1),
+            )
+        })
+        .collect();
     let contacted = scene
         .with_resources(
             resources,
-            scene.geometry().clone(),
+            SceneGeometry::new(scene.geometry().meshes().to_vec(), objects).unwrap(),
             scene.effects().cloned(),
         )
         .unwrap();
-    assert!(matches!(
-        crate::draw::PreparedScene::new(&contacted),
-        Err(DrawError::Terrain {
-            source: crate::terrain::TerrainError::StreamingUnsupported {
-                feature: "contact queries"
-            }
-        })
-    ));
+    assert!(crate::draw::PreparedScene::new(&contacted).is_ok());
     context
         .device()
         .poll(wgpu::PollType::Wait {
@@ -252,7 +256,8 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
     assert_eq!(resident_count(&gpu), 1);
 }
 
-fn rejected_mutator_preserves_state(operation: u8) {
+#[test]
+fn streaming_allows_non_camera_resident_edits_without_replacing_chunks() {
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = streamed_scene();
@@ -260,45 +265,42 @@ fn rejected_mutator_preserves_state(operation: u8) {
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     let object = gpu.instance(handle).unwrap().0;
-    let before = format!("{:?}", gpu.instances);
-    let generation = gpu.caster_generation();
-    let post = gpu.post;
-    reject_edit(&mut gpu, operation);
-    assert_eq!(format!("{:?}", gpu.instances), before);
-    assert_eq!(gpu.instance(handle).unwrap(), (object, true));
-    assert_eq!(gpu.caster_generation(), generation);
-    assert_eq!(gpu.post, post);
-    let camera = frame_from(overhead_pose());
-    gpu.set_frame(context.queue(), camera);
-    assert_eq!(
-        gpu.current_frame().unwrap().view_projection,
-        camera.view_projection
-    );
+    let buffer = streaming(&gpu).committed.borrow()[0].1.vertices.clone();
+    let added = gpu.add_instance(object, false).unwrap();
+    gpu.set_instance_transform(handle, *object.transform())
+        .unwrap();
+    gpu.set_instance_object(handle, object).unwrap();
+    gpu.set_instance_visible(handle, false).unwrap();
+    gpu.remove_instance(added).unwrap();
+    gpu.set_post_settings(&SceneEffects::new(effect_parts()).unwrap())
+        .unwrap();
+    assert_eq!(streaming(&gpu).committed.borrow()[0].1.vertices, buffer);
+    wait(&context);
 }
 
 #[test]
-fn streaming_rejects_add_without_mutation() {
-    rejected_mutator_preserves_state(0);
-}
-#[test]
-fn streaming_rejects_remove_without_mutation() {
-    rejected_mutator_preserves_state(1);
-}
-#[test]
-fn streaming_rejects_transform_without_mutation() {
-    rejected_mutator_preserves_state(2);
-}
-#[test]
-fn streaming_rejects_replace_without_mutation() {
-    rejected_mutator_preserves_state(3);
-}
-#[test]
-fn streaming_rejects_visibility_without_mutation() {
-    rejected_mutator_preserves_state(4);
-}
-#[test]
-fn streaming_rejects_post_without_mutation() {
-    rejected_mutator_preserves_state(5);
+fn geometry_dependency_waits_for_submitted_chunks_and_rejects_other_sources() {
+    let (context, gpu, frame, _) = withheld_completion_setup(9);
+    let request = gpu.terrain_geometry_request(&frame, [TARGET; 2]).unwrap();
+    assert!(!gpu.terrain_geometry_ready(&request).unwrap());
+    let cancelled = prepare_completed(&context, &gpu, &frame, 0);
+    assert!(!gpu.terrain_geometry_ready(&request).unwrap());
+    cancelled.cancel();
+    assert!(!gpu.terrain_geometry_ready(&request).unwrap());
+    prepare_completed(&context, &gpu, &frame, 0)
+        .submit()
+        .unwrap();
+    assert!(gpu.terrain_geometry_ready(&request).unwrap());
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let other = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &streamed_scene(),
+        &pipelines,
+    )
+    .unwrap();
+    assert!(other.terrain_geometry_ready(&request).is_err());
+    wait(&context);
 }
 
 fn far_matrix() -> glam::Mat4 {
@@ -337,51 +339,6 @@ fn target(context: &GpuContext) -> OffscreenTarget {
         },
     )
     .unwrap()
-}
-
-fn reject_edit(gpu: &mut SceneGpu, operation: u8) {
-    use crate::draw::InstanceError;
-    let handle = gpu.instance_handles().next().unwrap();
-    let object = gpu.instance(handle).unwrap().0;
-    let transform = SceneTransform {
-        position_millimeters: [1234, 0, 0],
-        ..*object.transform()
-    };
-    let replacement = SceneObject::new(transform, object.mesh(), object.material());
-    match operation {
-        0 => assert!(matches!(
-            gpu.add_instance(object, false),
-            Err(InstanceError::StreamingTerrain)
-        )),
-        1 => assert!(matches!(
-            gpu.remove_instance(handle),
-            Err(InstanceError::StreamingTerrain)
-        )),
-        2 => assert!(matches!(
-            gpu.set_instance_transform(handle, transform),
-            Err(InstanceError::StreamingTerrain)
-        )),
-        3 => assert!(matches!(
-            gpu.set_instance_object(handle, replacement),
-            Err(InstanceError::StreamingTerrain)
-        )),
-        4 => assert!(matches!(
-            gpu.set_instance_visible(handle, false),
-            Err(InstanceError::StreamingTerrain)
-        )),
-        _ => {
-            let mut parts = effect_parts();
-            parts.grading.exposure_micro = 500_000;
-            assert!(matches!(
-                gpu.set_post_settings(&SceneEffects::new(parts).unwrap()),
-                Err(worldrunner_render_post::PostError::Frame(
-                    worldrunner_render_post::FrameError::StreamingTerrainUnsupported(
-                        "streaming terrain post settings"
-                    )
-                ))
-            ));
-        }
-    }
 }
 
 fn wait(context: &GpuContext) {

@@ -216,19 +216,7 @@ impl<'a> LayeredReference<'a> {
                     footprint[1] * cosine / repeat,
                 ],
             ];
-            let color = self.texture_filtered(layer.albedo_metallic, uv, derivatives)?;
-            let normal = self.texture_filtered(layer.normal_roughness, uv, derivatives)?;
-            let height = self.texture_filtered(layer.height, uv, derivatives)?[0];
-            samples.push(HeightLayerSample {
-                albedo: std::array::from_fn(|axis| {
-                    color[axis] * f32::from(appearance.tint_percent[axis]) / 100.0
-                }),
-                normal: decode_normal(normal, layer.normal_encoding),
-                roughness: normal[3] + layer.roughness_metallic_offset_micro[0] as f32 * 0.000_001,
-                metallic: color[3] + layer.roughness_metallic_offset_micro[1] as f32 * 0.000_001,
-                height,
-                coverage,
-            });
+            samples.push(self.material_sample(&appearance, uv, derivatives, coverage)?);
         }
         let mut tint = [1.0; 3];
         let mut roughness = 0.0;

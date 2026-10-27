@@ -130,8 +130,7 @@ pub fn terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
 }
 
 pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> BindGroupLayout {
-    let mut entries = Vec::with_capacity(6);
-    entries.push(BindGroupLayoutEntry {
+    let mut entries = vec![BindGroupLayoutEntry {
         binding: 0,
         visibility: ShaderStages::VERTEX_FRAGMENT,
         ty: BindingType::Buffer {
@@ -140,7 +139,7 @@ pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> Bi
             min_binding_size: None,
         },
         count: None,
-    });
+    }];
     entries.push(BindGroupLayoutEntry {
         binding: 1,
         visibility: ShaderStages::FRAGMENT,
@@ -180,6 +179,9 @@ pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> Bi
             },
             count: None,
         });
+    }
+    if layered {
+        entries.extend(crate::terrain::pages::layered_gpu::textures::draw_layout());
     }
     if cached {
         entries.extend(cached_terrain_entries());

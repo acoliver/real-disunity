@@ -29,6 +29,7 @@ fn terrain(appearance: SceneTerrainAppearance, surfaces: usize) -> SceneTerrain 
 
 fn source() -> TerrainLayeredSource {
     TerrainLayeredSource {
+        channel_map: None,
         type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0; 4]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
         colorization: None,
@@ -86,6 +87,7 @@ fn layered_inputs_reject_encoded_layouts_in_every_slot() {
         TerrainColorizationChannels::BgrRoughness,
     ] {
         let source = TerrainLayeredSource {
+            channel_map: None,
             colorization: Some(TerrainColorization {
                 texture: TextureHandle::from_raw(3),
                 channels,
@@ -171,6 +173,7 @@ fn texture_closure_includes_all_layer_and_tint_handles() {
     assert!(source().validate_handles(&terrain, 2).is_err());
     assert!(source().validate_handles(&terrain, 3).is_ok());
     let tinted = TerrainLayeredSource {
+        channel_map: None,
         colorization: Some(TerrainColorization {
             texture: TextureHandle::from_raw(3),
             channels: TerrainColorizationChannels::Grayscale,
@@ -254,8 +257,68 @@ fn independent_type_grid_validates_dimensions_payload_and_palette() {
     };
     let terrain = terrain(appearance, 1);
     let source = TerrainLayeredSource {
+        channel_map: None,
         type_grid: TerrainTypeGrid::new([1, 1], [0; 2], 1, vec![1]).unwrap(),
         ..source()
     };
     assert!(terrain.with_layered_source(source).is_err());
+}
+
+fn compressed_colorization(format: u32) -> SceneTexture {
+    let mut bytes = vec![0; 148 + if matches!(format, 71 | 80) { 8 } else { 16 }];
+    bytes[..4].copy_from_slice(b"DDS ");
+    bytes[4..8].copy_from_slice(&124_u32.to_le_bytes());
+    bytes[12..16].copy_from_slice(&4_u32.to_le_bytes());
+    bytes[16..20].copy_from_slice(&4_u32.to_le_bytes());
+    bytes[28..32].copy_from_slice(&1_u32.to_le_bytes());
+    bytes[84..88].copy_from_slice(b"DX10");
+    bytes[128..132].copy_from_slice(&format.to_le_bytes());
+    SceneTexture::Encoded {
+        encoding: TextureEncoding::DdsContainer,
+        color_space: TextureColorSpace::Linear,
+        bytes: bytes.into_boxed_slice(),
+    }
+}
+
+#[test]
+fn compressed_colorization_validates_consumed_components() {
+    let terrain = terrain(
+        SceneTerrainAppearance {
+            layered: Some(layer()),
+            ..SceneTerrainAppearance::NEUTRAL
+        },
+        1,
+    );
+    for format in [71, 77, 80, 83] {
+        for channels in [
+            TerrainColorizationChannels::Grayscale,
+            TerrainColorizationChannels::Rgb,
+            TerrainColorizationChannels::BgrRoughness,
+        ] {
+            let source = TerrainLayeredSource {
+                colorization: Some(TerrainColorization {
+                    texture: TextureHandle::from_raw(3),
+                    channels,
+                    origin_millimeters: [0; 2],
+                    extent_millimeters: [1000; 2],
+                }),
+                ..source()
+            };
+            for wrapped in [false, true] {
+                let mut textures = explicit_textures();
+                let texture = compressed_colorization(format);
+                textures.push(if wrapped {
+                    texture.with_sampler(TextureSampler::default())
+                } else {
+                    texture
+                });
+                let valid = channels == TerrainColorizationChannels::Grayscale || format < 80;
+                assert_eq!(
+                    source.validate_resources(&terrain, &textures).is_ok(),
+                    valid,
+                    "format {format}, channels {channels:?}, wrapped {wrapped}"
+                );
+            }
+        }
+    }
 }

@@ -1,5 +1,5 @@
 //! Submitted material pages in a budgeted texture array.
-mod allocation;
+pub(super) mod allocation;
 mod selection;
 mod state;
 use super::selection::PageKey;
@@ -47,9 +47,14 @@ pub struct ResidentPages {
     settings: TerrainPageSettings,
     products: u32,
     composition_bytes: u64,
+    source_allocations: AllocationSet,
 }
 
 impl ResidentPages {
+    pub(in crate::terrain::pages) fn queue(&self) -> &wgpu::Queue {
+        self.authority.queue()
+    }
+
     pub fn new(
         device: &wgpu::Device,
         authority: &SubmissionAuthority,
@@ -57,7 +62,14 @@ impl ResidentPages {
         slots: u32,
         budget: AllocationBudget,
     ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
-        Self::with_products(device, authority, settings, slots, budget, (2, 0))
+        Self::with_products(
+            device,
+            authority,
+            settings,
+            slots,
+            budget,
+            (2, 0, AllocationSet::default()),
+        )
     }
 
     pub fn new_layered(
@@ -66,7 +78,7 @@ impl ResidentPages {
         settings: TerrainPageSettings,
         slots: u32,
         budget: AllocationBudget,
-        composition_bytes: u64,
+        source: &super::layered_gpu::LayeredGpuSource,
     ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
         Self::with_products(
             device,
@@ -74,7 +86,7 @@ impl ResidentPages {
             settings,
             slots,
             budget,
-            (3, composition_bytes),
+            (3, source.input_bytes(), source.allocations()),
         )
     }
 
@@ -84,9 +96,9 @@ impl ResidentPages {
         settings: TerrainPageSettings,
         slots: u32,
         budget: AllocationBudget,
-        format: (u32, u64),
+        format: (u32, u64, AllocationSet),
     ) -> Result<Self, ConfigurationError<DriverAllocationError>> {
-        let (products, composition_bytes) = format;
+        let (products, composition_bytes, source_allocations) = format;
         let configuration = Configuration::new(
             authority,
             None,
@@ -101,6 +113,7 @@ impl ResidentPages {
             settings,
             products,
             composition_bytes,
+            source_allocations,
         };
         cache.replace(device, slots)?;
         Ok(cache)
@@ -111,8 +124,12 @@ impl ResidentPages {
         device: &wgpu::Device,
         slots: u32,
     ) -> Result<(), ConfigurationError<DriverAllocationError>> {
-        let allocations =
-            allocation::allocations(self.settings, slots, self.products, self.composition_bytes)?;
+        let allocations = allocation::allocations(
+            self.settings,
+            slots,
+            self.products,
+            &self.source_allocations,
+        )?;
         self.configuration
             .replace(&device.limits(), allocations, || {
                 allocation::create(device, &self.authority, self.settings, slots, self.products)

@@ -3,9 +3,15 @@ mod admission;
 #[cfg(test)]
 mod admission_tests;
 #[cfg(test)]
+mod channel_tests;
+#[cfg(test)]
 mod mip_tests;
+#[cfg(test)]
+mod resident_tests;
 mod scratch;
 mod source;
+pub(crate) mod textures;
+pub(crate) use textures::ResidentSource;
 #[cfg(test)]
 mod source_mip_tests;
 pub use admission::LayeredGpuError;
@@ -39,34 +45,28 @@ pub const LAYERED_WGSL: &str = concat!(
 #[derive(Debug)]
 pub struct LayeredGpuSource {
     parameters: Vec<u8>,
-    texels: Vec<u8>,
+    grid: Vec<u8>,
+    arrays: Vec<Vec<crate::texture::OwnedPreparedTexture>>,
+    resident:
+        std::sync::Mutex<std::collections::HashMap<wgpu::Device, std::sync::Arc<ResidentSource>>>,
     images: Vec<u8>,
     bounds: [f64; 4],
 }
 
 impl LayeredGpuSource {
     pub fn new(terrain: &SceneTerrain, resources: &SceneResources) -> Result<Self, LayeredError> {
-        super::layered::LayeredReference::new(terrain, resources)?;
+        terrain.validate().map_err(|_| LayeredError::Source)?;
+        terrain
+            .layered_source()
+            .ok_or(LayeredError::Source)?
+            .validate_resources(terrain, resources.textures())
+            .map_err(|_| LayeredError::Texture)?;
         source::encode(terrain, resources)
     }
 
-    pub(crate) fn buffers(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<wgpu::Buffer> {
-        [&self.parameters, &self.texels, &self.images]
-            .into_iter()
-            .map(|bytes| {
-                crate::upload::upload_buffer(
-                    device,
-                    queue,
-                    "layered terrain source",
-                    wgpu::BufferUsages::STORAGE,
-                    bytes,
-                )
-            })
-            .collect()
-    }
-
     pub fn input_bytes(&self) -> u64 {
-        (self.parameters.len() + self.texels.len() + self.images.len()) as u64
+        (self.parameters.len() + self.grid.len() + self.images.len()) as u64
+            + textures::payload_bytes(&self.arrays)
     }
 
     /// CPU metadata consists only of sample positions and their footprint; all filtering and material
@@ -85,8 +85,12 @@ impl LayeredGpuSource {
         }
         let positions = self.page_positions(cache.settings(), pending.key());
         let mut registry = ResourceRegistry::default();
-        let (output, producers) =
-            self.operations_for(device, &mut registry, (&positions.0, positions.1))?;
+        let (output, producers) = self.operations_for(
+            device,
+            cache.queue(),
+            &mut registry,
+            (&positions.0, positions.1),
+        )?;
         PageWriter::new_layered(device, cache.settings()).encode_prepared(
             device,
             encoder,
@@ -132,42 +136,38 @@ impl LayeredGpuSource {
     pub fn operations(
         &self,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         registry: &mut ResourceRegistry,
         positions: &[[f32; 2]],
     ) -> Result<(BufferView, Vec<TypedOperation>), LayeredGpuError> {
-        self.operations_for(device, registry, (positions, [0.0; 2]))
+        self.operations_for(device, queue, registry, (positions, [0.0; 2]))
     }
 
     fn operations_for(
         &self,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         registry: &mut ResourceRegistry,
         samples: (&[[f32; 2]], [f32; 2]),
     ) -> Result<(BufferView, Vec<TypedOperation>), LayeredGpuError> {
         let positions = samples.0;
         self.validate_positions(device, positions.len() as u64)?;
         assert!(!positions.is_empty() && positions.iter().flatten().all(|v| v.is_finite()));
-        let mut views = Vec::new();
-        for size in self.buffer_sizes(positions.len() as u64) {
+        let mut views = self.import_source(device, queue, registry)?;
+        for size in Self::buffer_sizes(positions.len() as u64) {
             views.push(allocate(device, registry, size)?);
         }
         Ok(self.operations_in(device, registry, samples, &views)?)
     }
 
-    fn buffer_sizes(&self, count: u64) -> [u64; 5] {
-        [
-            self.parameters.len() as u64,
-            self.texels.len() as u64,
-            self.images.len() as u64,
-            count * 8 + 8,
-            count * 16,
-        ]
+    fn buffer_sizes(count: u64) -> [u64; 2] {
+        [count * 8 + 8, count * 16]
     }
 
     fn operations_in(
         &self,
         device: &wgpu::Device,
-        registry: &ResourceRegistry,
+        registry: &mut ResourceRegistry,
         samples: (&[[f32; 2]], [f32; 2]),
         views: &[BufferView],
     ) -> Result<(BufferView, Vec<TypedOperation>), ContractError> {
@@ -177,8 +177,9 @@ impl LayeredGpuSource {
             .chain(positions.iter().flatten())
             .flat_map(|v| v.to_le_bytes())
             .collect();
-        let mut operations = self.uploads(&position_bytes, views);
-        let group = bindings(device, registry, views)?;
+        let mut operations = Self::uploads(&position_bytes, views);
+        let (textures, filtering) = self.texture_bindings(device, registry)?;
+        let group = bindings(device, registry, views, &textures, &filtering)?;
         let pipeline = pipeline(device, &group);
         let mut operation = TypedOperation::new(
             id("layered material composition"),
@@ -194,6 +195,15 @@ impl LayeredGpuSource {
                 ],
             },
         );
+        operation.textures = textures
+            .into_iter()
+            .map(|entry| {
+                worldrunner_render_post::contracts::ResourceUse::read(
+                    entry.view,
+                    worldrunner_render_post::contracts::UseKind::Sampled,
+                )
+            })
+            .collect();
         operation.buffers = views
             .iter()
             .enumerate()
@@ -208,32 +218,14 @@ impl LayeredGpuSource {
         operations.push(operation);
         Ok((views[4].clone(), operations))
     }
-    fn uploads(&self, position_bytes: &[u8], views: &[BufferView]) -> Vec<TypedOperation> {
-        [
-            self.parameters.as_slice(),
-            self.texels.as_slice(),
-            self.images.as_slice(),
-            position_bytes,
-        ]
-        .into_iter()
-        .zip(views)
-        .enumerate()
-        .map(|(index, (bytes, view))| {
-            TypedOperation::new(
-                RasterId::new(
-                    StageId::new(
-                        "layered source upload",
-                        u32::try_from(index).expect("four inputs"),
-                    ),
-                    1,
-                ),
-                TypedWork::Upload {
-                    destination: view.clone(),
-                    bytes: bytes.to_vec(),
-                },
-            )
-        })
-        .collect()
+    fn uploads(position_bytes: &[u8], views: &[BufferView]) -> Vec<TypedOperation> {
+        vec![TypedOperation::new(
+            id("layered positions upload"),
+            TypedWork::Upload {
+                destination: views[3].clone(),
+                bytes: position_bytes.to_vec(),
+            },
+        )]
     }
 }
 fn allocate(
@@ -280,6 +272,8 @@ fn bindings(
     device: &wgpu::Device,
     registry: &ResourceRegistry,
     views: &[BufferView],
+    textures: &[worldrunner_render_post::contracts::TextureBinding],
+    samplers: &[worldrunner_render_post::contracts::SamplerBinding],
 ) -> Result<CheckedBindings, ContractError> {
     let buffers: Vec<_> = views
         .iter()
@@ -296,5 +290,5 @@ fn bindings(
             dynamic_offset: None,
         })
         .collect();
-    CheckedBindings::build_with_buffers(device, registry, &[], &buffers)
+    CheckedBindings::build_with_resources(device, registry, textures, &buffers, samplers)
 }

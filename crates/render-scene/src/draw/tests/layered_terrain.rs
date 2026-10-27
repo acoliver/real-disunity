@@ -51,6 +51,7 @@ fn layered_scene(filter: TerrainSplatFilter) -> RenderScene {
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
+        channel_map: None,
         type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0, 1, 1, 0]).unwrap(),
         filter,
         colorization: None,

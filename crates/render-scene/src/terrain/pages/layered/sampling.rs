@@ -2,6 +2,57 @@ use super::{LayeredError, LayeredReference};
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace, TextureHandle};
 
 impl LayeredReference<'_> {
+    pub(super) fn material_sample(
+        &self,
+        appearance: &worldrunner_render_plan::SceneTerrainAppearance,
+        uv: [f32; 2],
+        derivatives: [[f32; 2]; 2],
+        coverage: f32,
+    ) -> Result<super::HeightLayerSample, LayeredError> {
+        let layer = appearance.layered.ok_or(LayeredError::Source)?;
+        let map = self
+            .source
+            .channels(layer, self.resources.textures())
+            .map_err(|_| LayeredError::Texture)?;
+        let values = [
+            self.texture_filtered(layer.albedo_metallic, uv, derivatives)?,
+            self.texture_filtered(layer.normal_roughness, uv, derivatives)?,
+            self.texture_filtered(layer.height, uv, derivatives)?,
+        ];
+        let channel = |c: worldrunner_render_plan::TerrainLayerChannel| {
+            values[c.texture.index()][usize::from(c.channel)]
+        };
+        let color = map.albedo.map(channel);
+        let mut packed = [0.5; 4];
+        let normal_count =
+            if map.normal_encoding == worldrunner_render_plan::SceneNormalEncoding::TwoChannelXy {
+                2
+            } else {
+                3
+            };
+        for (value, component) in packed.iter_mut().zip(map.normal).take(normal_count) {
+            *value = channel(component);
+        }
+        let roughness = channel(map.roughness);
+        let roughness = if map.invert_roughness {
+            1.0 - roughness
+        } else {
+            roughness
+        };
+        let offsets =
+            glam::IVec2::from_array(layer.roughness_metallic_offset_micro).as_vec2() * 0.000_001;
+        Ok(super::HeightLayerSample {
+            albedo: std::array::from_fn(|axis| {
+                color[axis] * f32::from(appearance.tint_percent[axis]) / 100.0
+            }),
+            normal: super::decode_normal(packed, map.normal_encoding),
+            roughness: roughness + offsets.x,
+            metallic: channel(map.metallic) + offsets.y,
+            height: channel(map.height),
+            coverage,
+        })
+    }
+
     pub(super) fn validate_textures(&self) -> Result<(), LayeredError> {
         for surface in self.terrain.surfaces() {
             let layer = surface.appearance().layered.ok_or(LayeredError::Source)?;

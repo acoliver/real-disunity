@@ -350,7 +350,7 @@ fn allocate_pages(
             settings,
             slots,
             AllocationBudget(page_budget),
-            source.input_bytes(),
+            source,
         )?
     } else {
         ResidentPages::new(

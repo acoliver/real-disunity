@@ -23,7 +23,7 @@ fn odd_pages_and_gutters_match_direct_gpu_samples_with_height_mips() {
         settings,
         2,
         AllocationBudget(1_000_000),
-        source.input_bytes(),
+        &source,
     )
     .unwrap();
     let mut bases = Vec::new();

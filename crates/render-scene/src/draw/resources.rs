@@ -222,15 +222,16 @@ pub(super) fn upload_terrain(
     // that helper takes only the resources it wires together, and so the
     // buffer's lifetime is visibly the caller's.
     let uniform_buffer = terrain_uniform_buffer(device, queue, uniform);
-    let layered_buffers = prepared
+    let layered = prepared
         .layered
         .as_ref()
-        .map_or_else(Vec::new, |source| source.buffers(device, queue));
+        .map(|source| source.resident(device, queue))
+        .transpose()?;
     let bind_group = terrain_bind_group(
         device,
         layout,
         sampler,
-        (&uniform_buffer, &grid, &palettes, &layered_buffers),
+        (&uniform_buffer, &grid, &palettes, layered.as_deref()),
         None,
     );
     let mut retained = palettes;
@@ -261,7 +262,6 @@ pub(super) fn upload_terrain(
         bind_group,
         retained,
         layered: prepared.layered.clone(),
-        layered_buffers,
     }))
 }
 /// Binds the terrain uniform, the type grid, the three palette arrays and the
@@ -276,7 +276,12 @@ pub(super) fn terrain_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     sampler: &Sampler,
-    resources: (&Buffer, &Texture, &[Texture], &[Buffer]),
+    resources: (
+        &Buffer,
+        &Texture,
+        &[Texture],
+        Option<&crate::terrain::pages::layered_gpu::ResidentSource>,
+    ),
     pages: Option<(&TextureView, &Buffer)>,
 ) -> BindGroup {
     let (uniform_buffer, grid, palettes, layered) = resources;
@@ -326,11 +331,8 @@ pub(super) fn terrain_bind_group(
             resource: table.as_entire_binding(),
         });
     }
-    for (index, buffer) in layered.iter().enumerate() {
-        entries.push(BindGroupEntry {
-            binding: u32::try_from(index + 8).expect("three inputs"),
-            resource: buffer.as_entire_binding(),
-        });
+    if let Some(source) = layered {
+        entries.extend(layered_entries(source));
     }
     device.create_bind_group(&BindGroupDescriptor {
         label: Some("terrain"),
@@ -478,4 +480,39 @@ fn terrain_instances(device: &Device, queue: &Queue) -> Buffer {
         BufferUsages::VERTEX,
         &pack_instance(&TERRAIN_PLACEMENT),
     )
+}
+
+fn layered_entries(
+    source: &crate::terrain::pages::layered_gpu::ResidentSource,
+) -> Vec<BindGroupEntry<'_>> {
+    let mut entries: Vec<_> = source
+        .buffers
+        .iter()
+        .enumerate()
+        .map(|(index, buffer)| BindGroupEntry {
+            binding: 8 + u32::try_from(index).expect("three inputs"),
+            resource: buffer.as_entire_binding(),
+        })
+        .collect();
+    entries.extend(
+        source
+            .views
+            .iter()
+            .enumerate()
+            .map(|(index, view)| BindGroupEntry {
+                binding: 11 + u32::try_from(index).expect("texture slot"),
+                resource: BindingResource::TextureView(view),
+            }),
+    );
+    entries.extend(
+        source
+            .samplers
+            .iter()
+            .enumerate()
+            .map(|(index, sampler)| BindGroupEntry {
+                binding: 21 + u32::try_from(index).expect("sampler slot"),
+                resource: BindingResource::Sampler(sampler),
+            }),
+    );
+    entries
 }

@@ -1,7 +1,7 @@
 use super::{LayeredError, LayeredGpuSource};
 use worldrunner_render_plan::{
-    SceneNormalEncoding, SceneResources, SceneTerrain, SceneTexture, TerrainColorizationChannels,
-    TerrainSplatFilter, TexelFormat, TextureColorSpace,
+    SceneNormalEncoding, SceneResources, SceneTerrain, TerrainColorizationChannels,
+    TerrainSplatFilter,
 };
 
 #[expect(
@@ -15,7 +15,9 @@ pub(super) fn encode(
     let source = terrain.layered_source().ok_or(LayeredError::Source)?;
     let mut result = LayeredGpuSource {
         parameters: Vec::new(),
-        texels: Vec::new(),
+        grid: Vec::new(),
+        arrays: Vec::new(),
+        resident: std::sync::Mutex::default(),
         images: Vec::new(),
         bounds: [
             terrain.origin_east_millimeters() as f64 * 0.001,
@@ -41,7 +43,7 @@ pub(super) fn encode(
     }
     for (index, texture) in resources.textures().iter().enumerate() {
         if used.contains(&u32::try_from(index).map_err(|_| LayeredError::Texture)?) {
-            image(&mut result, texture)?;
+            super::textures::image(&mut result, texture)?;
         } else {
             words(&mut result.images, [1, 1, 0, 0]);
         }
@@ -49,7 +51,7 @@ pub(super) fn encode(
     grid(&mut result, source)?;
     colorization(&mut result.parameters, source.colorization);
     for surface in terrain.surfaces() {
-        surface_parameters(&mut result.parameters, surface)?;
+        surface_parameters(&mut result.parameters, surface, source, resources)?;
     }
     Ok(result)
 }
@@ -61,9 +63,9 @@ fn grid(
     result: &mut LayeredGpuSource,
     source: &worldrunner_render_plan::TerrainLayeredSource,
 ) -> Result<(), LayeredError> {
-    let grid_offset = u32::try_from(result.texels.len() / 4).map_err(|_| LayeredError::Texture)?;
+    let grid_offset = u32::try_from(result.grid.len() / 4).map_err(|_| LayeredError::Texture)?;
     for index in source.type_grid.indices() {
-        result.texels.extend(u32::from(*index).to_le_bytes());
+        result.grid.extend(u32::from(*index).to_le_bytes());
     }
     words(
         &mut result.parameters,
@@ -121,25 +123,31 @@ fn colorization(
 fn surface_parameters(
     parameters: &mut Vec<u8>,
     surface: &worldrunner_render_plan::SceneTerrainSurface,
+    source: &worldrunner_render_plan::TerrainLayeredSource,
+    resources: &SceneResources,
 ) -> Result<(), LayeredError> {
     let appearance = surface.appearance();
     let layer = appearance.layered.ok_or(LayeredError::Source)?;
+    let map = source
+        .channels(layer, resources.textures())
+        .map_err(|_| LayeredError::Texture)?;
+    let packed = channel_words(map);
     words(
         parameters,
         [
             layer.albedo_metallic.raw(),
             layer.normal_roughness.raw(),
             layer.height.raw(),
-            u32::from(layer.normal_encoding == SceneNormalEncoding::TwoChannelXy),
+            packed[0],
         ],
     );
-    floats(
+    words(
         parameters,
         [
-            layer.offset_millimeters[0] as f32 * 0.001,
-            layer.offset_millimeters[1] as f32 * 0.001,
-            layer.repeat_millimeters as f32 * 0.001,
-            0.0,
+            (layer.offset_millimeters[0] as f32 * 0.001).to_bits(),
+            (layer.offset_millimeters[1] as f32 * 0.001).to_bits(),
+            (layer.repeat_millimeters as f32 * 0.001).to_bits(),
+            packed[1],
         ],
     );
     floats(
@@ -163,46 +171,39 @@ fn surface_parameters(
     );
     Ok(())
 }
-fn image(result: &mut LayeredGpuSource, mut texture: &SceneTexture) -> Result<(), LayeredError> {
-    while let SceneTexture::Sampled { texture: inner, .. } = texture {
-        texture = inner;
-    }
-    let SceneTexture::Texels {
-        format,
-        color_space,
-        width,
-        height,
-        bytes,
-        mips,
-    } = texture
-    else {
-        return Err(LayeredError::Texture);
-    };
-    let offset = u32::try_from(result.texels.len() / 4).map_err(|_| LayeredError::Texture)?;
-    // Keep one descriptor per resource by packing the mip range above the transfer bit.
-    words(
-        &mut result.images,
-        [
-            *width,
-            *height,
-            offset,
-            ((*mips - 1) << 1) | u32::from(*color_space == TextureColorSpace::Srgb),
-        ],
-    );
-    let channels = usize::try_from(format.bytes_per_texel()).map_err(|_| LayeredError::Texture)?;
-    for pixel in bytes.chunks_exact(channels) {
-        let mut rgba = [0, 0, 0, 255];
-        rgba[..channels].copy_from_slice(pixel);
-        if *format == TexelFormat::Bgra8Unorm {
-            rgba.swap(0, 2);
-        }
-        result.texels.extend(rgba);
-    }
-    Ok(())
-}
-fn words(bytes: &mut Vec<u8>, values: [u32; 4]) {
+pub(super) fn words(bytes: &mut Vec<u8>, values: [u32; 4]) {
     bytes.extend(values.into_iter().flat_map(u32::to_le_bytes));
 }
 fn floats(bytes: &mut Vec<u8>, values: [f32; 4]) {
     bytes.extend(values.into_iter().flat_map(f32::to_le_bytes));
+}
+
+// Nine four-bit slot/component selectors fit beside normal and roughness flags.
+fn channel_words(map: worldrunner_render_plan::TerrainLayerChannelMap) -> [u32; 2] {
+    let channels = [
+        map.albedo[0],
+        map.albedo[1],
+        map.albedo[2],
+        map.normal[0],
+        map.normal[1],
+        map.normal[2],
+        map.metallic,
+        map.height,
+        map.roughness,
+    ];
+    let mut words = [
+        u32::from(map.normal_encoding == SceneNormalEncoding::TwoChannelXy)
+            | (u32::from(map.invert_roughness) << 1),
+        0,
+    ];
+    for (index, channel) in channels.into_iter().enumerate() {
+        let selector = u32::try_from(channel.texture.index()).expect("three slots") * 4
+            + u32::from(channel.channel);
+        if index < 7 {
+            words[0] |= selector << (4 + index * 4);
+        } else {
+            words[1] |= selector << ((index - 7) * 4);
+        }
+    }
+    words
 }

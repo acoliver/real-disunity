@@ -54,7 +54,12 @@ fn source_binding_size_rejection_precedes_gpu_allocations_and_validation() {
     ));
     let source = LayeredGpuSource::new(scene.terrain().unwrap(), scene.resources()).unwrap();
     assert!(matches!(
-        source.operations(&device, &mut ResourceRegistry::default(), &[[0.0; 2]]),
+        source.operations(
+            &device,
+            authority.queue(),
+            &mut ResourceRegistry::default(),
+            &[[0.0; 2]]
+        ),
         Err(LayeredGpuError::BufferLimit {
             required: 192,
             limit: 128,

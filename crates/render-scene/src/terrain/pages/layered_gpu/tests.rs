@@ -41,6 +41,7 @@ pub(super) fn fixture(
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
+        channel_map: None,
         type_grid: TerrainTypeGrid::new([3, 3], [0; 2], 700, vec![0, 1, 2, 1, 2, 0, 2, 0, 1])
             .unwrap(),
         filter,
@@ -102,7 +103,9 @@ pub(super) fn execute(
 ) -> Vec<u8> {
     let device = context.device();
     let mut registry = ResourceRegistry::default();
-    let (output, mut operations) = source.operations(device, &mut registry, positions).unwrap();
+    let (output, mut operations) = source
+        .operations(device, context.queue(), &mut registry, positions)
+        .unwrap();
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: positions.len() as u64 * 16,
@@ -157,7 +160,7 @@ fn gpu_matches_reference_for_dither_crossover_height_and_colorization() {
                     .chain(material.normal_roughness)
                     .chain([height])
                     .collect();
-                // Manual bilinear filtering and f32 shader transcendental precision
+                // Hardware filtering and f32 shader transcendental precision
                 // may move the final UNORM rounding by one byte. No sRGB output encoding.
                 for (a, e) in actual[..9].iter().zip(expected) {
                     assert!(
@@ -188,7 +191,7 @@ fn layered_pages_publish_three_products_and_evict_atomically() {
         settings,
         2,
         AllocationBudget(100_000),
-        source.input_bytes(),
+        &source,
     )
     .unwrap();
     assert_eq!(cache.product_count(), 3);
@@ -231,11 +234,11 @@ fn layered_admission_includes_height_inputs_and_upload_staging() {
         settings,
         2,
         AllocationBudget(100_000),
-        source.input_bytes(),
+        &source,
     )
     .unwrap();
     let base = u64::from(settings.extent()[0]) * u64::from(settings.extent()[1]);
-    let expected = settings.page_bytes() * 3 + (base * 24 + 8 + source.input_bytes()) * 4;
+    let expected = settings.page_bytes() * 3 + (base * 24 + 8) * 4 + source.input_bytes();
     assert_eq!(cache.allocation_bytes(device).unwrap(), expected);
     assert!(
         ResidentPages::new_layered(
@@ -244,7 +247,7 @@ fn layered_admission_includes_height_inputs_and_upload_staging() {
             settings,
             2,
             AllocationBudget(expected - 1),
-            source.input_bytes()
+            &source
         )
         .is_err()
     );

@@ -29,8 +29,8 @@ impl LayeredScratch {
             worldrunner_render_post::contracts::Semantic::Unspecified,
             None,
         )?;
-        let mut views = Vec::new();
-        for size in source.buffer_sizes(count) {
+        let mut views = source.import_source(device, cache.queue(), &mut registry)?;
+        for size in LayeredGpuSource::buffer_sizes(count) {
             views.push(allocate(device, &mut registry, size)?);
         }
         Ok(Self {
@@ -43,7 +43,7 @@ impl LayeredScratch {
 
     pub fn keys(&self) -> impl Iterator<Item = WriteKey> + '_ {
         std::iter::once(self.texture)
-            .chain(self.views.iter().map(BufferView::allocation))
+            .chain(self.views[3..].iter().map(BufferView::allocation))
             .map(|key| WriteKey::Resource {
                 id: key.id(),
                 generation: key.generation(),
@@ -61,7 +61,7 @@ impl LayeredScratch {
         let positions = source.page_positions(cache.settings(), pending.key());
         let (output, producers) = source.operations_in(
             device,
-            &self.registry,
+            &mut self.registry,
             (&positions.0, positions.1),
             &self.views,
         )?;

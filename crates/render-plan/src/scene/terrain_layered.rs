@@ -1,18 +1,16 @@
 //! Pathless height-aware terrain inputs. Coordinates advance east and north.
 
-use super::{
-    SceneTerrain, SceneTexture, SceneValidationError, TexelFormat, TextureColorSpace, TextureHandle,
-};
+use super::{SceneTerrain, SceneTexture, SceneValidationError, TextureColorSpace, TextureHandle};
 
 /// Texture products and mapping for one ordered terrain surface.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerrainLayer {
-    /// Linear or sRGB RGB albedo; alpha is linear metallic.
+    /// First texture slot. Default packing: RGB albedo, linear metallic alpha.
     pub albedo_metallic: TextureHandle,
-    /// Linear encoded tangent normal; alpha is roughness.
+    /// Second texture slot. Default packing: tangent normal, roughness alpha.
     pub normal_roughness: TextureHandle,
     pub normal_encoding: super::SceneNormalEncoding,
-    /// Linear red-channel height in [0, 1].
+    /// Third texture slot. Default packing: linear red-channel height in [0, 1].
     pub height: TextureHandle,
     /// Positive world-space repeat period before appearance rotation.
     pub repeat_millimeters: u32,
@@ -74,6 +72,8 @@ pub struct TerrainColorization {
 /// Independent material-cell grid and the terrain's ordered surface palette.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerrainLayeredSource {
+    /// None preserves the original per-layer packing and declared color space.
+    pub channel_map: Option<super::TerrainLayerChannelMap>,
     pub type_grid: TerrainTypeGrid,
     pub filter: TerrainSplatFilter,
     pub colorization: Option<TerrainColorization>,
@@ -142,6 +142,29 @@ impl TerrainLayeredSource {
 }
 
 impl TerrainLayeredSource {
+    /// Resolves the source map, or the original packing for this layer.
+    pub fn channels(
+        &self,
+        layer: TerrainLayer,
+        textures: &[SceneTexture],
+    ) -> Result<super::TerrainLayerChannelMap, SceneValidationError> {
+        if let Some(map) = self.channel_map {
+            return Ok(map);
+        }
+        let texture = textures.get(layer.albedo_metallic.raw() as usize).ok_or(
+            SceneValidationError::HandleOutOfRange {
+                part: "terrain layered source",
+                resource: "texture",
+                handle: layer.albedo_metallic.raw(),
+                limit: textures.len() as u64,
+            },
+        )?;
+        Ok(super::TerrainLayerChannelMap::packed(
+            layer.normal_encoding,
+            texture.color_space(),
+        ))
+    }
+
     /// Validates texture references, channel layouts, and data color spaces.
     pub fn validate_resources(
         &self,
@@ -155,58 +178,38 @@ impl TerrainLayeredSource {
                 .appearance()
                 .layered
                 .expect("validated layered source");
-            validate_texture(
-                &textures[layer.albedo_metallic.raw() as usize],
-                TexelFormat::Rgba8Unorm,
-                false,
-            )?;
-            validate_texture(
-                &textures[layer.normal_roughness.raw() as usize],
-                TexelFormat::Rgba8Unorm,
-                true,
-            )?;
-            validate_texture(
-                &textures[layer.height.raw() as usize],
-                TexelFormat::R8Unorm,
-                true,
-            )?;
+            self.channels(layer, textures)?.validate(layer, textures)?;
         }
         if let Some(map) = self.colorization {
-            let format = if map.channels == TerrainColorizationChannels::Grayscale {
-                TexelFormat::R8Unorm
-            } else {
-                TexelFormat::Rgba8Unorm
-            };
-            validate_texture(
-                &textures[map.texture.raw() as usize],
-                format,
-                map.channels == TerrainColorizationChannels::Grayscale,
-            )?;
+            validate_colorization(&textures[map.texture.raw() as usize], map.channels)?;
         }
         Ok(())
     }
 }
 
-fn validate_texture(
+fn validate_colorization(
     texture: &SceneTexture,
-    expected: TexelFormat,
-    linear: bool,
+    channels: TerrainColorizationChannels,
 ) -> Result<(), SceneValidationError> {
     texture.validate()?;
-    if let SceneTexture::Sampled { texture, .. } = texture {
-        return validate_texture(texture, expected, linear);
+    let required = match channels {
+        TerrainColorizationChannels::Grayscale => 1,
+        TerrainColorizationChannels::Rgb => 3,
+        TerrainColorizationChannels::BgrRoughness => 4,
+    };
+    if super::terrain_channels::channel_count(texture)? < required {
+        return Err(SceneValidationError::UnsupportedInput {
+            part: "terrain colorization component out of range",
+        });
     }
-    if linear && texture.color_space() != TextureColorSpace::Linear {
+    if channels == TerrainColorizationChannels::Grayscale
+        && texture.color_space() != TextureColorSpace::Linear
+    {
         return Err(SceneValidationError::UnsupportedInput {
             part: "terrain data textures must be linear",
         });
     }
-    match texture {
-        SceneTexture::Texels { format, .. } if *format == expected => Ok(()),
-        _ => Err(SceneValidationError::UnsupportedInput {
-            part: "terrain layered texture format",
-        }),
-    }
+    Ok(())
 }
 
 /// Cell membership independent of geometry resolution. The origin is the lower

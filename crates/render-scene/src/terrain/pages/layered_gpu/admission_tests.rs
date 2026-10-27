@@ -35,7 +35,7 @@ fn layered_capability_requires_five_storage_bindings_and_compute_limits() {
         ..limits
     }));
     assert!(!supported(&wgpu::Limits {
-        max_bindings_per_bind_group: 10,
+        max_bindings_per_bind_group: 22,
         ..limits
     }));
     assert!(!supported(&wgpu::Limits {

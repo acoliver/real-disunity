@@ -113,7 +113,15 @@ impl SceneGpu {
                     &terrain.uniform,
                     &terrain.retained[3],
                     &terrain.retained[..3],
-                    &terrain.layered_buffers,
+                    terrain
+                        .layered
+                        .as_ref()
+                        .map(|source| {
+                            source
+                                .resident(device, authority.queue())
+                                .expect("source admitted")
+                        })
+                        .as_deref(),
                 ),
                 Some((&view, table)),
             ));

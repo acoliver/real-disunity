@@ -69,7 +69,11 @@ pub use material_features::{
     SceneNormalEncoding, SceneNormalY, SceneTerrainContact, SceneTint, SceneWind,
 };
 mod terrain;
+mod terrain_channels;
+#[cfg(test)]
+mod terrain_channels_tests;
 mod terrain_layered;
+pub use terrain_channels::{TerrainLayerChannel, TerrainLayerChannelMap, TerrainLayerTexture};
 #[cfg(test)]
 mod terrain_layered_tests;
 pub use terrain_layered::{

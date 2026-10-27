@@ -170,7 +170,6 @@ struct GpuTerrain {
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
     retained: Vec<Texture>,
     layered: Option<std::sync::Arc<crate::terrain::pages::layered_gpu::LayeredGpuSource>>,
-    layered_buffers: Vec<Buffer>,
 }
 
 /// Resources the bind groups reference.

@@ -51,7 +51,11 @@ fn texture(index: usize, mips: u32) -> SceneTexture {
     }
 }
 
-fn fixture(rotation: u32, repeat: u32, counts: [u32; 3]) -> (SceneTerrain, SceneResources) {
+pub(super) fn fixture(
+    rotation: u32,
+    repeat: u32,
+    counts: [u32; 3],
+) -> (SceneTerrain, SceneResources) {
     let surface = SceneTerrainSurface::new(
         MaterialHandle::from_raw(0),
         SceneTerrainAppearance {
@@ -82,6 +86,7 @@ fn fixture(rotation: u32, repeat: u32, counts: [u32; 3]) -> (SceneTerrain, Scene
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
+        channel_map: None,
         type_grid: TerrainTypeGrid::new([2; 2], [0; 2], 12_000, vec![0; 4]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
         colorization: None,
@@ -214,7 +219,7 @@ fn check_pages(
         settings,
         1,
         AllocationBudget(100_000),
-        source.input_bytes(),
+        source,
     )
     .unwrap();
     check_budget(device, &authority, settings, source, &cache);
@@ -250,10 +255,10 @@ fn check_pages(
         frame.finish().submit().unwrap();
         let actual = super::mip_tests::unpack(device, &buffer, settings.extent());
         for texel in actual {
-            for (actual, expected) in texel.into_iter().zip(&expected) {
+            for (channel, (actual, expected)) in texel.into_iter().zip(&expected).enumerate() {
                 assert!(
                     actual.abs_diff(*expected) <= 1,
-                    "depth {depth}, rotation {rotation}, repeat {repeat}: {actual} != {expected}"
+                    "depth {depth}, rotation {rotation}, repeat {repeat}, channel {channel}: {actual} != {expected}"
                 );
             }
         }
@@ -285,8 +290,14 @@ fn every_authored_mip_is_charged_to_source_memory() {
                 .sum::<u64>()
         })
         .sum();
-    assert_eq!(source.input_bytes(), 128 + 3 * 16 + 4 * 4 + texels * 4);
-    assert_eq!(source.texels.len() as u64, 4 * 4 + texels * 4);
+    let height_texels: u64 = (0..4)
+        .map(|level| u64::from((9_u32 >> level).max(1) * (2_u32 >> level).max(1)))
+        .sum();
+    assert_eq!(
+        source.input_bytes(),
+        128 + 3 * 16 + 4 * 4 + texels * 4 - height_texels * 3
+    );
+    assert_eq!(source.grid.len(), 4 * 4);
 }
 
 #[test]
@@ -316,7 +327,12 @@ fn execute_footprint(
     let device = context.device();
     let mut registry = ResourceRegistry::default();
     let (output, mut operations) = source
-        .operations_for(device, &mut registry, (positions, footprint))
+        .operations_for(
+            device,
+            context.queue(),
+            &mut registry,
+            (positions, footprint),
+        )
         .unwrap();
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -423,8 +439,8 @@ fn check_budget(
 ) {
     let [w, h] = settings.extent();
     let page = settings.page_bytes() / 2 * 3;
-    let scratch = u64::from(w) * u64::from(h) * 24 + 8 + source.input_bytes();
-    let expected = page + scratch * 4;
+    let scratch = u64::from(w) * u64::from(h) * 24 + 8;
+    let expected = page + scratch * 4 + source.input_bytes();
     assert_eq!(cache.allocation_bytes(device).unwrap(), expected);
     assert!(
         ResidentPages::new_layered(
@@ -433,7 +449,7 @@ fn check_budget(
             settings,
             1,
             AllocationBudget(expected - 1),
-            source.input_bytes()
+            source
         )
         .is_err()
     );
@@ -453,7 +469,7 @@ fn sampler_wrappers_preserve_every_level_and_incomplete_chain_diagnostics() {
         if counts == [4; 3] {
             let expected = LayeredGpuSource::new(&terrain, &resources).unwrap();
             let actual = LayeredGpuSource::new(&terrain, &sampled).unwrap();
-            assert_eq!(actual.texels, expected.texels);
+            assert_eq!(actual.input_bytes(), expected.input_bytes());
             assert_eq!(actual.images, expected.images);
         } else {
             assert_eq!(

@@ -6,11 +6,11 @@ use worldrunner_render_gpu::{
 };
 use worldrunner_render_plan::TerrainPageSettings;
 
-pub(super) fn allocations(
+pub(in crate::terrain::pages) fn allocations(
     settings: TerrainPageSettings,
     slots: u32,
     products: u32,
-    composition_bytes: u64,
+    source: &AllocationSet,
 ) -> Result<AllocationSet, ConfigurationError<DriverAllocationError>> {
     let layers = slots
         .checked_mul(products)
@@ -57,11 +57,7 @@ pub(super) fn allocations(
         buffers,
     );
     if products == 3 {
-        set.buffer(
-            "terrain layered source and staging",
-            composition_bytes,
-            buffers,
-        );
+        set.extend(source.clone());
         set.buffer(
             "terrain layered positions and staging",
             u64::from(w) * u64::from(h) * 8 + 8,

@@ -101,6 +101,7 @@ impl Accumulation {
                     })
                     .collect(),
             }),
+            ..Default::default()
         }
     }
 }
@@ -158,6 +159,7 @@ mod tests {
                     ],
                 }),
                 linear_hdr: None,
+                ..Default::default()
             });
         }
         assert_eq!(sum.finish().srgb8.unwrap().pixels, [7, 4, 5, 255]);

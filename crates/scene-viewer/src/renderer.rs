@@ -210,7 +210,7 @@ impl Renderer {
                 self.context.device(),
                 host,
                 &ready.frame.texture,
-                self.presentation.scheduler.targets().texture(),
+                &self.presentation.scheduler,
                 pages_ready,
             )?
         } else {

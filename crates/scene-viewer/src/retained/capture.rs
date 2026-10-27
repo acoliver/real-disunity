@@ -27,6 +27,8 @@ pub enum CaptureRequestError {
     UnsupportedRecipe,
     #[error("linear HDR capture requires an HDR frame profile")]
     HdrRequired,
+    #[error("requested frame does not produce {output:?}")]
+    FeatureUnavailable { output: CaptureOutput },
     #[error("capture recipe requires {required} bytes, limit is {limit}")]
     RecipeBudget { required: u64, limit: u64 },
     #[error("capture admission closed or bound {limit} reached")]
@@ -64,6 +66,11 @@ impl Default for Captures {
     }
 }
 impl Captures {
+    pub(crate) fn accepts_result(&self, id: u64) -> bool {
+        self.outstanding.contains_key(&id) && !self.events.iter().any(|e| matches!(e,
+            RetainedEvent::Capture { id: event_id, outcome: RetainedCaptureOutcome::Cancelled, .. } if *event_id == id))
+    }
+
     pub(crate) fn complete(
         &mut self,
         id: u64,
@@ -145,13 +152,69 @@ impl Captures {
     }
 }
 
+pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) -> [bool; 4] {
+    let ao = effects.is_some_and(|e| e.ssao().is_some());
+    let ssr = effects.and_then(|e| e.ssr()).is_some_and(|s| s.enabled);
+    [ao || ssr, ao || ssr, ao || ssr, ssr]
+}
+
 impl RetainedHost {
+    fn validate_capture_features(
+        &self,
+        generation: u64,
+        recipe: &RetainedCaptureRecipe,
+    ) -> Result<(), CaptureRequestError> {
+        if generation > self.accepted_generation() {
+            return Err(CaptureRequestError::UnknownGeneration { generation });
+        }
+        if generation < self.readiness.published {
+            return Err(CaptureRequestError::Superseded {
+                generation,
+                ready: self.readiness.published,
+            });
+        }
+        let available = if generation == self.readiness.published {
+            self.readiness.capture_features
+        } else {
+            self.readiness
+                .queue
+                .iter()
+                .find(|p| p.generation == generation)
+                .expect("accepted generation")
+                .capture_features
+        };
+        for (index, output) in [
+            CaptureOutput::Depth,
+            CaptureOutput::Normals,
+            CaptureOutput::AmbientOcclusion,
+            CaptureOutput::SsrConfidence,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if recipe.outputs.contains(&output) {
+                if !available[index] {
+                    return Err(CaptureRequestError::FeatureUnavailable { output });
+                }
+                if recipe.accumulated() {
+                    return Err(CaptureRequestError::UnsupportedRecipe);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Admits typed output requests without allocating GPU or image storage.
     pub fn request_capture_recipe(
         &mut self,
         generation: u64,
-        recipe: RetainedCaptureRecipe,
+        mut recipe: RetainedCaptureRecipe,
     ) -> Result<u64, CaptureRequestError> {
+        recipe.frame_samples = match self.options.frame_profile {
+            crate::FrameProfile::Legacy => 1,
+            crate::FrameProfile::Hdr { samples, .. }
+            | crate::FrameProfile::HdrUpscaled { samples, .. } => samples,
+        };
         let required = recipe.storage_bytes(self.size)?;
         let reserved: u64 = self.captures.reservations.values().sum();
         let limit = 256 * 1024 * 1024;
@@ -161,13 +224,7 @@ impl RetainedHost {
                 limit,
             });
         }
-        if recipe
-            .outputs
-            .iter()
-            .any(|o| !matches!(o, CaptureOutput::Srgb8 | CaptureOutput::LinearHdr))
-        {
-            return Err(CaptureRequestError::UnsupportedRecipe);
-        }
+        self.validate_capture_features(generation, &recipe)?;
         if recipe.outputs.contains(&CaptureOutput::LinearHdr)
             && matches!(self.options.frame_profile, crate::FrameProfile::Legacy)
         {

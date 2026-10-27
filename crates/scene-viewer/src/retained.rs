@@ -163,6 +163,7 @@ impl RetainedHost {
                 accepted: 0,
                 ready: 0,
                 published: 0,
+                capture_features: capture::features(scene.effects()),
                 pages_enabled: scene
                     .terrain()
                     .and_then(worldrunner_render_plan::SceneTerrain::page_policy)

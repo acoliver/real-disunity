@@ -51,7 +51,7 @@ fn unavailable_execution_modes_are_rejected_without_consuming_request_ids() {
                 .unwrap();
         assert_eq!(
             host.request_capture_recipe(0, recipe),
-            Err(CaptureRequestError::UnsupportedRecipe)
+            Err(CaptureRequestError::FeatureUnavailable { output })
         );
     }
     assert_eq!(host.request_capture(0).unwrap(), 0);
@@ -148,4 +148,58 @@ fn recipe_pages_and_accumulation_storage_fail_admission_without_consuming_ids() 
         Err(CaptureRequestError::RecipeBudget { .. })
     ));
     assert_eq!(host.request_capture(0).unwrap(), 0);
+}
+
+#[test]
+fn feature_availability_uses_requested_generation_and_counts_native_storage() {
+    let mut host = host();
+    host.options.frame_profile = crate::FrameProfile::Hdr {
+        samples: 4,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let effects = host
+        .scene
+        .effects()
+        .unwrap()
+        .clone()
+        .with_ssr(worldrunner_render_plan::SceneSsr {
+            enabled: true,
+            ..Default::default()
+        })
+        .unwrap();
+    host.apply(RetainedUpdate::Settings(Box::new(effects)))
+        .unwrap();
+    let make = |output| {
+        RetainedCaptureRecipe::new(1, 1, CaptureJitter::None, false, vec![output], u64::MAX)
+            .unwrap()
+    };
+    assert_eq!(
+        host.request_capture_recipe(0, make(CaptureOutput::Depth)),
+        Err(CaptureRequestError::FeatureUnavailable {
+            output: CaptureOutput::Depth
+        })
+    );
+    let id = host
+        .request_capture_recipe(1, make(CaptureOutput::SsrConfidence))
+        .unwrap();
+    let reserved = host.captures.reservations[&id];
+    let mut packed = make(CaptureOutput::SsrConfidence);
+    packed.frame_samples = 4;
+    assert_eq!(reserved, packed.storage_bytes(host.size).unwrap());
+    assert!(
+        reserved
+            > make(CaptureOutput::SsrConfidence)
+                .storage_bytes(host.size)
+                .unwrap()
+    );
+    host.captures.cancel();
+    host.captures.take_event().unwrap();
+    assert!(host.captures.reservations.is_empty());
+    host.size = [2048, 2048];
+    host.request_capture_recipe(1, make(CaptureOutput::Normals))
+        .unwrap();
+    assert!(matches!(
+        host.request_capture_recipe(1, make(CaptureOutput::Normals)),
+        Err(CaptureRequestError::RecipeBudget { .. })
+    ));
 }

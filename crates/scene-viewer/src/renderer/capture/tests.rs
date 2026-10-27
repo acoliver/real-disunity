@@ -241,7 +241,7 @@ impl Harness {
                 self.context.device(),
                 &mut self.host,
                 &self.output,
-                self.presentation.scheduler.targets().texture(),
+                &self.presentation.scheduler,
                 false,
             )
             .unwrap();

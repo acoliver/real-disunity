@@ -40,7 +40,7 @@ impl Captures {
         device: &wgpu::Device,
         host: &mut RetainedHost,
         texture: &wgpu::Texture,
-        scene: &wgpu::Texture,
+        scheduler: &worldrunner_render_scene::compositor::ConfiguredFrameRenderer,
         pages_ready: bool,
     ) -> Result<Option<(u64, Products)>, ViewerError> {
         if self.pending.len() == 3 {
@@ -59,6 +59,7 @@ impl Captures {
         }) else {
             return Ok(None);
         };
+        let scene = scheduler.targets().texture();
         host.captures
             .resize_reservation(
                 id,
@@ -75,7 +76,8 @@ impl Captures {
             .map_or(&[crate::CaptureOutput::Srgb8][..], |recipe| {
                 recipe.outputs()
             });
-        let image = Products::new(device, texture, scene, outputs, self.spare.pop())?;
+        let mut image = Products::new(device, texture, scene, outputs, self.spare.pop())?;
+        image.features(device, scheduler, outputs)?;
         Ok(Some((id, image)))
     }
 
@@ -127,7 +129,9 @@ impl Captures {
             if pending.ticket.is_complete()
                 && let Some(image) = pending.image.try_read()?
             {
-                if host.captures.recipes.contains_key(&pending.id) {
+                if !host.captures.accepts_result(pending.id) {
+                    // Cancellation delivery must not publish a second result.
+                } else if host.captures.recipes.contains_key(&pending.id) {
                     host.captures
                         .complete_recipe(pending.id, pending.frame, pending.time, image);
                 } else {
@@ -168,3 +172,6 @@ impl Renderer {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod feature_tests;

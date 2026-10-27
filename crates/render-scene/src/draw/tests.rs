@@ -31,6 +31,7 @@ use worldrunner_render_plan::{
     SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy, TextureColorSpace,
     TextureEncoding, TextureHandle,
 };
+mod alpha_factor;
 mod curved_wind;
 mod environment;
 mod fold_translucency;
@@ -553,7 +554,7 @@ fn map_pixels(device: &Device, readback: &Buffer) -> Vec<u8> {
     device
         .poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
         })
         .expect("the queue drains");
     let pixels = slice

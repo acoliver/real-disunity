@@ -326,6 +326,7 @@ pub struct SceneMaterial {
     normal_encoding: super::SceneNormalEncoding,
     normal_y: super::SceneNormalY,
     normal_scale_micro: u32,
+    alpha_factor_micro: u32,
     translucency_micro: u32,
     terrain_contact: Option<super::SceneTerrainContact>,
     features: Option<super::SceneMaterialFeatures>,
@@ -341,6 +342,17 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    /// Multiplies filtered albedo alpha before coverage and blending, in millionths.
+    /// The default is one; values outside `0..=1_000_000` are rejected.
+    pub fn with_alpha_factor(mut self, micro: u32) -> Result<Self, SceneValidationError> {
+        require_unit_range("material alpha factor", u64::from(micro))?;
+        self.alpha_factor_micro = micro;
+        Ok(self)
+    }
+    pub const fn alpha_factor_micro(&self) -> u32 {
+        self.alpha_factor_micro
+    }
+
     /// Enables multi-view sampling on billboard geometry only.
     #[must_use]
     pub const fn with_impostor(mut self, value: super::SceneImpostor) -> Self {
@@ -440,6 +452,7 @@ impl SceneMaterial {
             normal_encoding: super::SceneNormalEncoding::TwoChannelXy,
             normal_y: super::SceneNormalY::Up,
             normal_scale_micro: 1_000_000,
+            alpha_factor_micro: 1_000_000,
             translucency_micro: 0,
             terrain_contact: None,
             features: None,

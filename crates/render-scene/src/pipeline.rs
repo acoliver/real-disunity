@@ -122,6 +122,7 @@ pub struct MaterialUniform {
     pub normal_encoding: worldrunner_render_plan::SceneNormalEncoding,
     pub normal_y: worldrunner_render_plan::SceneNormalY,
     pub normal_scale_micro: u32,
+    pub alpha_factor_micro: u32,
     pub translucency_micro: u32,
     pub terrain_contact: Option<worldrunner_render_plan::SceneTerrainContact>,
     /// Alpha below which a masked fragment is discarded, in micro units.
@@ -169,6 +170,7 @@ impl MaterialUniform {
             normal_encoding: material.normal_encoding(),
             normal_y: material.normal_y(),
             normal_scale_micro: material.normal_scale_micro(),
+            alpha_factor_micro: material.alpha_factor_micro(),
             translucency_micro: material.translucency_micro(),
             terrain_contact: material.terrain_contact(),
             alpha_cutoff_micro,
@@ -207,6 +209,12 @@ impl MaterialUniform {
             u32::from(self.normal_encoding == worldrunner_render_plan::SceneNormalEncoding::Rgb)
                 | (u32::from(self.normal_y == worldrunner_render_plan::SceneNormalY::Down) << 1);
         bytes[76..80].copy_from_slice(&encoding.to_le_bytes());
+        // A zero enable lane preserves the existing neutral uniform bytes.
+        if self.alpha_factor_micro != 1_000_000 {
+            let factor = self.alpha_factor_micro as f32 / MICRO_SCALE;
+            bytes[320..324].copy_from_slice(&factor.to_le_bytes());
+            bytes[324..328].copy_from_slice(&1.0_f32.to_le_bytes());
+        }
         bytes
     }
 }

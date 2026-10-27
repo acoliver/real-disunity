@@ -132,7 +132,8 @@ fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bo
 
 @fragment
 fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
-    return scene_atlas_sample(albedo_texture, input) * input.tint;
+    let sampled = scene_atlas_sample(albedo_texture, input) * input.tint;
+    return vec4<f32>(sampled.rgb, scene_material_alpha(sampled.a));
 }
 
 @fragment

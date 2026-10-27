@@ -29,7 +29,7 @@ struct Material {
     impostor_relief: vec4<f32>,
     wind_field_domain: vec4<f32>,
     wind_field_mode: vec4<f32>,
-    wind_field_reserved: vec4<f32>,
+    alpha_factor_reserved: vec4<f32>,
     wind_modifiers: array<vec4<f32>,6>,
 }
 
@@ -293,8 +293,13 @@ fn scene_alpha_covered(alpha: f32, input: VertexOutput) -> bool {
     return alpha >= material.alpha_cutoff && scene_geometry_covered(input);
 }
 
+fn scene_material_alpha(filtered_alpha: f32) -> f32 {
+    if material.alpha_factor_reserved.y == 0.0 { return filtered_alpha; }
+    return filtered_alpha * material.alpha_factor_reserved.x;
+}
+
 fn scene_albedo(sampled: vec4<f32>, tint: vec4<f32>) -> vec4<f32> {
-    return vec4<f32>(sampled.rgb * tint.rgb, sampled.a);
+    return vec4<f32>(sampled.rgb * tint.rgb, scene_material_alpha(sampled.a));
 }
 
 // Both representations use the same raster pixel threshold in every pass.

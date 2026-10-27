@@ -254,3 +254,29 @@ fn a_masked_material_carries_its_own_cutoff() {
         })
     ));
 }
+
+#[test]
+fn alpha_factor_is_unit_by_default_and_rejects_out_of_range_inputs() {
+    let material = SceneMaterial::new(material_parts()).unwrap();
+    assert_eq!(material.alpha_factor_micro(), 1_000_000);
+    for factor in [0, 333_333, 1_000_000] {
+        assert_eq!(
+            material
+                .with_alpha_factor(factor)
+                .unwrap()
+                .alpha_factor_micro(),
+            factor
+        );
+    }
+    for factor in [1_000_001, u32::MAX] {
+        assert_eq!(
+            material.with_alpha_factor(factor),
+            Err(SceneValidationError::RangeViolation {
+                part: "material alpha factor",
+                minimum: 0,
+                maximum: 1_000_000,
+                observed: u64::from(factor),
+            })
+        );
+    }
+}

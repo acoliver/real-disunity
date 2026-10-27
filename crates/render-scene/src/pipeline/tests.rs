@@ -27,6 +27,26 @@ fn material(alpha_mode: SceneAlphaMode, double_sided: bool) -> SceneMaterial {
 }
 
 #[test]
+fn alpha_factor_validates_and_preserves_default_uniform_bytes() {
+    let base = material(SceneAlphaMode::Opaque, false);
+    assert_eq!(base.alpha_factor_micro(), 1_000_000);
+    assert!(base.with_alpha_factor(1_000_001).is_err());
+    assert!(base.with_alpha_factor(u32::MAX).is_err());
+    let stock = MaterialUniform::from_material(&base).to_bytes();
+    assert_eq!(&stock[320..336], &[0; 16]);
+    let unit = base.with_alpha_factor(1_000_000).unwrap();
+    assert_eq!(stock, MaterialUniform::from_material(&unit).to_bytes());
+    for (micro, expected) in [(0, 0.0_f32), (500_000, 0.5)] {
+        let material = base.with_alpha_factor(micro).unwrap();
+        let bytes = MaterialUniform::from_material(&material).to_bytes();
+        assert_eq!(&bytes[..320], &stock[..320]);
+        assert_eq!(&bytes[328..], &stock[328..]);
+        assert_eq!(&bytes[320..324], &expected.to_le_bytes());
+        assert_eq!(&bytes[324..328], &1.0_f32.to_le_bytes());
+    }
+}
+
+#[test]
 fn a_single_sided_material_culls_back_faces() {
     let key = PipelineKey::from_material(&material(SceneAlphaMode::Opaque, false));
     assert_eq!(key.cull_mode(), Some(Face::Back));

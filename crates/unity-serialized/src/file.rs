@@ -117,11 +117,11 @@ impl SerializedFile {
             unity_version,
             target_platform,
             type_trees,
-            types,
             scripts,
             externals,
             ref_types,
             user_information,
+            types,
             objects,
             by_path_id,
         })

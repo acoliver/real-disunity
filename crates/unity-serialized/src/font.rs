@@ -1,6 +1,7 @@
 //! The `Font` layout: a font file with its glyph atlas, kerning and fallbacks.
 //!
-//! The font file itself, usually TrueType or OpenType, is returned as a range within the object.
+//! The font file itself is returned as a range within the object. In the player checked it was
+//! TrueType, OpenType with CFF outlines, or a TrueType collection.
 
 use std::ops::Range;
 
@@ -9,15 +10,17 @@ use crate::{
     object::{Layout, ObjectReader, PPtr},
 };
 
-/// One glyph's place in a font's texture and how it is drawn.
+/// One glyph of a font with a baked glyph texture. Dynamic fonts, which render glyphs from the
+/// font file at run time, have none; every font in the player checked was dynamic.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CharacterInfo {
     /// The character's code point.
     pub index: u32,
-    /// The glyph's rectangle in the font texture, in UV space: x, y, width, height.
+    /// The glyph's rectangle in the font texture: x, y, width, height.
     pub uv: [f32; 4],
     /// The glyph's quad relative to the pen position: x, y, width, height.
     pub vert: [f32; 4],
+    /// How far the pen moves after the glyph.
     pub advance: f32,
     /// Whether the glyph is stored rotated in the texture.
     pub flipped: bool,
@@ -43,7 +46,9 @@ impl CharacterInfo {
 /// The spacing adjustment between two characters.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Kerning {
+    /// The left character's code.
     pub first: u16,
+    /// The right character's code.
     pub second: u16,
     pub adjustment: f32,
 }
@@ -59,6 +64,7 @@ pub struct FontSpacing {
     pub character_padding: i32,
 }
 
+/// A font: its file, glyph texture settings and fallbacks.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Font {
     pub name: String,
@@ -68,7 +74,7 @@ pub struct Font {
     /// The code point of the first glyph in a legacy ASCII-ordered texture.
     pub ascii_start_offset: i32,
     pub spacing: FontSpacing,
-    /// Unity's `FontTextureCase`, for example 0 dynamic or 1 Unicode.
+    /// Unity's `FontTextureCase`: -2 for a dynamic font, as every font in the player checked was.
     pub convert_case: i32,
     pub characters: Vec<CharacterInfo>,
     pub kerning: Vec<Kerning>,

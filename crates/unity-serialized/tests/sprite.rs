@@ -288,3 +288,14 @@ fn every_truncated_sprite_atlas_fails() {
         );
     }
 }
+
+#[test]
+fn rejects_trailing_bytes_after_a_sprite_atlas() {
+    let mut bytes = atlas_bytes(false, true);
+    bytes.extend([0; 4]);
+    let error = decode_one::<SpriteAtlas>(ClassId::SPRITE_ATLAS, bytes, false).unwrap_err();
+    assert!(
+        matches!(error, SerializedError::TrailingBytes { .. }),
+        "{error}"
+    );
+}

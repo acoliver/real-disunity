@@ -229,3 +229,4 @@ PendingCloneTests.Run();
 
 NamedAxisTests.Run();
 DeferredDestroyTests.Run();
+PlayerAssemblyTests.Run();

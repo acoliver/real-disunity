@@ -120,7 +120,7 @@ fn settings_validate_enabled_and_disabled_requests() {
             ..settings()
         },
         SceneSsr {
-            max_steps: 257,
+            max_steps: 1025,
             ..settings()
         },
         SceneSsr {

@@ -126,6 +126,14 @@ impl GpuContext {
             &adapter,
             &worldrunner_render_gpu::device::DeviceRequirements {
                 required_features,
+                // Full SSR depth chains share the trace stage with receiver metadata.
+                required_limits: wgpu::Limits {
+                    max_sampled_textures_per_shader_stage: adapter
+                        .limits()
+                        .max_sampled_textures_per_shader_stage
+                        .min(32),
+                    ..Default::default()
+                },
                 optional_features: if timing == worldrunner_render_post::TimingMode::Optional {
                     timing.features()
                 } else {

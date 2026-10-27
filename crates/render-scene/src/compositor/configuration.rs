@@ -330,14 +330,14 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
             }
             size = size.map(|side| side.div_ceil(2));
         }
-        reflection_depth_allocations([w, h], set);
+        reflection_depth_allocations([w, h], crate::ssr::depth_level_count(&ssr, [w, h]), set);
         set.buffer("reflection uniform", 192, 1);
         set.buffer("reflection staging", 192, 3);
     }
 }
 
-fn reflection_depth_allocations(mut size: [u32; 2], set: &mut AllocationSet) {
-    for _ in 0..7 {
+fn reflection_depth_allocations(mut size: [u32; 2], count: usize, set: &mut AllocationSet) {
+    for _ in 0..count {
         set.texture(
             "final reflection depth",
             [size[0], size[1], 1],

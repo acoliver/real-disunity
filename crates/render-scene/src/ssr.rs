@@ -3,6 +3,7 @@ use crate::frame::metadata::FrameProduct;
 mod final_depth;
 pub(crate) mod forward;
 mod gpu;
+mod grid;
 mod metadata;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -14,6 +15,14 @@ use worldrunner_render_post::{
     PassDeclaration, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
 };
 
+pub(crate) fn depth_level_count(settings: &SceneSsr, size: [u32; 2]) -> usize {
+    if settings.traversal == worldrunner_render_plan::SceneSsrTraversal::Grid {
+        let (base, count) = grid::domain(settings, size);
+        (base + count).max(7)
+    } else {
+        7
+    }
+}
 pub(crate) fn validate_settings(settings: &SceneSsr) -> Result<(), FrameError> {
     settings
         .validate()
@@ -38,6 +47,7 @@ pub(crate) fn validate_extent(
             "sample-packed radiance extent exceeds device texture limit",
         ));
     }
+    grid::validate(config.size, settings, limits)?;
     Ok(())
 }
 pub(crate) const fn neutral_ao() -> SceneSsao {
@@ -115,7 +125,7 @@ impl Ssr {
 
         let material = metadata::material_texture(device, config.size, screen)?;
         let final_depth =
-            final_depth::FinalDepth::new(device, config.size, config.samples, settings.traversal);
+            final_depth::FinalDepth::new(device, config.size, config.samples, &settings);
         let hierarchy = final_depth.trace_levels();
         let reflections = gpu::radiance_textures(device, config, settings.resolution_scale_micro);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
@@ -124,7 +134,7 @@ impl Ssr {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let trace = gpu::pipeline(device, &gpu::trace_source(config.samples, false), 1, false);
+        let trace = grid::pipeline(device, config, &settings, false);
         let reduce = gpu::pipeline(device, &gpu::reduce_source(config.samples), 1, false);
         let (resolve, water_resolve) = gpu::resolve_pipelines(
             device,
@@ -133,7 +143,7 @@ impl Ssr {
             settings.depth_relative_ao,
             screen.passes.filtered.format() == wgpu::TextureFormat::Rg16Float,
         );
-        let water_trace = gpu::pipeline(device, &gpu::trace_source(config.samples, true), 1, false);
+        let water_trace = grid::pipeline(device, config, &settings, true);
         Ok(Self {
             settings,
             environment,

@@ -7,7 +7,7 @@ use super::{
 pub(super) struct FinalDepth {
     levels: Vec<wgpu::Texture>,
     samples: u32,
-    indices: [usize; 4],
+    indices: Vec<usize>,
     copy: wgpu::RenderPipeline,
     reduce: wgpu::RenderPipeline,
 }
@@ -16,9 +16,10 @@ impl FinalDepth {
         device: &wgpu::Device,
         mut size: [u32; 2],
         samples: u32,
-        traversal: worldrunner_render_plan::SceneSsrTraversal,
+        settings: &worldrunner_render_plan::SceneSsr,
     ) -> Self {
-        let grid = traversal == worldrunner_render_plan::SceneSsrTraversal::Grid;
+        let grid = settings.traversal == worldrunner_render_plan::SceneSsrTraversal::Grid;
+        let limit = super::depth_level_count(settings, size);
         let mut levels = Vec::new();
         loop {
             levels.push(crate::ssao::passes::texture(
@@ -26,13 +27,23 @@ impl FinalDepth {
                 size,
                 wgpu::TextureFormat::R32Float,
             ));
-            if size == [1, 1] || levels.len() == 7 {
+            if size == [1, 1] || levels.len() == limit {
                 break;
             }
             size = size.map(|side| side.div_ceil(2));
         }
         Self {
-            indices: if grid { [0, 1, 2, 3] } else { [0, 2, 4, 6] },
+            indices: if grid {
+                let (base, count) =
+                    super::grid::domain(settings, [levels[0].width(), levels[0].height()]);
+                let mut indices: Vec<_> = (base..base + count).collect();
+                if base > 0 {
+                    indices.push(0);
+                }
+                indices
+            } else {
+                vec![0, 2, 4, 6]
+            },
             levels,
             samples,
             copy: crate::ssao::passes::pipeline(device, include_str!("final_depth.wgsl")),
@@ -51,19 +62,21 @@ impl FinalDepth {
     }
     pub fn trace_levels(&self) -> Vec<wgpu::Texture> {
         self.indices
-            .map(|i| self.levels[i.min(self.levels.len() - 1)].clone())
-            .to_vec()
+            .iter()
+            .map(|&i| self.levels[i.min(self.levels.len() - 1)].clone())
+            .collect()
     }
     pub fn reads(&self) -> Vec<ResourceRef> {
         self.indices
-            .map(|i| {
+            .iter()
+            .map(|&i| {
                 FrameProduct::reflection_depth(
                     u32::try_from(i.min(self.levels.len() - 1)).expect("depth levels"),
                     self.samples,
                 )
                 .resource()
             })
-            .to_vec()
+            .collect()
     }
     pub fn schedule(
         &self,

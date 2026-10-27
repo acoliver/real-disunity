@@ -1,3 +1,185 @@
+#[path = "grid_review_tests.rs"]
+mod review_tests;
+use std::fmt::Write;
+
+#[test]
+fn gpu_grid_binds_complete_chains_within_device_limits() {
+    let context = context();
+    for (size, count) in [([65, 33], 8), ([257, 129], 10)] {
+        let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
+        let result = Ssr::new(
+            context.device(),
+            FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 4),
+            SceneSsr {
+                traversal: SceneSsrTraversal::Grid,
+                grid_level_count: Some(count),
+                ..settings()
+            },
+            &mut screen,
+        );
+        if count + 8
+            <= context
+                .device()
+                .limits()
+                .max_sampled_textures_per_shader_stage
+        {
+            let ssr = result.unwrap();
+            assert_eq!(ssr.hierarchy.len(), usize::try_from(count).unwrap());
+            assert_eq!(ssr.hierarchy.last().unwrap().width(), 1);
+        } else {
+            assert!(matches!(
+                result,
+                Err(FrameError::SsrSettings(
+                    "grid levels exceed device texture binding limit"
+                ))
+            ));
+        }
+    }
+    context
+        .device()
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+}
+
+#[test]
+fn gpu_grid_half_output_domain_produces_reflections() {
+    let context = context();
+    let policy = SceneSsr {
+        traversal: SceneSsrTraversal::Grid,
+        grid_domain: worldrunner_render_plan::SceneSsrGridDomain::ReflectionOutput,
+        resolution_scale_micro: 500_000,
+        grid_level_count: Some(7),
+        ..settings()
+    };
+    let bytes = controls_tests::capture_with_shader(&context, policy, 1.0, false, None);
+    assert!(bytes.chunks_exact(8).any(|pixel| pixel[6..8] != [0, 0]));
+}
+
+#[test]
+fn gpu_grid_long_hit_requires_more_than_the_old_step_limit() {
+    let context = context();
+    let depths = pyramid(
+        (0..512 * 512)
+            .map(|i| if i % 512 < 256 { 1.0 } else { 3000.0 })
+            .collect(),
+    );
+    let ray = Ray {
+        a: [2.25, 256.25],
+        b: [509.25, 256.25],
+        weighted: [1000.0, 4000.0],
+        reciprocal: [1.0, 1.0],
+        skip: 0.0,
+        budget: 1024,
+        behind: 256,
+        base: 0,
+        side: 512,
+        levels: 10,
+    };
+    let expected = oracle(ray, &depths);
+    assert!(expected[5] > 0.5);
+    assert!(expected[4] > 256.0);
+    assert!(oracle(Ray { budget: 256, ..ray }, &depths)[5] < 0.5);
+    let actual = capture_grid(&context, ray, &depths);
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert!((actual - expected).abs() < 0.25, "{actual} != {expected}");
+    }
+}
+
+#[test]
+fn gpu_grid_output_domain_full_chain_and_long_distance_match_cpu() {
+    let context = context();
+    for base in [0, 1] {
+        let depths = pyramid(vec![2500.0; 1024]);
+        let depths = &depths[usize::try_from(base).unwrap()..];
+        let divisor = f64::from(1u32 << base);
+        let ray = Ray {
+            a: [2.25 / divisor, 16.25 / divisor],
+            b: [29.25 / divisor, 16.25 / divisor],
+            weighted: [1000.0, 4000.0],
+            reciprocal: [1.0, 1.0],
+            skip: 0.0,
+            budget: 1024,
+            behind: 0,
+            base,
+            side: 32,
+            levels: 6 - base,
+        };
+        let expected = oracle(ray, depths);
+        assert!(expected[5] > 0.5);
+        assert!(expected[2] > 1000.0);
+        let actual = capture_grid(&context, ray, depths);
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!(
+                (actual - expected).abs() < 0.025,
+                "{ray:?}: {actual} != {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+fn grid_domain_validation_rejects_unavailable_levels_and_accepts_limits() {
+    let policy = SceneSsr {
+        traversal: SceneSsrTraversal::Grid,
+        grid_domain: worldrunner_render_plan::SceneSsrGridDomain::ReflectionOutput,
+        resolution_scale_micro: 500_000,
+        grid_level_count: Some(5),
+        max_distance_millimeters: 4_000_000,
+        max_steps: 1024,
+        ..settings()
+    };
+    assert!(policy.validate().is_ok());
+    let limits = wgpu::Limits::default();
+    assert_eq!(grid::domain(&policy, [32, 32]), (1, 5));
+    assert!(grid::validate([32, 32], &policy, &limits).is_ok());
+    assert!(grid::validate([16, 16], &policy, &limits).is_err());
+    assert!(grid::validate([1, 1], &policy, &limits).is_err());
+    assert!(
+        grid::validate(
+            [32, 32],
+            &SceneSsr {
+                grid_level_count: Some(6),
+                ..policy
+            },
+            &limits
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn gpu_grid_output_domain_compiles_odd_extents_and_water_msaa() {
+    let context = context();
+    for samples in [1, 4] {
+        let size = [33, 25];
+        let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
+        let ssr = Ssr::new(
+            context.device(),
+            FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples),
+            SceneSsr {
+                traversal: SceneSsrTraversal::Grid,
+                grid_domain: worldrunner_render_plan::SceneSsrGridDomain::ReflectionOutput,
+                resolution_scale_micro: 500_000,
+                grid_level_count: Some(6),
+                ..settings()
+            },
+            &mut screen,
+        )
+        .unwrap();
+        assert_eq!(
+            ssr.hierarchy
+                .iter()
+                .map(wgpu::Texture::width)
+                .collect::<Vec<_>>(),
+            [17, 9, 5, 3, 2, 1, 33]
+        );
+        context
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+    }
+}
+
 use super::*;
 use worldrunner_render_plan::SceneSsrTraversal;
 
@@ -10,11 +192,15 @@ struct Ray {
     skip: f64,
     budget: u32,
     behind: u32,
+    base: u32,
+    side: u32,
+    levels: u32,
 }
 
 fn pyramid(depths: Vec<f64>) -> Vec<Vec<f64>> {
     let mut levels = vec![depths];
-    for side in [32usize, 16, 8] {
+    let mut side = levels[0].len().isqrt();
+    while side > 1 {
         let previous = levels.last().unwrap();
         let mut next = Vec::new();
         for y in 0..side / 2 {
@@ -29,6 +215,7 @@ fn pyramid(depths: Vec<f64>) -> Vec<Vec<f64>> {
             }
         }
         levels.push(next);
+        side /= 2;
     }
     levels
 }
@@ -50,7 +237,11 @@ impl Ray {
             .enumerate()
         {
             if delta != 0.0 {
-                let boundary = if delta > 0.0 { 32.0 } else { 0.0 };
+                let boundary = if delta > 0.0 {
+                    f64::from(self.side) / f64::from(1u32 << self.base)
+                } else {
+                    0.0
+                };
                 end = end.min((boundary - self.a[axis]) / delta);
             }
         }
@@ -59,14 +250,14 @@ impl Ray {
 }
 fn fetch(depths: &[Vec<f64>], level: usize, point: [f64; 3]) -> f64 {
     let width = f64::from(1u32 << level);
-    let side = 32i32 >> level;
+    let side = i32::try_from(depths[level].len().isqrt()).unwrap();
     let coordinate = (glam::DVec2::new(point[0], point[1]) / width)
         .as_ivec2()
         .clamp(glam::IVec2::ZERO, glam::IVec2::splat(side - 1));
     depths[level][usize::try_from(coordinate.y * side + coordinate.x).unwrap()]
 }
 // Parameter-space oracle: reconstruct each endpoint independently in double precision.
-fn oracle(ray: Ray, depths: &[Vec<f64>]) -> [f64; 6] {
+fn oracle(ray: Ray, depths: &[Vec<f64>]) -> [f64; 8] {
     let primary = usize::from((ray.b[1] - ray.a[1]).abs() > (ray.b[0] - ray.a[0]).abs());
     let delta = ray.b[primary] - ray.a[primary];
     let direction = delta.signum();
@@ -93,48 +284,110 @@ fn oracle(ray: Ray, depths: &[Vec<f64>]) -> [f64; 6] {
                 continue;
             }
             if start[2].min(finish[2]) - 0.25 <= surface {
-                let hit = ray.position(axis + direction * 0.5, primary);
-                return [
-                    hit[0],
-                    hit[1],
+                return oracle_hit(
+                    ray,
+                    ray.position(axis + direction * 0.5, primary),
                     surface,
-                    f64::from(levels),
-                    f64::from(steps),
-                    1.0,
-                ];
+                    levels,
+                    steps,
+                );
             }
             if allowance == 0 {
                 break;
             }
             allowance -= 1;
         } else {
-            level = (level + 1).min(3);
+            level = (level + 1).min(usize::try_from(ray.levels - 1).unwrap());
         }
         axis = next;
     }
-    [0.0, 0.0, -1.0, f64::from(levels), f64::from(steps), 0.0]
+    oracle_miss(levels, steps)
+}
+
+fn oracle_hit(ray: Ray, hit: [f64; 3], surface: f64, levels: u32, steps: u32) -> [f64; 8] {
+    let scale = f64::from(1u32 << ray.base);
+    if hit[..2]
+        .iter()
+        .any(|&v| v < 0.0 || v * scale >= f64::from(ray.side))
+    {
+        return oracle_miss(levels, steps);
+    }
+    [
+        hit[0],
+        hit[1],
+        surface,
+        f64::from(levels),
+        f64::from(steps),
+        1.0,
+        (hit[0] * scale).trunc(),
+        (hit[1] * scale).trunc(),
+    ]
+}
+
+fn oracle_miss(levels: u32, steps: u32) -> [f64; 8] {
+    [
+        0.0,
+        0.0,
+        -1.0,
+        f64::from(levels),
+        f64::from(steps),
+        0.0,
+        0.0,
+        0.0,
+    ]
 }
 
 fn grid_shader(ray: Ray) -> String {
-    let full = gpu::trace_source(1, false);
+    let full = grid::trace_source(
+        1,
+        false,
+        &SceneSsr {
+            traversal: SceneSsrTraversal::Grid,
+            grid_domain: worldrunner_render_plan::SceneSsrGridDomain::ReflectionOutput,
+            resolution_scale_micro: if ray.base == 1 { 500_000 } else { 1_000_000 },
+            grid_level_count: Some(ray.levels),
+            ..settings()
+        },
+        [ray.side; 2],
+    );
     let helpers = full.split("struct GridIntersection").nth(1).unwrap();
     let helpers = helpers.split("fn grid_reflection").next().unwrap();
-    let bindings = "@group(0) @binding(0) var depth_0: texture_2d<f32>;
-        @group(0) @binding(1) var depth_2: texture_2d<f32>;
-        @group(0) @binding(2) var depth_4: texture_2d<f32>;
-        @group(0) @binding(3) var depth_6: texture_2d<f32>;";
+    let mut bindings = String::new();
+    for i in 0..ray.levels {
+        writeln!(
+            bindings,
+            "@group(0) @binding({i}) var grid_depth_{i}: texture_2d<f32>;"
+        )
+        .unwrap();
+    }
+    let projection = full.split("    let grid_size =").nth(1).unwrap();
+    let projection = projection.split("    let weighted =").next().unwrap();
+    let mapping = full.split("    if intersection.depth <").nth(1).unwrap();
+    let mapping = mapping.split("    let hit_normal =").next().unwrap();
+    let mapping = format!("if intersection.depth <{mapping}")
+        .replace("return vec4<f32>(0.0);", "intersection.depth = -1.0;");
+    let scale = f64::from(1u32 << ray.base);
+    let clip = |v: f64| v * scale / f64::from(ray.side) * 2.0 - 1.0;
     format!("{bindings}\nstruct GridIntersection{helpers}
         @fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {{
-        let result = grid_walk(vec2<f32>({}, {}), vec2<f32>({}, {}), vec2<f32>({}, {}),
-            vec2<f32>({}, {}), 1.0, vec2<f32>(32.0), {}, {}u, vec2<f32>(0.25, 0.0), {}u);
-        if pixel.x > 1.0 {{ return vec4<f32>(f32(result.steps), select(0.0, 1.0, result.depth >= 0.0), 0.0, 0.0); }}
-        return vec4<f32>(result.pixel, result.depth, f32(result.levels)); }}",
-        ray.a[0], ray.a[1], ray.b[0], ray.b[1], ray.weighted[0], ray.weighted[1],
+        let camera = vec4<f32>({}.0, {}.0, {}, 0.0);
+        let clip_a = vec4<f32>({}, {}, 0.0, 1.0);
+        let clip_b = vec4<f32>({}, {}, 0.0, 1.0);
+        let reciprocal = vec2<f32>(1.0);
+        let grid_size ={projection}
+        var intersection = grid_walk(first, last, vec2<f32>({}, {}),
+            vec2<f32>({}, {}), 1.0, grid_size, {}, {}u, vec2<f32>(0.25, 0.0), {}u);
+        {mapping}
+        if pixel.x > 1.0 {{ return vec4<f32>(f32(intersection.steps), select(0.0, 1.0, intersection.depth >= 0.0), select(vec2<f32>(0.0), vec2<f32>(hit_pixel), intersection.depth >= 0.0)); }}
+        return vec4<f32>(select(vec2<f32>(0.0), intersection.pixel, intersection.depth >= 0.0), intersection.depth, f32(intersection.levels)); }}",
+        ray.side, ray.side, scale, clip(ray.a[0]), -clip(ray.a[1]),
+        clip(ray.b[0]), -clip(ray.b[1]), ray.weighted[0], ray.weighted[1],
         ray.reciprocal[0], ray.reciprocal[1], ray.skip, ray.budget, ray.behind)
+        .replace("camera.size", "camera")
 }
 fn capture_grid(context: &GpuContext, ray: Ray, levels: &[Vec<f64>]) -> Vec<f64> {
     let pipeline = gpu::pipeline(context.device(), &grid_shader(ray), 1, false);
-    let textures = grid_textures(context, levels);
+    let textures = grid_textures(context, &levels[..usize::try_from(ray.levels).unwrap()]);
     let views: Vec<_> = textures
         .iter()
         .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
@@ -179,7 +432,7 @@ fn capture_grid(context: &GpuContext, ray: Ray, levels: &[Vec<f64>]) -> Vec<f64>
         .unwrap();
     read(context, &target)
         .chunks_exact(2)
-        .take(6)
+        .take(8)
         .map(|v| {
             f64::from(half::f16::from_bits(u16::from_le_bytes(v.try_into().unwrap())).to_f32())
         })
@@ -188,9 +441,8 @@ fn capture_grid(context: &GpuContext, ray: Ray, levels: &[Vec<f64>]) -> Vec<f64>
 fn grid_textures(context: &GpuContext, levels: &[Vec<f64>]) -> Vec<wgpu::Texture> {
     levels
         .iter()
-        .enumerate()
-        .map(|(i, values)| {
-            let side = 32u32 >> i;
+        .map(|values| {
+            let side = u32::try_from(values.len().isqrt()).unwrap();
             let texture = crate::ssao::passes::texture(
                 context.device(),
                 [side, side],
@@ -261,6 +513,9 @@ fn gpu_grid_positions_misses_and_mip_selection_match_independent_cpu() {
                     skip: 0.0,
                     budget: 256,
                     behind,
+                    base: 0,
+                    side: 32,
+                    levels: 4,
                 };
                 let expected = oracle(ray, &depths);
                 let actual = capture_grid(&context, ray, &depths);
@@ -296,6 +551,9 @@ fn gpu_grid_pass_behind_budget_skip_and_perspective_match_cpu() {
         skip: 0.0,
         budget: 256,
         behind: 0,
+        base: 0,
+        side: 32,
+        levels: 4,
     };
     assert!(oracle(ray, &depths)[5] < 0.5);
     assert!(oracle(Ray { behind: 4, ..ray }, &depths)[5] > 0.5);

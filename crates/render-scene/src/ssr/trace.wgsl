@@ -197,8 +197,9 @@ fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>
     let clip_a = camera.projection * vec4<f32>(origin, 1.0);
     let clip_b = camera.projection * vec4<f32>(finish, 1.0);
     let reciprocal = vec2<f32>(1.0/clip_a.w, 1.0/clip_b.w);
-    let first = (clip_a.xy*reciprocal.x*vec2<f32>(0.5, -0.5)+vec2<f32>(0.5))*camera.size.xy;
-    let last = (clip_b.xy*reciprocal.y*vec2<f32>(0.5, -0.5)+vec2<f32>(0.5))*camera.size.xy;
+    let grid_size = camera.size.xy;
+    let first = (clip_a.xy*reciprocal.x*vec2<f32>(0.5, -0.5)+vec2<f32>(0.5))*grid_size;
+    let last = (clip_b.xy*reciprocal.y*vec2<f32>(0.5, -0.5)+vec2<f32>(0.5))*grid_size;
     let weighted = -vec2<f32>(origin.z, finish.z)*reciprocal;
     let clip_depth = select(near_depth+0.0001, far_depth-0.01, finish.z < origin.z);
     var depth_limit = 1.0;
@@ -206,10 +207,10 @@ fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>
         depth_limit = min(1.0, (clip_depth*reciprocal.x-weighted.x)/
             (weighted.y-weighted.x-clip_depth*(reciprocal.y-reciprocal.x)));
     }
-    let intersection = grid_walk(first, last, weighted, reciprocal, depth_limit, camera.size.xy,
+    let intersection = grid_walk(first, last, weighted, reciprocal, depth_limit, grid_size,
         camera.traversal.z, u32(camera.settings.x), vec2<f32>(camera.settings.y, camera.traversal.y),
         reflection_pass_count(roughness, camera.traversal.w, camera.behind));
-    if intersection.depth < 0.0 || any(intersection.pixel < vec2<f32>(0.0)) || any(intersection.pixel >= camera.size.xy) { return vec4<f32>(0.0); }
+    if intersection.depth < 0.0 || any(intersection.pixel < vec2<f32>(0.0)) || any(intersection.pixel >= grid_size) { return vec4<f32>(0.0); }
     let hit_pixel = vec2<i32>(intersection.pixel);
     let hit_normal = textureLoad(normals, hit_pixel, 0);
     let metadata_depth = textureLoad(receiver_depth, hit_pixel, 0).r;
@@ -217,7 +218,7 @@ fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>
     if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { return vec4<f32>(0.0); }
     var hit = textureLoad(opaque, hit_pixel, 0).rgb;
     if camera.limits.y > 0.0 { hit = bounded_radiance(hit, camera.limits.y); }
-    let confidence = edge_fade(intersection.pixel/camera.size.xy) * edge_fade(origin_uv)
+    let confidence = edge_fade(intersection.pixel/grid_size) * edge_fade(origin_uv)
         * smoothstep(0.0, 0.2, 1.0-f32(intersection.steps-1u)/camera.settings.x);
     return vec4<f32>(hit*confidence, confidence);
 }

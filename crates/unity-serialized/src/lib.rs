@@ -24,6 +24,7 @@ pub mod object;
 pub mod shader;
 pub mod shader_program;
 pub mod shader_state;
+pub mod sprite;
 pub mod text_asset;
 mod type_tree;
 pub mod ui;

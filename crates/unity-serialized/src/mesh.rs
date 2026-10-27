@@ -40,10 +40,10 @@ pub struct SubMesh {
     pub local_aabb: Aabb,
 }
 
-const SUB_MESH_LEN: usize = 48;
+pub(crate) const SUB_MESH_LEN: usize = 48;
 
 impl SubMesh {
-    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+    pub(crate) fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         Ok(Self {
             first_byte: r.u32()?,
             index_count: r.u32()?,
@@ -168,7 +168,7 @@ pub struct VertexData {
 }
 
 impl VertexData {
-    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+    pub(crate) fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         let data = Self {
             vertex_count: r.u32()?,
             channels: r.array("vertex channel", 4, |r| {

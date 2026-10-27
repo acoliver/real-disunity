@@ -97,18 +97,22 @@ To run an existing Unity project's scripts, the scene they belong to has to be i
 
 A built Unity player ships its game code compiled, together with Unity packages and third-party libraries, in `<Game>_Data/Managed`. Those assemblies reference engine types through Unity's module assemblies, for example `[UnityEngine.CoreModule]UnityEngine.Vector3`. Unity's module assemblies call into Unity's native player, so they are never loaded.
 
-`PlayerAssemblies` resolves a player's assembly names in an `AssemblyLoadContext`:
+`PlayerManifest.Read` reads what the player lists about its managed code from `<Game>_Data`: the game and package assemblies in `ScriptingAssemblies.json`, in load order, and the startup hooks in `RuntimeInitializeOnLoads.json`. `PlayerAssemblies` then resolves the player's assembly names in an `AssemblyLoadContext`:
 
 ```csharp
-var player = new PlayerAssemblies("/path/to/Game_Data/Managed", typeof(DisunityHost).Assembly);
+var manifest = PlayerManifest.Read("/path/to/Game_Data");
+var player = new PlayerAssemblies("/path/to/Game_Data/Managed", typeof(DisunityHost).Assembly, manifest.GameAssemblies);
 player.Attach(context);
 var game = context.LoadFromAssemblyName(new AssemblyName("Assembly-CSharp"));
 ```
 
 - An engine module name (`UnityEngine` or `UnityEngine.*Module`) resolves to a facade built in memory from that module's metadata in the player. The facade has the module's name and version and forwards each of the module's types that `Disunity.Engine` defines publicly, with their public nested types. Any other type stays unresolved, so code that uses it fails with a `TypeLoadException` naming the type and module.
-- Other names the player ships resolve to its own assemblies, including packages such as `UnityEngine.UI`. Framework names (`mscorlib`, `netstandard`, `System` and `System.*`) are never taken from the player, whose copies are built for Unity's Mono runtime; .NET provides them, and one it lacks fails to load by name.
+- The game and package assemblies the player lists resolve to its `Managed` directory, including `UnityEngine.UI` and packages such as `System.IO.Hashing`. A listed name that .NET already provides, such as `System.Memory`, binds to .NET first. A listed assembly the directory lacks fails with its name.
+- Any other name is left to .NET. A player also ships Mono class libraries such as `System.Core` and `Mono.Security` without listing them; they are built for Unity's Mono runtime and are never loaded.
 - One `PlayerAssemblies` serves one load context.
 
 `PlayerApiReport.Build` lists the engine types and members a player's assemblies reference and the facades do not forward, with the assemblies that reference each. It reads metadata only. A nested type of a missing type is listed through its outer type. Members match by name, kind and parameter count, so overloads that differ only in parameter types are not told apart, and members referenced through a generic instantiation are not checked yet.
 
-Loading assemblies does not run anything. Running a player's scripts needs its scenes, `RuntimeInitializeOnLoadMethod` hooks and main-thread rules; see [#172](https://github.com/acoliver/real-disunity/issues/172).
+`RuntimeHooks.Resolve(manifest.Hooks, name => context.LoadFromAssemblyName(new AssemblyName(name)))` finds each startup hook's method: a static, non-generic method with no parameters, public or not. Hooks Unity marks `isUnityClass` belong to Unity's packages and run like any other. `Run(phase)` runs one phase's hooks in listed order; Unity's phases run in `RuntimeHooks.PhaseOrder`: `SubsystemRegistration`, `AfterAssembliesLoaded`, `BeforeSplashScreen`, `BeforeSceneLoad` and `AfterSceneLoad`. A hook that cannot be resolved is kept in `Unresolved` with the reason, and running its phase fails with its name before any of the phase's hooks run. A hook that throws stops its phase with an exception naming it; later hooks and phases are not run. Unity instead logs the exception and continues. `PlayerManifest` reports a malformed or unexpected manifest entry, including an assembly type other than 2 (engine module) or 16 (game or package), as an `InvalidDataException` naming the file.
+
+Loading assemblies and resolving hooks call no hook methods. Running a player needs its scenes loaded around the scene phases and main-thread rules; see [#172](https://github.com/acoliver/real-disunity/issues/172).

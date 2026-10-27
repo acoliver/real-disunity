@@ -29,7 +29,7 @@ internal static class PlayerAssemblyTests
         ReadsDefinedAndForwardedTypes();
         ForwardsOnlyPublicImplementedTypes();
         ResolvesGameReferencesThroughFacades();
-        ResolvesForOneContextAndLeavesFrameworkNamesToDotNet();
+        ResolvesListedNamesForOneContextAndLeavesOthersToDotNet();
         ReportsMissingTypesAndMembers();
         Console.WriteLine("PASS: player module facades, assembly resolution and missing engine API report");
     }
@@ -61,12 +61,14 @@ internal static class PlayerAssemblyTests
         var unityEvent = game.TypeRef(module, "UnityEngine.Events", "UnityEvent`1");
         var missing = game.TypeRef(module, "UnityEngine", "NotImplementedThing");
         var internalType = game.TypeRef(module, "UnityEngine.Events", "IPersistentCalls");
+        var listedMissing = game.TypeRef(game.Reference("Listed.Missing"), "Listed", "Thing");
         game.DefineClass("Game", "Holder",
             SyntheticField.Class("owner", gameObject),
             SyntheticField.Value("lightType", lightType),
             SyntheticField.GenericOfInt("changed", unityEvent),
             SyntheticField.Class("thing", missing),
-            SyntheticField.Class("calls", internalType));
+            SyntheticField.Class("calls", internalType),
+            SyntheticField.Class("listed", listedMissing));
         game.MethodRef(gameObject, "SetActive", 1);
         game.MethodRef(gameObject, "SetActive", 3);
         game.MethodRef(gameObject, "DoesNotExist", 0);
@@ -122,21 +124,40 @@ internal static class PlayerAssemblyTests
         });
     }
 
-    private static void ResolvesForOneContextAndLeavesFrameworkNamesToDotNet()
+    private static void ResolvesListedNamesForOneContextAndLeavesOthersToDotNet()
     {
         WithManagedDirectory(directory =>
         {
-            File.WriteAllBytes(Path.Combine(directory, "System.Fake.dll"), new SyntheticAssembly("System.Fake").Build());
+            // A listed package with a framework-like name, and Mono class libraries the player
+            // ships without listing them.
+            File.WriteAllBytes(Path.Combine(directory, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(directory, "System.Core.dll"), new SyntheticAssembly("System.Core").Build());
             File.WriteAllBytes(Path.Combine(directory, "mscorlib.dll"), new SyntheticAssembly("mscorlib").Build());
             var context = new AssemblyLoadContext("player", isCollectible: true);
-            var player = new PlayerAssemblies(directory, Engine);
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Game", "System.Package", "Listed.Missing" });
             player.Attach(context);
             var first = player.Resolve(context, new AssemblyName(Module));
             Require(first is not null && ReferenceEquals(first, player.Resolve(context, new AssemblyName(Module))),
                 "a module's facade is built once per context");
-            Require(player.Resolve(context, new AssemblyName("System.Fake")) is null, "System.* names are left to .NET");
+            Require(player.Resolve(context, new AssemblyName("System.Package"))?.GetName().Name == "System.Package",
+                "a listed assembly loads from Managed whatever its name");
+            Require(player.Resolve(context, new AssemblyName("System.Core")) is null, "an unlisted class library is left to .NET");
             Require(player.Resolve(context, new AssemblyName("mscorlib")) is null, "mscorlib is left to .NET");
-            Require(player.Resolve(context, new AssemblyName("NotShipped")) is null, "names the player does not ship stay unresolved");
+            Require(player.Resolve(context, new AssemblyName("UnityEngine.AbsentModule")) is null, "an engine module the player lacks stays unresolved");
+            try
+            {
+                player.Resolve(context, new AssemblyName("Listed.Missing"));
+                throw new InvalidOperationException("a listed assembly the player lacks must fail by name");
+            }
+            catch (FileNotFoundException error) when (error.Message.Contains("Listed.Missing.dll")) { }
+            // The same failure when the runtime asks while loading a game type that uses it.
+            var holder = context.LoadFromAssemblyName(new AssemblyName("Game")).GetType("Game.Holder", throwOnError: true)!;
+            try
+            {
+                _ = FieldType(holder, "listed");
+                throw new InvalidOperationException("a type from a listed assembly the player lacks must not load");
+            }
+            catch (FileNotFoundException error) when (error.Message.Contains("Listed.Missing")) { }
             var other = new AssemblyLoadContext("other", isCollectible: true);
             try
             {
@@ -185,7 +206,7 @@ internal static class PlayerAssemblyTests
     private static Type LoadHolder(string directory, out AssemblyLoadContext context)
     {
         context = new AssemblyLoadContext("player", isCollectible: true);
-        new PlayerAssemblies(directory, Engine).Attach(context);
+        new PlayerAssemblies(directory, Engine, new[] { "Game" }).Attach(context);
         return context.LoadFromAssemblyName(new AssemblyName("Game")).GetType("Game.Holder", throwOnError: true)!;
     }
 

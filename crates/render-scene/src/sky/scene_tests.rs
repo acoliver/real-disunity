@@ -106,6 +106,10 @@ pub(super) fn effects(density: u32, dome: bool) -> SceneEffects {
         .unwrap()
 }
 pub(super) fn atmosphere(density: u32) -> SceneAtmosphere {
+    let [a, b, c, d] = density.to_le_bytes();
+    let density = (f32::from(u16::from_le_bytes([c, d])) * 65_536.0
+        + f32::from(u16::from_le_bytes([a, b])))
+        / 1e6;
     SceneAtmosphere {
         scattering: None,
         horizon_radiance_micro: [0, 0, 2_000_000],
@@ -113,7 +117,7 @@ pub(super) fn atmosphere(density: u32) -> SceneAtmosphere {
         gradient_exponent_micro: 1_000_000,
         sun_angular_radius_millidegrees: 0,
         fog: Some(SceneHeightFog {
-            density_micro_per_meter: density,
+            density: SceneFogDensity::new(density).unwrap(),
             falloff_micro_per_meter: 0,
             base_height_millimeters: 0,
             start_distance_millimeters: 0,
@@ -121,6 +125,9 @@ pub(super) fn atmosphere(density: u32) -> SceneAtmosphere {
         }),
         discs: vec![],
         meshes: vec![SceneCelestialMesh {
+            lighting: SceneCelestialLighting::NEUTRAL,
+            tint: SceneTint::WHITE,
+            anchor_millimeters: None,
             direction: SceneDirection::new([0, 1_000_000, 0]).unwrap(),
             angular_radius_millidegrees: 30_000,
             distance_millimeters: 10_000,
@@ -386,8 +393,15 @@ pub(super) fn read(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
         .map_async(wgpu::MapMode::Read, move |result| {
             send.send(result).unwrap();
         });
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    recv.recv().unwrap().unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .unwrap();
+    recv.recv_timeout(std::time::Duration::from_secs(30))
+        .unwrap()
+        .unwrap();
     let data = buffer.slice(..).get_mapped_range().unwrap().to_vec();
     buffer.unmap();
     data

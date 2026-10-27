@@ -13,6 +13,8 @@ struct Frame {
     // z holds the animation clock as u32 bits; w is reserved and zero.
     grading: vec4<f32>,
     diffuse_sh: array<vec4<f32>, 9>,
+    // x selects SH; y stores untinted sun intensity when z selects a coloured sun.
+    // Neutral sun frames leave y/z zero and retain intensity in sun_irradiance.x.
     lighting_options: vec4<f32>,
 }
 
@@ -205,7 +207,9 @@ fn scene_ao(material_ao: f32, world_position: vec3<f32>, no_l: f32, shadow: f32)
     let screen = scene_screen_ao(world_position);
     if SCENE_SPECULAR_OCCLUSION == 0u { return material_ao * screen; }
     let combined = min(material_ao, screen * 1.01);
-    let relief = clamp(min(shadow, no_l) * min(1.0, frame.sun_irradiance.x / 3.0), 0.0, 1.0);
+    let sun_intensity = select(frame.sun_irradiance.x, frame.lighting_options.y,
+        frame.lighting_options.z != 0.0);
+    let relief = clamp(min(shadow, no_l) * min(1.0, sun_intensity / 3.0), 0.0, 1.0);
     return mix(combined, 1.0, relief);
 }
 fn scene_specular_ao(no_v: f32, ao: f32, roughness: f32) -> f32 {

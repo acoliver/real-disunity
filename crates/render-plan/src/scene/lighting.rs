@@ -35,6 +35,15 @@ pub enum SceneDiffuseEnvironment {
 }
 
 impl SceneEffects {
+    /// Selects a validated linear RGB multiplier for the scene sun only.
+    #[must_use]
+    pub fn with_sun_tint(mut self, tint: super::SceneTint) -> Self {
+        self.sun_tint = tint;
+        self
+    }
+    pub const fn sun_tint(&self) -> super::SceneTint {
+        self.sun_tint
+    }
     /// Selects diffuse lighting without changing sun, exposure or specular lighting.
     #[must_use]
     pub fn with_diffuse_environment(mut self, environment: SceneDiffuseEnvironment) -> Self {

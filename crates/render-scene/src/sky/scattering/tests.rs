@@ -12,6 +12,7 @@ pub(crate) fn settings() -> SceneScattering {
         aerosol_height_meters: 1200,
         anisotropy_micro: 760_000,
         solar_radiance_micro: 20_000_000,
+        sky_exposure_micro: 1_000_000,
         solar_diameter_microradians: 530_000,
         peak_radiance_micro: 100_000_000,
         model: SceneScatteringModel::ElevationColumn20,
@@ -127,7 +128,12 @@ fn preparation_budget_and_cancellation_control_publication() {
         .unwrap();
     transaction.submit().unwrap();
     assert!(maps.unwrap().view().is_ok());
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .unwrap();
 }
 #[test]
 fn gpu_lookup_formats_match_their_saturated_or_unquantized_reference() {

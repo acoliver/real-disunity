@@ -587,6 +587,7 @@ fn environment_settings() -> crate::sky::preparation::EnvironmentPreparation {
         convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 4,
         mip_count: 3,
+        specular_intensity_micro: 1_000_000,
         lut_size: 1,
         samples: 64,
     }
@@ -600,6 +601,7 @@ fn selected_environment_settings(
 ) -> crate::sky::preparation::EnvironmentPreparation {
     crate::sky::preparation::EnvironmentPreparation {
         convention,
+        specular_intensity_micro: 1_000_000,
         lut_size: if convention == worldrunner_render_plan::SceneSpecularConvention::default() {
             1
         } else {

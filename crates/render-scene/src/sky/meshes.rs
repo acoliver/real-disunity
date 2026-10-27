@@ -62,10 +62,19 @@ pub(crate) fn model(settings: SceneCelestialMesh) -> Mat4 {
         w as f32 / 1e6,
     )
     .normalize();
-    Mat4::from_scale_rotation_translation(Vec3::splat(scale), rotation, direction * distance)
+    Mat4::from_scale_rotation_translation(
+        Vec3::splat(scale),
+        rotation,
+        direction * distance
+            + settings.anchor_millimeters.map_or(Vec3::ZERO, |p| {
+                Vec3::from_array(p.map(|v| v as f32 / 1000.0))
+            }),
+    )
 }
 #[derive(Debug)]
 pub(crate) struct MeshDraw {
+    pub lighting: worldrunner_render_plan::SceneCelestialLighting,
+    pub anchored: bool,
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
     pub count: u32,
@@ -80,7 +89,7 @@ pub(crate) struct Meshes {
     scene: crate::renderer::ScenePipelines,
     physical: bool,
     specializations:
-        std::cell::RefCell<std::collections::BTreeMap<[u32; 3], [wgpu::RenderPipeline; 8]>>,
+        std::cell::RefCell<std::collections::BTreeMap<[u32; 7], [wgpu::RenderPipeline; 8]>>,
     draws: Vec<MeshDraw>,
     composite: wgpu::RenderPipeline,
     samples: u32,
@@ -139,6 +148,43 @@ impl Meshes {
         pass.set_bind_group(2, &target.group, &[]);
         pass.draw(0..3, 0..1);
     }
+    fn selected_pipelines(
+        &self,
+        options: [u32; 3],
+        lighting: worldrunner_render_plan::SceneCelestialLighting,
+        anchored: bool,
+    ) -> [wgpu::RenderPipeline; 8] {
+        if options == [0; 3]
+            && lighting == worldrunner_render_plan::SceneCelestialLighting::NEUTRAL
+            && !anchored
+        {
+            return self.pipelines.clone();
+        }
+        let values = lighting.contributions_micro();
+        let key = [
+            options[0],
+            options[1],
+            options[2],
+            values[0],
+            values[1],
+            values[2],
+            u32::from(anchored),
+        ];
+        self.specializations
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| {
+                crate::renderer::celestial_specialization(
+                    &self.device,
+                    &self.scene,
+                    self.physical,
+                    options,
+                    lighting,
+                    anchored,
+                )
+            })
+            .clone()
+    }
     pub fn draw_geometry(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
@@ -146,23 +192,8 @@ impl Meshes {
         convention: worldrunner_render_plan::SceneSpecularConvention,
     ) {
         let options = convention.shader_options();
-        let pipelines = if options == [0; 3] {
-            self.pipelines.clone()
-        } else {
-            self.specializations
-                .borrow_mut()
-                .entry(options)
-                .or_insert_with(|| {
-                    crate::renderer::celestial_specialization(
-                        &self.device,
-                        &self.scene,
-                        self.physical,
-                        options,
-                    )
-                })
-                .clone()
-        };
         for draw in &self.draws {
+            let pipelines = self.selected_pipelines(options, draw.lighting, draw.anchored);
             pass.set_pipeline(&pipelines[draw.key.index()]);
             pass.set_bind_group(0, frame, &[]);
             pass.set_bind_group(1, &draw.material, &[]);
@@ -179,6 +210,9 @@ mod tests {
     use worldrunner_render_plan::{MaterialHandle, MeshHandle, SceneDirection};
     fn settings() -> SceneCelestialMesh {
         SceneCelestialMesh {
+            lighting: worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
+            tint: worldrunner_render_plan::SceneTint::WHITE,
+            anchor_millimeters: None,
             direction: SceneDirection::new([0, 1_000_000, 0]).unwrap(),
             angular_radius_millidegrees: 30_000,
             distance_millimeters: 100_000,
@@ -227,6 +261,8 @@ mod tests {
                             &scene,
                             meshes.physical,
                             [roughness, visibility, occlusion],
+                            worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
+                            false,
                         );
                     }
                 }

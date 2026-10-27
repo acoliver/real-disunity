@@ -133,13 +133,13 @@ pub(super) fn model(s: SceneScattering) -> ElevationColumnScattering {
             s.aerosol_height_meters as f32,
         ],
         anisotropy: s.anisotropy_micro as f32 / 1e6,
-        solar_radiance: s.solar_radiance_micro as f32 / 1e6,
+        solar_radiance: (s.solar_radiance_micro as f32 / 1e6) * (s.sky_exposure_micro as f32 / 1e6),
         solar_diameter: s.solar_diameter_microradians as f32 / 1e6,
         peak_radiance: s.peak_radiance_micro as f32 / 1e6,
     }
 }
 #[expect(clippy::cast_precision_loss, reason = "bounded lookup indices")]
-fn pixels(settings: SceneScattering, sun: f32, altitude: f32) -> Vec<u8> {
+pub(super) fn pixels(settings: SceneScattering, sun: f32, altitude: f32) -> Vec<u8> {
     let mut bytes = vec![0; settings.lookup_rows as usize * 256 * 3];
     let model = model(settings);
     for row in 0..settings.lookup_rows {

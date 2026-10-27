@@ -99,6 +99,9 @@ pub struct FrameUniform {
     pub sun_direction: Vec3,
     /// Linear sun radiance, already scaled by irradiance.
     pub sun_irradiance: Vec3,
+    /// Untinted intensity when colour prevents recovering it from radiance.
+    /// Neutral frames retain the original zero-filled lighting option lanes.
+    pub sun_ao_intensity: Option<f32>,
     /// Linear radiance of the upper hemisphere.
     pub ambient_sky: Vec3,
     /// Linear radiance of the lower hemisphere.
@@ -142,7 +145,13 @@ impl FrameUniform {
             },
             direct: DirectionalLight {
                 direction: sun_direction(effects.sun()),
-                radiance: Vec3::splat(micro_to_unit(effects.sun().irradiance_micro)),
+                radiance: Vec3::splat(micro_to_unit(effects.sun().irradiance_micro))
+                    * Vec3::from_array(
+                        effects
+                            .sun_tint()
+                            .channels()
+                            .map(|v| micro_to_unit(u64::from(v))),
+                    ),
             },
             shadow_direction: None,
             ambient: AmbientLight::Hemisphere { sky, ground },
@@ -164,6 +173,8 @@ impl FrameUniform {
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: environment.toward_light,
             sun_irradiance: environment.direct_radiance,
+            sun_ao_intensity: (effects.sun_tint() != worldrunner_render_plan::SceneTint::WHITE)
+                .then(|| micro_to_unit(effects.sun().irradiance_micro)),
             ambient_sky: sky,
             ambient_ground: ground,
             exposure: environment.scene_exposure,
@@ -183,6 +194,7 @@ impl FrameUniform {
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: Vec3::ZERO,
             sun_irradiance: Vec3::ZERO,
+            sun_ao_intensity: None,
             ambient_sky: Vec3::ZERO,
             ambient_ground: Vec3::ZERO,
             exposure: 1.0,
@@ -257,7 +269,10 @@ impl FrameUniform {
             }
             write_f32(bytes, offset, 0.0);
         }
-        for value in [enabled, 0.0, 0.0, 0.0] {
+        let [sun_intensity, tinted] = self
+            .sun_ao_intensity
+            .map_or([0.0, 0.0], |intensity| [intensity, 1.0]);
+        for value in [enabled, sun_intensity, tinted, 0.0] {
             write_f32(bytes, offset, value);
         }
     }

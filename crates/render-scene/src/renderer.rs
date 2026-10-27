@@ -512,15 +512,24 @@ pub(crate) fn celestial_pipelines(
     scene: &ScenePipelines,
     physical: bool,
 ) -> [RenderPipeline; 8] {
-    celestial_specialization(device, scene, physical, [0; 3])
+    celestial_specialization(
+        device,
+        scene,
+        physical,
+        [0; 3],
+        worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
+        false,
+    )
 }
 pub(crate) fn celestial_specialization(
     device: &Device,
     scene: &ScenePipelines,
     physical: bool,
     options: [u32; 3],
+    lighting: worldrunner_render_plan::SceneCelestialLighting,
+    anchored: bool,
 ) -> [RenderPipeline; 8] {
-    let constants = specular_constants(options);
+    let constants = crate::sky::lighting::constants(options, lighting);
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",
         "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
@@ -531,7 +540,16 @@ pub(crate) fn celestial_specialization(
     } else {
         source
     };
-    let source = format!("{source}\n{}", crate::sky::meshes::VERTEX);
+    let source = crate::sky::lighting::source(source, lighting);
+    let vertex = if anchored {
+        crate::sky::meshes::VERTEX.replace(
+            "instance.model_column_3.xyz+frame.camera_position.xyz",
+            "instance.model_column_3.xyz",
+        )
+    } else {
+        crate::sky::meshes::VERTEX.to_owned()
+    };
+    let source = format!("{source}\n{vertex}");
     let module = scene_shader(device, "celestial mesh lighting", &source);
     let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("celestial meshes"),

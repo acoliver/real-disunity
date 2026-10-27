@@ -1,3 +1,18 @@
+fn celestial_mesh(direction: SceneDirection) -> SceneCelestialMesh {
+    SceneCelestialMesh {
+        lighting: SceneCelestialLighting::NEUTRAL,
+        tint: SceneTint::WHITE,
+        anchor_millimeters: None,
+        direction,
+        angular_radius_millidegrees: 500,
+        distance_millimeters: 10_000,
+        model_radius_millimeters: 1_000,
+        rotation: SceneRotation::IDENTITY,
+        mesh: MeshHandle::from_raw(0),
+        material: MaterialHandle::from_raw(0),
+    }
+}
+
 fn dome_effects(initial: &SceneEffects) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
@@ -57,15 +72,7 @@ fn atmospheric_settings_are_prepared_in_generation_order() {
         radiance_micro: [1_000_000; 3],
     });
     let mut mesh = atmosphere;
-    mesh.meshes.push(SceneCelestialMesh {
-        direction: initial.sun().direction,
-        angular_radius_millidegrees: 500,
-        distance_millimeters: 10_000,
-        model_radius_millimeters: 1_000,
-        rotation: SceneRotation::IDENTITY,
-        mesh: MeshHandle::from_raw(0),
-        material: MaterialHandle::from_raw(0),
-    });
+    mesh.meshes.push(celestial_mesh(initial.sun().direction));
     let dome = dome_effects(&initial);
     for effects in [
         base.clone().with_atmosphere(background).unwrap(),

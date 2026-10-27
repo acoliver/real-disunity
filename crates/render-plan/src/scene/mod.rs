@@ -8,6 +8,12 @@
 //! scene cannot exist.
 
 mod atmosphere;
+mod specular_cube;
+pub use specular_cube::SceneSpecularCube;
+mod celestial_lighting;
+pub use celestial_lighting::SceneCelestialLighting;
+mod fog_density;
+pub use fog_density::SceneFogDensity;
 mod scattering;
 pub use atmosphere::{SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, SceneHeightFog};
 pub use scattering::{SceneScattering, SceneScatteringFormat, SceneScatteringModel};

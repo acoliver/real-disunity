@@ -118,8 +118,9 @@ pub mod ui;
 pub mod simulation;
 
 pub use scene::{
-    SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, SceneHeightFog, SceneScattering,
-    SceneScatteringFormat, SceneScatteringModel,
+    SceneAtmosphere, SceneCelestialDisc, SceneCelestialLighting, SceneCelestialMesh,
+    SceneFogDensity, SceneHeightFog, SceneScattering, SceneScatteringFormat, SceneScatteringModel,
+    SceneSpecularCube,
 };
 pub use worldrunner_material::BuiltinMaterial;
 

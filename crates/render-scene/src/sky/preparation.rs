@@ -1,5 +1,6 @@
 //! Bounded environment filtering jobs recorded through the queue's submission authority.
 //! No resource becomes observable until its transaction submits; cancellation drops the work.
+pub mod authored;
 use wgpu::util::DeviceExt;
 use worldrunner_render_gpu::{
     configuration::{AllocationBudget, AllocationSet},
@@ -10,6 +11,23 @@ const SOURCE: &str = concat!(
     worldrunner_render_lighting::lighting_wgsl!(),
     include_str!("preparation.wgsl")
 );
+fn integration_source(intensity: u32) -> std::borrow::Cow<'static, str> {
+    if intensity == 1_000_000 {
+        return SOURCE.into();
+    }
+    let old = "value=vec4(brdf(uv.x,uv.y),0.0,1.0);";
+    assert_eq!(
+        SOURCE.matches(old).count(),
+        1,
+        "environment integration source contract"
+    );
+    let source = SOURCE.replace(
+        old,
+        "value=vec4(brdf(uv.x,uv.y)*PREPARED_SPECULAR_INTENSITY,0.0,1.0);",
+    );
+    format!("{source}\noverride PREPARED_SPECULAR_INTENSITY: f32 = 1.0;\n").into()
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct EnvironmentPreparation {
     pub convention: worldrunner_render_plan::SceneSpecularConvention,
@@ -17,6 +35,8 @@ pub struct EnvironmentPreparation {
     pub mip_count: u32,
     pub lut_size: u32,
     pub samples: u32,
+    /// Scales the split-sum specular coefficients once, independently of diffuse.
+    pub specular_intensity_micro: u32,
 }
 impl EnvironmentPreparation {
     pub fn allocations(self) -> Result<AllocationSet, PreparationError> {
@@ -29,6 +49,7 @@ impl EnvironmentPreparation {
             || self.lut_size > 1024
             || self.samples == 0
             || self.samples > 4096
+            || self.specular_intensity_micro > 64_000_000
         {
             return Err(PreparationError::Settings);
         }
@@ -123,7 +144,7 @@ pub fn encode(
     }
     let cube = texture(device, settings.cube_size, 6, settings.mip_count);
     let lut = texture(device, settings.lut_size, 1, 1);
-    let job = Integration::new(device, source);
+    let job = Integration::new(device, source, settings.specular_intensity_micro);
     for mip in 0..=settings.mip_count {
         job.dispatch(
             encoder,
@@ -150,17 +171,25 @@ struct Integration<'a> {
     sampler: wgpu::Sampler,
 }
 impl<'a> Integration<'a> {
-    fn new(device: &'a wgpu::Device, source: &'a wgpu::TextureView) -> Self {
+    fn new(device: &'a wgpu::Device, source: &'a wgpu::TextureView, intensity: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("environment integration"),
-            source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
+            source: wgpu::ShaderSource::Wgsl(integration_source(intensity)),
         });
+        let constants = if intensity == 1_000_000 {
+            vec![]
+        } else {
+            vec![("PREPARED_SPECULAR_INTENSITY", f64::from(intensity) / 1e6)]
+        };
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("environment integration"),
             layout: None,
             module: &shader,
             entry_point: Some("integrate"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &constants,
+                ..Default::default()
+            },
             cache: None,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {

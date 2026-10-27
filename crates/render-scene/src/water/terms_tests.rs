@@ -13,6 +13,7 @@ fn render(
     samples: u32,
     mip: bool,
 ) -> crate::compositor::FrameRenderer {
+    let disk = body.material.sun_disk.is_some();
     let mut renderer = regressions::renderer(context, samples);
     renderer.install_water(context.device(), body).unwrap();
     install_maps(context, &mut renderer, mip);
@@ -30,6 +31,11 @@ fn render(
     frame.ambient_sky = glam::Vec3::ONE;
     frame.ambient_ground = glam::Vec3::ONE;
     frame.sun_irradiance = glam::Vec3::ZERO;
+    if disk {
+        frame.unlit = false;
+        frame.sun_direction = glam::Vec3::new(0.0, 0.6, 0.8);
+        frame.sun_irradiance = glam::Vec3::ONE;
+    }
     renderer.set_frame_time(2.0).unwrap();
     encode_fixture(context, &mut renderer, (&color, &depth), &frame, 0.5)
         .finish()
@@ -282,35 +288,35 @@ fn noise_oracle(point: [f64; 2]) -> f64 {
 #[test]
 fn finite_disk_selects_closest_direction_with_wgsl_trigonometric_bounds() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    let source = format!(
-        "{}\n{}",
-        equation_source(),
-        r"
+    for radius_micro in [2700, 17_453] {
+        let radius = f64::from(radius_micro) / 1_000_000.0;
+        let source = format!(
+            "{}\n{}",
+            equation_source(),
+            format_args!(
+                r"
 @group(0) @binding(0) var<storage, read_write> output: array<vec4<f32>>;
-@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let angle = array<f32, 5>(0.0, 0.001, 0.01, 1.0, 3.0)[id.x];
+@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
+    let angle = array<f32, 5>(0.0, 0.001, 0.05, 1.0, 3.0)[id.x];
     let ray = normalize(vec3<f32>(sin(angle), 0.0, cos(angle)));
-    output[id.x * 2u] = vec4<f32>(scene_disk_direction(ray, vec3<f32>(0.0, 0.0, 1.0)), 0.0);
-}"
-    );
-    let values = optics_tests::compute(&context, &source);
-    for (i, angle) in [0.0f64, 0.001, 0.01, 1.0, 3.0].into_iter().enumerate() {
-        let selected = angle.min(0.0027);
-        let expected = [selected.sin(), 0.0, selected.cos()];
-        // Trig perturbs the unit input by at most sqrt(2)*2^-11. Normalizing
-        // changes its direction by at most asin(e/(1-e)). The cosine disk test
-        // can select an interior ray up to acos(cos(radius)-2^-11) from center.
-        // Include that boundary uncertainty and normalization of the rim vector.
-        let trig = 2.0f64.powi(-11);
-        let error = 2.0f64.sqrt() * trig;
-        let normalized_angle = (error / (1.0 - error)).asin();
-        let selection_angle = (0.0027f64.cos() - trig).acos() - 0.0027;
-        let bound = normalized_angle
-            + selection_angle
-            + 2.0 * error / (1.0 - error)
-            + 64.0 * f64::from(f32::EPSILON);
-        for (actual, expected) in values[i * 8..i * 8 + 3].iter().zip(expected) {
-            assert!((f64::from(*actual) - expected).abs() <= bound);
+    output[id.x * 2u] = vec4<f32>(scene_disk_direction(ray, vec3<f32>(0.0, 0.0, 1.0), {radius}), 0.0);
+}}"
+            )
+        );
+        let values = optics_tests::compute(&context, &source);
+        for (i, angle) in [0.0f64, 0.001, 0.05, 1.0, 3.0].into_iter().enumerate() {
+            let selected = angle.min(radius);
+            let expected = [selected.sin(), 0.0, selected.cos()];
+            // WGSL sin/cos absolute error is at most 2^-11. Propagate input
+            // normalization and the cosine boundary uncertainty to direction.
+            let trig = 2.0f64.powi(-11);
+            let error = 2.0f64.sqrt() * trig;
+            let bound = (error / (1.0 - error)).asin() + (radius.cos() - trig).acos() - radius
+                + 2.0 * error / (1.0 - error)
+                + 64.0 * f64::from(f32::EPSILON);
+            for (actual, expected) in values[i * 8..i * 8 + 3].iter().zip(expected) {
+                assert!((f64::from(*actual) - expected).abs() <= bound);
+            }
         }
     }
 }
@@ -521,4 +527,92 @@ fn assert_finite_half(bytes: &[u8]) {
             .chunks_exact(2)
             .all(|v| { u16::from_le_bytes(v.try_into().unwrap()) & 0x7c00 != 0x7c00 })
     );
+}
+
+#[test]
+fn default_disk_uniform_and_rendered_bytes_match_fixed_radius() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let mut body = settings();
+    body.material.sun_disk = Some(worldrunner_render_plan::SceneWaterSunDisk::default());
+    let mut expected_uniforms = [0.0f32; 32];
+    expected_uniforms[11] = 1.0;
+    expected_uniforms[12] = 1.0;
+    expected_uniforms[13] = 1.0;
+    assert_eq!(
+        terms::uniforms(&body, 0).map(f32::to_bits),
+        expected_uniforms.map(f32::to_bits)
+    );
+    for samples in [1, 4] {
+        let mut renderer = render(&context, body.clone(), samples, false);
+        draw_water_slot(&context, &renderer, 0);
+        let expected = read(&context, renderer.targets().texture());
+        let fixed = crate::shader::surface_policy_tests::fixed_disk_source(&water_source(false));
+        let water = renderer.water.as_mut().unwrap();
+        let fixed_pipeline = pipeline_with_source(
+            context.device(),
+            samples,
+            &water.layout,
+            false,
+            [0, 0, 0, 32],
+            &fixed,
+        );
+        water
+            .specializations
+            .borrow_mut()
+            .insert([0, 0, 0, 32], [fixed_pipeline.clone(), fixed_pipeline]);
+        draw_water_slot(&context, &renderer, 0);
+        assert_eq!(read(&context, renderer.targets().texture()), expected);
+        let mut dark_body = body.clone();
+        dark_body
+            .material
+            .sun_disk
+            .as_mut()
+            .unwrap()
+            .amplitude_micro = 0;
+        let dark = render(&context, dark_body, samples, false);
+        assert_ne!(read(&context, dark.targets().texture()), expected);
+    }
+    body.material
+        .sun_disk
+        .as_mut()
+        .unwrap()
+        .angular_radius_microradians = 17_453;
+    assert_eq!(
+        terms::uniforms(&body, 0)[14].to_bits(),
+        17_453.0f32.to_bits()
+    );
+}
+
+#[test]
+fn water_call_site_uses_each_bodys_radius() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    for radius in [2700, 17_453] {
+        let mut body = settings();
+        body.material.sun_disk = Some(worldrunner_render_plan::SceneWaterSunDisk {
+            angular_radius_microradians: radius,
+            ..Default::default()
+        });
+        let encoded = terms::uniforms(&body, 0)[14];
+        let source = equation_source().replace(
+            "vec4<f32>(1.0, 1.0, 0.0, 0.0)",
+            &format!("vec4<f32>(1.0, 1.0, {encoded}, 0.0)"),
+        );
+        // Observe selection before BRDF evaluation, preserving the production call site.
+        let start = source.find("    let halfway =").unwrap();
+        let end = start + source[start..].find("\n}").unwrap();
+        let mut source = source;
+        source.replace_range(start..end, "    return selected;");
+        source.push_str(r"
+@group(0) @binding(0) var<storage, read_write> output: array<vec4<f32>>;
+@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+ let view=normalize(vec3<f32>(-0.2,0.0,1.0));
+ output[id.x*2u]=vec4<f32>(water_disk_highlight(vec3<f32>(0.0,0.0,1.0),view,vec3<f32>(0.0,0.0,1.0),vec3<f32>(0.04),0.1,1.0),0.0);
+}");
+        let actual = optics_tests::compute(&context, &source);
+        let radians = f64::from(radius) / 1_000_000.0;
+        // sin/cos each have absolute error <= 2^-11, plus rim normalization.
+        for (value, expected) in actual[..3].iter().zip([radians.sin(), 0.0, radians.cos()]) {
+            assert!((f64::from(*value) - expected).abs() < 4.0 * 2.0f64.powi(-11));
+        }
+    }
 }

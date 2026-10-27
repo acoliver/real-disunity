@@ -83,7 +83,7 @@ pub(crate) struct MeshDraw {
     pub key: crate::pipeline::PipelineKey,
 }
 type PipelineCache =
-    std::cell::RefCell<std::collections::BTreeMap<[u32; 10], [wgpu::RenderPipeline; 8]>>;
+    std::cell::RefCell<std::collections::BTreeMap<[u32; 11], [wgpu::RenderPipeline; 8]>>;
 
 #[derive(Debug)]
 pub(crate) struct Meshes {
@@ -164,11 +164,11 @@ impl Meshes {
     }
     fn selected_pipelines(
         &self,
-        options: [u32; 6],
+        options: [u32; 7],
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
     ) -> [wgpu::RenderPipeline; 8] {
-        if options == [0; 6]
+        if options == [0; 7]
             && lighting == worldrunner_render_plan::SceneCelestialLighting::NEUTRAL
             && !anchored
         {
@@ -182,6 +182,7 @@ impl Meshes {
             options[3],
             options[4],
             options[5],
+            options[6],
             values[0],
             values[1],
             values[2],
@@ -277,7 +278,7 @@ mod tests {
                             context.device(),
                             &scene,
                             (meshes.physical, false, false),
-                            [roughness, visibility, occlusion, 0, 0, 0],
+                            [roughness, visibility, occlusion, 0, 0, 0, 0],
                             worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
                             false,
                         );

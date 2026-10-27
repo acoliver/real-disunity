@@ -33,7 +33,7 @@ fn water_environment_gain(point: vec2<f32>, depth: f32) -> f32 {
 }
 
 fn water_disk_highlight(normal: vec3<f32>, view: vec3<f32>, light: vec3<f32>, f0: vec3<f32>, roughness: f32, visibility: f32) -> vec3<f32> {
-    let selected = scene_disk_direction(reflect(-view, normal), light);
+    let selected = scene_disk_direction(reflect(-view, normal), light, select(0.0027, water.disk.z / 1000000.0, water.disk.z != 0.0));
     let halfway = normalize(view + selected);
     let dots = vec4<f32>(clamp(dot(normal, view), 0.0001, 1.0),
         max(dot(normal, selected), 0.0), max(dot(normal, halfway), 0.0), max(dot(view, halfway), 0.0));

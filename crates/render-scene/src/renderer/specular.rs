@@ -1,7 +1,7 @@
 use super::ScenePipelines;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-pub(crate) fn constants(options: [u32; 6]) -> [(&'static str, f64); 6] {
+pub(crate) fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
     [
         ("SCENE_ROUGHNESS_REMAP", f64::from(options[0])),
         ("SCENE_SPECULAR_VISIBILITY", f64::from(options[1])),
@@ -9,6 +9,14 @@ pub(crate) fn constants(options: [u32; 6]) -> [(&'static str, f64); 6] {
         ("SCENE_DIRECT_DIFFUSE", f64::from(options[3])),
         ("SCENE_DISK_INTENSITY", f64::from(options[4]) / 1_000_000.0),
         ("SCENE_DISK_PEAK", f64::from(options[5]) / 1_000_000.0),
+        (
+            "SCENE_DISK_RADIUS",
+            if options[6] == 0 {
+                0.0027
+            } else {
+                f64::from(options[6]) / 1_000_000.0
+            },
+        ),
     ]
 }
 
@@ -19,8 +27,8 @@ pub(super) struct Specialization {
     terrain: Rc<str>,
     shadow: Option<wgpu::BindGroupLayout>,
     screen: Option<wgpu::BindGroupLayout>,
-    options: [u32; 6],
-    cache: Rc<RefCell<BTreeMap<[u32; 6], ScenePipelines>>>,
+    options: [u32; 7],
+    cache: Rc<RefCell<BTreeMap<[u32; 7], ScenePipelines>>>,
 }
 impl Specialization {
     pub fn new(
@@ -29,7 +37,7 @@ impl Specialization {
         terrain: &str,
         shadow: Option<&wgpu::BindGroupLayout>,
         screen: Option<&wgpu::BindGroupLayout>,
-        options: [u32; 6],
+        options: [u32; 7],
     ) -> Self {
         Self {
             device: device.clone(),
@@ -119,4 +127,30 @@ mod tests {
         }
         assert_eq!(pipelines.specialization.cache.borrow().len(), 11);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn disk_radius_is_part_of_existing_pipeline_cache_key() {
+    use worldrunner_render_plan::{SceneSpecularConvention, SceneSurfaceDisk};
+    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+    let convention = |radius| SceneSpecularConvention {
+        surface_disk: Some(
+            SceneSurfaceDisk::new(1_000_000, 1_000_000)
+                .unwrap()
+                .with_angular_radius_microradians(radius)
+                .unwrap(),
+        ),
+        ..Default::default()
+    };
+    let key = crate::pipeline::PipelineKey::ALL[0];
+    let default = pipelines.for_convention(convention(2700));
+    let wide = pipelines.for_convention(convention(17_453));
+    assert_ne!(default.get(key), wide.get(key));
+    assert_eq!(
+        wide.get(key),
+        pipelines.for_convention(convention(17_453)).get(key)
+    );
+    assert_eq!(pipelines.specialization.cache.borrow().len(), 2);
 }

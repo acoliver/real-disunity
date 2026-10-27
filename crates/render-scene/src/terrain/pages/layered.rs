@@ -19,6 +19,12 @@ pub enum LayeredError {
     Source,
     #[error("reference sampling requires explicit compatible texels")]
     Texture,
+    #[error("layered texture {texture} declares {declared} mips, expected one or {expected}")]
+    IncompleteMipChain {
+        texture: u32,
+        declared: u32,
+        expected: u32,
+    },
     #[error("layer sample is nonfinite, outside its domain, or has an invalid normal")]
     Sample,
     #[error("no layer contributes coverage")]
@@ -163,12 +169,23 @@ impl<'a> LayeredReference<'a> {
         Ok(reference)
     }
 
+    pub fn sample(&self, world_meters: [f32; 2]) -> Result<LayeredTexel, LayeredError> {
+        self.sample_with_footprint(world_meters, [0.0; 2])
+    }
+
     #[expect(
         clippy::cast_precision_loss,
         reason = "reference intentionally uses the shader f32 coordinate and parameter precision"
     )]
-    pub fn sample(&self, world_meters: [f32; 2]) -> Result<LayeredTexel, LayeredError> {
-        if !world_meters.iter().all(|x| x.is_finite()) {
+    /// Samples an axis-aligned world-space texel footprint in meters.
+    pub fn sample_with_footprint(
+        &self,
+        world_meters: [f32; 2],
+        footprint: [f32; 2],
+    ) -> Result<LayeredTexel, LayeredError> {
+        if !world_meters.iter().chain(&footprint).all(|x| x.is_finite())
+            || footprint.iter().any(|x| *x < 0.0)
+        {
             return Err(LayeredError::Sample);
         }
         let mut samples = Vec::with_capacity(self.terrain.surfaces().len());
@@ -191,9 +208,17 @@ impl<'a> LayeredReference<'a> {
                     + layer.offset_millimeters[1] as f32 * 0.001)
                     / (layer.repeat_millimeters as f32 * 0.001),
             ];
-            let color = self.texture(layer.albedo_metallic, uv, true)?;
-            let normal = self.texture(layer.normal_roughness, uv, true)?;
-            let height = self.texture(layer.height, uv, true)?[0];
+            let repeat = layer.repeat_millimeters as f32 * 0.001;
+            let derivatives = [
+                [footprint[0] * cosine / repeat, footprint[0] * sine / repeat],
+                [
+                    -footprint[1] * sine / repeat,
+                    footprint[1] * cosine / repeat,
+                ],
+            ];
+            let color = self.texture_filtered(layer.albedo_metallic, uv, derivatives)?;
+            let normal = self.texture_filtered(layer.normal_roughness, uv, derivatives)?;
+            let height = self.texture_filtered(layer.height, uv, derivatives)?[0];
             samples.push(HeightLayerSample {
                 albedo: std::array::from_fn(|axis| {
                     color[axis] * f32::from(appearance.tint_percent[axis]) / 100.0
@@ -213,15 +238,7 @@ impl<'a> LayeredReference<'a> {
                     / (map.extent_millimeters[axis] as f32 * 0.001)
             });
             let color = self.texture(map.texture, uv, false)?;
-            tint = match map.channels {
-                TerrainColorizationChannels::Rgb => [color[0], color[1], color[2]],
-                TerrainColorizationChannels::Grayscale => [color[0]; 3],
-                TerrainColorizationChannels::BgrRoughness => {
-                    roughness = (color[3] - 0.5) * 2.0;
-                    [color[2], color[1], color[0]]
-                }
-            }
-            .map(|value| value * (255.0 / 200.0));
+            (tint, roughness) = colorization_values(map.channels, color);
         }
         compose_height_layers(&samples, self.source.filter, tint, roughness)
     }
@@ -238,6 +255,14 @@ impl<'a> LayeredReference<'a> {
     ) -> Result<Vec<LayeredTexel>, LayeredError> {
         let extent = settings.extent();
         let mut output = Vec::new();
+        let footprint = [self.terrain.columns() - 1, self.terrain.rows() - 1].map(|samples| {
+            f64::from(samples) * f64::from(self.terrain.sample_spacing_millimeters()) * 0.001
+        });
+        let footprint = std::array::from_fn(|axis| {
+            (footprint[axis]
+                / f64::from(settings.parts().interior[axis])
+                / f64::from(1_u32 << key.depth())) as f32
+        });
         for y in 0..extent[1] {
             for x in 0..extent[0] {
                 let uv = super::composition::source_uv(settings, key, [x, y]);
@@ -253,7 +278,7 @@ impl<'a> LayeredReference<'a> {
                             * f64::from(self.terrain.sample_spacing_millimeters())
                             * 0.001,
                 ];
-                output.push(self.sample(world.map(|x| x as f32))?);
+                output.push(self.sample_with_footprint(world.map(|x| x as f32), footprint)?);
             }
         }
         Ok(output)
@@ -287,4 +312,15 @@ fn decode_normal(
             .sqrt();
     }
     direction
+}
+
+fn colorization_values(channels: TerrainColorizationChannels, color: [f32; 4]) -> ([f32; 3], f32) {
+    let (tint, roughness) = match channels {
+        TerrainColorizationChannels::Rgb => ([color[0], color[1], color[2]], 0.0),
+        TerrainColorizationChannels::Grayscale => ([color[0]; 3], 0.0),
+        TerrainColorizationChannels::BgrRoughness => {
+            ([color[2], color[1], color[0]], (color[3] - 0.5) * 2.0)
+        }
+    };
+    (tint.map(|value| value * (255.0 / 200.0)), roughness)
 }

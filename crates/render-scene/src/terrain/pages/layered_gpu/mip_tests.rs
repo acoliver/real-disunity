@@ -30,7 +30,7 @@ fn odd_pages_and_gutters_match_direct_gpu_samples_with_height_mips() {
     for coordinate in [[0, 0], [1, 0]] {
         let key = PageKey::new(1, coordinate).unwrap();
         let positions = source.page_positions(settings, key);
-        let direct = execute(&context, &source, &positions);
+        let direct = execute(&context, &source, &positions.0);
         let mut frame = authority.begin(device).unwrap();
         let pending = cache.reserve(&frame, key).unwrap();
         let slot = pending.slot();
@@ -71,7 +71,7 @@ fn assert_gutters(bases: &[Vec<[u8; 9]>]) {
         assert_eq!(bases[0][y * 5 + 3], bases[1][y * 5]);
     }
 }
-fn copy(
+pub(super) fn copy(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     cache: &ResidentPages,
@@ -112,7 +112,11 @@ fn copy(
     );
     buffer
 }
-fn unpack(device: &wgpu::Device, buffer: &wgpu::Buffer, [width, height]: [u32; 2]) -> Vec<[u8; 9]> {
+pub(super) fn unpack(
+    device: &wgpu::Device,
+    buffer: &wgpu::Buffer,
+    [width, height]: [u32; 2],
+) -> Vec<[u8; 9]> {
     let bytes = read(device, buffer);
     let row = (width * 4).div_ceil(256) * 256;
     (0..width * height)

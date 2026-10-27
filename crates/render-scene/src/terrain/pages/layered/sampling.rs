@@ -24,10 +24,65 @@ impl LayeredReference<'_> {
         while let SceneTexture::Sampled { texture: inner, .. } = texture {
             texture = inner;
         }
-        if !matches!(texture, SceneTexture::Texels { .. }) {
+        let SceneTexture::Texels {
+            width,
+            height,
+            mips,
+            ..
+        } = texture
+        else {
             return Err(LayeredError::Texture);
+        };
+        let expected = u32::BITS - width.max(height).leading_zeros();
+        if *mips != 1 && *mips != expected {
+            return Err(LayeredError::IncompleteMipChain {
+                texture: handle.raw(),
+                declared: *mips,
+                expected,
+            });
         }
         Ok(texture)
+    }
+
+    pub(super) fn texture(
+        &self,
+        handle: TextureHandle,
+        uv: [f32; 2],
+        repeat: bool,
+    ) -> Result<[f32; 4], LayeredError> {
+        self.texture_level(handle, uv, repeat, 0)
+    }
+
+    pub(super) fn texture_filtered(
+        &self,
+        handle: TextureHandle,
+        uv: [f32; 2],
+        derivatives: [[f32; 2]; 2],
+    ) -> Result<[f32; 4], LayeredError> {
+        let SceneTexture::Texels {
+            width,
+            height,
+            mips,
+            ..
+        } = self.texels(handle)?
+        else {
+            unreachable!()
+        };
+        if *mips == 1 {
+            return self.texture(handle, uv, true);
+        }
+        let dimensions = glam::UVec2::new(*width, *height).as_vec2();
+        let footprint = derivatives.map(|d| (glam::Vec2::from_array(d) * dimensions).length());
+        let maximum = f32::from(u16::try_from(*mips - 1).expect("validated mip count"));
+        let lod = footprint[0].max(footprint[1]).max(1.0).log2().min(maximum);
+        let lower = (0..*mips)
+            .rfind(|level| f64::from(*level) <= f64::from(lod))
+            .unwrap();
+        let a = self.texture_level(handle, uv, true, lower)?;
+        let b = self.texture_level(handle, uv, true, (lower + 1).min(*mips - 1))?;
+        Ok(std::array::from_fn(|axis| {
+            a[axis] + (b[axis] - a[axis]) * lod.fract()
+        }))
     }
 
     #[expect(
@@ -35,11 +90,12 @@ impl LayeredReference<'_> {
         clippy::cast_possible_truncation,
         reason = "reference uses GPU f32 coordinate precision and floored integer texel positions"
     )]
-    pub(super) fn texture(
+    fn texture_level(
         &self,
         handle: TextureHandle,
         uv: [f32; 2],
         repeat: bool,
+        level: u32,
     ) -> Result<[f32; 4], LayeredError> {
         let SceneTexture::Texels {
             format,
@@ -52,11 +108,17 @@ impl LayeredReference<'_> {
         else {
             unreachable!()
         };
+        let channels = usize::try_from(format.bytes_per_texel()).expect("texture channels");
+        let offset: usize = (0..level)
+            .map(|mip| {
+                ((*width >> mip).max(1) as usize) * ((*height >> mip).max(1) as usize) * channels
+            })
+            .sum();
         let image = Image {
             format: *format,
             color_space: *color_space,
-            dimensions: [*width, *height],
-            bytes,
+            dimensions: [(*width >> level).max(1), (*height >> level).max(1)],
+            bytes: &bytes[offset..],
         };
         let position: [f32; 2] = std::array::from_fn(|axis| {
             let coordinate = if repeat {

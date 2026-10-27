@@ -203,7 +203,7 @@ fn layered_pages_publish_three_products_and_evict_atomically() {
     device
         .poll(wgpu::PollType::Wait {
             submission_index: Some(serial),
-            timeout: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
         })
         .unwrap();
     let resident = cache.lookup(PageKey::ROOT, 0).unwrap();
@@ -235,7 +235,7 @@ fn layered_admission_includes_height_inputs_and_upload_staging() {
     )
     .unwrap();
     let base = u64::from(settings.extent()[0]) * u64::from(settings.extent()[1]);
-    let expected = settings.page_bytes() * 3 + (base * 24 + source.input_bytes()) * 4;
+    let expected = settings.page_bytes() * 3 + (base * 24 + 8 + source.input_bytes()) * 4;
     assert_eq!(cache.allocation_bytes(device).unwrap(), expected);
     assert!(
         ResidentPages::new_layered(
@@ -264,7 +264,7 @@ fn layered_admission_includes_height_inputs_and_upload_staging() {
     device
         .poll(wgpu::PollType::Wait {
             submission_index: Some(serial),
-            timeout: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
         })
         .unwrap();
     assert!(cache.lookup(PageKey::ROOT, 0).is_some());

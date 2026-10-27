@@ -41,7 +41,7 @@ fn layered_source(source: &str) -> String {
         .replace("@group(0) @binding(0)", "@group(1) @binding(8)")
         .replace("@group(0) @binding(1)", "@group(1) @binding(9)")
         .replace("@group(0) @binding(2)", "@group(1) @binding(10)");
-    let source = source.replace("    var accumulator: BlendAccumulator;", "    if terrain.dimensions_and_count.w != 0u {\n        let sample = compose_layered(world_xy);\n        return BlendedSurface(clamp(sample.albedo, vec3<f32>(0.0), vec3<f32>(1.0)), sample.normal, clamp(sample.roughness, 0.0, 1.0), clamp(sample.metallic, 0.0, 1.0));\n    }\n    var accumulator: BlendAccumulator;");
+    let source = source.replace("    var accumulator: BlendAccumulator;", "    if terrain.dimensions_and_count.w != 0u {\n        let sample = compose_layered(world_xy, world_xy_dx, world_xy_dy);\n        return BlendedSurface(clamp(sample.albedo, vec3<f32>(0.0), vec3<f32>(1.0)), sample.normal, clamp(sample.roughness, 0.0, 1.0), clamp(sample.metallic, 0.0, 1.0));\n    }\n    var accumulator: BlendAccumulator;");
     format!("{source}\n{shared}")
 }
 

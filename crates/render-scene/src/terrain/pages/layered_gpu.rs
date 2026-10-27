@@ -6,6 +6,8 @@ mod admission_tests;
 mod mip_tests;
 mod scratch;
 mod source;
+#[cfg(test)]
+mod source_mip_tests;
 pub use admission::LayeredGpuError;
 pub(crate) use admission::supported;
 pub(crate) use scratch::LayeredScratch;
@@ -67,7 +69,7 @@ impl LayeredGpuSource {
         (self.parameters.len() + self.texels.len() + self.images.len()) as u64
     }
 
-    /// CPU metadata consists only of sample positions; all filtering and material
+    /// CPU metadata consists only of sample positions and their footprint; all filtering and material
     /// composition run in WGSL. The writer publishes all three products together.
     pub fn encode_page(
         &self,
@@ -83,7 +85,8 @@ impl LayeredGpuSource {
         }
         let positions = self.page_positions(cache.settings(), pending.key());
         let mut registry = ResourceRegistry::default();
-        let (output, producers) = self.operations(device, &mut registry, &positions)?;
+        let (output, producers) =
+            self.operations_for(device, &mut registry, (&positions.0, positions.1))?;
         PageWriter::new_layered(device, cache.settings()).encode_prepared(
             device,
             encoder,
@@ -101,9 +104,13 @@ impl LayeredGpuSource {
         clippy::cast_possible_truncation,
         reason = "page centers match the CPU reference f32 conversion"
     )]
-    fn page_positions(&self, settings: TerrainPageSettings, key: PageKey) -> Vec<[f32; 2]> {
+    fn page_positions(
+        &self,
+        settings: TerrainPageSettings,
+        key: PageKey,
+    ) -> (Vec<[f32; 2]>, [f32; 2]) {
         let [w, h] = settings.extent();
-        (0..h)
+        let positions = (0..h)
             .flat_map(|y| {
                 (0..w).map(move |x| {
                     let uv = super::composition::source_uv(settings, key, [x, y]);
@@ -113,7 +120,13 @@ impl LayeredGpuSource {
                     ]
                 })
             })
-            .collect()
+            .collect();
+        let footprint = std::array::from_fn(|axis| {
+            (self.bounds[axis + 2]
+                / f64::from(settings.parts().interior[axis])
+                / f64::from(1_u32 << key.depth())) as f32
+        });
+        (positions, footprint)
     }
 
     pub fn operations(
@@ -122,13 +135,23 @@ impl LayeredGpuSource {
         registry: &mut ResourceRegistry,
         positions: &[[f32; 2]],
     ) -> Result<(BufferView, Vec<TypedOperation>), LayeredGpuError> {
+        self.operations_for(device, registry, (positions, [0.0; 2]))
+    }
+
+    fn operations_for(
+        &self,
+        device: &wgpu::Device,
+        registry: &mut ResourceRegistry,
+        samples: (&[[f32; 2]], [f32; 2]),
+    ) -> Result<(BufferView, Vec<TypedOperation>), LayeredGpuError> {
+        let positions = samples.0;
         self.validate_positions(device, positions.len() as u64)?;
         assert!(!positions.is_empty() && positions.iter().flatten().all(|v| v.is_finite()));
         let mut views = Vec::new();
         for size in self.buffer_sizes(positions.len() as u64) {
             views.push(allocate(device, registry, size)?);
         }
-        Ok(self.operations_in(device, registry, positions, &views)?)
+        Ok(self.operations_in(device, registry, samples, &views)?)
     }
 
     fn buffer_sizes(&self, count: u64) -> [u64; 5] {
@@ -136,7 +159,7 @@ impl LayeredGpuSource {
             self.parameters.len() as u64,
             self.texels.len() as u64,
             self.images.len() as u64,
-            count * 8,
+            count * 8 + 8,
             count * 16,
         ]
     }
@@ -145,12 +168,13 @@ impl LayeredGpuSource {
         &self,
         device: &wgpu::Device,
         registry: &ResourceRegistry,
-        positions: &[[f32; 2]],
+        samples: (&[[f32; 2]], [f32; 2]),
         views: &[BufferView],
     ) -> Result<(BufferView, Vec<TypedOperation>), ContractError> {
-        let position_bytes: Vec<_> = positions
+        let (positions, footprint) = samples;
+        let position_bytes: Vec<_> = footprint
             .iter()
-            .flatten()
+            .chain(positions.iter().flatten())
             .flat_map(|v| v.to_le_bytes())
             .collect();
         let mut operations = self.uploads(&position_bytes, views);

@@ -67,7 +67,7 @@ impl LayeredGpuSource {
     ) -> Result<(), LayeredGpuError> {
         self.validate_device(device)?;
         let limits = device.limits();
-        buffer_size(&limits, "positions", count * 8)?;
+        buffer_size(&limits, "positions", count * 8 + 8)?;
         buffer_size(&limits, "products", count * 16)?;
         Ok(())
     }

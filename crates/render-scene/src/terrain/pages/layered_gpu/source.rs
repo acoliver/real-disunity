@@ -173,26 +173,24 @@ fn image(result: &mut LayeredGpuSource, mut texture: &SceneTexture) -> Result<()
         width,
         height,
         bytes,
-        ..
+        mips,
     } = texture
     else {
         return Err(LayeredError::Texture);
     };
     let offset = u32::try_from(result.texels.len() / 4).map_err(|_| LayeredError::Texture)?;
+    // Keep one descriptor per resource by packing the mip range above the transfer bit.
     words(
         &mut result.images,
         [
             *width,
             *height,
             offset,
-            u32::from(*color_space == TextureColorSpace::Srgb),
+            ((*mips - 1) << 1) | u32::from(*color_space == TextureColorSpace::Srgb),
         ],
     );
     let channels = usize::try_from(format.bytes_per_texel()).map_err(|_| LayeredError::Texture)?;
-    for pixel in bytes
-        .chunks_exact(channels)
-        .take((*width as usize) * (*height as usize))
-    {
+    for pixel in bytes.chunks_exact(channels) {
         let mut rgba = [0, 0, 0, 255];
         rgba[..channels].copy_from_slice(pixel);
         if *format == TexelFormat::Bgra8Unorm {

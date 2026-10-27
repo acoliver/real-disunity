@@ -74,7 +74,9 @@ pub(super) fn depth_pipelines(
         &buffers,
         settings,
     );
-    let objects = PipelineKey::ALL.map(|key| {
+    // Relief is deliberately flat in directional maps, so its pipelines are identical.
+    let objects: [_; 4] = std::array::from_fn(|index| {
+        let key = PipelineKey::ALL[index];
         worldrunner_render_shadow::create_depth_pipeline(
             device,
             DepthPipelineDescriptor {
@@ -104,7 +106,10 @@ pub(super) fn depth_pipelines(
             },
         )
     });
-    (objects, terrain)
+    (
+        std::array::from_fn(|index| objects[index % 4].clone()),
+        terrain,
+    )
 }
 
 fn terrain_depth_pipeline(

@@ -26,10 +26,8 @@ pub struct PipelineKey {
 impl PipelineKey {
     /// Every pipeline this renderer can require, in a stable order.
     ///
-    /// The set is closed and tiny, so pipelines can be built once up front
-    /// rather than created lazily on first use. Building them eagerly means a
-    /// shader compilation failure surfaces at startup rather than as a stall
-    /// the first time the camera turns toward an unusual material.
+    /// The stable indices address the shared material-variant cache. Variants
+    /// compile on first use so unused relief shaders do not delay ordinary scenes.
     pub const ALL: [Self; 8] = [
         Self {
             masked: false,

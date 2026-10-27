@@ -497,7 +497,7 @@ impl SceneGpu {
         &self,
         pass: &mut RenderPass<'_>,
         frame_group: &BindGroup,
-        pipelines: &[wgpu::RenderPipeline; 8],
+        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
         shadow_matrix: Option<(u32, glam::Mat4)>,
     ) -> SelectionPublication {
         assert!(

@@ -217,6 +217,10 @@ impl GameScripts {
         &self.budget
     }
 
+    pub(crate) fn natives(&self) -> &BTreeMap<String, Function> {
+        &self.natives
+    }
+
     fn environment(&self, source: &str) -> Result<Table, ScriptError> {
         self.sources
             .get(source)
@@ -237,7 +241,7 @@ impl GameScripts {
 }
 
 /// The identifiers of a dotted path, each a Lua name.
-fn segments(path: &str) -> Result<Vec<String>, ScriptError> {
+pub(crate) fn segments(path: &str) -> Result<Vec<String>, ScriptError> {
     let names: Vec<String> = path.split('.').map(str::to_owned).collect();
     let valid = names.iter().all(|name| {
         let mut bytes = name.bytes();
@@ -312,7 +316,7 @@ fn forwarding(lua: &Lua, path: Vec<String>, natives: Table) -> Result<Table, Scr
 }
 
 /// The value at `path` in the shared namespace, or nil where the path stops.
-fn lookup(lua: &Lua, path: &[String]) -> mlua::Result<Value> {
+pub(crate) fn lookup(lua: &Lua, path: &[String]) -> mlua::Result<Value> {
     let mut value = Value::Table(lua.globals());
     for name in path {
         value = match value {

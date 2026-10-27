@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
     import_scene, input_axes, plan_scene,
-    player_objects::decode_census,
+    player_objects::{OpenFile, decode_census, describe_object},
     player_scene::{SceneNode, read_scene_hierarchy},
     read_player,
 };
@@ -20,7 +20,8 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import components <project> <scene path>
        unity-import player <player data directory>
        unity-import player-decode <player data directory>
-       unity-import player-scene <player data directory> <scene file>";
+       unity-import player-scene <player data directory> <scene file>
+       unity-import player-object <serialized file> <path ID>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -39,6 +40,11 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         [command, project] if command == "axes" => axes(Path::new(project)),
         [command, data] if command == "player" => player(Path::new(data)),
         [command, data] if command == "player-decode" => player_decode(Path::new(data)),
+        [command, file, path_id] if command == "player-object" => {
+            let mut open = OpenFile::open(Path::new(file))?;
+            println!("{}", describe_object(&mut open, path_id.parse()?)?);
+            Ok(())
+        }
         [command, data, scene] if command == "player-scene" => {
             for root in read_scene_hierarchy(Path::new(data), scene)? {
                 print_node(&root, 0);

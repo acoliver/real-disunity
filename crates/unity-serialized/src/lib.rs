@@ -15,6 +15,7 @@ pub mod classes;
 mod cursor;
 mod error;
 mod file;
+pub mod graphics;
 mod header;
 pub mod object;
 mod type_tree;

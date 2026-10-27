@@ -198,6 +198,54 @@ impl<'a> ObjectReader<'a> {
         items
     }
 
+    /// # Errors
+    /// Fails when the data ends early.
+    pub fn i16(&mut self) -> Result<i16, SerializedError> {
+        self.cursor.i16()
+    }
+
+    /// # Errors
+    /// Fails when the data ends early.
+    pub fn u64(&mut self) -> Result<u64, SerializedError> {
+        self.cursor.u64()
+    }
+
+    /// A length-prefixed array padded to four bytes, each element read by `read`.
+    /// `min_entry` is the fewest bytes one element can take, which bounds the count.
+    ///
+    /// # Errors
+    /// Fails when the count does not fit, or an element fails to read.
+    pub fn array<T>(
+        &mut self,
+        what: &'static str,
+        min_entry: usize,
+        mut read: impl FnMut(&mut Self) -> Result<T, SerializedError>,
+    ) -> Result<Vec<T>, SerializedError> {
+        let count = self.cursor.count(what, min_entry)?;
+        let mut items = Vec::with_capacity(count);
+        for _ in 0..count {
+            items.push(read(self)?);
+        }
+        self.align()?;
+        Ok(items)
+    }
+
+    /// A length-prefixed byte array padded to four bytes. Returns its range in the object,
+    /// so large payloads such as image data are not copied.
+    ///
+    /// # Errors
+    /// Fails when the length does not fit in the object.
+    pub fn byte_range(
+        &mut self,
+        what: &'static str,
+    ) -> Result<std::ops::Range<usize>, SerializedError> {
+        let len = self.cursor.count(what, 1)?;
+        let start = self.position();
+        self.cursor.take(len)?;
+        self.align()?;
+        Ok(start..start + len)
+    }
+
     /// Consumes the rest of the object and returns its range, for data a later stage decodes.
     ///
     /// # Errors

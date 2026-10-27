@@ -201,7 +201,7 @@ pub struct SceneGpu {
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
     pub(crate) water: Vec<worldrunner_render_plan::SceneWaterBody>,
-    pub(crate) water_inputs: Vec<[Option<TextureView>; 2]>,
+    pub(crate) water_inputs: Vec<[Option<TextureView>; 3]>,
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,

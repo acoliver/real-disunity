@@ -30,5 +30,9 @@ pub(super) fn uniforms(body: &SceneWaterBody) -> [f32; 28] {
         data[12] = super::number(i64::from(bound));
         data[13] = 1.0;
     }
+    if let Some(amplitude) = body.material.screen_refraction_micro {
+        data[14] = scalar(amplitude);
+        data[15] = 1.0;
+    }
     data
 }

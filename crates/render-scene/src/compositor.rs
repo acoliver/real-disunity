@@ -237,7 +237,7 @@ impl FrameRenderer {
         Ok(())
     }
 
-    pub(crate) fn bind_water_inputs(&mut self, inputs: &[[Option<wgpu::TextureView>; 2]]) {
+    pub(crate) fn bind_water_inputs(&mut self, inputs: &[[Option<wgpu::TextureView>; 3]]) {
         if let Some(water) = &mut self.water {
             water.surface_inputs = inputs.to_vec();
         }

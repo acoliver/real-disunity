@@ -5,9 +5,13 @@ use worldrunner_render_plan::RenderScene;
 pub(crate) fn validate(scene: &RenderScene) -> Result<(), DrawError> {
     if let Some(effects) = scene.effects() {
         for body in effects.water_bodies() {
-            for handle in [body.material.normal, body.material.flow]
-                .into_iter()
-                .flatten()
+            for handle in [
+                body.material.normal,
+                body.material.flow,
+                body.material.wind.map(|wind| wind.field.texture()),
+            ]
+            .into_iter()
+            .flatten()
             {
                 let index = usize::try_from(handle.raw()).expect("validated texture handle");
                 let prepared =
@@ -31,10 +35,10 @@ pub(crate) fn validate(scene: &RenderScene) -> Result<(), DrawError> {
     Ok(())
 }
 
-pub(super) fn entries() -> [wgpu::BindGroupLayoutEntry; 3] {
+pub(super) fn entries() -> [wgpu::BindGroupLayoutEntry; 4] {
     let texture = |binding| wgpu::BindGroupLayoutEntry {
         binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
         ty: wgpu::BindingType::Texture {
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
             view_dimension: wgpu::TextureViewDimension::D2,
@@ -45,9 +49,10 @@ pub(super) fn entries() -> [wgpu::BindGroupLayoutEntry; 3] {
     [
         texture(7),
         texture(8),
+        texture(10),
         wgpu::BindGroupLayoutEntry {
             binding: 9,
-            visibility: wgpu::ShaderStages::FRAGMENT,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
@@ -57,13 +62,18 @@ pub(super) fn entries() -> [wgpu::BindGroupLayoutEntry; 3] {
 pub(crate) fn inputs(
     scene: &RenderScene,
     views: &[wgpu::TextureView],
-) -> Vec<[Option<wgpu::TextureView>; 2]> {
+) -> Vec<[Option<wgpu::TextureView>; 3]> {
     scene.effects().map_or_else(Vec::new, |effects| {
         effects
             .water_bodies()
             .iter()
             .map(|body| {
-                [body.material.normal, body.material.flow].map(|handle| {
+                [
+                    body.material.normal,
+                    body.material.flow,
+                    body.material.wind.map(|wind| wind.field.texture()),
+                ]
+                .map(|handle| {
                     handle.map(|handle| {
                         views[usize::try_from(handle.raw()).expect("validated handle")].clone()
                     })
@@ -78,6 +88,7 @@ pub(super) fn sampler(device: &wgpu::Device) -> wgpu::Sampler {
         address_mode_v: wgpu::AddressMode::Repeat,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..Default::default()
     })
 }
@@ -91,10 +102,14 @@ pub(crate) fn validate_inputs(
     water: &super::Water,
 ) -> Result<(), worldrunner_render_post::FrameError> {
     for (body, inputs) in water.settings.iter().zip(&water.surface_inputs) {
-        if [body.material.normal, body.material.flow]
-            .iter()
-            .zip(inputs)
-            .any(|(handle, view)| handle.is_some() && view.is_none())
+        if [
+            body.material.normal,
+            body.material.flow,
+            body.material.wind.map(|wind| wind.field.texture()),
+        ]
+        .iter()
+        .zip(inputs)
+        .any(|(handle, view)| handle.is_some() && view.is_none())
         {
             return Err(worldrunner_render_post::FrameError::WaterSettings(
                 "authored water inputs require a resident scene upload",

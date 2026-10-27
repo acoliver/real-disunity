@@ -29,10 +29,7 @@ fn renderer(
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
     let encoder = encode_fixture(context, &mut renderer, (&color, &depth), &frame, 0.25);
     encoder.finish().submit().unwrap();
-    context
-        .device()
-        .poll(wgpu::PollType::wait_indefinitely())
-        .unwrap();
+    wait(context.device());
     renderer
 }
 
@@ -152,20 +149,65 @@ fn disabled_optical_controls_are_byte_identical_to_stock_shader_at_1x_and_4x() {
     for samples in [1, 4] {
         let mut renderer = renderer(&context, samples, settings());
         let expected = read(&context, renderer.targets().texture());
-        let source = water_source(false).replace(
-            include_str!("water.wgsl"),
-            include_str!("stock_reference.wgsl"),
-        );
+        let receivers = receiver_bytes(&context, &renderer, samples);
+        assert_default_uniform_bytes();
+        let source = water_source(false)
+            .replace(
+                include_str!("water.wgsl"),
+                include_str!("stock_reference.wgsl"),
+            )
+            .replace(include_str!("terms.wgsl"), "");
         let water = renderer.water.as_mut().unwrap();
         water.pipeline = pipeline_with_source(
             context.device(),
             samples,
             &water.layout,
             false,
-            [0; 3],
+            [0; 4],
             &source,
         );
         draw_water_only(&context, &renderer);
         assert_eq!(read(&context, renderer.targets().texture()), expected);
+        assert_eq!(receiver_bytes(&context, &renderer, samples), receivers);
     }
+}
+
+fn receiver_bytes(
+    context: &GpuContext,
+    renderer: &crate::compositor::FrameRenderer,
+    samples: u32,
+) -> Vec<Vec<u8>> {
+    (0..samples)
+        .flat_map(|sample| {
+            renderer.water.as_ref().unwrap().receivers[1]
+                .iter()
+                .map(move |receiver| {
+                    lighting_tests::environment_tests::sample_read(context, receiver, sample)
+                })
+        })
+        .collect()
+}
+
+fn assert_default_uniform_bytes() {
+    let frame = FrameUniform::new(&fixture_view(), None).unwrap();
+    let data = uniform_data(&frame, 0.0, &settings());
+    let bytes: Vec<_> = data.into_iter().flat_map(f32::to_le_bytes).collect();
+    let mut stock = Vec::new();
+    for matrix in [
+        frame.view_projection,
+        frame.view,
+        frame.view_projection.inverse(),
+    ] {
+        stock.extend(matrix.to_cols_array());
+    }
+    stock.extend([
+        -10.0, -10.0, 0.0, 0.0, 20.0, 20.0, 0.0, 0.0, 0.05, 0.2, 0.25, 0.2, 0.3, 0.1, 0.05, 0.0,
+    ]);
+    stock.extend([0.0; 12]);
+    stock.extend([1.0, 1.0, 0.0, 0.0]);
+    stock.extend([0.0; 28]);
+    let stock: Vec<_> = stock.into_iter().flat_map(f32::to_le_bytes).collect();
+    assert_eq!(stock.len(), 432);
+    assert_eq!(&bytes[..432], stock);
+    assert_eq!(&bytes[432..], &[0; 128]);
 }

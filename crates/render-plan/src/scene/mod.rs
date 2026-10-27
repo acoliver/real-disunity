@@ -27,9 +27,13 @@ pub use obscurance::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel};
 mod water;
 mod water_optics;
 mod water_settings;
+mod water_terms;
 pub use water::{SceneWaterBody, SceneWaterSurface};
 pub use water_optics::{SceneWaterOptics, SceneWaterShoreline, SceneWaterTint};
 pub use water_settings::SceneWaterSettings;
+pub use water_terms::{
+    SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterSunDisk, SceneWaterWind,
+};
 mod bloom;
 mod exposure;
 mod post;

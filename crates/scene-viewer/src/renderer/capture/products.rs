@@ -1,19 +1,82 @@
 use super::super::live::Capture;
 use crate::{CaptureOutput, RetainedCaptureProducts, ViewerError};
 use worldrunner_render_post::{FrameConfig, Readback, contracts::AsyncReadback};
-use worldrunner_render_scene::{Viewport, offscreen::LinearRgbaImage};
+use worldrunner_render_scene::{
+    Viewport,
+    compositor::{ConfiguredFrameRenderer, FeatureTarget},
+    offscreen::{LinearRgbaImage, ScalarImage},
+};
 
 pub(in crate::renderer) struct Products {
     pub display: Option<Capture>,
-    linear: Option<Linear>,
-    srgb8: Option<worldrunner_render_scene::offscreen::RgbaImage>,
-    linear_hdr: Option<LinearRgbaImage>,
+    native: Vec<Native>,
+    completed: RetainedCaptureProducts,
 }
-struct Linear {
+struct Native {
+    output: CaptureOutput,
+    texture: wgpu::Texture,
     readback: Readback,
     mapping: Option<AsyncReadback>,
-    viewport: Viewport,
-    format: wgpu::TextureFormat,
+    done: bool,
+}
+impl Native {
+    fn new(
+        device: &wgpu::Device,
+        texture: &wgpu::Texture,
+        output: CaptureOutput,
+    ) -> Result<Self, ViewerError> {
+        Ok(Self {
+            output,
+            texture: texture.clone(),
+            readback: Readback::new(
+                device,
+                FrameConfig::new([texture.width(), texture.height()], texture.format(), 1),
+                256 * 1024 * 1024,
+            )?,
+            mapping: None,
+            done: false,
+        })
+    }
+    fn collect(&mut self, products: &mut RetainedCaptureProducts) -> Result<bool, ViewerError> {
+        if self.done {
+            return Ok(true);
+        }
+        let Some(bytes) = self
+            .readback
+            .try_read_async(self.mapping.as_mut().expect("submitted mapping"))?
+        else {
+            return Ok(false);
+        };
+        self.mapping = None;
+        let viewport = Viewport {
+            width: self.texture.width(),
+            height: self.texture.height(),
+        };
+        let format = self.texture.format();
+        match self.output {
+            CaptureOutput::LinearHdr | CaptureOutput::Normals => {
+                let image = LinearRgbaImage::from_native(viewport, format, &bytes)
+                    .map_err(|e| ViewerError::Gpu(e.to_string()))?;
+                if self.output == CaptureOutput::LinearHdr {
+                    products.linear_hdr = Some(image);
+                } else {
+                    products.normals = Some(image);
+                }
+            }
+            output => {
+                let image = ScalarImage::from_native(viewport, format, &bytes)
+                    .map_err(|e| ViewerError::Gpu(e.to_string()))?;
+                match output {
+                    CaptureOutput::Depth => products.depth = Some(image),
+                    CaptureOutput::AmbientOcclusion => products.ambient_occlusion = Some(image),
+                    CaptureOutput::SsrConfidence => products.ssr_confidence = Some(image),
+                    _ => unreachable!("native feature"),
+                }
+            }
+        }
+        self.done = true;
+        Ok(true)
+    }
 }
 impl Products {
     pub(in crate::renderer) fn new(
@@ -31,44 +94,57 @@ impl Products {
         } else {
             None
         };
-        let linear = if outputs.contains(&CaptureOutput::LinearHdr) {
+        let mut native = Vec::new();
+        if outputs.contains(&CaptureOutput::LinearHdr) {
             if scene.format() != wgpu::TextureFormat::Rgba16Float || scene.sample_count() != 1 {
                 return Err(ViewerError::UnsupportedScene("linear HDR source"));
             }
-            Some(Linear {
-                readback: Readback::new(
-                    device,
-                    FrameConfig::new([scene.width(), scene.height()], scene.format(), 1),
-                    256 * 1024 * 1024,
-                )?,
-                mapping: None,
-                viewport: Viewport {
-                    width: scene.width(),
-                    height: scene.height(),
-                },
-                format: scene.format(),
-            })
-        } else {
-            None
-        };
+            native.push(Native::new(device, scene, CaptureOutput::LinearHdr)?);
+        }
         Ok(Self {
             display,
-            linear,
-            srgb8: None,
-            linear_hdr: None,
+            native,
+            completed: RetainedCaptureProducts::default(),
         })
+    }
+    pub(in crate::renderer) fn features(
+        &mut self,
+        device: &wgpu::Device,
+        scheduler: &ConfiguredFrameRenderer,
+        outputs: &[CaptureOutput],
+    ) -> Result<(), ViewerError> {
+        for (output, target) in [
+            (CaptureOutput::Depth, FeatureTarget::Depth),
+            (CaptureOutput::Normals, FeatureTarget::Normals),
+            (
+                CaptureOutput::AmbientOcclusion,
+                FeatureTarget::AmbientOcclusion,
+            ),
+            (CaptureOutput::SsrConfidence, FeatureTarget::SsrConfidence),
+        ] {
+            if outputs.contains(&output) {
+                let texture =
+                    scheduler
+                        .feature_target(target)
+                        .ok_or(ViewerError::UnsupportedScene(
+                            "admitted capture feature missing",
+                        ))?;
+                self.native.push(Native::new(device, texture, output)?);
+            }
+        }
+        Ok(())
     }
     pub(in crate::renderer) fn encode(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         output: &wgpu::Texture,
-        scene: &wgpu::Texture,
+        _scene: &wgpu::Texture,
     ) -> Result<(), ViewerError> {
         if let Some(display) = &mut self.display {
             display.encode(encoder, output)?;
         }
-        if let Some(linear) = &mut self.linear {
-            linear.readback.encode(encoder, scene)?;
+        for native in &mut self.native {
+            native.readback.encode(encoder, &native.texture)?;
         }
         Ok(())
     }
@@ -76,40 +152,27 @@ impl Products {
         if let Some(display) = &mut self.display {
             display.begin()?;
         }
-        if let Some(linear) = &mut self.linear {
-            linear.mapping = Some(linear.readback.begin_async()?);
+        for native in &mut self.native {
+            native.mapping = Some(native.readback.begin_async()?);
         }
         Ok(())
     }
     pub(in crate::renderer) fn try_read(
         &mut self,
     ) -> Result<Option<RetainedCaptureProducts>, ViewerError> {
-        if self.srgb8.is_none()
+        if self.completed.srgb8.is_none()
             && let Some(display) = &mut self.display
         {
-            self.srgb8 = display.try_read()?;
-            if self.srgb8.is_none() {
+            self.completed.srgb8 = display.try_read()?;
+            if self.completed.srgb8.is_none() {
                 return Ok(None);
             }
         }
-        if self.linear_hdr.is_none()
-            && let Some(linear) = &mut self.linear
-        {
-            let Some(bytes) = linear
-                .readback
-                .try_read_async(linear.mapping.as_mut().expect("submitted linear mapping"))?
-            else {
+        for native in &mut self.native {
+            if !native.collect(&mut self.completed)? {
                 return Ok(None);
-            };
-            linear.mapping = None;
-            self.linear_hdr = Some(
-                LinearRgbaImage::from_native(linear.viewport, linear.format, &bytes)
-                    .map_err(|error| ViewerError::Gpu(error.to_string()))?,
-            );
+            }
         }
-        Ok(Some(RetainedCaptureProducts {
-            srgb8: self.srgb8.take(),
-            linear_hdr: self.linear_hdr.take(),
-        }))
+        Ok(Some(std::mem::take(&mut self.completed)))
     }
 }

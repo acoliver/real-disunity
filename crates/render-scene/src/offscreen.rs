@@ -6,6 +6,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 mod linear;
+mod scalar;
+pub use scalar::ScalarImage;
 mod pages;
 pub use linear::LinearRgbaImage;
 use thiserror::Error;

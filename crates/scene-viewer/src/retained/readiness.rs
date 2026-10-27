@@ -12,6 +12,7 @@ pub(crate) struct Preparation {
     pub scene: Option<mpsc::Receiver<Result<PreparedScene, ViewerError>>>,
     pub ids: Vec<ObjectId>,
     pub pages_enabled: bool,
+    pub capture_features: [bool; 4],
     pub require_pages: bool,
 }
 
@@ -22,6 +23,7 @@ pub(crate) struct Readiness {
     pub ready: u64,
     pub published: u64,
     pub pages_enabled: bool,
+    pub capture_features: [bool; 4],
     pub page_wait: bool,
     pub camera: (CameraPose, SceneCamera),
     #[cfg(test)]
@@ -49,6 +51,7 @@ impl Readiness {
         assert_eq!(front.generation, self.published + 1);
         self.published = front.generation;
         self.pages_enabled = front.pages_enabled;
+        self.capture_features = front.capture_features;
         self.page_wait = front.require_pages;
         if !self.page_wait {
             self.ready = front.generation;
@@ -170,6 +173,7 @@ impl RetainedHost {
         });
         self.readiness.queue.push_back(Preparation {
             generation: self.readiness.accepted,
+            capture_features: super::capture::features(self.scene.effects()),
             pages_enabled: self
                 .scene
                 .terrain()

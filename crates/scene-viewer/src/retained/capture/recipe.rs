@@ -27,6 +27,7 @@ pub struct RetainedCaptureRecipe {
     pub(crate) outputs: Vec<CaptureOutput>,
     pub(crate) max_bytes: u64,
     pub(crate) require_pages: bool,
+    pub(crate) frame_samples: u32,
 }
 impl RetainedCaptureRecipe {
     pub fn new(
@@ -58,6 +59,7 @@ impl RetainedCaptureRecipe {
             outputs,
             max_bytes,
             require_pages: false,
+            frame_samples: 1,
         })
     }
     /// Wait for current-view material pages using retained page-residency readiness.
@@ -130,36 +132,8 @@ impl RetainedCaptureRecipe {
         let size = self.render_size(size)?;
         let mut bytes = 0_u64;
         for output in &self.outputs {
-            let texel_bytes = if *output == CaptureOutput::LinearHdr {
-                8
-            } else {
-                4
-            };
-            let row = u64::from(size[0])
-                .checked_mul(texel_bytes)
-                .ok_or(CaptureRequestError::InvalidRecipe)?;
-            let padded = row
-                .next_multiple_of(256)
-                .checked_mul(u64::from(size[1]))
-                .ok_or(CaptureRequestError::InvalidRecipe)?;
-            // Staging, mapped copy, tightly packed bytes and decoded float pixels.
-            let cpu = u64::from(size[0])
-                .checked_mul(u64::from(size[1]))
-                .and_then(|n| {
-                    n.checked_mul(if *output == CaptureOutput::LinearHdr {
-                        24
-                    } else {
-                        4
-                    })
-                })
-                .ok_or(CaptureRequestError::InvalidRecipe)?;
             bytes = bytes
-                .checked_add(
-                    padded
-                        .checked_mul(2)
-                        .and_then(|n| n.checked_add(cpu))
-                        .ok_or(CaptureRequestError::InvalidRecipe)?,
-                )
+                .checked_add(output_storage(*output, size, self.frame_samples)?)
                 .ok_or(CaptureRequestError::InvalidRecipe)?;
         }
         if self.accumulated() {
@@ -186,6 +160,35 @@ impl RetainedCaptureRecipe {
     }
 }
 
+fn output_storage(
+    output: CaptureOutput,
+    size: [u32; 2],
+    samples: u32,
+) -> Result<u64, CaptureRequestError> {
+    let width = u64::from(size[0])
+        .checked_mul(if output == CaptureOutput::SsrConfidence {
+            u64::from(samples)
+        } else {
+            1
+        })
+        .ok_or(CaptureRequestError::InvalidRecipe)?;
+    let (texel_bytes, cpu_bytes) = match output {
+        CaptureOutput::Srgb8 => (4, 4),
+        CaptureOutput::LinearHdr | CaptureOutput::Normals => (8, 24),
+        CaptureOutput::SsrConfidence => (8, 12),
+        CaptureOutput::Depth | CaptureOutput::AmbientOcclusion => (4, 8),
+    };
+    let row = width
+        .checked_mul(texel_bytes)
+        .ok_or(CaptureRequestError::InvalidRecipe)?;
+    // Staging, mapped copy, tightly packed bytes and decoded pixels.
+    row.next_multiple_of(256)
+        .checked_mul(2)
+        .and_then(|n| n.checked_add(width.checked_mul(cpu_bytes)?))
+        .and_then(|n| n.checked_mul(u64::from(size[1])))
+        .ok_or(CaptureRequestError::InvalidRecipe)
+}
+
 fn radical_inverse(mut index: u32, base: u32) -> f32 {
     let mut value = 0.0_f64;
     let mut weight = 1.0 / f64::from(base);
@@ -197,11 +200,26 @@ fn radical_inverse(mut index: u32, base: u32) -> f32 {
     glam::DVec2::splat(value).as_vec2().x
 }
 
-/// Requested products reduced across a retained capture recipe.
-#[derive(Clone, Debug, PartialEq)]
+/// Requested capture products. Feature targets retain their native raster extents.
+/// Feature readbacks currently require one unjittered, non-accumulated frame.
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct RetainedCaptureProducts {
     pub srgb8: Option<worldrunner_render_scene::offscreen::RgbaImage>,
     pub linear_hdr: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    /// Positive pixel-centre view-space metres before water.
+    pub depth: Option<worldrunner_render_scene::offscreen::ScalarImage>,
+    /// View-space XYZ normals; alpha is coverage, zero for uncovered pixels.
+    pub normals: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    /// Filtered ambient visibility in [0, 1], decoded from the target red channel.
+    pub ambient_occlusion: Option<worldrunner_render_scene::offscreen::ScalarImage>,
+    /// Confidence in [0, 1] from trace alpha, at native trace resolution.
+    /// The returned extent is `(trace_width * frame_sample_count, trace_height)`.
+    /// Samples occupy contiguous horizontal lanes: `packed_x = sample * trace_width + x`,
+    /// where `trace_width = returned_width / frame_sample_count` and the sample count
+    /// comes from the frame profile. Trace dimensions match the raster extent at
+    /// full resolution, or its ceil-divided halves at half resolution. Read pixel
+    /// `(x, y)` of a sample at `pixels[y * returned_width + packed_x]`.
+    pub ssr_confidence: Option<worldrunner_render_scene::offscreen::ScalarImage>,
 }
 
 #[cfg(test)]

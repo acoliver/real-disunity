@@ -19,6 +19,11 @@ impl FrameRenderer {
     }
 }
 impl ConfiguredFrameRenderer {
+    /// Borrows an existing configured frame product without allocating a target.
+    pub fn feature_target(&self, feature: super::super::FeatureTarget) -> Option<&wgpu::Texture> {
+        self.state.current().feature_target(feature)
+    }
+
     pub fn set_clear_color(&mut self, color: wgpu::Color) -> Result<(), PostError> {
         self.state.current_mut().set_clear_color(color)?;
         self.settings.clear_color = color;

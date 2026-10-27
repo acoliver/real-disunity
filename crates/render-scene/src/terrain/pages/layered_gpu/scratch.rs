@@ -59,8 +59,12 @@ impl LayeredScratch {
         pending: PendingPage,
     ) -> Result<(), PageEncodeError> {
         let positions = source.page_positions(cache.settings(), pending.key());
-        let (output, producers) =
-            source.operations_in(device, &self.registry, &positions, &self.views)?;
+        let (output, producers) = source.operations_in(
+            device,
+            &self.registry,
+            (&positions.0, positions.1),
+            &self.views,
+        )?;
         self.writer.encode_prepared(
             device,
             encoder,

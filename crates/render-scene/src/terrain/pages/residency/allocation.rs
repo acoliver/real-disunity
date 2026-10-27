@@ -64,7 +64,7 @@ pub(super) fn allocations(
         );
         set.buffer(
             "terrain layered positions and staging",
-            u64::from(w) * u64::from(h) * 8,
+            u64::from(w) * u64::from(h) * 8 + 8,
             buffers,
         );
     }

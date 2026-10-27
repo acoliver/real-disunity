@@ -116,7 +116,7 @@ fn streaming(gpu: &SceneGpu) -> &super::super::streaming::Streaming {
     gpu.terrain.as_ref().unwrap().streaming.as_ref().unwrap()
 }
 
-fn withheld_completion(budget: u32) {
+fn withheld_completion_setup(budget: u32) -> (GpuContext, SceneGpu, FrameUniform, glam::Mat4) {
     let context = context();
     let source = streamed_scene();
     let terrain = source
@@ -132,8 +132,30 @@ fn withheld_completion(budget: u32) {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
-    let mut near = frame_from(pose());
+    let near = frame_from(pose());
     let far_matrix = far_matrix();
+    (context, gpu, near, far_matrix)
+}
+
+fn assert_iteration_counts(budget: u32, index: i32, counts: (usize, usize, usize)) {
+    let (allocated, pending, retired) = counts;
+    assert!(allocated + pending + retired <= budget as usize);
+    assert!(pending <= 4);
+    if index == 0 {
+        assert_eq!((allocated, pending, retired), (1, 4, 0));
+    }
+    if index > 0 {
+        let expected = match (budget, index) {
+            (5, _) => (4, 0, 1),
+            (_, 1) => (4, 1, 1),
+            _ => (1, 0, 5),
+        };
+        assert_eq!((allocated, pending, retired), expected);
+    }
+}
+
+fn withheld_completion(budget: u32) {
+    let (context, gpu, mut near, far_matrix) = withheld_completion_setup(budget);
     let mut saw_retired = false;
     for index in 0..12 {
         near.view_projection = if index % 2 == 0 {
@@ -142,20 +164,7 @@ fn withheld_completion(budget: u32) {
             far_matrix
         };
         let prepared = prepare_completed(&context, &gpu, &near, 0);
-        let (allocated, pending, retired) = streaming(&gpu).allocation_counts();
-        assert!(allocated + pending + retired <= budget as usize);
-        assert!(pending <= 4);
-        if index == 0 {
-            assert_eq!((allocated, pending, retired), (1, 4, 0));
-        }
-        if index > 0 {
-            let expected = match (budget, index) {
-                (5, _) => (4, 0, 1),
-                (_, 1) => (4, 1, 1),
-                _ => (1, 0, 5),
-            };
-            assert_eq!((allocated, pending, retired), expected);
-        }
+        assert_iteration_counts(budget, index, streaming(&gpu).allocation_counts());
         prepared.submit().unwrap();
         let (allocated, pending, retired) = streaming(&gpu).allocation_counts();
         assert!(allocated + pending + retired <= budget as usize);

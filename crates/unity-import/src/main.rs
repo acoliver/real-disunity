@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
-    import_scene, input_axes, plan_scene,
+    import_scene, input_axes, plan_scene, read_player,
 };
 
 const USAGE: &str = "usage: unity-import catalog <project>
@@ -14,7 +14,8 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import scene <project> <scene path>
        unity-import texture <project> <texture path>
        unity-import sprites <project> <scene path>
-       unity-import components <project> <scene path>";
+       unity-import components <project> <scene path>
+       unity-import player <player data directory>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,6 +32,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
     match args {
         [command, project] if command == "catalog" => catalog(Path::new(project)),
         [command, project] if command == "axes" => axes(Path::new(project)),
+        [command, data] if command == "player" => player(Path::new(data)),
         [command, project, scene] if command == "plan" => {
             plan(Path::new(project), Path::new(scene))
         }
@@ -50,6 +52,50 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
             components(Path::new(project), Path::new(path))
         }
         _ => Err(USAGE.into()),
+    }
+}
+
+/// Prints each serialized file of a built player with its objects counted by class, then
+/// the totals.
+fn player(data: &Path) -> Result<(), Box<dyn Error>> {
+    let files = read_player(data)?;
+    let mut totals = BTreeMap::<String, usize>::new();
+    for entry in &files {
+        let file = &entry.file;
+        let trees = if file.type_trees {
+            "type trees"
+        } else {
+            "no type trees"
+        };
+        println!(
+            "{}: Unity {}, format {}, {} objects, {} externals, {trees}",
+            entry.name,
+            file.unity_version,
+            file.header.version,
+            file.objects().len(),
+            file.externals.len(),
+        );
+        let mut classes = BTreeMap::<String, usize>::new();
+        for object in file.objects() {
+            *classes.entry(object.class_id.to_string()).or_default() += 1;
+        }
+        for (class, count) in &classes {
+            *totals.entry(class.clone()).or_default() += count;
+        }
+        print_counts(classes);
+    }
+    let objects: usize = totals.values().sum();
+    println!("total: {} files, {objects} objects", files.len());
+    print_counts(totals);
+    Ok(())
+}
+
+/// Prints counts largest first, ties by name.
+fn print_counts(counts: BTreeMap<String, usize>) {
+    let mut counts: Vec<_> = counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    for (name, count) in counts {
+        println!("  {name}: {count}");
     }
 }
 

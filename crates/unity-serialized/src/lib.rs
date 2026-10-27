@@ -1,0 +1,25 @@
+//! Reader for Unity's binary serialized files.
+//!
+//! A Unity player stores its scenes and assets in serialized files (`globalgamemanagers`,
+//! `level0`, `sharedassets0.assets`, `resources.assets` and so on). Each starts with a header
+//! and a metadata block that lists the file's types, its objects with their byte ranges, the
+//! script classes it uses and the other files its references point into. This crate reads
+//! that header and metadata for format versions 19 to 22 (Unity 2019.1 through Unity 6).
+//!
+//! The reader works on bytes the caller supplies and performs no I/O. Object data is located
+//! by [`ObjectInfo::offset`] and [`ObjectInfo::size`]; decoding it into fields is the job of
+//! the type layouts that build on this crate.
+
+mod class;
+mod cursor;
+mod error;
+mod file;
+mod header;
+mod type_tree;
+pub mod write;
+
+pub use class::ClassId;
+pub use error::SerializedError;
+pub use file::{External, ObjectInfo, ScriptClass, ScriptRef, SerializedFile, SerializedType};
+pub use header::{Header, MAX_VERSION, MIN_VERSION};
+pub use type_tree::{NodeString, TypeTreeNode};

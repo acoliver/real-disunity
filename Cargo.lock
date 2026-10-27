@@ -4147,6 +4147,14 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "worldrunner-original-games",
+ "worldrunner-unity-serialized",
+]
+
+[[package]]
+name = "worldrunner-unity-serialized"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
 ]
 
 [[package]]

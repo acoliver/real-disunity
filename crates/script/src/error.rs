@@ -21,6 +21,8 @@ pub enum ScriptError {
     },
     /// A hook exceeded its per-fire instruction budget and was halted.
     BudgetExceeded { chunk: String, budget: u32 },
+    /// The Lua state reached its memory limit.
+    Memory { message: String },
     /// A module reported an API version the host refuses to install.
     ApiVersion {
         module: String,
@@ -55,6 +57,7 @@ impl fmt::Display for ScriptError {
             Self::BudgetExceeded { chunk, budget } => {
                 write!(f, "{chunk}: instruction budget of {budget} exceeded")
             }
+            Self::Memory { message } => write!(f, "memory limit reached: {message}"),
             Self::ApiVersion {
                 module,
                 expected,
@@ -88,6 +91,7 @@ impl From<mlua::Error> for ScriptError {
                 line: 0,
                 message: message.to_string(),
             },
+            mlua::Error::MemoryError(message) => Self::Memory { message },
             mlua::Error::RuntimeError(message) => Self::Runtime {
                 chunk: "<chunk>".into(),
                 line: 0,

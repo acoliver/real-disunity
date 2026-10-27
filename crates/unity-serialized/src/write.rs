@@ -351,7 +351,9 @@ impl ObjectWriter {
     }
 
     pub fn floats(&mut self, values: &[f32]) -> &mut Self {
-        values.iter().for_each(|&v| self.inner.u32(v.to_bits()));
+        for &value in values {
+            self.inner.u32(value.to_bits());
+        }
         self
     }
 

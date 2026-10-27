@@ -49,6 +49,19 @@ impl OpenFile {
             path: self.path.clone(),
             source,
         };
+        let len = self.handle.metadata().map_err(io_error)?.len();
+        if object
+            .offset
+            .checked_add(u64::from(object.size))
+            .is_none_or(|end| end > len)
+        {
+            return Err(self.error(SerializedError::ObjectOutOfBounds {
+                path_id: object.path_id,
+                start: object.offset,
+                size: object.size,
+                file_size: len,
+            }));
+        }
         let mut bytes = vec![0; object.size as usize];
         self.handle
             .seek(SeekFrom::Start(object.offset))
@@ -136,6 +149,7 @@ fn decode_any(bytes: &[u8], object: &ObjectInfo, big_endian: bool) -> Result<(),
         ClassId::TRANSFORM => decode::<Transform>(bytes, object, big_endian).map(drop),
         ClassId::RECT_TRANSFORM => decode::<RectTransform>(bytes, object, big_endian).map(drop),
         ClassId::MONO_SCRIPT => decode::<MonoScript>(bytes, object, big_endian).map(drop),
-        _ => decode::<MonoBehaviour>(bytes, object, big_endian).map(drop),
+        ClassId::MONO_BEHAVIOUR => decode::<MonoBehaviour>(bytes, object, big_endian).map(drop),
+        class => Err(SerializedError::UnsupportedClass(class)),
     }
 }

@@ -98,8 +98,14 @@ fn decodes_transforms_and_rect_transforms() {
     let transform: Transform =
         decode_one(ClassId::TRANSFORM, transform_bytes(false), false).unwrap();
     assert_eq!(transform.game_object, local(1));
-    assert_eq!(transform.local_rotation, [0.0, 0.0, 0.0, 1.0]);
-    assert_eq!(transform.local_position, [1.0, 2.0, 3.0]);
+    assert_eq!(
+        transform.local_rotation.map(f32::to_bits),
+        [0.0_f32, 0.0, 0.0, 1.0].map(f32::to_bits)
+    );
+    assert_eq!(
+        transform.local_position.map(f32::to_bits),
+        [1.0_f32, 2.0, 3.0].map(f32::to_bits)
+    );
     assert_eq!(transform.children, [local(9)]);
     assert!(transform.father.is_null());
     assert_eq!(transform.rect, None);
@@ -227,4 +233,86 @@ fn rejects_counts_longer_than_the_object() {
         ),
         "{error}"
     );
+}
+
+#[test]
+fn decodes_an_independently_written_game_object_and_string_padding() {
+    // Synthetic bytes, independent of ObjectWriter: no components, layer 5, name X, tag 3.
+    let bytes = vec![0, 0, 0, 0, 5, 0, 0, 0, 1, 0, 0, 0, b'X', 0, 0, 0, 3, 0, 1];
+    let value: GameObject = decode_one(ClassId::GAME_OBJECT, bytes, false).unwrap();
+    assert_eq!(
+        (value.name.as_str(), value.layer, value.tag, value.active),
+        ("X", 5, 3, true)
+    );
+    for text in ["", "a", "ab", "abc", "abcd", "abcde", "日本語"] {
+        for endian in [false, true] {
+            let value: GameObject = decode_one(
+                ClassId::GAME_OBJECT,
+                game_object_bytes(endian, text),
+                endian,
+            )
+            .unwrap();
+            assert_eq!(value.name, text);
+        }
+    }
+}
+
+#[test]
+fn reports_supplied_object_size_mismatches_in_both_directions() {
+    let bytes = game_object_bytes(false, "Go");
+    let mut contents = scene(22);
+    contents.objects = vec![object(7, 0, bytes.clone())];
+    let file_bytes = contents.write().unwrap();
+    let file = SerializedFile::parse(&file_bytes).unwrap();
+    let info = file.object(7).unwrap();
+    for actual in [bytes.len() - 1, bytes.len() + 1] {
+        let error = decode::<GameObject>(&vec![0; actual], info, false).unwrap_err();
+        assert_eq!(
+            error,
+            SerializedError::ObjectSizeMismatch {
+                path_id: 7,
+                expected: info.size,
+                actual
+            }
+        );
+    }
+    let mut outside = *info;
+    outside.offset = u64::MAX;
+    assert!(matches!(
+        object_bytes(&file_bytes, &outside),
+        Err(SerializedError::Truncated { .. })
+    ));
+}
+
+#[test]
+fn rejects_negative_or_oversized_string_lengths_and_each_truncated_transform() {
+    for count in [-1_i32, 1_000_000] {
+        let mut bytes = game_object_bytes(false, "Go");
+        bytes[32..36].copy_from_slice(&count.to_le_bytes());
+        let error = decode_one::<GameObject>(ClassId::GAME_OBJECT, bytes, false).unwrap_err();
+        assert!(
+            matches!(error, SerializedError::InvalidCount { .. }),
+            "{error}"
+        );
+    }
+    for (class, bytes) in [
+        (ClassId::TRANSFORM, transform_bytes(false)),
+        (ClassId::RECT_TRANSFORM, transform_bytes(true)),
+    ] {
+        for end in 0..bytes.len() {
+            let prefix = bytes[..end].to_vec();
+            let error = if class == ClassId::TRANSFORM {
+                decode_one::<Transform>(class, prefix, false).unwrap_err()
+            } else {
+                decode_one::<RectTransform>(class, prefix, false).unwrap_err()
+            };
+            assert!(
+                matches!(
+                    error,
+                    SerializedError::Truncated { .. } | SerializedError::InvalidCount { .. }
+                ),
+                "{end}: {error}"
+            );
+        }
+    }
 }

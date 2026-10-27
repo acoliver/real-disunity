@@ -4,7 +4,10 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
-    import_scene, input_axes, plan_scene, player_objects::decode_census, read_player,
+    import_scene, input_axes, plan_scene,
+    player_objects::decode_census,
+    player_scene::{SceneNode, read_scene_hierarchy},
+    read_player,
 };
 
 const USAGE: &str = "usage: unity-import catalog <project>
@@ -16,7 +19,8 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import sprites <project> <scene path>
        unity-import components <project> <scene path>
        unity-import player <player data directory>
-       unity-import player-decode <player data directory>";
+       unity-import player-decode <player data directory>
+       unity-import player-scene <player data directory> <scene file>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -35,6 +39,12 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         [command, project] if command == "axes" => axes(Path::new(project)),
         [command, data] if command == "player" => player(Path::new(data)),
         [command, data] if command == "player-decode" => player_decode(Path::new(data)),
+        [command, data, scene] if command == "player-scene" => {
+            for root in read_scene_hierarchy(Path::new(data), scene)? {
+                print_node(&root, 0);
+            }
+            Ok(())
+        }
         [command, project, scene] if command == "plan" => {
             plan(Path::new(project), Path::new(scene))
         }
@@ -54,6 +64,21 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
             components(Path::new(project), Path::new(path))
         }
         _ => Err(USAGE.into()),
+    }
+}
+
+fn print_node(node: &SceneNode, depth: usize) {
+    let inactive = if node.active { "" } else { " (inactive)" };
+    let [x, y, z] = node.local_position;
+    println!(
+        "{:indent$}{}{inactive} at ({x}, {y}, {z}): {}",
+        "",
+        node.name,
+        node.components.join(", "),
+        indent = depth * 2
+    );
+    for child in &node.children {
+        print_node(child, depth + 1);
     }
 }
 

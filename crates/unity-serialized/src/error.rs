@@ -5,6 +5,14 @@ use crate::ClassId;
 /// Why a serialized file could not be read. Offsets are bytes from the start of the file.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum SerializedError {
+    #[error("object {path_id} declares {expected} bytes, but {actual} were supplied")]
+    ObjectSizeMismatch {
+        path_id: i64,
+        expected: u32,
+        actual: usize,
+    },
+    #[error("no object layout is implemented for {0}")]
+    UnsupportedClass(ClassId),
     #[error("{needed} bytes are needed at offset {offset}, but the data ends at {len}")]
     Truncated {
         offset: usize,

@@ -1,9 +1,10 @@
 //! Decoding one object's data with a class layout.
 //!
 //! Player builds strip type trees, so each class has a layout written here from its observed
-//! data. Layouts match Unity 2019.1 through Unity 6. An object decodes only if its layout
-//! consumes exactly its bytes, so a layout that drifts from the data fails instead of
-//! returning wrong values. Offsets in errors are bytes from the start of the object.
+//! data. These layouts have been checked against Unity 6000.3.15f1 player data. Other Unity
+//! versions need independent verification. Exact byte consumption catches size differences;
+//! it cannot detect a changed layout that has the same size. Offsets in errors are bytes
+//! from the start of the object.
 
 use crate::{ClassId, ObjectInfo, SerializedError, cursor::Cursor};
 
@@ -55,10 +56,10 @@ pub fn decode<T: Layout>(
         });
     }
     if bytes.len() != object.size as usize {
-        return Err(SerializedError::Truncated {
-            offset: 0,
-            needed: object.size as usize,
-            len: bytes.len(),
+        return Err(SerializedError::ObjectSizeMismatch {
+            path_id: object.path_id,
+            expected: object.size,
+            actual: bytes.len(),
         });
     }
     let mut reader = ObjectReader::new(bytes, big_endian);
@@ -198,13 +199,14 @@ impl<'a> ObjectReader<'a> {
     }
 
     /// Consumes the rest of the object and returns its range, for data a later stage decodes.
-    pub fn rest(&mut self) -> std::ops::Range<usize> {
+    ///
+    /// # Errors
+    /// Fails if the remaining range cannot be read.
+    pub fn rest(&mut self) -> Result<std::ops::Range<usize>, SerializedError> {
         let start = self.position();
         let len = self.remaining();
-        // `take` cannot fail for exactly the remaining length.
-        self.cursor
-            .take(len)
-            .map_or(start..start, |_| start..start + len)
+        self.cursor.take(len)?;
+        Ok(start..start + len)
     }
 
     fn finish(&self, object: &ObjectInfo) -> Result<(), SerializedError> {

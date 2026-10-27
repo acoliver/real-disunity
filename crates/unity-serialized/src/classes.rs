@@ -150,7 +150,7 @@ impl Layout for MonoBehaviour {
             enabled,
             script: r.pptr()?,
             name: r.string()?,
-            script_data: r.rest(),
+            script_data: r.rest()?,
         })
     }
 }

@@ -1,5 +1,5 @@
-//! Bounds-checked reads over a byte slice. Positions are absolute offsets into the file, so
-//! alignment matches Unity's, which aligns relative to the start of the file.
+//! Bounds-checked reads over a byte slice. Alignment uses offsets into that slice: file
+//! offsets for metadata and object-relative offsets for an individual object's fields.
 
 use crate::SerializedError;
 

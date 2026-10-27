@@ -12,6 +12,8 @@ use worldrunner_unity_serialized::{Header, SerializedError, SerializedFile};
 
 #[derive(Debug, Error)]
 pub enum PlayerError {
+    #[error("{}: invalid scene hierarchy: {reason}", path.display())]
+    InvalidHierarchy { path: PathBuf, reason: String },
     #[error("{}: {source}", path.display())]
     Io { path: PathBuf, source: io::Error },
     #[error("{}: {source}", path.display())]
@@ -21,6 +23,15 @@ pub enum PlayerError {
     },
     #[error("{}: no object with path ID {path_id}", path.display())]
     MissingObject { path: PathBuf, path_id: i64 },
+    #[error(
+        "{}: the reference to file {file_id}, path ID {path_id} names no file this one lists",
+        path.display()
+    )]
+    UnresolvedReference {
+        path: PathBuf,
+        file_id: i32,
+        path_id: i64,
+    },
 }
 
 /// One serialized file of a player, read through its metadata.

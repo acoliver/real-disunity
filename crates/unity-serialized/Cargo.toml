@@ -1,0 +1,14 @@
+[package]
+name = "worldrunner-unity-serialized"
+description = "Reader for Unity's binary serialized files: player data, scenes and assets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

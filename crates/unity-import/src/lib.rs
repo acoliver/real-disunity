@@ -9,6 +9,7 @@ pub mod guid;
 pub mod input;
 pub mod package;
 pub mod plan;
+pub mod player;
 pub mod project;
 pub mod scene;
 pub mod texture;
@@ -29,6 +30,7 @@ pub use plan::{
     PlanAsset, PlanCollider, PlanComponent, PlanError, PlanObject, PlanSprite, PlanTexture,
     ScenePlan, plan_scene,
 };
+pub use player::{PlayerError, PlayerFile, is_serialized_name, read_metadata, read_player};
 pub use project::{Asset, ImportError, Project};
 pub use scene::{
     GameObject, Object, ObjectId, Origin, Reference, Scene, SceneError, Source, Transform, Value,

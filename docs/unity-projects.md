@@ -46,6 +46,7 @@ cargo run -p worldrunner-unity-import -- <command> <project> [path]
 | `components <project> <scene>` | The typed view of each camera and camera participant, sprite and tilemap renderer, Rigidbody2D, 2D collider with its physics material, grid, tilemap, Canvas, RectTransform and supported package component. |
 | `axes <project>` | The project's input axes from `ProjectSettings/InputManager.asset`, in file order. |
 | `plan <project> <scene>` | The scene plan as JSON: what the managed loader builds. Planning fails, naming the object, on anything the engine cannot build as authored. |
+| `player <data directory>` | For a built player's `<Game>_Data` directory: each serialized file (`globalgamemanagers`, `level0`, `*.assets`) with its Unity version, format version, externals and objects counted by class, then the totals. Reading built players is in progress ([#147](https://github.com/acoliver/real-disunity/issues/147)); this command reads file metadata only. |
 
 For a project with one scene holding one object, `scene` prints:
 

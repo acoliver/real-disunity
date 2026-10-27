@@ -42,7 +42,6 @@ impl PreparedScene {
     /// # Errors
     /// Returns the same CPU preparation failures as [`SceneGpu::upload`].
     pub fn new(scene: &RenderScene) -> Result<Self, DrawError> {
-        super::streaming::validate(scene)?;
         descriptors::validate(scene)?;
         crate::water::surface::validate(scene)?;
         let textures = scene
@@ -74,7 +73,7 @@ impl PreparedScene {
                     .map_err(|source| DrawError::TerrainUniform { source })?;
                 let palettes = prepare_palettes(scene, uniform.layer_materials())?;
                 Ok::<_, DrawError>(PreparedTerrain {
-                    bounds: visibility::terrain_bounds(&mesh.vertices),
+                    bounds: terrain_bounds(terrain, &mesh.vertices),
                     elevation: resources::page_elevation(terrain),
                     mesh,
                     uniform,
@@ -211,4 +210,15 @@ fn prepare_meshes(scene: &RenderScene) -> Result<Vec<PreparedMesh>, DrawError> {
             Ok(PreparedMesh { lods })
         })
         .collect::<Result<Vec<_>, DrawError>>()
+}
+
+fn terrain_bounds(
+    terrain: &worldrunner_render_plan::SceneTerrain,
+    vertices: &[u8],
+) -> visibility::Bounds {
+    let mut bounds = visibility::terrain_bounds(vertices);
+    if terrain.streaming_policy().is_some() {
+        bounds.max.z = resources::page_elevation(terrain)[1];
+    }
+    bounds
 }

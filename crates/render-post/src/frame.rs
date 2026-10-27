@@ -116,8 +116,6 @@ impl FeatureDeclaration {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
-    #[error("streaming terrain does not support {0}")]
-    StreamingTerrainUnsupported(&'static str),
     #[error("streaming terrain already prepared for a different view in this transaction")]
     StreamingSelectionConflict,
     #[error("{feature} preparation failed: {reason}")]

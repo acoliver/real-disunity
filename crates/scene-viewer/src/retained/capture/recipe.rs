@@ -27,6 +27,7 @@ pub struct RetainedCaptureRecipe {
     pub(crate) outputs: Vec<CaptureOutput>,
     pub(crate) max_bytes: u64,
     pub(crate) require_pages: bool,
+    pub(crate) require_geometry: bool,
     pub(crate) frame_samples: u32,
 }
 impl RetainedCaptureRecipe {
@@ -59,6 +60,7 @@ impl RetainedCaptureRecipe {
             outputs,
             max_bytes,
             require_pages: false,
+            require_geometry: false,
             frame_samples: 1,
         })
     }
@@ -66,6 +68,12 @@ impl RetainedCaptureRecipe {
     #[must_use]
     pub fn with_page_dependency(mut self) -> Self {
         self.require_pages = true;
+        self
+    }
+    /// Wait for source-generation geometry at the requested raster footprint.
+    #[must_use]
+    pub fn with_geometry_dependency(mut self) -> Self {
+        self.require_geometry = true;
         self
     }
     pub fn supersample(&self) -> u32 {

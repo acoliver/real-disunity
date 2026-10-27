@@ -3,23 +3,11 @@ use worldrunner_render_plan::{SceneObject, SceneTransform};
 use super::{InstanceError, InstanceHandle, InstanceWrite, SceneGpu};
 
 impl SceneGpu {
-    fn reject_streaming_instances(&self) -> Result<(), InstanceError> {
-        if self
-            .terrain
-            .as_ref()
-            .is_some_and(|terrain| terrain.streaming.is_some())
-        {
-            return Err(InstanceError::StreamingTerrain);
-        }
-        Ok(())
-    }
-
     /// Replaces the validated post description without changing resident geometry.
     pub fn set_post_settings(
         &mut self,
         effects: &worldrunner_render_plan::SceneEffects,
     ) -> Result<(), worldrunner_render_post::PostError> {
-        self.reject_streaming("streaming terrain post settings")?;
         self.post = crate::post::settings(effects)?;
         Ok(())
     }
@@ -36,11 +24,15 @@ impl SceneGpu {
         Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
         worldrunner_render_post::FrameError,
     > {
-        self.reject_streaming("streaming terrain capture dependencies")?;
+        let mut geometry_keys = Vec::new();
+        if let Some(streaming) = self.terrain.as_ref().and_then(|t| t.streaming.as_ref()) {
+            geometry_keys.push(crate::compositor::publication::key(&streaming.committed));
+        }
         let mut keys = vec![
             crate::compositor::publication::key(&self.frame),
             crate::compositor::publication::key(&self.camera_selection),
         ];
+        keys.extend(geometry_keys);
         keys.extend(self.sky.as_ref().and_then(crate::sky::Sky::write_key));
         keys.extend(
             self.shadow_selection
@@ -87,7 +79,6 @@ impl SceneGpu {
         object: SceneObject,
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
-        self.reject_streaming_instances()?;
         let handle = self.instances.add(object, visible)?;
         self.caster_generation = self.caster_generation.wrapping_add(1);
         Ok(handle)
@@ -106,7 +97,6 @@ impl SceneGpu {
 
     /// Removes a placement without moving surviving batch slots or rewriting bytes.
     pub fn remove_instance(&mut self, handle: InstanceHandle) -> Result<(), InstanceError> {
-        self.reject_streaming_instances()?;
         self.instances.remove(handle)?;
         self.caster_generation = self.caster_generation.wrapping_add(1);
         Ok(())
@@ -118,7 +108,6 @@ impl SceneGpu {
         handle: InstanceHandle,
         transform: SceneTransform,
     ) -> Result<(), InstanceError> {
-        self.reject_streaming_instances()?;
         self.instances.set_transform(handle, transform)
     }
 
@@ -129,7 +118,6 @@ impl SceneGpu {
         handle: InstanceHandle,
         object: SceneObject,
     ) -> Result<(), InstanceError> {
-        self.reject_streaming_instances()?;
         self.instances.set_object(handle, object)
     }
 
@@ -139,7 +127,6 @@ impl SceneGpu {
         handle: InstanceHandle,
         visible: bool,
     ) -> Result<(), InstanceError> {
-        self.reject_streaming_instances()?;
         let changed = self.instances.get(handle)?.1 != visible;
         self.instances.set_visible(handle, visible)?;
         if changed {

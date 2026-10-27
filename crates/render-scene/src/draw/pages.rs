@@ -146,13 +146,6 @@ impl SceneGpu {
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) -> Result<Option<TerrainResidencyRequest>, TerrainResidencyError> {
-        if self
-            .terrain
-            .as_ref()
-            .is_some_and(|terrain| terrain.streaming.is_some())
-        {
-            return Err(TerrainResidencyError::StreamingGeometry);
-        }
         self.select_terrain_pages(frame, viewport);
         Ok(self
             .terrain
@@ -165,13 +158,6 @@ impl SceneGpu {
         &self,
         request: &TerrainResidencyRequest,
     ) -> Result<bool, TerrainResidencyError> {
-        if self
-            .terrain
-            .as_ref()
-            .is_some_and(|terrain| terrain.streaming.is_some())
-        {
-            return Err(TerrainResidencyError::StreamingGeometry);
-        }
         self.terrain
             .as_ref()
             .and_then(|terrain| terrain.pages.as_ref())

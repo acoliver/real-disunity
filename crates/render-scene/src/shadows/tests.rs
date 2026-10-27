@@ -10,6 +10,7 @@ mod scheduler;
 mod sdsm;
 mod selection;
 mod ssao;
+mod streaming;
 mod subresources;
 mod terrain;
 mod timing_probe;

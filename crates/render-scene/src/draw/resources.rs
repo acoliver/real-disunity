@@ -190,8 +190,12 @@ pub(super) fn upload_terrain(
     scene: &RenderScene,
     layout: &BindGroupLayout,
     sampler: &Sampler,
-    prepared: Option<&super::prepared::PreparedTerrain>,
+    sources: (
+        Option<&super::prepared::PreparedTerrain>,
+        Option<&super::SceneGpu>,
+    ),
 ) -> Result<Option<GpuTerrain>, DrawError> {
+    let (prepared, previous) = sources;
     let queue = authority.queue();
     let Some(terrain) = scene.terrain() else {
         return Ok(None);
@@ -231,10 +235,19 @@ pub(super) fn upload_terrain(
     );
     let mut retained = palettes;
     retained.push(grid);
-    let lod = terrain_lod(device, queue, mesh);
-    let streaming = terrain
-        .streaming_policy()
-        .map(|_| super::streaming::Streaming::new(scene.clone(), lod.clone(), authority));
+    let reused = previous
+        .and_then(|gpu| gpu.terrain.as_ref())
+        .and_then(|gpu| gpu.streaming.as_ref())
+        .and_then(|old| super::streaming::Streaming::replacement(scene.clone(), old));
+    let (lod, streaming) = if let Some(streaming) = reused {
+        (None, Some(streaming))
+    } else {
+        let lod = terrain_lod(device, queue, mesh);
+        let streaming = terrain
+            .streaming_policy()
+            .map(|_| super::streaming::Streaming::new(scene.clone(), lod.clone(), authority));
+        (streaming.is_none().then_some(lod), streaming)
+    };
     Ok(Some(GpuTerrain {
         page_bounds: page_bounds(terrain),
         page_elevation: prepared.elevation,
@@ -242,7 +255,7 @@ pub(super) fn upload_terrain(
         sampler: sampler.clone(),
         pages: None,
         bounds: prepared.bounds,
-        lod: streaming.is_none().then_some(lod),
+        lod,
         streaming,
         instances: terrain_instances(device, queue),
         bind_group,
@@ -412,6 +425,7 @@ pub(super) fn prepared_terrain(
     prepared: &super::PreparedScene,
     pipelines: &super::ScenePipelines,
     sampler: &Sampler,
+    previous: Option<&super::SceneGpu>,
 ) -> Result<Option<GpuTerrain>, DrawError> {
     upload_terrain(
         device,
@@ -431,7 +445,7 @@ pub(super) fn prepared_terrain(
             pipelines.terrain_layout()
         },
         sampler,
-        prepared.terrain.as_ref(),
+        (prepared.terrain.as_ref(), previous),
     )
 }
 

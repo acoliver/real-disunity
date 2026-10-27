@@ -598,3 +598,73 @@ fn assert_replacement_writes(
             .is_empty()
     );
 }
+
+fn streaming_terrain_replacement(base: &SceneTerrain) -> SceneTerrain {
+    SceneTerrain::new(SceneTerrainParts {
+        columns: base.columns(),
+        rows: base.rows(),
+        origin_east_millimeters: base.origin_east_millimeters(),
+        origin_north_millimeters: base.origin_north_millimeters(),
+        sample_spacing_millimeters: base.sample_spacing_millimeters(),
+        heights_millimeters: base.heights_millimeters().to_vec(),
+        surface_indices: base.surface_indices().to_vec(),
+        surfaces: vec![SceneTerrainSurface::new(
+            MaterialHandle::from_raw(0),
+            SceneTerrainAppearance {
+                tint_percent: [15, 100, 15],
+                ..SceneTerrainAppearance::NEUTRAL
+            },
+        )],
+        lod_policy: base.lod_policy(),
+    })
+    .unwrap()
+    .with_streaming_policy(base.streaming_policy())
+}
+
+#[test]
+fn streaming_retained_install_replace_remove_pixels_and_generations() {
+    use crate::{RetainedHost, RetainedUpdate};
+    use std::sync::Arc;
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let base = terrain_source();
+    let terrain = Arc::new(
+        base.terrain()
+            .unwrap()
+            .clone()
+            .with_streaming_policy(Some(TerrainStreamingPolicy::new(1, 9, 4, 1000).unwrap())),
+    );
+    let empty = base.with_terrain(None).unwrap();
+    let mut host = RetainedHost::new(empty.clone(), crate::tests::options()).unwrap();
+    let mut resident = Resident::new(&context, &empty, None, crate::FrameProfile::Legacy).unwrap();
+    let mut streaming = super::readiness::Streaming::new(None, crate::FrameProfile::Legacy);
+    let mut target = OffscreenTarget::new(
+        context.device(),
+        Viewport {
+            width: 64,
+            height: 64,
+        },
+    )
+    .unwrap();
+    let absent = frame(&mut resident, &context, &mut target);
+    host.apply(RetainedUpdate::Terrain(Some(terrain.clone())))
+        .unwrap();
+    assert_eq!(host.ready_generation(), 0);
+    publish(&context, &mut streaming, &mut resident, &mut host);
+    assert_eq!(host.ready_generation(), 1);
+    let installed = frame(&mut resident, &context, &mut target);
+    assert_ne!(installed, absent);
+    host.apply(RetainedUpdate::Terrain(Some(Arc::new(
+        streaming_terrain_replacement(&terrain),
+    ))))
+    .unwrap();
+    assert_eq!(host.ready_generation(), 1);
+    publish(&context, &mut streaming, &mut resident, &mut host);
+    assert_eq!(host.ready_generation(), 2);
+    assert_ne!(frame(&mut resident, &context, &mut target), installed);
+    host.apply(RetainedUpdate::Terrain(None)).unwrap();
+    assert_eq!(host.ready_generation(), 2);
+    publish(&context, &mut streaming, &mut resident, &mut host);
+    assert_eq!(host.ready_generation(), 3);
+    assert_eq!(frame(&mut resident, &context, &mut target), absent);
+}

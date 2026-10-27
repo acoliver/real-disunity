@@ -14,6 +14,7 @@ pub(crate) struct Preparation {
     pub pages_enabled: bool,
     pub capture_features: [bool; 4],
     pub require_pages: bool,
+    pub require_geometry: bool,
 }
 
 pub(crate) struct Readiness {
@@ -25,6 +26,7 @@ pub(crate) struct Readiness {
     pub pages_enabled: bool,
     pub capture_features: [bool; 4],
     pub page_wait: bool,
+    pub geometry_wait: bool,
     pub camera: (CameraPose, SceneCamera),
     #[cfg(test)]
     pub preparation_hook: Option<Box<dyn FnOnce() + Send>>,
@@ -53,7 +55,8 @@ impl Readiness {
         self.pages_enabled = front.pages_enabled;
         self.capture_features = front.capture_features;
         self.page_wait = front.require_pages;
-        if !self.page_wait {
+        self.geometry_wait = front.require_geometry;
+        if !self.page_wait && !self.geometry_wait {
             self.ready = front.generation;
         }
         front.update
@@ -89,7 +92,8 @@ impl RetainedHost {
     }
 
     pub fn preparations_in_flight(&self) -> usize {
-        self.readiness.queue.len() + usize::from(self.readiness.page_wait)
+        self.readiness.queue.len()
+            + usize::from(self.readiness.page_wait || self.readiness.geometry_wait)
     }
 
     /// Accepts an edit whose generation becomes ready only when the current view's
@@ -99,11 +103,6 @@ impl RetainedHost {
             RetainedUpdate::Terrain(terrain) => terrain.as_deref(),
             _ => self.scene.terrain(),
         };
-        if terrain.is_some_and(|terrain| terrain.streaming_policy().is_some()) {
-            return Err(ViewerError::UnsupportedScene(
-                "streaming terrain page dependencies",
-            ));
-        }
         if terrain
             .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
             .is_none()
@@ -118,6 +117,31 @@ impl RetainedHost {
             .back_mut()
             .expect("accepted update")
             .require_pages = true;
+        Ok(())
+    }
+
+    /// Accepts an edit whose generation waits for current-view geometry residency.
+    pub fn apply_with_geometry(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
+        self.apply(update)?;
+        self.readiness
+            .queue
+            .back_mut()
+            .expect("accepted update")
+            .require_geometry = true;
+        Ok(())
+    }
+
+    /// Requires both geometry and material pages before publishing readiness.
+    pub fn apply_with_geometry_and_pages(
+        &mut self,
+        update: RetainedUpdate,
+    ) -> Result<(), ViewerError> {
+        self.apply_with_pages(update)?;
+        self.readiness
+            .queue
+            .back_mut()
+            .expect("accepted update")
+            .require_geometry = true;
         Ok(())
     }
 
@@ -185,6 +209,7 @@ impl RetainedHost {
                 .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
                 .is_some(),
             require_pages: false,
+            require_geometry: false,
             update,
             scene,
             ids: if rebuild {

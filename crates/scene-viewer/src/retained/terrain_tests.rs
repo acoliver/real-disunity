@@ -2,7 +2,7 @@ use super::*;
 use std::{sync::Arc, time::Duration};
 
 #[test]
-fn streaming_terrain_rejects_retained_edits_and_capture_dependencies() {
+fn streaming_terrain_admits_replacement_and_capture() {
     let source = crate::renderer::retained_tests::terrain_source();
     let terrain = Arc::new(
         source
@@ -15,22 +15,14 @@ fn streaming_terrain_rejects_retained_edits_and_capture_dependencies() {
     );
     let scene = source.with_terrain(Some(terrain)).unwrap();
     let mut host = RetainedHost::new(scene, crate::tests::options()).unwrap();
+    assert!(host.request_capture_with_geometry(0).is_ok());
     assert!(matches!(
-        host.apply(RetainedUpdate::Terrain(None)),
-        Err(ViewerError::UnsupportedScene(
-            "streaming terrain retained edits"
-        ))
-    ));
-    assert_eq!(
-        host.request_capture(0),
-        Err(CaptureRequestError::StreamingTerrain)
-    );
-    assert_eq!(
         host.request_capture_with_pages(0),
-        Err(CaptureRequestError::StreamingTerrain)
-    );
-    assert_eq!(host.accepted_generation(), 0);
-    assert_eq!(host.preparations_in_flight(), 0);
+        Err(CaptureRequestError::PagingDisabled { generation: 0 })
+    ));
+    host.apply(RetainedUpdate::Terrain(None)).unwrap();
+    assert_eq!(host.accepted_generation(), 1);
+    assert_eq!(host.preparations_in_flight(), 1);
 }
 
 fn host(limit: usize) -> RetainedHost {

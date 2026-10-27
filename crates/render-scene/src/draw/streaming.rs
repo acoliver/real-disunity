@@ -1,8 +1,6 @@
-use super::{DrawError, GpuLod, SceneGpu};
-use crate::terrain::{
-    TerrainError,
-    streaming::{TerrainChunk, select_with_retired},
-};
+mod replacement;
+use super::{GpuLod, SceneGpu};
+use crate::terrain::streaming::{TerrainChunk, select_with_retired};
 use std::{cell::RefCell, rc::Rc};
 use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
 use worldrunner_render_plan::RenderScene;
@@ -12,10 +10,13 @@ type Residents = Vec<(TerrainChunk, GpuLod)>;
 #[derive(Debug)]
 pub(super) struct Streaming {
     scene: RenderScene,
+    identity: Rc<()>,
     pub(super) committed: Rc<RefCell<Residents>>,
     drawing: RefCell<Option<Prepared>>,
     retired: Rc<RefCell<Vec<(u64, Residents)>>>,
     authority: SubmissionAuthority,
+    frozen: Rc<std::cell::Cell<bool>>,
+    replacement: RefCell<Option<replacement::Replacement>>,
 }
 #[derive(Debug)]
 struct Prepared {
@@ -32,11 +33,34 @@ impl Streaming {
         let chunk = TerrainChunk::root(terrain, terrain.streaming_policy().expect("policy"));
         Self {
             scene,
+            identity: Rc::new(()),
             committed: Rc::new(RefCell::new(vec![(chunk, root)])),
             drawing: RefCell::new(None),
             retired: Rc::default(),
             authority: authority.clone(),
+            frozen: Rc::default(),
+            replacement: RefCell::new(None),
         }
+    }
+    fn reuse_prepared(
+        &self,
+        owner: &Publications,
+        frame: &crate::frame::FrameUniform,
+        viewport: [u32; 2],
+    ) -> Result<bool, FrameError> {
+        let drawing = self.drawing.borrow();
+        let Some(prepared) = drawing
+            .as_ref()
+            .filter(|prepared| prepared.owner.same_frame(owner))
+        else {
+            return Ok(false);
+        };
+        if prepared.matrix != frame.view_projection || prepared.viewport != viewport {
+            return Err(FrameError::StreamingSelectionConflict);
+        }
+        #[cfg(test)]
+        record_preparation(prepared, 0);
+        Ok(true)
     }
     fn prepare(
         &self,
@@ -53,15 +77,16 @@ impl Streaming {
         viewport: [u32; 2],
         completed: u64,
     ) -> Result<(), FrameError> {
+        if self.frozen.get() {
+            return Ok(());
+        }
+        assert!(
+            self.replacement.borrow().is_none(),
+            "replacement must finish before drawing"
+        );
         let owner = context.publications();
-        if let Some(prepared) = self.drawing.borrow().as_ref()
-            && prepared.owner.same_transaction(&owner)
-        {
-            return if prepared.matrix == frame.view_projection && prepared.viewport == viewport {
-                Ok(())
-            } else {
-                Err(FrameError::StreamingSelectionConflict)
-            };
+        if self.reuse_prepared(&owner, frame, viewport)? {
+            return Ok(());
         }
         *self.drawing.borrow_mut() = None;
         self.retired
@@ -104,6 +129,8 @@ impl Streaming {
             #[cfg(test)]
             uploads,
         });
+        #[cfg(test)]
+        record_preparation(self.drawing.borrow().as_ref().unwrap(), uploads);
         self.stage_residents(context, residents);
         Ok(())
     }
@@ -158,6 +185,44 @@ impl Streaming {
                 .sum(),
         )
     }
+    pub(super) fn request(
+        &self,
+        frame: &crate::frame::FrameUniform,
+        viewport: [u32; 2],
+    ) -> TerrainGeometryRequest {
+        TerrainGeometryRequest {
+            identity: self.identity.clone(),
+            matrix: frame.view_projection,
+            viewport,
+        }
+    }
+    pub(super) fn ready_for(
+        &self,
+        request: &TerrainGeometryRequest,
+    ) -> Result<bool, crate::terrain::pages::scene::TerrainResidencyError> {
+        if !Rc::ptr_eq(&self.identity, &request.identity) {
+            return Err(crate::terrain::pages::scene::TerrainResidencyError::Stale);
+        }
+        if !self.replacement_ready() {
+            return Ok(false);
+        }
+        let terrain = self.scene.terrain().expect("terrain");
+        let threshold = f64::from(
+            terrain
+                .streaming_policy()
+                .expect("policy")
+                .split_error_millipixels(),
+        ) / 1000.0;
+        Ok(self.committed.borrow().iter().all(|(chunk, _)| {
+            chunk.children().is_none()
+                || crate::terrain::streaming::error(
+                    terrain,
+                    *chunk,
+                    request.matrix,
+                    request.viewport,
+                ) <= threshold
+        }))
+    }
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, instances: &wgpu::Buffer) {
         let drawing = self.drawing.borrow();
         let committed = self.committed.borrow();
@@ -176,6 +241,22 @@ impl Streaming {
         }
     }
 }
+#[cfg(test)]
+fn record_preparation(prepared: &Prepared, uploads: usize) {
+    super::STREAMING_PREPARATIONS.with_borrow_mut(|observations| {
+        if let Some(observations) = observations {
+            observations.push(super::StreamingPreparation {
+                buffers: prepared
+                    .residents
+                    .iter()
+                    .map(|(_, lod)| (lod.vertices.clone(), lod.indices.clone()))
+                    .collect(),
+                uploads,
+            });
+        }
+    });
+}
+
 fn upload_chunk(
     context: &mut PrepareContext<'_>,
     terrain: &worldrunner_render_plan::SceneTerrain,
@@ -220,44 +301,22 @@ fn buffer(
     context.upload_buffer(&buffer, 0, bytes);
     buffer
 }
-pub(super) fn validate(scene: &RenderScene) -> Result<(), DrawError> {
-    if scene
-        .terrain()
-        .is_none_or(|terrain| terrain.streaming_policy().is_none())
-    {
-        return Ok(());
-    }
-    let feature = if scene
-        .resources()
-        .materials()
-        .iter()
-        .any(|material| material.terrain_contact().is_some())
-    {
-        Some("contact queries")
-    } else if scene.effects().is_some_and(|effects| {
-        effects.ssao().is_some() || effects.ssr().is_some_and(|ssr| ssr.enabled)
-    }) {
-        Some("SSAO and SSR prepasses")
-    } else {
-        None
-    };
-    if let Some(feature) = feature {
-        return Err(DrawError::Terrain {
-            source: TerrainError::StreamingUnsupported { feature },
-        });
-    }
-    Ok(())
-}
 impl SceneGpu {
-    pub(crate) fn reject_streaming(&self, feature: &'static str) -> Result<(), FrameError> {
-        if self
-            .terrain
+    pub(crate) fn has_streaming_terrain(&self) -> bool {
+        self.terrain
             .as_ref()
             .is_some_and(|terrain| terrain.streaming.is_some())
-        {
-            return Err(FrameError::StreamingTerrainUnsupported(feature));
-        }
-        Ok(())
+    }
+    pub(crate) fn prepare_frame_geometry(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        frame: &crate::frame::FrameUniform,
+        viewport: [u32; 2],
+    ) -> Result<(), FrameError> {
+        self.prepare_terrain_geometry(device, encoder, frame, viewport)?;
+        self.prepare_sky(device, encoder, frame)?;
+        self.prepare_terrain_pages(device, encoder, frame, viewport)
     }
     pub(crate) fn prepare_terrain_geometry(
         &self,
@@ -276,5 +335,36 @@ impl SceneGpu {
             context.finish();
         }
         Ok(())
+    }
+}
+
+/// Source generation and camera footprint whose selected chunks must be resident.
+/// Readiness requires the requested sampling threshold, even under budget pressure.
+#[derive(Clone, Debug)]
+pub struct TerrainGeometryRequest {
+    identity: Rc<()>,
+    matrix: glam::Mat4,
+    viewport: [u32; 2],
+}
+impl SceneGpu {
+    pub fn terrain_geometry_request(
+        &self,
+        frame: &crate::frame::FrameUniform,
+        viewport: [u32; 2],
+    ) -> Option<TerrainGeometryRequest> {
+        self.terrain
+            .as_ref()
+            .and_then(|t| t.streaming.as_ref())
+            .map(|s| s.request(frame, viewport))
+    }
+    pub fn terrain_geometry_ready(
+        &self,
+        request: &TerrainGeometryRequest,
+    ) -> Result<bool, crate::terrain::pages::scene::TerrainResidencyError> {
+        self.terrain
+            .as_ref()
+            .and_then(|t| t.streaming.as_ref())
+            .ok_or(crate::terrain::pages::scene::TerrainResidencyError::Stale)?
+            .ready_for(request)
     }
 }

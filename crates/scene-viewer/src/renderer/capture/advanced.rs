@@ -68,9 +68,11 @@ impl Renderer {
                 return Ok(Some(false));
             };
             let pages = self.retained_pages_ready(host, &view)?;
-            let request = host.captures.waiting.iter().find(|r| {
-                r.1 == host.ready_generation() && !host.readiness.page_wait && (!r.2 || pages)
-            });
+            let request = host
+                .captures
+                .waiting
+                .iter()
+                .find(|r| host.capture_ready(r, pages));
             let Some(&(id, _, _)) = request else {
                 return Ok(None);
             };
@@ -137,9 +139,10 @@ impl Renderer {
         else {
             return Ok(false);
         };
-        if !self.retained_pages_ready(host, &view)?
-            && host.captures.waiting.iter().any(|r| r.0 == id && r.2)
-        {
+        let pages = self.retained_pages_ready(host, &view)?;
+        let waits_pages = !pages && host.captures.waiting.iter().any(|r| r.0 == id && r.2);
+        let waits_geometry = host.captures.geometry.contains(&id) && !host.captures.geometry_ready;
+        if waits_pages || waits_geometry {
             return self.warm_recipe_pages(&view, ready);
         }
         self.resident.select_frame_slot(ready.admission.slot());

@@ -31,12 +31,24 @@ mod publication;
 mod retained;
 mod streaming;
 pub(crate) use publication::{DrawPublications, SelectionPublication};
+pub use streaming::TerrainGeometryRequest;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use resources::prepared_terrain;
 pub use visibility::ViewStats;
 use visibility::{MeshSelection, Selection};
+
+#[cfg(test)]
+pub(crate) struct StreamingPreparation {
+    pub buffers: Vec<(Buffer, Buffer)>,
+    pub uploads: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STREAMING_PREPARATIONS: RefCell<Option<Vec<StreamingPreparation>>> = const { RefCell::new(None) };
+}
 
 /// Why one scene could not be turned into GPU resources.
 #[derive(Debug, thiserror::Error)]
@@ -248,6 +260,17 @@ impl SceneGpu {
         prepared: PreparedScene,
         pipelines: &ScenePipelines,
     ) -> Result<Self, DrawError> {
+        Self::upload_prepared_reusing(device, authority, prepared, pipelines, None)
+    }
+
+    /// Reuses unchanged streamed chunks from the preceding retained generation.
+    pub fn upload_prepared_reusing(
+        device: &Device,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+        prepared: PreparedScene,
+        pipelines: &ScenePipelines,
+        previous: Option<&Self>,
+    ) -> Result<Self, DrawError> {
         let scene = &prepared.scene;
         let queue = authority.queue();
         validate_profile(scene, pipelines)?;
@@ -270,8 +293,8 @@ impl SceneGpu {
             },
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
-        let terrain = prepared_terrain(device, authority, &prepared, pipelines, &sampler)?;
-        let mesh_selection = prepared.selection;
+        let terrain =
+            prepared_terrain(device, authority, &prepared, pipelines, &sampler, previous)?;
         let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
@@ -289,7 +312,7 @@ impl SceneGpu {
             frame_group,
             materials,
             meshes,
-            mesh_selection,
+            mesh_selection: prepared.selection,
             instances: Instances::new(scene),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),

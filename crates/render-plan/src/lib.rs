@@ -100,10 +100,11 @@ pub use scene::{
 };
 
 pub use scene::{
-    SceneAmbientOcclusion, SceneCard, SceneFadeBand, SceneFoliageWind, SceneImpostor,
-    SceneImpostorLayout, SceneLayerBlend, SceneLayerMode, SceneMaterialFeatures,
-    SceneNormalEncoding, SceneNormalY, SceneTerrainContact, SceneTint, SceneTranslucency,
-    SceneTranslucencyParts, SceneWind, SceneWindBand, SceneWindPhase,
+    SceneAmbientOcclusion, SceneAtlasSampling, SceneCard, SceneFadeBand, SceneFoldSampling,
+    SceneFoliageWind, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout, SceneLayerBlend,
+    SceneLayerMode, SceneMaterialFeatures, SceneNormalEncoding, SceneNormalY, SceneTerrainContact,
+    SceneTint, SceneTranslucency, SceneTranslucencyParts, SceneWind, SceneWindArc, SceneWindBand,
+    SceneWindPhase,
 };
 
 pub use scene::{
@@ -130,7 +131,7 @@ pub use scene::{
     SceneSpecularConvention, SceneSpecularOcclusion, SceneSpecularVisibility, SceneSurfaceDisk,
 };
 
-pub use scene::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
+pub use scene::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits, SceneLodMaterialSlot};
 
 pub use scene::{
     TerrainColorization, TerrainColorizationChannels, TerrainLayer, TerrainLayeredSource,

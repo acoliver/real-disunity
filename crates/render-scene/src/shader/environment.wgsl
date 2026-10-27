@@ -3,7 +3,7 @@ fn sample_normal(input: VertexOutput, geometric: vec3<f32>, position: vec3<f32>,
     if (material.texture_flags & FLAG_NORMAL) == 0u {
         return geometric;
     }
-    if input.atlas_eye.w != 0.0 && material.impostor_relief.x != 0.0 { return scene_relief_normal(input); }
+    if input.atlas_eye.w != 0.0 && (material.impostor_relief.x != 0.0 || scene_packed_atlas(input)) { return scene_relief_normal(input); }
     let sampled = scene_atlas_sample(normal_texture, input).rgb * 2.0 - 1.0;
     var xy = sampled.xy;
     var z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
@@ -42,8 +42,9 @@ fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {
         let rough_metal = scene_atlas_sample(rough_metal_texture, input);
-        roughness *= rough_metal.g;
-        metalness *= rough_metal.b;
+        let surface = scene_surface_channels(input, rough_metal);
+        roughness = surface.x;
+        metalness = surface.y;
     }
     let contact_weight = scene_contact(input.world_position);
     if contact_weight != 0.0 {
@@ -57,6 +58,7 @@ fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
         ambient_occlusion = scene_atlas_sample(ambient_occlusion_texture, input).r;
     }
 
+    if scene_packed_atlas(input) { ambient_occlusion = scene_atlas_first(ambient_occlusion_texture, input).g; }
     var packed_occlusion = ambient_occlusion;
     if material.scattering_mode.y != 0.0 {
         packed_occlusion = min(ambient_occlusion, input.ambient_occlusion);
@@ -66,12 +68,19 @@ fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
     }
 
     var masked_amount = 0.0;
-    if material.scattering_mode.y != 0.0 {
-        let response = scene_mask_response(metalness, packed_occlusion, ambient_occlusion,
-            (material.texture_flags & FLAG_ROUGH_METAL) != 0u);
-        metalness = response.x;
-        masked_amount = response.y;
+    if material.scattering_mode.y != 0.0 && (!scene_packed_atlas(input) || metalness > 0.05) {
+        if scene_packed_atlas(input) {
+            masked_amount = metalness * ambient_occlusion;
+            metalness = 0.0;
+        } else {
+            let response = scene_mask_response(metalness, packed_occlusion, ambient_occlusion,
+                (material.texture_flags & FLAG_ROUGH_METAL) != 0u);
+            metalness = response.x;
+            masked_amount = response.y;
+        }
     }
+
+    if scene_packed_atlas(input) && metalness > 0.05 { metalness = 0.0; }
 
     var colour = surface_lighting(
         input.world_position,
@@ -99,10 +108,11 @@ fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
             * sunlight_visibility(input.world_position, -normal);
     }
 
-    if (material.texture_flags & FLAG_SELF_ILLUMINATION) != 0u {
+    if (material.texture_flags & FLAG_SELF_ILLUMINATION) != 0u || scene_packed_atlas(input) {
         // The mask is a single channel, so it carries intensity and not colour;
         // the emitted hue can only come from the surface's own albedo.
-        let emission = scene_atlas_sample(self_illumination_texture, input).r;
+        var emission = scene_atlas_sample(self_illumination_texture, input).r;
+        if scene_packed_atlas(input) { emission = scene_atlas_first(ambient_occlusion_texture, input).r; }
         colour += albedo_sample.rgb * emission;
     }
 

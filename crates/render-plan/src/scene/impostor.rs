@@ -29,6 +29,10 @@ pub enum SceneImpostorLayout {
 /// Optional border maps hold left, right, top and bottom crop fractions per frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneImpostor {
+    cutoffs_micro: Option<[u32; 2]>,
+    channels: SceneImpostorChannels,
+    sampling: SceneAtlasSampling,
+    capture_center_millimeters: [i32; 3],
     fade: Option<SceneFadeBand>,
     relief: Option<(super::TextureHandle, u32)>,
     borders: Option<super::TextureHandle>,
@@ -39,7 +43,77 @@ pub struct SceneImpostor {
     direction_distance_millimeters: u32,
     plane_size_millimeters: [u32; 2],
 }
+/// Atlas channel contract. The packed variant uses RT.r for roughness,
+/// RT.g for metalness and translucency classification (> 0.05), and SIAO.rg
+/// for emission and occlusion. RT/SIAO use the first selected capture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneImpostorChannels {
+    Material,
+    RoughTranslucencyEmissionOcclusion,
+}
+
+/// Mip-zero sampling or the projected atlas UV's implicit derivative footprint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneAtlasSampling {
+    MipZero,
+    Implicit,
+}
+
 impl SceneImpostor {
+    pub(super) fn validate_channels(
+        self,
+        material: &super::SceneMaterial,
+    ) -> Result<(), SceneValidationError> {
+        if self.channels == SceneImpostorChannels::RoughTranslucencyEmissionOcclusion
+            && (material.roughness_metallic().is_none() || material.ambient_occlusion().is_none())
+        {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "packed impostor requires RT and emission-occlusion atlases",
+            });
+        }
+        Ok(())
+    }
+
+    /// Overrides forward/metadata/prepass and shadow alpha cutoffs respectively.
+    pub fn with_pass_cutoffs(
+        mut self,
+        forward: u32,
+        shadow: u32,
+    ) -> Result<Self, SceneValidationError> {
+        bounded("impostor forward cutoff", forward, 1_000_000)?;
+        bounded("impostor shadow cutoff", shadow, 1_000_000)?;
+        self.cutoffs_micro = Some([forward, shadow]);
+        Ok(self)
+    }
+    pub const fn pass_cutoffs_micro(self) -> Option<[u32; 2]> {
+        self.cutoffs_micro
+    }
+    #[must_use]
+    pub const fn with_channels(mut self, channels: SceneImpostorChannels) -> Self {
+        self.channels = channels;
+        self
+    }
+    pub const fn channels(self) -> SceneImpostorChannels {
+        self.channels
+    }
+    #[must_use]
+    pub const fn with_sampling(mut self, sampling: SceneAtlasSampling) -> Self {
+        self.sampling = sampling;
+        self
+    }
+    pub const fn sampling(self) -> SceneAtlasSampling {
+        self.sampling
+    }
+    /// Mesh-local capture centre, transformed with the placement before wind.
+    #[must_use]
+    pub const fn with_capture_center(mut self, center: [i32; 3]) -> Self {
+        self.capture_center_millimeters = center;
+        self
+    }
+    pub const fn capture_center_millimeters(self) -> [i32; 3] {
+        self.capture_center_millimeters
+    }
+
     pub fn new(
         layout: SceneImpostorLayout,
         frames: [u32; 2],
@@ -63,6 +137,10 @@ impl SceneImpostor {
         }
         bounded("impostor border", border_micro, 499_999)?;
         Ok(Self {
+            cutoffs_micro: None,
+            channels: SceneImpostorChannels::Material,
+            sampling: SceneAtlasSampling::MipZero,
+            capture_center_millimeters: [0; 3],
             fade: None,
             relief: None,
             borders: None,
@@ -183,6 +261,7 @@ mod tests {
 /// followed by full coverage above end. Distances are measured before wind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneFadeBand {
+    terminal: bool,
     start_millimeters: u32,
     end_millimeters: u32,
 }
@@ -192,9 +271,19 @@ impl SceneFadeBand {
             return Err(SceneValidationError::ExtentNotPositive { part: "fade width" });
         }
         Ok(Self {
+            terminal: false,
             start_millimeters,
             end_millimeters,
         })
+    }
+    /// Terminal coverage is one through start, then falls to zero at end.
+    #[must_use]
+    pub const fn with_terminal_fade(mut self) -> Self {
+        self.terminal = true;
+        self
+    }
+    pub const fn terminal(self) -> bool {
+        self.terminal
     }
     pub const fn millimeters(self) -> [u32; 2] {
         [self.start_millimeters, self.end_millimeters]

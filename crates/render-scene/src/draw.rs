@@ -26,6 +26,7 @@ mod celestial;
 mod contact;
 mod descriptors;
 mod dynamic;
+mod lod_material;
 mod pages;
 mod publication;
 mod retained;
@@ -562,28 +563,7 @@ impl SceneGpu {
         );
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
         for range in &selection.ranges {
-            let (pipeline, mesh, material) = range.key;
-            let batch = &self.instances.batches[&range.key];
-            let lod = &self.meshes[mesh].lods[range.lod];
-            pass.set_pipeline(&pipelines[pipeline]);
-            pass.set_bind_group(MATERIAL_GROUP, &self.materials[material], &[]);
-            pass.set_vertex_buffer(0, lod.vertices.slice(..));
-            pass.set_vertex_buffer(
-                1,
-                batch
-                    .buffer
-                    .as_ref()
-                    .expect("flushed instance buffer")
-                    .slice(..),
-            );
-            pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
-            pass.draw_indexed(0..lod.index_count, 0, range.slots.clone());
-            if let Some(vertices) = &lod.transition {
-                let previous = &self.meshes[mesh].lods[range.lod - 1];
-                pass.set_vertex_buffer(0, vertices.slice(..));
-                pass.set_index_buffer(previous.indices.slice(..), IndexFormat::Uint32);
-                pass.draw_indexed(0..previous.index_count, 0, range.slots.clone());
-            }
+            self.record_lod_range(pass, pipelines, range);
         }
         SelectionPublication {
             destination: published,

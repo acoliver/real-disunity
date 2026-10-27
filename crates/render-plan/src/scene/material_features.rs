@@ -231,6 +231,7 @@ pub struct SceneTerrainContact {
     metalness_micro: u32,
     distance_millimeters: u32,
     normal_fold: Option<[u32; 2]>,
+    fold_sampling: super::SceneFoldSampling,
 }
 impl SceneTerrainContact {
     /// Enables folding with height in millimetres and minimum mesh weight in millionths.
@@ -254,6 +255,14 @@ impl SceneTerrainContact {
         bounded("normal fold minimum", minimum, 1_000_000)?;
         self.normal_fold = Some([height, minimum]);
         Ok(self)
+    }
+    #[must_use]
+    pub const fn with_fold_sampling(mut self, sampling: super::SceneFoldSampling) -> Self {
+        self.fold_sampling = sampling;
+        self
+    }
+    pub const fn fold_sampling(self) -> super::SceneFoldSampling {
+        self.fold_sampling
     }
     pub const fn normal_fold(self) -> Option<[u32; 2]> {
         self.normal_fold
@@ -291,6 +300,7 @@ impl SceneTerrainContact {
             metalness_micro,
             distance_millimeters,
             normal_fold: None,
+            fold_sampling: super::SceneFoldSampling::InstanceOrigin,
         })
     }
 }

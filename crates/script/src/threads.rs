@@ -49,6 +49,28 @@ struct Waiting {
     args: MultiValue,
 }
 
+/// What a thread was spawned with, kept while it lives so it can be saved as data.
+struct Origin {
+    function: Function,
+    args: MultiValue,
+}
+
+/// When a saved thread runs next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Wake {
+    NextAdvance,
+    At(u64),
+    UntilWoken,
+}
+
+/// A live scheduler thread as saving sees it.
+pub(crate) struct ThreadRecord {
+    pub thread: Thread,
+    pub function: Function,
+    pub args: MultiValue,
+    pub wake: Wake,
+}
+
 #[derive(Default)]
 pub(crate) struct Scheduler {
     now: u64,
@@ -59,9 +81,69 @@ pub(crate) struct Scheduler {
     deferred: Vec<Waiting>,
     running: Option<Thread>,
     killed_running: bool,
+    origins: HashMap<usize, Origin>,
 }
 
 impl Scheduler {
+    pub(crate) fn now(&self) -> u64 {
+        self.now
+    }
+
+    pub(crate) fn is_idle(&self) -> bool {
+        self.queue.is_empty() && self.deferred.is_empty() && self.running.is_none()
+    }
+
+    pub(crate) fn is_running(&self) -> bool {
+        self.running.is_some()
+    }
+
+    /// Every waiting thread, in the order it would run: by wake time, then those waiting for
+    /// the next advance.
+    pub(crate) fn records(&self) -> Vec<ThreadRecord> {
+        let record = |thread: &Thread, wake| {
+            let origin = &self.origins[&id(thread)];
+            ThreadRecord {
+                thread: thread.clone(),
+                function: origin.function.clone(),
+                args: origin.args.clone(),
+                wake,
+            }
+        };
+        let timed = self.queue.iter().map(|(&(at, _), waiting)| {
+            let wake = if at == u64::MAX {
+                Wake::UntilWoken
+            } else {
+                Wake::At(at)
+            };
+            record(&waiting.thread, wake)
+        });
+        let next = self
+            .deferred
+            .iter()
+            .map(|waiting| record(&waiting.thread, Wake::NextAdvance));
+        timed.chain(next).collect()
+    }
+
+    /// Schedules restored threads, which start from the beginning of their function, with the
+    /// clock at `now`.
+    pub(crate) fn restore(&mut self, now: u64, threads: Vec<(Thread, Function, MultiValue, Wake)>) {
+        self.now = now;
+        for (thread, function, args, wake) in threads {
+            self.origins.insert(
+                id(&thread),
+                Origin {
+                    function,
+                    args: args.clone(),
+                },
+            );
+            match wake {
+                Wake::NextAdvance => self.deferred.push(Waiting { thread, args }),
+                Wake::At(at) => self.schedule(thread, at, args),
+                Wake::UntilWoken => self.schedule(thread, u64::MAX, args),
+            }
+        }
+    }
+
     fn schedule(&mut self, thread: Thread, wake: u64, args: MultiValue) {
         let key = (wake, self.next_seq);
         self.next_seq += 1;
@@ -70,6 +152,7 @@ impl Scheduler {
     }
 
     fn remove(&mut self, thread: &Thread) -> bool {
+        self.origins.remove(&id(thread));
         if let Some(key) = self.keys.remove(&id(thread)) {
             self.queue.remove(&key);
             return true;
@@ -188,6 +271,12 @@ impl GameScripts {
         let result = self.budget().resume(self.lua(), &thread, args);
         let mut scheduler = self.scheduler().lock().expect("scheduler");
         scheduler.running = None;
+        let ended = result.is_err()
+            || thread.status() != ThreadStatus::Resumable
+            || scheduler.killed_running;
+        if ended {
+            scheduler.origins.remove(&id(&thread));
+        }
         let yielded = match result {
             Err(error) => {
                 return Ok(Some(ThreadFailure {
@@ -228,9 +317,17 @@ fn sleep_request(values: &MultiValue, token: &Table) -> Option<i64> {
 fn spawn(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
     let shared = Arc::clone(shared);
     lua.create_function(move |lua, (function, args): (Function, MultiValue)| {
-        let thread = lua.create_thread(function)?;
+        let thread = lua.create_thread(function.clone())?;
         // A new thread first runs at the next advance, even when spawned during one.
-        shared.lock().expect("scheduler").deferred.push(Waiting {
+        let mut scheduler = shared.lock().expect("scheduler");
+        scheduler.origins.insert(
+            id(&thread),
+            Origin {
+                function,
+                args: args.clone(),
+            },
+        );
+        scheduler.deferred.push(Waiting {
             thread: thread.clone(),
             args,
         });

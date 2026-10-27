@@ -9,7 +9,7 @@
 
 Every hook fire runs under an instruction budget (`ScriptConfig::instruction_budget`). A script that exceeds it is halted with `ScriptError::BudgetExceeded`, so a runaway loop cannot hang a frame. The budget counts instructions, and a single `string.rep` can allocate gigabytes in one, so memory has its own limit: 256 MiB by default (`DEFAULT_MEMORY_LIMIT`), changed with `ScriptHost::set_memory_limit`. An allocation past it fails with a Lua memory error, which reaches the host as `ScriptError::Memory` unless the script catches it.
 
-Support for running a game's original scripts is being added in [#147](https://github.com/acoliver/real-disunity/issues/147). The profile, threads and timers, saving Lua data and patch overlays below are done; saving closures and suspended threads is next.
+Support for running a game's original scripts is being added in [#147](https://github.com/acoliver/real-disunity/issues/147). The profile, threads and timers, saving Lua data and threads, and patch overlays below are done. Saving closures, and threads that resume mid-function, need a decision recorded on that issue.
 
 ## Running a game's original scripts
 
@@ -81,7 +81,9 @@ scripts.restore(&snapshot, &["Classes"])?;
 
 - **Data is copied, with its shape.** Tables shared by reference stay shared, cycles survive, metatables are kept, integers stay integers and floats stay floats, including NaN and infinities, and strings keep their exact bytes.
 - **Code is saved by name.** Natives, and every function and table reachable through string keys from the permanent roots the game names, are permanents. A snapshot stores only their names, such as `Classes.Unit.Hit`, and `restore` looks each name up in the current state. A restored save therefore runs the game's current code. A name that no longer exists fails the restore and is reported.
-- **Not yet supported:** functions that are not permanents, such as closures created at run time, and coroutines. Saving one fails and names where it was found, for example `GameState["units"][3]["on_death"]`.
+- **Scheduler threads are saved as data:** the permanent function each was spawned with, its arguments and its wake time, together with the scheduler clock. Every waiting thread is saved, whether or not the roots refer to it, and a thread value stored in the data restores as the same restored thread. A restored thread starts its function again from the beginning at its saved wake time, so state a thread must keep across a save belongs in tables, where Haemimont-style game code keeps a unit's state anyway. A thread spawned with a closure cannot be saved. Finished coroutines restore as finished.
+- **Restoring threads needs an empty scheduler.** Restore saved threads before the game spawns any. A snapshot without threads restores into a running scheduler and leaves its threads and clock alone.
+- **Not yet supported:** functions that are not permanents, such as closures created at run time, and suspended coroutines the scheduler does not own. Saving one fails and names where it was found, for example `GameState["units"][3]["on_death"]`. Resuming a thread mid-function after a load needs a serializer for Lua's internals; see [#147](https://github.com/acoliver/real-disunity/issues/147).
 - `LuaSnapshot` implements serde, so the game chooses the encoding. Snapshots of the same state are identical: string, number and boolean keys are written in sorted order. Only tables used as keys keep Lua's iteration order.
 - `restore` assigns each root to its global path; the parent of a dotted path must already exist.
 

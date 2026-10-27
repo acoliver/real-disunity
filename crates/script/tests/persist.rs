@@ -157,7 +157,10 @@ fn values_that_cannot_be_saved_are_refused_with_their_location() {
         "{closure}"
     );
     let thread = refusal(scripts.save(&["Thread"], &["Unit"]));
-    assert!(thread.contains(r#"Thread["co"] is a thread"#), "{thread}");
+    assert!(
+        thread.contains(r#"Thread["co"] is a suspended coroutine the scheduler does not own"#),
+        "{thread}"
+    );
     let root = refusal(scripts.save(&["Unit"], &["Unit"]));
     assert!(root.contains("root Unit is a permanent"), "{root}");
     let scalar = refusal(scripts.save(&["Closure"], &["Score"]));

@@ -10,6 +10,7 @@
 //! by [`ObjectInfo::offset`] and [`ObjectInfo::size`], and [`object::decode`] reads it with a
 //! class layout from [`classes`].
 
+pub mod camera;
 mod class;
 pub mod classes;
 mod cursor;
@@ -17,6 +18,7 @@ mod error;
 mod file;
 pub mod graphics;
 mod header;
+pub mod light;
 pub mod mesh;
 pub mod object;
 mod type_tree;

@@ -23,7 +23,7 @@ worldrunner = { git = "https://github.com/acoliver/real-disunity", rev = "<commi
 | `scene-viewer` | `worldrunner::scene::viewer`: a desktop window that presents a scene. Implies `scene`. |
 | `world` (default) | World documents, deterministic world generation and save files. |
 | `assets` (default) | Asset identities, packages, meshes, materials and textures. |
-| `script` | A sandboxed Lua 5.4 host for game logic. |
+| `script` | A sandboxed Lua 5.4 host for game logic and a game's original scripts; see [Lua scripts](lua-scripts.md). |
 
 ## Build and advance a world
 

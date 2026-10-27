@@ -8,6 +8,7 @@ If you are new, read the pages in this order:
 2. [Writing a Rust game](rust-games.md): build a world, advance it, and draw it in a window.
 3. [Writing C# scripts](csharp-games.md): write `MonoBehaviour` scripts against `UnityEngine` names and host them.
 4. [Importing Unity projects](unity-projects.md): what the importer reads and how to inspect a project.
+5. [Lua scripts](lua-scripts.md): the sandboxed Lua host, and patching a game's original scripts.
 
 Reference pages:
 

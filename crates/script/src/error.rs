@@ -31,6 +31,8 @@ pub enum ScriptError {
     Sandbox { message: String },
     /// A `UserData` handle was used after the world it named is gone.
     HandleInvalid { handle: String },
+    /// An original script's patches were refused; nothing was loaded.
+    Patch(crate::patches::PatchError),
 }
 
 impl fmt::Display for ScriptError {
@@ -65,11 +67,18 @@ impl fmt::Display for ScriptError {
             Self::HandleInvalid { handle } => {
                 write!(f, "handle {handle} is invalid (world unloaded)")
             }
+            Self::Patch(error) => write!(f, "{error}"),
         }
     }
 }
 
 impl std::error::Error for ScriptError {}
+
+impl From<crate::patches::PatchError> for ScriptError {
+    fn from(error: crate::patches::PatchError) -> Self {
+        Self::Patch(error)
+    }
+}
 
 impl From<mlua::Error> for ScriptError {
     fn from(error: mlua::Error) -> Self {

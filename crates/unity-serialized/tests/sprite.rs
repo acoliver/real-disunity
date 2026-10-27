@@ -7,7 +7,10 @@ use worldrunner_unity_serialized::{
     ClassId, SerializedError,
     mesh::{Aabb, ChannelInfo, SubMesh, VertexData},
     object::PPtr,
-    sprite::{RenderDataKey, SecondaryTexture, Sprite, SpriteBone, SpriteRenderData},
+    sprite::{
+        RenderDataKey, SecondaryTexture, Sprite, SpriteAtlas, SpriteAtlasData, SpriteBone,
+        SpriteRenderData,
+    },
     write::ObjectWriter,
 };
 
@@ -204,4 +207,84 @@ fn rejects_trailing_bytes() {
         matches!(error, SerializedError::TrailingBytes { .. }),
         "{error}"
     );
+}
+
+fn atlas_bytes(big_endian: bool, variant: bool) -> Vec<u8> {
+    let mut w = ObjectWriter::new(big_endian);
+    w.string("icons")
+        .unwrap()
+        .pptrs(&[ptr(50), ptr(51)])
+        .unwrap();
+    count(&mut w, 2)
+        .string("gold")
+        .unwrap()
+        .string("iron")
+        .unwrap();
+    count(&mut w, 1).u32(5).u32(6).u32(7).u32(8).i64(-99);
+    w.pptr(ptr(60)).pptr(ptr(61)).floats(&[1.0, 2.0, 3.0, 4.0]);
+    w.floats(&[5.0, 6.0])
+        .floats(&[-1.0, -2.0])
+        .floats(&[100.0, 9.0, 101.0, 10.0]);
+    w.f32(0.5).u32(0x41);
+    count(&mut w, 1).pptr(ptr(62)).string("_MaskTex").unwrap();
+    w.string("ui-tag").unwrap().u8(u8::from(variant)).align();
+    w.finish()
+}
+
+fn expected_atlas(variant: bool) -> SpriteAtlas {
+    SpriteAtlas {
+        name: "icons".into(),
+        packed_sprites: vec![ptr(50), ptr(51)],
+        packed_sprite_names: vec!["gold".into(), "iron".into()],
+        render_data: vec![(
+            RenderDataKey {
+                guid: [5, 6, 7, 8],
+                local_id: -99,
+            },
+            SpriteAtlasData {
+                texture: ptr(60),
+                alpha_texture: ptr(61),
+                texture_rect: [1.0, 2.0, 3.0, 4.0],
+                texture_rect_offset: [5.0, 6.0],
+                atlas_rect_offset: [-1.0, -2.0],
+                uv_transform: [100.0, 9.0, 101.0, 10.0],
+                downscale_multiplier: 0.5,
+                settings: 0x41,
+                secondary_textures: vec![SecondaryTexture {
+                    texture: ptr(62),
+                    name: "_MaskTex".into(),
+                }],
+            },
+        )],
+        tag: "ui-tag".into(),
+        is_variant: variant,
+    }
+}
+
+#[test]
+fn decodes_sprite_atlases_in_both_byte_orders() {
+    for big_endian in [false, true] {
+        for variant in [false, true] {
+            let bytes = atlas_bytes(big_endian, variant);
+            let decoded: SpriteAtlas =
+                decode_one(ClassId::SPRITE_ATLAS, bytes, big_endian).unwrap();
+            assert_eq!(decoded, expected_atlas(variant), "variant {variant}");
+        }
+    }
+}
+
+#[test]
+fn every_truncated_sprite_atlas_fails() {
+    let bytes = atlas_bytes(false, true);
+    for end in 0..bytes.len() {
+        let error = decode_one::<SpriteAtlas>(ClassId::SPRITE_ATLAS, bytes[..end].to_vec(), false)
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                SerializedError::Truncated { .. } | SerializedError::InvalidCount { .. }
+            ),
+            "prefix {end}: {error}"
+        );
+    }
 }

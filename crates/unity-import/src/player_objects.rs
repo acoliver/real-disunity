@@ -11,12 +11,13 @@ use worldrunner_unity_serialized::{
     ClassId, ObjectInfo, SerializedError, SerializedFile,
     camera::Camera,
     classes::{GameObject, MonoBehaviour, MonoScript, RectTransform, Transform},
+    font::Font,
     graphics::{Material, MeshFilter, MeshRenderer, SkinnedMeshRenderer, Texture2D},
     light::Light,
     mesh::Mesh,
     object::{Layout, decode},
     shader::Shader,
-    sprite::Sprite,
+    sprite::{Sprite, SpriteAtlas},
     text_asset::TextAsset,
     ui::{Canvas, CanvasGroup, CanvasRenderer},
 };
@@ -145,7 +146,7 @@ const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
 }
 
 /// The classes with layouts, each with the check [`decode_census`] runs on its objects.
-const LAYOUTS: [(ClassId, Check); 19] = [
+const LAYOUTS: [(ClassId, Check); 21] = [
     layout::<GameObject>(),
     layout::<Transform>(),
     layout::<RectTransform>(),
@@ -165,6 +166,8 @@ const LAYOUTS: [(ClassId, Check); 19] = [
     layout::<CanvasGroup>(),
     layout::<TextAsset>(),
     layout::<Sprite>(),
+    layout::<SpriteAtlas>(),
+    layout::<Font>(),
 ];
 const FAILURES_KEPT: usize = 5;
 

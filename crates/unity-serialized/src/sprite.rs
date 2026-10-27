@@ -32,12 +32,17 @@ pub struct SpriteRenderData {
     pub bindposes: Vec<[f32; 16]>,
     /// The sprite's rectangle in the texture, in pixels: x, y, width, height.
     pub texture_rect: [f32; 4],
+    /// Offset of the texture rectangle within the sprite rectangle, in pixels.
     pub texture_rect_offset: [f32; 2],
+    /// Unity's `atlasRectOffset`; (-1, -1) in every sprite of the player checked, atlased or not.
     pub atlas_rect_offset: [f32; 2],
     /// Unity's packed settings bits: bit 0 packed, bit 1 packing mode, bits 2 to 5 packing
     /// rotation, bit 6 mesh type.
     pub settings: u32,
+    /// Pixels per unit and the pivot's position in the texture, in pixels: x scale, x pivot,
+    /// y scale, y pivot.
     pub uv_transform: [f32; 4],
+    /// Unity's `downscaleMultiplier` for the packed texture.
     pub downscale_multiplier: f32,
 }
 
@@ -108,18 +113,21 @@ pub struct RenderDataKey {
     pub local_id: i64,
 }
 
+/// A 2D image drawn from a rectangle of a texture, with its own mesh.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sprite {
     pub name: String,
     /// The sprite's rectangle in its source texture, in pixels: x, y, width, height.
     pub rect: [f32; 4],
+    /// Offset of the pivot from the rectangle's center, in pixels.
     pub offset: [f32; 2],
     /// Nine-slice borders in pixels: left, bottom, right, top.
     pub border: [f32; 4],
     pub pixels_to_units: f32,
     /// The pivot as a fraction of the rectangle.
     pub pivot: [f32; 2],
-    /// Pixels of transparent margin kept around a tight mesh.
+    /// How far the generated mesh extends beyond the sprite's edge, in pixels (the importer's
+    /// Extrude Edges setting).
     pub extrude: u32,
     pub is_polygon: bool,
     pub render_data_key: RenderDataKey,

@@ -20,6 +20,9 @@ const fn ptr(path_id: i64) -> PPtr {
 
 const INDICES: [u8; 6] = [0, 0, 1, 0, 2, 0];
 const VERTICES: [u8; 7] = [10, 11, 12, 13, 14, 15, 16];
+const BINDPOSE: [f32; 16] = [
+    0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+];
 
 fn count(w: &mut ObjectWriter, n: i32) -> &mut ObjectWriter {
     w.i32(n)
@@ -33,13 +36,13 @@ fn render_data(w: &mut ObjectWriter) {
         .string("_NormalMap")
         .unwrap()
         .align();
-    count(w, 1).u32(0).u32(6).i32(0).u32(1).u32(2).u32(3);
+    count(w, 1).u32(12).u32(6).i32(2).u32(1).u32(5).u32(3);
     w.floats(&[0.5, 0.25, 0.0, 1.5, 2.5, 0.0]).align();
     w.byte_array(&INDICES).unwrap();
     w.u32(3);
-    count(w, 1).bytes(&[0, 0, 0, 3]).align();
+    count(w, 1).bytes(&[1, 2, 3, 4]).align();
     w.byte_array(&VERTICES).unwrap().align();
-    count(w, 1).floats(&[7.0; 16]).align();
+    count(w, 1).floats(&BINDPOSE).align();
     w.floats(&[1.0, 2.0, 30.0, 40.0])
         .floats(&[0.5, 0.75])
         .floats(&[3.0, 4.0]);
@@ -95,11 +98,11 @@ fn expected_render_data() -> SpriteRenderData {
             name: "_NormalMap".into(),
         }],
         sub_meshes: vec![SubMesh {
-            first_byte: 0,
+            first_byte: 12,
             index_count: 6,
-            topology: 0,
+            topology: 2,
             base_vertex: 1,
-            first_vertex: 2,
+            first_vertex: 5,
             vertex_count: 3,
             local_aabb: Aabb {
                 center: [0.5, 0.25, 0.0],
@@ -111,14 +114,14 @@ fn expected_render_data() -> SpriteRenderData {
         vertex_data: VertexData {
             vertex_count: 3,
             channels: vec![ChannelInfo {
-                stream: 0,
-                offset: 0,
-                format: 0,
-                dimension: 3,
+                stream: 1,
+                offset: 2,
+                format: 3,
+                dimension: 4,
             }],
             data: 0..0,
         },
-        bindposes: vec![[7.0; 16]],
+        bindposes: vec![BINDPOSE],
         texture_rect: [1.0, 2.0, 30.0, 40.0],
         texture_rect_offset: [0.5, 0.75],
         atlas_rect_offset: [3.0, 4.0],

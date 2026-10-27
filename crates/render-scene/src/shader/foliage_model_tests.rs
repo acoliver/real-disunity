@@ -295,3 +295,91 @@ fn orthographic_relief_does_not_divide_by_main_camera_light_angle() {
     );
     assert_eq!(values, [0.0, 0.0, -2.0, 1.0]);
 }
+
+#[test]
+fn minimum_arc_zero_and_tiny_force_match_independent_axial_and_radial_integrals() {
+    let context = context();
+    let curvature = std::f64::consts::PI / 360.0;
+    // Midpoint integral of cos(k*s), without using the shader antiderivative.
+    let axial: f64 = (0..16384)
+        .map(|i| ((f64::from(i) + 0.5) * curvature / 16384.0).cos() / 16384.0)
+        .sum();
+    assert!(((1.0 - axial) * 1e6 - 12.692_34).abs() < 0.000_01);
+    for force in [0.0_f64, 0.000_001] {
+        let lateral: f64 = (0..16384)
+            .map(|i| ((f64::from(i) + 0.5) * curvature / 16384.0).sin() / 16384.0)
+            .sum::<f64>()
+            * force
+            / 0.0001;
+        let body = format!(
+            "material.foliage_origin.w = 1.0; let force=vec3({force},0.0,0.0); let p=SceneBendInput(vec3(0.0,0.0,1.0),vec3(0.0,0.0,1.0),force,vec2(1.0),1.0,1.0); result[0]=vec4(scene_curved_position_policy(p,force,true),scene_arc_curvature_policy(force,1.0,true));"
+        );
+        let actual = evaluate(&context, &body);
+        assert!((f64::from(actual[0]) - lateral).abs() < 1e-7);
+        assert!((f64::from(actual[2]) - axial).abs() < 1e-7);
+        assert!((f64::from(actual[3]) - curvature).abs() < 1e-9);
+        // At full height the attachment is entirely the independently bent radial arc.
+        let body = format!(
+            "material.foliage_origin.w=1.0; let force=vec3({force},0.0,0.0); let p=SceneBendInput(vec3(1.0,0.0,1.0),vec3(0.0,0.0,1.0),force,vec2(1.0),1.0,1.0); result[0]=vec4(scene_curved_position_policy(p,force,true),0.0);"
+        );
+        let radial = evaluate(&context, &body);
+        assert!((f64::from(radial[0]) - axial - 2.0 * lateral).abs() < 2e-7);
+        assert!((f64::from(radial[2]) - axial).abs() < 1e-7);
+    }
+    let zero = evaluate(
+        &context,
+        "material.foliage_origin.w=1.0; let p=SceneBendInput(vec3(0.0),vec3(0.0,0.0,1.0),vec3(0.0),vec2(1.0),1.0,1.0); result[0]=vec4(scene_curved_position_policy(p,vec3(0.0),true),0.0);",
+    );
+    assert_eq!(zero, vec![0.0; 4]);
+}
+
+#[test]
+fn minimum_arc_material_vertex_applies_to_both_stages_at_zero_force() {
+    let context = context();
+    let expected = (std::f64::consts::PI / 360.0).sin() / (std::f64::consts::PI / 360.0);
+    let body = r"
+        material.foliage_origin.w=1.0;
+        material.foliage_axis_curve=vec4(0.0,0.0,1.0,1.0);
+        material.foliage_extent_strength_phase=vec4(1.0,1.0,1.0,1.0);
+        material.foliage_primary=vec4(0u,0u,0u,bitcast<u32>(1.0));
+        material.foliage_radial=material.foliage_primary;
+        var instance: InstanceInput;
+        instance.model_column_0=vec4(1.0,0.0,0.0,0.0);
+        instance.model_column_1=vec4(0.0,1.0,0.0,0.0);
+        instance.model_column_2=vec4(0.0,0.0,1.0,0.0);
+        instance.model_column_3=vec4(0.0,0.0,0.0,1.0);
+        let point=vec3(1.0,0.0,1.0);
+        result[0]=vec4(point+scene_geometry_displacement(point,1.0,instance),0.0);
+    ";
+    let actual = evaluate(&context, body);
+    for (value, expected) in actual.into_iter().zip([expected, 0.0, expected, 0.0]) {
+        assert!((f64::from(value) - expected).abs() < 1e-7);
+    }
+}
+
+#[test]
+fn capture_center_curved_vertex_matches_additive_parallel_arc_integral() {
+    let context = context();
+    let body = format!(
+        r"
+        {MATERIAL_ENTRY}
+        instance.model_column_0=vec4(1.0,0.0,0.0,0.0);
+        instance.model_column_2=vec4(0.0,0.0,1.0,0.0);
+        material.wind_direction_amplitude=vec4(0.0,0.0,-1.0,54.63);
+        material.foliage_extent_strength_phase=vec4(100.0,100.0,1.0,1.0);
+        material.impostor_grid=vec4(1.0,1.0,0.0,1.0);
+        material.wind_field_mode=vec4(0.0,0.0,0.0,-100.0);
+        vertex.position=vec3(0.0);
+        vertex.lod_billboard_mode=2u;
+        result[0]=vec4(material_vertex(vertex,instance).world_position,1.0);
+    "
+    );
+    let actual = evaluate(&context, &body);
+    let k = 2.0 * (54.63_f64 / 100.0).atan() / 100.0;
+    let expected = -((100.0 * k).sin() + 1.0 - (100.0 * k).cos()) / k;
+    assert!(
+        (f64::from(actual[2]) - expected).abs() < 0.001,
+        "{actual:?} vs {expected}"
+    );
+    assert_eq!(&actual[..2], &[0.0; 2]);
+}

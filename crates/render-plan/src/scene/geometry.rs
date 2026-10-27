@@ -78,6 +78,7 @@ pub enum BillboardPolicy {
 /// One owned mesh level-of-detail with its geometry payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneMeshLod {
+    material_slots: Option<Box<[super::SceneLodMaterialSlot]>>,
     vertex_occlusion_micro: Option<Box<[u32]>>,
     card: Option<super::SceneCard>,
     level_index: u8,
@@ -87,6 +88,20 @@ pub struct SceneMeshLod {
 }
 
 impl SceneMeshLod {
+    /// Overrides the placement material with a complete triangle partition.
+    pub fn with_material_slots(
+        mut self,
+        slots: Vec<super::SceneLodMaterialSlot>,
+    ) -> Result<Self, SceneValidationError> {
+        super::lod_material::validate_slots(&slots, self.indices.len())?;
+        self.material_slots = Some(slots.into_boxed_slice());
+        Ok(self)
+    }
+
+    pub fn material_slots(&self) -> Option<&[super::SceneLodMaterialSlot]> {
+        self.material_slots.as_deref()
+    }
+
     /// Supplies one baked occlusion value per vertex, in millionths.
     /// Absence means fully unoccluded. Materials opt into this stream explicitly.
     pub fn with_vertex_occlusion(mut self, values: Vec<u32>) -> Result<Self, SceneValidationError> {
@@ -134,6 +149,7 @@ impl SceneMeshLod {
         billboard: Option<BillboardPolicy>,
     ) -> Result<Self, SceneValidationError> {
         let level = Self {
+            material_slots: None,
             vertex_occlusion_micro: None,
             card: None,
             level_index,

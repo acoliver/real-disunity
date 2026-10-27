@@ -165,3 +165,80 @@ fn cancelled_primary_force_keeps_independent_radial_response() {
     assert!((actual[0] - 4.0 / std::f32::consts::PI).abs() < 0.002);
     assert_eq!(&actual[1..], &[0.0, 2.0, 0.0]);
 }
+
+#[test]
+fn terminal_fade_matches_independent_linear_coverage() {
+    let context = context();
+    for (distance, expected) in [
+        (1.0, 1.0),
+        (2.0, 1.0),
+        (2.5, 0.75),
+        (3.0, 0.5),
+        (4.0, 0.0),
+        (5.0, 0.0),
+    ] {
+        let actual = run(
+            &context,
+            &format!(
+                "result[0]=vec4(scene_distance_coverage({distance},vec2(2.0,-4.0)),0.0,0.0,0.0);"
+            ),
+        );
+        assert_eq!(actual[0].to_bits(), f32::to_bits(expected));
+    }
+    let actual = run(
+        &context,
+        "result[0]=vec4(scene_distance_coverage(2.0,vec2(2.0,-2.5)),scene_distance_coverage(2.25,vec2(2.0,-2.5)),scene_distance_coverage(2.5,vec2(2.0,-2.5)),scene_distance_coverage(3.0,vec2(2.0,-2.5)));",
+    );
+    assert_eq!(actual, [1.0, 0.25, 0.0, 0.0]);
+}
+
+#[test]
+fn per_vertex_fold_samples_local_slope_before_wind() {
+    let context = context();
+    let source = ENVIRONMENT_WGSL
+        .replace(
+            "@group(1) @binding(0) var<uniform> material: Material;",
+            "var<private> material: Material;",
+        )
+        .replace(
+            "@group(0) @binding(0) var<uniform> frame: Frame;",
+            "var<private> frame: Frame;",
+        );
+    let ground = [
+        0.0, 0.0, 1.0, 3.0, 2.0, 1.0, 3.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
+    ];
+    for (policy, expected) in [
+        (0_u32, [0.0_f32, 0.0, 1.0]),
+        (
+            1,
+            [
+                -std::f32::consts::FRAC_1_SQRT_2,
+                0.0,
+                std::f32::consts::FRAC_1_SQRT_2,
+            ],
+        ),
+    ] {
+        let body = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    material.contact_surface=vec4(0.0,0.0,2.0,0.0);
+    material.wind_clock.w={policy}u;
+    var instance: InstanceInput;
+    instance.model_column_0=vec4(1.0,0.0,0.0,0.0);
+    instance.model_column_1=vec4(0.0,1.0,0.0,0.0);
+    instance.model_column_2=vec4(0.0,0.0,1.0,0.0);
+    instance.model_column_3=vec4(0.25,0.25,0.0,1.0);
+    var vertex: VertexInput;
+    vertex.position=vec3(1.0,0.0,0.0);
+    vertex.normal=vec3(0.0,0.0,1.0);
+    result[0]=material_vertex(vertex,instance).ground_fold;
+}}"
+        );
+        let actual = evaluate_source(&context, &source, &body, None, Some(&ground));
+        for (a, e) in actual.iter().zip(expected) {
+            assert!((a - e).abs() < 1e-6, "{policy}: {actual:?}");
+        }
+        assert_eq!(actual[3].to_bits(), 0.0_f32.to_bits());
+    }
+}

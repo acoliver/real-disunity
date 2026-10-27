@@ -52,6 +52,14 @@ impl SceneWindBand {
     }
 }
 
+/// Arc generation at zero and small force. Existing descriptors use the straight limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneWindArc {
+    StraightLimit,
+    /// Clamps each stage's extent arc angle to at least half a degree.
+    MinimumHalfDegree,
+}
+
 /// Two-stage authored-basis axial and radial bending. Extents are world-space
 /// millimetres; the normalized local axis follows the original instance transform.
 /// The arc basis is not orthogonalized, so length is preserved only for
@@ -65,11 +73,11 @@ impl SceneWindBand {
 /// Normals and stored tangents retain their undeformed geometry frame in forward
 /// and prepass shading, including subsequent terrain-normal folding.
 ///
-/// Unlike the reference model's half-degree minimum angle, zero force is the
-/// straight-segment limit and leaves geometry unchanged. Curvature approaches
-/// zero continuously with force, including when a band reaches zero gain.
+/// By default zero force is the straight-segment limit and leaves geometry
+/// unchanged. The optional minimum arc also applies at zero force.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneFoliageWind {
+    arc: SceneWindArc,
     axis: SceneDirection,
     extents_millimeters: [u32; 2],
     curve_micro: u32,
@@ -100,6 +108,7 @@ impl SceneFoliageWind {
             });
         }
         Ok(Self {
+            arc: SceneWindArc::StraightLimit,
             axis,
             extents_millimeters,
             curve_micro,
@@ -108,6 +117,14 @@ impl SceneFoliageWind {
             strength_micro: 1_000_000,
             origin_millimeters: [0; 3],
         })
+    }
+    #[must_use]
+    pub const fn with_arc(mut self, arc: SceneWindArc) -> Self {
+        self.arc = arc;
+        self
+    }
+    pub const fn arc(self) -> SceneWindArc {
+        self.arc
     }
     /// Moves the hinge in local mesh coordinates before instance transformation.
     #[must_use]

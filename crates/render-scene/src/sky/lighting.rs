@@ -37,8 +37,8 @@ pub(crate) fn source(source: String, lighting: SceneCelestialLighting) -> String
             "let irradiance = scene_diffuse_environment(normal, frame.ambient_ground.rgb, frame.ambient_sky.rgb) * CELESTIAL_ENVIRONMENT;",
         ),
         (
-            "let emission = scene_atlas_sample(self_illumination_texture, input).r;",
-            "let emission = scene_atlas_sample(self_illumination_texture, input).r * CELESTIAL_EMISSION;",
+            "colour += albedo_sample.rgb * emission;",
+            "colour += albedo_sample.rgb * emission * CELESTIAL_EMISSION;",
         ),
     ];
     let mut source = source;

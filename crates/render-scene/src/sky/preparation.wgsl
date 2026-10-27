@@ -6,7 +6,7 @@ struct Parameters {
     roughness:f32,
     remap:u32,
     visibility:u32,
-    padding2:f32,
+    source_lod_tail:u32,
 }
 @group(0) @binding(0) var<uniform> params:Parameters;
 @group(0) @binding(1) var environment:texture_cube<f32>;
@@ -81,7 +81,7 @@ fn filtered(n:vec3<f32>)->vec3<f32> {
                 let resolution=f32(textureDimensions(environment).x);
                 let texel_solid_angle=12.56637061436/(6.0*resolution*resolution);
                 let sample_solid_angle=1.0/(f32(params.samples)*pdf);
-                mip=clamp(0.5*log2(sample_solid_angle/texel_solid_angle),0.0,f32(textureNumLevels(environment)-1u));
+                mip=clamp(0.5*log2(sample_solid_angle/texel_solid_angle),0.0,f32(textureNumLevels(environment)-min(params.source_lod_tail+1u,textureNumLevels(environment))));
             }
             sum+=textureSampleLevel(environment,environment_sampler,l,mip).rgb*no_l;
             weight+=no_l;

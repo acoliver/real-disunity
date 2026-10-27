@@ -3,6 +3,7 @@ use super::*;
 
 pub(crate) fn settings() -> SceneScattering {
     SceneScattering {
+        observer_altitude_millimeters: None,
         compose_celestial: true,
         planet_radius_meters: 6_360_000,
         atmosphere_radius_meters: 6_420_000,
@@ -279,4 +280,25 @@ fn gpu_interior_elevation_interpolates_adjacent_quantized_columns() {
             rgb(&actual)
         );
     }
+}
+
+#[test]
+fn fixed_observer_uses_authored_altitude_and_validates_the_atmosphere_boundary() {
+    let mut settings = settings();
+    for camera in [0.1, 20.0, 1000.0] {
+        assert_eq!(
+            observer_altitude(settings, camera).to_bits(),
+            camera.to_bits()
+        );
+    }
+    settings.observer_altitude_millimeters = Some(100);
+    assert!(settings.validate().is_ok());
+    for camera in [0.1, 20.0, 1000.0] {
+        assert_eq!(
+            observer_altitude(settings, camera).to_bits(),
+            0.1_f32.to_bits()
+        );
+    }
+    settings.observer_altitude_millimeters = Some(60_000_000);
+    assert!(settings.validate().is_err());
 }

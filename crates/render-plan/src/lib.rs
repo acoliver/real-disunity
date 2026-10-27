@@ -118,15 +118,16 @@ pub mod ui;
 pub mod simulation;
 
 pub use scene::{
-    SceneAtmosphere, SceneCelestialDisc, SceneCelestialLighting, SceneCelestialMesh,
-    SceneFogDensity, SceneHeightFog, SceneScattering, SceneScatteringFormat, SceneScatteringModel,
+    SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition, SceneCelestialDisc,
+    SceneCelestialLighting, SceneCelestialMesh, SceneFogDensity, SceneFogDensityPolicy,
+    SceneHeightFog, SceneScattering, SceneScatteringFormat, SceneScatteringModel,
     SceneSpecularCube,
 };
 pub use worldrunner_material::BuiltinMaterial;
 
 pub use scene::{
-    SceneDiffuseEnvironment, SceneRoughnessRemap, SceneSh9, SceneSpecularConvention,
-    SceneSpecularOcclusion, SceneSpecularVisibility,
+    SceneDiffuseEnvironment, SceneDirectDiffuse, SceneRoughnessRemap, SceneSh9,
+    SceneSpecularConvention, SceneSpecularOcclusion, SceneSpecularVisibility, SceneSurfaceDisk,
 };
 
 pub use scene::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};

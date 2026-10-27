@@ -111,12 +111,17 @@ pub(super) fn atmosphere(density: u32) -> SceneAtmosphere {
         + f32::from(u16::from_le_bytes([a, b])))
         / 1e6;
     SceneAtmosphere {
+        celestial_composition: worldrunner_render_plan::SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy:
+            worldrunner_render_plan::SceneBackgroundDepthPolicy::ConstantDistance,
         scattering: None,
         horizon_radiance_micro: [0, 0, 2_000_000],
         zenith_radiance_micro: [0, 0, 2_000_000],
         gradient_exponent_micro: 1_000_000,
         sun_angular_radius_millidegrees: 0,
         fog: Some(SceneHeightFog {
+            density_policy: worldrunner_render_plan::SceneFogDensityPolicy::BeyondStart,
             density: SceneFogDensity::new(density).unwrap(),
             falloff_micro_per_meter: 0,
             base_height_millimeters: 0,

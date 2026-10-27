@@ -7,6 +7,10 @@ use worldrunner_render_plan::SceneCamera;
 
 pub(super) fn settings() -> SceneAtmosphere {
     SceneAtmosphere {
+        celestial_composition: worldrunner_render_plan::SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy:
+            worldrunner_render_plan::SceneBackgroundDepthPolicy::ConstantDistance,
         scattering: None,
         horizon_radiance_micro: [2_000_000; 3],
         zenith_radiance_micro: [2_000_000; 3],
@@ -34,7 +38,7 @@ fn solar_disc_uses_frame_sun_direction() {
     let (color, _) = render(&settings, 1.0, 1.0);
     assert_eq!(&color[..8], &[0, 0x48, 0, 0x48, 0, 0x48, 0, 0x3c]);
 }
-pub(super) fn test_frame(exposure: f32) -> FrameUniform {
+pub(crate) fn test_frame(exposure: f32) -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [0, 0, 0],
@@ -258,6 +262,7 @@ fn celestial_discs_cover_the_background_only_in_their_angular_extent() {
 fn fog_is_linear_hdr_and_uses_the_shared_exposure() {
     let mut sky = settings();
     sky.fog = Some(worldrunner_render_plan::SceneHeightFog {
+        density_policy: worldrunner_render_plan::SceneFogDensityPolicy::BeyondStart,
         density: worldrunner_render_plan::SceneFogDensity::new(1.0).unwrap(),
         falloff_micro_per_meter: 0,
         base_height_millimeters: 0,

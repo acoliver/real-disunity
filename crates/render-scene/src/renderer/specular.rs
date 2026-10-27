@@ -1,11 +1,14 @@
 use super::ScenePipelines;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-pub(crate) fn constants(options: [u32; 3]) -> [(&'static str, f64); 3] {
+pub(crate) fn constants(options: [u32; 6]) -> [(&'static str, f64); 6] {
     [
         ("SCENE_ROUGHNESS_REMAP", f64::from(options[0])),
         ("SCENE_SPECULAR_VISIBILITY", f64::from(options[1])),
         ("SCENE_SPECULAR_OCCLUSION", f64::from(options[2])),
+        ("SCENE_DIRECT_DIFFUSE", f64::from(options[3])),
+        ("SCENE_DISK_INTENSITY", f64::from(options[4]) / 1_000_000.0),
+        ("SCENE_DISK_PEAK", f64::from(options[5]) / 1_000_000.0),
     ]
 }
 
@@ -16,8 +19,8 @@ pub(super) struct Specialization {
     terrain: Rc<str>,
     shadow: Option<wgpu::BindGroupLayout>,
     screen: Option<wgpu::BindGroupLayout>,
-    options: [u32; 3],
-    cache: Rc<RefCell<BTreeMap<[u32; 3], ScenePipelines>>>,
+    options: [u32; 6],
+    cache: Rc<RefCell<BTreeMap<[u32; 6], ScenePipelines>>>,
 }
 impl Specialization {
     pub fn new(
@@ -26,7 +29,7 @@ impl Specialization {
         terrain: &str,
         shadow: Option<&wgpu::BindGroupLayout>,
         screen: Option<&wgpu::BindGroupLayout>,
-        options: [u32; 3],
+        options: [u32; 6],
     ) -> Self {
         Self {
             device: device.clone(),
@@ -98,6 +101,7 @@ mod tests {
                         roughness,
                         visibility,
                         occlusion,
+                        ..Default::default()
                     };
                     let first = pipelines.for_convention(convention);
                     let again = pipelines.for_convention(convention);

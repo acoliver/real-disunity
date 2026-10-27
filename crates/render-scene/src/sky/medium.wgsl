@@ -6,6 +6,8 @@ struct Frame {
     ambient_sky: vec4<f32>,
     ambient_ground: vec4<f32>,
     grading: vec4<f32>,
+    diffuse_sh: array<vec4<f32>,9>,
+    lighting_options: vec4<f32>,
 }
 struct Sky {
     horizon: vec4<f32>,
@@ -49,6 +51,43 @@ fn atmospheric_fog(ray:vec3<f32>,origin:vec3<f32>)->f32 {
     if frame.sun_direction.w>=0.0 { return 1.0; }
     let falloff=-frame.sun_direction.w-1.0;
     let density=frame.camera_position.w-falloff*(origin.z-frame.camera_position.z);
+    var distance=sky.mode.w;
+    if sky.reserved3.x != 0.0 {
+        distance=rd_far_plane_ray_distance(frame.view_projection,ray,frame.diffuse_sh[1].w);
+    }
+    if frame.diffuse_sh[0].w != 0.0 {
+        return rd_full_ray_fog_transmittance(density,falloff,frame.sun_radiance.w,
+            ray*distance,vec3(0.0,0.0,1.0));
+    }
     return rd_height_fog_transmittance(density,falloff,frame.sun_radiance.w,
-        ray*sky.mode.w,vec3(0.0,0.0,1.0));
+        ray*distance,vec3(0.0,0.0,1.0));
+}
+
+fn celestial_exposure()->f32 {
+    if sky.reserved3.z != 0.0 { return sky.reserved3.w; }
+    return frame.grading.x;
+}
+
+fn celestial_separate_surface(surface:vec3<f32>,background:vec3<f32>,transmission:f32)->vec3<f32> {
+    let fogged=mix(vec3(frame.ambient_sky.w,frame.ambient_ground.w,frame.grading.w),background,transmission);
+    return surface*celestial_exposure()+fogged*frame.grading.x;
+}
+fn background_radiance(ray:vec3<f32>)->vec3<f32> {
+    var radiance=mix(sky.horizon.rgb,sky.zenith.rgb,pow(clamp(ray.z,0.0,1.0),sky.horizon.w));
+    if sky.mode.y>0.5 {
+        let uv=vec2(atan2(ray.y,ray.x)/6.28318530718+0.5,acos(clamp(ray.z,-1.0,1.0))/3.14159265359);
+        let dx=dpdx(uv);
+        let dy=dpdy(uv);
+        let periodic_dx=vec2(dx.x-round(dx.x),dx.y);
+        let periodic_dy=vec2(dy.x-round(dy.x),dy.y);
+        radiance=textureSampleGrad(disc_texture,disc_sampler,uv,periodic_dx,periodic_dy).rgb;
+    }
+    if sky.mode.z>0.5 { radiance=scattered_radiance(ray); }
+    if sky.mode.x<=0.5 && sky.zenith.w>0.0 && dot(ray,frame.sun_direction.xyz)>=cos(sky.zenith.w) {
+        radiance=frame.sun_radiance.rgb;
+        if sky.mode.z>0.5 && sky.reserved2.z>0.5 {
+            radiance=radiance*column_integral(ray,2)+scattered_radiance(ray);
+        }
+    }
+    return radiance;
 }

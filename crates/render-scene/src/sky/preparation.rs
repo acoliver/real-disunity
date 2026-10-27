@@ -37,6 +37,9 @@ pub struct EnvironmentPreparation {
     pub samples: u32,
     /// Scales the split-sum specular coefficients once, independently of diffuse.
     pub specular_intensity_micro: u32,
+    /// Source LOD is capped at max(0, source mip count minus this value).
+    /// One preserves the full source mip chain.
+    pub source_lod_tail: u32,
 }
 impl EnvironmentPreparation {
     pub fn allocations(self) -> Result<AllocationSet, PreparationError> {
@@ -50,6 +53,8 @@ impl EnvironmentPreparation {
             || self.samples == 0
             || self.samples > 4096
             || self.specular_intensity_micro > 64_000_000
+            || self.source_lod_tail == 0
+            || self.source_lod_tail > 32
         {
             return Err(PreparationError::Settings);
         }
@@ -89,6 +94,8 @@ pub enum PreparationError {
 pub struct PreparedEnvironmentMaps {
     cube: wgpu::Texture,
     lut: wgpu::Texture,
+    authored_brdf: Option<AuthoredBrdfTable>,
+    specular_intensity_micro: u32,
     transaction: Publications,
     convention: worldrunner_render_plan::SceneSpecularConvention,
 }
@@ -106,8 +113,16 @@ impl PreparedEnvironmentMaps {
                 dimension: Some(wgpu::TextureViewDimension::Cube),
                 ..Default::default()
             }),
-            self.lut
-                .create_view(&wgpu::TextureViewDescriptor::default()),
+            self.authored_brdf
+                .as_ref()
+                .filter(|_| self.specular_intensity_micro == 1_000_000)
+                .map_or_else(
+                    || {
+                        self.lut
+                            .create_view(&wgpu::TextureViewDescriptor::default())
+                    },
+                    |table| table.view.clone(),
+                ),
         ))
     }
     pub fn status(&self) -> TransactionStatus {
@@ -162,6 +177,8 @@ pub fn encode(
         lut,
         transaction,
         convention: settings.convention,
+        authored_brdf: None,
+        specular_intensity_micro: settings.specular_intensity_micro,
     })
 }
 struct Integration<'a> {
@@ -235,7 +252,7 @@ impl<'a> Integration<'a> {
             roughness.to_bits(),
             settings.convention.shader_options()[0],
             settings.convention.shader_options()[1],
-            0,
+            settings.source_lod_tail - 1,
         ]
         .into_iter()
         .flat_map(u32::to_le_bytes)
@@ -360,5 +377,7 @@ pub fn encode_atmosphere(
         transaction,
     })
 }
+mod authored_brdf;
 #[cfg(test)]
 mod tests;
+pub use authored_brdf::{AuthoredBrdfTable, BrdfTableAxes, encode_with_authored_brdf};

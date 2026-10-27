@@ -39,17 +39,7 @@ use worldrunner_render_plan::*;
 fn atmospheric_settings_are_prepared_in_generation_order() {
     let mut host = host();
     let base = host.scene.effects().unwrap().clone();
-    let atmosphere = SceneAtmosphere {
-        scattering: None,
-        horizon_radiance_micro: [100_000; 3],
-        zenith_radiance_micro: [200_000; 3],
-        gradient_exponent_micro: 1_000_000,
-        sun_angular_radius_millidegrees: 0,
-        fog: None,
-        discs: vec![],
-        meshes: vec![],
-        background_distance_millimeters: 100_000,
-    };
+    let atmosphere = policy_atmosphere();
     let initial = base.clone().with_atmosphere(atmosphere.clone()).unwrap();
     host.scene = RenderScene::new(SceneParts {
         resources: host.scene.resources().clone(),
@@ -200,4 +190,22 @@ fn focus_loss_emits_releases_in_stable_order_and_clears_held_keys() {
         host.input(RetainedInput::Focused(false)),
         vec![RetainedInput::Focused(false)]
     );
+}
+
+fn policy_atmosphere() -> SceneAtmosphere {
+    SceneAtmosphere {
+        celestial_composition: worldrunner_render_plan::SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy:
+            worldrunner_render_plan::SceneBackgroundDepthPolicy::ConstantDistance,
+        scattering: None,
+        horizon_radiance_micro: [100_000; 3],
+        zenith_radiance_micro: [200_000; 3],
+        gradient_exponent_micro: 1_000_000,
+        sun_angular_radius_millidegrees: 0,
+        fog: None,
+        discs: vec![],
+        meshes: vec![],
+        background_distance_millimeters: 100_000,
+    }
 }

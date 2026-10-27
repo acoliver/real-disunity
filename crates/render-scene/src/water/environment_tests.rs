@@ -116,6 +116,7 @@ pub(crate) fn prepare_environment(
         crate::sky::preparation::EnvironmentPreparation {
             convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             cube_size: 4,
+            source_lod_tail: 1,
             mip_count: 3,
             specular_intensity_micro: 1_000_000,
             lut_size: 8,

@@ -24,6 +24,7 @@ fn metadata(context: &GpuContext, size: [u32; 2], values: &[[u16; 4]]) -> wgpu::
 fn upload_camera(context: &GpuContext, screen: &SceneMetadata) {
     let projection = glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 100.0);
     let frame = FrameUniform {
+        background_far_plane_meters: 0.0,
         specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
@@ -33,6 +34,7 @@ fn upload_camera(context: &GpuContext, screen: &SceneMetadata) {
         camera_position_millimeters: [0; 3],
         sun_direction: glam::Vec3::Z,
         sun_ao_intensity: None,
+        sun_tint: glam::Vec3::ONE,
         sun_irradiance: glam::Vec3::ZERO,
         ambient_sky: glam::Vec3::ONE,
         ambient_ground: glam::Vec3::ONE,

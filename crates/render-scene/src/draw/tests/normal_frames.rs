@@ -41,6 +41,7 @@ fn absent_tangents_and_default_normal_settings_match_stock_shading_bytes() {
     gpu.set_frame(
         context.queue(),
         FrameUniform {
+            background_far_plane_meters: 0.0,
             sun_irradiance: Vec3::ZERO,
             ambient_sky: Vec3::splat(0.4),
             ambient_ground: Vec3::splat(0.1),
@@ -238,6 +239,7 @@ fn brightening_tint_reaches_shaded_output_linearly() {
     let material = mapped_material().with_normal_scale(0).unwrap();
     let scene = normal_scene([128, 128, 255, 255], None, &material);
     let frame = FrameUniform {
+        background_far_plane_meters: 0.0,
         sun_irradiance: Vec3::ZERO,
         ambient_sky: Vec3::splat(0.4),
         ambient_ground: Vec3::splat(0.4),
@@ -321,6 +323,7 @@ fn sh9_diffuse_produces_the_same_radiance_for_mesh_terrain_and_cards() {
     let mut coefficients = [[0; 3]; 9];
     coefficients[0] = [250_000, 375_000, 125_000];
     let frame = FrameUniform {
+        background_far_plane_meters: 0.0,
         specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: SceneDiffuseEnvironment::Sh9(SceneSh9::new(coefficients).unwrap()),
         sun_irradiance: Vec3::ZERO,

@@ -16,13 +16,7 @@ fn forward_reflection(world: vec3<f32>, normal: vec3<f32>, f0: vec3<f32>, roughn
     let coefficients = textureSampleLevel(reflection_brdf, reflection_sampler, vec2<f32>(cosine, roughness), 0.0).rg;
     let factor = scene_environment_factor(f0, coefficients, cosine, ao, roughness);
     let radiance = textureSampleLevel(reflection_environment, reflection_sampler, reflect(-view, normal), roughness * f32(textureNumLevels(reflection_environment) - 1u)).rgb;
-    var air = 1.0;
-    if frame.sun_direction.w < 0.0 {
-        let origin = scene_ray_origin(world);
-        let falloff = -frame.sun_direction.w - 1.0;
-        let density = frame.camera_position.w - falloff * (origin.z - frame.camera_position.z);
-        air = rd_height_fog_transmittance(density, falloff, frame.sun_irradiance.w, world - origin, vec3<f32>(0.0, 0.0, 1.0));
-    }
+    let air = scene_surface_transmission(world);
     published_self_ao = self_ao;
     published_visibility = cosine;
     published_factor = factor * air;

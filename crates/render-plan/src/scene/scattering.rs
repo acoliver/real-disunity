@@ -40,6 +40,8 @@ pub enum SceneScatteringModel {
 /// O'Neil is the basis, with these deviations defined by [`SceneScatteringModel`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneScattering {
+    /// None follows the camera. A fixed altitude is independent of scene translation.
+    pub observer_altitude_millimeters: Option<u32>,
     pub model: SceneScatteringModel,
     /// Extinguish celestial surface radiance and add the atmospheric background.
     pub compose_celestial: bool,
@@ -93,6 +95,14 @@ impl SceneScattering {
             0,
             999_000,
         )?;
+        if let Some(altitude) = self.observer_altitude_millimeters {
+            require_range(
+                "scattering observer altitude",
+                u64::from(altitude),
+                0,
+                u64::from(self.atmosphere_radius_meters - self.planet_radius_meters) * 1000 - 1,
+            )?;
+        }
         Ok(())
     }
 }
@@ -103,6 +113,7 @@ mod tests {
     #[test]
     fn invalid_geometry_and_sampling_fail_before_preparation() {
         let mut settings = SceneScattering {
+            observer_altitude_millimeters: None,
             compose_celestial: false,
             planet_radius_meters: 6_360_000,
             atmosphere_radius_meters: 6_420_000,

@@ -172,7 +172,7 @@ impl ScenePipelines {
             (source, terrain_source),
             shadow_layout,
             screen_layout,
-            [0; 3],
+            [0; 6],
         )
     }
 
@@ -182,7 +182,7 @@ impl ScenePipelines {
         sources: (&str, &str),
         shadow_layout: Option<&BindGroupLayout>,
         screen_layout: Option<&BindGroupLayout>,
-        options: [u32; 3],
+        options: [u32; 6],
     ) -> Self {
         let (source, terrain_source) = sources;
         let constants = specular::constants(options);
@@ -511,12 +511,14 @@ pub(crate) fn celestial_pipelines(
     device: &Device,
     scene: &ScenePipelines,
     physical: bool,
+    separate: bool,
+    object_exposure: bool,
 ) -> [RenderPipeline; 8] {
     celestial_specialization(
         device,
         scene,
-        physical,
-        [0; 3],
+        (physical, separate, object_exposure),
+        [0; 6],
         worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
         false,
     )
@@ -524,8 +526,8 @@ pub(crate) fn celestial_pipelines(
 pub(crate) fn celestial_specialization(
     device: &Device,
     scene: &ScenePipelines,
-    physical: bool,
-    options: [u32; 3],
+    composition: (bool, bool, bool),
+    options: [u32; 6],
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
 ) -> [RenderPipeline; 8] {
@@ -534,12 +536,7 @@ pub(crate) fn celestial_specialization(
         "@location(0) world_position: vec3<f32>,",
         "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
     );
-    let source = if physical {
-        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
-            "return vec4<f32>(colour, albedo_sample.a);")
-    } else {
-        source
-    };
+    let source = crate::sky::lighting::composition_source(source, composition);
     let source = crate::sky::lighting::source(source, lighting);
     let vertex = if anchored {
         crate::sky::meshes::VERTEX.replace(

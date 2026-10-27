@@ -456,3 +456,30 @@ fn explicit_sh9_does_not_derive_ambient_from_a_dome_texture() {
         0.25_f32.to_bits()
     );
 }
+
+#[test]
+fn fog_policies_and_sun_tint_have_distinct_uniform_lanes() {
+    let mut frame = crate::sky::render_tests::test_frame(1.0);
+    let neutral = frame.to_bytes();
+    assert_eq!(&neutral[160..320], &[0; 160]);
+    let mut fog =
+        worldrunner_render_lighting::atmosphere::HeightFog::new(0.02, 0.03, 0.0, 25.0, Vec3::ZERO)
+            .unwrap();
+    fog.full_ray_density = true;
+    frame.height_fog = Some(fog);
+    frame.background_far_plane_meters = 100.0;
+    frame.sun_ao_intensity = Some(1.5);
+    frame.sun_tint = Vec3::new(0.0, 2.0, 0.5);
+    let bytes = frame.to_bytes();
+    for (offset, expected) in [
+        (172, 1.0_f32),
+        (188, 100.0),
+        (204, 0.0),
+        (220, 2.0),
+        (236, 0.5),
+        (308, 1.5),
+        (312, 1.0),
+    ] {
+        assert_eq!(&bytes[offset..offset + 4], &expected.to_le_bytes());
+    }
+}

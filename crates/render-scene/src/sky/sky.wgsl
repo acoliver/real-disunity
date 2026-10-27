@@ -18,18 +18,8 @@ struct Vertex {
 }
 @fragment fn fragment(input:Vertex)->@location(0) vec4<f32> {
     let ray=normalize(input.direction);
-    var radiance=mix(sky.horizon.rgb,sky.zenith.rgb,pow(clamp(ray.z,0.0,1.0),sky.horizon.w));
+    var radiance=background_radiance(ray);
     var coverage=1.0;
-    if sky.mode.y>0.5 {
-        // Equirectangular Z-up dome: +X is u=0.5, +Y is u=0.75, zenith is v=0.
-        let uv=vec2(atan2(ray.y,ray.x)/6.28318530718+0.5,acos(clamp(ray.z,-1.0,1.0))/3.14159265359);
-        let dx=dpdx(uv);
-        let dy=dpdy(uv);
-        let periodic_dx=vec2(dx.x-round(dx.x),dx.y);
-        let periodic_dy=vec2(dy.x-round(dy.x),dy.y);
-        radiance=textureSampleGrad(disc_texture,disc_sampler,uv,periodic_dx,periodic_dy).rgb;
-    }
-    if sky.mode.z>0.5 { radiance=scattered_radiance(ray); }
     if sky.mode.x>0.5 {
         let cosine=dot(ray,sky.disc.xyz);
         if cosine<cos(sky.disc.w) { discard; }
@@ -47,12 +37,8 @@ struct Vertex {
             radiance=radiance*column_integral(ray,2)+scattered_radiance(ray);
         }
         coverage=texel.a;
-    } else if sky.zenith.w>0.0 && dot(ray,frame.sun_direction.xyz)>=cos(sky.zenith.w) {
-        radiance=frame.sun_radiance.rgb;
-        if sky.mode.z>0.5 && sky.reserved2.z>0.5 {
-            radiance=radiance*column_integral(ray,2)+scattered_radiance(ray);
-        }
     }
     radiance=mix(vec3(frame.ambient_sky.w,frame.ambient_ground.w,frame.grading.w),radiance,atmospheric_fog(ray,input.origin));
+    if sky.mode.x > 0.5 { return vec4(radiance * celestial_exposure(),coverage); }
     return vec4(radiance * frame.grading.x,coverage);
 }

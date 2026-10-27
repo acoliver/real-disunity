@@ -87,7 +87,7 @@ fn water_shader_uses_shared_lighting_and_sample_receiver_outputs() {
     for required in [
         "rd_toward_light",
         "scene_diffuse_environment",
-        "rd_height_fog_transmittance",
+        "scene_surface_transmission",
         "textureSampleLevel",
         "@builtin(sample_index)",
         "@location(3)",
@@ -126,6 +126,7 @@ fn sh9_diffuse_reaches_water_scattering_at_one_and_four_samples() {
                 roughness: worldrunner_render_plan::SceneRoughnessRemap::Perceptual04,
                 visibility: worldrunner_render_plan::SceneSpecularVisibility::SchlickSmith,
                 occlusion: worldrunner_render_plan::SceneSpecularOcclusion::RoughnessAware,
+                ..Default::default()
             };
         }
         frame.diffuse_environment =

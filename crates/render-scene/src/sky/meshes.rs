@@ -82,14 +82,18 @@ pub(crate) struct MeshDraw {
     pub instance: wgpu::Buffer,
     pub key: crate::pipeline::PipelineKey,
 }
+type PipelineCache =
+    std::cell::RefCell<std::collections::BTreeMap<[u32; 10], [wgpu::RenderPipeline; 8]>>;
+
 #[derive(Debug)]
 pub(crate) struct Meshes {
     pipelines: [wgpu::RenderPipeline; 8],
     device: wgpu::Device,
     scene: crate::renderer::ScenePipelines,
     physical: bool,
-    specializations:
-        std::cell::RefCell<std::collections::BTreeMap<[u32; 7], [wgpu::RenderPipeline; 8]>>,
+    separate: bool,
+    object_exposure: bool,
+    specializations: PipelineCache,
     draws: Vec<MeshDraw>,
     composite: wgpu::RenderPipeline,
     samples: u32,
@@ -102,6 +106,8 @@ impl Meshes {
         pipelines: &crate::renderer::ScenePipelines,
         draws: Vec<MeshDraw>,
         physical: bool,
+        separate: bool,
+        object_exposure: bool,
     ) -> Self {
         let (composite, layout) = super::mesh_target::pipeline(device, pipelines);
         Self {
@@ -109,11 +115,19 @@ impl Meshes {
             device: device.clone(),
             scene: pipelines.clone(),
             physical,
+            separate,
+            object_exposure,
             specializations: std::cell::RefCell::default(),
             samples: pipelines.samples,
             layout,
             target: std::cell::RefCell::new(None),
-            pipelines: crate::renderer::celestial_pipelines(device, pipelines, physical),
+            pipelines: crate::renderer::celestial_pipelines(
+                device,
+                pipelines,
+                physical,
+                separate,
+                object_exposure,
+            ),
             draws,
         }
     }
@@ -150,11 +164,11 @@ impl Meshes {
     }
     fn selected_pipelines(
         &self,
-        options: [u32; 3],
+        options: [u32; 6],
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
     ) -> [wgpu::RenderPipeline; 8] {
-        if options == [0; 3]
+        if options == [0; 6]
             && lighting == worldrunner_render_plan::SceneCelestialLighting::NEUTRAL
             && !anchored
         {
@@ -165,6 +179,9 @@ impl Meshes {
             options[0],
             options[1],
             options[2],
+            options[3],
+            options[4],
+            options[5],
             values[0],
             values[1],
             values[2],
@@ -177,7 +194,7 @@ impl Meshes {
                 crate::renderer::celestial_specialization(
                     &self.device,
                     &self.scene,
-                    self.physical,
+                    (self.physical, self.separate, self.object_exposure),
                     options,
                     lighting,
                     anchored,
@@ -251,7 +268,7 @@ mod tests {
             wgpu::TextureFormat::Rgba16Float,
         );
         for physical in [false, true] {
-            let meshes = Meshes::new(context.device(), &scene, Vec::new(), physical);
+            let meshes = Meshes::new(context.device(), &scene, Vec::new(), physical, false, false);
             assert_eq!(meshes.physical, physical);
             for roughness in 0..3 {
                 for visibility in 0..2 {
@@ -259,8 +276,8 @@ mod tests {
                         let _ = crate::renderer::celestial_specialization(
                             context.device(),
                             &scene,
-                            meshes.physical,
-                            [roughness, visibility, occlusion],
+                            (meshes.physical, false, false),
+                            [roughness, visibility, occlusion, 0, 0, 0],
                             worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
                             false,
                         );

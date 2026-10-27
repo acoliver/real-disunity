@@ -192,6 +192,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
     let ssao = SceneMetadata::new(context.device(), [6, 1], settings()).unwrap();
     let projection = glam::Mat4::IDENTITY;
     let frame = FrameUniform {
+        background_far_plane_meters: 0.0,
         specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
@@ -201,6 +202,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
         camera_position_millimeters: [0; 3],
         sun_direction: glam::Vec3::Z,
         sun_ao_intensity: None,
+        sun_tint: glam::Vec3::ONE,
         sun_irradiance: glam::Vec3::ZERO,
         ambient_sky: glam::Vec3::ONE,
         ambient_ground: glam::Vec3::ONE,

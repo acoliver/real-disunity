@@ -60,6 +60,8 @@ impl SkyGradient {
 /// Extinction is per metre at `base_height`; height falloff is inverse metres.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HeightFog {
+    /// Full-ray average with a signed 1e-4 slope floor; false integrates beyond start.
+    pub full_ray_density: bool,
     pub density: f32,
     pub falloff: f32,
     pub base_height: f32,
@@ -85,6 +87,7 @@ impl HeightFog {
             return Err(AtmosphereError);
         }
         Ok(Self {
+            full_ray_density: false,
             density,
             falloff,
             base_height,
@@ -99,10 +102,22 @@ impl HeightFog {
             return 1.0;
         }
         let direction = offset / length;
-        let start = eye + direction * self.start_distance;
+        let start = if self.full_ray_density {
+            eye
+        } else {
+            eye + direction * self.start_distance
+        };
         let distance = length - self.start_distance;
         let height = start.dot(up) - self.base_height;
-        let x = self.falloff * direction.dot(up) * distance;
+        let integration_length = if self.full_ray_density {
+            length
+        } else {
+            distance
+        };
+        let mut x = self.falloff * direction.dot(up) * integration_length;
+        if self.full_ray_density && x.abs() < 0.0001 {
+            x = if x > 0.0 { 0.0001 } else { -0.0001 };
+        }
         let log_integral = if x.abs() < 0.001 {
             (1.0 - x * 0.5 + x * x / 6.0 - x * x * x / 24.0).ln()
         } else if x < -50.0 {

@@ -65,6 +65,7 @@ fn effective_scalar(channel: u32, factor: u32) -> u32 {
 
 fn specular_frame() -> FrameUniform {
     FrameUniform {
+        background_far_plane_meters: 0.0,
         sun_direction: Vec3::new(0.0, 0.6, 0.8),
         sun_irradiance: Vec3::splat(0.2),
         ambient_sky: Vec3::ZERO,

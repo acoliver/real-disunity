@@ -15,7 +15,10 @@ pub use celestial_lighting::SceneCelestialLighting;
 mod fog_density;
 pub use fog_density::SceneFogDensity;
 mod scattering;
-pub use atmosphere::{SceneAtmosphere, SceneCelestialDisc, SceneCelestialMesh, SceneHeightFog};
+pub use atmosphere::{
+    SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition, SceneCelestialDisc,
+    SceneCelestialMesh, SceneFogDensityPolicy, SceneHeightFog,
+};
 pub use scattering::{SceneScattering, SceneScatteringFormat, SceneScatteringModel};
 mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
@@ -26,8 +29,8 @@ mod lighting;
 mod obscurance;
 pub use depth_fitting::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
 pub use lighting::{
-    SceneDiffuseEnvironment, SceneRoughnessRemap, SceneSh9, SceneSpecularConvention,
-    SceneSpecularOcclusion, SceneSpecularVisibility,
+    SceneDiffuseEnvironment, SceneDirectDiffuse, SceneRoughnessRemap, SceneSh9,
+    SceneSpecularConvention, SceneSpecularOcclusion, SceneSpecularVisibility, SceneSurfaceDisk,
 };
 pub use obscurance::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel};
 mod water;

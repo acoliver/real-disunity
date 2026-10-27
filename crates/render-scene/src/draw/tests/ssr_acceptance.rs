@@ -586,6 +586,7 @@ fn environment_settings() -> crate::sky::preparation::EnvironmentPreparation {
     crate::sky::preparation::EnvironmentPreparation {
         convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 4,
+        source_lod_tail: 1,
         mip_count: 3,
         specular_intensity_micro: 1_000_000,
         lut_size: 1,
@@ -610,3 +611,6 @@ fn selected_environment_settings(
         ..environment_settings()
     }
 }
+
+#[path = "fog_policy_tests.rs"]
+mod fog_policy_tests;

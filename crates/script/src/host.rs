@@ -2,14 +2,17 @@
 //!
 //! Contract: curated stdlib only (string, table, math, utf8), `require`
 //! resolved exclusively through host-loaded modules, no wall clock, seeded
-//! randomness, and a per-fire instruction budget. Every one of those rules is
+//! randomness, a per-fire instruction budget, and a memory limit. Lua's base
+//! library loses `dofile` and `loadfile`, and every chunk compiles as text:
+//! Lua does not verify bytecode, so a crafted binary chunk could corrupt the
+//! interpreter. Every one of those rules is
 //! enforced here rather than trusted to script discipline.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use mlua::{Function, HookTriggers, Lua, StdLib, UserData, UserDataMethods, VmState};
+use mlua::{ChunkMode, Function, HookTriggers, Lua, StdLib, UserData, UserDataMethods, VmState};
 
 use crate::api::ScriptApi;
 use crate::config::ScriptConfig;
@@ -17,6 +20,9 @@ use crate::error::ScriptError;
 
 /// Version of the `worldrunner` API surface this host installs.
 pub const API_VERSION: &str = "0.1.0";
+
+/// Memory a host's Lua state may hold until [`ScriptHost::set_memory_limit`] changes it.
+pub const DEFAULT_MEMORY_LIMIT: usize = 256 << 20;
 
 /// Per-fire context. The world is not borrowed across the boundary; hosts
 /// install it with [`ScriptHost::set_world`] as an `Arc`, which is also what
@@ -114,6 +120,8 @@ impl ScriptHost {
             StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8,
             Default::default(),
         )?;
+        lua.set_memory_limit(DEFAULT_MEMORY_LIMIT)?;
+        restrict_base(&lua)?;
         let instructions = Arc::new(AtomicU64::new(0));
         let records: Arc<Mutex<Vec<Record>>> = Arc::new(Mutex::new(Vec::new()));
         let modules: Arc<RwLock<HashMap<String, Vec<u8>>>> = Arc::new(RwLock::new(HashMap::new()));
@@ -167,6 +175,18 @@ impl ScriptHost {
         &self.config
     }
 
+    /// Caps the memory the Lua state may hold, in bytes. An allocation past it fails with a Lua
+    /// memory error, reported as [`ScriptError::Memory`] when scripts do not catch it.
+    pub fn set_memory_limit(&mut self, bytes: usize) -> Result<(), ScriptError> {
+        if bytes == 0 {
+            return Err(ScriptError::Sandbox {
+                message: "a memory limit must be positive".into(),
+            });
+        }
+        self.lua.set_memory_limit(bytes)?;
+        Ok(())
+    }
+
     /// Installs a `worldrunner.*` module and verifies the module's own
     /// declared version matches what the trait claims, refusing mismatches.
     pub fn install_api(&mut self, api: Box<dyn ScriptApi>) -> Result<(), ScriptError> {
@@ -217,7 +237,11 @@ impl ScriptHost {
         // Compile now so a broken module fails at registration, not at first
         // require inside a frame.
         self.instructions.store(0, Ordering::Relaxed);
-        self.lua.load(source).set_name(name).exec()?;
+        self.lua
+            .load(source)
+            .set_name(name)
+            .set_mode(ChunkMode::Text)
+            .exec()?;
         self.modules
             .write()
             .expect("module table")
@@ -310,9 +334,34 @@ impl ScriptHost {
     /// Executes a Lua chunk and returns whatever it returns, as JSON.
     pub fn eval_json(&mut self, source: &str) -> Result<serde_json::Value, ScriptError> {
         self.instructions.store(0, Ordering::Relaxed);
-        let value: mlua::Value = self.lua.load(source).set_name("<eval>").eval()?;
+        let value: mlua::Value = self
+            .lua
+            .load(source)
+            .set_name("<eval>")
+            .set_mode(ChunkMode::Text)
+            .eval()?;
         Ok(lua_value_to_json(&value))
     }
+}
+
+/// Removes the base library's file loaders and makes `load` compile text only, keeping its
+/// other arguments as given: an explicit `env` of `nil` differs from an absent one.
+fn restrict_base(lua: &Lua) -> Result<(), ScriptError> {
+    let globals = lua.globals();
+    for name in ["dofile", "loadfile"] {
+        globals.raw_set(name, mlua::Value::Nil)?;
+    }
+    let load: Function = globals.raw_get("load")?;
+    let text_only = lua.create_function(move |lua, args: mlua::MultiValue| {
+        let mut args: Vec<mlua::Value> = args.into_iter().take(4).collect();
+        if args.len() < 3 {
+            args.resize(3, mlua::Value::Nil);
+        }
+        args[2] = mlua::Value::String(lua.create_string("t")?);
+        load.call::<mlua::MultiValue>(mlua::MultiValue::from_iter(args))
+    })?;
+    globals.raw_set("load", text_only)?;
+    Ok(())
 }
 
 fn install_log(
@@ -399,7 +448,11 @@ fn install_require(
             if let Some(cached) = loaded.raw_get::<Option<mlua::Value>>(name.as_str())? {
                 return Ok(cached);
             }
-            let value: mlua::Value = lua.load(source).set_name(name.as_str()).eval()?;
+            let value: mlua::Value = lua
+                .load(source)
+                .set_name(name.as_str())
+                .set_mode(ChunkMode::Text)
+                .eval()?;
             loaded.raw_set(name.as_str(), value.clone())?;
             lua.globals().raw_set("__host_loaded", loaded)?;
             Ok(value)

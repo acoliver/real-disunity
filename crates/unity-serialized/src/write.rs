@@ -305,3 +305,89 @@ impl Writer {
         self.buf.resize(len, 0);
     }
 }
+
+/// Writes one object's fields, the inverse of [`crate::object::ObjectReader`]. Alignment is
+/// relative to the start of the object.
+pub struct ObjectWriter {
+    inner: Writer,
+}
+
+impl ObjectWriter {
+    #[must_use]
+    pub fn new(big_endian: bool) -> Self {
+        Self {
+            inner: Writer::new(big_endian, 0),
+        }
+    }
+
+    #[must_use]
+    pub fn finish(self) -> Vec<u8> {
+        self.inner.buf
+    }
+
+    pub fn u8(&mut self, value: u8) -> &mut Self {
+        self.inner.u8(value);
+        self
+    }
+
+    pub fn u16(&mut self, value: u16) -> &mut Self {
+        self.inner.u16(value);
+        self
+    }
+
+    pub fn u32(&mut self, value: u32) -> &mut Self {
+        self.inner.u32(value);
+        self
+    }
+
+    pub fn i32(&mut self, value: i32) -> &mut Self {
+        self.inner.i32(value);
+        self
+    }
+
+    pub fn f32(&mut self, value: f32) -> &mut Self {
+        self.inner.u32(value.to_bits());
+        self
+    }
+
+    pub fn floats(&mut self, values: &[f32]) -> &mut Self {
+        values.iter().for_each(|&v| self.inner.u32(v.to_bits()));
+        self
+    }
+
+    pub fn bytes(&mut self, bytes: &[u8]) -> &mut Self {
+        self.inner.bytes(bytes);
+        self
+    }
+
+    pub fn align(&mut self) -> &mut Self {
+        self.inner.align4();
+        self
+    }
+
+    /// # Errors
+    /// Fails when the string is longer than the format's 32-bit length.
+    pub fn string(&mut self, text: &str) -> Result<&mut Self, WriteError> {
+        self.inner.count(text.len(), "string length")?;
+        self.inner.bytes(text.as_bytes());
+        self.inner.align4();
+        Ok(self)
+    }
+
+    pub fn pptr(&mut self, pptr: crate::object::PPtr) -> &mut Self {
+        self.inner.i32(pptr.file_id);
+        self.inner.i64(pptr.path_id);
+        self
+    }
+
+    /// # Errors
+    /// Fails when there are more references than the format's 32-bit count.
+    pub fn pptrs(&mut self, pptrs: &[crate::object::PPtr]) -> Result<&mut Self, WriteError> {
+        self.inner.count(pptrs.len(), "reference count")?;
+        for &pptr in pptrs {
+            self.pptr(pptr);
+        }
+        self.inner.align4();
+        Ok(self)
+    }
+}

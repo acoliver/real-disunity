@@ -10,6 +10,7 @@ pub mod input;
 pub mod package;
 pub mod plan;
 pub mod player;
+pub mod player_objects;
 pub mod project;
 pub mod scene;
 pub mod texture;

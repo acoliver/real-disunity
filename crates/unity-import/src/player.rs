@@ -19,6 +19,8 @@ pub enum PlayerError {
         path: PathBuf,
         source: SerializedError,
     },
+    #[error("{}: no object with path ID {path_id}", path.display())]
+    MissingObject { path: PathBuf, path_id: i64 },
 }
 
 /// One serialized file of a player, read through its metadata.

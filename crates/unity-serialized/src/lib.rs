@@ -7,14 +7,16 @@
 //! that header and metadata for format versions 19 to 22 (Unity 2019.1 through Unity 6).
 //!
 //! The reader works on bytes the caller supplies and performs no I/O. Object data is located
-//! by [`ObjectInfo::offset`] and [`ObjectInfo::size`]; decoding it into fields is the job of
-//! the type layouts that build on this crate.
+//! by [`ObjectInfo::offset`] and [`ObjectInfo::size`], and [`object::decode`] reads it with a
+//! class layout from [`classes`].
 
 mod class;
+pub mod classes;
 mod cursor;
 mod error;
 mod file;
 mod header;
+pub mod object;
 mod type_tree;
 pub mod write;
 

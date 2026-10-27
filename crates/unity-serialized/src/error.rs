@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::ClassId;
+
 /// Why a serialized file could not be read. Offsets are bytes from the start of the file.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum SerializedError {
@@ -53,6 +55,22 @@ pub enum SerializedError {
         start: u64,
         size: u32,
         file_size: u64,
+    },
+    #[error("object {path_id} is a {found}, not a {expected}")]
+    WrongClass {
+        path_id: i64,
+        expected: ClassId,
+        found: ClassId,
+    },
+    #[error(
+        "the {class} layout read {read} of the {size} bytes of object {path_id}; the layout does \
+         not match this Unity version's data"
+    )]
+    TrailingBytes {
+        path_id: i64,
+        class: ClassId,
+        read: usize,
+        size: u32,
     },
     #[error("object path ID {0} appears more than once")]
     DuplicatePathId(i64),

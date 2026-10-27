@@ -78,6 +78,13 @@ internal static class PresentationTests
         Require(canvas.scaleFactor == 1, "rejected scaling leaves the canvas unchanged");
         canvas.scaleFactor = 2;
         Require(canvas.scaleFactor == 2, "setting scaleFactor gives a constant factor");
+        Require(!canvas.pixelPerfect, "canvases start without pixel perfect");
+        canvas.pixelPerfect = true;
+        canvas.sortingOrder = 4;
+        canvas.scaleFactor = 1;
+        Require(canvas.pixelPerfect, "pixel perfect survives canvas and scale writes");
+        canvas.pixelPerfect = false;
+        Require(!canvas.pixelPerfect, "pixel perfect turns off");
         UnityEngine.Object.Destroy(canvas.gameObject);
         DisunityHost.Step(0.02f);
     }

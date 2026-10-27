@@ -19,6 +19,8 @@ internal static class PongScene
             Require(Named("Ball").layer == 8 && Named("Canvas").layer == 5, "layers load");
             Require(scene.UnregisteredAxes.Any(a => a.StartsWith("Fire1: no key for `left ctrl`")), "axes without engine keys are reported");
             Require(scene.Differences.All(d => !d.Contains("polate")), "interpolation is applied, not reported");
+            Require(scene.Differences.All(d => !d.Contains("pixel perfect")) && Named("Canvas").GetComponent<Canvas>()!.pixelPerfect,
+                "the canvas is pixel perfect as authored, not reported");
             Require(new[] { "Ball", "Player", "Enemy" }.All(n => Named(n).GetComponent<Rigidbody2D>()!.interpolation == RigidbodyInterpolation2D.Interpolate),
                 "the ball and both paddles interpolate as authored");
             Launches(Named("Ball").GetComponent<Rigidbody2D>()!);

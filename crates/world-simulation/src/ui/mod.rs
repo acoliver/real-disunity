@@ -115,6 +115,9 @@ pub struct Canvas {
     pub scale: CanvasScale,
     pub sorting_layer: i32,
     pub sorting_order: i32,
+    /// Unity's `Canvas.pixelPerfect`: on a screen-space canvas, each text is moved so its first
+    /// glyph starts on a whole screen pixel. World-space canvases ignore it, as Unity's do.
+    pub pixel_perfect: bool,
 }
 impl Default for Canvas {
     fn default() -> Self {
@@ -124,6 +127,7 @@ impl Default for Canvas {
             scale: CanvasScale::default(),
             sorting_layer: 0,
             sorting_order: 0,
+            pixel_perfect: false,
         }
     }
 }

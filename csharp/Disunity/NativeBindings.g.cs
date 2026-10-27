@@ -171,6 +171,18 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_canvas_scale_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_canvas_scale_write(ulong world, ulong handle, DisunityCanvasScale* value);
         /// <summary>
+        ///  Unity's `Canvas.pixelPerfect`: 1 when on, 0 when off.
+        ///  # Safety
+        ///  Output is writable for one flag.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_pixel_perfect_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_pixel_perfect_read(ulong world, ulong handle, uint* output);
+        /// <summary>
+        ///  Sets `Canvas.pixelPerfect`; `value` is 1 for on and 0 for off.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_pixel_perfect_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_pixel_perfect_write(ulong world, ulong handle, uint value);
+        /// <summary>
         ///  The factor the canvas scales its layout by on a `width` by `height` viewport, which is
         ///  Unity's `Canvas.scaleFactor` for that screen.
         ///  # Safety
@@ -728,17 +740,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_tilemap_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_tilemap_create(ulong world, ulong @object, ulong* output);
-        /// <summary>
-        ///  # Safety
-        ///  Value is readable for one tilemap record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_tilemap_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_tilemap_write(ulong world, ulong handle, DisunityTilemap* value);
-        /// <summary>
-        ///  # Safety
-        ///  Output is writable for one tilemap record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_tilemap_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_tilemap_read(ulong world, ulong handle, DisunityTilemap* output);
     }
 }

@@ -12,6 +12,9 @@ pub struct RectLayout {
     pub local_to_world: Mat4,
     pub corners: [Vec3; 4],
     pub screen_corners: Option<[Vec2; 4]>,
+    /// Maps world points to screen pixels (x and y) on a screen-space canvas; `None` in world
+    /// space.
+    pub pixels_from_world: Option<Mat4>,
     pub sorting_layer: i32,
     pub sorting_order: i32,
 }
@@ -109,8 +112,8 @@ impl World {
             if corners.iter().any(|p| !p.is_finite()) {
                 return Err(UiError::InvalidRect.into());
             }
-            let screen_corners = match settings.mode {
-                CanvasMode::ScreenSpaceOverlay => Some(corners.map(Vec3::truncate)),
+            let pixels_from_world = match settings.mode {
+                CanvasMode::ScreenSpaceOverlay => Some(Mat4::IDENTITY),
                 CanvasMode::ScreenSpaceCamera {
                     camera,
                     orthographic_size,
@@ -120,13 +123,16 @@ impl World {
                     let pixels_per_unit =
                         f32::from(u16::try_from(viewport.y).expect("bounded viewport"))
                             / (2. * orthographic_size);
-                    Some(corners.map(|p| {
-                        inverse.transform_point3(p).truncate() * pixels_per_unit
-                            + viewport.as_vec2() * 0.5
-                    }))
+                    Some(
+                        Mat4::from_translation((viewport.as_vec2() * 0.5).extend(0.))
+                            * Mat4::from_scale(Vec3::new(pixels_per_unit, pixels_per_unit, 1.))
+                            * inverse,
+                    )
                 }
                 CanvasMode::WorldSpace => None,
             };
+            let screen_corners =
+                pixels_from_world.map(|m| corners.map(|p| m.transform_point3(p).truncate()));
             output.push(RectLayout {
                 object,
                 canvas,
@@ -135,6 +141,7 @@ impl World {
                 local_to_world: r.matrix,
                 corners,
                 screen_corners,
+                pixels_from_world,
                 sorting_layer: settings.sorting_layer,
                 sorting_order: settings.sorting_order,
             });

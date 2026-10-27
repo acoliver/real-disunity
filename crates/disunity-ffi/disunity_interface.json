@@ -143,6 +143,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_canvas_pixel_perfect_read",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_pixel_perfect_write",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_canvas_scale_factor",
       "since": "5.0.0",
       "rets": "DisunityResult"

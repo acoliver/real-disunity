@@ -28,8 +28,7 @@ internal sealed partial class SceneLoader
             // A camera canvas without a camera draws as an overlay, as in Unity.
             canvas.renderMode = mode == RenderMode.ScreenSpaceCamera ? RenderMode.ScreenSpaceOverlay : mode;
         }
-        if (value.Bool("pixel_perfect"))
-            differences.Add($"{where}: pixel perfect is not applied; UI keeps subpixel positions");
+        canvas.pixelPerfect = value.Bool("pixel_perfect");
         return canvas;
     }
 

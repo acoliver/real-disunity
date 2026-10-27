@@ -110,6 +110,43 @@ pub unsafe extern "C" fn disunity_canvas_scale_write(
     })
 }
 
+/// Unity's `Canvas.pixelPerfect`: 1 when on, 0 when off.
+/// # Safety
+/// Output is writable for one flag.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_canvas_pixel_perfect_read(
+    world: u64,
+    handle: u64,
+    output: *mut u32,
+) -> DisunityResult {
+    if output.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (_, value) = canvas(s, handle)?;
+        unsafe { *output = u32::from(value.pixel_perfect) };
+        Ok(())
+    })
+}
+
+/// Sets `Canvas.pixelPerfect`; `value` is 1 for on and 0 for off.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_canvas_pixel_perfect_write(
+    world: u64,
+    handle: u64,
+    value: u32,
+) -> DisunityResult {
+    if value > 1 {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (id, mut target) = canvas(s, handle)?;
+        target.pixel_perfect = value == 1;
+        s.native.set_component(id, ComponentDesc::Canvas(target))?;
+        Ok(())
+    })
+}
+
 /// The factor the canvas scales its layout by on a `width` by `height` viewport, which is
 /// Unity's `Canvas.scaleFactor` for that screen.
 /// # Safety

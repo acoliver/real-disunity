@@ -20,6 +20,8 @@ pub enum SerializedError {
         data_offset: u64,
         file_size: u64,
     },
+    #[error("the {field} is {value}, which is negative")]
+    Negative { field: &'static str, value: i64 },
     #[error("byte {value} at offset {offset} is not a boolean")]
     InvalidBool { offset: usize, value: u8 },
     #[error("the string at offset {offset} has no terminating zero byte")]
@@ -42,13 +44,25 @@ pub enum SerializedError {
         index: i32,
         types: usize,
     },
-    #[error("object {path_id} occupies bytes {start}..{end}, outside the {file_size}-byte file")]
+    #[error(
+        "object {path_id} has {size} bytes at {start} past the data offset, outside the \
+         {file_size}-byte file"
+    )]
     ObjectOutOfBounds {
         path_id: i64,
         start: u64,
-        end: u64,
+        size: u32,
         file_size: u64,
     },
     #[error("object path ID {0} appears more than once")]
     DuplicatePathId(i64),
+    #[error(
+        "type tree string offset {offset} does not start a string in the {len}-byte string \
+         buffer"
+    )]
+    TypeTreeString { offset: u32, len: usize },
+    #[error(
+        "the header declares {0} bytes of header and metadata, more than this platform can address"
+    )]
+    MetadataTooLarge(u64),
 }

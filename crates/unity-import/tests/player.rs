@@ -1,6 +1,6 @@
 use worldrunner_unity_import::{PlayerError, is_serialized_name, read_player};
 use worldrunner_unity_serialized::{
-    ClassId, SerializedError, SerializedType,
+    ClassId, Header, SerializedError, SerializedType,
     write::{FileContents, ObjectData},
 };
 
@@ -66,8 +66,11 @@ fn reads_every_serialized_file_of_a_data_directory() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("level1"), file(2, 8)).unwrap();
     std::fs::write(dir.path().join("level0"), file(1, 8)).unwrap();
-    // Object data well past the metadata is never read.
-    std::fs::write(dir.path().join("resources.assets"), file(3, 1 << 20)).unwrap();
+    // Object data is never read: this file ends where its metadata does, while its header
+    // still declares three megabytes of objects.
+    let large = file(3, 1 << 20);
+    let metadata = Header::parse(&large).unwrap().metadata_len().unwrap();
+    std::fs::write(dir.path().join("resources.assets"), &large[..metadata]).unwrap();
     std::fs::write(dir.path().join("resources.assets.resS"), [0xff; 64]).unwrap();
     std::fs::write(dir.path().join("boot.config"), "gfx-threading-mode=6").unwrap();
     std::fs::create_dir(dir.path().join("level9")).unwrap();

@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use crate::{ClassId, Header, SerializedError, TypeTreeNode, cursor::Cursor, type_tree};
+use crate::{
+    ClassId, Header, SerializedError, TypeTreeNode, cursor::Cursor, header::non_negative, type_tree,
+};
 
 /// Smallest encodings of each metadata entry, used to reject counts that cannot fit.
 const MIN_TYPE: usize = 23;
@@ -71,11 +73,11 @@ pub struct SerializedFile {
     pub unity_version: String,
     pub target_platform: i32,
     pub type_trees: bool,
-    pub types: Vec<SerializedType>,
     pub scripts: Vec<ScriptRef>,
     pub externals: Vec<External>,
     pub ref_types: Vec<SerializedType>,
     pub user_information: String,
+    types: Vec<SerializedType>,
     objects: Vec<ObjectInfo>,
     by_path_id: BTreeMap<i64, usize>,
 }
@@ -89,8 +91,12 @@ impl SerializedFile {
     /// objects that name an unknown type, repeat a path ID, or lie outside the file.
     pub fn parse(bytes: &[u8]) -> Result<Self, SerializedError> {
         let header = Header::parse(bytes)?;
-        let end = usize::try_from(header.metadata_end()).unwrap_or(usize::MAX);
-        let metadata = bytes.get(..end).unwrap_or(bytes);
+        let end = header.metadata_len()?;
+        let metadata = bytes.get(..end).ok_or_else(|| SerializedError::Truncated {
+            offset: bytes.len(),
+            needed: end - bytes.len(),
+            len: bytes.len(),
+        })?;
         let mut cursor = Cursor::new(metadata, header.header_len(), header.big_endian);
         let unity_version = cursor.string()?;
         let target_platform = cursor.i32()?;
@@ -132,9 +138,17 @@ impl SerializedFile {
         self.by_path_id.get(&path_id).map(|&i| &self.objects[i])
     }
 
+    /// The types objects use, indexed by [`ObjectInfo::type_index`].
     #[must_use]
-    pub fn object_type(&self, object: &ObjectInfo) -> &SerializedType {
-        &self.types[object.type_index]
+    pub fn types(&self) -> &[SerializedType] {
+        &self.types
+    }
+
+    /// The type of the object with this path ID.
+    #[must_use]
+    pub fn object_type(&self, path_id: i64) -> Option<&SerializedType> {
+        self.object(path_id)
+            .map(|object| &self.types[object.type_index])
     }
 }
 
@@ -160,8 +174,9 @@ fn read_type(
     let class_id = ClassId(cursor.i32()?);
     let stripped = cursor.bool()?;
     let script_type_index = cursor.i16()?;
-    let has_script = (reference && script_type_index >= 0) || class_id == ClassId::MONO_BEHAVIOUR;
-    let script_id = has_script.then(|| cursor.array()).transpose()?;
+    let script_id = has_script_id(class_id, script_type_index, reference)
+        .then(|| cursor.array())
+        .transpose()?;
     let old_type_hash = cursor.array()?;
     let mut ty = SerializedType {
         class_id,
@@ -180,6 +195,12 @@ fn read_type(
         }
     }
     Ok(ty)
+}
+
+/// Whether a type entry carries a script ID: every `MonoBehaviour` type, and reference types
+/// that name a script.
+pub(crate) fn has_script_id(class_id: ClassId, script_type_index: i16, reference: bool) -> bool {
+    (reference && script_type_index >= 0) || class_id == ClassId::MONO_BEHAVIOUR
 }
 
 fn read_type_links(
@@ -219,7 +240,7 @@ fn read_object(
     cursor.align4()?;
     let path_id = cursor.i64()?;
     let start = if header.version >= 22 {
-        cursor.u64()?
+        non_negative(cursor.i64()?, "object offset")?
     } else {
         cursor.u32()?.into()
     };
@@ -233,16 +254,21 @@ fn read_object(
             index,
             types: types.len(),
         })?;
-    let offset = header.data_offset.saturating_add(start);
-    let end = offset.saturating_add(size.into());
-    if end > header.file_size {
-        return Err(SerializedError::ObjectOutOfBounds {
-            path_id,
-            start: offset,
-            end,
-            file_size: header.file_size,
-        });
-    }
+    let out_of_bounds = SerializedError::ObjectOutOfBounds {
+        path_id,
+        start,
+        size,
+        file_size: header.file_size,
+    };
+    let offset = header
+        .data_offset
+        .checked_add(start)
+        .filter(|offset| {
+            offset
+                .checked_add(size.into())
+                .is_some_and(|end| end <= header.file_size)
+        })
+        .ok_or(out_of_bounds)?;
     Ok(ObjectInfo {
         path_id,
         offset,

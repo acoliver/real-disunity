@@ -1,10 +1,13 @@
 //! Writes serialized files: the inverse of [`crate::SerializedFile::parse`]. Tools and tests use it
 //! to produce small files in the player format.
 
+use std::{collections::BTreeMap, sync::Arc};
+
 use thiserror::Error;
 
 use crate::{
     External, MAX_VERSION, MIN_VERSION, NodeString, ScriptRef, SerializedType, TypeTreeNode,
+    file::has_script_id,
 };
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -15,6 +18,12 @@ pub enum WriteError {
     TooLarge(&'static str),
     #[error("reference type {0} names no script class; type trees need one")]
     MissingScriptClass(usize),
+    #[error(
+        "type {index} {}; the format stores one for every MonoBehaviour type and for \
+         reference types that name a script",
+        if *has { "has a script ID it cannot store" } else { "lacks the script ID it needs" }
+    )]
+    ScriptId { index: usize, has: bool },
 }
 
 /// One object to write: its path ID, the index of its type and its serialized bytes.
@@ -126,8 +135,16 @@ impl FileContents {
             w.i32(ty.class_id.0);
             w.u8(u8::from(ty.stripped));
             w.i16(ty.script_type_index);
-            if let Some(id) = ty.script_id {
-                w.bytes(&id);
+            let expected = has_script_id(ty.class_id, ty.script_type_index, reference);
+            match (ty.script_id, expected) {
+                (Some(id), true) => w.bytes(&id),
+                (None, false) => {}
+                (id, _) => {
+                    return Err(WriteError::ScriptId {
+                        index,
+                        has: id.is_some(),
+                    });
+                }
             }
             w.bytes(&ty.old_type_hash);
             if self.type_trees {
@@ -200,13 +217,19 @@ fn write_type_links(
 }
 
 fn write_tree(w: &mut Writer, nodes: &[TypeTreeNode]) -> Result<(), WriteError> {
+    // Each distinct name is stored once, as Unity does.
     let mut strings = Vec::new();
+    let mut stored = BTreeMap::<Arc<str>, u32>::new();
     let mut offset_of = |s: &NodeString| match s {
         NodeString::Common(offset) => Ok(offset | 1 << 31),
         NodeString::Local(text) => {
+            if let Some(&at) = stored.get(&**text) {
+                return Ok(at);
+            }
             let at = fit(strings.len(), "type tree string buffer")?;
             strings.extend_from_slice(text.as_bytes());
             strings.push(0);
+            stored.insert(Arc::clone(text), at);
             Ok(at)
         }
     };

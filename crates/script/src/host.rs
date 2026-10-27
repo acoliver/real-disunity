@@ -103,7 +103,7 @@ pub struct ScriptHost {
     instructions: Arc<AtomicU64>,
     records: Arc<Mutex<Vec<Record>>>,
     trace: Vec<TraceEvent>,
-    modules: Arc<RwLock<HashMap<String, String>>>,
+    modules: Arc<RwLock<HashMap<String, Vec<u8>>>>,
 }
 
 impl ScriptHost {
@@ -116,7 +116,7 @@ impl ScriptHost {
         )?;
         let instructions = Arc::new(AtomicU64::new(0));
         let records: Arc<Mutex<Vec<Record>>> = Arc::new(Mutex::new(Vec::new()));
-        let modules: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let modules: Arc<RwLock<HashMap<String, Vec<u8>>>> = Arc::new(RwLock::new(HashMap::new()));
 
         let budget = config.instruction_budget;
         let counter = Arc::clone(&instructions);
@@ -196,6 +196,24 @@ impl ScriptHost {
 
     /// Registers an in-memory module for `require`.
     pub fn load_module(&mut self, name: &str, source: &str) -> Result<(), ScriptError> {
+        self.load_module_bytes(name, source.as_bytes())
+    }
+
+    /// Registers one of a game's original script files for `require`, after applying its
+    /// patches from `overlay`. Returns the applied patch names in order. A refused patch set
+    /// loads nothing.
+    pub fn load_patched_module(
+        &mut self,
+        name: &str,
+        original: &[u8],
+        overlay: &crate::patches::Overlay,
+    ) -> Result<Vec<String>, ScriptError> {
+        let patched = overlay.apply(name, original)?;
+        self.load_module_bytes(name, &patched.source)?;
+        Ok(patched.applied)
+    }
+
+    fn load_module_bytes(&mut self, name: &str, source: &[u8]) -> Result<(), ScriptError> {
         // Compile now so a broken module fails at registration, not at first
         // require inside a frame.
         self.instructions.store(0, Ordering::Relaxed);
@@ -203,7 +221,7 @@ impl ScriptHost {
         self.modules
             .write()
             .expect("module table")
-            .insert(name.into(), source.into());
+            .insert(name.into(), source.to_vec());
         Ok(())
     }
 
@@ -356,7 +374,7 @@ fn install_events(
 
 fn install_require(
     lua: &Lua,
-    modules: &Arc<RwLock<HashMap<String, String>>>,
+    modules: &Arc<RwLock<HashMap<String, Vec<u8>>>>,
 ) -> Result<(), ScriptError> {
     // require: memory modules only; anything else is a sandbox error that
     // names the module.

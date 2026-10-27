@@ -109,7 +109,7 @@ pub enum ShadowError {
 pub struct ShadowedScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
-    depth_pipelines: [wgpu::RenderPipeline; 4],
+    depth_pipelines: [wgpu::RenderPipeline; 8],
     terrain_depth_pipeline: wgpu::RenderPipeline,
     depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     depth_slots: Vec<Vec<(wgpu::Buffer, wgpu::BindGroup)>>,
@@ -532,7 +532,7 @@ struct ShadowFeature<'a> {
     screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
-    depth_pipelines: &'a [wgpu::RenderPipeline; 4],
+    depth_pipelines: &'a [wgpu::RenderPipeline; 8],
     terrain_depth_pipeline: &'a wgpu::RenderPipeline,
     depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
     shadow_group: &'a wgpu::BindGroup,
@@ -640,7 +640,7 @@ impl From<std::convert::Infallible> for ShadowError {
 pub(crate) fn wind_test_pipelines(
     device: &wgpu::Device,
     layouts: &ScenePipelines,
-) -> [wgpu::RenderPipeline; 4] {
+) -> [wgpu::RenderPipeline; 8] {
     resources::depth_pipelines(
         device,
         layouts,

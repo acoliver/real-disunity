@@ -28,6 +28,8 @@ pub(crate) fn pipelines(
     });
     let camera = include_str!("../ssao/camera.wgsl");
     let object_source = crate::shader::ENVIRONMENT_WGSL
+        .replace("fn fs_relief_opaque(", "fn unused_relief_opaque(")
+        .replace("fn fs_relief_masked(", "fn unused_relief_masked(")
         .replace("fn fs_opaque(", "fn unused_opaque(")
         .replace("fn fs_masked(", "fn unused_masked(");
     let output = if material {

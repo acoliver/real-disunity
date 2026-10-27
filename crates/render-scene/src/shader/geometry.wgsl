@@ -24,6 +24,13 @@ struct Material {
     foliage_primary: vec4<u32>,
     foliage_radial: vec4<u32>,
     foliage_origin: vec4<f32>,
+    impostor_grid: vec4<f32>,
+    impostor_settings: vec4<f32>,
+    impostor_relief: vec4<f32>,
+    wind_field_domain: vec4<f32>,
+    wind_field_mode: vec4<f32>,
+    wind_field_reserved: vec4<f32>,
+    wind_modifiers: array<vec4<f32>,6>,
 }
 
 const FLAG_NORMAL: u32 = 1u;
@@ -38,6 +45,9 @@ const FLAG_SELF_ILLUMINATION: u32 = 8u;
 @group(1) @binding(4) var ambient_occlusion_texture: texture_2d<f32>;
 @group(1) @binding(5) var self_illumination_texture: texture_2d<f32>;
 @group(1) @binding(6) var material_sampler: sampler;
+@group(1) @binding(8) var impostor_depth: texture_2d<f32>;
+@group(1) @binding(9) var impostor_borders: texture_2d<f32>;
+@group(1) @binding(10) var wind_force_field: texture_2d<f32>;
 struct ContactHeights {
     origin_spacing_columns: vec4<f32>,
     rows_reserved: vec4<f32>,
@@ -125,6 +135,13 @@ struct VertexOutput {
     @location(5) @interpolate(flat) coverage: u32,
     @location(6) world_tangent: vec4<f32>,
     @location(7) ground_fold: vec4<f32>,
+    @location(8) @interpolate(flat) atlas_eye: vec4<f32>,
+    @location(9) atlas_point: vec3<f32>,
+    @location(10) atlas_uv01: vec4<f32>,
+    @location(11) atlas_uv23: vec4<f32>,
+    @location(12) @interpolate(flat) atlas_rotation: vec4<f32>,
+    @location(13) @interpolate(flat) capture_rotation_0: vec3<f32>,
+    @location(14) @interpolate(flat) capture_rotation_1: vec3<f32>,
 }
 
 fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
@@ -160,6 +177,13 @@ fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutpu
     out.world_tangent = vec4<f32>(rotation * vertex.tangent.xyz,
         vertex.tangent.w * sign(dot(rotation[0], cross(rotation[1], rotation[2]))));
     out.ground_fold = vec4<f32>(0.0);
+    out.atlas_rotation = vec4<f32>(1.0,0.0,1.0,0.0);
+    out.capture_rotation_0 = vec3<f32>(1.0, 0.0, 0.0);
+    out.capture_rotation_1 = vec3<f32>(0.0, 1.0, 0.0);
+    out.atlas_eye = vec4<f32>(0.0);
+    out.atlas_point = vec3<f32>(0.0);
+    out.atlas_uv01 = vec4<f32>(vertex.texcoord, vertex.texcoord);
+    out.atlas_uv23 = vec4<f32>(vertex.texcoord, vertex.texcoord);
     out.texcoord = vertex.texcoord;
     out.tint = vec4<f32>(1.0);
     out.ambient_occlusion = 1.0;
@@ -167,18 +191,51 @@ fn transform_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutpu
     return out;
 }
 
-fn material_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
+fn material_vertex_pass(vertex: VertexInput, instance: InstanceInput, relief: bool) -> VertexOutput {
     var out = transform_vertex(vertex, instance);
+    if material.impostor_grid.w != 0.0 && (vertex.lod_billboard_mode & 3u) != 0u {
+        let scale = length(instance.model_column_0.xyz);
+        let inverse = mat3x3<f32>(instance.model_column_0.xyz, instance.model_column_1.xyz, instance.model_column_2.xyz) * (1.0 / (scale * scale));
+        var camera = frame.camera_position.xyz;
+        if material.impostor_grid.w == 2.0 { camera.z = max(camera.z, instance.model_column_3.z + 0.01); }
+        let eye = camera - instance.model_column_3.xyz;
+        out.atlas_eye = vec4<f32>(inverse * eye, scale);
+        out.capture_rotation_0 = instance.model_column_0.xyz / scale;
+        out.capture_rotation_1 = instance.model_column_1.xyz / scale;
+        if material.impostor_relief.y != 0.0 {
+            let frames = scene_atlas_selection(out);
+            var border = vec4<f32>(1.0);
+            for (var i=0u; i<4u; i++) {
+                if frames.weights[i] > 0.0 { border = min(border, textureLoad(impostor_borders, vec2<i32>(frames.cells[i]), 0)); }
+            }
+            let crop = vec2<f32>(select(border.x, border.y, vertex.texcoord.x >= 0.5), select(border.w, border.z, vertex.texcoord.y >= 0.5));
+            let plane = (vertex.texcoord - 0.5) * material.impostor_settings.zw * (1.0-crop);
+            out.texcoord = plane / material.impostor_settings.zw + 0.5;
+            let shaped = vec3<f32>(plane.x, 0.0, plane.y);
+            out.world_position = instance.model_column_3.xyz + billboard_basis(vertex.lod_billboard_mode & 3u, instance.model_column_3.xyz) * scale * shaped;
+            out.clip_position = frame.view_projection * vec4<f32>(out.world_position,1.0);
+        }
+        out.atlas_point = inverse * (out.world_position - instance.model_column_3.xyz);
+        let coordinates = scene_atlas_vertex_uv(out);
+        out.atlas_uv01 = coordinates.first;
+        out.atlas_uv23 = coordinates.second;
+    }
     if material.contact_surface.z > 0.0 {
         let ground = scene_ground(instance.model_column_3.xyz);
         if dot(ground.xyz, ground.xyz) != 0.0 {
             out.ground_fold = vec4<f32>(ground.xyz, vertex.position.z);
         }
     }
+    var band = material.impostor_relief.zw;
+    if instance.model_column_1.w > 0.0 { band = vec2<f32>(instance.model_column_0.w, instance.model_column_1.w); }
+    if band.y > 0.0 { out.atlas_rotation.z = scene_distance_coverage(length(frame.camera_position.xyz-instance.model_column_3.xyz),band); }
     let displacement = scene_geometry_displacement(out.world_position, vertex.ambient_occlusion, instance);
     if material.wind_clock.x != 0u {
         out.world_position += displacement;
         out.clip_position = frame.view_projection * vec4<f32>(out.world_position, 1.0);
+    }
+    if relief && out.atlas_eye.w != 0.0 && material.impostor_relief.x != 0.0 {
+        out.clip_position = scene_relief_raster(out.clip_position, material.impostor_relief.x);
     }
     out.tint = vec4<f32>(instance.tint.rgb * material.tint_ao.rgb, 1.0);
     out.ambient_occlusion = material.tint_ao.a;
@@ -305,8 +362,8 @@ fn scene_contact_surface(surface: vec2<f32>, weight: f32) -> vec2<f32> {
 fn scene_geometry_covered(input: VertexOutput) -> bool {
     let coverage = 1.0 - f32((input.coverage & 0x7fffffffu) >> 2u) / 1000000.0;
     let covered = scene_card_covered(input.clip_position.xy, coverage);
-    if (input.coverage & 0x80000000u) != 0u { return !covered; }
-    return covered;
+    if (input.coverage & 0x80000000u) != 0u { return !covered && scene_card_covered(input.clip_position.xy, input.atlas_rotation.z); }
+    return covered && scene_card_covered(input.clip_position.xy, input.atlas_rotation.z);
 }
 
 fn scene_apply_coverage(input: VertexOutput) {
@@ -326,4 +383,14 @@ fn scene_fold_direction(mesh: vec3<f32>, ground: vec4<f32>, settings: vec2<f32>)
 fn scene_mask_response(channel: f32, packed_ao: f32, self_ao: f32, mapped: bool) -> vec2<f32> {
     let amount = channel * select(1.0, packed_ao, mapped) * self_ao;
     return vec2<f32>(0.0, amount);
+}
+
+fn scene_distance_coverage(distance: f32, band: vec2<f32>) -> f32 {
+    if distance < band.x { return 0.0; }
+    if distance > band.y { return 1.0; }
+    return 1.0 - (band.y-distance)/max(1.0,band.y-band.x);
+}
+
+fn material_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
+    return material_vertex_pass(vertex, instance, true);
 }

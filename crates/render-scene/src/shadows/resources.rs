@@ -21,6 +21,7 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/geometry.wgsl"),
     include_str!("../shader/foliage.wgsl"),
+    include_str!("../shader/impostor.wgsl"),
     include_str!("../shader/environment.wgsl")
 );
 
@@ -52,7 +53,7 @@ pub(super) fn depth_pipelines(
     device: &wgpu::Device,
     pipelines: &ScenePipelines,
     settings: DirectionalShadowSettings,
-) -> ([wgpu::RenderPipeline; 4], wgpu::RenderPipeline) {
+) -> ([wgpu::RenderPipeline; 8], wgpu::RenderPipeline) {
     let configuration = settings.configuration();
     let module = depth_shader(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -81,7 +82,7 @@ pub(super) fn depth_pipelines(
                 layout: &layout,
                 vertex: wgpu::VertexState {
                     module: &module,
-                    entry_point: Some(crate::shader::VERTEX_ENTRY_POINT),
+                    entry_point: Some("vs_shadow"),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     buffers: &buffers,
                 },

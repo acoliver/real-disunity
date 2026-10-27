@@ -48,6 +48,7 @@ pub(super) fn build(
         ObjectState {
             samples: target.1,
             key: PipelineKey {
+                relief: false,
                 masked: false,
                 double_sided: true,
             },

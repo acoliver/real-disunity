@@ -1,46 +1,4 @@
-fn math_layout(device: &wgpu::Device, uniform: Option<u32>, ground: bool) -> wgpu::PipelineLayout {
-    let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    };
-    // Specialization can remove every frame read, but the harness still uploads its input.
-    let mut entries = vec![entry(
-        1,
-        wgpu::BufferBindingType::Storage { read_only: false },
-    )];
-    if let Some(binding) = uniform {
-        entries.push(entry(binding, wgpu::BufferBindingType::Uniform));
-    }
-    let mut groups = vec![
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &entries,
-        }),
-    ];
-    if ground {
-        groups.push(
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[entry(
-                    7,
-                    wgpu::BufferBindingType::Storage { read_only: true },
-                )],
-            }),
-        );
-    }
-    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: None,
-        bind_group_layouts: &groups.iter().map(Some).collect::<Vec<_>>(),
-        immediate_size: 0,
-    })
-}
-
+use super::gpu_math_bindings::{ground_binding, math_layout};
 #[test]
 fn foliage_wind_fixed_time_and_integer_period_are_deterministic() {
     let context = pollster::block_on(crate::device::GpuContext::request_with_features(
@@ -422,34 +380,6 @@ fn mask_coupling_and_shadowed_view_dependent_scattering_match_equations() {
     assert_eq!(result, vec![0.0, 0.0, 0.0, 0.4]);
 }
 
-fn ground_binding(
-    context: &GpuContext,
-    pipeline: &wgpu::ComputePipeline,
-    values: &[f32],
-) -> wgpu::BindGroup {
-    let buffer = context.device().create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: (values.len() * 4) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let bytes: Vec<_> = values
-        .iter()
-        .flat_map(|value| value.to_le_bytes())
-        .collect();
-    context.queue().write_buffer(&buffer, 0, &bytes);
-    context
-        .device()
-        .create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &pipeline.get_bind_group_layout(1),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 7,
-                resource: buffer.as_entire_binding(),
-            }],
-        })
-}
-
 #[test]
 fn scattering_temperature_and_unnormalised_distortion_match_numerical_reference() {
     let context =
@@ -717,3 +647,30 @@ fn math_pipeline(
 
 #[path = "specular_tests.rs"]
 mod specular_tests;
+
+#[test]
+fn relief_normal_lighting_and_projected_depth_have_independent_oracles() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let mut frame = configured_frame(ExposureOwnership::SceneLinear(1.0));
+    frame.sun_irradiance = glam::Vec3::ZERO;
+    let result = evaluate(
+        &context,
+        r"
+@group(0) @binding(1) var<storage,read_write> result:array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    let normal = normalize(scene_relief_decode(vec2<f32>(0.75,0.5)));
+    let position = scene_relief_offset(vec3<f32>(0.25,0.25,0.5),0.125);
+    let clip = frame.view_projection * vec4<f32>(position,1.0);
+    result[0] = vec4<f32>(surface_lighting(position,normal,vec3<f32>(0.5),1.0,0.0,1.0),clip.z/clip.w);
+}
+",
+        Some(&frame),
+    );
+    // Sphere encoding at (3/4,1/2) gives normal Z=1/2. The independent
+    // hemisphere mixture is 0.5 * (0.2/4 + 0.8*3/4) = 0.325.
+    for value in &result[..3] {
+        assert!((value - 0.325).abs() < 0.000_001);
+    }
+    assert_eq!(result[3].to_bits(), 0.375_f32.to_bits());
+}

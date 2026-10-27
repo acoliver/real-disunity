@@ -480,3 +480,5 @@ fn unsupported_water_body() -> SceneWaterBody {
         north_extent_millimeters: 1_000,
     }
 }
+
+mod impostor;

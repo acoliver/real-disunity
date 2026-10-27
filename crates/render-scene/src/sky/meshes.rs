@@ -75,12 +75,12 @@ pub(crate) struct MeshDraw {
 }
 #[derive(Debug)]
 pub(crate) struct Meshes {
-    pipelines: [wgpu::RenderPipeline; 4],
+    pipelines: [wgpu::RenderPipeline; 8],
     device: wgpu::Device,
     scene: crate::renderer::ScenePipelines,
     physical: bool,
     specializations:
-        std::cell::RefCell<std::collections::BTreeMap<[u32; 3], [wgpu::RenderPipeline; 4]>>,
+        std::cell::RefCell<std::collections::BTreeMap<[u32; 3], [wgpu::RenderPipeline; 8]>>,
     draws: Vec<MeshDraw>,
     composite: wgpu::RenderPipeline,
     samples: u32,

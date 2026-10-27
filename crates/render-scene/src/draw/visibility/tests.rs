@@ -388,3 +388,194 @@ fn terrain_bounds_extend_only_overlapping_light_depth_and_preserve_far_plane() {
         Mat4::IDENTITY
     );
 }
+
+#[test]
+fn relieved_surface_fits_bounds_at_wide_frustum_corners() {
+    // A 90-degree vertical, aspect-two camera has corner ray (2,1,-1).
+    // A two-metre axial relief therefore moves by sqrt(24) metres.
+    let matrix =
+        glam::camera::rh::proj::directx::perspective(std::f32::consts::FRAC_PI_2, 2.0, 0.1, 100.0);
+    let stretch = relief_ray_stretch(matrix);
+    assert!((stretch - 6.0_f32.sqrt()).abs() < 0.0001);
+    let placement = SceneTransform {
+        position_millimeters: [0; 3],
+        rotation: worldrunner_render_plan::SceneRotation::IDENTITY,
+        scale_millionths: 1_000_000,
+    };
+    let padding = impostor_extent([0.0, 2.0], &placement, stretch);
+    let bounds = Bounds {
+        min: Vec3::splat(-1.0),
+        max: Vec3::splat(1.0),
+    }
+    .expanded(padding);
+    for sign in [-1.0, 1.0] {
+        let surface = Vec3::splat(sign) + Vec3::new(4.0, 2.0, 2.0);
+        assert!(surface.cmpge(bounds.min).all() && surface.cmple(bounds.max).all());
+    }
+    assert_eq!(impostor_extent([0.0; 2], &placement, stretch), Vec3::ZERO);
+}
+
+#[test]
+fn relief_survives_culling_when_only_displaced_surface_intersects() {
+    let mut instances = Instances::new(&scene());
+    instances
+        .add(
+            SceneObject::new(
+                transform([0, 0, 3000]),
+                MeshHandle::from_raw(0),
+                MaterialHandle::from_raw(0),
+            ),
+            true,
+        )
+        .unwrap();
+    let meshes = [MeshSelection::new(&mesh())];
+    let mut selection = Selection::default();
+    selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
+    assert_eq!(selection.stats.culled, 1);
+    instances.impostor_extents[0] = [0.0, 2.0];
+    selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
+    // The card spans Z=2.7..3.3; its two-metre relief spans Z=0.7..1.3.
+    assert_eq!(selection.stats.culled, 0);
+}
+
+#[test]
+fn enlarged_plane_with_oblique_curvature_keeps_analytically_visible_tip() {
+    // Integrate a tangent cos(k*s)*Z + sin(k*s)*normalize(X+Z),
+    // for a 40-metre capture plane's upper tip, with k=0.05 and s=20.
+    let force = Vec3::new(1.0, 0.0, 1.0).normalize();
+    let tip = Vec3::Z * (1.0_f32.sin() / 0.05) + force * ((1.0 - 1.0_f32.cos()) / 0.05);
+    assert!(tip.z > 23.0);
+    let placement = transform([-6501, 0, -22830]);
+    let point = millimeters_to_meters(placement.position_millimeters) + tip;
+    assert!(Frustum::new(Mat4::IDENTITY).intersects(Bounds {
+        min: point,
+        max: point
+    }));
+    let source = enlarged_wind_scene();
+    let mut instances = Instances::new(&source);
+    assert!((instances.impostor_extents[0][0] - 20.0).abs() < 0.0001);
+    assert_eq!(instances.curved_wind[0], Some(Vec3::ZERO));
+    instances
+        .add(
+            SceneObject::new(
+                placement,
+                MeshHandle::from_raw(0),
+                MaterialHandle::from_raw(0),
+            ),
+            true,
+        )
+        .unwrap();
+    let meshes = [MeshSelection::new(&source.geometry().meshes()[0])];
+    let late_shape = meshes[0]
+        .wind_bounds(&placement, Vec3::ZERO, Some(Vec3::ZERO), 0.0)
+        .expanded(impostor_extent([20.0, 0.0], &placement, 1.0));
+    assert!(!Frustum::new(Mat4::IDENTITY).intersects(late_shape));
+    let mut selection = Selection::default();
+    selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
+    assert_eq!(selection.stats.culled, 0);
+    let bounds =
+        meshes[0].material_bounds(&placement, Vec3::ZERO, Some(Vec3::ZERO), [20.0, 0.0], 1.0);
+    assert!(point.cmpge(bounds.min).all() && point.cmple(bounds.max).all());
+}
+
+#[test]
+fn enlarged_card_overlapping_receiver_xy_extends_caster_depth() {
+    let mut instances = Instances::new(&scene());
+    instances.impostor_extents[0] = [4.0, 0.0];
+    instances
+        .add(
+            SceneObject::new(
+                transform([3000, 0, -5000]),
+                MeshHandle::from_raw(0),
+                MaterialHandle::from_raw(0),
+            ),
+            true,
+        )
+        .unwrap();
+    let meshes = [MeshSelection::new(&mesh())];
+    let matrix = caster_matrix(&instances, &meshes, None, Mat4::IDENTITY);
+    // The source bounds miss receiver X, but the enlarged card reaches X=0.
+    let upstream = matrix.project_point3(Vec3::new(0.0, 0.0, -8.0));
+    assert!((0.0..=1.0).contains(&upstream.z));
+}
+
+fn enlarged_wind_scene() -> RenderScene {
+    let base = scene();
+    let band = SceneWindBand::new(1_000_000, 0, 0).unwrap();
+    let foliage = SceneFoliageWind::new(
+        SceneDirection::new([0, 0, 1_000_000]).unwrap(),
+        [20_000, 1],
+        1_000_000,
+        [band; 2],
+        SceneWindPhase::WorldPosition,
+    )
+    .unwrap();
+    // For extent=20 and force=20*tan(0.5), curvature is 0.05.
+    let wind = SceneWind::new(
+        SceneDirection::new([707_107, 0, 707_107]).unwrap(),
+        10_926,
+        1000,
+        0,
+    )
+    .unwrap()
+    .with_foliage(foliage);
+    let atlas = SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false)
+        .unwrap()
+        .with_plane_size([1, 40_000])
+        .unwrap()
+        .with_borders(TextureHandle::from_raw(1));
+    let material = base.resources().materials()[0]
+        .with_impostor(atlas)
+        .with_features(SceneMaterialFeatures {
+            tint: SceneTint::WHITE,
+            ambient_occlusion: SceneAmbientOcclusion::UNOCCLUDED,
+            wind: Some(wind),
+            layer: None,
+            translucency: None,
+        })
+        .unwrap();
+    let mut textures = base.resources().textures().to_vec();
+    textures.push(SceneTexture::Texels {
+        format: TexelFormat::Rgba8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 1,
+        height: 1,
+        mips: 1,
+        bytes: vec![0; 4].into(),
+    });
+    let mesh = small_capture_card();
+    RenderScene::new(SceneParts {
+        resources: SceneResources::new(textures, vec![material]).unwrap(),
+        geometry: SceneGeometry::new(vec![mesh], vec![]).unwrap(),
+        terrain: None,
+        effects: None,
+    })
+    .unwrap()
+}
+
+fn small_capture_card() -> SceneMesh {
+    let vertices = [
+        ([-1, 0, -1], [0, 0]),
+        ([1, 0, -1], [1_000_000, 0]),
+        ([1, 0, 1], [1_000_000, 1_000_000]),
+        ([-1, 0, 1], [0, 1_000_000]),
+    ]
+    .into_iter()
+    .map(|(position, uv)| SceneVertex {
+        position_millimeters: position,
+        normal_micro: [0, -1_000_000, 0],
+        texcoord_micro: uv,
+        tangent_micro: None,
+    })
+    .collect();
+    SceneMesh::new(vec![
+        SceneMeshLod::new(
+            0,
+            vertices,
+            vec![0, 1, 2, 0, 2, 3],
+            Some(BillboardPolicy::YawLocked),
+        )
+        .unwrap(),
+    ])
+    .unwrap()
+}

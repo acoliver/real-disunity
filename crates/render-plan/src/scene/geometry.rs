@@ -403,6 +403,7 @@ impl SceneTransform {
 /// One ordered scene object: canonical placement plus dense resource handles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneObject {
+    fade: Option<super::SceneFadeBand>,
     tint: super::SceneTint,
     transform: SceneTransform,
     mesh: MeshHandle,
@@ -410,6 +411,16 @@ pub struct SceneObject {
 }
 
 impl SceneObject {
+    /// Overrides material fade-in distances for this placement only.
+    #[must_use]
+    pub const fn with_fade(mut self, band: super::SceneFadeBand) -> Self {
+        self.fade = Some(band);
+        self
+    }
+    pub const fn fade(&self) -> Option<super::SceneFadeBand> {
+        self.fade
+    }
+
     #[must_use]
     pub const fn with_tint(mut self, tint: super::SceneTint) -> Self {
         self.tint = tint;
@@ -427,6 +438,7 @@ impl SceneObject {
         material: MaterialHandle,
     ) -> Self {
         Self {
+            fade: None,
             tint: super::SceneTint::WHITE,
             transform,
             mesh,

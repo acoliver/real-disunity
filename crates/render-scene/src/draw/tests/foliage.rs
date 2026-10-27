@@ -245,7 +245,7 @@ fn pass_pipelines(
     source: &str,
     entry: &str,
     color: bool,
-) -> [wgpu::RenderPipeline; 4] {
+) -> [wgpu::RenderPipeline; 8] {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -290,6 +290,8 @@ fn pass_pipelines(
 pub(super) fn geometry_sources() -> [String; 4] {
     let forward = crate::shader::ENVIRONMENT_WGSL.to_owned();
     let base = forward
+        .replace("fn fs_relief_opaque(", "fn unused_relief_opaque(")
+        .replace("fn fs_relief_masked(", "fn unused_relief_masked(")
         .replace("fn fs_opaque(", "fn unused_opaque(")
         .replace("fn fs_masked(", "fn unused_masked(");
     let prepass = format!(

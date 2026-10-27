@@ -238,6 +238,11 @@ pub(crate) fn pack_model_instance(matrix: Mat4) -> Vec<u8> {
 
 pub(crate) fn pack_object(object: worldrunner_render_plan::SceneObject) -> Vec<u8> {
     let mut bytes = pack_instance(object.transform());
+    if let Some(band) = object.fade() {
+        let [start, end] = band.millimeters().map(|v| narrow(f64::from(v) / 1000.0));
+        bytes[12..16].copy_from_slice(&start.to_le_bytes());
+        bytes[28..32].copy_from_slice(&end.to_le_bytes());
+    }
     for (index, channel) in object.tint().channels().into_iter().enumerate() {
         let value = narrow(f64::from(channel) / MICRO_SCALE);
         bytes[64 + index * 4..68 + index * 4].copy_from_slice(&value.to_le_bytes());

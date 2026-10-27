@@ -46,7 +46,7 @@ fn gpu_static_refresh_policy_reuses_maps_and_visibility() {
     assert_eq!(fresh_default, reused);
 }
 
-fn depth_layers(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<f32>> {
+pub(super) fn depth_layers(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<f32>> {
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let copies: Vec<_> = (0..renderer.map.depth.layers())
         .map(|layer| {

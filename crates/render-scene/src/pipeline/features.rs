@@ -9,7 +9,7 @@ use super::MATERIAL_UNIFORM_BYTES;
 )]
 pub(super) fn encode(
     bytes: &mut [u8; MATERIAL_UNIFORM_BYTES],
-    features: Option<SceneMaterialFeatures>,
+    features: Option<&SceneMaterialFeatures>,
 ) {
     let tint = features.map_or([1_000_000; 3], |value| value.tint.channels());
     let ao = features.map_or(1_000_000, |value| value.ambient_occlusion.factor_micro());
@@ -31,6 +31,7 @@ pub(super) fn encode(
             bytes[48..52].copy_from_slice(&wind.period_milliseconds().to_le_bytes());
             bytes[52..56].copy_from_slice(&wind.phase_micro().to_le_bytes());
             encode_foliage(bytes, wind);
+            encode_field(bytes, wind);
         }
     }
 }
@@ -157,4 +158,85 @@ fn encode_foliage(bytes: &mut [u8], wind: SceneWind) {
 pub(crate) fn foliage_origin(wind: SceneWind) -> Option<glam::Vec3> {
     wind.foliage()
         .map(|value| glam::Vec3::from_array(value.origin_millimeters().map(|v| v as f32 / 1000.0)))
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "validated atlas units become GPU floats"
+)]
+pub(super) fn encode_impostor(
+    bytes: &mut [u8],
+    value: Option<worldrunner_render_plan::SceneImpostor>,
+) {
+    let Some(value) = value else {
+        return;
+    };
+    if let Some((_, scale)) = value.relief() {
+        write_float(bytes, 272, scale as f32 / 1000.0);
+    }
+    write_float(
+        bytes,
+        276,
+        if value.borders().is_some() { 1.0 } else { 0.0 },
+    );
+    if let Some(band) = value.fade() {
+        for (index, v) in band.millimeters().into_iter().enumerate() {
+            write_float(bytes, 280 + index * 4, v as f32 / 1000.0);
+        }
+    }
+    let frames = value.frames();
+    let layout = match value.layout() {
+        worldrunner_render_plan::SceneImpostorLayout::AzimuthElevation => 1.0,
+        worldrunner_render_plan::SceneImpostorLayout::HemisphericalOctahedral => 2.0,
+    };
+    for (index, number) in [
+        frames[0] as f32,
+        frames[1] as f32,
+        value.border_micro() as f32 / 1_000_000.0,
+        layout,
+        if value.blend() { 1.0 } else { 0.0 },
+        value.direction_distance_millimeters() as f32 / 1000.0,
+        value.plane_size_millimeters()[0] as f32 / 1000.0,
+        value.plane_size_millimeters()[1] as f32 / 1000.0,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        write_float(bytes, 240 + index * 4, number);
+    }
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "quantized scene values become GPU floats"
+)]
+fn encode_field(bytes: &mut [u8], wind: SceneWind) {
+    let Some(field) = wind.field() else {
+        return;
+    };
+    for (i, v) in field.origin_millimeters().into_iter().enumerate() {
+        write_float(bytes, 288 + i * 4, v as f32 / 1000.0);
+    }
+    for (i, v) in field.extent_millimeters().into_iter().enumerate() {
+        write_float(bytes, 296 + i * 4, v as f32 / 1000.0);
+    }
+    write_float(bytes, 304, 1.0);
+    for (i, modifier) in field.modifiers().into_iter().enumerate() {
+        let Some(m) = modifier else {
+            continue;
+        };
+        let offset = 336 + i * 32;
+        for (j, v) in m.center_millimeters().into_iter().enumerate() {
+            write_float(bytes, offset + j * 4, v as f32 / 1000.0);
+        }
+        write_float(
+            bytes,
+            offset + 12,
+            m.half_height_millimeters() as f32 / 1000.0,
+        );
+        for (j, v) in m.radii_millimeters().into_iter().enumerate() {
+            write_float(bytes, offset + 16 + j * 4, v as f32 / 1000.0);
+        }
+        write_float(bytes, offset + 24, m.strength_millimeters() as f32 / 1000.0);
+    }
 }

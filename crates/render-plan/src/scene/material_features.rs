@@ -102,6 +102,7 @@ impl SceneLayerBlend {
 /// Periodic world-space displacement. Direction is already in the scene Z-up basis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneWind {
+    field: Option<super::ScenePlanarWindField>,
     direction: SceneDirection,
     amplitude_millimeters: u32,
     period_milliseconds: u32,
@@ -109,6 +110,16 @@ pub struct SceneWind {
     foliage: Option<super::SceneFoliageWind>,
 }
 impl SceneWind {
+    /// Replaces uniform directional force with a planar field for curved foliage.
+    #[must_use]
+    pub const fn with_field(mut self, field: super::ScenePlanarWindField) -> Self {
+        self.field = Some(field);
+        self
+    }
+    pub const fn field(self) -> Option<super::ScenePlanarWindField> {
+        self.field
+    }
+
     pub fn new(
         direction: SceneDirection,
         amplitude_millimeters: u32,
@@ -122,6 +133,7 @@ impl SceneWind {
         }
         bounded("wind phase", phase_micro, 999_999)?;
         Ok(Self {
+            field: None,
             direction,
             amplitude_millimeters,
             period_milliseconds,

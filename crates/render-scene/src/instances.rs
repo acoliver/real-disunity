@@ -73,6 +73,7 @@ pub(crate) struct Instances {
     pipelines: Vec<usize>,
     pub wind_extents: Vec<glam::Vec3>,
     pub curved_wind: Vec<Option<glam::Vec3>>,
+    pub impostor_extents: Vec<[f32; 2]>,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
 }
 
@@ -98,6 +99,28 @@ impl Instances {
                 .collect(),
             wind_extents,
             curved_wind,
+            impostor_extents: scene
+                .resources()
+                .materials()
+                .iter()
+                .map(|material| {
+                    material.impostor().map_or([0.0; 2], |atlas| {
+                        let [width, height] = atlas
+                            .plane_size_millimeters()
+                            .map(|v| crate::geometry::millimeter_to_meter(i64::from(v)));
+                        [
+                            if atlas.borders().is_some() {
+                                width.hypot(height) * 0.5
+                            } else {
+                                0.0
+                            },
+                            atlas.relief().map_or(0.0, |(_, scale)| {
+                                crate::geometry::millimeter_to_meter(i64::from(scale))
+                            }),
+                        ]
+                    })
+                })
+                .collect(),
             batches: BTreeMap::new(),
         };
         for object in scene.geometry().objects() {

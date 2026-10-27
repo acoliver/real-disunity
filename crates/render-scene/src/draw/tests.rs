@@ -36,6 +36,7 @@ mod environment;
 mod fold_translucency;
 mod foliage;
 mod foliage_fixes;
+mod impostor;
 mod layered_terrain;
 mod lod;
 mod material_factors;
@@ -636,3 +637,5 @@ fn lit_pixels(pixels: &[u8]) -> usize {
 }
 
 mod basic;
+
+mod impostor_fixes;

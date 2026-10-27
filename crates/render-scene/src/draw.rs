@@ -497,7 +497,7 @@ impl SceneGpu {
         &self,
         pass: &mut RenderPass<'_>,
         frame_group: &BindGroup,
-        pipelines: &[wgpu::RenderPipeline; 4],
+        pipelines: &[wgpu::RenderPipeline; 8],
         shadow_matrix: Option<(u32, glam::Mat4)>,
     ) -> SelectionPublication {
         assert!(
@@ -593,7 +593,7 @@ impl SceneGpu {
             self.instances
                 .batches
                 .iter()
-                .filter(|(key, batch)| key.0 == index && batch.has_instances())
+                .filter(|(key, batch)| key.0 % 4 == index && batch.has_instances())
                 .count()
         })
     }

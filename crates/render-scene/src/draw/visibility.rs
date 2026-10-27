@@ -100,8 +100,17 @@ impl MeshSelection {
         transform: &SceneTransform,
         extent: Vec3,
         curved: Option<Vec3>,
+        shaped_radius: f32,
     ) -> Bounds {
-        let bounds = self.world_bounds(transform);
+        let mut bounds = self.world_bounds(transform);
+        let model = model_matrix(transform);
+        let scale = model.x_axis.truncate().length();
+        if shaped_radius > 0.0 {
+            let center = model.w_axis.truncate();
+            let extent = Vec3::splat(shaped_radius * scale * 1.000_01);
+            bounds.min = bounds.min.min(center - extent);
+            bounds.max = bounds.max.max(center + extent);
+        }
         let Some(origin) = curved else {
             return bounds.expanded(extent);
         };
@@ -113,9 +122,25 @@ impl MeshSelection {
             .abs()
             .max(self.bounds.max.abs())
             .length()
-            .max(self.billboard_radius.unwrap_or(0.0));
-        let scale = model_matrix(transform).x_axis.truncate().length();
+            .max(self.billboard_radius.unwrap_or(0.0))
+            .max(shaped_radius);
         bounds.expanded(Vec3::splat((6.0 * radius + 7.0 * origin.length()) * scale))
+    }
+
+    fn material_bounds(
+        &self,
+        transform: &SceneTransform,
+        wind: Vec3,
+        curved: Option<Vec3>,
+        impostor: [f32; 2],
+        relief_stretch: f32,
+    ) -> Bounds {
+        self.wind_bounds(transform, wind, curved, impostor[0])
+            .expanded(impostor_extent(
+                [0.0, impostor[1]],
+                transform,
+                relief_stretch,
+            ))
     }
 
     pub fn world_bounds(&self, transform: &SceneTransform) -> Bounds {
@@ -137,6 +162,31 @@ impl MeshSelection {
             max: bounds.max + pad,
         }
     }
+}
+
+fn impostor_extent(extents: [f32; 2], transform: &SceneTransform, stretch: f32) -> Vec3 {
+    let scale = model_matrix(transform).x_axis.truncate().length();
+    Vec3::splat(extents[0] * scale + extents[1] * stretch)
+}
+
+// The longest ray per unit axial depth occurs at a frustum corner.
+fn relief_ray_stretch(matrix: Mat4) -> f32 {
+    let rows = matrix.transpose();
+    if rows.w_axis.truncate().length_squared() == 0.0 {
+        return 1.0;
+    }
+    let axis = rows.w_axis.truncate().normalize();
+    let inverse = matrix.inverse();
+    let mut stretch = 1.0_f32;
+    for x in [-1.0, 1.0] {
+        for y in [-1.0, 1.0] {
+            let near = inverse.project_point3(Vec3::new(x, y, 0.0));
+            let middle = inverse.project_point3(Vec3::new(x, y, 0.5));
+            let ray = middle - near;
+            stretch = stretch.max(ray.length() / ray.dot(axis).abs());
+        }
+    }
+    stretch * 1.000_01
 }
 
 #[derive(Debug)]
@@ -180,13 +230,7 @@ pub(super) struct Selection {
 }
 
 impl Selection {
-    pub fn rebuild(
-        &mut self,
-        instances: &Instances,
-        meshes: &[MeshSelection],
-        matrix: Mat4,
-        eye_millimeters: [i64; 3],
-    ) {
+    fn reset(&mut self, meshes: &[MeshSelection]) {
         self.ranges.clear();
         self.stats.considered = 0;
         self.stats.culled = 0;
@@ -199,7 +243,26 @@ impl Selection {
             0,
         );
         self.stats.drawn_per_lod.fill(0);
+    }
+
+    pub fn rebuild(
+        &mut self,
+        instances: &Instances,
+        meshes: &[MeshSelection],
+        matrix: Mat4,
+        eye_millimeters: [i64; 3],
+    ) {
+        self.reset(meshes);
         let frustum = Frustum::new(matrix);
+        let relief_stretch = if instances
+            .impostor_extents
+            .iter()
+            .any(|extent| extent[1] != 0.0)
+        {
+            relief_ray_stretch(matrix)
+        } else {
+            1.0
+        };
         for (&key, batch) in &instances.batches {
             let mesh = &meshes[key.1];
             // Traversal scans allocated slots; removed slots contribute neither
@@ -207,10 +270,12 @@ impl Selection {
             for (slot, object, visible) in batch.placements() {
                 self.stats.considered += 1;
                 if !visible
-                    || !frustum.intersects(mesh.wind_bounds(
+                    || !frustum.intersects(mesh.material_bounds(
                         object.transform(),
                         instances.wind_extents[key.2],
                         instances.curved_wind[key.2],
+                        instances.impostor_extents[key.2],
+                        relief_stretch,
                     ))
                 {
                     self.stats.culled += 1;
@@ -262,10 +327,12 @@ pub(super) fn caster_matrix(
         for (_, object, visible) in batch.placements().filter(|(_, _, visible)| *visible) {
             debug_assert!(visible);
             near = near.min(caster_near(
-                meshes[mesh].wind_bounds(
+                meshes[mesh].material_bounds(
                     object.transform(),
                     instances.wind_extents[material],
                     instances.curved_wind[material],
+                    instances.impostor_extents[material],
+                    0.0,
                 ),
                 receiver,
             ));

@@ -82,7 +82,7 @@ pub struct ScenePipelines {
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
-    pipelines: [RenderPipeline; 4],
+    pipelines: [RenderPipeline; 8],
     terrain: RenderPipeline,
     pub(crate) cached_terrain: RenderPipeline,
     pub(crate) layered: Option<pages::LayeredPipelines>,
@@ -249,7 +249,7 @@ impl ScenePipelines {
         &self.unlit_alpha
     }
 
-    pub(crate) const fn object_pipelines(&self) -> &[RenderPipeline; 4] {
+    pub(crate) const fn object_pipelines(&self) -> &[RenderPipeline; 8] {
         &self.pipelines
     }
 
@@ -520,7 +520,7 @@ fn build_objects(
     targets: &[Option<ColorTargetState>],
     module: &wgpu::ShaderModule,
     target: (u32, &[(&str, f64)]),
-) -> [RenderPipeline; 4] {
+) -> [RenderPipeline; 8] {
     let (samples, constants) = target;
     PipelineKey::ALL.map(|key| {
         build(
@@ -531,7 +531,15 @@ fn build_objects(
             samples,
             FragmentState {
                 module,
-                entry_point: Some(shader::fragment_entry_point(key.masked)),
+                entry_point: Some(if key.relief {
+                    if key.masked {
+                        "fs_relief_masked"
+                    } else {
+                        "fs_relief_opaque"
+                    }
+                } else {
+                    shader::fragment_entry_point(key.masked)
+                }),
                 compilation_options: PipelineCompilationOptions {
                     constants,
                     ..Default::default()
@@ -546,7 +554,7 @@ pub(crate) fn celestial_pipelines(
     device: &Device,
     scene: &ScenePipelines,
     physical: bool,
-) -> [RenderPipeline; 4] {
+) -> [RenderPipeline; 8] {
     celestial_specialization(device, scene, physical, [0; 3])
 }
 pub(crate) fn celestial_specialization(
@@ -554,7 +562,7 @@ pub(crate) fn celestial_specialization(
     scene: &ScenePipelines,
     physical: bool,
     options: [u32; 3],
-) -> [RenderPipeline; 4] {
+) -> [RenderPipeline; 8] {
     let constants = specular_constants(options);
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",

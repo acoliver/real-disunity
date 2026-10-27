@@ -73,9 +73,25 @@ pub fn material_bind_group_layout(device: &Device) -> BindGroupLayout {
             count: None,
         });
     }
+    for (binding, visibility) in [
+        (8, ShaderStages::FRAGMENT),
+        (9, ShaderStages::VERTEX),
+        (10, ShaderStages::VERTEX),
+    ] {
+        entries.push(BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Float { filterable: true },
+                view_dimension: TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
+    }
     entries.push(BindGroupLayoutEntry {
         binding: 6,
-        visibility: ShaderStages::FRAGMENT,
+        visibility: ShaderStages::VERTEX_FRAGMENT,
         ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
         count: None,
     });
@@ -315,11 +331,38 @@ pub(crate) fn material_group(
     sampler: &Sampler,
     heights: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
+    extended_material_group(
+        device,
+        layout,
+        uniform,
+        MaterialTextureBindings {
+            maps: *textures,
+            extra: [textures[0]; 3],
+        },
+        sampler,
+        heights,
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MaterialTextureBindings<'a> {
+    pub maps: [&'a wgpu::TextureView; 5],
+    pub extra: [&'a wgpu::TextureView; 3],
+}
+
+pub(crate) fn extended_material_group(
+    device: &Device,
+    layout: &BindGroupLayout,
+    uniform: &wgpu::Buffer,
+    textures: MaterialTextureBindings<'_>,
+    sampler: &Sampler,
+    heights: &wgpu::Buffer,
+) -> wgpu::BindGroup {
     let mut entries = vec![wgpu::BindGroupEntry {
         binding: 0,
         resource: uniform.as_entire_binding(),
     }];
-    for (index, view) in textures.iter().enumerate() {
+    for (index, view) in textures.maps.iter().enumerate() {
         entries.push(wgpu::BindGroupEntry {
             binding: u32::try_from(index + 1).expect("five textures"),
             resource: wgpu::BindingResource::TextureView(view),
@@ -333,6 +376,12 @@ pub(crate) fn material_group(
         binding: 7,
         resource: heights.as_entire_binding(),
     });
+    for (binding, view) in [8, 9, 10].into_iter().zip(textures.extra) {
+        entries.push(wgpu::BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::TextureView(view),
+        });
+    }
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("material"),
         layout,

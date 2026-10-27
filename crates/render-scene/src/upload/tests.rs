@@ -164,17 +164,18 @@ fn a_material_bind_group_with_every_texture_present_satisfies_its_layout() {
             binding: 6,
             resource: BindingResource::Sampler(&sampler),
         });
-        let heights = upload_buffer(
-            device,
-            queue,
-            "contact heights",
-            BufferUsages::STORAGE,
-            &[0u8; 48],
-        );
+        let heights = contact_buffer(device, queue);
         entries.push(BindGroupEntry {
             binding: 7,
             resource: heights.as_entire_binding(),
         });
+        let extra = view(&placeholder_texture(device, queue));
+        for binding in [8, 9, 10] {
+            entries.push(BindGroupEntry {
+                binding,
+                resource: BindingResource::TextureView(&extra),
+            });
+        }
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("material"),
             layout: &layout,
@@ -219,17 +220,18 @@ fn the_placeholder_stands_in_for_all_four_optional_textures_at_once() {
             binding: 6,
             resource: BindingResource::Sampler(&sampler),
         });
-        let heights = upload_buffer(
-            device,
-            queue,
-            "contact heights",
-            BufferUsages::STORAGE,
-            &[0u8; 48],
-        );
+        let heights = contact_buffer(device, queue);
         entries.push(BindGroupEntry {
             binding: 7,
             resource: heights.as_entire_binding(),
         });
+        let extra = view(&placeholder_texture(device, queue));
+        for binding in [8, 9, 10] {
+            entries.push(BindGroupEntry {
+                binding,
+                resource: BindingResource::TextureView(&extra),
+            });
+        }
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("material"),
             layout: &layout,
@@ -350,5 +352,15 @@ fn material_uniform(context: &GpuContext) -> wgpu::Buffer {
         "material",
         BufferUsages::UNIFORM,
         &[0u8; MATERIAL_UNIFORM_BYTES],
+    )
+}
+
+fn contact_buffer(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Buffer {
+    upload_buffer(
+        device,
+        queue,
+        "contact heights",
+        BufferUsages::STORAGE,
+        &[0u8; 48],
     )
 }

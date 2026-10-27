@@ -341,10 +341,10 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
     }
 }
 
-fn read_depth(
+pub(super) fn read_depth(
     context: &GpuContext,
     gpu: &SceneGpu,
-    pipelines: &[wgpu::RenderPipeline; 4],
+    pipelines: &[wgpu::RenderPipeline; 8],
     state: (Option<TextureFormat>, Option<&wgpu::BindGroup>),
 ) -> Vec<u8> {
     let device = context.device();

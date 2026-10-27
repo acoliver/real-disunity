@@ -56,7 +56,10 @@ mod foliage_wind;
 #[cfg(test)]
 mod foliage_wind_tests;
 mod geometry;
+mod impostor;
 mod material_features;
+pub use impostor::{SceneFadeBand, SceneImpostor, SceneImpostorLayout};
+
 pub use foliage_wind::{SceneFoliageWind, SceneWindBand, SceneWindPhase};
 mod translucency;
 pub use translucency::{SceneTranslucency, SceneTranslucencyParts};
@@ -681,3 +684,6 @@ mod tests {
         assert!(scene.terrain().is_none());
     }
 }
+
+mod wind_field;
+pub use wind_field::{ScenePlanarWindField, SceneStaticWindModifier};

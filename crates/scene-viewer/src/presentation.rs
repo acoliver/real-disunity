@@ -15,6 +15,7 @@ pub(super) struct Presentation {
     pub targets: Targets,
     scale: Option<worldrunner_render_post::RenderScale>,
     capture_size: Viewport,
+    recipe_capacity: bool,
 }
 
 pub(super) struct Targets {
@@ -86,6 +87,7 @@ impl Presentation {
             None
         };
         settings.additional = capture_allocations(capture_size);
+        let recipe_capacity = false;
         let scheduler =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1024 * 1024 * 1024))
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;
@@ -95,7 +97,26 @@ impl Presentation {
             targets,
             scale,
             capture_size,
+            recipe_capacity,
         })
+    }
+
+    pub fn reserve_recipe_storage(
+        &mut self,
+        context: &worldrunner_render_scene::device::GpuContext,
+    ) -> Result<(), ViewerError> {
+        if !self.recipe_capacity {
+            let mut settings = self.scheduler.configuration().clone();
+            settings
+                .additional
+                .cpu("capture recipe storage reservation", 256 * 1024 * 1024);
+            self.scheduler
+                .reconfigure(context, settings)
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            self.recipe_capacity = true;
+            self.refresh_targets();
+        }
+        Ok(())
     }
 
     pub fn resize(
@@ -104,19 +125,45 @@ impl Presentation {
         size: Viewport,
         capture_size: Viewport,
     ) -> Result<(), ViewerError> {
+        self.resize_scaled(context, size, capture_size, self.scale)
+    }
+
+    pub fn resize_recipe(
+        &mut self,
+        context: &worldrunner_render_scene::device::GpuContext,
+        size: Viewport,
+    ) -> Result<(), ViewerError> {
+        self.resize_scaled(context, size, size, None)
+    }
+
+    fn resize_scaled(
+        &mut self,
+        context: &worldrunner_render_scene::device::GpuContext,
+        size: Viewport,
+        capture_size: Viewport,
+        scale: Option<worldrunner_render_post::RenderScale>,
+    ) -> Result<(), ViewerError> {
         self.scheduler.collect();
-        if self.scheduler.configuration().frame.output_extent() != [size.width, size.height]
+        let extent = [size.width, size.height];
+        let render = scale.map_or(Ok(extent), |scale| scale.extent(extent))?;
+        if self.scheduler.configuration().frame.output_extent() != extent
+            || self.scheduler.configuration().frame.size != render
             || self.capture_size != capture_size
         {
             let mut settings = self.scheduler.configuration().clone();
             settings.frame.size = [size.width, size.height];
             settings.frame.output_size = None;
-            if let Some(scale) = self.scale {
+            if let Some(scale) = scale {
                 settings.frame = settings
                     .frame
                     .with_render_extent(scale.extent([size.width, size.height])?);
             }
             settings.additional = capture_allocations(capture_size);
+            if self.recipe_capacity {
+                settings
+                    .additional
+                    .cpu("capture recipe storage reservation", 256 * 1024 * 1024);
+            }
             self.scheduler
                 .reconfigure(context, settings)
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;

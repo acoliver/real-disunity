@@ -5,7 +5,9 @@ use std::sync::mpsc;
 #[cfg(test)]
 use std::time::{Duration, Instant};
 
+mod linear;
 mod pages;
+pub use linear::LinearRgbaImage;
 use thiserror::Error;
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_post::{FrameConfig, Readback, ReadbackError, color_texture};

@@ -1,4 +1,77 @@
+#[test]
+fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
+    let context =
+        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let first = Viewport {
+        width: 64,
+        height: 64,
+    };
+    let next = Viewport {
+        width: 96,
+        height: 64,
+    };
+    let mut presentation = Presentation::with_profile(
+        &context,
+        COLOR,
+        first,
+        first,
+        crate::FrameProfile::Hdr {
+            samples: 1,
+            tone_map: crate::ToneMap::Reinhard,
+        },
+        None,
+    )
+    .unwrap();
+    for size in [first, next] {
+        presentation.resize(&context, size, size).unwrap();
+        assert_eq!(
+            presentation
+                .scheduler
+                .configuration()
+                .additional
+                .validate(&context.device().limits())
+                .unwrap(),
+            capture_allocations(size)
+                .validate(&context.device().limits())
+                .unwrap()
+        );
+        assert!(!presentation.recipe_capacity);
+    }
+}
+
 use super::*;
+
+#[test]
+fn near_budget_hdr_msaa_presentation_admits_without_recipes() {
+    let context =
+        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let size = Viewport {
+        width: 4096,
+        height: 2400,
+    };
+    let presentation = Presentation::with_profile(
+        &context,
+        COLOR,
+        size,
+        size,
+        crate::FrameProfile::Hdr {
+            samples: 4,
+            tone_map: crate::ToneMap::Reinhard,
+        },
+        None,
+    )
+    .unwrap();
+    assert!(!presentation.recipe_capacity);
+    assert_eq!(
+        presentation
+            .scheduler
+            .configuration()
+            .additional
+            .validate(&context.device().limits())
+            .unwrap(),
+        275_251_200
+    );
+}
 
 #[test]
 fn native_capture_inventory_includes_staging_padded_read_and_three_images() {

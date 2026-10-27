@@ -73,6 +73,41 @@ impl Execution {
                 .map_err(|e| ViewerError::Gpu(e.to_string())),
         }
     }
+    pub fn acquire_capture(
+        &self,
+        context: &GpuContext,
+        size: [u32; 2],
+    ) -> Result<Option<ReadyFrame>, ViewerError> {
+        let flight = match self {
+            Self::Surface(surface) => surface.capture_flight(),
+            Self::Offscreen { flight, .. } => flight,
+        };
+        let admission = match flight.try_acquire() {
+            Ok(admission) => admission,
+            Err(AdmissionError::WouldBlock) => return Ok(None),
+            Err(error) => return Err(ViewerError::Gpu(error.to_string())),
+        };
+        Ok(Some(ReadyFrame {
+            admission,
+            frame: super::execution::OutputFrame {
+                texture: texture(context.device(), size),
+                surface: None,
+            },
+        }))
+    }
+    pub fn submit_capture(
+        &self,
+        ready: ReadyFrame,
+        prepared: PreparedFrame,
+    ) -> Result<CompletionTicket, ViewerError> {
+        let flight = match self {
+            Self::Surface(surface) => surface.capture_flight(),
+            Self::Offscreen { flight, .. } => flight,
+        };
+        flight
+            .submit_prepared(ready.admission, prepared)
+            .map_err(|e| ViewerError::Gpu(e.to_string()))
+    }
     pub fn take_recreated(&mut self) -> bool {
         match self {
             Self::Surface(surface) => surface.take_recreated(),

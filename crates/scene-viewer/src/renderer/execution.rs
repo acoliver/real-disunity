@@ -67,6 +67,10 @@ impl SurfaceExecution {
         Ok(ticket)
     }
 
+    pub(super) fn capture_flight(&self) -> &FrameAdmission {
+        &self.flight
+    }
+
     pub fn take_recreated(&mut self) -> bool {
         std::mem::take(&mut self.recreated)
     }

@@ -22,9 +22,10 @@ mod presentation;
 mod renderer;
 mod retained;
 pub use retained::{
-    CaptureRequestError, CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton,
-    NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
-    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, WheelDelta, WindowlessRetained,
+    CaptureJitter, CaptureOutput, CaptureRequestError, CursorError, CursorGrabMode, KeyCode,
+    LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureOutcome,
+    RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent, RetainedHost,
+    RetainedInput, RetainedTick, RetainedUpdate, WheelDelta, WindowlessRetained,
 };
 
 pub use camera::{OrbitCamera, OrbitLimits};

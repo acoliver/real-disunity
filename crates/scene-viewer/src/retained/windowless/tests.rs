@@ -1,6 +1,52 @@
 pub(crate) mod pages;
 mod terrain;
 #[test]
+fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut host = host(crate::renderer::retained_tests::source());
+    host.options.frame_profile = crate::FrameProfile::Hdr {
+        samples: 4,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let recipe = crate::RetainedCaptureRecipe::new(
+        1,
+        1,
+        crate::CaptureJitter::None,
+        false,
+        vec![crate::CaptureOutput::LinearHdr],
+        1024 * 1024,
+    )
+    .unwrap();
+    let mut run = host.windowless(&mut driver).unwrap();
+    let id = run
+        .host_mut()
+        .request_capture_recipe(0, recipe.clone())
+        .unwrap();
+    assert!(run.frame().unwrap());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        run.poll().unwrap();
+        if events.borrow().iter().any(|event| matches!(event, RetainedEvent::Capture {
+            id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { products, time, .. }, ..
+        } if *actual == id && products.srgb8.is_none() && products.linear_hdr.as_ref().unwrap().pixels.len() == 4096 && *time == Duration::ZERO)) { break; }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    let id = run.host_mut().request_capture_recipe(0, recipe).unwrap();
+    assert!(run.frame().unwrap());
+    run.shutdown().unwrap();
+    assert!(
+        events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, RetainedEvent::Capture {
+        id: actual, outcome: RetainedCaptureOutcome::Cancelled, ..
+    } if *actual == id))
+    );
+}
+
+#[test]
 fn wall_clock_captures_advance_without_a_fixed_override() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
@@ -282,4 +328,35 @@ fn wall_clock_is_the_default_and_driver_can_override_it() {
     assert!(run.frame().unwrap());
     assert_eq!(run.renderer.frame_time, Duration::from_secs(7));
     run.shutdown().unwrap();
+}
+
+#[test]
+fn temporal_subframes_never_emit_presented_and_shutdown_cancels_accumulation() {
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = host(crate::renderer::retained_tests::source())
+        .windowless(&mut driver)
+        .unwrap();
+    let recipe = crate::RetainedCaptureRecipe::new(
+        2,
+        8,
+        crate::CaptureJitter::Halton23,
+        true,
+        vec![crate::CaptureOutput::Srgb8],
+        4 * 1024 * 1024,
+    )
+    .unwrap();
+    let id = run.host_mut().request_capture_recipe(0, recipe).unwrap();
+    assert!(!run.frame().unwrap());
+    run.renderer.drain().unwrap();
+    run.poll().unwrap();
+    assert!(!run.frame().unwrap());
+    assert!(
+        !events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, RetainedEvent::Presented { .. }))
+    );
+    run.shutdown().unwrap();
+    assert!(events.borrow().iter().any(|event| matches!(event, RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::Cancelled, .. } if *actual == id)));
 }

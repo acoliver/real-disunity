@@ -163,6 +163,25 @@ impl SceneView {
         resolve_scene(pose, lens, SCENE_UP, viewport)
     }
 
+    /// Selects offscreen raster size and deterministic output-pixel projection jitter.
+    pub fn with_raster_sample(
+        self,
+        viewport: Viewport,
+        jitter: [f32; 2],
+    ) -> Result<Self, ViewError> {
+        let resolved = self
+            .resolved
+            .with_raster_sample(
+                worldrunner_camera::Viewport {
+                    width: viewport.width,
+                    height: viewport.height,
+                },
+                jitter,
+            )
+            .map_err(scene_error)?;
+        Ok(Self::from_resolved(resolved, self.eye_millimeters))
+    }
+
     /// Exact authored eye position for CPU distance selection.
     #[must_use]
     pub const fn eye_millimeters(&self) -> [i64; 3] {

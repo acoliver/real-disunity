@@ -193,32 +193,31 @@ impl Renderer {
         } else {
             view
         };
+        if host
+            .as_ref()
+            .is_some_and(|host| !host.captures.recipes.is_empty())
+        {
+            self.presentation.reserve_recipe_storage(&self.context)?;
+        }
         self.prepare_frame(view, ready.admission.slot())?;
         let output = ready
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let source_frame = host.as_ref().map(|_| self.streaming.captures.next_frame());
         let mut retained_capture = if let Some(host) = host.as_deref_mut() {
             let pages_ready = self.retained_pages_ready(host, view)?;
             self.streaming.captures.prepare(
                 self.context.device(),
                 host,
                 &ready.frame.texture,
+                self.presentation.scheduler.targets().texture(),
                 pages_ready,
             )?
         } else {
             None
         };
-        let capture_output = retained_capture.is_some();
         let image = retained_capture.as_mut().map(|(_, image)| image);
-        let prepared = self.encode_frame(
-            view,
-            capture.or(image),
-            &output,
-            capture_output,
-            source_frame,
-        )?;
+        let prepared = self.encode_frame(view, capture, &output, image)?;
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
@@ -229,6 +228,8 @@ impl Renderer {
                 ticket.clone(),
                 self.frame_time,
             )?;
+        } else {
+            self.streaming.captures.advance_frame();
         }
         self.check_errors()?;
         Ok(Some(ticket))
@@ -239,10 +240,9 @@ impl Renderer {
         view: &SceneView,
         mut capture: Option<&mut live::Capture>,
         output: &wgpu::TextureView,
-        capture_output: bool,
-        source_frame: Option<u64>,
+        mut retained: Option<&mut capture::Products>,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
-        if capture.is_some()
+        if (capture.is_some() || retained.is_some())
             && let Resident::Shadowed(scene) = &mut self.resident
         {
             scene.request_shadow_capture();
@@ -252,7 +252,10 @@ impl Renderer {
             view,
             &self.presentation.targets,
             self.presentation.scheduler.encoding(),
-            (source_frame, capture.is_some()),
+            (
+                Some(self.streaming.captures.next_frame()),
+                capture.is_some() || retained.is_some(),
+            ),
         )?;
         self.context
             .submission()
@@ -268,12 +271,14 @@ impl Renderer {
                 }
                 self.presentation.present(encoder, output)?;
                 if let Some(capture) = &mut capture {
-                    let source = if capture_output {
-                        output.texture()
-                    } else {
-                        self.presentation.targets.color.texture()
-                    };
-                    capture.encode(encoder, source)?;
+                    capture.encode(encoder, self.presentation.targets.color.texture())?;
+                }
+                if let Some(retained) = &mut retained {
+                    retained.encode(
+                        encoder,
+                        output.texture(),
+                        self.presentation.scheduler.targets().texture(),
+                    )?;
                 }
                 Ok::<_, ViewerError>(())
             })

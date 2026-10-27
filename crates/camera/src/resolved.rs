@@ -155,6 +155,41 @@ impl ResolvedView {
         DepthConvention::ZeroToOne
     }
 
+    /// Retargets raster resolution and translates the projection by output-pixel offsets.
+    /// The optical field of view and world basis are unchanged.
+    pub fn with_raster_sample(
+        mut self,
+        viewport: Viewport,
+        offset_pixels: [f32; 2],
+    ) -> Result<Self, ViewError> {
+        if viewport.width == 0 || viewport.height == 0 {
+            return Err(ViewError::DegenerateViewport {
+                width: viewport.width,
+                height: viewport.height,
+            });
+        }
+        let size = self.viewport_size();
+        let offset = Vec2::from_array(offset_pixels) * Vec2::new(2.0, -2.0) / size;
+        if !offset.is_finite() {
+            return Err(ViewError::InvalidScreenPoint);
+        }
+        let shift = Mat4::from_translation(offset.extend(0.0));
+        self.projection = shift * self.projection;
+        self.reconstruction_projection = shift * self.reconstruction_projection;
+        self.view_projection = self.projection * self.view;
+        self.inverse_view_projection = self.view_projection.inverse();
+        self.query_inverse = self.view_projection.as_dmat4().inverse();
+        if !self.view_projection.is_finite()
+            || !self.inverse_view_projection.is_finite()
+            || !self.query_inverse.is_finite()
+            || !self.reconstruction_projection.is_finite()
+        {
+            return Err(ViewError::SingularTransform);
+        }
+        self.viewport = viewport;
+        Ok(self)
+    }
+
     /// Projects to continuous top-left pixel coordinates and 0..1 raster depth.
     /// Points outside the frustum are permitted; use `contains_point` for clipping.
     pub fn world_to_screen(&self, point: Vec3) -> Result<Vec3, ViewError> {

@@ -1,4 +1,104 @@
 #[test]
+fn recipe_returns_linear_hdr_before_tone_mapping_and_plain_bytes_are_unchanged() {
+    let mut h = Harness::with_profile(
+        FrameProfile::Hdr {
+            samples: 1,
+            tone_map: crate::ToneMap::Reinhard,
+        },
+        crate::presentation::COLOR,
+    );
+    let effects = bright_effects(h.host.scene.effects().unwrap());
+    h.host
+        .apply(RetainedUpdate::Settings(Box::new(effects)))
+        .unwrap();
+    h.wait_prepared();
+    let recipe = crate::RetainedCaptureRecipe::new(
+        1,
+        1,
+        crate::CaptureJitter::None,
+        false,
+        vec![crate::CaptureOutput::Srgb8, crate::CaptureOutput::LinearHdr],
+        1024 * 1024,
+    )
+    .unwrap();
+    let request = h.host.request_capture_recipe(1, recipe).unwrap();
+    h.frame();
+    let products = recipe_result(&mut h, request);
+    let linear = products.linear_hdr.unwrap();
+    assert_eq!(linear.viewport, products.srgb8.as_ref().unwrap().viewport);
+    assert!(linear.pixels.iter().any(|pixel| pixel[0] > 1.0));
+    assert_eq!(linear, direct_linear(&h, linear.viewport));
+    h.host.request_capture(1).unwrap();
+    h.frame();
+    assert_eq!(products.srgb8.unwrap(), h.result().3);
+}
+
+fn bright_effects(initial: &SceneEffects) -> SceneEffects {
+    SceneEffects::new(SceneEffectsParts {
+        water: None,
+        sky: *initial.sky(),
+        sun: SceneSun {
+            direction: SceneDirection::new([0, 0, 1_000_000]).unwrap(),
+            irradiance_micro: 10_000_000,
+        },
+        ambient: *initial.ambient(),
+        shadows: initial.shadows().clone(),
+        ssao: None,
+        camera: *initial.camera(),
+        grading: *initial.grading(),
+        post: vec![],
+        anti_alias: *initial.anti_alias(),
+    })
+    .unwrap()
+}
+
+fn recipe_result(h: &mut Harness, request: u64) -> crate::RetainedCaptureProducts {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        h.poll();
+        if let Some(RetainedEvent::Capture {
+            id,
+            generation,
+            outcome:
+                RetainedCaptureOutcome::RecipeCompleted {
+                    frame, products, ..
+                },
+        }) = h.host.captures.take_event()
+        {
+            assert_eq!((id, generation, frame), (request, 1, 0));
+            return products;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+}
+
+fn direct_linear(
+    h: &Harness,
+    viewport: Viewport,
+) -> worldrunner_render_scene::offscreen::LinearRgbaImage {
+    let mut readback = worldrunner_render_post::Readback::new(
+        h.context.device(),
+        worldrunner_render_post::FrameConfig::new([64, 64], wgpu::TextureFormat::Rgba16Float, 1),
+        1024 * 1024,
+    )
+    .unwrap();
+    let bytes = readback
+        .read(
+            h.context.device(),
+            h.context.submission(),
+            h.presentation.scheduler.targets().texture(),
+        )
+        .unwrap();
+    worldrunner_render_scene::offscreen::LinearRgbaImage::from_native(
+        viewport,
+        wgpu::TextureFormat::Rgba16Float,
+        &bytes,
+    )
+    .unwrap()
+}
+
+#[test]
 fn continuous_ready_requests_cannot_starve_a_successor_capture() {
     let mut h = Harness::new();
     let cohort: Vec<_> = (0..4).map(|_| h.host.request_capture(0).unwrap()).collect();
@@ -106,6 +206,7 @@ impl Harness {
             source,
             crate::ViewerOptions {
                 size: [64, 64],
+                frame_profile: profile,
                 ..crate::tests::options()
             },
         )
@@ -136,7 +237,13 @@ impl Harness {
         let mut capture = self
             .streaming
             .captures
-            .prepare(self.context.device(), &self.host, &self.output, false)
+            .prepare(
+                self.context.device(),
+                &mut self.host,
+                &self.output,
+                self.presentation.scheduler.targets().texture(),
+                false,
+            )
             .unwrap();
         let view = self.host.view().unwrap().unwrap();
         self.resident.select_frame_slot(admission.slot());
@@ -161,7 +268,11 @@ impl Harness {
                         .create_view(&wgpu::TextureViewDescriptor::default()),
                 )?;
                 if let Some((_, image)) = &mut capture {
-                    image.encode(encoder, &self.output)?;
+                    image.encode(
+                        encoder,
+                        &self.output,
+                        self.presentation.scheduler.targets().texture(),
+                    )?;
                 }
                 Ok::<_, ViewerError>(())
             })

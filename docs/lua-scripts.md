@@ -9,7 +9,7 @@
 
 Every hook fire runs under an instruction budget (`ScriptConfig::instruction_budget`). A script that exceeds it is halted with `ScriptError::BudgetExceeded`, so a runaway loop cannot hang a frame. The budget counts instructions, and a single `string.rep` can allocate gigabytes in one, so memory has its own limit: 256 MiB by default (`DEFAULT_MEMORY_LIMIT`), changed with `ScriptHost::set_memory_limit`. An allocation past it fails with a Lua memory error, which reaches the host as `ScriptError::Memory` unless the script catches it.
 
-Support for running a game's original scripts is being added in [#147](https://github.com/acoliver/real-disunity/issues/147). The profile, threads and timers, and patch overlays below are done; saving Lua state is next.
+Support for running a game's original scripts is being added in [#147](https://github.com/acoliver/real-disunity/issues/147). The profile, threads and timers, saving Lua data and patch overlays below are done; saving closures and suspended threads is next.
 
 ## Running a game's original scripts
 
@@ -65,6 +65,25 @@ let failures = scripts.advance(tick_ms)?;
 | `now()` | The scheduler clock in milliseconds. |
 
 `advance(ms)` moves the clock and runs every thread due by then, in order of wake time and then of scheduling. A thread sees the clock at its wake time, so one that sleeps again within the advanced span runs again within it. `sleep(0)` and any other plain `coroutine.yield` wait for the next `advance`, so a loop of zero sleeps cannot spin within one. Each resume has the full instruction budget. An error ends only the thread that raised it and is returned in `advance`'s failure list; the other threads keep running. `sleep` outside a scheduler thread is an error.
+## Saving Lua state
+
+A game saves its Lua data with `save` and restores it, into a fresh `GameScripts` that has run the same scripts, with `restore`:
+
+```rust
+// Save the tables at these global paths. Everything under `Classes` is code.
+let snapshot = scripts.save(&["GameState", "Score"], &["Classes"])?;
+let bytes = serde_json::to_vec(&snapshot)?;
+
+// Later, in a new state that has registered the same natives and run the game's scripts:
+let snapshot: LuaSnapshot = serde_json::from_slice(&bytes)?;
+scripts.restore(&snapshot, &["Classes"])?;
+```
+
+- **Data is copied, with its shape.** Tables shared by reference stay shared, cycles survive, metatables are kept, integers stay integers and floats stay floats, including NaN and infinities, and strings keep their exact bytes.
+- **Code is saved by name.** Natives, and every function and table reachable through string keys from the permanent roots the game names, are permanents. A snapshot stores only their names, such as `Classes.Unit.Hit`, and `restore` looks each name up in the current state. A restored save therefore runs the game's current code. A name that no longer exists fails the restore and is reported.
+- **Not yet supported:** functions that are not permanents, such as closures created at run time, and coroutines. Saving one fails and names where it was found, for example `GameState["units"][3]["on_death"]`.
+- `LuaSnapshot` implements serde, so the game chooses the encoding. Snapshots of the same state are identical: string, number and boolean keys are written in sorted order. Only tables used as keys keep Lua's iteration order.
+- `restore` assigns each root to its global path; the parent of a dotted path must already exist.
 
 ## Patching a game's original scripts
 

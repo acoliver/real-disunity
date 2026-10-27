@@ -38,6 +38,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_body_interpolation_read",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_body_interpolation_write",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_body_move_position",
       "since": "2.0.0",
       "rets": "DisunityResult"

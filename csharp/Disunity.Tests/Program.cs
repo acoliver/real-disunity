@@ -148,6 +148,8 @@ CheckImport("disunity_asset_alive", u64, u64, u32.MakePointerType());
 CheckImport("disunity_asset_activate", u64, u64, advance.MakePointerType());
 CheckImport("disunity_body_set_sleeping", u64, u64, u32);
 CheckImport("disunity_body_sleeping", u64, u64, u32.MakePointerType());
+CheckImport("disunity_body_interpolation_write", u64, u64, u32);
+CheckImport("disunity_body_interpolation_read", u64, u64, u32.MakePointerType());
 CheckImport("disunity_object_alive", u64, u64, u32.MakePointerType());
 CheckImport("disunity_callback_check", u64, u64);
 CheckImport("disunity_script_retained", u64, u64, u32.MakePointerType());

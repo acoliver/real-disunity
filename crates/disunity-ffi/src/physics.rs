@@ -3,7 +3,9 @@ use crate::{DisunityResult, callbacks::mutate, store::Session};
 use glam::Vec2;
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle,
-    physics2d::{Body2d, BodyType, Collider2d, ColliderGeometry, QueryFilter, Shape2d},
+    physics2d::{
+        Body2d, BodyType, Collider2d, ColliderGeometry, Interpolation, QueryFilter, Shape2d,
+    },
 };
 
 #[repr(C)]
@@ -151,6 +153,7 @@ fn body(value: DisunityBody2d) -> Result<Body2d, crate::errors::AbiError> {
         restitution: value.restitution,
         sleeping: false,
         shared_material: None,
+        interpolation: Interpolation::None,
     })
 }
 
@@ -187,9 +190,70 @@ pub unsafe extern "C" fn disunity_body_write(
             unreachable!()
         };
         next.shared_material = previous.shared_material;
+        next.interpolation = previous.interpolation;
         s.native
             .set_component(id, ComponentDesc::Body2d(next))
             .map_err(crate::errors::AbiError::from)
+    })
+}
+
+/// The body's native component, or an error naming a component of another kind.
+fn body_component(
+    session: &Session,
+    handle: u64,
+) -> Result<(ComponentHandle, Body2d), crate::errors::AbiError> {
+    let id = component(session, handle)?;
+    match session
+        .native
+        .component(id)
+        .map_err(crate::errors::AbiError::from)?
+        .desc
+        .clone()
+    {
+        ComponentDesc::Body2d(body) => Ok((id, body)),
+        _ => Err("component is not a body".into()),
+    }
+}
+
+/// Sets whether the body is drawn between its poses either side of the last physics step,
+/// Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_body_interpolation_write(
+    world: u64,
+    handle: u64,
+    interpolate: u32,
+) -> DisunityResult {
+    if interpolate > 1 {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (id, mut body) = body_component(s, handle)?;
+        body.interpolation = if interpolate == 1 {
+            Interpolation::Interpolate
+        } else {
+            Interpolation::None
+        };
+        s.native
+            .set_component(id, ComponentDesc::Body2d(body))
+            .map_err(crate::errors::AbiError::from)
+    })
+}
+
+/// # Safety
+/// `interpolate` is writable for one flag.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_body_interpolation_read(
+    world: u64,
+    handle: u64,
+    interpolate: *mut u32,
+) -> DisunityResult {
+    if interpolate.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (_, body) = body_component(s, handle)?;
+        unsafe { *interpolate = u32::from(body.interpolation == Interpolation::Interpolate) };
+        Ok(())
     })
 }
 

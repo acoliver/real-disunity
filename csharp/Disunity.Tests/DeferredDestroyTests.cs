@@ -43,7 +43,7 @@ internal static class DeferredDestroyTests
         BothContactsKeepPendingBallsVisible();
         Constraints();
         DelayedDestruction();
-        Console.WriteLine("PASS: pending Destroy searches, callbacks, nested cleanup and position constraints");
+        Console.WriteLine("PASS: pending Destroy searches, callbacks, nested cleanup, position constraints and interpolation");
     }
     private static void VisibilityAndNestedCleanup()
     {
@@ -141,6 +141,13 @@ internal static class DeferredDestroyTests
         body.velocity = new(100, 100);
         DisunityHost.Step(0.02f);
         Require(body.position.x == 0 && MathF.Abs(body.position.y - 2) < 0.0001f, "FreezeAll locks position");
+        Require(body.interpolation == RigidbodyInterpolation2D.None, "bodies start without interpolation");
+        body.interpolation = RigidbodyInterpolation2D.Interpolate;
+        body.mass = 2;
+        Require(body.interpolation == RigidbodyInterpolation2D.Interpolate, "interpolation survives other body writes");
+        try { body.interpolation = RigidbodyInterpolation2D.Extrapolate; throw new Exception("extrapolation accepted"); }
+        catch (NotSupportedException) { }
+        Require(body.interpolation == RigidbodyInterpolation2D.Interpolate, "refused extrapolation keeps the setting");
         DisunityHost.UnloadWorld();
     }
     private static void DelayedDestruction()

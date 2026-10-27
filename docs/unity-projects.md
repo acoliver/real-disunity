@@ -66,7 +66,7 @@ Three small open-source Unity games are the first targets. They will run from th
 | [Pong](https://github.com/mcrvaz/pong-tdd) | 2017.1 | Plays in a window: the ball launches, W and S move the left paddle and goals score. |
 | [Breakout](https://github.com/admtrv/Breakout) | 6000.3 | Plays in a window: bricks and the ball come from their prefabs, A and D move the paddle, bricks break and the tile walls keep the ball in play. |
 
-Two tests play them. `crates/disunity-runtime/tests/original_scenes.rs` checks scripts, physics, input and UI state without a window, and `crates/play/tests/play_window.rs` checks the pixels of frames presented in a window. Pong's text uses a substitute for Unity's Arial, and the settings each scene uses that the engine does not reproduce, such as interpolated bodies and lit tilemaps, are printed when it loads.
+Two tests play them. `crates/disunity-runtime/tests/original_scenes.rs` checks scripts, physics, input and UI state without a window, and `crates/play/tests/play_window.rs` checks the pixels of frames presented in a window. Pong's text uses a substitute for Unity's Arial, and the settings each scene uses that the engine does not reproduce, such as Breakout's lit tilemap, are printed when it loads.
 
 ## When a project does not import
 

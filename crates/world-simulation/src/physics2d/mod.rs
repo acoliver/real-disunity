@@ -5,6 +5,7 @@ mod body;
 mod ccd;
 mod contacts;
 mod geometry;
+mod interpolation;
 mod material;
 mod motion;
 mod queries;
@@ -13,7 +14,7 @@ mod sleep;
 mod solver;
 mod targets;
 
-pub use body::{Body2d, BodyType, PhysicsPlane, PhysicsSettings};
+pub use body::{Body2d, BodyType, Interpolation, PhysicsPlane, PhysicsSettings};
 pub use contacts::{ContactEvent, ContactPhase};
 pub use material::{PhysicsMaterial2d, PhysicsMaterialHandle};
 pub use queries::{QueryFilter, RayHit};
@@ -58,6 +59,8 @@ pub(crate) struct Physics {
     materials: Vec<PhysicsMaterial2d>,
     contacts: Contacts,
     pub(crate) targets: BTreeMap<ComponentHandle, Vec2>,
+    /// Interpolated bodies' poses either side of the last step.
+    step_poses: BTreeMap<ComponentHandle, interpolation::StepPoses>,
     events: Vec<ContactEvent>,
     cursor: usize,
     masks: Option<[u32; 32]>,
@@ -124,6 +127,7 @@ impl World {
         if !dt.is_finite() || dt < 0.0 {
             return Err(PhysicsError::InvalidDelta.into());
         }
+        let before = self.interpolated_bodies()?;
         let base = self.physics_colliders()?;
         let mut motions = self.collect_motions(dt, &base)?;
         self.validate_static_hierarchies(&base, &motions)?;
@@ -169,7 +173,7 @@ impl World {
         }
         self.commit_motions(&motions, dt)?;
         self.finish_contacts(&touched, contacts);
-        Ok(())
+        self.record_step_poses(before)
     }
 }
 fn pair_allowed(a: &Collider, b: &Collider) -> bool {

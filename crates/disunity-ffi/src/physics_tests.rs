@@ -1,4 +1,4 @@
-use crate::{abi::*, lock_store, result_code, with_native_world};
+use crate::{abi::*, lock_store, physics::*, result_code, with_native_world};
 use glam::Vec2;
 use worldrunner_world_simulation::{
     ComponentDesc, WorldError,
@@ -220,5 +220,56 @@ unsafe fn advance_frame(world: u64, delta: f32, _frame: u64) -> crate::DisunityR
             if elapsed.is_some() { 1_000_000_000 } else { 0 },
             &mut work,
         )
+    }
+}
+
+#[test]
+fn body_interpolation_round_trips_rejects_other_values_and_survives_body_writes() {
+    let (mut world, mut object, mut body) = (0, 0, 0);
+    unsafe {
+        assert_eq!(disunity_world_create(&mut world).code, result_code::OK);
+        assert_eq!(
+            disunity_gameobject_create(world, &mut object).code,
+            result_code::OK
+        );
+        assert_eq!(
+            disunity_physics_create(world, object, 0, &mut body).code,
+            result_code::OK
+        );
+        let read = |expected: u32| {
+            let mut flag = 7;
+            assert_eq!(
+                disunity_body_interpolation_read(world, body, &mut flag).code,
+                result_code::OK
+            );
+            assert_eq!(flag, expected);
+        };
+        read(0);
+        assert_eq!(
+            disunity_body_interpolation_write(world, body, 1).code,
+            result_code::OK
+        );
+        read(1);
+        assert_eq!(
+            disunity_body_interpolation_write(world, body, 2).code,
+            result_code::INVALID_ARGUMENT
+        );
+        read(1);
+        let mut record = DisunityBody2d::default();
+        assert_eq!(
+            disunity_body_read(world, body, &mut record).code,
+            result_code::OK
+        );
+        record.mass = 3.0;
+        assert_eq!(
+            disunity_body_write(world, body, &record).code,
+            result_code::OK
+        );
+        read(1);
+        assert_eq!(
+            disunity_body_interpolation_read(world, body, std::ptr::null_mut()).code,
+            result_code::INVALID_ARGUMENT
+        );
+        assert_eq!(disunity_world_destroy(world).code, result_code::OK);
     }
 }

@@ -19,6 +19,15 @@ pub enum SceneSsrTraversal {
     Grid,
 }
 
+/// Pixel coordinates used by grid traversal, including skip and hit offsets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneSsrGridDomain {
+    #[default]
+    FullResolution,
+    /// Uses reflection output pixels and depth mip 1 for half-resolution output.
+    ReflectionOutput,
+}
+
 /// Roughness-dependent allowance for traversing behind visible depth.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,19 +44,27 @@ pub struct SceneSsrPassBehind {
 pub struct SceneSsr {
     /// Whether reflection passes are installed.
     pub enabled: bool,
-    /// Hierarchical traversal budget, within 1..=256.
+    /// Hierarchical traversal budget, within 1..=1024.
+    /// Per frame, at most output width * output height * MSAA samples * `max_steps`
+    /// iterations run. Grid iterations perform two depth loads, independent of level count.
     pub max_steps: u32,
     #[serde(default)]
     pub traversal: SceneSsrTraversal,
+    #[serde(default)]
+    pub grid_domain: SceneSsrGridDomain,
+    /// Grid levels starting at the domain's base mip. None retains four levels
+    /// (or fewer on small extents); Some must fit the available ceil-divided chain.
+    #[serde(default)]
+    pub grid_level_count: Option<u32>,
     /// Base accepted depth penetration, within 1..=1000 millimetres.
     pub thickness_millimeters: u32,
     /// Additional thickness per metre of surface depth, within 0..=1000000.
     #[serde(default)]
     pub thickness_slope_micro: u32,
-    /// Maximum ray length, within 1..=1000000 millimetres.
+    /// Maximum ray length, within 1..=4000000 millimetres.
     #[serde(default = "default_distance")]
     pub max_distance_millimeters: u32,
-    /// Full-resolution screen pixels skipped at the origin, within 0..=4096.
+    /// Trace-domain pixels skipped at the origin, within 0..=4096.
     #[serde(default = "default_skip")]
     pub origin_skip_pixels: u32,
     /// Number of too-deep finest-level spans allowed before terminating, within 0..=256.
@@ -87,6 +104,8 @@ impl Default for SceneSsr {
             enabled: true,
             max_steps: 256,
             traversal: SceneSsrTraversal::Conservative,
+            grid_domain: SceneSsrGridDomain::FullResolution,
+            grid_level_count: None,
             thickness_millimeters: 100,
             thickness_slope_micro: 0,
             max_distance_millimeters: 100_000,
@@ -106,6 +125,9 @@ impl SceneSsr {
     /// Validates even disabled settings, so enabling never changes their interpretation.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.validate_traversal()?;
+        if let Some(levels) = self.grid_level_count {
+            check("ssr grid level count", levels, 1, 33)?;
+        }
         if let Some(curve) = self.roughness_pass_behind {
             check("ssr pass behind minimum", curve.minimum_steps, 0, 256)?;
             check(
@@ -149,7 +171,7 @@ impl SceneSsr {
     }
     fn validate_traversal(&self) -> Result<(), SceneValidationError> {
         for (part, value, min, max) in [
-            ("ssr max_steps", self.max_steps, 1, 256),
+            ("ssr max_steps", self.max_steps, 1, 1024),
             (
                 "ssr thickness_millimeters",
                 self.thickness_millimeters,
@@ -166,7 +188,7 @@ impl SceneSsr {
                 "ssr max distance",
                 self.max_distance_millimeters,
                 1,
-                1_000_000,
+                4_000_000,
             ),
             ("ssr origin skip", self.origin_skip_pixels, 0, 4096),
             ("ssr pass behind", self.pass_behind_steps, 0, 256),
@@ -203,17 +225,32 @@ mod tests {
         let mut value = serde_json::to_value(SceneSsr::default()).unwrap();
         value["traversal"] = serde_json::json!("Unknown");
         assert!(serde_json::from_value::<SceneSsr>(value).is_err());
+        let mut value = serde_json::to_value(SceneSsr::default()).unwrap();
+        value["grid_domain"] = serde_json::json!("Unknown");
+        assert!(serde_json::from_value::<SceneSsr>(value).is_err());
     }
 
     #[test]
     fn controls_validate_even_when_disabled() {
         let invalid = [
             SceneSsr {
+                max_steps: 1025,
+                ..Default::default()
+            },
+            SceneSsr {
+                grid_level_count: Some(0),
+                ..Default::default()
+            },
+            SceneSsr {
+                grid_level_count: Some(34),
+                ..Default::default()
+            },
+            SceneSsr {
                 max_distance_millimeters: 0,
                 ..Default::default()
             },
             SceneSsr {
-                max_distance_millimeters: 1_000_001,
+                max_distance_millimeters: 4_000_001,
                 ..Default::default()
             },
             SceneSsr {
@@ -259,6 +296,8 @@ mod tests {
         assert!(defaults.validate().is_ok());
         let authored = SceneSsr {
             traversal: SceneSsrTraversal::Grid,
+            grid_domain: SceneSsrGridDomain::ReflectionOutput,
+            grid_level_count: Some(8),
             depth_relative_ao: true,
             roughness_pass_behind: Some(SceneSsrPassBehind {
                 minimum_steps: 1,

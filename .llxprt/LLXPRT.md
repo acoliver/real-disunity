@@ -6,3 +6,6 @@
 - Never modify the original Unity game repos (Snake, Pong, Breakout run unchanged). rd-stranded is a native Rust game that pins this repo by git rev; keep it building against main; it is not converted to Unity.
 - Enforced limits: 60 lines/fn, 6 args, cognitive 15, type 250, 3 bools, files <=750 target/1000 hard; never loosen limits or add allows. CI runs on Linux, macOS and Windows.
 - Skills in .llxprt/skills: disunity-workflow, disunity-code-standards, disunity-play-verification, disunity-coordination.
+- Sibling directories real-disunity/branch-2 and branch-3 belong to other agents. Reading them to coordinate is fine; never delete, clean, modify or manage their worktrees or build output. Only clean my own branch-1.
+- Rust incremental compilation stays off everywhere (repo .cargo/config.toml, ~/.cargo/config.toml, CARGO_INCREMENTAL=0); it fills the disk. Never re-enable it.
+- There are two other agent sessions, not one: mini-llxprt-disunity-2 runs on this machine (a sibling real-disunity worktree), and mac-llxprt-disunity-2 runs on the user's Mac (replies need waiting). The Mac session once mistakenly tagged posts as mini-llxprt-disunity-2 (it corrected this on #77), so older mini-2 tags on Metal/macOS work are really the Mac. mac-llxprt-disunity-2 has claimed rendering, the retained host (#96) and #140/#141.

@@ -15,6 +15,8 @@ pub struct TerrainResidencyRequest {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum TerrainResidencyError {
+    #[error("streaming geometry capture dependencies are not supported")]
+    StreamingGeometry,
     #[error("terrain residency request belongs to another scene or an edited source generation")]
     Stale,
 }

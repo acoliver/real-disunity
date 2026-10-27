@@ -239,3 +239,56 @@ fn recipes_share_page_dependency_admission_and_accumulation_waits_for_residency(
         run.shutdown().unwrap();
     }
 }
+
+#[test]
+fn streamed_page_dependency_rejects_before_accepting_camera_work() {
+    let source = layered_scene();
+    let terrain = source
+        .terrain()
+        .unwrap()
+        .clone()
+        .with_streaming_policy(Some(
+            worldrunner_render_plan::TerrainStreamingPolicy::new(1, 5, 4, 1000).unwrap(),
+        ));
+    let mut host = host(source.with_terrain(Some(Arc::new(terrain))).unwrap());
+    let before_camera = host.readiness.camera;
+    let before_options = (host.options.pose, host.options.camera);
+    let before = (
+        host.accepted_generation(),
+        host.ready_generation(),
+        host.readiness.published,
+        host.preparations_in_flight(),
+        host.readiness.page_wait,
+    );
+    let pose = worldrunner_render_scene::CameraPose {
+        eye_millimeters: [0, -4000, 3000],
+        target_millimeters: [0; 3],
+    };
+    let update = || RetainedUpdate::Camera {
+        pose,
+        lens: crate::tests::options().camera,
+    };
+    assert!(matches!(
+        host.apply_with_pages(update()),
+        Err(ViewerError::UnsupportedScene(
+            "streaming terrain page dependencies"
+        ))
+    ));
+    assert_eq!(
+        (
+            host.accepted_generation(),
+            host.ready_generation(),
+            host.readiness.published,
+            host.preparations_in_flight(),
+            host.readiness.page_wait
+        ),
+        before
+    );
+    assert_eq!(host.readiness.camera, before_camera);
+    assert_eq!((host.options.pose, host.options.camera), before_options);
+    assert!(host.readiness.queue.is_empty());
+    host.apply(update()).unwrap();
+    assert_eq!(host.accepted_generation(), 1);
+    assert_eq!(host.preparations_in_flight(), 1);
+    assert!(!host.readiness.queue.front().unwrap().require_pages);
+}

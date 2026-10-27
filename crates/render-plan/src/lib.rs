@@ -75,6 +75,7 @@ pub use scene::{
 };
 pub use scene::{
     TerrainPagePolicy, TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts,
+    TerrainStreamingPolicy,
 };
 
 pub use document::{

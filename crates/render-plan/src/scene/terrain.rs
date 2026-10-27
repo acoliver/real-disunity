@@ -173,11 +173,13 @@ pub struct SceneTerrain {
     origin_north_millimeters: i64,
     sample_spacing_millimeters: u32,
     heights_millimeters: Box<[i32]>,
+    elevation_bounds: [i32; 2],
     surface_indices: Box<[u8]>,
     surfaces: Box<[SceneTerrainSurface]>,
     lod_policy: TerrainLodPolicy,
     layered_source: Option<super::TerrainLayeredSource>,
     page_policy: Option<super::TerrainPagePolicy>,
+    streaming_policy: Option<super::TerrainStreamingPolicy>,
 }
 
 impl SceneTerrain {
@@ -190,7 +192,12 @@ impl SceneTerrain {
     /// exactly `columns * rows` samples, a material index lies outside the
     /// palette, or the LOD policy leaves its addressable range.
     pub fn new(parts: SceneTerrainParts) -> Result<Self, SceneValidationError> {
+        let elevation_bounds = [
+            parts.heights_millimeters.iter().copied().min().unwrap_or(0),
+            parts.heights_millimeters.iter().copied().max().unwrap_or(0),
+        ];
         let terrain = Self {
+            elevation_bounds,
             columns: parts.columns,
             rows: parts.rows,
             origin_east_millimeters: parts.origin_east_millimeters,
@@ -202,6 +209,7 @@ impl SceneTerrain {
             lod_policy: parts.lod_policy,
             layered_source: None,
             page_policy: None,
+            streaming_policy: None,
         };
         terrain.validate()?;
         Ok(terrain)
@@ -238,6 +246,18 @@ impl SceneTerrain {
 
     pub const fn page_policy(&self) -> Option<super::TerrainPagePolicy> {
         self.page_policy
+    }
+
+    /// Enables bounded quadtree geometry with skirted borders. The uniform LOD
+    /// policy remains unchanged when streaming is disabled.
+    #[must_use]
+    pub fn with_streaming_policy(mut self, policy: Option<super::TerrainStreamingPolicy>) -> Self {
+        self.streaming_policy = policy;
+        self
+    }
+
+    pub const fn streaming_policy(&self) -> Option<super::TerrainStreamingPolicy> {
+        self.streaming_policy
     }
 
     /// Returns the sample column count, counted along the eastward axis.
@@ -282,6 +302,11 @@ impl SceneTerrain {
     #[must_use]
     pub fn heights_millimeters(&self) -> &[i32] {
         &self.heights_millimeters
+    }
+
+    /// Inclusive minimum and maximum authored height, in millimeters.
+    pub const fn elevation_bounds(&self) -> [i32; 2] {
+        self.elevation_bounds
     }
 
     /// Returns the owned per-sample surface indices in the same canonical

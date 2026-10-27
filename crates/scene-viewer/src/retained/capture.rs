@@ -21,6 +21,8 @@ pub enum RetainedCaptureOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CaptureRequestError {
+    #[error("streaming terrain capture dependencies are not supported")]
+    StreamingTerrain,
     #[error("invalid capture recipe")]
     InvalidRecipe,
     #[error("capture recipe execution mode is not supported")]
@@ -260,6 +262,13 @@ impl RetainedHost {
         generation: u64,
         require_pages: bool,
     ) -> Result<u64, CaptureRequestError> {
+        if self
+            .scene
+            .terrain()
+            .is_some_and(|terrain| terrain.streaming_policy().is_some())
+        {
+            return Err(CaptureRequestError::StreamingTerrain);
+        }
         if self.exit {
             return Err(CaptureRequestError::Exiting);
         }

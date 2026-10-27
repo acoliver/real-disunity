@@ -1,6 +1,38 @@
 use super::*;
 use std::{sync::Arc, time::Duration};
 
+#[test]
+fn streaming_terrain_rejects_retained_edits_and_capture_dependencies() {
+    let source = crate::renderer::retained_tests::terrain_source();
+    let terrain = Arc::new(
+        source
+            .terrain()
+            .unwrap()
+            .clone()
+            .with_streaming_policy(Some(
+                worldrunner_render_plan::TerrainStreamingPolicy::new(8, 9, 4, 2000).unwrap(),
+            )),
+    );
+    let scene = source.with_terrain(Some(terrain)).unwrap();
+    let mut host = RetainedHost::new(scene, crate::tests::options()).unwrap();
+    assert!(matches!(
+        host.apply(RetainedUpdate::Terrain(None)),
+        Err(ViewerError::UnsupportedScene(
+            "streaming terrain retained edits"
+        ))
+    ));
+    assert_eq!(
+        host.request_capture(0),
+        Err(CaptureRequestError::StreamingTerrain)
+    );
+    assert_eq!(
+        host.request_capture_with_pages(0),
+        Err(CaptureRequestError::StreamingTerrain)
+    );
+    assert_eq!(host.accepted_generation(), 0);
+    assert_eq!(host.preparations_in_flight(), 0);
+}
+
 fn host(limit: usize) -> RetainedHost {
     RetainedHost::with_preparation_limit(
         crate::renderer::retained_tests::terrain_source(),

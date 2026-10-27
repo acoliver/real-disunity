@@ -87,6 +87,9 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    if renderer.ssao.is_some() || renderer.ssr.is_some() {
+        gpu.reject_streaming("streaming terrain prepasses")?;
+    }
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
     renderer.bind_water_inputs(&gpu.water_inputs);
@@ -94,6 +97,7 @@ pub fn encode_scene(
     renderer.validate_post(gpu.post)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
+    gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
     gpu.prepare_sky(device, encoder, &frame)?;
     gpu.prepare_terrain_pages(device, encoder, &frame, color.size())?;
     let color_id = attachment_resource("scene color", color);

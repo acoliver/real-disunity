@@ -99,6 +99,11 @@ impl RetainedHost {
             RetainedUpdate::Terrain(terrain) => terrain.as_deref(),
             _ => self.scene.terrain(),
         };
+        if terrain.is_some_and(|terrain| terrain.streaming_policy().is_some()) {
+            return Err(ViewerError::UnsupportedScene(
+                "streaming terrain page dependencies",
+            ));
+        }
         if terrain
             .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
             .is_none()

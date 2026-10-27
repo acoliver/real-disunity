@@ -92,3 +92,22 @@ Input from the window reaches C# through `DisunityHost.PushKey`, `PushAxis` and 
 ## Unity projects
 
 To run an existing Unity project's scripts, the scene they belong to has to be imported and built in the world before Awake runs. The importer side of that exists; the loader does not yet. [Importing Unity projects](unity-projects.md) describes what is available now.
+
+## Built players
+
+A built Unity player ships its game code compiled, together with Unity packages and third-party libraries, in `<Game>_Data/Managed`. Those assemblies reference engine types through Unity's module assemblies, for example `[UnityEngine.CoreModule]UnityEngine.Vector3`. Unity's module assemblies call into Unity's native player, so they are never loaded.
+
+`PlayerAssemblies` resolves a player's assembly names in an `AssemblyLoadContext`:
+
+```csharp
+var player = new PlayerAssemblies("/path/to/Game_Data/Managed", typeof(DisunityHost).Assembly);
+player.Attach(context);
+var game = context.LoadFromAssemblyName(new AssemblyName("Assembly-CSharp"));
+```
+
+- An engine module name (`UnityEngine` or `UnityEngine.*Module`) resolves to a facade built in memory from that module's metadata in the player. The facade has the module's name and version and forwards each type `Disunity.Engine` defines. A type it does not define stays unresolved, so code that uses it fails with a `TypeLoadException` naming the type and module.
+- Other names resolve to the player's own assemblies, including packages such as `UnityEngine.UI`. Framework assemblies always come from .NET, never from the class libraries the player ships for Unity's Mono runtime.
+
+`PlayerApiReport.Build` lists the engine types and members a player's assemblies reference and `Disunity.Engine` lacks, with the assemblies that reference each. It reads metadata only. Members match by name, kind and parameter count, so overloads that differ only in parameter types are not told apart, and members of generic type instantiations are not checked yet.
+
+Loading assemblies does not run anything. Running a player's scripts needs its scenes, `RuntimeInitializeOnLoadMethod` hooks and main-thread rules; see [#172](https://github.com/acoliver/real-disunity/issues/172).

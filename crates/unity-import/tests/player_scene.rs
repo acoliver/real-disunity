@@ -309,7 +309,7 @@ fn decode_cli_fails_on_invalid_objects_and_census_ignores_unknown_classes() {
         object(1, 0, vec![0]),
         object(2, 0, game_object("Valid", &[])),
     ]);
-    data.types.push(class(ClassId::TEXT_ASSET));
+    data.types.push(class(ClassId::AUDIO_CLIP));
     data.objects.push(object(3, 4, vec![0xff]));
     write_scene(dir.path(), &data);
     std::fs::write(
@@ -341,7 +341,7 @@ fn decode_cli_fails_on_invalid_objects_and_census_ignores_unknown_classes() {
 fn player_object_describes_supported_objects_and_rejects_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let mut data = scene(ptr(0, 5));
-    data.types.push(class(ClassId::TEXT_ASSET));
+    data.types.push(class(ClassId::AUDIO_CLIP));
     data.objects.push(object(9, 4, vec![0; 4]));
     write_scene(dir.path(), &data);
     let path = dir.path().join("level0");
@@ -359,7 +359,7 @@ fn player_object_describes_supported_objects_and_rejects_the_rest() {
         "{text}"
     );
     for (id, message) in [
-        ("9", "no object layout is implemented for TextAsset"),
+        ("9", "no object layout is implemented for AudioClip"),
         ("999", "no object with path ID 999"),
     ] {
         let failed = run(id);

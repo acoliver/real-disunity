@@ -16,6 +16,8 @@ use worldrunner_unity_serialized::{
     mesh::Mesh,
     object::{Layout, decode},
     shader::Shader,
+    text_asset::TextAsset,
+    ui::{Canvas, CanvasGroup, CanvasRenderer},
 };
 
 use crate::{PlayerError, read_metadata};
@@ -142,7 +144,7 @@ const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
 }
 
 /// The classes with layouts, each with the check [`decode_census`] runs on its objects.
-const LAYOUTS: [(ClassId, Check); 14] = [
+const LAYOUTS: [(ClassId, Check); 18] = [
     layout::<GameObject>(),
     layout::<Transform>(),
     layout::<RectTransform>(),
@@ -157,6 +159,10 @@ const LAYOUTS: [(ClassId, Check); 14] = [
     layout::<Camera>(),
     layout::<Light>(),
     layout::<Shader>(),
+    layout::<CanvasRenderer>(),
+    layout::<Canvas>(),
+    layout::<CanvasGroup>(),
+    layout::<TextAsset>(),
 ];
 const FAILURES_KEPT: usize = 5;
 

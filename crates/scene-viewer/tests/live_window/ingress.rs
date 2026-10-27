@@ -128,7 +128,7 @@ fn run_clock(clock: LiveClock) {
             .unwrap()
             .success()
     );
-    let _sink = FocusSink(
+    let mut sink = FocusSink(
         Command::new("xmessage")
             .args(["-name", SINK, "-title", SINK, "focus sink"])
             .stdout(Stdio::null())
@@ -136,7 +136,7 @@ fn run_clock(clock: LiveClock) {
             .spawn()
             .unwrap(),
     );
-    os_window::wait_window(SINK);
+    os_window::wait_window(SINK, &mut sink.0);
     let mut options = LiveOptions::new(TITLE, [96, 64]);
     options.frame_interval = Duration::from_millis(150);
     options.max_frames = Some(10);

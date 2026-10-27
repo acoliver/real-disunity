@@ -39,10 +39,32 @@ public sealed record PlayerManifest(IReadOnlyList<string> GameAssemblies, IReadO
     /// engine module entry must be a name <see cref="ModuleFacades.IsEngineModule"/> accepts and
     /// every game entry one it rejects, so facades and game code never disagree on a name.
     /// </summary>
-    public static IReadOnlyList<string> ReadAssemblies(Stream json)
+    public static IReadOnlyList<string> ReadAssemblies(Stream json) =>
+        Parse(json, "ScriptingAssemblies.json", Assemblies);
+
+    /// <summary>The startup hooks in <c>RuntimeInitializeOnLoads.json</c>, in listed order.</summary>
+    public static IReadOnlyList<RuntimeHook> ReadHooks(Stream json) =>
+        Parse(json, "RuntimeInitializeOnLoads.json", root => root.GetProperty("root").EnumerateArray().Select(ReadHook).ToList());
+
+    /// <summary>
+    /// Parses a manifest file, reporting malformed JSON and missing or mistyped values as an
+    /// <see cref="InvalidDataException"/> that names the file.
+    /// </summary>
+    private static T Parse<T>(Stream json, string file, Func<JsonElement, T> read)
     {
-        using var document = JsonDocument.Parse(json);
-        var root = document.RootElement;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return read(document.RootElement);
+        }
+        catch (Exception error) when (error is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            throw new InvalidDataException($"{file} is malformed: {error.Message}", error);
+        }
+    }
+
+    private static IReadOnlyList<string> Assemblies(JsonElement root)
+    {
         var names = root.GetProperty("names").EnumerateArray().Select(ReadText).ToList();
         var types = root.GetProperty("types").EnumerateArray().Select(type => type.GetInt32()).ToList();
         if (names.Count != types.Count)
@@ -57,13 +79,6 @@ public sealed record PlayerManifest(IReadOnlyList<string> GameAssemblies, IReadO
                 throw new InvalidDataException($"ScriptingAssemblies.json lists {names[i]} with type {types[i]}, which does not match its name");
         }
         return game;
-    }
-
-    /// <summary>The startup hooks in <c>RuntimeInitializeOnLoads.json</c>, in listed order.</summary>
-    public static IReadOnlyList<RuntimeHook> ReadHooks(Stream json)
-    {
-        using var document = JsonDocument.Parse(json);
-        return document.RootElement.GetProperty("root").EnumerateArray().Select(ReadHook).ToList();
     }
 
     private static RuntimeHook ReadHook(JsonElement entry)

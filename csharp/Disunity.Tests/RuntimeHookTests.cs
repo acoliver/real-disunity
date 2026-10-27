@@ -16,7 +16,10 @@ internal static class RuntimeHookTests
     {
         public static readonly List<string> Calls = new();
         public static void Early() => Calls.Add("early");
+        public static void Second() => Calls.Add("second");
         public static void Loaded() => Calls.Add("loaded");
+        public static void Splash() => Calls.Add("splash");
+        public static void Generic<T>() => Calls.Add(typeof(T).Name);
         public static void BeforeScene() => Calls.Add("before-scene");
         private static void AfterScene() => Calls.Add("after-scene");
         public static void Fails() => throw new InvalidOperationException("hook body failed");
@@ -24,11 +27,20 @@ internal static class RuntimeHookTests
         public void Instance() => Calls.Add("instance");
     }
 
+    internal static class BrokenInit
+    {
+        private static readonly int Value = Throw();
+        private static int Throw() => throw new InvalidOperationException("static initializer failed");
+        public static void Init() => HookTargets.Calls.Add($"init {Value}");
+    }
+
     public static void Run()
     {
         ReadsGameAssembliesInOrder();
         RejectsAssemblyTypesThatContradictNames();
         ReadsHooksWithTheirPhases();
+        ReportsMalformedManifestsByFile();
+        ReadsBothFilesFromADataDirectory();
         RunsPhasesInUnityOrderAndHooksInListedOrder();
         KeepsUnresolvedHooksAndFailsTheirPhase();
         NamesTheHookThatThrows();
@@ -75,14 +87,20 @@ internal static class RuntimeHookTests
         "{\"root\":[" + string.Join(",", hooks.Select(h =>
             $"{{\"assemblyName\":\"{Self}\",\"nameSpace\":\"{h.Space}\",\"className\":\"{h.Type}\",\"methodName\":\"{h.Method}\",\"loadTypes\":{h.Phase},\"isUnityClass\":false}}")) + "]}";
 
-    /// <summary>The hook targets as listed: deliberately out of phase order.</summary>
+    private const string Targets = "RuntimeHookTests+HookTargets";
+
+    /// <summary>
+    /// One hook per phase, listed against phase order, and two in one phase listed against
+    /// alphabetical order.
+    /// </summary>
     private static readonly (string, string, string, int)[] Listed =
     {
-        ("", "RuntimeHookTests+HookTargets", "AfterScene", 0),
-        ("", "RuntimeHookTests+HookTargets", "BeforeScene", 1),
-        ("", "RuntimeHookTests+HookTargets", "Loaded", 2),
-        ("", "RuntimeHookTests+HookTargets", "Early", 4),
-        ("", "RuntimeHookTests+HookTargets", "Loaded", 2),
+        ("", Targets, "AfterScene", 0),
+        ("", Targets, "BeforeScene", 1),
+        ("", Targets, "Second", 2),
+        ("", Targets, "Splash", 3),
+        ("", Targets, "Loaded", 2),
+        ("", Targets, "Early", 4),
     };
 
     private static void ReadsHooksWithTheirPhases()
@@ -91,6 +109,28 @@ internal static class RuntimeHookTests
         Require(hooks.Single() == new RuntimeHook(Self, "Some.Space.Starter", "Init", RuntimeInitializeLoadType.BeforeSplashScreen),
             $"hook: {hooks.Single()}");
         RequireInvalid(() => PlayerManifest.ReadHooks(Json(HooksJson(("", "Starter", "Init", 9)))), "unknown load type 9");
+    }
+
+    private static void ReportsMalformedManifestsByFile()
+    {
+        RequireInvalid(() => PlayerManifest.ReadHooks(Json("{}")), "RuntimeInitializeOnLoads.json is malformed");
+        RequireInvalid(() => PlayerManifest.ReadHooks(Json("{\"root\":[{\"loadTypes\":\"one\"}]}")), "RuntimeInitializeOnLoads.json is malformed");
+        RequireInvalid(() => PlayerManifest.ReadAssemblies(Json("{\"names\":[]}")), "ScriptingAssemblies.json is malformed");
+        RequireInvalid(() => PlayerManifest.ReadAssemblies(Json("{\"names\":[")), "ScriptingAssemblies.json is malformed");
+    }
+
+    private static void ReadsBothFilesFromADataDirectory()
+    {
+        var data = Directory.CreateTempSubdirectory("player-data");
+        try
+        {
+            File.WriteAllText(Path.Combine(data.FullName, "ScriptingAssemblies.json"), "{\"names\":[\"Game.dll\"],\"types\":[16]}");
+            File.WriteAllText(Path.Combine(data.FullName, "RuntimeInitializeOnLoads.json"), HooksJson(("", Targets, "Early", 4)));
+            var manifest = PlayerManifest.Read(data.FullName);
+            Require(manifest.GameAssemblies.SequenceEqual(new[] { "Game" }) && manifest.Hooks.Single().Method == "Early",
+                "both manifest files are read");
+        }
+        finally { data.Delete(recursive: true); }
     }
 
     private static RuntimeHooks Resolve(params (string, string, string, int)[] listed) =>
@@ -102,27 +142,36 @@ internal static class RuntimeHookTests
         HookTargets.Calls.Clear();
         var hooks = Resolve(Listed);
         Require(hooks.Unresolved.Count == 0, "every listed hook resolves, including a private one");
+        var unityOrder = new[]
+        {
+            RuntimeInitializeLoadType.SubsystemRegistration, RuntimeInitializeLoadType.AfterAssembliesLoaded,
+            RuntimeInitializeLoadType.BeforeSplashScreen, RuntimeInitializeLoadType.BeforeSceneLoad,
+            RuntimeInitializeLoadType.AfterSceneLoad,
+        };
+        Require(RuntimeHooks.PhaseOrder.SequenceEqual(unityOrder), "phases run in Unity's order");
         foreach (var phase in RuntimeHooks.PhaseOrder) hooks.Run(phase);
-        var expected = new[] { "early", "loaded", "loaded", "before-scene", "after-scene" };
+        var expected = new[] { "early", "second", "loaded", "splash", "before-scene", "after-scene" };
         Require(HookTargets.Calls.SequenceEqual(expected), "calls: " + string.Join(", ", HookTargets.Calls));
     }
 
     private static void KeepsUnresolvedHooksAndFailsTheirPhase()
     {
         HookTargets.Calls.Clear();
-        const string targets = "RuntimeHookTests+HookTargets";
         var hooks = RuntimeHooks.Resolve(
             PlayerManifest.ReadHooks(Json(HooksJson(
-                ("", targets, "Early", 4),
+                ("", Targets, "Early", 4),
+                ("", Targets, "Loaded", 1),
                 ("", "Missing", "Init", 1),
-                ("", targets, "Absent", 1),
-                ("", targets, "WithParameter", 1),
-                ("", targets, "Instance", 1)))).Append(new RuntimeHook("Not.Shipped", "X", "Init", RuntimeInitializeLoadType.BeforeSceneLoad)),
+                ("", Targets, "Absent", 1),
+                ("", Targets, "WithParameter", 1),
+                ("", Targets, "Instance", 1),
+                ("", Targets, "Generic", 1)))).Append(new RuntimeHook("Not.Shipped", "X", "Init", RuntimeInitializeLoadType.BeforeSceneLoad)),
             name => name == Self ? typeof(RuntimeHookTests).Assembly : throw new FileNotFoundException($"no assembly {name}"));
         var reasons = hooks.Unresolved.Select(u => u.Reason).ToList();
-        Require(reasons.Count == 5, "unresolved: " + string.Join("; ", reasons));
+        Require(reasons.Count == 6, "unresolved: " + string.Join("; ", reasons));
         Require(reasons[0].Contains("no type Missing") && reasons[1].Contains("no static method Absent()")
-            && reasons[2].Contains("WithParameter") && reasons[3].Contains("Instance") && reasons[4].Contains("no assembly Not.Shipped"),
+            && reasons[2].Contains("WithParameter") && reasons[3].Contains("Instance") && reasons[4].Contains("Generic is generic")
+            && reasons[5].Contains("no assembly Not.Shipped"),
             "reasons: " + string.Join("; ", reasons));
         hooks.Run(RuntimeInitializeLoadType.SubsystemRegistration);
         try
@@ -134,12 +183,29 @@ internal static class RuntimeHookTests
         {
             Require(error.Message.Contains("Missing.Init"), $"the failure names the hook: {error.Message}");
         }
-        Require(HookTargets.Calls.SequenceEqual(new[] { "early" }), "only the resolved phase ran");
+        Require(HookTargets.Calls.SequenceEqual(new[] { "early" }), "no hook of a phase with an unresolved hook ran");
+        try
+        {
+            hooks.Run((RuntimeInitializeLoadType)9);
+            throw new InvalidOperationException("an undefined phase must be rejected");
+        }
+        catch (ArgumentOutOfRangeException) { }
     }
 
     private static void NamesTheHookThatThrows()
     {
-        var hooks = Resolve(("", "RuntimeHookTests+HookTargets", "Fails", 1));
+        var broken = Resolve(("", "RuntimeHookTests+BrokenInit", "Init", 2));
+        try
+        {
+            broken.Run(RuntimeInitializeLoadType.AfterAssembliesLoaded);
+            throw new InvalidOperationException("a hook whose type fails to initialize must fail its phase");
+        }
+        catch (InvalidOperationException error) when (error.Message.StartsWith("startup hook"))
+        {
+            Require(error.Message.Contains("BrokenInit.Init") && error.InnerException is TypeInitializationException,
+                $"the failure names the hook and keeps the initializer failure: {error.Message}");
+        }
+        var hooks = Resolve(("", Targets, "Fails", 1));
         try
         {
             hooks.Run(RuntimeInitializeLoadType.BeforeSceneLoad);

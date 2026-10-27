@@ -43,5 +43,5 @@ public class RuntimeInitializeOnLoadMethodAttribute : Attribute
 
     public RuntimeInitializeOnLoadMethodAttribute(RuntimeInitializeLoadType loadType) => this.loadType = loadType;
 
-    public RuntimeInitializeLoadType loadType { get; set; }
+    public RuntimeInitializeLoadType loadType { get; }
 }

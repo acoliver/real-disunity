@@ -61,12 +61,14 @@ internal static class PlayerAssemblyTests
         var unityEvent = game.TypeRef(module, "UnityEngine.Events", "UnityEvent`1");
         var missing = game.TypeRef(module, "UnityEngine", "NotImplementedThing");
         var internalType = game.TypeRef(module, "UnityEngine.Events", "IPersistentCalls");
+        var listedMissing = game.TypeRef(game.Reference("Listed.Missing"), "Listed", "Thing");
         game.DefineClass("Game", "Holder",
             SyntheticField.Class("owner", gameObject),
             SyntheticField.Value("lightType", lightType),
             SyntheticField.GenericOfInt("changed", unityEvent),
             SyntheticField.Class("thing", missing),
-            SyntheticField.Class("calls", internalType));
+            SyntheticField.Class("calls", internalType),
+            SyntheticField.Class("listed", listedMissing));
         game.MethodRef(gameObject, "SetActive", 1);
         game.MethodRef(gameObject, "SetActive", 3);
         game.MethodRef(gameObject, "DoesNotExist", 0);
@@ -148,6 +150,14 @@ internal static class PlayerAssemblyTests
                 throw new InvalidOperationException("a listed assembly the player lacks must fail by name");
             }
             catch (FileNotFoundException error) when (error.Message.Contains("Listed.Missing.dll")) { }
+            // The same failure when the runtime asks while loading a game type that uses it.
+            var holder = context.LoadFromAssemblyName(new AssemblyName("Game")).GetType("Game.Holder", throwOnError: true)!;
+            try
+            {
+                _ = FieldType(holder, "listed");
+                throw new InvalidOperationException("a type from a listed assembly the player lacks must not load");
+            }
+            catch (FileNotFoundException error) when (error.Message.Contains("Listed.Missing")) { }
             var other = new AssemblyLoadContext("other", isCollectible: true);
             try
             {

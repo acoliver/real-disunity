@@ -78,6 +78,8 @@ impl Layout for Canvas {
         let additional_shader_channels = r.i32()?;
         let update_rect_transform_for_standalone = r.i32()?;
         let layer_id = r.i32()?;
+        let order = r.i16()?;
+        let target_display = r.i8()?;
         Ok(Self {
             game_object,
             enabled,
@@ -93,12 +95,12 @@ impl Layout for Canvas {
                 override_parent: override_sorting,
                 bucket_normalized_size,
                 layer_id,
-                order: r.i16()?,
+                order,
             },
             vertex_color_always_gamma_space,
             additional_shader_channels,
             update_rect_transform_for_standalone,
-            target_display: r.i8()?,
+            target_display,
         })
     }
 }

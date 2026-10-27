@@ -96,18 +96,55 @@ pub enum SceneSpecularOcclusion {
     /// Minimum of material AO and screen AO, sun relief, roughness-aware specular AO.
     RoughnessAware,
 }
+/// Direct-light radiometry. Prepared lights already include Lambert's normalization.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneDirectDiffuse {
+    #[default]
+    EnergyConserving,
+    LambertianPrepared,
+}
+
+/// A fixed 0.0027-radian disk with independent scene-linear highlight intensity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SceneSurfaceDisk {
+    intensity_micro: u32,
+    peak_micro: u32,
+}
+impl SceneSurfaceDisk {
+    pub fn new(intensity_micro: u32, peak_micro: u32) -> Result<Self, SceneValidationError> {
+        super::effects::require_range(
+            "surface highlight peak",
+            u64::from(peak_micro),
+            1,
+            u64::from(u32::MAX),
+        )?;
+        Ok(Self {
+            intensity_micro,
+            peak_micro,
+        })
+    }
+    pub const fn intensity_micro(self) -> u32 {
+        self.intensity_micro
+    }
+    pub const fn peak_micro(self) -> u32 {
+        self.peak_micro
+    }
+}
+
 /// Scene-wide BRDF policy. Default preserves the existing render output.
 /// Visibility follows Heitz (2014), <https://jcgt.org/published/0003/02/03/>, or
 /// Karis (2013), <https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf>.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SceneSpecularConvention {
+    pub direct_diffuse: SceneDirectDiffuse,
+    pub surface_disk: Option<SceneSurfaceDisk>,
     pub roughness: SceneRoughnessRemap,
     pub visibility: SceneSpecularVisibility,
     pub occlusion: SceneSpecularOcclusion,
 }
 impl SceneSpecularConvention {
     /// Numeric selections shared by pipeline constants and environment preparation.
-    pub const fn shader_options(self) -> [u32; 3] {
+    pub const fn shader_options(self) -> [u32; 6] {
         let roughness = match self.roughness {
             SceneRoughnessRemap::Perceptual045 => 0,
             SceneRoughnessRemap::Perceptual04 => 1,
@@ -121,7 +158,15 @@ impl SceneSpecularConvention {
             SceneSpecularOcclusion::AmbientOnly => 0,
             SceneSpecularOcclusion::RoughnessAware => 1,
         };
-        [roughness, visibility, occlusion]
+        let diffuse = match self.direct_diffuse {
+            SceneDirectDiffuse::EnergyConserving => 0,
+            SceneDirectDiffuse::LambertianPrepared => 1,
+        };
+        let (intensity, peak) = match self.surface_disk {
+            None => (0, 0),
+            Some(disk) => (disk.intensity_micro, disk.peak_micro),
+        };
+        [roughness, visibility, occlusion, diffuse, intensity, peak]
     }
 }
 impl SceneEffects {

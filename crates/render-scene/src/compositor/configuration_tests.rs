@@ -261,6 +261,7 @@ fn reflection_maps_and_composition_survive_both_replacement_paths() {
     let preparation = EnvironmentPreparation {
         convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 2,
+        source_lod_tail: 1,
         mip_count: 2,
         specular_intensity_micro: 1_000_000,
         lut_size: 1,

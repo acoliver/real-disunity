@@ -147,6 +147,7 @@ fn configured_frame(
     .prepare()
     .unwrap();
     crate::frame::FrameUniform {
+        background_far_plane_meters: 0.0,
         specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
         height_fog: None,
@@ -158,6 +159,7 @@ fn configured_frame(
         camera_position_millimeters: [0, 0, 1_000],
         sun_direction: environment.toward_light,
         sun_ao_intensity: None,
+        sun_tint: glam::Vec3::ONE,
         sun_irradiance: environment.direct_radiance,
         ambient_sky: environment.ambient_radiance(Vec3::Z),
         ambient_ground: environment.ambient_radiance(Vec3::NEG_Z),
@@ -503,6 +505,7 @@ fn selected_specular_conventions_reach_production_kernels() {
             roughness: remap,
             visibility: SceneSpecularVisibility::SchlickSmith,
             occlusion: SceneSpecularOcclusion::RoughnessAware,
+            ..Default::default()
         };
         let values = evaluate(
             &context,
@@ -564,6 +567,7 @@ fn composition_coverage_shared_lighting_in_mesh_terrain_and_water_sources() {
             roughness,
             visibility: SceneSpecularVisibility::SchlickSmith,
             occlusion: SceneSpecularOcclusion::RoughnessAware,
+            ..Default::default()
         };
         let expected = evaluate_source(&context, sources[0], entry, Some(&frame), None);
         assert!((expected[0] - expected[3]).abs() < 1e-6);
@@ -615,12 +619,8 @@ fn math_pipeline(
         label: None,
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
-    let options = frame.map_or([0; 3], |frame| frame.specular_convention.shader_options());
-    let constants = [
-        ("SCENE_ROUGHNESS_REMAP", f64::from(options[0])),
-        ("SCENE_SPECULAR_VISIBILITY", f64::from(options[1])),
-        ("SCENE_SPECULAR_OCCLUSION", f64::from(options[2])),
-    ];
+    let options = frame.map_or([0; 6], |frame| frame.specular_convention.shader_options());
+    let constants = crate::renderer::specular_constants(options);
     let constants = if source.contains("override SCENE_ROUGHNESS_REMAP") {
         constants.as_slice()
     } else {

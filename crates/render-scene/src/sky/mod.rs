@@ -317,6 +317,11 @@ fn uniform(settings: &SceneAtmosphere, disc: Option<&SceneCelestialDisc>, dome: 
         [0.0; 4],
     ];
     scattering::parameters(settings.scattering, &mut lanes);
+    lanes[2][0] = f32::from(u8::from(
+        settings.background_depth_policy
+            == worldrunner_render_plan::SceneBackgroundDepthPolicy::FarPlane,
+    ));
+    celestial_parameters(settings, &mut lanes);
     if let Some(disc) = disc {
         let direction =
             Vec3::from_array(disc.direction.components_micro().map(|v| v as f32 / 1e6)).normalize();
@@ -343,11 +348,23 @@ fn uniform(settings: &SceneAtmosphere, disc: Option<&SceneCelestialDisc>, dome: 
 mod tests;
 
 #[cfg(test)]
-mod render_tests;
+pub(crate) mod render_tests;
 
 #[cfg(test)]
 mod scene_tests;
 
+fn celestial_parameters(settings: &SceneAtmosphere, lanes: &mut [[f32; 4]]) {
+    lanes[2][1] = match settings.celestial_composition {
+        worldrunner_render_plan::SceneCelestialComposition::Inherit => 0.0,
+        worldrunner_render_plan::SceneCelestialComposition::SeparateSurface => 1.0,
+    };
+    if let Some(exposure) = settings.celestial_exposure_micro {
+        lanes[2][2] = 1.0;
+        lanes[2][3] = (f32::from(u16::try_from(exposure >> 16).expect("upper half")) * 65536.0
+            + f32::from(u16::try_from(exposure & 65535).expect("lower half")))
+            / 1e6;
+    }
+}
 #[expect(
     clippy::cast_precision_loss,
     reason = "scene integer atmospheric units"
@@ -355,14 +372,17 @@ mod scene_tests;
 pub(crate) fn height_fog(
     fog: worldrunner_render_plan::SceneHeightFog,
 ) -> worldrunner_render_lighting::atmosphere::HeightFog {
-    worldrunner_render_lighting::atmosphere::HeightFog::new(
+    let mut result = worldrunner_render_lighting::atmosphere::HeightFog::new(
         fog.density.per_meter(),
         fog.falloff_micro_per_meter as f32 / 1e6,
         fog.base_height_millimeters as f32 / 1000.0,
         fog.start_distance_millimeters as f32 / 1000.0,
         Vec3::from_array(fog.radiance_micro.map(|v| v as f32 / 1e6)),
     )
-    .expect("integer atmospheric descriptor is finite and nonnegative")
+    .expect("integer atmospheric descriptor is finite and nonnegative");
+    result.full_ray_density =
+        fog.density_policy == worldrunner_render_plan::SceneFogDensityPolicy::FullRay;
+    result
 }
 
 /// Resident atmospheric storage to include in a host's scene allocation plan.
@@ -410,3 +430,9 @@ mod regression_tests;
 
 #[cfg(test)]
 mod visibility_tests;
+
+#[cfg(test)]
+mod policy_tests;
+
+#[cfg(test)]
+mod review_tests;

@@ -32,17 +32,8 @@ fn water_environment_gain(point: vec2<f32>, depth: f32) -> f32 {
     return gain;
 }
 
-fn water_disk_direction(reflected: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
-    let cosine = dot(reflected, center);
-    let radius_cosine = cos(0.0027);
-    if cosine >= radius_cosine { return reflected; }
-    let radial = reflected - cosine * center;
-    var tangent = cross(center, select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(center.x) > 0.9));
-    if dot(radial, radial) > 0.0 { tangent = radial; }
-    return normalize(center * radius_cosine + normalize(tangent) * sin(0.0027));
-}
 fn water_disk_highlight(normal: vec3<f32>, view: vec3<f32>, light: vec3<f32>, f0: vec3<f32>, roughness: f32, visibility: f32) -> vec3<f32> {
-    let selected = water_disk_direction(reflect(-view, normal), light);
+    let selected = scene_disk_direction(reflect(-view, normal), light);
     let halfway = normalize(view + selected);
     let dots = vec4<f32>(clamp(dot(normal, view), 0.0001, 1.0),
         max(dot(normal, selected), 0.0), max(dot(normal, halfway), 0.0), max(dot(view, halfway), 0.0));

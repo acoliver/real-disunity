@@ -9,6 +9,7 @@ fn settings() -> EnvironmentPreparation {
         specular_intensity_micro: 1_000_000,
         lut_size: 4,
         samples: 32,
+        source_lod_tail: 1,
     }
 }
 fn cube() -> SceneSpecularCube {
@@ -63,7 +64,16 @@ fn authored_cube_budget_and_publication_fail_before_binding() {
     assert!(allocations(&cube, mismatch).is_err());
 }
 #[test]
+fn gpu_authored_cube_ignores_filtering_and_retains_every_face_and_mip_byte() {
+    assert_uploaded_cube(filtered_settings());
+}
+
+#[test]
 fn gpu_authored_cube_retains_every_face_and_mip_byte() {
+    assert_uploaded_cube(settings());
+}
+
+fn assert_uploaded_cube(settings: EnvironmentPreparation) {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let device = context.device();
     let cube = cube();
@@ -81,7 +91,7 @@ fn gpu_authored_cube_retains_every_face_and_mip_byte() {
                 device,
                 encoder,
                 &cube,
-                settings(),
+                settings,
                 AllocationBudget(1_000_000),
             )?;
             for face in 0..6 {
@@ -135,5 +145,13 @@ fn assert_subresources(data: &[u8]) {
                 );
             }
         }
+    }
+}
+
+fn filtered_settings() -> EnvironmentPreparation {
+    EnvironmentPreparation {
+        samples: 128,
+        source_lod_tail: 4,
+        ..settings()
     }
 }

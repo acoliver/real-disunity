@@ -81,6 +81,7 @@ fn sky_exposure_scales_radiance_before_limiting_without_changing_columns() {
 
 fn fog(density: f32) -> SceneHeightFog {
     SceneHeightFog {
+        density_policy: worldrunner_render_plan::SceneFogDensityPolicy::BeyondStart,
         density: SceneFogDensity::new(density).unwrap(),
         falloff_micro_per_meter: 0,
         base_height_millimeters: 0,

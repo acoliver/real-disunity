@@ -55,7 +55,8 @@ impl Lookup {
             return Err(PreparationError::Budget);
         }
         let model = model(self.settings);
-        let (sun, altitude) = observer;
+        let (sun, camera_altitude) = observer;
+        let altitude = observer_altitude(self.settings, camera_altitude);
         if altitude < 0.0
             || altitude >= model.outer_radius - model.planet_radius
             || !altitude.is_finite()
@@ -217,3 +218,13 @@ pub(super) fn parameters(settings: Option<SceneScattering>, lanes: &mut [[f32; 4
 
 #[cfg(test)]
 pub(super) mod tests;
+
+pub(super) fn observer_altitude(settings: SceneScattering, camera_altitude: f32) -> f32 {
+    settings
+        .observer_altitude_millimeters
+        .map_or(camera_altitude, |altitude| {
+            let high = u16::try_from(altitude >> 16).expect("upper half");
+            let low = u16::try_from(altitude & 65535).expect("lower half");
+            (f32::from(high) * 65536.0 + f32::from(low)) / 1000.0
+        })
+}

@@ -13,6 +13,7 @@ fn source(output: &str) -> String {
         struct Frame {{ sun_direction: vec4<f32>, camera_position: vec4<f32>, sun_irradiance: vec4<f32>, grading: vec4<f32> }}
         const frame = Frame(vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(2.0));
         fn scene_ray_origin(world: vec3<f32>) -> vec3<f32> {{ return vec3<f32>(0.0); }}
+        fn scene_surface_transmission(world: vec3<f32>) -> f32 {{ return 1.0; }}
         fn scene_environment_factor(f0: vec3<f32>, c: vec2<f32>, v: f32, ao: f32, r: f32) -> vec3<f32> {{
             return rd_split_sum(f0, c) * rd_specular_occlusion(v, ao, r);
         }}

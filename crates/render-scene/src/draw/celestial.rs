@@ -44,6 +44,9 @@ pub(super) fn upload(
         pipelines,
         draws,
         settings.scattering.is_some_and(|s| s.compose_celestial),
+        settings.celestial_composition
+            == worldrunner_render_plan::SceneCelestialComposition::SeparateSurface,
+        settings.celestial_exposure_micro.is_some(),
     ))
 }
 

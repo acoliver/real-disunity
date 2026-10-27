@@ -2,8 +2,26 @@
 use super::effects::require_range;
 use super::{SceneDirection, SceneValidationError, TextureHandle};
 
+/// Which segment supplies the average exponential density.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneFogDensityPolicy {
+    #[default]
+    BeyondStart,
+    /// Average over the entire ray, then shorten the optical path by the start distance.
+    FullRay,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneBackgroundDepthPolicy {
+    #[default]
+    ConstantDistance,
+    /// Use camera far-plane depth converted to distance along each ray.
+    FarPlane,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneHeightFog {
+    pub density_policy: SceneFogDensityPolicy,
     /// Extinction at base height, in inverse metres.
     pub density: super::SceneFogDensity,
     pub falloff_micro_per_meter: u32,
@@ -42,8 +60,23 @@ impl SceneCelestialDisc {
     }
 }
 
+/// How celestial radiance combines with the atmospheric background.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneCelestialComposition {
+    /// Preserve the scattering descriptor's `compose_celestial` choice.
+    #[default]
+    Inherit,
+    /// Attenuate the object's opacity-weighted radiance over its surface path,
+    /// then add separately fogged and exposed far-background radiance.
+    SeparateSurface,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneAtmosphere {
+    pub celestial_composition: SceneCelestialComposition,
+    /// None uses scene exposure. Some selects an independent linear multiplier.
+    pub celestial_exposure_micro: Option<u32>,
+    pub background_depth_policy: SceneBackgroundDepthPolicy,
     /// None preserves the existing gradient or dome background.
     pub scattering: Option<super::SceneScattering>,
     pub horizon_radiance_micro: [u32; 3],
@@ -56,11 +89,18 @@ pub struct SceneAtmosphere {
     pub discs: Vec<SceneCelestialDisc>,
     /// Depth-tested celestial geometry composited after the background and discs.
     pub meshes: Vec<SceneCelestialMesh>,
-    /// Finite atmospheric ray length used for background fog.
+    /// Finite ray length used by the constant-distance background policy.
     pub background_distance_millimeters: u32,
 }
 impl SceneAtmosphere {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        if self.celestial_composition == SceneCelestialComposition::SeparateSurface
+            && !self.discs.is_empty()
+        {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "separate celestial composition requires mesh surface depth",
+            });
+        }
         if let Some(settings) = self.scattering {
             settings.validate()?;
         }

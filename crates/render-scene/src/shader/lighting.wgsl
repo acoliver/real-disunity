@@ -1,3 +1,6 @@
+override SCENE_DIRECT_DIFFUSE: u32 = 0u;
+override SCENE_DISK_INTENSITY: f32 = 0.0;
+override SCENE_DISK_PEAK: f32 = 0.0;
 
 override SCENE_ROUGHNESS_REMAP: u32 = 0u;
 override SCENE_SPECULAR_VISIBILITY: u32 = 0u;
@@ -98,7 +101,8 @@ fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: 
 
     // Metals have no diffuse lobe; their absorbed light does not re-emerge.
     let diffuse_colour = albedo * (1.0 - metalness);
-    let diffuse = (vec3<f32>(1.0) - fresnel) * diffuse_colour / PI;
+    var diffuse = (vec3<f32>(1.0) - fresnel) * diffuse_colour / PI;
+    if SCENE_DIRECT_DIFFUSE != 0u { diffuse = diffuse_colour; }
 
     let shadow = sunlight_visibility(world_position, normal);
     let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, shadow);
@@ -127,6 +131,11 @@ fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: 
     let diffuse_radiance = diffuse * diffuse_ao
         * frame.sun_irradiance.rgb * normal_dot_light * shadow + ambient;
     let specular_radiance = specular * specular_ao * frame.sun_irradiance.rgb * normal_dot_light * shadow + environment;
+    if SCENE_DISK_PEAK > 0.0 {
+        let disk = scene_disk_highlight(normal, view, light, f0, roughness_in, shadow) * specular_ao;
+        let selected_diffuse = diffuse * diffuse_ao * frame.sun_irradiance.rgb * normal_dot_light * shadow + ambient;
+        return SceneSurfaceLight(selected_diffuse + disk + environment, selected_diffuse, disk + environment);
+    }
     return SceneSurfaceLight(color, diffuse_radiance, specular_radiance);
 }
 
@@ -155,11 +164,7 @@ fn cotangent_frame(normal: vec3<f32>, position: vec3<f32>, uv: vec2<f32>) -> mat
 
 fn apply_height_fog(radiance: vec3<f32>, position: vec3<f32>) -> vec3<f32> {
     if frame.sun_direction.w >= 0.0 { return radiance; }
-    let origin = scene_ray_origin(position);
-    let falloff = -frame.sun_direction.w - 1.0;
-    let log_density = frame.camera_position.w - falloff * (origin.z - frame.camera_position.z);
-    let transmittance = rd_height_fog_transmittance(log_density, falloff,
-        frame.sun_irradiance.w, position - origin, vec3(0.0, 0.0, 1.0));
+    let transmittance = scene_surface_transmission(position);
     return mix(vec3(frame.ambient_sky.w, frame.ambient_ground.w, frame.grading.w), radiance, transmittance);
 }
 
@@ -232,4 +237,37 @@ fn scene_environment_roughness(value: f32) -> f32 {
 }
 fn scene_environment_factor(f0: vec3<f32>, coefficients: vec2<f32>, no_v: f32, ao: f32, roughness: f32) -> vec3<f32> {
     return rd_split_sum(f0, coefficients) * scene_specular_ao(no_v, ao, roughness);
+}
+
+fn scene_limit_highlight(value: vec3<f32>, peak: f32) -> vec3<f32> {
+    let luminance = dot(value, vec3<f32>(0.2126, 0.7152, 0.0722));
+    if luminance <= peak { return value; }
+    return value * (peak / luminance);
+}
+fn scene_disk_highlight(normal: vec3<f32>, view: vec3<f32>, light: vec3<f32>, f0: vec3<f32>, roughness: f32, shadow: f32) -> vec3<f32> {
+    let selected = scene_disk_direction(reflect(-view, normal), light);
+    let half_vector = normalize(view + selected);
+    let dots = vec4<f32>(clamp(dot(normal, view), 0.0001, 1.0),
+        max(dot(normal, selected), 0.0), max(dot(normal, half_vector), 0.0), max(dot(view, half_vector), 0.0));
+    var alpha = max(roughness, 0.04);
+    if SCENE_ROUGHNESS_REMAP != 0u { alpha = max(scene_environment_roughness(roughness), 0.04); }
+    let highlight = scene_specular_brdf(dots, alpha, fresnel_schlick(dots.w, f0))
+        * SCENE_DISK_INTENSITY * scene_sun_tint() * max(dot(normal, light), 0.0) * shadow;
+    return scene_limit_highlight(highlight, SCENE_DISK_PEAK);
+}
+
+fn scene_surface_transmission(position:vec3<f32>)->f32 {
+    if frame.sun_direction.w >= 0.0 { return 1.0; }
+    let origin=scene_ray_origin(position);
+    let falloff=-frame.sun_direction.w-1.0;
+    let density=frame.camera_position.w-falloff*(origin.z-frame.camera_position.z);
+    if frame.diffuse_sh[0].w != 0.0 {
+        return rd_full_ray_fog_transmittance(density,falloff,frame.sun_irradiance.w,position-origin,vec3(0.0,0.0,1.0));
+    }
+    return rd_height_fog_transmittance(density,falloff,frame.sun_irradiance.w,position-origin,vec3(0.0,0.0,1.0));
+}
+
+fn scene_sun_tint()->vec3<f32> {
+    if frame.lighting_options.z == 0.0 { return vec3(1.0); }
+    return vec3(frame.diffuse_sh[2].w,frame.diffuse_sh[3].w,frame.diffuse_sh[4].w);
 }

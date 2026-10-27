@@ -159,6 +159,7 @@ fn fixed_exposure_mismatch_is_typed_before_preparation() {
     assert!((unexposed.exposure - 1.0).abs() < f32::EPSILON);
     assert_eq!(
         frame.prepare_uniform(FrameUniform {
+            background_far_plane_meters: 0.0,
             exposure: 2.0,
             ..original
         }),

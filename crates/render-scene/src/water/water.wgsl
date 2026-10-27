@@ -40,12 +40,7 @@ struct WaterOutput {
     return output;
 }
 fn water_camera_transmittance(position: vec3<f32>) -> f32 {
-    if frame.sun_direction.w >= 0.0 { return 1.0; }
-    let origin = scene_ray_origin(position);
-    let falloff = -frame.sun_direction.w - 1.0;
-    let log_density = frame.camera_position.w - falloff * (origin.z - frame.camera_position.z);
-    return rd_height_fog_transmittance(log_density, falloff, frame.sun_irradiance.w,
-        position - origin, vec3<f32>(0.0, 0.0, 1.0));
+    return scene_surface_transmission(position);
 }
 fn flow_texel(pixel: vec2<i32>, size: vec2<i32>) -> vec2<f32> {
     let wrapped = ((pixel % size) + size) % size;

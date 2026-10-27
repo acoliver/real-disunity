@@ -8,7 +8,7 @@ const NAMES: [&str; 3] = [
 ];
 
 pub(crate) fn constants(
-    options: [u32; 3],
+    options: [u32; 6],
     lighting: SceneCelestialLighting,
 ) -> Vec<(&'static str, f64)> {
     let mut constants = crate::renderer::specular_constants(options).to_vec();
@@ -29,8 +29,8 @@ pub(crate) fn source(source: String, lighting: SceneCelestialLighting) -> String
     }
     let replacements = [
         (
-            "let diffuse = (vec3<f32>(1.0) - fresnel) * diffuse_colour / PI;",
-            "let diffuse = (vec3<f32>(1.0) - fresnel) * diffuse_colour / PI * CELESTIAL_DIRECT_DIFFUSE;",
+            "if SCENE_DIRECT_DIFFUSE != 0u { diffuse = diffuse_colour; }",
+            "if SCENE_DIRECT_DIFFUSE != 0u { diffuse = diffuse_colour; } diffuse *= CELESTIAL_DIRECT_DIFFUSE;",
         ),
         (
             "let irradiance = scene_diffuse_environment(normal, frame.ambient_ground.rgb, frame.ambient_sky.rgb);",
@@ -58,6 +58,22 @@ pub(crate) fn source(source: String, lighting: SceneCelestialLighting) -> String
     source
 }
 
+pub(crate) fn composition_source(source: String, composition: (bool, bool, bool)) -> String {
+    let (physical, separate, object_exposure) = composition;
+    if separate {
+        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
+            "return vec4<f32>(colour * scene_surface_transmission(input.world_position) * albedo_sample.a, albedo_sample.a);")
+    } else if physical {
+        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
+            "return vec4<f32>(colour, albedo_sample.a);")
+    } else if object_exposure {
+        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
+            "return vec4<f32>(apply_height_fog(colour, input.world_position), albedo_sample.a);")
+    } else {
+        source
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,8 +85,8 @@ mod tests {
             original
         );
         assert_eq!(
-            constants([0; 3], SceneCelestialLighting::NEUTRAL),
-            crate::renderer::specular_constants([0; 3])
+            constants([0; 6], SceneCelestialLighting::NEUTRAL),
+            crate::renderer::specular_constants([0; 6])
         );
     }
     #[test]
@@ -85,7 +101,7 @@ mod tests {
         .validate(&module)
         .unwrap();
         assert_eq!(
-            &constants([0; 3], lighting)[3..],
+            &constants([0; 6], lighting)[6..],
             &[(NAMES[0], 0.5), (NAMES[1], 2.0), (NAMES[2], 3.0)]
         );
     }

@@ -81,6 +81,8 @@ pub enum FrameError {
 /// Per-frame data, including the uniform block and CPU selection coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameUniform {
+    /// Zero preserves the constant-distance background; otherwise camera-forward far depth.
+    pub background_far_plane_meters: f32,
     /// Scene-wide specular BRDF selection, shared with environment preparation.
     pub specular_convention: worldrunner_render_plan::SceneSpecularConvention,
     /// Scene-space prepared SH9 diffuse, or the unchanged hemisphere default.
@@ -102,6 +104,8 @@ pub struct FrameUniform {
     /// Untinted intensity when colour prevents recovering it from radiance.
     /// Neutral frames retain the original zero-filled lighting option lanes.
     pub sun_ao_intensity: Option<f32>,
+    /// Linear colour independent of direct and disk intensity.
+    pub sun_tint: Vec3,
     /// Linear radiance of the upper hemisphere.
     pub ambient_sky: Vec3,
     /// Linear radiance of the lower hemisphere.
@@ -146,12 +150,7 @@ impl FrameUniform {
             direct: DirectionalLight {
                 direction: sun_direction(effects.sun()),
                 radiance: Vec3::splat(micro_to_unit(effects.sun().irradiance_micro))
-                    * Vec3::from_array(
-                        effects
-                            .sun_tint()
-                            .channels()
-                            .map(|v| micro_to_unit(u64::from(v))),
-                    ),
+                    * sun_tint(effects),
             },
             shadow_direction: None,
             ambient: AmbientLight::Hemisphere { sky, ground },
@@ -161,6 +160,7 @@ impl FrameUniform {
         }
         .prepare()?;
         Ok(Self {
+            background_far_plane_meters: background_far_plane(view, effects),
             specular_convention: effects.specular_convention(),
             diffuse_environment: effects.diffuse_environment(),
             height_fog: effects
@@ -173,6 +173,7 @@ impl FrameUniform {
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: environment.toward_light,
             sun_irradiance: environment.direct_radiance,
+            sun_tint: sun_tint(effects),
             sun_ao_intensity: (effects.sun_tint() != worldrunner_render_plan::SceneTint::WHITE)
                 .then(|| micro_to_unit(effects.sun().irradiance_micro)),
             ambient_sky: sky,
@@ -185,6 +186,7 @@ impl FrameUniform {
 
     pub fn unlit(view: &SceneView) -> Self {
         Self {
+            background_far_plane_meters: 0.0,
             specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
             height_fog: None,
@@ -195,6 +197,7 @@ impl FrameUniform {
             sun_direction: Vec3::ZERO,
             sun_irradiance: Vec3::ZERO,
             sun_ao_intensity: None,
+            sun_tint: Vec3::ONE,
             ambient_sky: Vec3::ZERO,
             ambient_ground: Vec3::ZERO,
             exposure: 1.0,
@@ -263,11 +266,19 @@ impl FrameUniform {
             SceneDiffuseEnvironment::Hemisphere => ([[0; 3]; 9], 0.0),
             SceneDiffuseEnvironment::Sh9(sh) => (sh.coefficients_micro(), 1.0),
         };
-        for coefficient in coefficients {
+        let mut padding = [0.0; 9];
+        padding[0] = f32::from(u8::from(
+            self.height_fog.is_some_and(|fog| fog.full_ray_density),
+        ));
+        padding[1] = self.background_far_plane_meters;
+        if self.sun_ao_intensity.is_some() {
+            padding[2..5].copy_from_slice(&self.sun_tint.to_array());
+        }
+        for (coefficient, extra) in coefficients.into_iter().zip(padding) {
             for channel in coefficient {
                 write_f32(bytes, offset, channel as f32 / MICRO_SCALE);
             }
-            write_f32(bytes, offset, 0.0);
+            write_f32(bytes, offset, extra);
         }
         let [sun_intensity, tinted] = self
             .sun_ao_intensity
@@ -275,6 +286,25 @@ impl FrameUniform {
         for value in [enabled, sun_intensity, tinted, 0.0] {
             write_f32(bytes, offset, value);
         }
+    }
+}
+
+fn sun_tint(effects: &SceneEffects) -> Vec3 {
+    Vec3::from_array(
+        effects
+            .sun_tint()
+            .channels()
+            .map(|v| micro_to_unit(u64::from(v))),
+    )
+}
+
+fn background_far_plane(view: &SceneView, effects: &SceneEffects) -> f32 {
+    if effects.atmosphere().is_some_and(|sky| {
+        sky.background_depth_policy == worldrunner_render_plan::SceneBackgroundDepthPolicy::FarPlane
+    }) {
+        view.clip_distances_meters()[1]
+    } else {
+        0.0
     }
 }
 

@@ -228,7 +228,8 @@ fn edge_noise_and_environment_depth_terms_match_f64_oracle() {
 
 pub(super) fn equation_source() -> String {
     format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
+        worldrunner_render_lighting::lighting_wgsl!(),
         r"
 struct TestWater { environment_terms: vec4<f32>, disk: vec4<f32>, sun_radiance: vec4<f32> }
 const SCENE_ROUGHNESS_REMAP: u32 = 0u;
@@ -289,7 +290,7 @@ fn finite_disk_selects_closest_direction_with_wgsl_trigonometric_bounds() {
 @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let angle = array<f32, 5>(0.0, 0.001, 0.01, 1.0, 3.0)[id.x];
     let ray = normalize(vec3<f32>(sin(angle), 0.0, cos(angle)));
-    output[id.x * 2u] = vec4<f32>(water_disk_direction(ray, vec3<f32>(0.0, 0.0, 1.0)), 0.0);
+    output[id.x * 2u] = vec4<f32>(scene_disk_direction(ray, vec3<f32>(0.0, 0.0, 1.0)), 0.0);
 }"
     );
     let values = optics_tests::compute(&context, &source);

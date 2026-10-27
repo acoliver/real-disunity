@@ -7,6 +7,8 @@ use worldrunner_render_gpu::{
 };
 use worldrunner_render_plan::SceneSpecularCube;
 
+/// Filtering sample count and source LOD policy do not apply to an authored cube.
+/// Its prefiltered mip chain is uploaded byte-for-byte; samples still govern generated BRDF integration.
 pub fn allocations(
     cube: &SceneSpecularCube,
     settings: EnvironmentPreparation,
@@ -95,7 +97,26 @@ pub fn encode(
         lut,
         transaction,
         convention: settings.convention,
+        authored_brdf: None,
+        specular_intensity_micro: settings.specular_intensity_micro,
     })
+}
+
+/// Install authored reflection mips and authored BRDF coefficients in the same transaction.
+pub fn encode_with_authored_brdf(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    cube: &SceneSpecularCube,
+    settings: EnvironmentPreparation,
+    table: super::AuthoredBrdfTable,
+    budget: AllocationBudget,
+) -> Result<PreparedEnvironmentMaps, PreparationError> {
+    let settings = EnvironmentPreparation {
+        lut_size: table.view.texture().width(),
+        ..settings
+    };
+    let maps = encode(device, encoder, cube, settings, budget)?;
+    super::authored_brdf::install(device, encoder, maps, table)
 }
 
 fn upload(

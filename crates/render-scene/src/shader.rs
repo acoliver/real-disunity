@@ -93,3 +93,9 @@ mod impostor_tests;
 
 #[cfg(test)]
 mod gpu_math_bindings;
+
+#[cfg(test)]
+mod policy_tests;
+
+#[cfg(test)]
+mod surface_policy_tests;

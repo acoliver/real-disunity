@@ -75,6 +75,34 @@ fn rd_height_fog_transmittance(log_density_at_eye:f32,falloff:f32,start_distance
     if log_depth>=5.0 { return 0.0; }
     return exp(-exp(log_depth));
 }
+fn rd_far_plane_ray_distance(matrix:mat4x4<f32>,ray:vec3<f32>,far_depth:f32)->f32 {
+    let forward=normalize(transpose(matrix)[2].xyz);
+    return far_depth/dot(forward,ray);
+}
+fn rd_full_ray_fog_transmittance(log_density:f32,falloff:f32,start:f32,offset:vec3<f32>,up:vec3<f32>)->f32 {
+    let distance=length(offset);
+    if distance<=start { return 1.0; }
+    var x=falloff*dot(offset,up);
+    if abs(x)<0.0001 { x=select(-0.0001,0.0001,x>0.0); }
+    var integral=log(1.0-x*0.5+x*x/6.0-x*x*x/24.0);
+    if x < -50.0 { integral=-x+log(1.0-exp(x))-log(-x); }
+    else if abs(x)>=0.001 { integral=log((1.0-exp(-x))/x); }
+    let depth=log_density+log(distance-start)+integral;
+    if depth>=5.0 { return 0.0; }
+    return exp(-exp(depth));
+}
+
+
+fn scene_disk_direction(reflected: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
+    let cosine = dot(reflected, center);
+    let radius_cosine = cos(0.0027);
+    if cosine >= radius_cosine { return reflected; }
+    let radial = reflected - cosine * center;
+    var tangent = cross(center, select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(center.x) > 0.9));
+    if dot(radial, radial) > 0.0 { tangent = radial; }
+    return normalize(center * radius_cosine + normalize(tangent) * sin(0.0027));
+}
+
 
 " };
 }

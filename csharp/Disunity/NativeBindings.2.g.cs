@@ -11,6 +11,15 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Sets palette entry `index`, replacing it or, at the palette's length, appending it. `sprite`
+        ///  may be null for a tile with no sprite; only its content fields are read. A Sprite collider
+        ///  starts with no physics shape; set it with `disunity_tilemap_set_tile_shape`.
+        ///  # Safety
+        ///  Tile is readable for one tile record; sprite is null or readable for one sprite record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_tile", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_set_tile(ulong world, ulong handle, uint index, DisunityTile* tile, DisunitySprite* sprite);
+        /// <summary>
         ///  Sets the physics shape of Sprite-collider tile `index`: `path_count` convex paths, path `i`
         ///  holding `lengths[i]` points, read in order from `points` as x, y pairs in sprite units
         ///  around the pivot. This is Unity's `Sprite.GetPhysicsShape` for the tile's sprite.

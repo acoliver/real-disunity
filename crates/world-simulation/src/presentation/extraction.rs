@@ -55,12 +55,12 @@ pub fn extract_world(
         let basis = Mat4::from_cols_array(&[
             1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
         ]);
-        let matrix = basis * world.world_matrix(component.object)?;
+        let matrix = basis * world.presented_matrix(component.object)?;
         match component.desc {
             ComponentDesc::Sprite(mut renderer) if renderer.enabled => {
                 renderer.color = lighting.color(&renderer);
                 if let Some(mut quad) =
-                    extract_sprite(&renderer, world.world_matrix(component.object)?)
+                    extract_sprite(&renderer, world.presented_matrix(component.object)?)
                 {
                     quad.lighting = renderer.lighting;
                     result.quads.push(quad);

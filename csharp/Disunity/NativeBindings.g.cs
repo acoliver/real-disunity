@@ -510,6 +510,18 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_body_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_body_write(ulong world, ulong handle, DisunityBody2d* value);
         /// <summary>
+        ///  Sets whether the body is drawn between its poses either side of the last physics step,
+        ///  Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_interpolation_write(ulong world, ulong handle, uint interpolate);
+        /// <summary>
+        ///  # Safety
+        ///  `interpolate` is writable for one flag.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_interpolation_read(ulong world, ulong handle, uint* interpolate);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one body record.
         /// </summary>
@@ -728,14 +740,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_tilemap_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_tilemap_read(ulong world, ulong handle, DisunityTilemap* output);
-        /// <summary>
-        ///  Sets palette entry `index`, replacing it or, at the palette's length, appending it. `sprite`
-        ///  may be null for a tile with no sprite; only its content fields are read. A Sprite collider
-        ///  starts with no physics shape; set it with `disunity_tilemap_set_tile_shape`.
-        ///  # Safety
-        ///  Tile is readable for one tile record; sprite is null or readable for one sprite record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_tile", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_tilemap_set_tile(ulong world, ulong handle, uint index, DisunityTile* tile, DisunitySprite* sprite);
     }
 }

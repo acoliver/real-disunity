@@ -18,7 +18,9 @@ internal static class PongScene
             Require(scores.All(s => s.text == "0"), "ScoreView.Awake shows zero");
             Require(Named("Ball").layer == 8 && Named("Canvas").layer == 5, "layers load");
             Require(scene.UnregisteredAxes.Any(a => a.StartsWith("Fire1: no key for `left ctrl`")), "axes without engine keys are reported");
-            Require(scene.Differences.Count(d => d.Contains("Interpolate")) == 3, "interpolated bodies are reported");
+            Require(scene.Differences.All(d => !d.Contains("polate")), "interpolation is applied, not reported");
+            Require(new[] { "Ball", "Player", "Enemy" }.All(n => Named(n).GetComponent<Rigidbody2D>()!.interpolation == RigidbodyInterpolation2D.Interpolate),
+                "the ball and both paddles interpolate as authored");
             Launches(Named("Ball").GetComponent<Rigidbody2D>()!);
             PaddleFollowsAxis(Named("Player"), Named("Enemy"));
             GoalScores(Named("Ball"), scores);

@@ -84,8 +84,11 @@ internal sealed partial class SceneLoader
         body.constraints = (RigidbodyConstraints2D)value.Int("constraints");
         if (value.Index("material") is { } material) body.sharedMaterial = (PhysicsMaterial2D)assets[material];
         body.simulated = value.Bool("simulated");
-        if (value.Str("interpolation") != "None")
-            differences.Add($"{where}: {value.Str("interpolation")} is not applied; the body draws at its last physics step");
+        var interpolation = value.Variant<RigidbodyInterpolation2D>("interpolation");
+        if (interpolation == RigidbodyInterpolation2D.Extrapolate)
+            differences.Add($"{where}: Extrapolate is not applied; the body draws at its last physics step");
+        else
+            body.interpolation = interpolation;
         return body;
     }
 

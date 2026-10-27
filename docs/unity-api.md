@@ -27,7 +27,7 @@ A host loads a Unity scene from the plan `unity-import plan` writes, with `Disun
 
 Serialized fields bind as Unity deserializes them. Public and `[SerializeField]` fields are set; static, readonly and `[NonSerialized]` fields are not. A field the scene does not mention keeps its initializer, and scene data for a field the script no longer declares is ignored. Supported field types are numbers, `bool`, enums, `string`, `Vector2`, `Vector3`, `Vector2Int`, `Quaternion`, `Color`, `Rect`, `LayerMask`, references to objects, components, sprites, fonts and `ScriptableObject` assets, `[Serializable]` classes, arrays, `List<T>` and `UnityEvent<T>`. Any other type fails the load.
 
-`LoadedScene.UnregisteredAxes` lists input axes that need mouse, joystick or keys the engine does not deliver; reading one fails as an unregistered axis does. `LoadedScene.Differences` lists authored presentation settings the engine does not reproduce, such as interpolated bodies, lit tilemaps and pixel-perfect canvases. `LoadedScene.Textures` gives the identity each scene texture's sprites use, for the host to upload.
+`LoadedScene.UnregisteredAxes` lists input axes that need mouse, joystick or keys the engine does not deliver; reading one fails as an unregistered axis does. `LoadedScene.Differences` lists authored presentation settings the engine does not reproduce, such as extrapolated bodies, lit tilemaps and pixel-perfect canvases. `LoadedScene.Textures` gives the identity each scene texture's sprites use, for the host to upload.
 
 ## Time, input and coroutines
 
@@ -45,7 +45,7 @@ No axes exist until the host registers them with `DisunityHost.RegisterInputAxis
 
 | Type | Supported |
 | --- | --- |
-| `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `constraints` (`RigidbodyConstraints2D` freeze position X, Y and rotation), `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial` |
+| `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `constraints` (`RigidbodyConstraints2D` freeze position X, Y and rotation), `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial`, `interpolation` (None and Interpolate; Extrapolate throws `NotSupportedException`) |
 | `Collider2D` | `enabled`, `isTrigger`, `offset`, `attachedRigidbody`, `sharedMaterial` |
 | `BoxCollider2D`, `CircleCollider2D` | `size`; `radius` |
 | `UnityEngine.Tilemaps.TilemapCollider2D` | Collides with the `Tilemap` on its object, following its cells as they change. Contacts and queries return it like any other collider. |
@@ -54,6 +54,8 @@ No axes exist until the host registers them with `DisunityHost.RegisterInputAxis
 | `Collision2D` | `collider`, `otherCollider`, `gameObject`, `transform`, `rigidbody`, `contacts`, `contactCount`, `GetContact` |
 | `Physics2D` | `Raycast` (nearest hit), `OverlapCircle` (first hit) |
 | `RaycastHit2D` | `collider`, `point`, `normal`, `distance`, conversion to `bool` |
+
+An interpolated body is drawn between its poses before and after the last physics step, by the fraction of a step the clock has run past it, so it moves smoothly when frames and physics steps do not line up. As in Unity it is drawn up to one step behind physics. Unlike Unity, its `transform` keeps the physics pose: interpolation changes what is drawn, and scripts, contacts and queries all see the step pose. A body moved by a script since the last step is drawn where it is.
 
 Physics uses continuous collision detection for all bodies. Joints, effectors, polygon and edge colliders in C#, forces and impulses (`AddForce`), and 3D physics are not implemented.
 

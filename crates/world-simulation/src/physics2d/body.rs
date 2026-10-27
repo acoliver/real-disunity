@@ -37,6 +37,17 @@ pub enum BodyType {
     Dynamic,
 }
 
+/// Unity's `RigidbodyInterpolation2D`, without extrapolation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Interpolation {
+    /// Drawn at the pose of the last physics step.
+    #[default]
+    None,
+    /// Drawn between its poses before and after the last physics step. Physics and scripts
+    /// still see the step pose.
+    Interpolate,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Body2d {
     pub body_type: BodyType,
@@ -52,6 +63,7 @@ pub struct Body2d {
     /// Position axes excluded from motion and impulses: X = 1, Y = 2.
     pub freeze_position: u8,
     pub restitution: f32,
+    pub interpolation: Interpolation,
 }
 impl Default for Body2d {
     fn default() -> Self {
@@ -67,6 +79,7 @@ impl Default for Body2d {
             freeze_rotation: false,
             freeze_position: 0,
             restitution: 0.0,
+            interpolation: Interpolation::None,
         }
     }
 }

@@ -3,13 +3,30 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+/// <summary>A public instance field: its name and how to encode its type.</summary>
+internal sealed record SyntheticField(string Name, Action<SignatureTypeEncoder> Type)
+{
+    public static SyntheticField Class(string name, EntityHandle type) =>
+        new(name, encoder => encoder.Type(type, isValueType: false));
+
+    public static SyntheticField Value(string name, EntityHandle type) =>
+        new(name, encoder => encoder.Type(type, isValueType: true));
+
+    /// <summary>A field of a generic class instantiated with <c>int</c>.</summary>
+    public static SyntheticField GenericOfInt(string name, EntityHandle type) =>
+        new(name, encoder => encoder.GenericInstantiation(type, 1, isValueType: false).AddArgument().Int32());
+}
+
 /// <summary>
 /// Writes small assemblies with System.Reflection.Metadata, so the player tests need no
-/// Unity or game binaries: modules that define types, and consumers that reference them.
-/// Types are public classes deriving from System.Object with public instance fields.
+/// Unity or game binaries: modules that define or forward types, and consumers that
+/// reference them. Defined types are public classes deriving from System.Object.
 /// </summary>
 internal sealed class SyntheticAssembly
 {
+    /// <summary>The flag that marks an exported type as a type forwarder (ECMA-335 II.23.1.15).</summary>
+    private const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+
     private readonly MetadataBuilder _metadata = new();
     private readonly TypeReferenceHandle _object;
     private int _fields = 1;
@@ -31,8 +48,12 @@ internal sealed class SyntheticAssembly
     public TypeReferenceHandle TypeRef(AssemblyReferenceHandle scope, string ns, string name) =>
         _metadata.AddTypeReference(scope, _metadata.GetOrAddString(ns), _metadata.GetOrAddString(name));
 
-    /// <summary>Defines a public class with public instance fields of the given class types.</summary>
-    public void DefineClass(string ns, string name, params (string Field, EntityHandle Type)[] fields)
+    /// <summary>References a type nested in <paramref name="outer"/>.</summary>
+    public TypeReferenceHandle NestedTypeRef(TypeReferenceHandle outer, string name) =>
+        _metadata.AddTypeReference(outer, default, _metadata.GetOrAddString(name));
+
+    /// <summary>Defines a public class with the given public instance fields.</summary>
+    public void DefineClass(string ns, string name, params SyntheticField[] fields)
     {
         _metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Class,
@@ -41,14 +62,18 @@ internal sealed class SyntheticAssembly
             _object,
             MetadataTokens.FieldDefinitionHandle(_fields),
             MetadataTokens.MethodDefinitionHandle(1));
-        foreach (var (field, type) in fields)
+        foreach (var field in fields)
         {
             var signature = new BlobBuilder();
-            new BlobEncoder(signature).FieldSignature().Type(type, isValueType: false);
-            _metadata.AddFieldDefinition(FieldAttributes.Public, _metadata.GetOrAddString(field), _metadata.GetOrAddBlob(signature));
+            field.Type(new BlobEncoder(signature).FieldSignature());
+            _metadata.AddFieldDefinition(FieldAttributes.Public, _metadata.GetOrAddString(field.Name), _metadata.GetOrAddBlob(signature));
             _fields++;
         }
     }
+
+    /// <summary>Forwards a type to another assembly, as Unity's <c>UnityEngine.dll</c> does.</summary>
+    public void Forward(AssemblyReferenceHandle target, string ns, string name) =>
+        _metadata.AddExportedType(Forwarder, _metadata.GetOrAddString(ns), _metadata.GetOrAddString(name), target, 0);
 
     /// <summary>References an instance method returning void with <paramref name="parameters"/> int parameters.</summary>
     public void MethodRef(TypeReferenceHandle parent, string name, int parameters)

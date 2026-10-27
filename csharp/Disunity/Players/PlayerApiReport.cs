@@ -13,8 +13,11 @@ public sealed record MissingApi(string Module, string Type, string? Member, IRea
 
 /// <summary>
 /// Lists the engine API a player's assemblies reference that Disunity.Engine lacks, from
-/// their metadata alone. Members match by name, kind (field or method) and parameter count;
-/// overloads that differ only in parameter types are not told apart.
+/// their metadata alone. A type counts as present when a facade forwards it
+/// (<see cref="ModuleFacades.Forwards"/>). Members match by name, kind (field or method) and
+/// parameter count; overloads that differ only in parameter types are not told apart.
+/// Members referenced through a generic instantiation, such as <c>List&lt;int&gt;.Add</c>
+/// on an engine type, are not checked yet.
 /// </summary>
 public static class PlayerApiReport
 {
@@ -41,7 +44,8 @@ public static class PlayerApiReport
     {
         foreach (var handle in reader.TypeReferences)
         {
-            if (EngineType(reader, handle) is ({ } module, { } type) && target.GetType(type) is null)
+            if (EngineType(reader, handle) is ({ } module, { } type) && !ModuleFacades.Forwards(target, type)
+                && OuterIsForwarded(target, type))
                 yield return (module, type, "");
         }
         foreach (var handle in reader.MemberReferences)
@@ -49,10 +53,21 @@ public static class PlayerApiReport
             var member = reader.GetMemberReference(handle);
             if (member.Parent.Kind != HandleKind.TypeReference) continue;
             if (EngineType(reader, (TypeReferenceHandle)member.Parent) is not ({ } module, { } type)) continue;
-            if (target.GetType(type) is not { } found) continue;
+            if (!ModuleFacades.Forwards(target, type)) continue;
+            var found = target.GetType(type)!;
             var name = reader.GetString(member.Name);
             if (!HasMember(found, name, member, reader)) yield return (module, type, Describe(name, member, reader));
         }
+    }
+
+    /// <summary>
+    /// Whether the type enclosing a nested type is forwarded, or the type is not nested. A
+    /// nested type of a missing type is not listed separately: the outer type is.
+    /// </summary>
+    private static bool OuterIsForwarded(Assembly target, string type)
+    {
+        var split = type.LastIndexOf('+');
+        return split < 0 || ModuleFacades.Forwards(target, type[..split]);
     }
 
     /// <summary>The engine module and full name of a type reference, or nulls when it is not an engine type.</summary>

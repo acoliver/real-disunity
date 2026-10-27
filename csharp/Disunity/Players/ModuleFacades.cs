@@ -53,9 +53,16 @@ public static class ModuleFacades
         return new UnityModule(reader.GetAssemblyDefinition().GetAssemblyName(), types);
     }
 
-    /// <summary>The module's types that <paramref name="target"/> defines as public top-level types.</summary>
+    /// <summary>
+    /// Whether a facade forwards the type with this reflection name (nested types as
+    /// <c>Outer+Inner</c>): <paramref name="target"/> defines it, and it and every type
+    /// enclosing it are public.
+    /// </summary>
+    public static bool Forwards(Assembly target, string name) => target.GetType(name) is { IsVisible: true };
+
+    /// <summary>The module's top-level types that a facade forwards to <paramref name="target"/>.</summary>
     public static IReadOnlyList<string> Implemented(UnityModule module, Assembly target) =>
-        module.Types.Where(name => target.GetType(name) is { IsPublic: true }).ToList();
+        module.Types.Where(name => Forwards(target, name)).ToList();
 
     /// <summary>
     /// Builds the facade for a module: an assembly with the module's name and version whose
@@ -66,11 +73,13 @@ public static class ModuleFacades
         var metadata = new MetadataBuilder();
         var name = module.Name.Name ?? throw new ArgumentException("module has no name", nameof(module));
         metadata.AddModule(0, metadata.GetOrAddString(name + ".dll"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+        // A load context checks only the simple name of an assembly it is given. Unity's
+        // modules are unsigned, so the facade copies the version and no public key.
         metadata.AddAssembly(
             metadata.GetOrAddString(name),
             module.Name.Version ?? new Version(0, 0, 0, 0),
             default,
-            PublicKey(metadata, module.Name),
+            default,
             default,
             AssemblyHashAlgorithm.None);
         var targetName = target.GetName();
@@ -85,16 +94,16 @@ public static class ModuleFacades
         metadata.AddTypeDefinition(
             default, default, metadata.GetOrAddString("<Module>"), default,
             MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
-        foreach (var type in Implemented(module, target))
+        foreach (var typeName in Implemented(module, target))
         {
-            var split = type.LastIndexOf('.');
-            var ns = split < 0 ? "" : type[..split];
-            metadata.AddExportedType(
+            var type = target.GetType(typeName)!;
+            var forwarder = metadata.AddExportedType(
                 Forwarder,
-                metadata.GetOrAddString(ns),
-                metadata.GetOrAddString(type[(split + 1)..]),
+                metadata.GetOrAddString(type.Namespace ?? ""),
+                metadata.GetOrAddString(type.Name),
                 reference,
                 0);
+            ForwardNested(metadata, forwarder, type);
         }
         var image = new BlobBuilder();
         new ManagedPEBuilder(
@@ -107,8 +116,19 @@ public static class ModuleFacades
     /// <summary>The flag that marks an exported type as a type forwarder (ECMA-335 II.23.1.15).</summary>
     private const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
-    private static BlobHandle PublicKey(MetadataBuilder metadata, AssemblyName name) =>
-        name.GetPublicKey() is { Length: > 0 } key ? metadata.GetOrAddBlob(key) : default;
+    /// <summary>
+    /// Forwards the public types nested in <paramref name="type"/>. The runtime resolves a
+    /// nested type through rows naming the enclosing forwarder, with no flags and no
+    /// namespace, as Unity's own <c>UnityEngine.dll</c> writes them.
+    /// </summary>
+    private static void ForwardNested(MetadataBuilder metadata, ExportedTypeHandle enclosing, Type type)
+    {
+        foreach (var nested in type.GetNestedTypes(BindingFlags.Public))
+        {
+            var row = metadata.AddExportedType(default, default, metadata.GetOrAddString(nested.Name), enclosing, 0);
+            ForwardNested(metadata, row, nested);
+        }
+    }
 
     private static string FullName(MetadataReader reader, StringHandle ns, StringHandle name)
     {

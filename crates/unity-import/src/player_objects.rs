@@ -9,8 +9,13 @@ use std::{
 
 use worldrunner_unity_serialized::{
     ClassId, ObjectInfo, SerializedError, SerializedFile,
+    camera::Camera,
     classes::{GameObject, MonoBehaviour, MonoScript, RectTransform, Transform},
+    graphics::{Material, MeshFilter, MeshRenderer, SkinnedMeshRenderer, Texture2D},
+    light::Light,
+    mesh::Mesh,
     object::{Layout, decode},
+    shader::Shader,
 };
 
 use crate::{PlayerError, read_metadata};
@@ -102,17 +107,67 @@ pub struct ClassCensus {
     pub examples: Vec<String>,
 }
 
-/// Classes [`decode_census`] decodes.
-pub const DECODED_CLASSES: [ClassId; 5] = [
-    ClassId::GAME_OBJECT,
-    ClassId::TRANSFORM,
-    ClassId::RECT_TRANSFORM,
-    ClassId::MONO_SCRIPT,
-    ClassId::MONO_BEHAVIOUR,
+/// Decodes an object with one class's layout and describes the result.
+type Check = fn(&[u8], &ObjectInfo, bool) -> Result<String, SerializedError>;
+
+fn check<T: Layout + std::fmt::Debug>(
+    bytes: &[u8],
+    object: &ObjectInfo,
+    big_endian: bool,
+) -> Result<String, SerializedError> {
+    decode::<T>(bytes, object, big_endian).map(|value| format!("{value:#?}"))
+}
+
+/// Decodes one object with its class's layout and describes its fields.
+///
+/// # Errors
+/// Fails if the object is missing, cannot be read, has no layout, or does not decode.
+pub fn describe_object(open: &mut OpenFile, path_id: i64) -> Result<String, PlayerError> {
+    let object = *open
+        .file
+        .object(path_id)
+        .ok_or_else(|| PlayerError::MissingObject {
+            path: open.path.clone(),
+            path_id,
+        })?;
+    let check = layout_check(object.class_id)
+        .ok_or_else(|| open.error(SerializedError::UnsupportedClass(object.class_id)))?;
+    let bytes = open.bytes(&object)?;
+    check(&bytes, &object, open.file.header.big_endian).map_err(|source| open.error(source))
+}
+
+/// A layout's class with its check. The class comes from the layout, so the two cannot drift.
+const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
+    (T::CLASS, check::<T>)
+}
+
+/// The classes with layouts, each with the check [`decode_census`] runs on its objects.
+const LAYOUTS: [(ClassId, Check); 14] = [
+    layout::<GameObject>(),
+    layout::<Transform>(),
+    layout::<RectTransform>(),
+    layout::<MonoScript>(),
+    layout::<MonoBehaviour>(),
+    layout::<MeshFilter>(),
+    layout::<MeshRenderer>(),
+    layout::<SkinnedMeshRenderer>(),
+    layout::<Material>(),
+    layout::<Texture2D>(),
+    layout::<Mesh>(),
+    layout::<Camera>(),
+    layout::<Light>(),
+    layout::<Shader>(),
 ];
 const FAILURES_KEPT: usize = 5;
 
-/// Decodes every object of the [`DECODED_CLASSES`] in the given files and counts the results.
+fn layout_check(class: ClassId) -> Option<Check> {
+    LAYOUTS
+        .iter()
+        .find(|&&(c, _)| c == class)
+        .map(|&(_, check)| check)
+}
+
+/// Decodes every object whose class has a layout in the given files and counts the results.
 ///
 /// # Errors
 /// Fails if a file cannot be opened or an object cannot be read; decoding failures are
@@ -122,15 +177,15 @@ pub fn decode_census(paths: &[PathBuf]) -> Result<BTreeMap<ClassId, ClassCensus>
     for path in paths {
         let mut open = OpenFile::open(path)?;
         let objects: Vec<_> = open.file.objects().to_vec();
-        for object in objects
-            .iter()
-            .filter(|o| DECODED_CLASSES.contains(&o.class_id))
-        {
+        for object in &objects {
+            let Some(check) = layout_check(object.class_id) else {
+                continue;
+            };
             let bytes = open.bytes(object)?;
             let big_endian = open.file.header.big_endian;
             let entry = census.entry(object.class_id).or_default();
-            match decode_any(&bytes, object, big_endian) {
-                Ok(()) => entry.decoded += 1,
+            match check(&bytes, object, big_endian) {
+                Ok(_) => entry.decoded += 1,
                 Err(error) => {
                     entry.failed += 1;
                     if entry.examples.len() < FAILURES_KEPT {
@@ -141,15 +196,4 @@ pub fn decode_census(paths: &[PathBuf]) -> Result<BTreeMap<ClassId, ClassCensus>
         }
     }
     Ok(census)
-}
-
-fn decode_any(bytes: &[u8], object: &ObjectInfo, big_endian: bool) -> Result<(), SerializedError> {
-    match object.class_id {
-        ClassId::GAME_OBJECT => decode::<GameObject>(bytes, object, big_endian).map(drop),
-        ClassId::TRANSFORM => decode::<Transform>(bytes, object, big_endian).map(drop),
-        ClassId::RECT_TRANSFORM => decode::<RectTransform>(bytes, object, big_endian).map(drop),
-        ClassId::MONO_SCRIPT => decode::<MonoScript>(bytes, object, big_endian).map(drop),
-        ClassId::MONO_BEHAVIOUR => decode::<MonoBehaviour>(bytes, object, big_endian).map(drop),
-        class => Err(SerializedError::UnsupportedClass(class)),
-    }
 }

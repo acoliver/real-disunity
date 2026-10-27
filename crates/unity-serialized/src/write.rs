@@ -345,6 +345,32 @@ impl ObjectWriter {
         self
     }
 
+    pub fn i16(&mut self, value: i16) -> &mut Self {
+        self.inner.i16(value);
+        self
+    }
+
+    pub fn u64(&mut self, value: u64) -> &mut Self {
+        self.inner.u64(value);
+        self
+    }
+
+    pub fn i64(&mut self, value: i64) -> &mut Self {
+        self.inner.i64(value);
+        self
+    }
+
+    /// A length-prefixed byte array padded to four bytes.
+    ///
+    /// # Errors
+    /// Fails when the array is longer than the format's 32-bit length.
+    pub fn byte_array(&mut self, bytes: &[u8]) -> Result<&mut Self, WriteError> {
+        self.inner.count(bytes.len(), "byte array length")?;
+        self.inner.bytes(bytes);
+        self.inner.align4();
+        Ok(self)
+    }
+
     pub fn f32(&mut self, value: f32) -> &mut Self {
         self.inner.u32(value.to_bits());
         self

@@ -336,3 +336,35 @@ fn decode_cli_fails_on_invalid_objects_and_census_ignores_unknown_classes() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("1 objects failed to decode"));
 }
+
+#[test]
+fn player_object_describes_supported_objects_and_rejects_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut data = scene(ptr(0, 5));
+    data.types.push(class(ClassId::TEXT_ASSET));
+    data.objects.push(object(9, 4, vec![0; 4]));
+    write_scene(dir.path(), &data);
+    let path = dir.path().join("level0");
+    let run = |id: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_unity-import"))
+            .args(["player-object".as_ref(), path.as_os_str(), id.as_ref()])
+            .output()
+            .unwrap()
+    };
+    let described = run("2");
+    assert!(described.status.success());
+    let text = String::from_utf8_lossy(&described.stdout);
+    assert!(
+        text.contains("GameObject {") && text.contains("\"Root\""),
+        "{text}"
+    );
+    for (id, message) in [
+        ("9", "no object layout is implemented for TextAsset"),
+        ("999", "no object with path ID 999"),
+    ] {
+        let failed = run(id);
+        assert!(!failed.status.success());
+        let stderr = String::from_utf8_lossy(&failed.stderr);
+        assert!(stderr.contains(message), "{stderr}");
+    }
+}

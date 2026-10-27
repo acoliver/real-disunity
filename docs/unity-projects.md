@@ -47,10 +47,11 @@ cargo run -p worldrunner-unity-import -- <command> <project> [path]
 | `axes <project>` | The project's input axes from `ProjectSettings/InputManager.asset`, in file order. |
 | `plan <project> <scene>` | The scene plan as JSON: what the managed loader builds. Planning fails, naming the object, on anything the engine cannot build as authored. |
 | `player <data directory>` | For a built player's `<Game>_Data` directory: each serialized file (`globalgamemanagers`, `level0`, `*.assets`) with its Unity version, format version, externals and objects counted by class, then the totals. Reading built players is in progress ([#147](https://github.com/acoliver/real-disunity/issues/147)); this command reads file metadata only. |
-| `player-decode <data directory>` | Counts decoded GameObject, Transform, RectTransform, MonoScript and MonoBehaviour headers across the player's files. Reports the first five errors per class and exits unsuccessfully if any decode fails. MonoBehaviour script fields remain an opaque byte range; this does not validate their contents. |
+| `player-decode <data directory>` | Decodes every object of the classes with layouts (GameObject, Transform, RectTransform, MonoScript, the MonoBehaviour header, MeshFilter, MeshRenderer, SkinnedMeshRenderer, Mesh, Material, Texture2D, Camera, Light and Shader) across the player's files, and counts them by class. Reports the first five errors per class and exits unsuccessfully if any decode fails. MonoBehaviour script fields remain an opaque byte range. Texture pixels and mesh index and vertex buffers are located (a range inside the object, or a `.resS` stream) but not read or interpreted. A shader's compiled programs are located as a compressed byte range with per-platform offsets and lengths, but not decompressed. |
+| `player-object <serialized file> <path ID>` | Every decoded field of one object. Fails on objects whose class has no layout. |
 | `player-scene <data directory> <scene file>` | The serialized scene's transform hierarchy with positions, active state and component class names. Script names resolve through same-file or external MonoScript references. Invalid parent/child links, cycles and hierarchies deeper than 256 levels fail explicitly. Cross-file hierarchy links are unsupported. |
 
-The five object layouts have been checked against Unity 6000.3.15f1 player data.
+The object layouts have been checked against Unity 6000.3.15f1 player data.
 Exact byte consumption detects size differences, but does not establish compatibility
 with other Unity versions or layouts of the same size. These commands inspect content;
 they do not instantiate or run the player.

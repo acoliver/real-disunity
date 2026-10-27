@@ -52,6 +52,8 @@ pub struct SceneScattering {
     pub aerosol_height_meters: u32,
     pub anisotropy_micro: i32,
     pub solar_radiance_micro: u32,
+    /// Sky-only radiance multiplier before the peak limit; one million is neutral.
+    pub sky_exposure_micro: u32,
     /// Angular diameter in millionths of a radian. The fit convention uses
     /// 530000 for 0.53 radians, without any degree conversion.
     pub solar_diameter_microradians: u32,
@@ -81,6 +83,7 @@ impl SceneScattering {
             ),
             ("scattering rows", self.lookup_rows, 2, 4096),
             ("scattering peak", self.peak_radiance_micro, 1, u32::MAX),
+            ("sky exposure", self.sky_exposure_micro, 0, 64_000_000),
         ] {
             require_range(name, u64::from(value), u64::from(low), u64::from(high))?;
         }
@@ -109,6 +112,7 @@ mod tests {
             aerosol_height_meters: 1200,
             anisotropy_micro: 760_000,
             solar_radiance_micro: 20_000_000,
+            sky_exposure_micro: 1_000_000,
             solar_diameter_microradians: 530_000,
             peak_radiance_micro: 100_000_000,
             model: SceneScatteringModel::ElevationColumn20,

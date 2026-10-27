@@ -1,3 +1,64 @@
+#[test]
+fn specular_intensity_matches_closed_form_single_sample_without_changing_cube() {
+    assert_eq!(integration_source(1_000_000), SOURCE);
+    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let device = context.device();
+    let source = source_cube(&context);
+    for intensity in [0, 500_000, 1_000_000, 2_000_000, 64_000_000] {
+        let settings = EnvironmentPreparation {
+            samples: 1,
+            specular_intensity_micro: intensity,
+            ..settings()
+        };
+        let mut maps = None;
+        let prepared = context
+            .submission()
+            .prepare(device, |encoder, _| {
+                maps = Some(encode(
+                    device,
+                    encoder,
+                    &source,
+                    settings,
+                    AllocationBudget(1_000_000),
+                )?);
+                Ok::<_, PreparationError>(())
+            })
+            .unwrap();
+        prepared.submit().unwrap();
+        let maps = maps.unwrap();
+        let data = read_texture(device, context.submission(), &maps.lut, 0);
+        for x in 0_u16..4 {
+            let no_v = (f64::from(x) + 0.5) / 4.0;
+            let roughness = 0.125_f64;
+            // The single half-vector is exactly +Z, so no trigonometric approximation enters.
+            let weight =
+                no_v / (no_v * no_v * (1.0 - roughness.powi(4)) + roughness.powi(4)).sqrt();
+            let fresnel = (1.0 - no_v).powi(5);
+            let expected =
+                [1.0 - fresnel, fresnel].map(|v| v * weight * f64::from(intensity) / 1e6);
+            for (channel, expected) in expected.into_iter().enumerate() {
+                let offset = usize::from(x) * 8 + channel * 2;
+                let actual = half(u16::from_le_bytes(
+                    data[offset..offset + 2].try_into().unwrap(),
+                ));
+                assert!(
+                    (f64::from(actual) - expected).abs()
+                        <= expected.abs() * 2.0_f64.powi(-10) + 2e-7
+                );
+            }
+        }
+        verify_constant(device, context.submission(), &maps.cube);
+    }
+    assert!(
+        EnvironmentPreparation {
+            specular_intensity_micro: 64_000_001,
+            ..settings()
+        }
+        .allocations()
+        .is_err()
+    );
+}
+
 use super::*;
 
 #[test]
@@ -36,6 +97,7 @@ fn settings() -> EnvironmentPreparation {
         convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 4,
         mip_count: 3,
+        specular_intensity_micro: 1_000_000,
         lut_size: 4,
         samples: 32,
     }
@@ -110,7 +172,12 @@ fn cancellation_does_not_publish_environment_resources() {
     prepared.submit().unwrap();
     let maps = maps.unwrap();
     assert!(maps.views().is_ok());
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .unwrap();
     verify_constant(device, context.submission(), &maps.cube);
     verify_lut(device, context.submission(), &maps.lut, settings());
 }
@@ -219,8 +286,15 @@ fn read_texture(
         .map_async(wgpu::MapMode::Read, move |result| {
             send.send(result).unwrap();
         });
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    recv.recv().unwrap().unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .unwrap();
+    recv.recv_timeout(std::time::Duration::from_secs(30))
+        .unwrap()
+        .unwrap();
     let data = buffer.slice(..).get_mapped_range().unwrap().to_vec();
     buffer.unmap();
     data
@@ -390,7 +464,10 @@ fn selected_environment_conventions_match_reference_integrals() {
             let maps = maps.unwrap();
             context
                 .device()
-                .poll(wgpu::PollType::wait_indefinitely())
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(std::time::Duration::from_secs(30)),
+                })
                 .unwrap();
             verify_constant(context.device(), context.submission(), &maps.cube);
             verify_lut(context.device(), context.submission(), &maps.lut, settings);

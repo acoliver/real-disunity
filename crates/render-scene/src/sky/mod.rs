@@ -4,6 +4,11 @@ use glam::Vec3;
 use wgpu::util::DeviceExt;
 use worldrunner_render_plan::{SceneAtmosphere, SceneCelestialDisc};
 
+#[cfg(test)]
+mod body_lighting_tests;
+#[cfg(test)]
+mod controls_tests;
+pub(crate) mod lighting;
 mod mesh_target;
 pub(crate) mod meshes;
 pub mod preparation;
@@ -351,7 +356,7 @@ pub(crate) fn height_fog(
     fog: worldrunner_render_plan::SceneHeightFog,
 ) -> worldrunner_render_lighting::atmosphere::HeightFog {
     worldrunner_render_lighting::atmosphere::HeightFog::new(
-        fog.density_micro_per_meter as f32 / 1e6,
+        fog.density.per_meter(),
         fog.falloff_micro_per_meter as f32 / 1e6,
         fog.base_height_millimeters as f32 / 1000.0,
         fog.start_distance_millimeters as f32 / 1000.0,

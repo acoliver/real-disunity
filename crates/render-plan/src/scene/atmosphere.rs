@@ -4,8 +4,8 @@ use super::{SceneDirection, SceneValidationError, TextureHandle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneHeightFog {
-    /// Extinction at base height, in millionths per metre.
-    pub density_micro_per_meter: u32,
+    /// Extinction at base height, in inverse metres.
+    pub density: super::SceneFogDensity,
     pub falloff_micro_per_meter: u32,
     pub base_height_millimeters: i32,
     pub start_distance_millimeters: u32,
@@ -120,6 +120,11 @@ impl SceneAtmosphere {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneCelestialMesh {
     pub direction: SceneDirection,
+    pub lighting: super::SceneCelestialLighting,
+    /// Linear RGB multiplier; values above one preserve authored HDR colour.
+    pub tint: super::SceneTint,
+    /// A fixed world-space origin for the directional offset; None follows the eye.
+    pub anchor_millimeters: Option<[i32; 3]>,
     pub angular_radius_millidegrees: u32,
     pub distance_millimeters: u32,
     /// Bounding radius of the source mesh before angular-size scaling.

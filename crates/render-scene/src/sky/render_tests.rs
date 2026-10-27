@@ -148,8 +148,15 @@ impl Targets {
             .map_async(wgpu::MapMode::Read, move |result| {
                 send.send(result).unwrap();
             });
-        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        recv.recv().unwrap().unwrap();
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(30)),
+            })
+            .unwrap();
+        recv.recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap()
+            .unwrap();
         let data = self.readback.slice(..).get_mapped_range().unwrap();
         let color = data[..8].to_vec();
         let depth = f32::from_le_bytes(data[256..260].try_into().unwrap());
@@ -251,7 +258,7 @@ fn celestial_discs_cover_the_background_only_in_their_angular_extent() {
 fn fog_is_linear_hdr_and_uses_the_shared_exposure() {
     let mut sky = settings();
     sky.fog = Some(worldrunner_render_plan::SceneHeightFog {
-        density_micro_per_meter: 1_000_000,
+        density: worldrunner_render_plan::SceneFogDensity::new(1.0).unwrap(),
         falloff_micro_per_meter: 0,
         base_height_millimeters: 0,
         start_distance_millimeters: 0,

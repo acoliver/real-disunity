@@ -19,14 +19,17 @@ pub(super) fn upload(
         .map(|settings| {
             let lod = &meshes[settings.mesh.raw() as usize].lods[0];
             let material = &scene.resources().materials()[settings.material.raw() as usize];
+            let mut bytes =
+                crate::geometry::pack_model_instance(crate::sky::meshes::model(*settings));
+            crate::geometry::tint_instance(&mut bytes, settings.tint);
             let instance = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("celestial mesh pose"),
-                contents: &crate::geometry::pack_model_instance(crate::sky::meshes::model(
-                    *settings,
-                )),
+                contents: &bytes,
                 usage: wgpu::BufferUsages::VERTEX,
             });
             crate::sky::meshes::MeshDraw {
+                lighting: settings.lighting,
+                anchored: settings.anchor_millimeters.is_some(),
                 vertices: lod.vertices.clone(),
                 indices: lod.indices.clone(),
                 count: lod.index_count,

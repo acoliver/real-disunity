@@ -243,11 +243,16 @@ pub(crate) fn pack_object(object: worldrunner_render_plan::SceneObject) -> Vec<u
         bytes[12..16].copy_from_slice(&start.to_le_bytes());
         bytes[28..32].copy_from_slice(&end.to_le_bytes());
     }
-    for (index, channel) in object.tint().channels().into_iter().enumerate() {
+    tint_instance(&mut bytes, object.tint());
+    bytes
+}
+
+pub(crate) fn tint_instance(bytes: &mut [u8], tint: worldrunner_render_plan::SceneTint) {
+    assert_eq!(bytes.len(), INSTANCE_BYTES);
+    for (index, channel) in tint.channels().into_iter().enumerate() {
         let value = narrow(f64::from(channel) / MICRO_SCALE);
         bytes[64 + index * 4..68 + index * 4].copy_from_slice(&value.to_le_bytes());
     }
-    bytes
 }
 
 /// Maps a governed billboard policy to the code the vertex stage branches on.

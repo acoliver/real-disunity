@@ -262,6 +262,7 @@ fn reflection_maps_and_composition_survive_both_replacement_paths() {
         convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 2,
         mip_count: 2,
+        specular_intensity_micro: 1_000_000,
         lut_size: 1,
         samples: 8,
     };

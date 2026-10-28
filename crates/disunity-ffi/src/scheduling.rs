@@ -26,6 +26,26 @@ pub struct DisunityClock {
     pub frame: u64,
 }
 
+/// The clock values `DisunityClock` leaves out, all in seconds.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityTime {
+    pub unscaled_delta: f64,
+    pub unscaled_time: f64,
+    pub smooth_delta: f64,
+    pub time_scale: f64,
+    pub maximum_delta: f64,
+}
+
+/// Which clock setting `disunity_world_time_write` changes.
+pub mod time_setting {
+    pub const TIME_SCALE: u32 = 0;
+    pub const MAXIMUM_DELTA: u32 = 1;
+}
+
+/// The largest denominator `disunity_world_time_write` accepts for a time scale.
+pub const MAX_SCALE_DENOMINATOR: u64 = 100;
+
 /// Maximum owned UTF-8 callback diagnostic; input is clipped before allocation.
 pub const MAX_DIAGNOSTIC_BYTES: usize = 65536;
 
@@ -361,6 +381,62 @@ pub unsafe extern "C" fn disunity_world_clock(
         }
     };
     DisunityResult::ok()
+}
+
+/// # Safety
+/// `output` is writable for one time record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_world_time_read(
+    world: u64,
+    output: *mut DisunityTime,
+) -> DisunityResult {
+    if output.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let store = lock_store();
+    let Ok(session) = store.session(world) else {
+        return DisunityResult::invalid_handle();
+    };
+    let clock = session.native.clock();
+    let smooth_delta =
+        TimeSpan::from_nanos(clock.smooth_delta_nanos).map_or(0.0, TimeSpan::seconds);
+    unsafe {
+        *output = DisunityTime {
+            unscaled_delta: clock.unscaled_delta.seconds(),
+            unscaled_time: clock.unscaled_time.seconds(),
+            smooth_delta,
+            time_scale: clock.time_scale.seconds(),
+            maximum_delta: clock.max_delta.seconds(),
+        }
+    };
+    DisunityResult::ok()
+}
+
+/// Sets `Time.timeScale` (`setting` 0; a ratio of at most 100 whose denominator is at most
+/// 100, because a scale with more digits would multiply the denominators of the clock's exact
+/// sums past their bounds) or `Time.maximumDeltaTime` (`setting` 1; above zero) to
+/// `numerator / denominator` seconds.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_world_time_write(
+    world: u64,
+    setting: u32,
+    numerator: u64,
+    denominator: u64,
+) -> DisunityResult {
+    crate::callbacks::mutate(world, |session| {
+        let span = TimeSpan::new(numerator, denominator).map_err(crate::errors::AbiError::from)?;
+        match setting {
+            time_setting::TIME_SCALE if denominator <= MAX_SCALE_DENOMINATOR => session
+                .native
+                .set_time_scale(span)
+                .map_err(crate::errors::AbiError::from),
+            time_setting::MAXIMUM_DELTA => session
+                .native
+                .set_max_delta(span)
+                .map_err(crate::errors::AbiError::from),
+            _ => Err("unknown time setting or a time scale with too many digits".into()),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]

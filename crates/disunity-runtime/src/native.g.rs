@@ -201,6 +201,16 @@ pub struct DisunityClock {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityTime {
+    pub unscaled_delta: f64,
+    pub unscaled_time: f64,
+    pub smooth_delta: f64,
+    pub time_scale: f64,
+    pub maximum_delta: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityBuffer {
     pub handle: u64,
     pub length: u32,

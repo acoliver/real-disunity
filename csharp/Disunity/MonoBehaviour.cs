@@ -20,6 +20,10 @@ public abstract class MonoBehaviour : Behaviour
             Disunity.Hosting.DisunityHost.Drain(work);
         }
     }
+
+    /// <summary>Stored: the engine draws no OnGUI layer. Defaults to true.</summary>
+    public bool useGUILayout { get; set; } = true;
+
     public Coroutine StartCoroutine(System.Collections.IEnumerator iterator) => Disunity.Hosting.DisunityHost.StartCoroutine(this, iterator);
     public void StopCoroutine(Coroutine routine) => Disunity.Hosting.DisunityHost.StopCoroutine(this, routine);
     public void StopAllCoroutines() => Disunity.Hosting.DisunityHost.StopAllCoroutines(this);

@@ -31,7 +31,7 @@ public partial class Object
     private string _name = "";
     private bool _assetDestroyed;
 
-    public Object() { }
+    public Object() => ObjectRegistry.Add(this);
 
     internal virtual GameObject? Owner => null;
     internal virtual bool Destroyed => _assetDestroyed;
@@ -71,6 +71,9 @@ public partial class Object
 
     /// <summary>A copy for Instantiate of an object that is not in a scene.</summary>
     internal virtual Object CloneAsset() => throw new NotSupportedException($"Object.Instantiate is not supported yet for {GetType().Name}");
+
+    /// <summary>Marks the object as changed for the editor to save. The engine has no editor and saves no objects, so nothing happens.</summary>
+    public void MarkDirty() { }
 
     public int GetInstanceID() => _instanceId;
     public EntityId GetEntityId() => new(_instanceId);
@@ -152,7 +155,7 @@ public partial class Object
     public override int GetHashCode() => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
 }
 
-public abstract class Component : Object
+public abstract partial class Component : Object
 {
     internal ulong Handle;
     public GameObject gameObject { get; internal set; } = null!;

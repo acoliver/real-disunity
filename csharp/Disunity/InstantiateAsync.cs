@@ -5,8 +5,8 @@ using Disunity.Hosting;
 namespace UnityEngine.SceneManagement
 {
     /// <summary>A loaded scene. The engine has one scene and no scene manager yet, so a value is
-    /// only the default (invalid) scene; the scene members arrive with scene management.</summary>
-    public readonly struct Scene : IEquatable<Scene>
+    /// the loaded scene or the default (invalid) scene.</summary>
+    public readonly partial struct Scene : IEquatable<Scene>
     {
         internal int Handle { get; init; }
 

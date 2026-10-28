@@ -27,7 +27,7 @@ public static class PlayBridge
                 ?? throw new ArgumentException("native library path is required"));
             return 0;
         }
-        catch (Exception error) { LastError = error.ToString(); return -1; }
+        catch (Exception error) { LastError = Describe(error); return -1; }
     }
 
     [UnmanagedCallersOnly]
@@ -63,10 +63,27 @@ public static class PlayBridge
         }
         catch (Exception error)
         {
-            LastError = error.ToString();
+            LastError = Describe(error);
             try { if (DisunityHost.IsLoaded) DisunityHost.UnloadWorld(); }
-            catch (Exception cleanup) { LastError += cleanup.ToString(); }
+            catch (Exception cleanup) { LastError += Describe(cleanup); }
             return -3;
+        }
+    }
+
+    /// <summary>
+    /// An exception as text. Formatting a stack trace reads attributes of the methods in it,
+    /// which can fail when a game method carries an attribute the engine lacks; the message
+    /// chain is reported then, with the formatting failure.
+    /// </summary>
+    internal static string Describe(Exception error)
+    {
+        try { return error.ToString(); }
+        catch (Exception formatting)
+        {
+            var text = new System.Text.StringBuilder();
+            for (Exception? current = error; current is not null; current = current.InnerException)
+                text.Append(current.GetType().FullName).Append(": ").AppendLine(current.Message);
+            return text.Append("(stack trace unavailable: ").Append(formatting.Message).Append(')').ToString();
         }
     }
 
@@ -87,14 +104,14 @@ public static class PlayBridge
             DisunityHost.ConfigurePlayer(PlayerEnvironment.Default);
             return 0;
         }
-        catch (Exception error) { LastError = error.ToString(); return -1; }
+        catch (Exception error) { LastError = Describe(error); return -1; }
     }
 
     [UnmanagedCallersOnly]
     public static int Dispatch(ulong identity, uint message)
     {
         try { DisunityHost.Dispatch(identity, message); return 0; }
-        catch (Exception error) { DisunityHost.ReportFault(); LastError = error.ToString(); return -1; }
+        catch (Exception error) { DisunityHost.ReportFault(); LastError = Describe(error); return -1; }
     }
 
     [UnmanagedCallersOnly]
@@ -116,7 +133,7 @@ public static class PlayBridge
             xyz[0] = value.X; xyz[1] = value.Y; xyz[2] = value.Z;
             return 0;
         }
-        catch (Exception error) { LastError = error.ToString(); return -1; }
+        catch (Exception error) { LastError = Describe(error); return -1; }
     }
 
     [UnmanagedCallersOnly]

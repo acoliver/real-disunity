@@ -56,20 +56,26 @@ public sealed class RuntimeHooks
     }
 
     /// <summary>
-    /// Runs every hook of <paramref name="phase"/> in listed order. Fails before running any
-    /// when one of the phase's hooks is unresolved, and stops at the first hook that throws,
-    /// naming it.
+    /// Runs every hook of <paramref name="phase"/> in listed order. Without
+    /// <paramref name="failed"/>, fails before running any when one of the phase's hooks is
+    /// unresolved, and stops at the first hook that throws, naming it. With it, as Unity does,
+    /// each unresolved or throwing hook is passed to <paramref name="failed"/> and the rest run.
     /// </summary>
-    public void Run(RuntimeInitializeLoadType phase)
+    public void Run(RuntimeInitializeLoadType phase, Action<RuntimeHook, Exception>? failed = null)
     {
         if (!Enum.IsDefined(phase)) throw new ArgumentOutOfRangeException(nameof(phase), phase, "not a startup phase");
         var missing = Unresolved.Where(entry => entry.Hook.Phase == phase).ToList();
-        if (missing.Count > 0)
+        if (missing.Count > 0 && failed is null)
             throw new InvalidOperationException(
                 $"{phase} startup hooks cannot run: " + string.Join("; ", missing.Select(m => $"{m.Hook}: {m.Reason}")));
+        foreach (var entry in missing) failed?.Invoke(entry.Hook, new InvalidOperationException(entry.Reason));
         foreach (var (hook, method) in _resolved.Where(entry => entry.Hook.Phase == phase))
         {
             try { method.Invoke(null, null); }
+            catch (TargetInvocationException error) when (error.InnerException is not null && failed is not null)
+            {
+                failed(hook, error.InnerException);
+            }
             catch (TargetInvocationException error) when (error.InnerException is not null)
             {
                 throw new InvalidOperationException($"startup hook {hook} failed", error.InnerException);

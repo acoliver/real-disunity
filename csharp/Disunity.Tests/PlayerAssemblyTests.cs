@@ -21,6 +21,7 @@ internal static class PlayerAssemblyTests
         "UnityEngine.GameObject",
         "UnityEngine.Rendering.Universal.Light2D",
         "UnityEngine.Events.UnityEvent`1",
+        "Unity.TLS.LowLevel.Binding",
     };
 
     public static void Run()
@@ -47,6 +48,8 @@ internal static class PlayerAssemblyTests
         module.DefineClass("UnityEngine.Events", "UnityEvent`1");
         module.DefineClass("UnityEngine.Events", "IPersistentCalls");
         module.DefineClass("UnityEngine", "NotImplementedThing");
+        module.DefineInternalClass("Unity.TLS.LowLevel", "Binding");
+        module.DefineInternalClass("UnityEngine", "InternalOnlyThing");
         return module.Build();
     }
 
@@ -92,7 +95,8 @@ internal static class PlayerAssemblyTests
     {
         var module = ModuleFacades.Read(new MemoryStream(TestModule()));
         Require(module.Name.Name == Module, "module name is read");
-        Require(module.Types.Count == 5 && module.Types[0] == "UnityEngine.GameObject", "defined types are read");
+        Require(module.Types.Count == 7 && module.Types[0] == "UnityEngine.GameObject" && module.Types.Contains("Unity.TLS.LowLevel.Binding"),
+            "defined types are read, internal ones included and <Module> excluded: " + string.Join(", ", module.Types));
 
         // UnityEngine.dll defines nothing and forwards its types to the module assemblies.
         var forwarding = new SyntheticAssembly("UnityEngine");
@@ -107,6 +111,9 @@ internal static class PlayerAssemblyTests
         var forwarded = ModuleFacades.Implemented(module, Engine);
         Require(forwarded.SequenceEqual(Implemented), "forwarded: " + string.Join(", ", forwarded));
         Require(!ModuleFacades.Forwards(Engine, "UnityEngine.Events.IPersistentCalls"), "an internal type is not forwarded");
+        Require(forwarded.Contains("Unity.TLS.LowLevel.Binding") && !forwarded.Contains("UnityEngine.InternalOnlyThing"),
+            "a module's internal type is forwarded when the engine defines it publicly");
+        Require(ModuleFacades.Forwards(Engine, "Unity.TLS.LowLevel.Binding+unitytls_client_config"), "its public nested types are forwarded");
         Require(ModuleFacades.Forwards(Engine, "UnityEngine.Rendering.Universal.Light2D+LightType"), "a public nested type is forwarded");
     }
 

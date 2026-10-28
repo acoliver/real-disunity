@@ -236,3 +236,10 @@ ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();
 EnvironmentTests.Run();
+
+NativeArrayTests.Run();
+NativeMemoryTests.Run();
+JobTests.Run();
+CustomYieldTests.Run();
+RenderingLayerMaskTests.Run();
+UnityAttributeTests.Run();

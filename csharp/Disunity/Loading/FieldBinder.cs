@@ -15,11 +15,14 @@ namespace Disunity.Hosting;
 /// </summary>
 internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
 {
+    /// <summary>Sets the fields, then calls <see cref="ISerializationCallbackReceiver.OnAfterDeserialize"/>
+    /// as Unity does once an object's data is loaded.</summary>
     public void Bind(object target, JsonElement fields, string where)
     {
         foreach (var field in DisunityHost.SerializedFields(target.GetType()))
             if (fields.TryGetProperty(field.Name, out var value))
                 field.SetValue(target, Value(value, field.FieldType, $"{where}.{field.Name}"));
+        (target as ISerializationCallbackReceiver)?.OnAfterDeserialize();
     }
 
     private object? Value(JsonElement value, Type type, string path)
@@ -82,6 +85,7 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
         if (type == typeof(Color)) return new Color(Part(value, "r"), Part(value, "g"), Part(value, "b"), Part(value, "a"));
         if (type == typeof(Rect)) return new Rect(Part(value, "x"), Part(value, "y"), Part(value, "width"), Part(value, "height"));
         if (type == typeof(LayerMask)) return (LayerMask)(int)uint.Parse(Text(value.GetProperty("m_Bits")), CultureInfo.InvariantCulture);
+        if (type == typeof(RenderingLayerMask)) return (RenderingLayerMask)uint.Parse(Text(value.GetProperty("m_Bits")), CultureInfo.InvariantCulture);
         return null;
     }
 

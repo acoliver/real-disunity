@@ -53,10 +53,16 @@ internal static class PlayerRun
         return scene;
     }
 
+    /// <summary>Runs a startup phase as Unity does: a hook that fails is logged with
+    /// <see cref="Debug.LogException(Exception)"/> and the phase goes on.</summary>
     private static void RunPhase(RuntimeHooks hooks, RuntimeInitializeLoadType phase)
     {
         Log($"startup phase {phase}");
-        hooks.Run(phase);
+        hooks.Run(phase, (hook, error) =>
+        {
+            Log($"startup hook failed: {hook}: {error.GetType().Name}: {error.Message}");
+            Debug.LogException(error);
+        });
     }
 
     private static byte[] NoFont(string name) =>

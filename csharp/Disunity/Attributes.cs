@@ -1,13 +1,13 @@
 namespace UnityEngine;
 
 [AttributeUsage(AttributeTargets.Field)]
-public sealed class HeaderAttribute(string header) : Attribute
+public sealed class HeaderAttribute(string header) : PropertyAttribute
 {
     public string header { get; } = header;
 }
 
 [AttributeUsage(AttributeTargets.Field)]
-public sealed class RangeAttribute(float min, float max) : Attribute
+public sealed class RangeAttribute(float min, float max) : PropertyAttribute
 {
     public float min { get; } = min;
     public float max { get; } = max;

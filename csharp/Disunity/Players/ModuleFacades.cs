@@ -7,7 +7,8 @@ namespace Disunity.Hosting;
 
 /// <summary>
 /// A Unity engine module of a built player, for example <c>UnityEngine.CoreModule</c>:
-/// its identity and the full names of the top-level public types it defines or forwards.
+/// its identity and the full names of the top-level types it defines or forwards. Internal
+/// types are included, because packages reach them through <c>InternalsVisibleTo</c>.
 /// </summary>
 public sealed record UnityModule(AssemblyName Name, IReadOnlyList<string> Types);
 
@@ -41,7 +42,8 @@ public static class ModuleFacades
         {
             var type = reader.GetTypeDefinition(handle);
             var visibility = type.Attributes & TypeAttributes.VisibilityMask;
-            if (visibility == TypeAttributes.Public)
+            var generated = reader.GetString(type.Name).StartsWith('<');
+            if (visibility is TypeAttributes.Public or TypeAttributes.NotPublic && !generated)
                 types.Add(FullName(reader, type.Namespace, type.Name));
         }
         foreach (var handle in reader.ExportedTypes)
@@ -56,7 +58,8 @@ public static class ModuleFacades
     /// <summary>
     /// Whether a facade forwards the type with this reflection name (nested types as
     /// <c>Outer+Inner</c>): <paramref name="target"/> defines it, and it and every type
-    /// enclosing it are public.
+    /// enclosing it are public there. The engine defines Unity's internal types that packages
+    /// use as public types.
     /// </summary>
     public static bool Forwards(Assembly target, string name) => target.GetType(name) is { IsVisible: true };
 

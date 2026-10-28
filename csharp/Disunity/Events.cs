@@ -3,16 +3,20 @@ using System.Reflection;
 namespace UnityEngine.Events;
 
 public delegate void UnityAction();
-public delegate void UnityAction<in T>(T value);
+public delegate void UnityAction<T0>(T0 arg0);
+public delegate void UnityAction<T0, T1>(T0 arg0, T1 arg1);
+public delegate void UnityAction<T0, T1, T2>(T0 arg0, T1 arg1, T2 arg2);
+public delegate void UnityAction<T0, T1, T2, T3>(T0 arg0, T1 arg1, T2 arg2, T3 arg3);
 
-/// <summary>Unity's <c>PersistentListenerMode</c>: what a persistent call passes.</summary>
+/// <summary>How a persistent call gets its arguments: the event's own, none, or one fixed
+/// argument of the given kind.</summary>
 public enum PersistentListenerMode { EventDefined, Void, Object, Int, Float, String, Bool }
 
-/// <summary>Unity's <c>UnityEventCallState</c>.</summary>
+/// <summary>When a persistent call runs. A built player runs calls in both runtime states.</summary>
 public enum UnityEventCallState { Off, EditorAndRuntime, RuntimeOnly }
 
 /// <summary>
-/// A call authored on a UnityEvent: a method on a target object, with the event's argument or
+/// A call authored on a UnityEvent: a method on a target object, with the event's arguments or
 /// a fixed one. Calls are serialized data, so a cloned event calls the clone's targets.
 /// </summary>
 [Serializable]
@@ -28,31 +32,33 @@ public sealed class PersistentCall
     [SerializeField] internal string StringArgument = "";
     [SerializeField] internal bool BoolArgument;
 
-    /// <summary>The target's method this call invokes, given the event's argument type.</summary>
-    internal MethodInfo Method(Type eventArgument)
+    private Type[] Parameters(Type[] eventArguments) => Mode switch
     {
-        var parameters = Mode switch
-        {
-            PersistentListenerMode.EventDefined => [eventArgument],
-            PersistentListenerMode.Void => Type.EmptyTypes,
-            PersistentListenerMode.Object => [ObjectArgument?.GetType() ?? typeof(Object)],
-            PersistentListenerMode.Int => [typeof(int)],
-            PersistentListenerMode.Float => [typeof(float)],
-            PersistentListenerMode.String => [typeof(string)],
-            PersistentListenerMode.Bool => [typeof(bool)],
-            _ => throw new NotSupportedException($"persistent listener mode {Mode}"),
-        };
+        PersistentListenerMode.EventDefined => eventArguments,
+        PersistentListenerMode.Void => Type.EmptyTypes,
+        PersistentListenerMode.Object => [ObjectArgument?.GetType() ?? typeof(Object)],
+        PersistentListenerMode.Int => [typeof(int)],
+        PersistentListenerMode.Float => [typeof(float)],
+        PersistentListenerMode.String => [typeof(string)],
+        PersistentListenerMode.Bool => [typeof(bool)],
+        _ => throw new NotSupportedException($"persistent listener mode {Mode}"),
+    };
+
+    /// <summary>The target's method this call invokes, given the event's argument types.</summary>
+    internal MethodInfo Method(Type[] eventArguments)
+    {
+        var parameters = Parameters(eventArguments);
         var type = Target?.GetType() ?? throw new InvalidOperationException($"persistent call {MethodName} has no target");
-        return type.GetMethod(MethodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, parameters)
+        return UnityEventBase.GetValidMethodInfo(type, MethodName, parameters)
             ?? throw new MissingMethodException($"{type.Name} has no method {MethodName}({string.Join(", ", parameters.Select(p => p.Name))})");
     }
 
-    internal void Invoke<T>(T value)
+    internal void Invoke(Type[] eventArguments, object?[] values)
     {
         if (CallState == UnityEventCallState.Off || Target == null) return;
         object?[] arguments = Mode switch
         {
-            PersistentListenerMode.EventDefined => [value],
+            PersistentListenerMode.EventDefined => values,
             PersistentListenerMode.Void => [],
             PersistentListenerMode.Object => [ObjectArgument],
             PersistentListenerMode.Int => [IntArgument],
@@ -60,7 +66,7 @@ public sealed class PersistentCall
             PersistentListenerMode.String => [StringArgument],
             _ => [BoolArgument],
         };
-        Method(typeof(T)).Invoke(Target, arguments);
+        Method(eventArguments).Invoke(Target, arguments);
     }
 }
 
@@ -68,30 +74,4 @@ public sealed class PersistentCall
 internal interface IPersistentCalls
 {
     void AddPersistentCall(PersistentCall call);
-}
-
-[Serializable]
-public class UnityEvent<T> : IPersistentCalls
-{
-    [SerializeField] private List<PersistentCall> m_PersistentCalls = new();
-    private event UnityAction<T>? Listeners;
-    public void AddListener(UnityAction<T> listener) => Listeners += listener;
-    public void RemoveListener(UnityAction<T> listener) => Listeners -= listener;
-    /// <summary>Removes the listeners added at runtime; persistent calls stay, as in Unity.</summary>
-    public void RemoveAllListeners() => Listeners = null;
-    public int GetPersistentEventCount() => m_PersistentCalls.Count;
-    public string GetPersistentMethodName(int index) => m_PersistentCalls[index].MethodName;
-    public Object? GetPersistentTarget(int index) => m_PersistentCalls[index].Target;
-    /// <summary>Adds an authored call, checking that its target has the method.</summary>
-    void IPersistentCalls.AddPersistentCall(PersistentCall call)
-    {
-        call.Method(typeof(T));
-        m_PersistentCalls.Add(call);
-    }
-    /// <summary>Calls the persistent calls in authored order, then the runtime listeners.</summary>
-    public void Invoke(T value)
-    {
-        foreach (var call in m_PersistentCalls) call.Invoke(value);
-        Listeners?.Invoke(value);
-    }
 }

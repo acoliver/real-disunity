@@ -235,6 +235,7 @@ DeferredDestroyTests.Run();
 PlayerAssemblyTests.Run();
 RuntimeHookTests.Run();
 EngineEnumTests.Run();
+UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();

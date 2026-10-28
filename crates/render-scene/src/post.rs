@@ -62,6 +62,23 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
         });
     Ok(out)
 }
+/// Authored post settings with the descriptor's resolve; both may not choose one.
+pub(crate) fn settings_with_resolve(
+    effects: Option<&worldrunner_render_plan::SceneEffects>,
+    resolve: PostResolve,
+) -> Result<HdrPostSettings, PostError> {
+    let mut post = effects
+        .map(crate::post::settings)
+        .transpose()?
+        .unwrap_or_default();
+    if resolve != PostResolve::None {
+        if post.resolve != PostResolve::None {
+            return Err(PostError::UnsupportedProfile("duplicate FXAA"));
+        }
+        post.resolve = resolve;
+    }
+    Ok(post)
+}
 pub(crate) fn requested(effects: &SceneEffects) -> bool {
     effects.hdr_post().is_some()
         || !effects.post().is_empty()

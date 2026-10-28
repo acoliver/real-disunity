@@ -33,8 +33,10 @@ fn default_descriptor_is_single_sample_without_resolve() {
 
 #[test]
 fn descriptor_validates_the_resolve_it_carries() {
-    let mut quality = FxaaQuality::default();
-    quality.edge_threshold = 2.0;
+    let quality = FxaaQuality {
+        edge_threshold: 2.0,
+        ..FxaaQuality::default()
+    };
     let aa = AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa_with(1.0, quality));
     assert_eq!(
         aa.validate(),

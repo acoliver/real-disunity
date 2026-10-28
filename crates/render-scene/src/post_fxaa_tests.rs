@@ -1,7 +1,7 @@
 use worldrunner_render_plan as s;
 use worldrunner_render_post as p;
 
-fn effects(quality: Option<s::SceneFxaaQuality>) -> s::SceneEffects {
+pub(crate) fn effects(quality: Option<s::SceneFxaaQuality>) -> s::SceneEffects {
     crate::post_bloom_tests::effects(crate::post_bloom_tests::bloom())
         .with_hdr_post(s::SceneHdrPost {
             tone_map: None,

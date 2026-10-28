@@ -159,16 +159,7 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        let mut post = effects
-            .map(crate::post::settings)
-            .transpose()?
-            .unwrap_or_default();
-        if antialiasing.resolve != PostResolve::None {
-            if post.resolve != PostResolve::None {
-                return Err(PostError::UnsupportedProfile("duplicate FXAA"));
-            }
-            post.resolve = antialiasing.resolve;
-        }
+        let post = crate::post::settings_with_resolve(effects, antialiasing.resolve)?;
         post.validate_frame(config)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;

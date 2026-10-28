@@ -17,12 +17,16 @@ public sealed record InputAxisDefinition(string Name, KeyCode Negative = KeyCode
 
 public static partial class DisunityHost
 {
+    /// <summary>The registered axes by name, for GetButton, which reads an axis's keys.</summary>
+    internal static readonly Dictionary<string, InputAxisDefinition> AxisDefinitions = new();
+
     private static uint AxisKey(KeyCode key) => key == KeyCode.None ? 65536u : (uint)key;
     public static unsafe void RegisterInputAxis(ushort id, InputAxisDefinition axis)
     {
         ArgumentNullException.ThrowIfNull(axis);
         ArgumentException.ThrowIfNullOrEmpty(axis.Name);
         var bytes = Encoding.UTF8.GetBytes(axis.Name);
+        AxisDefinitions[axis.Name] = axis;
         var config = new DisunityInputAxis {
             negative = AxisKey(axis.Negative), positive = AxisKey(axis.Positive),
             alt_negative = AxisKey(axis.AltNegative), alt_positive = AxisKey(axis.AltPositive),

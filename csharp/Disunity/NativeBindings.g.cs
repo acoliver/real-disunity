@@ -365,6 +365,20 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_world_clock", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_world_clock(ulong world, DisunityClock* output);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one time record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_world_time_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_world_time_read(ulong world, DisunityTime* output);
+        /// <summary>
+        ///  Sets `Time.timeScale` (`setting` 0; a ratio of at most 100 whose denominator is at most
+        ///  100, because a scale with more digits would multiply the denominators of the clock's exact
+        ///  sums past their bounds) or `Time.maximumDeltaTime` (`setting` 1; above zero) to
+        ///  `numerator / denominator` seconds.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_world_time_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_world_time_write(ulong world, uint setting, ulong numerator, ulong denominator);
         [DllImport(__DllName, EntryPoint = "disunity_callback_check", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_callback_check(ulong world, ulong ticket);
         /// <summary>
@@ -726,19 +740,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_gameobject_destroy_after", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_gameobject_destroy_after(ulong world, ulong @object, ulong numerator, ulong denominator);
-        /// <summary>
-        ///  # Safety
-        ///  Output is writable for one text style record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_text_style_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_text_style_read(ulong world, ulong handle, DisunityTextStyle* output);
-        /// <summary>
-        ///  Validates every field before changing the text. Bold or italic styles and best fit are
-        ///  reported as unsupported fields.
-        ///  # Safety
-        ///  Value is readable for one text style record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_text_style_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_text_style_write(ulong world, ulong handle, DisunityTextStyle* value);
     }
 }

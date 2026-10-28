@@ -7,9 +7,21 @@ public sealed class WaitForSeconds(float seconds) : YieldInstruction
 {
     public float Seconds { get; } = float.IsFinite(seconds) && seconds >= 0 ? seconds : throw new ArgumentOutOfRangeException(nameof(seconds));
 }
-public sealed class WaitForSecondsRealtime(float seconds)
+public sealed class WaitForSecondsRealtime(float time)
 {
-    public float Seconds { get; } = float.IsFinite(seconds) && seconds >= 0 ? seconds : throw new ArgumentOutOfRangeException(nameof(seconds));
+    private float _waitTime = Checked(time);
+
+    /// <summary>The wait in unscaled seconds. A coroutine reads it when it yields this object, so changing it afterwards does not
+    /// change a wait already under way.</summary>
+    public float waitTime
+    {
+        get => _waitTime;
+        set => _waitTime = Checked(value);
+    }
+
+    public float Seconds => _waitTime;
+
+    private static float Checked(float seconds) => float.IsFinite(seconds) && seconds >= 0 ? seconds : throw new ArgumentOutOfRangeException(nameof(seconds));
 }
 public sealed class WaitForFixedUpdate : YieldInstruction;
 public sealed class Coroutine : YieldInstruction

@@ -27,6 +27,7 @@ public static partial class DisunityHost
         ulong world;
         ThrowIfError(NativeBindings.disunity_world_create(&world));
         WorldHandle = world;
+        UnityEngine.Time.Start();
         _faulted = false;
         _listenerDiagnostic = null;
         try { InstallMainThreadContext(); }
@@ -38,12 +39,14 @@ public static partial class DisunityHost
         }
     }
 
-    public static unsafe GameObject CreateGameObject()
+    public static GameObject CreateGameObject() => Track(new GameObject(CreateNativeObject()));
+
+    internal static unsafe ulong CreateNativeObject()
     {
         EnsureWorld();
         ulong handle;
         ThrowIfError(NativeBindings.disunity_gameobject_create(WorldHandle, &handle));
-        return Track(new GameObject(handle));
+        return handle;
     }
 
     public static unsafe T AddComponent<T>(T behaviour) where T : MonoBehaviour
@@ -125,7 +128,9 @@ public static partial class DisunityHost
 
     public static Vector3 ObjectPosition(ulong handle) => Tracked.Where(o => !o.IsDestroyed).Single(o => o.NativeHandle == handle).Transform.position;
 
-    internal static GameObject ResolveObject(ulong handle) => Tracked.Where(value => !value.IsDestroyed).Single(value => value.NativeHandle == handle);
+    internal static GameObject ResolveObject(ulong handle) =>
+        Tracked.FirstOrDefault(value => value.RawHandle == handle && !value.IsDestroyed)
+        ?? throw new InvalidOperationException("no live object has that native handle");
 
     internal static unsafe void Drain(DisunityAdvance work)
     {
@@ -196,7 +201,7 @@ public static partial class DisunityHost
             finally
             {
                 foreach (var value in Tracked) value.MarkDestroyed();
-                Tracked.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
+                CurrentScene = null; AxisDefinitions.Clear(); Tracked.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
                 var world = WorldHandle;
                 WorldHandle = 0;
                 _listenerDiagnostic = null;

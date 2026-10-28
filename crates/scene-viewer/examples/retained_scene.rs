@@ -112,6 +112,7 @@ fn scene() -> Result<RenderScene, SceneValidationError> {
 
 fn options() -> ViewerOptions {
     ViewerOptions {
+        camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         title: "Retained native scene".into(),
         size: [800, 600],
         pose: CameraPose {

@@ -441,7 +441,7 @@ impl SceneGpu {
         dynamic: bool,
     ) -> SelectionPublication {
         let frame = self.drawing_uniform();
-        let selected = pipelines.for_convention(frame.specular_convention);
+        let selected = pipelines.for_raster(frame.specular_convention, frame.front_face());
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);

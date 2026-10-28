@@ -23,9 +23,7 @@
 
 use glam::{Mat4, Vec3};
 use thiserror::Error;
-use worldrunner_camera::{
-    CameraLens, CameraState, ResolvedView, ViewConvention, ViewHandedness, resolve,
-};
+use worldrunner_camera::{CameraLens, CameraState, ResolvedView, ViewConvention, resolve};
 use worldrunner_render_plan::SceneCamera;
 
 /// Millimetres per metre; scene distances are integral millimetres.
@@ -146,7 +144,13 @@ impl SceneView {
             near_meters: f64::from(lens.near_meters),
             far_meters: f64::from(lens.far_meters),
         };
-        resolve_scene(pose, lens, Vec3::from_array(up), viewport)
+        resolve_scene(
+            pose,
+            lens,
+            Vec3::from_array(up),
+            viewport,
+            ViewConvention::RIGHT_HANDED,
+        )
     }
 
     /// Resolves an integral governed camera through the shared CPU contract.
@@ -155,12 +159,22 @@ impl SceneView {
         camera: SceneCamera,
         viewport: Viewport,
     ) -> Result<Self, ViewError> {
+        Self::with_convention(pose, camera, viewport, ViewConvention::RIGHT_HANDED)
+    }
+
+    /// Resolves the governed lens with the caller's shared camera convention.
+    pub fn with_convention(
+        pose: CameraPose,
+        camera: SceneCamera,
+        viewport: Viewport,
+        convention: ViewConvention,
+    ) -> Result<Self, ViewError> {
         let lens = CameraLens::Perspective {
             vertical_fov_radians: f64::from(radians(camera.vertical_fov_millidegrees)),
             near_meters: f64::from(meters_scalar(camera.near_plane_millimeters)),
             far_meters: f64::from(meters_scalar(camera.far_plane_millimeters)),
         };
-        resolve_scene(pose, lens, SCENE_UP, viewport)
+        resolve_scene(pose, lens, SCENE_UP, viewport, convention)
     }
 
     /// Selects offscreen raster size and deterministic output-pixel projection jitter.
@@ -234,6 +248,7 @@ fn resolve_scene(
     lens: CameraLens,
     up: Vec3,
     viewport: Viewport,
+    convention: ViewConvention,
 ) -> Result<SceneView, ViewError> {
     let eye = meters(pose.eye_millimeters);
     let target = meters(pose.target_millimeters);
@@ -248,9 +263,7 @@ fn resolve_scene(
             width: viewport.width,
             height: viewport.height,
         },
-        convention: ViewConvention {
-            handedness: ViewHandedness::RightHanded,
-        },
+        convention,
     };
     resolve(&state)
         .map(|resolved| SceneView::from_resolved(resolved, pose.eye_millimeters))

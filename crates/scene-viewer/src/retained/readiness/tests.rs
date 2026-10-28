@@ -13,6 +13,7 @@ fn host(limit: usize) -> RetainedHost {
 fn camera() -> RetainedUpdate {
     let options = crate::tests::options();
     RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: options.pose,
         lens: options.camera,
     }

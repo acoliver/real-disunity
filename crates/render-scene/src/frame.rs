@@ -81,6 +81,8 @@ pub enum FrameError {
 /// Per-frame data, including the uniform block and CPU selection coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameUniform {
+    /// Resolved raster orientation; CPU pipeline selection only, never encoded in legacy bytes.
+    pub view_convention: worldrunner_camera::ViewConvention,
     /// Zero preserves the constant-distance background; otherwise camera-forward far depth.
     pub background_far_plane_meters: f32,
     /// Scene-wide specular BRDF selection, shared with environment preparation.
@@ -91,7 +93,7 @@ pub struct FrameUniform {
     pub height_fog: Option<worldrunner_render_lighting::atmosphere::HeightFog>,
     /// Clip-from-scene transform; the only field that leaves scene space.
     pub view_projection: Mat4,
-    /// World-to-view rotation/translation for screen-space geometry. Not part of the legacy ABI.
+    /// Right-handed reconstruction view for screen-space geometry, outside the legacy ABI.
     pub view: Mat4,
     /// Eye position in scene space, metres, Z-up.
     pub camera_position: Vec3,
@@ -123,6 +125,13 @@ pub struct FrameUniform {
 }
 
 impl FrameUniform {
+    pub(crate) fn front_face(&self) -> wgpu::FrontFace {
+        match self.view_convention.handedness {
+            worldrunner_camera::ViewHandedness::RightHanded => wgpu::FrontFace::Ccw,
+            worldrunner_camera::ViewHandedness::DirectXLeftHanded => wgpu::FrontFace::Cw,
+        }
+    }
+
     /// A view-only frame for unlit runtime geometry, with no lighting authority required.
     /// Builds the frame uniform from a view and the governed effects.
     ///
@@ -167,8 +176,9 @@ impl FrameUniform {
                 .atmosphere()
                 .and_then(|sky| sky.fog)
                 .map(crate::sky::height_fog),
+            view_convention: view.resolved_view().convention(),
             view_projection: view.view_projection_matrix(),
-            view: view.view_matrix(),
+            view: view.resolved_view().reconstruction_view_matrix(),
             camera_position: view.eye_meters(),
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: environment.toward_light,
@@ -190,8 +200,9 @@ impl FrameUniform {
             specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,
             height_fog: None,
+            view_convention: view.resolved_view().convention(),
             view_projection: view.view_projection_matrix(),
-            view: view.view_matrix(),
+            view: view.resolved_view().reconstruction_view_matrix(),
             camera_position: view.eye_meters(),
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: Vec3::ZERO,

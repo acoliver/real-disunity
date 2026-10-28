@@ -120,7 +120,12 @@ impl Content for StaticScene {
 
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {
         if let Some(viewport) = renderer.viewport {
-            let view = self.camera.view(self.options.camera, viewport)?;
+            let view = worldrunner_render_scene::SceneView::with_convention(
+                self.camera.pose(),
+                self.options.camera,
+                viewport,
+                self.options.camera_convention,
+            )?;
             renderer.set_clock(self.options.render_clock);
             renderer.render(&view, &mut self.update)?;
         }

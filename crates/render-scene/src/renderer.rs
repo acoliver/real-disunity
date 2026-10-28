@@ -172,7 +172,7 @@ impl ScenePipelines {
             (source, terrain_source),
             shadow_layout,
             screen_layout,
-            [0; 7],
+            ([0; 7], FrontFace::Ccw),
         )
     }
 
@@ -182,10 +182,11 @@ impl ScenePipelines {
         sources: (&str, &str),
         shadow_layout: Option<&BindGroupLayout>,
         screen_layout: Option<&BindGroupLayout>,
-        options: [u32; 7],
+        options: ([u32; 7], FrontFace),
     ) -> Self {
         let (source, terrain_source) = sources;
-        let constants = specular::constants(options);
+        let mut constants = specular::constants(options.0).to_vec();
+        specular::raster_constants(&mut constants, options.1);
         let (color_format, samples) = target;
         let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
@@ -204,8 +205,13 @@ impl ScenePipelines {
         let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
         let targets = source_targets(source, color_format);
 
-        let pipelines =
-            ObjectPipelines::new(device, &layout, &targets, &module, (samples, &constants));
+        let pipelines = ObjectPipelines::new(
+            device,
+            &layout,
+            &targets,
+            &module,
+            (samples, &constants, options.1),
+        );
         groups[1] = Some(&terrain_layout);
         let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
             device,
@@ -213,7 +219,7 @@ impl ScenePipelines {
             terrain_source,
             &buffers,
             &targets,
-            (samples, &constants),
+            (samples, &constants, options.1),
         );
         Self {
             layered,
@@ -307,7 +313,7 @@ pub(crate) fn build(
     key: PipelineKey,
     layout: &PipelineLayout,
     buffers: &[Option<VertexBufferLayout<'_>>],
-    samples: u32,
+    target: (u32, FrontFace),
     fragment: FragmentState<'_>,
 ) -> RenderPipeline {
     build_variant(
@@ -317,7 +323,8 @@ pub(crate) fn build(
         fragment,
         ObjectState {
             key,
-            samples,
+            samples: target.0,
+            front_face: target.1,
             depth_write: true,
             vertex_entry: shader::VERTEX_ENTRY_POINT,
         },
@@ -328,6 +335,7 @@ pub(crate) fn build(
 pub(super) struct ObjectState {
     key: PipelineKey,
     samples: u32,
+    front_face: FrontFace,
     depth_write: bool,
     vertex_entry: &'static str,
 }
@@ -351,7 +359,7 @@ pub(super) fn build_variant(
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,
             strip_index_format: None,
-            front_face: FrontFace::Ccw,
+            front_face: state.front_face,
             cull_mode: state.key.cull_mode(),
             unclipped_depth: false,
             polygon_mode: PolygonMode::Fill,
@@ -401,9 +409,9 @@ fn build_terrain(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)]),
+    target: (u32, &[(&str, f64)], FrontFace),
 ) -> RenderPipeline {
-    let (samples, constants) = target;
+    let (samples, constants, front_face) = target;
     let module = scene_shader(device, "terrain", source);
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -418,7 +426,7 @@ fn build_terrain(
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,
             strip_index_format: None,
-            front_face: FrontFace::Ccw,
+            front_face,
             cull_mode: Some(Face::Back),
             unclipped_depth: false,
             polygon_mode: PolygonMode::Fill,
@@ -518,7 +526,7 @@ pub(crate) fn celestial_pipelines(
         device,
         scene,
         (physical, separate, object_exposure),
-        [0; 7],
+        ([0; 7], FrontFace::Ccw),
         worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
         false,
     )
@@ -527,11 +535,12 @@ pub(crate) fn celestial_specialization(
     device: &Device,
     scene: &ScenePipelines,
     composition: (bool, bool, bool),
-    options: [u32; 7],
+    options: ([u32; 7], FrontFace),
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
 ) -> [RenderPipeline; 8] {
-    let constants = crate::sky::lighting::constants(options, lighting);
+    let mut constants = crate::sky::lighting::constants(options.0, lighting);
+    specular::raster_constants(&mut constants, options.1);
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",
         "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
@@ -578,6 +587,7 @@ pub(crate) fn celestial_specialization(
             ObjectState {
                 key,
                 samples: scene.samples,
+                front_face: options.1,
                 depth_write: true,
                 vertex_entry: "vs_celestial",
             },

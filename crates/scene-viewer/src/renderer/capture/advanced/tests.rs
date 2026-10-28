@@ -391,6 +391,7 @@ fn temporal_accumulation_pins_generation_until_last_sample() {
         .unwrap();
     assert!(!renderer.render_retained(&mut host).unwrap());
     host.apply(crate::RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: crate::tests::options().pose,
         lens: crate::tests::options().camera,
     })
@@ -409,4 +410,50 @@ fn temporal_accumulation_pins_generation_until_last_sample() {
     assert!(!host.captures.holds_generation(0));
     renderer.render_retained(&mut host).unwrap();
     assert_eq!(host.ready_generation(), 1);
+}
+
+#[test]
+fn accumulated_capture_freezes_left_handed_camera_across_queued_edit_and_resize() {
+    let mut options = crate::tests::options();
+    options.size = [64, 64];
+    options.render_clock = RenderClock::Fixed(Duration::ZERO);
+    options.camera_convention = worldrunner_camera::ViewConvention {
+        handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,
+    };
+    let mut host =
+        RetainedHost::new(crate::renderer::retained_tests::terrain_source(), options).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let fixed = recipe(2, 2, CaptureJitter::None);
+    let reference = completed(&mut host, &mut renderer, fixed.clone());
+    host.request_capture_recipe(0, fixed).unwrap();
+    assert!(!renderer.render_retained(&mut host).unwrap());
+    renderer.drain().unwrap();
+    renderer.collect_retained(&mut host).unwrap();
+    host.apply(crate::RetainedUpdate::Camera {
+        pose: host.options.pose,
+        lens: host.options.camera,
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+    })
+    .unwrap();
+    host.input(crate::RetainedInput::Resized([48, 32]));
+    assert!(!renderer.render_retained(&mut host).unwrap());
+    renderer.drain().unwrap();
+    renderer.collect_retained(&mut host).unwrap();
+    let Some(RetainedEvent::Capture {
+        generation: 0,
+        outcome: RetainedCaptureOutcome::RecipeCompleted { products, .. },
+        ..
+    }) = host.captures.take_event()
+    else {
+        panic!("fixed capture");
+    };
+    assert_eq!(products, reference);
+    assert_eq!(
+        products.srgb8.unwrap().viewport,
+        Viewport {
+            width: 64,
+            height: 64
+        }
+    );
+    assert_eq!(host.ready_generation(), 0);
 }

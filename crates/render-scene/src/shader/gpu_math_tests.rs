@@ -147,6 +147,7 @@ fn configured_frame(
     .prepare()
     .unwrap();
     crate::frame::FrameUniform {
+        view_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         background_far_plane_meters: 0.0,
         specular_convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         diffuse_environment: worldrunner_render_plan::SceneDiffuseEnvironment::Hemisphere,

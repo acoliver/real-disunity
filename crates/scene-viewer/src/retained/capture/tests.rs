@@ -98,6 +98,7 @@ fn unknown_superseded_and_exiting_requests_are_typed() {
         Err(CaptureRequestError::UnknownGeneration { generation: 1 })
     );
     host.apply(RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: crate::tests::options().pose,
         lens: crate::tests::options().camera,
     })

@@ -47,6 +47,7 @@ pub enum RetainedUpdate {
     Camera {
         pose: CameraPose,
         lens: SceneCamera,
+        convention: worldrunner_camera::ViewConvention,
     },
     /// Lighting and post settings, prepared before atomic frame publication.
     /// Water, SSAO and SSR edits require an HDR frame profile.
@@ -179,7 +180,7 @@ impl RetainedHost {
                     .is_some(),
                 page_wait: false,
                 geometry_wait: false,
-                camera: (options.pose, options.camera),
+                camera: (options.pose, options.camera, options.camera_convention),
                 #[cfg(test)]
                 preparation_hook: None,
             },
@@ -219,8 +220,14 @@ impl RetainedHost {
                 limit: self.readiness.limit,
             });
         }
-        if let RetainedUpdate::Camera { pose, lens } = &update {
-            Self::validate_camera(*pose, *lens)?;
+        if let RetainedUpdate::Camera {
+            pose,
+            lens,
+            convention,
+        } = &update
+        {
+            Self::validate_camera(*pose, *lens, *convention)?;
+            self.options.camera_convention = *convention;
             self.options.pose = *pose;
             self.options.camera = *lens;
             self.enqueue(update, false);
@@ -308,14 +315,19 @@ impl RetainedHost {
         }
     }
 
-    fn validate_camera(pose: CameraPose, lens: SceneCamera) -> Result<(), ViewerError> {
-        SceneView::new(
+    fn validate_camera(
+        pose: CameraPose,
+        lens: SceneCamera,
+        convention: worldrunner_camera::ViewConvention,
+    ) -> Result<(), ViewerError> {
+        SceneView::with_convention(
             pose,
             lens,
             Viewport {
                 width: 1,
                 height: 1,
             },
+            convention,
         )?;
         Ok(())
     }
@@ -354,13 +366,14 @@ impl RetainedHost {
         if self.size.contains(&0) || self.occluded {
             return Ok(None);
         }
-        Ok(Some(SceneView::new(
+        Ok(Some(SceneView::with_convention(
             self.readiness.camera.0,
             self.readiness.camera.1,
             Viewport {
                 width: self.size[0],
                 height: self.size[1],
             },
+            self.readiness.camera.2,
         )?))
     }
 

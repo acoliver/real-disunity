@@ -45,6 +45,13 @@ pub struct ViewConvention {
     pub handedness: ViewHandedness,
 }
 
+impl ViewConvention {
+    /// The scene renderer's existing right-handed raster convention.
+    pub const RIGHT_HANDED: Self = Self {
+        handedness: ViewHandedness::RightHanded,
+    };
+}
+
 /// The view block of the interactive RTS and free-fly cameras.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

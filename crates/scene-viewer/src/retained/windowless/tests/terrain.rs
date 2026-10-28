@@ -110,6 +110,7 @@ fn geometry_capture_and_generation_wait_for_submitted_residency() {
     let options = crate::tests::options();
     run.host_mut()
         .apply_with_geometry(RetainedUpdate::Camera {
+            convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
             pose: options.pose,
             lens: options.camera,
         })

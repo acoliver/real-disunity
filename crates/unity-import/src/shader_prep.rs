@@ -1,6 +1,6 @@
 //! Preparation of a Unity Vulkan stage module for naga.
 //!
-//! Unity's SPIR-V uses four things naga 30 cannot read. Each has a rewrite here, applied in
+//! Unity's SPIR-V uses five things naga 30 cannot read. Each has a rewrite here, applied in
 //! this order:
 //! 1. Combined image samplers, which naga's SPIR-V frontend does not parse
 //!    (gfx-rs/wgpu#4323), are split into separate images and samplers with
@@ -18,6 +18,10 @@
 //!    type; naga keeps the operand's type, so storing the result fails validation. naga also
 //!    reads an Msb search's operand as its type says, so a `FindSMsb` of an unsigned operand
 //!    or a `FindUMsb` of a signed one is an error.
+//! 5. An integer image access whose coordinate vector naga needs at the image's size, which
+//!    the module does not declare, makes naga panic; [`image_coords`] declares it.
+
+mod image_coords;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -89,7 +93,7 @@ impl PrepareError {
     }
 }
 
-/// Applies the four rewrites to a stage module.
+/// Applies the five rewrites to a stage module.
 ///
 /// # Errors
 /// Fails when the module is not structurally valid SPIR-V, the sampler split fails, or the
@@ -99,10 +103,9 @@ pub fn prepare(words: &[u32]) -> Result<PreparedModule, PrepareError> {
     let split = split_samplers(words)?;
     smolv::entry_points(&split.words)?;
     let bindings = resource_bindings(words, &split)?;
-    Ok(PreparedModule {
-        words: bit_search_signedness(&signed_negate(&spec_defaults(&split.words))?)?,
-        bindings,
-    })
+    let words = signed_negate(&spec_defaults(&split.words))?;
+    let words = image_coords::image_coordinate_types(&bit_search_signedness(&words)?)?;
+    Ok(PreparedModule { words, bindings })
 }
 
 /// A module after the sampler split, with the descriptor set and Unity binding of each

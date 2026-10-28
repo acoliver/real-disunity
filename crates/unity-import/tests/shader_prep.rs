@@ -477,3 +477,108 @@ fn rejects_msb_searches_whose_operand_reads_the_other_way() {
         assert_eq!(error.cause(), "Msb signedness");
     }
 }
+
+/// A fragment shader that fetches from a sampled 2D image (ID 11) at an integer coordinate,
+/// or with `write` writes to a storage 2D image (ID 12), with the image arrayed or not. The
+/// coordinate is an `ivec3` (ID 38) for an arrayed image and an `ivec2` otherwise; the module
+/// declares no other int vector, so an arrayed access leaves naga without the `ivec2` it
+/// splits the coordinate into.
+fn image_access(write: bool, arrayed: bool) -> Vec<u32> {
+    let size = if arrayed { 3 } else { 2 };
+    let layers = u32::from(arrayed);
+    let words = [
+        op(17, &[1]),
+        op(14, &[0, 1]),
+        op(15, &[4, 1, 0x6e69_616d, 0, 2]),
+        op(16, &[1, 7]),
+        op(71, &[2, 30, 0]),
+        op(71, &[43, 34, 0]),
+        op(71, &[43, 33, 0]),
+        op(19, &[4]),
+        op(33, &[5, 4]),
+        op(22, &[7, 32]),
+        op(23, &[8, 7, 4]),
+        op(21, &[31, 32, 1]),
+        op(23, &[38, 31, size]),
+        op(32, &[14, 3, 8]),
+        op(59, &[14, 2, 3]),
+        op(25, &[11, 7, 1, 0, layers, 0, 1, 0]),
+        op(25, &[12, 7, 1, 0, layers, 0, 2, 1]),
+        op(32, &[13, 0, if write { 12 } else { 11 }]),
+        op(59, &[13, 43, 0]),
+        op(43, &[7, 17, 0]),
+        op(43, &[31, 39, 0]),
+        op(44, &[8, 29, 17, 17, 17, 17]),
+        op(44, &[38, 44, 39, 39, 39][..2 + size as usize]),
+        op(54, &[4, 1, 0, 5]),
+        op(248, &[20]),
+    ]
+    .concat();
+    let access = if write {
+        [
+            op(61, &[12, 50, 43]),
+            op(99, &[50, 44, 29]),
+            op(62, &[2, 29]),
+        ]
+        .concat()
+    } else {
+        [
+            op(61, &[11, 50, 43]),
+            op(95, &[8, 51, 50, 44, 2, 39]),
+            op(62, &[2, 51]),
+        ]
+        .concat()
+    };
+    let end = [op(253, &[]), op(56, &[])].concat();
+    [vec![0x0723_0203, 0x0001_0000, 0, 52, 0], words, access, end].concat()
+}
+
+/// The vector types a module declares, as their component and size.
+fn vector_types(words: &[u32]) -> Vec<[u32; 2]> {
+    let mut vectors = Vec::new();
+    let mut rest = &words[5..];
+    while let Some(&first) = rest.first() {
+        let (instruction, next) = rest.split_at((first >> 16) as usize);
+        if let &[word, _, component, size] = instruction
+            && word & 0xffff == 23
+        {
+            vectors.push([component, size]);
+        }
+        rest = next;
+    }
+    vectors
+}
+
+#[test]
+fn declares_the_integer_coordinate_vectors_naga_needs() {
+    for write in [false, true] {
+        let raw = image_access(write, true);
+        assert_eq!(
+            naga_cause(&raw).as_deref(),
+            Some("naga panic"),
+            "write {write}"
+        );
+        let prepared = prepare(&raw).unwrap();
+        assert_eq!(naga_cause(&prepared.words), None, "write {write}");
+        // An `ivec2` with a new ID, right after the int type it is made of.
+        assert_eq!(vector_types(&prepared.words), [[7, 4], [31, 2], [31, 3]]);
+        let int = op(21, &[31, 32, 1]);
+        let at = prepared.words.windows(4).position(|w| w == int).unwrap() + 4;
+        let ivec2 = &prepared.words[at..at + 4];
+        assert_eq!(
+            [ivec2[0], ivec2[2], ivec2[3]],
+            [op(23, &[0, 0, 0])[0], 31, 2]
+        );
+        assert!((52..prepared.words[3]).contains(&ivec2[1]));
+    }
+}
+
+#[test]
+fn leaves_image_access_alone_when_naga_has_its_coordinate_types() {
+    for write in [false, true] {
+        let raw = image_access(write, false);
+        assert_eq!(naga_cause(&raw), None, "write {write}");
+        let prepared = prepare(&raw).unwrap();
+        assert_eq!(vector_types(&prepared.words), vector_types(&raw));
+    }
+}

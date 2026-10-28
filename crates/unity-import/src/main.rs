@@ -7,6 +7,7 @@ use worldrunner_unity_import::{
     import_scene, input_axes, plan_scene,
     player_objects::{
         OpenFile, decode_census, describe_object, describe_shader_programs, shader_chunks,
+        shader_modules,
     },
     player_scene::{SceneNode, read_scene_hierarchy},
     read_player,
@@ -25,7 +26,8 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-scene <player data directory> <scene file>
        unity-import player-object <serialized file> <path ID>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
-       unity-import player-shader-programs <serialized file> <path ID> <platform index>";
+       unity-import player-shader-programs <serialized file> <path ID> <platform index>
+       unity-import player-shader-modules <serialized file> <path ID> <platform index> <output directory>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -49,6 +51,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         [command, file, path_id, platform, out] if command == "player-shader" => {
             player_shader(Path::new(file), path_id, platform, Path::new(out))
         }
+        [command, file, path_id, platform, out] if command == "player-shader-modules" => {
+            player_shader_modules(Path::new(file), path_id, platform, Path::new(out))
+        }
         [command, file, path_id, platform] if command == "player-shader-programs" => {
             player_shader_programs(Path::new(file), path_id, platform)
         }
@@ -59,6 +64,30 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         }
         _ => return None,
     })
+}
+
+/// Writes each decoded Vulkan stage module to `<blob index>.<slot>.spv` in a new directory.
+fn player_shader_modules(
+    file: &Path,
+    path_id: &str,
+    platform: &str,
+    out: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let mut open = OpenFile::open(file)?;
+    let modules = shader_modules(&mut open, path_id.parse()?, platform.parse()?)?;
+    std::fs::create_dir(out)
+        .map_err(|error| format!("cannot create {}: {error}", out.display()))?;
+    for module in &modules {
+        let name = format!("{}.{}.spv", module.blob_index, module.slot);
+        let bytes: Vec<u8> = module.words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        std::fs::write(out.join(&name), bytes)?;
+        println!(
+            "{name} words={} entry_points={:?}",
+            module.words.len(),
+            module.entry_points
+        );
+    }
+    Ok(())
 }
 
 fn player_shader_programs(

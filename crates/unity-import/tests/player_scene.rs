@@ -410,3 +410,20 @@ fn player_shader_programs_rejects_objects_that_are_not_shaders() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("is a GameObject, not a Shader"), "{stderr}");
 }
+
+#[test]
+fn player_shader_modules_rejects_objects_that_are_not_shaders() {
+    let dir = tempfile::tempdir().unwrap();
+    write_scene(dir.path(), &scene(ptr(0, 5)));
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_unity-import"))
+        .arg("player-shader-modules")
+        .arg(dir.path().join("level0"))
+        .args(["2", "0"])
+        .arg(dir.path().join("modules"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("is a GameObject, not a Shader"), "{stderr}");
+    assert!(!dir.path().join("modules").exists());
+}

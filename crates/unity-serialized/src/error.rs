@@ -34,6 +34,8 @@ pub enum SerializedError {
     Negative { field: &'static str, value: i64 },
     #[error("the compressed block is invalid at byte {offset} of its input: {reason}")]
     InvalidCompressedBlock { offset: usize, reason: &'static str },
+    #[error("the shader module is invalid at byte {offset}: {reason}")]
+    InvalidShaderModule { offset: usize, reason: &'static str },
     #[error("the shader program data is invalid at byte {offset}: {reason}")]
     InvalidShaderProgram { offset: usize, reason: &'static str },
     #[error("shader platform {platform}, chunk {chunk} does not decompress: {source}")]

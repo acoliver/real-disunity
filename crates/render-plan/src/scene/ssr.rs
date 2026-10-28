@@ -51,6 +51,15 @@ pub enum SceneSsrLodMapping {
     RoughnessDownsample,
 }
 
+/// Retained colour reduction levels for reflection application.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneSsrPyramid {
+    #[default]
+    SixLevels,
+    /// Continue reducing until both logical dimensions are one texel.
+    Full,
+}
+
 /// Optional scene/document reflection settings. No temporal history is retained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -108,6 +117,8 @@ pub struct SceneSsr {
     #[serde(default)]
     pub application_lod: SceneSsrLodMapping,
     #[serde(default)]
+    pub radiance_pyramid: SceneSsrPyramid,
+    #[serde(default)]
     pub composition: SceneSsrComposition,
 }
 const fn default_distance() -> u32 {
@@ -137,12 +148,13 @@ impl Default for SceneSsr {
             resolution_scale_micro: 1_000_000,
             radiance_rounding: super::SceneDownsampleRounding::Ceil,
             application_lod: SceneSsrLodMapping::CutoffNormalized,
+            radiance_pyramid: SceneSsrPyramid::SixLevels,
             composition: SceneSsrComposition::Additive,
         }
     }
 }
 impl SceneSsr {
-    /// Validated, nonzero output dimensions and up to six colour levels.
+    /// Validated, nonzero logical output dimensions for the selected colour chain.
     pub fn radiance_extents(&self, size: [u32; 2]) -> Vec<[u32; 2]> {
         assert!(!size.contains(&0), "nonzero reflection extent");
         self.validate().expect("validated reflection policy");
@@ -154,7 +166,9 @@ impl SceneSsr {
         let mut extents = Vec::new();
         loop {
             extents.push(extent);
-            if extent == [1, 1] || extents.len() == 6 {
+            if extent == [1, 1]
+                || (self.radiance_pyramid == SceneSsrPyramid::SixLevels && extents.len() == 6)
+            {
                 break;
             }
             extent = self.radiance_rounding.half_extent(extent);

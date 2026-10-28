@@ -22,6 +22,8 @@ mod numerical;
 mod origin_tests;
 #[path = "ownership_tests.rs"]
 mod ownership_tests;
+#[path = "pyramid_tests.rs"]
+mod pyramid_tests;
 #[path = "regressions.rs"]
 mod regressions;
 #[path = "replacement_tests.rs"]

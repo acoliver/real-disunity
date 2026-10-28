@@ -69,7 +69,11 @@ pub(super) fn trace_source(
     settings: &SceneSsr,
     size: [u32; 2],
 ) -> String {
-    let source = gpu::configured_trace_source(samples, water, settings.radiance_rounding);
+    let source = super::pyramid::trace_source(
+        gpu::configured_trace_source(samples, water, settings.radiance_rounding),
+        samples,
+        settings,
+    );
     if settings.traversal != SceneSsrTraversal::Grid {
         return source;
     }

@@ -5,6 +5,7 @@ pub(crate) mod forward;
 mod gpu;
 mod grid;
 mod metadata;
+pub(crate) mod pyramid;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod water;
@@ -43,6 +44,7 @@ pub(crate) fn validate_extent(
             "sample-packed radiance extent exceeds device texture limit",
         ));
     }
+    pyramid::validate(config, settings, limits)?;
     grid::validate(config.size, settings, limits)?;
     Ok(())
 }
@@ -87,6 +89,9 @@ pub(crate) struct Ssr {
     hierarchy: Vec<wgpu::Texture>,
     final_depth: final_depth::FinalDepth,
     reflections: Vec<wgpu::Texture>,
+    reduction_extents: Vec<wgpu::Buffer>,
+    capture_size: [u32; 2],
+    capture_samples: u32,
     uniform: wgpu::Buffer,
     trace: wgpu::RenderPipeline,
     reduce: wgpu::RenderPipeline,
@@ -99,14 +104,59 @@ impl Ssr {
         &self.reflections[0]
     }
 
+    pub(crate) fn confidence_capture(&self) -> crate::compositor::FeatureCapture<'_> {
+        let [w, h] = self.capture_size;
+        crate::compositor::FeatureCapture {
+            texture: self.confidence_target(),
+            size: [w * self.capture_samples, h],
+            lanes: self.capture_samples,
+            columns: if pyramid::shared(&self.settings) {
+                pyramid::lane_grid(self.capture_samples)[0]
+            } else {
+                self.capture_samples
+            },
+            stride: [w, h],
+        }
+    }
+
     pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
         let mut textures = vec![&self.material, &self.material_depth];
         textures.extend(self.forward_products.iter());
-        textures.extend(self.reflections.iter());
+        let count = if pyramid::shared(&self.settings) {
+            1
+        } else {
+            self.reflections.len()
+        };
+        textures.extend(self.reflections.iter().take(count));
         textures.extend(self.final_depth.textures());
         textures
     }
 
+    fn resource(&self, index: u32) -> ResourceRef {
+        ResourceRef {
+            mip: if pyramid::shared(&self.settings) {
+                index
+            } else {
+                0
+            },
+            ..resource(index)
+        }
+    }
+    fn reflection_view(&self, index: usize) -> wgpu::TextureView {
+        pyramid::view(
+            &self.reflections[index],
+            self.resource(u32::try_from(index).unwrap()).mip,
+        )
+    }
+    fn reflection_views(&self) -> Vec<wgpu::TextureView> {
+        if pyramid::shared(&self.settings) {
+            vec![self.reflections[0].create_view(&wgpu::TextureViewDescriptor::default())]
+        } else {
+            (0..self.reflections.len())
+                .map(|index| self.reflection_view(index))
+                .collect()
+        }
+    }
     fn application_views(&self, views: &mut [wgpu::TextureView]) {
         if self.settings.depth_relative_ao {
             views[1] = self
@@ -140,11 +190,10 @@ impl Ssr {
         });
         let trace = grid::pipeline(device, config, &settings, false);
         let reduce = gpu::reduction_pipeline(device, config.samples, &settings);
-        let (resolve, water_resolve) = gpu::resolve_pipelines(
+        let (resolve, water_resolve) = pyramid::resolve_pipelines(
             device,
-            config.samples,
-            reflections.len(),
-            settings.depth_relative_ao,
+            config,
+            &settings,
             screen.passes.filtered.format() == wgpu::TextureFormat::Rg16Float,
         );
         let water_trace = grid::pipeline(device, config, &settings, true);
@@ -174,6 +223,9 @@ impl Ssr {
             hierarchy,
             final_depth,
             reflections,
+            reduction_extents: pyramid::uniforms(device, config, &settings),
+            capture_size: settings.radiance_extents(config.size)[0],
+            capture_samples: config.samples,
             uniform,
             trace,
             reduce,
@@ -265,12 +317,12 @@ impl ReflectionFeature<'_> {
             Some(&ssr.uniform),
             &trace_inputs,
         )];
-        for texture in ssr.reflections.iter().take(ssr.reflections.len() - 1) {
+        for index in 0..ssr.reflections.len() - 1 {
             self.groups.push(gpu::group(
                 context.device(),
                 &ssr.reduce,
-                None,
-                &[texture.create_view(&wgpu::TextureViewDescriptor::default())],
+                ssr.reduction_extents.get(index),
+                &[ssr.reflection_view(index)],
             ));
         }
         Ok(())
@@ -353,7 +405,7 @@ impl ReflectionFeature<'_> {
             } else {
                 PassSlot::ReflectionMip(index)
             };
-            let view = AttachmentView::new(resource(index), texture)?;
+            let view = AttachmentView::new(ssr.resource(index), texture)?;
             let mut pass = PassDeclaration::new(slot);
             pass.color = Some(crate::compositor::attachment(view.resource(), &view, false));
             passes.push(pass);
@@ -363,7 +415,7 @@ impl ReflectionFeature<'_> {
             feature.reads = if index == 0 {
                 self.trace_reads()
             } else {
-                vec![resource(index - 1)]
+                vec![ssr.resource(index - 1)]
             };
             declaration.passes.push(feature);
         }
@@ -376,7 +428,7 @@ impl ReflectionFeature<'_> {
         feature.samples = self.color.texture().sample_count();
         feature.color_format = Some(wgpu::TextureFormat::Rgba16Float);
         feature.reads = (0..u32::try_from(ssr.reflections.len()).expect("bounded levels"))
-            .map(resource)
+            .map(|index| ssr.resource(index))
             .collect();
         feature.reads.extend(forward::resources());
         feature.reads.extend([
@@ -409,11 +461,7 @@ impl PreparedFeature for ReflectionFeature<'_> {
             opaque_depth.view().clone(),
             final_depth.view().clone(),
         ];
-        resolve_inputs.extend(
-            ssr.reflections
-                .iter()
-                .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
-        );
+        resolve_inputs.extend(ssr.reflection_views());
         resolve_inputs.extend(
             ssr.forward_products
                 .each_ref()
@@ -510,6 +558,16 @@ impl PreparedFeature for ReflectionFeature<'_> {
             }
             _ => unreachable!("reflection slot"),
         };
+        if pyramid::shared(&self.ssr.settings)
+            && matches!(
+                context.slot,
+                PassSlot::ReflectionTrace | PassSlot::ReflectionMip(_)
+            )
+        {
+            let size = self.ssr.settings.radiance_extents(self.color.size())[index];
+            let grid = pyramid::lane_grid(self.color.texture().sample_count());
+            pass.set_scissor_rect(0, 0, size[0] * grid[0], size[1] * grid[1]);
+        }
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &self.groups[index], &[]);
         pass.draw(0..3, 0..1);

@@ -245,4 +245,7 @@ NativeMemoryTests.Run();
 JobTests.Run();
 CustomYieldTests.Run();
 RenderingLayerMaskTests.Run();
+AnimationCurveTests.Run();
+CurveEditingTests.Run();
+GradientTests.Run();
 UnityAttributeTests.Run();

@@ -159,7 +159,11 @@ fn plans_objects_scripts_and_references_and_lists_what_it_leaves_out() {
     let root = &plan.objects[0];
     assert_eq!((root.tag.as_str(), root.layer), ("MainCamera", 8));
     assert_eq!(plan.objects[1].parent, Some(0));
-    assert_eq!(root.position, [1.0, 2.0, 3.0]);
+    // Positions widen from f32 exactly.
+    assert_eq!(
+        root.position.map(f64::to_bits),
+        [1.0, 2.0, 3.0].map(f64::to_bits)
+    );
     let [PlanComponent::Unsupported { class }, script] = &root.components[..] else {
         panic!("the root has a light and a script: {:?}", root.components)
     };

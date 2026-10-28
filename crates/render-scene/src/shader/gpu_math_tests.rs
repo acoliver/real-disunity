@@ -619,7 +619,7 @@ fn math_pipeline(
         label: None,
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
-    let options = frame.map_or([0; 6], |frame| frame.specular_convention.shader_options());
+    let options = frame.map_or([0; 7], |frame| frame.specular_convention.shader_options());
     let constants = crate::renderer::specular_constants(options);
     let constants = if source.contains("override SCENE_ROUGHNESS_REMAP") {
         constants.as_slice()

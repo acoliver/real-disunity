@@ -172,7 +172,7 @@ impl ScenePipelines {
             (source, terrain_source),
             shadow_layout,
             screen_layout,
-            [0; 6],
+            [0; 7],
         )
     }
 
@@ -182,7 +182,7 @@ impl ScenePipelines {
         sources: (&str, &str),
         shadow_layout: Option<&BindGroupLayout>,
         screen_layout: Option<&BindGroupLayout>,
-        options: [u32; 6],
+        options: [u32; 7],
     ) -> Self {
         let (source, terrain_source) = sources;
         let constants = specular::constants(options);
@@ -518,7 +518,7 @@ pub(crate) fn celestial_pipelines(
         device,
         scene,
         (physical, separate, object_exposure),
-        [0; 6],
+        [0; 7],
         worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
         false,
     )
@@ -527,7 +527,7 @@ pub(crate) fn celestial_specialization(
     device: &Device,
     scene: &ScenePipelines,
     composition: (bool, bool, bool),
-    options: [u32; 6],
+    options: [u32; 7],
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
 ) -> [RenderPipeline; 8] {

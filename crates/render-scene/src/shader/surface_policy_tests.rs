@@ -63,17 +63,33 @@ fn finite_surface_disk_has_independent_intensity_and_caps_after_shadow() {
 #[test]
 fn shared_disk_direction_matches_geometric_circle_projection() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
+    let start = ENVIRONMENT_WGSL
+        .find("    let half_vector = normalize(view + selected);")
+        .unwrap();
+    let end = start + ENVIRONMENT_WGSL[start..].find("\n}").unwrap();
+    let mut source = ENVIRONMENT_WGSL.to_owned();
+    source.replace_range(start..end, "    return selected;");
     let entry = r"
 @group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
 @compute @workgroup_size(1) fn evaluate_math() {
- result[0]=vec4(scene_disk_direction(normalize(vec3(0.2,0.0,1.0)),vec3(0.0,0.0,1.0)),1.0);
+ result[0]=vec4(scene_disk_highlight(vec3(0.0,0.0,1.0),normalize(vec3(-0.2,0.0,1.0)),vec3(0.0,0.0,1.0),vec3(0.04),0.1,1.0),1.0);
 }";
-    let actual = evaluate_source(&context, ENVIRONMENT_WGSL, entry, None, None);
-    let expected = [0.0027_f64.sin(), 0.0, 0.0027_f64.cos()];
-    // WGSL sin/cos absolute error is bounded by 2^-11; normalization adds rounding.
-    let tolerance = 4.0 * 2.0_f64.powi(-11);
-    for (actual, expected) in actual[..3].iter().zip(expected) {
-        assert!((f64::from(*actual) - expected).abs() < tolerance);
+    let mut frame = test_frame(1.0);
+    for radius_micro in [2700, 17_453] {
+        frame.specular_convention.surface_disk = Some(
+            SceneSurfaceDisk::new(1_000_000, 1_000_000)
+                .unwrap()
+                .with_angular_radius_microradians(radius_micro)
+                .unwrap(),
+        );
+        let actual = evaluate_source(&context, &source, entry, Some(&frame), None);
+        let radius = f64::from(radius_micro) / 1_000_000.0;
+        let expected = [radius.sin(), 0.0, radius.cos()];
+        // WGSL sin/cos absolute error is bounded by 2^-11; normalization adds rounding.
+        let tolerance = 4.0 * 2.0_f64.powi(-11);
+        for (actual, expected) in actual[..3].iter().zip(expected) {
+            assert!((f64::from(*actual) - expected).abs() < tolerance);
+        }
     }
 }
 
@@ -131,5 +147,38 @@ fn disk_uses_sun_tint_independently_of_direct_intensity_and_limits_after_tint() 
                 assert!((f64::from(*actual) - base * f64::from(tint) * scale).abs() < 2e-7);
             }
         }
+    }
+}
+
+pub(crate) fn fixed_disk_source(source: &str) -> String {
+    let start = source.find("fn scene_disk_direction(").unwrap();
+    let end = start + source[start..].find("\n}").unwrap() + 2;
+    let mut fixed = source.to_owned();
+    fixed.replace_range(start..end, include_str!("disk_reference.wgsl"));
+    fixed
+}
+
+#[test]
+fn default_surface_highlight_bytes_match_fixed_disk() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let mut frame = test_frame(1.0);
+    frame.specular_convention.surface_disk =
+        Some(SceneSurfaceDisk::new(1_000_000, 1_000_000).unwrap());
+    let fixed = fixed_disk_source(ENVIRONMENT_WGSL);
+    for angle in [0.0, 0.001, 0.05, 1.0, 3.0] {
+        let entry = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+ let view=normalize(vec3(sin({angle}),0.0,cos({angle})));
+ result[0]=vec4(scene_disk_highlight(vec3(0.0,0.0,1.0),view,vec3(0.0,0.0,1.0),vec3(0.04),0.1,1.0),1.0);
+}}"
+        );
+        let current = evaluate_source(&context, ENVIRONMENT_WGSL, &entry, Some(&frame), None);
+        let previous = evaluate_source(&context, &fixed, &entry, Some(&frame), None);
+        assert_eq!(
+            current.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            previous.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
     }
 }

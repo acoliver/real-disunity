@@ -8,7 +8,7 @@ const NAMES: [&str; 3] = [
 ];
 
 pub(crate) fn constants(
-    options: [u32; 6],
+    options: [u32; 7],
     lighting: SceneCelestialLighting,
 ) -> Vec<(&'static str, f64)> {
     let mut constants = crate::renderer::specular_constants(options).to_vec();
@@ -85,8 +85,8 @@ mod tests {
             original
         );
         assert_eq!(
-            constants([0; 6], SceneCelestialLighting::NEUTRAL),
-            crate::renderer::specular_constants([0; 6])
+            constants([0; 7], SceneCelestialLighting::NEUTRAL),
+            crate::renderer::specular_constants([0; 7])
         );
     }
     #[test]
@@ -101,7 +101,7 @@ mod tests {
         .validate(&module)
         .unwrap();
         assert_eq!(
-            &constants([0; 6], lighting)[6..],
+            &constants([0; 7], lighting)[7..],
             &[(NAMES[0], 0.5), (NAMES[1], 2.0), (NAMES[2], 3.0)]
         );
     }

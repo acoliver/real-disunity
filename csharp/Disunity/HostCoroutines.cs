@@ -41,6 +41,8 @@ public static partial class DisunityHost
         foreach (var routine in Routines.Values.Where(r => ReferenceEquals(r.Owner, owner)).ToArray()) StopCoroutine(owner, routine);
     }
 
+    /// <summary>Runs the coroutine to its next yield. A step that throws is logged against the
+    /// owner and ends the coroutine, as in Unity.</summary>
     private static bool MoveIterator(Coroutine routine, out object? yielded)
     {
         yielded = null;
@@ -53,12 +55,19 @@ public static partial class DisunityHost
                 more = iterator.MoveNext();
                 if (more && !routine.Completed) yielded = iterator.Current;
             }
+            catch (Exception error) when (IsGameException(error))
+            {
+                routine.Executing = false;
+                ReportScriptException(error, routine.Owner);
+                DisposeRoutine(routine);
+                return false;
+            }
             finally { routine.Executing = false; }
             if (routine.Completed) { DisposeRoutine(routine); return false; }
             if (!more)
             {
                 routine.Iterators.Pop();
-                (iterator as IDisposable)?.Dispose();
+                DisposeIterator(routine, iterator);
                 continue;
             }
             if (yielded is IEnumerator nested) { routine.Iterators.Push(nested); continue; }
@@ -66,6 +75,14 @@ public static partial class DisunityHost
         }
         DisposeRoutine(routine);
         return false;
+    }
+
+    /// <summary>Disposes an iterator, running the coroutine's finally blocks. A block that
+    /// throws is logged against the owner.</summary>
+    private static void DisposeIterator(Coroutine routine, IEnumerator iterator)
+    {
+        try { (iterator as IDisposable)?.Dispose(); }
+        catch (Exception error) when (IsGameException(error)) { ReportScriptException(error, routine.Owner); }
     }
 
     /// <summary>The native wait for what a coroutine yielded. An operation is polled each frame
@@ -101,30 +118,18 @@ public static partial class DisunityHost
 
     internal static unsafe void DrainCancelled()
     {
-        List<Exception>? failures = null;
         while (true)
         {
             ulong id;
             ThrowIfError(NativeBindings.disunity_coroutine_cancelled(WorldHandle, &id));
             if (id == 0) break;
-            if (Routines.Remove(id, out var routine))
-            {
-                try { DisposeRoutine(routine); }
-                catch (Exception error) { (failures ??= new()).Add(error); }
-            }
+            if (Routines.Remove(id, out var routine)) DisposeRoutine(routine);
         }
-        if (failures != null) throw new AggregateException(failures);
     }
 
     private static void DisposeAllRoutines()
     {
-        List<Exception>? failures = null;
-        foreach (var routine in Routines.Values.ToArray())
-        {
-            try { DisposeRoutine(routine); }
-            catch (Exception error) { (failures ??= new()).Add(error); }
-        }
-        if (failures != null) throw new AggregateException(failures);
+        foreach (var routine in Routines.Values.ToArray()) DisposeRoutine(routine);
     }
 
     private static void DisposeRoutine(Coroutine routine)
@@ -132,12 +137,6 @@ public static partial class DisunityHost
         routine.Completed = true;
         Routines.Remove(routine.Identity);
         if (routine.Executing) return;
-        List<Exception>? failures = null;
-        while (routine.Iterators.TryPop(out var iterator))
-        {
-            try { (iterator as IDisposable)?.Dispose(); }
-            catch (Exception error) { (failures ??= new()).Add(error); }
-        }
-        if (failures != null) throw new AggregateException(failures);
+        while (routine.Iterators.TryPop(out var iterator)) DisposeIterator(routine, iterator);
     }
 }

@@ -95,9 +95,17 @@ public static class PlayBridge
     {
         try
         {
-            Scene?.Dispose();
-            Scene = null;
-            DisunityHost.UnloadWorld();
+            try
+            {
+                Scene?.Dispose();
+                Scene = null;
+                DisunityHost.UnloadWorld();
+            }
+            finally
+            {
+                // Exceptions the game threw do not fail the run, as in Unity; this line keeps them visible.
+                if (DisunityHost.ScriptExceptionSummary is { } summary) Console.Error.WriteLine(summary);
+            }
             // A player saves its preferences when it exits; the next run starts from the defaults.
             UnityEngine.PlayerPrefs.Save();
             DisunityHost.UnloadResources();

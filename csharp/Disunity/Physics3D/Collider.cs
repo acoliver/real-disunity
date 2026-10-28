@@ -4,7 +4,7 @@ namespace UnityEngine;
 
 /// <summary>
 /// Base of the 3D colliders. A collider cannot be attached to a GameObject (see
-/// <see cref="PhysicsComponents"/>), so an instance is never part of a world: its settings are plain
+/// <see cref="UnsupportedComponents"/>), so an instance is never part of a world: its settings are plain
 /// stored state and its geometry is measured in its own local space.
 /// </summary>
 public class Collider : Component

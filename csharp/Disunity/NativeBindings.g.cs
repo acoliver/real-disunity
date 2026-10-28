@@ -157,13 +157,29 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_camera_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_camera_read(ulong world, ulong handle, DisunityCamera* output);
         /// <summary>
-        ///  Validates every setting before changing the camera. Perspective projection is reported as
-        ///  an unsupported `orthographic` field.
+        ///  Validates every setting before changing the camera. Custom matrices are left as they are.
         ///  # Safety
         ///  Value is readable for one Camera record.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_camera_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_camera_write(ulong world, ulong handle, DisunityCamera* value);
+        /// <summary>
+        ///  Reads a custom matrix as 16 column-major floats. `is_set` is 0, with `matrix` untouched, when
+        ///  the camera derives that matrix from its settings and transform.
+        ///  `kind` is 0 for the projection matrix and 1 for the world-to-camera matrix.
+        ///  # Safety
+        ///  `matrix` is writable for 16 floats and `is_set` for one `u32`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_matrix_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_matrix_read(ulong world, ulong handle, uint kind, float* matrix, uint* is_set);
+        /// <summary>
+        ///  Sets a custom matrix from 16 column-major floats, or clears it when `matrix` is null.
+        ///  Nothing changes when a value is not finite. Frames reject a camera with a custom matrix.
+        ///  # Safety
+        ///  `matrix` is null or readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_matrix_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_matrix_write(ulong world, ulong handle, uint kind, float* matrix);
         /// <summary>
         ///  # Safety
         ///  Output is writable for one canvas scale record.
@@ -729,16 +745,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_object_alive", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_object_alive(ulong world, ulong @object, uint* alive);
-        /// <summary>
-        ///  # Safety
-        ///  `retained` is writable for one native callback-retention flag.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_script_retained", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_script_retained(ulong world, ulong identity, uint* retained);
-        /// <summary>
-        ///  Schedules destruction using scaled world seconds, without running cleanup inline.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_gameobject_destroy_after", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_gameobject_destroy_after(ulong world, ulong @object, ulong numerator, ulong denominator);
     }
 }

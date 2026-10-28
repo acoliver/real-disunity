@@ -24,7 +24,11 @@ namespace Disunity.Native
 
     /// <summary>
     ///  A camera's serialized settings. `clear_flags` uses Unity's `CameraClearFlags` values:
-    ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. Only orthographic cameras are supported.
+    ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. `orthographic` is 1 for an orthographic lens and 0
+    ///  for a perspective one with `field_of_view` degrees; both sizes are kept. `culling_mask` is one
+    ///  bit per layer, the viewport is a normalized rectangle, `depth_texture_mode` and `camera_type`
+    ///  use Unity's flag values, and `target_texture` is a managed RenderTexture's instance id (0 for
+    ///  the screen). Custom matrices have their own calls. Boolean settings are 0 or 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityCamera
@@ -40,6 +44,20 @@ namespace Disunity.Native
         public float g;
         public float b;
         public float a;
+        public float field_of_view;
+        public ulong target_texture;
+        public uint culling_mask;
+        public float viewport_x;
+        public float viewport_y;
+        public float viewport_width;
+        public float viewport_height;
+        public uint depth_texture_mode;
+        public uint allow_hdr;
+        public uint allow_msaa;
+        public uint allow_dynamic_resolution;
+        public uint use_occlusion_culling;
+        public uint target_display;
+        public uint camera_type;
     }
 
     /// <summary>

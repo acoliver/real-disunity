@@ -201,6 +201,7 @@ public static partial class DisunityHost
                 WorldHandle = 0;
                 _listenerDiagnostic = null;
                 RemoveMainThreadContext();
+                Resources?.Clear();
                 ThrowIfError(NativeBindings.disunity_world_destroy(world));
             }
         }

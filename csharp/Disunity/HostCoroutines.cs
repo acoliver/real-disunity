@@ -18,7 +18,7 @@ public static partial class DisunityHost
         try
         {
             if (!MoveIterator(routine, out var yielded)) return routine;
-            var wait = DescribeWait(yielded);
+            var wait = DescribeWait(routine, yielded);
             ulong identity;
             ThrowIfError(NativeBindings.disunity_coroutine_start(WorldHandle, script, wait.Kind, wait.Num, wait.Den, &identity));
             routine.Identity = identity;
@@ -68,9 +68,17 @@ public static partial class DisunityHost
         return false;
     }
 
+    /// <summary>The native wait for what a coroutine yielded. An operation is polled each frame
+    /// until it is done, then the coroutine resumes in the next frame.</summary>
+    private static (uint Kind, ulong Num, ulong Den) DescribeWait(Coroutine routine, object? yielded)
+    {
+        routine.Waiting = yielded as AsyncOperation;
+        return DescribeWait(yielded);
+    }
+
     private static (uint Kind, ulong Num, ulong Den) DescribeWait(object? yielded) => yielded switch
     {
-        null => (0, 0, 1),
+        null or AsyncOperation => (0, 0, 1),
         WaitForFixedUpdate => (1, 0, 1),
         WaitForSeconds wait => (2, checked((ulong)Math.Round((double)wait.Seconds * 1_000_000_000)), 1_000_000_000),
         WaitForSecondsRealtime wait => (3, checked((ulong)Math.Round((double)wait.Seconds * 1_000_000_000)), 1_000_000_000),
@@ -82,8 +90,10 @@ public static partial class DisunityHost
         var routine = Routines[payload.routine];
         try
         {
-            if (!MoveIterator(routine, out var yielded)) return;
-            var wait = DescribeWait(yielded);
+            object? yielded;
+            if (routine.Waiting is { isDone: false } pending) yielded = pending;
+            else if (!MoveIterator(routine, out yielded)) return;
+            var wait = DescribeWait(routine, yielded);
             ThrowIfError(NativeBindings.disunity_callback_wait(WorldHandle, payload.ticket, wait.Kind, wait.Num, wait.Den));
         }
         catch { DisposeRoutine(routine); throw; }

@@ -234,3 +234,5 @@ PlayerAssemblyTests.Run();
 RuntimeHookTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
+ResourceTests.Run();
+EnvironmentTests.Run();

@@ -11,6 +11,10 @@ public static partial class DisunityHost
     private static UnitySynchronizationContext? _mainThreadContext;
     private static SynchronizationContext? _previousContext;
     private static ulong _delayedTasks;
+    private static int _mainThread = Environment.CurrentManagedThreadId;
+
+    /// <summary>Whether the caller runs on the thread that loaded the world.</summary>
+    internal static bool OnMainThread => Environment.CurrentManagedThreadId == _mainThread;
 
     /// <summary>Installs the main thread's synchronization context for the loaded world and has
     /// the native scheduler run its work each frame.</summary>
@@ -18,6 +22,7 @@ public static partial class DisunityHost
     {
         _delayedTasks = checked(_nextScript++);
         ThrowIfError(NativeBindings.disunity_world_delayed_tasks(WorldHandle, _delayedTasks, 1));
+        _mainThread = Environment.CurrentManagedThreadId;
         _previousContext = SynchronizationContext.Current;
         _mainThreadContext = new UnitySynchronizationContext();
         SynchronizationContext.SetSynchronizationContext(_mainThreadContext);
@@ -34,6 +39,15 @@ public static partial class DisunityHost
             SynchronizationContext.SetSynchronizationContext(_previousContext);
         _mainThreadContext = null;
         _previousContext = null;
+    }
+
+    /// <summary>Runs <paramref name="work"/> on the main thread in the next frame's delayed tasks.</summary>
+    /// <summary>Queues work for the next frame's delayed tasks; false when no world is loaded.</summary>
+    internal static bool PostToMainThread(Action work)
+    {
+        if (_mainThreadContext is not { } context) return false;
+        context.Post(_ => work(), null);
+        return true;
     }
 
     /// <summary>Whether a native callback is the delayed-tasks phase, which it then runs.</summary>

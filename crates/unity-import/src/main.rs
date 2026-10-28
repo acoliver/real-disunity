@@ -27,6 +27,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-shader-report <player data directory>
        unity-import player-scripts <player data directory> <script layouts JSON>
        unity-import player-plan <player data directory> <scene file> <script layouts JSON>
+       unity-import player-resources <player data directory> <script layouts JSON> <output directory>
        unity-import player-scene <player data directory> <scene file>
        unity-import player-object <serialized file> <path ID>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
@@ -49,6 +50,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
     Some(match args {
         [command, data] if command == "player" => player(Path::new(data)),
         [command, data] if command == "player-decode" => player_decode(Path::new(data)),
+        [command, data, layouts, output] if command == "player-resources" => {
+            player_resources(Path::new(data), Path::new(layouts), Path::new(output))
+        }
         [command, data, scene, layouts] if command == "player-plan" => {
             player_plan(Path::new(data), scene, Path::new(layouts))
         }
@@ -188,6 +192,39 @@ fn print_node(node: &SceneNode, depth: usize) {
     for child in &node.children {
         print_node(child, depth + 1);
     }
+}
+
+/// Plans a player's resources into `output/resources.json`, with script asset fields in
+/// `output/resources`, and
+/// prints how many entries of each class the engine builds.
+fn player_resources(data: &Path, layouts: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
+    let json = std::fs::read_to_string(layouts)
+        .map_err(|error| format!("cannot read {}: {error}", layouts.display()))?;
+    let layouts = worldrunner_unity_import::script_layouts::parse_script_layouts(&json)?;
+    let plan =
+        worldrunner_unity_import::player_resources::plan_player_resources(data, &layouts, output)?;
+    let file = output.join("resources.json");
+    std::fs::write(&file, serde_json::to_vec(&plan)?)
+        .map_err(|error| format!("cannot write {}: {error}", file.display()))?;
+    let mut classes = std::collections::BTreeMap::<&str, (usize, usize)>::new();
+    for entry in &plan.entries {
+        let counts = classes.entry(entry.class.as_str()).or_default();
+        counts.0 += 1;
+        counts.1 += usize::from(entry.asset.is_some());
+    }
+    println!(
+        "{} entries, {} assets, {} differences",
+        plan.entries.len(),
+        plan.assets.len(),
+        plan.differences.len()
+    );
+    for (class, (count, built)) in classes {
+        println!("{count:6} {class} ({built} built)");
+    }
+    for difference in &plan.differences {
+        println!("    {difference}");
+    }
+    Ok(())
 }
 
 /// Plans a player's scene file with script layouts and prints the plan as JSON on stdout,

@@ -8,9 +8,10 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use thiserror::Error;
+pub use worldrunner_unity_serialized::script_data::ScriptLayouts;
 use worldrunner_unity_serialized::{
     script_builtin::Builtin,
-    script_data::{FieldType, Primitive, ScriptField, ScriptLayouts, ScriptType},
+    script_data::{FieldType, Primitive, ScriptField, ScriptType},
 };
 
 #[derive(Debug, Error)]

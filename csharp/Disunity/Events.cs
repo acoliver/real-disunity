@@ -2,6 +2,7 @@ using System.Reflection;
 
 namespace UnityEngine.Events;
 
+public delegate void UnityAction();
 public delegate void UnityAction<in T>(T value);
 
 /// <summary>Unity's <c>PersistentListenerMode</c>: what a persistent call passes.</summary>

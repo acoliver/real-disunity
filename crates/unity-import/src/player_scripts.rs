@@ -81,6 +81,8 @@ pub(crate) type ScriptFailure = (String, String);
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScriptData {
     pub class: Option<ScriptClass>,
+    /// The object's name: an asset's name, empty for most components.
+    pub name: String,
     pub enabled: bool,
     pub fields: Vec<(String, Value)>,
 }
@@ -112,6 +114,7 @@ pub(crate) fn script_fields(
         return Ok(if size == 0 {
             Ok(ScriptData {
                 class: None,
+                name: behaviour.name,
                 enabled: behaviour.enabled,
                 fields: Vec::new(),
             })
@@ -139,6 +142,7 @@ pub(crate) fn script_fields(
     Ok(match fields {
         Ok(fields) => Ok(ScriptData {
             class: Some(class),
+            name: behaviour.name,
             enabled: behaviour.enabled,
             fields,
         }),

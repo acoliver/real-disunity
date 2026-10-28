@@ -4,7 +4,7 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
     var albedo = scene_albedo(scene_atlas_sample(albedo_texture, input), input.tint);
     let geometric = normalize(input.world_normal) * select(-1.0, 1.0, front);
     let mapped_normal = sample_normal(input, geometric, input.world_position, input.world_tangent);
-    let normal = scene_fold_direction(mapped_normal, input.ground_fold, material.contact_surface.zw);
+    var normal = scene_fold_direction(mapped_normal, input.ground_fold, material.contact_surface.zw);
     var roughness = material.roughness;
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {
@@ -23,7 +23,8 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
     if material.scattering_mode.y != 0.0 && (!scene_packed_atlas(input) || metalness > 0.05) { metalness = 0.0; }
     if scene_packed_atlas(input) && metalness > 0.05 { metalness = 0.0; }
     let projected = scene_project_decals(input.world_position, geometric, 1u,
-        albedo.rgb, vec2<f32>(roughness, metalness));
+        albedo.rgb, vec2<f32>(roughness, metalness), normal);
+    normal = projected.normal;
     albedo = vec4<f32>(projected.albedo, albedo.a);
     roughness = projected.properties.x;
     metalness = projected.properties.y;

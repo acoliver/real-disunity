@@ -8,7 +8,9 @@
 //! scene cannot exist.
 
 mod decal;
-pub use decal::{SceneDecal, SceneDecalAxis, SceneDecalReceivers};
+pub use decal::{
+    SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalReceivers,
+};
 mod atmosphere;
 mod specular_cube;
 pub use specular_cube::SceneSpecularCube;

@@ -52,7 +52,20 @@ fn layered_source(source: &str) -> String {
             &format!("@group(1) @binding({output})"),
         );
     }
-    let source = source.replace("    var accumulator: BlendAccumulator;", "    if terrain.dimensions_and_count.w != 0u {\n        let sample = compose_layered(world_xy, world_xy_dx, world_xy_dy);\n        return BlendedSurface(clamp(sample.albedo, vec3<f32>(0.0), vec3<f32>(1.0)), sample.normal, clamp(sample.roughness, 0.0, 1.0), clamp(sample.metallic, 0.0, 1.0));\n    }\n    var accumulator: BlendAccumulator;");
+    // Layered draws use their source composer exclusively. Omitting the unused
+    // conventional palettes leaves room for decals within the baseline stage limit.
+    let start = source
+        .find("fn blend_surfaces(")
+        .expect("terrain blend function");
+    let end = source[start..]
+        .find("\nstruct TerrainVertexInput")
+        .map(|offset| start + offset)
+        .expect("terrain vertex entry");
+    let source = format!(
+        "{}fn blend_surfaces(grid: vec2<f32>, world_xy: vec2<f32>, world_xy_dx: vec2<f32>, world_xy_dy: vec2<f32>, centre_surface: u32) -> BlendedSurface {{ let sample = compose_layered(world_xy, world_xy_dx, world_xy_dy); return BlendedSurface(clamp(sample.albedo, vec3<f32>(0.0), vec3<f32>(1.0)), sample.normal, clamp(sample.roughness, 0.0, 1.0), clamp(sample.metallic, 0.0, 1.0)); }}\n{}",
+        &source[..start],
+        &source[end..]
+    );
     format!("{source}\n{shared}")
 }
 

@@ -35,7 +35,7 @@ pub(crate) fn pipelines(
     let output = if material {
         "vec4<f32>(mix(vec3<f32>(0.04), albedo.rgb, metalness), roughness)"
     } else {
-        "vec4<f32>(scene_metadata_direction((screen.view * vec4<f32>(normal, 0.0)).xyz), 1.0)"
+        "vec4<f32>(scene_metadata_direction((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0)"
     };
     let object = format!(
         "{object_source}\n{camera}\n{}",
@@ -44,7 +44,7 @@ pub(crate) fn pipelines(
     let terrain_output = if material {
         "vec4<f32>(mix(vec3<f32>(0.04), projected.albedo, projected.properties.y), projected.properties.x)"
     } else {
-        "vec4<f32>(normalize((screen.view * vec4<f32>(normal, 0.0)).xyz), 1.0)"
+        "vec4<f32>(normalize((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0)"
     };
     let marker =
         "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);";

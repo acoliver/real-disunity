@@ -101,3 +101,6 @@ mod policy_tests;
 
 #[cfg(test)]
 pub(crate) mod surface_policy_tests;
+
+#[cfg(test)]
+mod decal_tests;

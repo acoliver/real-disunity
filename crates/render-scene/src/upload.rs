@@ -52,16 +52,9 @@ pub fn frame_bind_group_layout(device: &Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Texture {
-                    sample_type: TextureSampleType::Float { filterable: true },
-                    view_dimension: TextureViewDimension::D2Array,
-                    multisampled: false,
-                },
-                count: None,
-            },
+            decal_texture_entry(2),
+            decal_texture_entry(4),
+            decal_texture_entry(5),
             BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::FRAGMENT,
@@ -70,6 +63,19 @@ pub fn frame_bind_group_layout(device: &Device) -> BindGroupLayout {
             },
         ],
     })
+}
+
+fn decal_texture_entry(binding: u32) -> BindGroupLayoutEntry {
+    BindGroupLayoutEntry {
+        binding,
+        visibility: ShaderStages::FRAGMENT,
+        ty: BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: true },
+            view_dimension: TextureViewDimension::D2Array,
+            multisampled: false,
+        },
+        count: None,
+    }
 }
 
 /// Builds the layout for per-material state, matching `@group(1)`.
@@ -178,17 +184,8 @@ pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> Bi
         },
         count: None,
     });
-    for binding in 2..=4 {
-        entries.push(BindGroupLayoutEntry {
-            binding,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                sample_type: TextureSampleType::Float { filterable: true },
-                view_dimension: TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        });
+    if !layered {
+        entries.extend((2..=4).map(decal_texture_entry));
     }
     entries.push(BindGroupLayoutEntry {
         binding: 5,

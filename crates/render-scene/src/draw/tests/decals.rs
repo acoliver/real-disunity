@@ -3,7 +3,7 @@ use glam::Vec3;
 use worldrunner_render_plan::{SceneDecal, SceneDecalAxis, SceneDecalReceivers, TexelFormat};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
 
-fn texel(rgba: [u8; 4]) -> SceneTexture {
+pub(super) fn texel(rgba: [u8; 4]) -> SceneTexture {
     SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,
         color_space: TextureColorSpace::Linear,
@@ -24,6 +24,7 @@ pub(crate) fn decal() -> SceneDecal {
         angle_cutoff_micro: 600_000,
         angle_fade_micro: 400_000,
         receivers: SceneDecalReceivers::ALL,
+        mapping: worldrunner_render_plan::SceneDecalMapping::default(),
     }
 }
 pub(crate) fn source(slope: bool, terrain_receiver: bool) -> RenderScene {
@@ -84,7 +85,7 @@ pub(crate) fn source(slope: bool, terrain_receiver: bool) -> RenderScene {
     })
     .unwrap()
 }
-fn capture(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
+pub(super) fn capture(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
     let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, samples).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
@@ -521,3 +522,9 @@ fn prepare_root_page(context: &GpuContext, gpu: &SceneGpu, frame: &FrameUniform)
         .unwrap();
     transaction.finish().submit().unwrap();
 }
+
+#[path = "decal_maps.rs"]
+mod maps;
+
+#[path = "decal_mapping.rs"]
+mod mapping;

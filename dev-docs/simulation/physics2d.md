@@ -26,8 +26,6 @@ Contacts use the geometric mean of friction and the maximum bounciness. Only the
 
 `Disunity.Engine` exposes `UnityEngine.PhysicsMaterial2D`, `Collider2D.sharedMaterial`, and `Rigidbody2D.sharedMaterial` through generated ABI exports. New managed assets start with friction 0.4 and bounciness zero. Reading sharedMaterial returns the explicit asset reference or null, not the resolved fallback. Ordinary component property writes retain their material reference.
 
-Unity documents [collider-over-body precedence](https://docs.unity3d.com/ScriptReference/Rigidbody2D-sharedMaterial.html), [default friction and bounce mixing](https://docs.unity3d.com/Manual/2d-physics/physics-material-2d-reference.html), the [geometric-mean definition](https://docs.unity3d.com/6000.5/Documentation/Manual/2d-physics-api/2d-physics-api-reference-shape.html), and the [bounce velocity threshold](https://docs.unity3d.com/ScriptReference/Physics2D-bounceThreshold.html).
-
 ## Contacts and queries
 
 Each successful step replaces `World::contacts()` with typed `ContactEvent` observations sorted by collider identity pair and then phase. Persistent overlaps produce enter, stay and exit. A trigger swept completely through another collider produces enter and exit within the same step. Contact identities are generation-checked component handles; events also identify objects and attached bodies. Normals point from A to B in the selected plane. Exit observations preserve the identities of the ended pair, even after retirement.

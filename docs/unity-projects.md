@@ -1,6 +1,6 @@
 # Importing Unity projects
 
-The goal for Unity projects is that you point the engine at an unmodified project and it plays: scenes are imported, scripts are compiled against `Disunity.Engine`, and the scene is built in the native world before any `Awake` runs. `unity-import plan` turns a scene into a plan, `DisunityHost.LoadScene` builds the plan in a running world (see [Loading scenes](unity-api.md#loading-scenes)), and the `play` command runs a game in a window:
+The engine runs the three pinned test games below with unchanged scripts and assets. Arbitrary Unity projects still need integration and support for their content and APIs. `unity-import plan` turns a scene into a plan, `DisunityHost.LoadScene` builds the plan in a running world (see [Loading scenes](unity-api.md#loading-scenes)), and the `play` command runs a game in a window:
 
 ```sh
 cargo build -p worldrunner-disunity-ffi
@@ -8,6 +8,8 @@ cargo run -p worldrunner-play -- pong
 ```
 
 `play` takes the three test games below by name; its options for scripted keys, fixed frame times and captures are in the [play crate's README](../crates/play/README.md).
+
+Follow the [source-use policy](../CONTRIBUTING.md#permitted-references-and-inspection) when selecting input. Inspect game-specific code, serialized content, assets and compiled shaders only within that game's permissions. The commands below describe current tool functionality; they do not authorize inspection of Unity engine, library or package implementation. Runtime package loading and metadata or shader processing grant no such permission. Stop ambiguous manual inspection and ask Andrew.
 
 ## What the importer reads
 
@@ -74,7 +76,7 @@ missing references: 0
 
 ## Status of the test games
 
-Three small open-source Unity games are the first targets. They will run from their original repositories at pinned commits, with no changes to their source or assets.
+Three small open-source Unity games are the first targets. They run from their original repositories at pinned commits, with no changes to their source or assets.
 
 | Game | Unity version | Status |
 | --- | --- | --- |

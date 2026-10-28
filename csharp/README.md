@@ -1,5 +1,11 @@
 # Managed ABI and portable fixture
 
+Contributors must follow [CONTRIBUTING.md](../CONTRIBUTING.md) and agents must
+follow [AGENTS.md](../AGENTS.md). Player assembly loading can execute listed Unity
+packages, and tools read assembly metadata. These capabilities do not authorize
+inspection of Unity implementation. Inspect only permitted game-specific material;
+stop uncertain manual inspection for Andrew's guidance.
+
 The generated imports `Disunity/NativeBindings.g.cs`, `Disunity/NativeBindings.2.g.cs`
 and so on, and the records in `Disunity/NativeRecords.g.cs`, are checked in.
 The native FFI build generates them in Cargo's `OUT_DIR`, splitting csbindgen's
@@ -152,8 +158,7 @@ templates and keeps their clones.
 It never changes whether the object is active; an inactive object's scripts wake
 when it is activated.
 
-[Unity documents Instantiate](https://docs.unity3d.com/ScriptReference/Object.Instantiate.html)
-as copying children and components. Under the pending-visible destruction contract,
+`Object.Instantiate` copies children and components. Under the pending-visible destruction contract,
 cloning copies every still-existing component, including pending components, and
 remaps references before activation. An independent clone does not inherit the
 source's pending destruction. A clone attached to a pending parent does inherit
@@ -277,9 +282,10 @@ surface includes
 object constructors, component destruction, body forces, broader
 colliders/queries, materials/resources, script tile/grid APIs, application/scene controls,
 the CanvasScaler component, bold/italic text, rich text markup, best fit and generic
-AddComponent<Text>. Three pinned external runtime-script trees compile unchanged
-against Disunity in projects outside this repository. This establishes source
-compilation, without claiming game execution or content import.
+AddComponent<Text>. The three pinned game script trees compile unchanged against
+Disunity through `csharp/OriginalGames`. The scene and window tests described above
+exercise their loading and play behavior; this does not establish arbitrary game
+compatibility.
 
 ### Callback failures and dependency checks
 

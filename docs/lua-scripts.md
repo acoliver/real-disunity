@@ -91,7 +91,7 @@ scripts.restore(&snapshot, &["Classes"])?;
 
 ## Patching a game's original scripts
 
-A game keeps its original script files unchanged and ships patches beside them, for security fixes or updates to Lua 5.4. Patches apply as each file loads; the original files are never rewritten.
+The existing Lua API supports load-time patches, for example for security fixes or Lua 5.4 updates, without rewriting source files. This describes tool functionality. The [contribution policy](../CONTRIBUTING.md#start-with-a-fork-and-a-scoped-change) requires unchanged original scripts, assets and behavior apart from API binding and harness configuration; it does not authorize per-game overlays for compatibility contributions. Source inspection and redistribution still require the particular game's permissions.
 
 ```rust
 use worldrunner_script::{Edit, Overlay, Patch, PatchSet, ScriptConfig, ScriptHost};

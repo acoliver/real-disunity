@@ -1,13 +1,15 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
+//! `play --player <data directory>`: starts a built Unity player's scene without a window.
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use worldrunner_play::{Game, PlayDriver, key_code, prepare};
+use worldrunner_play::{Game, PlayDriver, key_code, prepare, prepare_player, run_player};
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
-            [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]";
+            [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
+       play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]";
 
 #[derive(Default)]
 struct Arguments {
@@ -19,6 +21,8 @@ struct Arguments {
     captures: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
     seed: Option<i32>,
+    player: Option<PathBuf>,
+    scene: Option<String>,
 }
 
 fn number<T: std::str::FromStr>(text: &str, what: &str) -> Result<T, String> {
@@ -78,6 +82,8 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
         }
         "--font" => arguments.font = Some(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
+        "--player" => arguments.player = Some(value.into()),
+        "--scene" => arguments.scene = Some(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
     }
     Ok(())
@@ -98,7 +104,32 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
     Ok(arguments)
 }
 
+/// Starts a player's scene, `level0` unless `--scene` names another, and runs it headless
+/// for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
+fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
+    let windowed = arguments.game.is_some()
+        || arguments.size.is_some()
+        || !arguments.keys.is_empty()
+        || !arguments.captures.is_empty()
+        || arguments.font.is_some()
+        || arguments.seed.is_some();
+    if windowed {
+        return Err(
+            "--player runs without a window and takes only --scene, --frames and --fixed-dt".into(),
+        );
+    }
+    let scene = arguments.scene.as_deref().unwrap_or("level0");
+    let prepared = prepare_player(data, scene).map_err(|error| error.to_string())?;
+    let dt = arguments
+        .fixed_dt
+        .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
+    run_player(&prepared, arguments.frames.unwrap_or(1), dt).map_err(|error| error.to_string())
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
+    if let Some(data) = &arguments.player {
+        return player(data, &arguments);
+    }
     let game = arguments.game.ok_or("name a game")?;
     let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)
         .map_err(|error| error.to_string())?;

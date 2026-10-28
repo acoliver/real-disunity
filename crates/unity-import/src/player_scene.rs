@@ -40,7 +40,7 @@ pub fn read_scene_hierarchy(data_dir: &Path, scene: &str) -> Result<Vec<SceneNod
 
 impl PlayerFiles {
     /// Transforms without a parent, ordered by path ID.
-    fn roots(&mut self, path: &Path) -> Result<Vec<i64>, PlayerError> {
+    pub(crate) fn roots(&mut self, path: &Path) -> Result<Vec<i64>, PlayerError> {
         let file = self.open_path(path)?;
         let ids: Vec<_> = file
             .file
@@ -56,7 +56,11 @@ impl PlayerFiles {
         crate::player_hierarchy::roots(path, &transforms)
     }
 
-    fn transform(&mut self, path: &Path, path_id: i64) -> Result<Transform, PlayerError> {
+    pub(crate) fn transform(
+        &mut self,
+        path: &Path,
+        path_id: i64,
+    ) -> Result<Transform, PlayerError> {
         let file = self.open_path(path)?;
         let class = file.file.object(path_id).map(|o| o.class_id);
         if class == Some(ClassId::RECT_TRANSFORM) {

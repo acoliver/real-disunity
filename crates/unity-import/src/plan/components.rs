@@ -104,6 +104,7 @@ impl Planner<'_> {
         Ok(PlanComponent::Script {
             script,
             class,
+            assembly: None,
             enabled,
             fields,
         })

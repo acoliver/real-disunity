@@ -3,9 +3,11 @@
 //!
 //! The wire format and the opcode table follow smol-v by Aras Pranckevičius
 //! (<https://github.com/aras-p/smol-v>), used under its public-domain (Unlicense) option.
-//! SMOL-V encoding versions 0 and 1 are supported.
+//! SMOL-V encoding versions 0 and 1 are supported. Version 0 is read with its current
+//! meaning; the encoding of 31 August 2016, which upstream decodes only when asked to and
+//! which shares the version number, is not supported.
 
-use crate::SerializedError;
+use crate::{SerializedError, shader_records::ModuleEncoding};
 
 /// The first word of a SPIR-V module.
 pub const SPIRV_MAGIC: u32 = 0x0723_0203;
@@ -181,18 +183,19 @@ fn member_decorations(
     if count == 0 {
         return Err(invalid(at, "a member decoration run is empty"));
     }
+    // Member indices and offsets are stored as differences from the previous member's, and
+    // a decrease is stored as a wrapped difference, so both accumulate with wraparound.
     let (mut member, mut offset) = (0u32, 0u32);
     for index in 0..count {
         let at = r.at;
-        let overflow = || invalid(at, "a member index or offset exceeds 32 bits");
-        member = member.checked_add(r.varint()?).ok_or_else(overflow)?;
+        member = member.wrapping_add(r.varint()?);
         let decoration = r.varint()?;
         let operands = match decoration {
             0 | 2..=5 => 0,
             29..=37 => 1,
             _ => r.varint()? as usize,
         };
-        let len = operands + 4;
+        let len = operands.saturating_add(4);
         let word = instruction_word(len, OP_MEMBER_DECORATE, at)?;
         if index == 0 && len != first_len {
             return Err(invalid(
@@ -207,7 +210,7 @@ fn member_decorations(
         for operand in 0..operands {
             let mut value = r.varint()?;
             if decoration == DECORATION_OFFSET && operand == 0 {
-                offset = offset.checked_add(value).ok_or_else(overflow)?;
+                offset = offset.wrapping_add(value);
                 value = offset;
             }
             out.push(value);
@@ -358,4 +361,32 @@ pub fn entry_points(words: &[u32]) -> Result<Vec<u32>, SerializedError> {
         at = end;
     }
     Ok(models)
+}
+
+/// A Vulkan stage module as SPIR-V words: decoded when stored as SMOL-V, read as
+/// little-endian words when stored as SPIR-V, and checked with [`entry_points`] either way.
+///
+/// # Errors
+/// Fails when the module does not decode, is not a whole number of words, or is not
+/// structurally valid SPIR-V.
+pub fn module_words(encoding: ModuleEncoding, bytes: &[u8]) -> Result<Vec<u32>, SerializedError> {
+    let words = match encoding {
+        ModuleEncoding::Smolv => return decode(bytes),
+        ModuleEncoding::SpirV => {
+            let (words, rest) = bytes.as_chunks::<4>();
+            if !rest.is_empty() {
+                let offset = bytes.len() - rest.len();
+                return Err(invalid(
+                    offset,
+                    "the SPIR-V module is not a whole number of words",
+                ));
+            }
+            words
+                .iter()
+                .map(|&word| u32::from_le_bytes(word))
+                .collect::<Vec<_>>()
+        }
+    };
+    entry_points(&words)?;
+    Ok(words)
 }

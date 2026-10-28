@@ -21,8 +21,7 @@ use worldrunner_unity_serialized::{
     shader::Shader,
     shader_program::PlayerSubProgram,
     shader_records::{
-        ModuleEncoding, PlatformProgram, SPIRV_PROGRAM, platform_program_types, platform_programs,
-        vulkan_stages,
+        PlatformProgram, SPIRV_PROGRAM, platform_program_types, platform_programs, vulkan_stages,
     },
     smolv,
     sprite::{Sprite, SpriteAtlas},
@@ -335,11 +334,7 @@ fn decode_modules(
             reason: "the program's code lies outside the chunks",
         })?;
     for stage in vulkan_stages(code)? {
-        let bytes = &code[stage.range.clone()];
-        let words = match stage.encoding {
-            ModuleEncoding::Smolv => smolv::decode(bytes)?,
-            ModuleEncoding::SpirV => spirv_words(bytes)?,
-        };
+        let words = smolv::module_words(stage.encoding, &code[stage.range.clone()])?;
         modules.push(ShaderModule {
             blob_index: program.label.0,
             slot: stage.slot,
@@ -348,18 +343,6 @@ fn decode_modules(
         });
     }
     Ok(())
-}
-
-/// A module stored as plain SPIR-V, as little-endian words.
-fn spirv_words(bytes: &[u8]) -> Result<Vec<u32>, SerializedError> {
-    let (words, rest) = bytes.as_chunks::<4>();
-    if !rest.is_empty() {
-        return Err(SerializedError::InvalidShaderModule {
-            offset: bytes.len() - rest.len(),
-            reason: "the SPIR-V module is not a whole number of words",
-        });
-    }
-    Ok(words.iter().map(|&word| u32::from_le_bytes(word)).collect())
 }
 
 /// A layout's class with its check. The class comes from the layout, so the two cannot drift.

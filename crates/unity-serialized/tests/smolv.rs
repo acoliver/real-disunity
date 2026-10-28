@@ -1,6 +1,7 @@
 use worldrunner_unity_serialized::{
     SerializedError,
-    smolv::{SPIRV_MAGIC, decode, entry_points},
+    shader_records::ModuleEncoding,
+    smolv::{SPIRV_MAGIC, decode, entry_points, module_words},
 };
 
 /// A module covering each SMOL-V rule, in order:
@@ -119,5 +120,79 @@ fn checks_spirv_structure() {
     assert_eq!(
         reason(entry_points(&SPIRV[..57]).unwrap_err()),
         "a SPIR-V instruction is empty or runs past the module"
+    );
+}
+
+/// Negative ID deltas, an instruction with fewer operands than its relative count, an
+/// unknown opcode read as raw words, and a member decoration run whose member index and
+/// `Offset` decrease (stored as wrapped differences), with a decoration carrying an explicit
+/// operand count and one whose operand is not accumulated. Confirmed by the upstream decoder.
+#[rustfmt::skip]
+const DELTAS: [u8; 77] = [
+    0x4c, 0x4f, 0x4d, 0x53, 0x00, 0x00, 0x01, 0x01, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0xac, 0x00, 0x00, 0x00, 0xa6, 0x02, 0x0a, 0x20, 0xa6, 0x02,
+    0x03, 0x10, 0xc0, 0x10, 0x03, 0x08, 0x03, 0x0c, 0xb0, 0x10, 0x03, 0x02, 0x0c, 0xa0, 0x32,
+    0xef, 0xbe, 0xad, 0xde, 0x78, 0x56, 0x34, 0x12, 0x47, 0x12, 0x04, 0x02, 0x23, 0x30, 0xff,
+    0xff, 0xff, 0xff, 0x0f, 0x23, 0xe0, 0xff, 0xff, 0xff, 0x0f, 0x00, 0x0b, 0x01, 0x04, 0x00,
+    0x1e, 0x07,
+];
+
+#[rustfmt::skip]
+const DELTAS_SPIRV: [u32; 43] = [
+    0x0723_0203, 0x0001_0000, 0x0000_0007, 0x0000_0010, 0x0000_0000, 0x0003_0016, 0x0000_0005,
+    0x0000_0020, 0x0003_0016, 0x0000_0003, 0x0000_0010, 0x0005_0080, 0x0000_0003, 0x0000_0007,
+    0x0000_0009, 0x0000_0001, 0x0004_0080, 0x0000_0003, 0x0000_0008, 0x0000_0002, 0x0003_0190,
+    0xdead_beef, 0x1234_5678, 0x0005_0048, 0x0000_0009, 0x0000_0002, 0x0000_0023, 0x0000_0030,
+    0x0005_0048, 0x0000_0009, 0x0000_0001, 0x0000_0023, 0x0000_0010, 0x0005_0048, 0x0000_0009,
+    0x0000_0001, 0x0000_000b, 0x0000_0004, 0x0005_0048, 0x0000_0009, 0x0000_0001, 0x0000_001e,
+    0x0000_0007,
+];
+
+/// Encoding version 0, where opcode 333 is unknown and so read as raw words. Confirmed by the
+/// upstream decoder.
+#[rustfmt::skip]
+const VERSION_0: [u8; 38] = [
+    0x4c, 0x4f, 0x4d, 0x53, 0x00, 0x00, 0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0xbd, 0x28, 0x07, 0x00, 0x00, 0x00,
+    0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00,
+];
+
+#[rustfmt::skip]
+const VERSION_0_SPIRV: [u32; 9] = [
+    0x0723_0203, 0x0001_0000, 0x0000_0007, 0x0000_0010, 0x0000_0000, 0x0004_014d, 0x0000_0007,
+    0x0000_0008, 0x0000_0009,
+];
+
+#[test]
+fn decodes_negative_deltas_unknown_opcodes_and_decreasing_member_runs() {
+    assert_eq!(decode(&DELTAS).unwrap(), DELTAS_SPIRV);
+}
+
+#[test]
+fn encoding_version_0_knows_fewer_opcodes() {
+    assert_eq!(decode(&VERSION_0).unwrap(), VERSION_0_SPIRV);
+    // Read as version 1, opcode 333 has type and result IDs, so the same bytes decode
+    // differently.
+    let mut version_1 = VERSION_0;
+    version_1[7] = 1;
+    assert_ne!(decode(&version_1).ok(), Some(VERSION_0_SPIRV.to_vec()));
+}
+
+#[test]
+fn reads_stage_modules_in_either_encoding() {
+    assert_eq!(module_words(ModuleEncoding::Smolv, &SMOLV).unwrap(), SPIRV);
+    let bytes: Vec<u8> = SPIRV.iter().flat_map(|w| w.to_le_bytes()).collect();
+    assert_eq!(module_words(ModuleEncoding::SpirV, &bytes).unwrap(), SPIRV);
+    assert_eq!(
+        reason(module_words(ModuleEncoding::SpirV, &bytes[..bytes.len() - 1]).unwrap_err()),
+        "the SPIR-V module is not a whole number of words"
+    );
+    assert_eq!(
+        reason(module_words(ModuleEncoding::SpirV, &bytes[..bytes.len() - 4]).unwrap_err()),
+        "a SPIR-V instruction is empty or runs past the module"
+    );
+    assert_eq!(
+        reason(module_words(ModuleEncoding::Smolv, &bytes).unwrap_err()),
+        "the data is not SMOL-V"
     );
 }

@@ -13,8 +13,10 @@ pub mod player;
 mod player_hierarchy;
 pub mod player_objects;
 pub mod player_scene;
+pub mod player_shaders;
 pub mod project;
 pub mod scene;
+pub mod shader_prep;
 pub mod texture;
 pub mod yaml;
 

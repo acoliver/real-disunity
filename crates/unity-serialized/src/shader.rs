@@ -196,9 +196,12 @@ fn per_platform(
 }
 
 impl CompiledBlobs {
-    /// Decompresses each chunk of one platform's compiled programs. `object` is the shader
-    /// object's bytes, which [`Self::blob`] indexes. The first chunk starts with the table of
-    /// sub-programs; each entry names the chunk, as a segment index, that holds its program.
+    /// Decompresses each chunk of one platform's compiled programs; a platform with no chunks
+    /// gives an empty list. `object` is the shader object's bytes, which [`Self::blob`] indexes.
+    ///
+    /// In the Unity 6000.3.15f1 player checked, the first chunk starts with the table of
+    /// sub-programs (an `i32` count, then an offset, length and segment index per entry), and
+    /// every entry fits inside the chunk its segment index names.
     ///
     /// # Errors
     /// Fails when the platform index is out of range, the per-platform lists disagree, a
@@ -240,7 +243,14 @@ impl CompiledBlobs {
                 .ok_or_else(|| invalid(chunk, "the chunk lies outside the blob"))?;
             let out_len =
                 usize::try_from(out_len).map_err(|_| invalid(chunk, "length too large"))?;
-            chunks.push(crate::lz4::decompress_block(input, out_len)?);
+            let data = crate::lz4::decompress_block(input, out_len).map_err(|source| {
+                SerializedError::ShaderChunk {
+                    platform,
+                    chunk,
+                    source: Box::new(source),
+                }
+            })?;
+            chunks.push(data);
         }
         Ok(chunks)
     }

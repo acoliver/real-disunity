@@ -90,7 +90,8 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
     }
 }
 
-/// Writes each decompressed program chunk of one shader platform to `chunk<i>.bin`.
+/// Writes each decompressed program chunk of one shader platform to `chunk<i>.bin` in a new
+/// directory, so no file from an earlier run is left among them.
 fn player_shader(
     file: &Path,
     path_id: &str,
@@ -99,7 +100,8 @@ fn player_shader(
 ) -> Result<(), Box<dyn Error>> {
     let mut open = OpenFile::open(file)?;
     let (kind, chunks) = shader_chunks(&mut open, path_id.parse()?, platform.parse()?)?;
-    std::fs::create_dir_all(out)?;
+    std::fs::create_dir(out)
+        .map_err(|error| format!("cannot create {}: {error}", out.display()))?;
     for (index, chunk) in chunks.iter().enumerate() {
         std::fs::write(out.join(format!("chunk{index}.bin")), chunk)?;
     }

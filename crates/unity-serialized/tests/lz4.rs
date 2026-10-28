@@ -76,16 +76,27 @@ fn rejects_output_of_the_wrong_length() {
 #[test]
 fn rejects_truncated_blocks() {
     let block = [0x22, b'a', b'b', 0x02, 0x00, 0x00];
-    for end in [0, 2, 4] {
-        let error = decompress_block(&block[..end], 8).unwrap_err();
-        assert!(
-            matches!(
-                error,
-                SerializedError::Truncated { .. } | SerializedError::InvalidCompressedBlock { .. }
-            ),
-            "prefix {end}: {error}"
-        );
-    }
+    assert_eq!(
+        reason(decompress_block(&[], 8)),
+        "the declared size is more than the block can produce"
+    );
+    assert!(matches!(
+        decompress_block(&[], 0).unwrap_err(),
+        SerializedError::Truncated { .. }
+    ));
+    assert!(matches!(
+        decompress_block(&block[..4], 8).unwrap_err(),
+        SerializedError::Truncated { .. }
+    ));
+    assert_eq!(
+        reason(decompress_block(&block[..2], 8)),
+        "the literals run past the end of the block"
+    );
+    // A block may not end with a match: the next token is missing.
+    assert!(matches!(
+        decompress_block(&block[..5], 8).unwrap_err(),
+        SerializedError::Truncated { .. }
+    ));
     assert!(matches!(
         decompress_block(&[0xf0], 20).unwrap_err(),
         SerializedError::Truncated { .. }
@@ -94,6 +105,15 @@ fn rejects_truncated_blocks() {
         reason(decompress_block(&[0x50, b'h', b'i'], 5)),
         "the literals run past the end of the block"
     );
+}
+
+#[test]
+fn extends_literal_lengths_through_255() {
+    // 15 + 255 + 0 literals.
+    let mut block = vec![0xf0, 0xff, 0x00];
+    let literals: Vec<u8> = (0..=u8::MAX).cycle().take(270).collect();
+    block.extend(&literals);
+    assert_eq!(decompress_block(&block, 270).unwrap(), literals);
 }
 
 /// An object with eight bytes of other fields, then a blob holding two chunks for one platform.
@@ -155,8 +175,15 @@ fn rejects_platforms_and_chunks_that_do_not_fit() {
     );
     let mut wrong_length = blobs;
     wrong_length.decompressed_lengths = vec![vec![3, 6]];
-    assert!(matches!(
-        wrong_length.platform_chunks(&object, 0).unwrap_err(),
-        SerializedError::InvalidCompressedBlock { .. }
-    ));
+    match wrong_length.platform_chunks(&object, 0).unwrap_err() {
+        SerializedError::ShaderChunk {
+            platform: 0,
+            chunk: 1,
+            source,
+        } => assert!(
+            matches!(*source, SerializedError::InvalidCompressedBlock { .. }),
+            "{source}"
+        ),
+        other => panic!("unexpected error {other}"),
+    }
 }

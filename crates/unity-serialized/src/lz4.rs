@@ -31,7 +31,7 @@ fn length(input: &[u8], pos: &mut usize, nibble: u8) -> Result<usize, Serialized
         loop {
             let extra = byte(input, *pos)?;
             *pos += 1;
-            len += usize::from(extra);
+            len = len.saturating_add(usize::from(extra));
             if extra != 255 {
                 break;
             }
@@ -52,7 +52,8 @@ fn copy_match(out: &mut Vec<u8>, offset: usize, len: usize) {
     }
 }
 
-/// Decompresses one LZ4 block that must produce exactly `decompressed_len` bytes.
+/// Decompresses one LZ4 block that must produce exactly `decompressed_len` bytes. Error
+/// offsets are bytes into `input`.
 ///
 /// # Errors
 /// Fails when the block is truncated, refers back before the start of its output, or
@@ -64,7 +65,9 @@ pub fn decompress_block(input: &[u8], decompressed_len: usize) -> Result<Vec<u8>
             "the declared size is more than the block can produce",
         ));
     }
-    let mut out = Vec::with_capacity(decompressed_len);
+    let mut out = Vec::new();
+    out.try_reserve_exact(decompressed_len)
+        .map_err(|_| invalid(0, "the declared size cannot be allocated"))?;
     let mut pos = 0;
     loop {
         let token = byte(input, pos)?;
@@ -74,7 +77,7 @@ pub fn decompress_block(input: &[u8], decompressed_len: usize) -> Result<Vec<u8>
             .checked_add(literals)
             .filter(|&end| end <= input.len())
             .ok_or_else(|| invalid(pos, "the literals run past the end of the block"))?;
-        if out.len() + literals > decompressed_len {
+        if literals > decompressed_len - out.len() {
             return Err(invalid(pos, "the output exceeds the declared size"));
         }
         out.extend_from_slice(&input[pos..end]);
@@ -93,8 +96,8 @@ pub fn decompress_block(input: &[u8], decompressed_len: usize) -> Result<Vec<u8>
             ));
         }
         pos += 2;
-        let len = length(input, &mut pos, token & 15)? + MIN_MATCH;
-        if out.len() + len > decompressed_len {
+        let len = length(input, &mut pos, token & 15)?.saturating_add(MIN_MATCH);
+        if len > decompressed_len - out.len() {
             return Err(invalid(pos, "the output exceeds the declared size"));
         }
         copy_match(&mut out, offset, len);

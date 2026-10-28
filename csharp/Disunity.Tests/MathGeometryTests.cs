@@ -235,11 +235,13 @@ internal static class MathGeometryTests
         Require(MathTests.Near(orthoPlanes.left, -2f) && MathTests.Near(orthoPlanes.right, 2f) && MathTests.Near(orthoPlanes.zNear, 0.1f, 1e-3f)
             && MathTests.Near(orthoPlanes.zFar, 100f, 1e-2f), "decomposeProjection of an orthographic matrix");
         Require(NearMatrix(Matrix4x4.Frustum(planes), perspective, 1e-4f), "Frustum from FrustumPlanes");
-        var view = Matrix4x4.LookAt(new Vector3(1f, 2f, 3f), new Vector3(1f, 2f, 13f), Vector3.up);
-        RequireNear(view.MultiplyPoint3x4(new Vector3(1f, 2f, 3f)), Vector3.zero, "LookAt moves the viewer to the origin");
-        RequireNear(view.MultiplyPoint3x4(new Vector3(1f, 2f, 13f)), new Vector3(0f, 0f, 10f), "LookAt puts the target ahead on Z");
+        // Unity documents LookAt as TRS(from, LookRotation(to - from, up), one): the viewer's
+        // transform, which maps its local forward onto the line toward the target.
+        var look = Matrix4x4.LookAt(new Vector3(1f, 2f, 3f), new Vector3(1f, 2f, 13f), Vector3.up);
+        RequireNear(look.MultiplyPoint3x4(Vector3.zero), new Vector3(1f, 2f, 3f), "LookAt places the viewer at from");
+        RequireNear(look.MultiplyPoint3x4(new Vector3(0f, 0f, 10f)), new Vector3(1f, 2f, 13f), "LookAt maps local forward to the target");
         var sideways = Matrix4x4.LookAt(Vector3.zero, Vector3.right, Vector3.up);
-        RequireNear(sideways.MultiplyPoint3x4(new Vector3(5f, 0f, 0f)), new Vector3(0f, 0f, 5f), "LookAt toward right");
+        RequireNear(sideways.MultiplyPoint3x4(new Vector3(0f, 0f, 5f)), new Vector3(5f, 0f, 0f), "LookAt toward right");
     }
 
     private static void MatrixPlanesAndValidity()
@@ -280,9 +282,11 @@ internal static class MathGeometryTests
         RequireNear(flipped.normal, Vector3.down, "flipped normal");
         RequireNear(flipped.distance, 2f, "flipped distance");
         var moved = plane;
+        // As in Unity, the distance grows by the translation along the normal, so the plane
+        // at y = 2 moves to y = -1.
         moved.Translate(new Vector3(0f, 3f, 0f));
-        RequireNear(moved.GetDistanceToPoint(new Vector3(0f, 5f, 0f)), 0f, "Translate moves the plane along its normal");
-        RequireNear(Plane.Translate(plane, new Vector3(9f, 3f, 9f)).GetDistanceToPoint(new Vector3(0f, 5f, 0f)), 0f, "static Translate ignores sliding");
+        RequireNear(moved.GetDistanceToPoint(new Vector3(0f, -1f, 0f)), 0f, "Translate adds to the distance as Unity does");
+        RequireNear(Plane.Translate(plane, new Vector3(9f, 3f, 9f)).GetDistanceToPoint(new Vector3(0f, -1f, 0f)), 0f, "static Translate ignores sliding");
         var spanned = new Plane(Vector3.zero, new Vector3(0f, 0f, 1f), new Vector3(1f, 0f, 0f));
         RequireNear(spanned.normal, Vector3.up, "a plane from three clockwise points faces up");
         spanned.Flip();

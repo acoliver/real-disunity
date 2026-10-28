@@ -375,7 +375,8 @@ internal static class MathTests
         Require(Vector3Int.FloorToInt(new Vector3(-0.1f, 0.9f, -2f)) == new Vector3Int(-1, 0, -2), "Vector3Int FloorToInt on negatives");
         Require(Vector3Int.CeilToInt(new Vector3(-0.1f, 0.1f, 2f)) == new Vector3Int(0, 1, 2), "Vector3Int CeilToInt");
         Require(Vector3Int.RoundToInt(new Vector3(1.5f, -1.5f, 0.4f)) == new Vector3Int(2, -2, 0), "Vector3Int RoundToInt");
-        Require(new Vector2Int(-3, 3) / 2 == new Vector2Int(-2, 1), "Vector2Int division rounds down");
+        Require(new Vector2Int(-3, 3) / 2 == new Vector2Int(-1, 1) && new Vector3Int(-3, 3, 5) / 2 == new Vector3Int(-1, 1, 2),
+            "integer vector division truncates toward zero");
         Require(new Vector2Int(1, 2) + new Vector2Int(3, 4) == new Vector2Int(4, 6) && new Vector2Int(3, 4) - new Vector2Int(1, 1) == new Vector2Int(2, 3), "Vector2Int +, -");
         Require(2 * new Vector2Int(1, 2) == new Vector2Int(2, 4) && new Vector2Int(1, 2) * 3 == new Vector2Int(3, 6) && -new Vector2Int(1, -2) == new Vector2Int(-1, 2), "Vector2Int scaling");
         RequireNear(Vector2Int.Distance(new Vector2Int(0, 0), new Vector2Int(3, 4)), 5f, "Vector2Int Distance");

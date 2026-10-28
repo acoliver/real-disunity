@@ -99,7 +99,8 @@ public struct Vector2Int : IEquatable<Vector2Int>, IFormattable
     public static Vector2Int operator *(Vector2Int a, int b) => new(a.x * b, a.y * b);
 
     /// <summary>Divides each component and rounds the result down.</summary>
-    public static Vector2Int operator /(Vector2Int a, int b) => new(Mathf.FloorToInt(a.x / (float)b), Mathf.FloorToInt(a.y / (float)b));
+    /// <summary>Integer division of each component, which truncates toward zero.</summary>
+    public static Vector2Int operator /(Vector2Int a, int b) => new(a.x / b, a.y / b);
 
     public static bool operator ==(Vector2Int lhs, Vector2Int rhs) => lhs.x == rhs.x && lhs.y == rhs.y;
     public static bool operator !=(Vector2Int lhs, Vector2Int rhs) => !(lhs == rhs);

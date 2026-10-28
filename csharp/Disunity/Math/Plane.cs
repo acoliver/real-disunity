@@ -72,10 +72,12 @@ public struct Plane : IFormattable
 
     /// <summary>Moves the plane by <paramref name="translation"/>, so a plane through a point
     /// passes through that point plus the translation.</summary>
-    public void Translate(Vector3 translation) => m_Distance -= Vector3.Dot(m_Normal, translation);
+    /// <summary>Adds the translation's component along the normal to the distance, as Unity
+    /// does, which moves the plane against the translation.</summary>
+    public void Translate(Vector3 translation) => m_Distance += Vector3.Dot(m_Normal, translation);
     public void Translate(ref Vector3 translation) => Translate(translation);
 
-    public static Plane Translate(Plane plane, Vector3 translation) => new(plane.m_Normal, plane.m_Distance - Vector3.Dot(plane.m_Normal, translation));
+    public static Plane Translate(Plane plane, Vector3 translation) => new(plane.m_Normal, plane.m_Distance + Vector3.Dot(plane.m_Normal, translation));
     public static Plane Translate(ref Plane plane, ref Vector3 translation) => Translate(plane, translation);
 
     public readonly Vector3 ClosestPointOnPlane(Vector3 point) => point - m_Normal * GetDistanceToPoint(point);

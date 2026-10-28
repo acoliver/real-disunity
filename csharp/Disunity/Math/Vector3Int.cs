@@ -124,9 +124,8 @@ public struct Vector3Int : IEquatable<Vector3Int>, IFormattable
     public static Vector3Int operator *(Vector3Int a, int b) => new(a.x * b, a.y * b, a.z * b);
     public static Vector3Int operator *(int a, Vector3Int b) => new(a * b.x, a * b.y, a * b.z);
 
-    /// <summary>Divides each component and rounds the result down.</summary>
-    public static Vector3Int operator /(Vector3Int a, int b) =>
-        new(Mathf.FloorToInt(a.x / (float)b), Mathf.FloorToInt(a.y / (float)b), Mathf.FloorToInt(a.z / (float)b));
+    /// <summary>Integer division of each component, which truncates toward zero.</summary>
+    public static Vector3Int operator /(Vector3Int a, int b) => new(a.x / b, a.y / b, a.z / b);
 
     public static bool operator ==(Vector3Int lhs, Vector3Int rhs) => lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
     public static bool operator !=(Vector3Int lhs, Vector3Int rhs) => !(lhs == rhs);

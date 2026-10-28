@@ -384,11 +384,11 @@ public struct Matrix4x4 : IEquatable<Matrix4x4>, IFormattable
         top = (-m13 + 1f) / m11,
     };
 
-    /// <summary>The view matrix for a viewer at <paramref name="from"/> looking at
-    /// <paramref name="to"/>: the inverse of the viewer's placement, with the viewer's Z axis
-    /// pointing at the target.</summary>
+    /// <summary>The placement of a viewer at <paramref name="from"/> looking at
+    /// <paramref name="to"/>, <c>TRS(from, LookRotation(to - from, up), one)</c> as Unity
+    /// documents it. Its inverse is the view matrix.</summary>
     public static Matrix4x4 LookAt(Vector3 from, Vector3 to, Vector3 up) =>
-        Inverse(TRS(from, Quaternion.LookRotation(to - from, up), Vector3.one));
+        TRS(from, Quaternion.LookRotation(to - from, up), Vector3.one);
 
     public static Matrix4x4 LookAt(ref Vector3 from, ref Vector3 to, ref Vector3 up) => LookAt(from, to, up);
 

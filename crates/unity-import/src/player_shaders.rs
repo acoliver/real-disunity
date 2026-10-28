@@ -10,7 +10,7 @@ use worldrunner_unity_serialized::ClassId;
 use crate::{
     PlayerError,
     player_objects::{OpenFile, ShaderModule, shader_modules, shader_platforms},
-    shader_prep::{PrepareError, PreparedModule, check_with_naga, prepare},
+    shader_prep::{Backend, NagaModule, PrepareError, PreparedModule, check_with_naga, prepare},
 };
 
 /// Unity's `ShaderCompilerPlatform` for Vulkan.
@@ -27,47 +27,54 @@ pub struct ShaderReport {
     pub ready: usize,
     /// Ready modules in which combined image samplers were split.
     pub split: usize,
-    /// Failing modules by cause.
+    /// Ready modules that naga writes for each backend.
+    pub written: BTreeMap<Backend, usize>,
+    /// Failures by cause: modules that are not ready, and ready modules a backend cannot be
+    /// written for, whose causes name the backend.
     pub failures: BTreeMap<String, usize>,
     /// The first failure of each cause, naming its shader and module.
     pub examples: BTreeMap<String, String>,
 }
 
 impl ShaderReport {
-    fn record(
-        &mut self,
-        outcome: Result<PreparedModule, PrepareError>,
-        place: impl FnOnce() -> String,
-    ) {
-        match outcome {
-            Ok(prepared) => {
-                self.ready += 1;
-                let split = prepared
-                    .bindings
-                    .iter()
-                    .any(|b| b.sampler_binding.is_some());
-                self.split += usize::from(split);
-            }
-            Err(error) => {
-                let cause = error.cause();
-                *self.failures.entry(cause.clone()).or_default() += 1;
-                self.examples
-                    .entry(cause)
-                    .or_insert_with(|| format!("{}: {error}", place()));
+    fn record(&mut self, module: &ShaderModule, place: &dyn Fn() -> String) {
+        let (prepared, naga) = match prepare_and_check(module) {
+            Ok(checked) => checked,
+            Err(error) => return self.fail(&error, place),
+        };
+        self.ready += 1;
+        let split = prepared
+            .bindings
+            .iter()
+            .any(|b| b.sampler_binding.is_some());
+        self.split += usize::from(split);
+        for backend in Backend::ALL {
+            match backend.write(&naga) {
+                Ok(()) => *self.written.entry(backend).or_default() += 1,
+                Err(error) => self.fail(&error, place),
             }
         }
+    }
+
+    fn fail(&mut self, error: &PrepareError, place: &dyn Fn() -> String) {
+        let cause = error.cause();
+        *self.failures.entry(cause.clone()).or_default() += 1;
+        self.examples
+            .entry(cause)
+            .or_insert_with(|| format!("{}: {error}", place()));
     }
 }
 
 /// Prepares a module and checks it with naga.
-fn prepare_and_check(module: &ShaderModule) -> Result<PreparedModule, PrepareError> {
+fn prepare_and_check(module: &ShaderModule) -> Result<(PreparedModule, NagaModule), PrepareError> {
     let prepared = prepare(&module.words)?;
-    check_with_naga(&prepared.words)?;
-    Ok(prepared)
+    let naga = check_with_naga(&prepared.words)?;
+    Ok((prepared, naga))
 }
 
-/// Prepares every distinct Vulkan stage module of the shaders in `paths` and checks each with
-/// naga. A module that several shaders or variants share is counted once.
+/// Prepares every distinct Vulkan stage module of the shaders in `paths`, checks each with
+/// naga and writes each that passes for every [`Backend`]. A module that several shaders or
+/// variants share is counted once.
 ///
 /// # Errors
 /// Fails if a file cannot be read, or a shader's modules cannot be decoded; a module that
@@ -97,7 +104,7 @@ pub fn shader_report(paths: &[PathBuf]) -> Result<ShaderReport, PlayerError> {
                         let at = format!("{}:{path_id}", path.display());
                         format!("{at} {}.{}", module.blob_index, module.slot)
                     };
-                    report.record(prepare_and_check(&module), place);
+                    report.record(&module, &place);
                 }
             }
         }

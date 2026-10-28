@@ -12,6 +12,7 @@ internal static class AnimationTests
         AnimatorHoldsDefaultsAndIgnoresCommands();
         AnimatorRefusesPlayback();
         ClipHoldsSettingsAndOrderedEvents();
+        LegacyClipsHoldCurves();
         StateInfoMatchesNames();
         TransitionAndClipInfo();
         OverrideControllerHoldsData();
@@ -143,6 +144,56 @@ internal static class AnimationTests
         Expect.That(sample.Message.StartsWith("AnimationClip.SampleAnimation is not supported yet"), sample.Message);
         var info = new AnimatorClipInfo();
         Expect.That(info.clip == null && info.weight == 0f, "a default clip info has no clip");
+    }
+
+    private static List<string> Errors(Action action)
+    {
+        var seen = new List<string>();
+        void Collect(string condition, string stackTrace, LogType type)
+        {
+            if (type == LogType.Error) seen.Add(condition);
+        }
+        Application.logMessageReceivedThreaded += Collect;
+        try { action(); }
+        finally { Application.logMessageReceivedThreaded -= Collect; }
+        return seen;
+    }
+
+    /// <summary>SetCurve stores copies on legacy clips only; length spans the keys; continuity flips
+    /// rotation keys into the previous key's hemisphere.</summary>
+    private static void LegacyClipsHoldCurves()
+    {
+        var clip = new AnimationClip();
+        var curve = AnimationCurve.Linear(0.5f, 0f, 2f, 1f);
+        Expect.That(Errors(() => clip.SetCurve("", typeof(Transform), "localPosition.x", curve)).Count == 1 && clip.empty,
+            "a non-legacy clip refuses SetCurve at runtime with an error");
+        clip.legacy = true;
+        clip.SetCurve("", typeof(Transform), "localPosition.x", curve);
+        clip.SetCurve("Child", typeof(Transform), "localPosition.y", AnimationCurve.Linear(0f, 0f, 1f, 1f));
+        Expect.That(!clip.empty && clip.length == 2f, $"length spans the keys of every curve: {clip.length}");
+        curve.AddKey(5f, 1f);
+        Expect.That(clip.length == 2f, "the clip keeps a copy of the curve");
+        clip.SetCurve("Child", typeof(Transform), "localPosition.y", null!);
+        Expect.That(clip.length == 1.5f, $"a null curve removes it: {clip.length}");
+        var copy = (AnimationClip)UnityEngine.Object.Instantiate(clip);
+        clip.ClearCurves();
+        Expect.That(clip.empty && clip.length == 0f && !copy.empty && copy.length == 1.5f, "ClearCurves empties the clip and a clone keeps its curves");
+
+        var rotation = new AnimationClip { legacy = true };
+        float[][] values = [[0f, 0f, 0f, 1f], [0f, 0f, 0.6f, -0.8f], [0f, 0f, 0.8f, 0.6f]];
+        for (var c = 0; c < 4; c++)
+            rotation.SetCurve("", typeof(Transform), "localRotation." + "xyzw"[c], new AnimationCurve(
+                new Keyframe(0f, values[0][c]), new Keyframe(1f, values[1][c]), new Keyframe(2f, values[2][c])));
+        rotation.EnsureQuaternionContinuity();
+        var find = typeof(AnimationClip).GetMethod("FindCurve", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        float[] Values(char axis) => ((AnimationCurve)find.Invoke(rotation, ["", typeof(Transform), "localRotation." + axis])!).keys.Select(k => k.value).ToArray();
+        Expect.Sequence([1f, 0.8f, 0.6f], Values('w'), "a key in the opposite hemisphere is negated");
+        Expect.Sequence([0f, -0.6f, 0.8f], Values('z'), "every component of a negated key flips, later keys follow the flipped one");
+        var mismatched = new AnimationClip { legacy = true };
+        for (var c = 0; c < 4; c++)
+            mismatched.SetCurve("", typeof(Transform), "localRotation." + "xyzw"[c], AnimationCurve.Linear(0f, 0f, c + 1, 1f));
+        Expect.Throws<NotSupportedException>(mismatched.EnsureQuaternionContinuity, "rotation curves with different key times");
+        Expect.Throws<ArgumentNullException>(() => rotation.SetCurve("", null!, "x", curve), "a null type");
     }
 
     private static AnimatorStateInfo StateInfo(string path, string shortName, string parent)

@@ -3,19 +3,20 @@ using System.Collections.Concurrent;
 namespace UnityEngine;
 
 /// <summary>
-/// A clip made by code. The engine loads no clip assets and plays none, so a clip holds its settings and
-/// events and has no curves: <c>SetCurve</c> needs AnimationCurve, which is not defined yet, and a clip
-/// with no curves is empty, has zero length and no root or motion curves. Sampling it throws.
+/// A clip made by code. The engine loads no clip assets and plays none, so a clip holds its settings,
+/// events and the curves set on it, and sampling it throws. Its length is the span of its curves' keys.
+/// Curves set by code never animate the root or drive motion, so a clip has no root or motion curves.
 /// </summary>
 public sealed class AnimationClip : Motion
 {
     private static readonly ConcurrentDictionary<int, WeakReference<AnimationClip>> Known = new();
     private readonly List<AnimationEvent> _events = new();
+    private readonly AnimationCurves _curves = new();
     private bool _legacy;
 
     public AnimationClip() { }
 
-    public float length => 0f;
+    public float length => _curves.Length;
 
     public float frameRate { get; set; } = 60f;
 
@@ -23,7 +24,7 @@ public sealed class AnimationClip : Motion
     public Bounds localBounds { get; set; }
     public new bool legacy { get => _legacy; set => _legacy = value; }
     public bool humanMotion => false;
-    public bool empty => true;
+    public bool empty => _curves.Empty;
     public bool hasGenericRootTransform => false;
     public bool hasMotionFloatCurves => false;
     public bool hasMotionCurves => false;
@@ -57,11 +58,30 @@ public sealed class AnimationClip : Motion
     public void SampleAnimation(GameObject go, float time) =>
         throw new NotSupportedException("AnimationClip.SampleAnimation is not supported yet: the engine plays no animation");
 
-    /// <summary>Removes the clip's curves, of which it has none.</summary>
-    public void ClearCurves() { }
+    /// <summary>
+    /// Sets the curve that animates <paramref name="propertyName"/> of the <paramref name="type"/>
+    /// component at <paramref name="relativePath"/>, replacing any curve for it; a null curve removes
+    /// it. Unity documents SetCurve as working at runtime only for legacy clips, so on any other clip
+    /// it logs an error and changes nothing.
+    /// </summary>
+    public void SetCurve(string relativePath, Type type, string propertyName, AnimationCurve curve)
+    {
+        ArgumentNullException.ThrowIfNull(relativePath);
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(propertyName);
+        if (!_legacy)
+        {
+            Debug.LogError("AnimationClip.SetCurve works at runtime only on legacy clips; set legacy to true first");
+            return;
+        }
+        _curves.Set(relativePath, type, propertyName, curve);
+    }
 
-    /// <summary>Makes quaternion curves continuous; a clip with no curves is already.</summary>
-    public void EnsureQuaternionContinuity() { }
+    public void ClearCurves() => _curves.Clear();
+
+    internal AnimationCurve? FindCurve(string path, Type type, string property) => _curves.Find(path, type, property);
+
+    public void EnsureQuaternionContinuity() => _curves.EnsureQuaternionContinuity();
 
     internal static void Remember(AnimationClip clip) =>
         Known[clip.GetInstanceID()] = new WeakReference<AnimationClip>(clip);
@@ -73,6 +93,7 @@ public sealed class AnimationClip : Motion
     {
         var copy = new AnimationClip { name = name + "(Clone)", frameRate = frameRate, _legacy = _legacy, wrapMode = wrapMode, localBounds = localBounds };
         foreach (var e in _events) copy._events.Add(e.Copy());
+        _curves.CopyTo(copy._curves);
         return copy;
     }
 }

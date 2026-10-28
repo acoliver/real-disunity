@@ -19,6 +19,10 @@ use worldrunner_unity_serialized::{
     object::{Layout, decode},
     render_settings::RenderSettings,
     shader::Shader,
+    shader_program::PlayerSubProgram,
+    shader_records::{
+        PlatformProgram, SPIRV_PROGRAM, platform_program_types, platform_programs, vulkan_stages,
+    },
     sprite::{Sprite, SpriteAtlas},
     text_asset::TextAsset,
     ui::{Canvas, CanvasGroup, CanvasRenderer},
@@ -153,6 +157,17 @@ pub fn shader_chunks(
     path_id: i64,
     platform: usize,
 ) -> Result<(u32, Vec<Vec<u8>>), PlayerError> {
+    let (_, kind, chunks) = load_shader(open, path_id, platform)?;
+    Ok((kind, chunks))
+}
+
+/// Decodes a shader and decompresses one platform's chunks, with the platform's
+/// `ShaderCompilerPlatform`.
+fn load_shader(
+    open: &mut OpenFile,
+    path_id: i64,
+    platform: usize,
+) -> Result<(Shader, u32, Vec<Vec<u8>>), PlayerError> {
     let object = *open
         .file
         .object(path_id)
@@ -173,7 +188,93 @@ pub fn shader_chunks(
         .get(platform)
         .copied()
         .unwrap_or_default();
-    Ok((kind, chunks))
+    Ok((shader, kind, chunks))
+}
+
+/// A variant's blob index, sub-shader and pass index, and stage name.
+type VariantLabel = (u32, (usize, usize), &'static str);
+
+/// Every variant of a shader, labelled with its blob index, pass and stage.
+fn variants(shader: &Shader) -> Vec<(VariantLabel, &PlayerSubProgram)> {
+    let mut found = Vec::new();
+    for (sub_index, sub_shader) in shader.parsed.sub_shaders.iter().enumerate() {
+        for (pass_index, pass) in sub_shader.passes.iter().enumerate() {
+            let p = &pass.programs;
+            for (stage, program) in [
+                ("vertex", &p.vertex),
+                ("fragment", &p.fragment),
+                ("geometry", &p.geometry),
+                ("hull", &p.hull),
+                ("domain", &p.domain),
+                ("ray_tracing", &p.ray_tracing),
+            ] {
+                let all = program.player_sub_programs.iter().flatten();
+                found.extend(all.map(|v| ((v.blob_index, (sub_index, pass_index), stage), v)));
+            }
+        }
+    }
+    found
+}
+
+/// Describes one program: its chunk, type, keywords, code and stage modules.
+fn describe_program(
+    program: &PlatformProgram<VariantLabel>,
+    chunks: &[Vec<u8>],
+) -> Result<String, SerializedError> {
+    let (blob_index, (sub_shader, pass), stage) = program.label;
+    let record = &program.record;
+    let code = program
+        .code(chunks)
+        .ok_or(SerializedError::InvalidShaderProgram {
+            offset: 0,
+            reason: "the program's code lies outside the chunks",
+        })?;
+    let stages = if i64::from(record.program_type) == i64::from(SPIRV_PROGRAM) {
+        vulkan_stages(code)?
+            .iter()
+            .map(|stage| format!("{}:{:?}:{}", stage.slot, stage.encoding, stage.range.len()))
+            .collect::<Vec<_>>()
+            .join(",")
+    } else {
+        "-".to_owned()
+    };
+    Ok(format!(
+        "{blob_index} pass={sub_shader}.{pass} stage={stage} chunk={} type={} keywords={:?} \
+         code={} stages={stages} rest={}",
+        program.entry.segment,
+        record.program_type,
+        record.keywords,
+        code.len(),
+        record.rest.len()
+    ))
+}
+
+/// Lists the programs of one shader platform, one line per variant compiled for it.
+///
+/// # Errors
+/// Fails if the shader's chunks do not decompress, the platform's program types are not
+/// known, or [`platform_programs`] or a Vulkan program's stage table rejects the data.
+pub fn describe_shader_programs(
+    open: &mut OpenFile,
+    path_id: i64,
+    platform: usize,
+) -> Result<String, PlayerError> {
+    let (shader, kind, chunks) = load_shader(open, path_id, platform)?;
+    let types = platform_program_types(kind).ok_or_else(|| {
+        open.error(SerializedError::InvalidShaderProgram {
+            offset: 0,
+            reason: "the program types of this shader platform are not known",
+        })
+    })?;
+    let lines = platform_programs(variants(&shader), &types, &chunks)
+        .and_then(|programs| {
+            programs
+                .iter()
+                .map(|program| describe_program(program, &chunks))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|source| open.error(source))?;
+    Ok(lines.join("\n"))
 }
 
 /// A layout's class with its check. The class comes from the layout, so the two cannot drift.

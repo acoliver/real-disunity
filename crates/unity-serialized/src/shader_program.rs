@@ -249,9 +249,11 @@ impl SubProgram {
 /// compiled code, at [`Program::parameter_blob_indices`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlayerSubProgram {
+    /// The variant's program record in its platform's blob table.
     pub blob_index: u32,
     pub keyword_indices: Vec<u16>,
     pub requirements: i64,
+    /// Unity's `ShaderGpuProgramType`, which is also the type word of the variant's record.
     pub gpu_program_type: i8,
 }
 
@@ -272,9 +274,12 @@ impl PlayerSubProgram {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Program {
     pub sub_programs: Vec<SubProgram>,
-    /// Variants per platform, in the order of the shader's platforms.
+    /// Variants in four lists. In the Unity 6000.3.15f1 player checked, only the last list
+    /// is filled and it holds the variants of every platform; a variant's
+    /// [`PlayerSubProgram::gpu_program_type`] says which platform's blob entries its
+    /// [`PlayerSubProgram::blob_index`] refers to.
     pub player_sub_programs: Vec<Vec<PlayerSubProgram>>,
-    /// Per platform, the blob entry that holds each variant's parameters.
+    /// Lists of blob entries holding variant parameters, which are not read yet.
     pub parameter_blob_indices: Vec<Vec<u32>>,
     pub common_parameters: ProgramParameters,
     pub keyword_state_mask: Vec<u16>,

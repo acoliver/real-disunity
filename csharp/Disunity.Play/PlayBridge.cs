@@ -9,7 +9,8 @@ namespace Disunity.Play;
 /// The managed side of the play harness. <c>Run</c> loads the scene a play request names and
 /// returns; the Rust host then advances the world, delivers input and renders each frame.
 /// A request is JSON: <c>{"plan": path, "scripts": path, "fonts": {"Arial": path}, "first_texture": 1}</c>,
-/// with an optional <c>"seed"</c> for <c>Random.InitState</c> before the scene loads.
+/// with an optional <c>"seed"</c> for <c>Random.InitState</c> before the scene loads. A request
+/// with a <c>"player"</c> data directory starts a built player instead (see <see cref="PlayerRun"/>).
 /// </summary>
 public static class PlayBridge
 {
@@ -37,6 +38,12 @@ public static class PlayBridge
             var path = Marshal.PtrToStringUTF8(utf8Request) ?? throw new ArgumentException("play request path is required");
             using var request = JsonDocument.Parse(File.ReadAllText(path));
             var root = request.RootElement;
+            if (root.TryGetProperty("player", out _))
+            {
+                DisunityHost.LoadWorld();
+                Scene = PlayerRun.Start(root, AssemblyLoadContext.GetLoadContext(typeof(PlayBridge).Assembly)!);
+                return 0;
+            }
             var fonts = root.GetProperty("fonts").EnumerateObject().ToDictionary(font => font.Name, font => font.Value.GetString()!);
             // The host loads this bridge into its own context; the game must bind the same
             // Disunity.Engine, so it loads there too.

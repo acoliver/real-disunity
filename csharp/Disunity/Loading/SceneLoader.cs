@@ -90,15 +90,30 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
     }
 
     /// <summary>The class a script file names in the game assembly: Unity requires the class
-    /// to match the file name, in any namespace.</summary>
+    /// to match the file name, in any namespace. A player's script names its assembly and the
+    /// class's full name instead.</summary>
     private Type ScriptType(JsonElement script, Type expected, string where)
     {
         var name = script.Str("class");
+        if (script.TryGetProperty("assembly", out var assembly)) return PlayerScriptType(assembly.GetString()!, name, expected, where);
         if (types.TryGetValue(name, out var known)) return known;
         var matches = options.Scripts.GetTypes().Where(t => t.Name == name && expected.IsAssignableFrom(t) && !t.IsAbstract).ToList();
         if (matches.Count != 1)
             throw new SceneLoadException($"{where}: the game assembly has {matches.Count} {expected.Name} classes named {name}");
         return types[name] = matches[0];
+    }
+
+    /// <summary>A class by assembly and full name, nested classes joined by <c>/</c>.</summary>
+    private Type PlayerScriptType(string assembly, string fullName, Type expected, string where)
+    {
+        var key = $"{assembly}:{fullName}";
+        if (types.TryGetValue(key, out var known)) return known;
+        var resolve = options.Assemblies
+            ?? throw new SceneLoadException($"{where}: the plan names assembly {assembly}, and the loader has no assembly resolver");
+        var type = resolve(assembly).GetType(fullName.Replace('/', '+'), throwOnError: false);
+        if (type is null || type.IsAbstract || !expected.IsAssignableFrom(type))
+            throw new SceneLoadException($"{where}: {assembly} has no {expected.Name} class {fullName}");
+        return types[key] = type;
     }
 
     private void CreateObjects(Construction scene, Construction templates)

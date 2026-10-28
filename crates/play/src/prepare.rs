@@ -54,12 +54,7 @@ pub fn prepare(game: Game, font: Option<&Path>, seed: Option<i32>) -> Result<Pre
         body["seed"] = seed.into();
     }
     write(&request, body.to_string().as_bytes())?;
-    let config = ManagedHostConfig {
-        ffi_library: native_library()?,
-        runtime_config: bridge.join("Disunity.Play.runtimeconfig.json"),
-        assembly: bridge.join("Disunity.Play.dll"),
-        bridge_type: "Disunity.Play.PlayBridge, Disunity.Play".into(),
-    };
+    let config = config(&bridge)?;
     Ok(Prepared {
         game,
         config,
@@ -86,6 +81,33 @@ fn fonts(
     Ok(files)
 }
 
+/// The host configuration for the bridge built into `bridge`.
+fn config(bridge: &Path) -> Result<ManagedHostConfig, PlayError> {
+    Ok(ManagedHostConfig {
+        ffi_library: native_library()?,
+        runtime_config: bridge.join("Disunity.Play.runtimeconfig.json"),
+        assembly: bridge.join("Disunity.Play.dll"),
+        bridge_type: "Disunity.Play.PlayBridge, Disunity.Play".into(),
+    })
+}
+
+/// Builds the bridge into `<output>/bridge` and returns the host configuration for it.
+pub(crate) fn bridge_config(root: &Path, output: &Path) -> Result<ManagedHostConfig, PlayError> {
+    let bridge = build_bridge(root, output)?;
+    config(&bridge)
+}
+
+fn build_bridge(root: &Path, output: &Path) -> Result<PathBuf, PlayError> {
+    let bridge = output.join("bridge");
+    dotnet(&[
+        root.join("csharp/Disunity.Play/Disunity.Play.csproj")
+            .as_os_str(),
+        "-o".as_ref(),
+        bridge.as_os_str(),
+    ])?;
+    Ok(bridge)
+}
+
 /// Builds the game's scripts and the bridge, returning the scripts assembly and the bridge
 /// directory.
 fn build(
@@ -103,13 +125,7 @@ fn build(
         "-o".as_ref(),
         scripts.as_os_str(),
     ])?;
-    let bridge = output.join("bridge");
-    dotnet(&[
-        root.join("csharp/Disunity.Play/Disunity.Play.csproj")
-            .as_os_str(),
-        "-o".as_ref(),
-        bridge.as_os_str(),
-    ])?;
+    let bridge = build_bridge(root, output)?;
     Ok((scripts.join(format!("Original.{name}.dll")), bridge))
 }
 
@@ -121,7 +137,7 @@ fn title(game: Game) -> &'static str {
     }
 }
 
-fn target(root: &Path) -> PathBuf {
+pub(crate) fn target(root: &Path) -> PathBuf {
     let target =
         std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
     if target.is_absolute() {
@@ -131,11 +147,11 @@ fn target(root: &Path) -> PathBuf {
     }
 }
 
-fn write(path: &Path, bytes: &[u8]) -> Result<(), PlayError> {
+pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), PlayError> {
     std::fs::write(path, bytes).map_err(|error| PlayError::Io(path.to_owned(), error))
 }
 
-fn run(command: &mut Command) -> Result<String, PlayError> {
+pub(crate) fn run(command: &mut Command) -> Result<String, PlayError> {
     let output = command
         .output()
         .map_err(|error| PlayError::Invalid(format!("{command:?}: {error}")))?;
@@ -149,7 +165,7 @@ fn run(command: &mut Command) -> Result<String, PlayError> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn dotnet(args: &[&std::ffi::OsStr]) -> Result<(), PlayError> {
+pub(crate) fn dotnet(args: &[&std::ffi::OsStr]) -> Result<(), PlayError> {
     let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
     run(Command::new(dotnet)
         .args(["build", "--warnaserror", "--nologo", "-v", "quiet"])

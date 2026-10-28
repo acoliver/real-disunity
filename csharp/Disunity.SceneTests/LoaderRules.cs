@@ -20,6 +20,11 @@ public sealed class Settings : ScriptableObject
     public float gravity = 1;
 }
 
+public static class Outer
+{
+    public sealed class Inner : MonoBehaviour { public int value; }
+}
+
 public sealed class Rules : MonoBehaviour
 {
     public int count = 5;
@@ -61,6 +66,7 @@ internal static class LoaderRules
             FieldsBindAsUnityDeserializesThem();
             AxesRegisterOnlyWhenTheEngineHasTheirKeys();
             FailuresNameTheFieldAndLeaveNothingBehind();
+            PlayerPlansNameScriptsByAssembly();
             Console.WriteLine("PASS: scene plans bind fields, events, assets and axes by Unity's rules and fail cleanly");
         }
         finally
@@ -155,12 +161,34 @@ internal static class LoaderRules
             "the game assembly has 0 MonoBehaviour classes named Missing");
     }
 
-    private static void Fails(string plan, string expected)
+    /// <summary>A player's plan names each script's assembly and full class name, and keeps
+    /// components it could not plan as differences.</summary>
+    private static void PlayerPlansNameScriptsByAssembly()
+    {
+        var self = Assembly.GetExecutingAssembly();
+        var name = self.GetName().Name!;
+        string Player(string assembly, string fullName) => Plan("{}").Replace(
+            "\"script\":\"Assets/Rules.cs\",\"class\":\"Rules\",\"enabled\":true,\"fields\":{}",
+            $"\"script\":\"\",\"class\":\"{fullName}\",\"assembly\":\"{assembly}\",\"enabled\":true,\"fields\":{{\"value\":\"4\"}}}},"
+            + "{\"type\":\"Unsupported\",\"class\":\"Light\"");
+        var options = Options with { Assemblies = requested => requested == name ? self : throw new FileNotFoundException(requested) };
+        using (var scene = DisunityHost.LoadScene(Player(name, "Outer/Inner"), options))
+        {
+            Require(scene.Objects.All(o => o.GetComponent<Outer.Inner>() is { value: 4 }), "a nested class resolves by assembly and full name");
+            Require(scene.Differences.SequenceEqual(["A component 1 (Unsupported): Light components are not built yet",
+                "B component 1 (Unsupported): Light components are not built yet"]), string.Join("; ", scene.Differences));
+        }
+        Fails(Player(name, "Outer/Missing"), $"{name} has no MonoBehaviour class Outer/Missing", options);
+        Fails(Player(name, "Wave"), $"{name} has no MonoBehaviour class Wave", options);
+        Fails(Player(name, "Outer/Inner"), $"the plan names assembly {name}, and the loader has no assembly resolver");
+    }
+
+    private static void Fails(string plan, string expected, SceneLoadOptions? options = null)
     {
         var before = UnityEngine.Object.FindObjectsByType<Rules>(FindObjectsSortMode.None).Length;
         try
         {
-            DisunityHost.LoadScene(plan, Options).Dispose();
+            DisunityHost.LoadScene(plan, options ?? Options).Dispose();
             throw new InvalidOperationException($"loading succeeded; expected {expected}");
         }
         catch (SceneLoadException error)

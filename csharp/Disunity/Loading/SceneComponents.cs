@@ -24,6 +24,7 @@ internal sealed partial class SceneLoader
         "Light2D" => Light(owner, value),
         "UniversalAdditionalCameraData" => CameraData(owner, value, where),
         "Script" => Script(owner, value, where),
+        "Unsupported" => Unbuilt(where, $"{value.Str("class")} components are not built yet"),
         var other => throw new SceneLoadException($"{where}: {other} components are not supported"),
     };
 
@@ -35,9 +36,13 @@ internal sealed partial class SceneLoader
 
     /// <summary>UI event components route pointer and navigation input to UI elements, which
     /// the engine does not deliver, so they are not built.</summary>
-    private object? Unbuilt(string where)
+    private object? Unbuilt(string where) =>
+        Unbuilt(where, "not built; UI elements receive no pointer or navigation events");
+
+    /// <summary>A component a player plan could not plan, kept as a difference.</summary>
+    private object? Unbuilt(string where, string why)
     {
-        differences.Add($"{where}: not built; UI elements receive no pointer or navigation events");
+        differences.Add($"{where}: {why}");
         return null;
     }
 

@@ -86,7 +86,12 @@ reads a request naming a scene plan, the compiled game scripts and font files,
 loads the game assembly into the bridge's own load context so it binds the same
 `Disunity.Engine`, and calls `DisunityHost.LoadScene`. The Rust host then
 delivers keys with `DisunityHost::push_key`, advances the world and renders each
-frame; `Unload` disposes the scene's templates and unloads the world.
+frame; `Unload` disposes the scene's templates and unloads the world. A request
+with a `player` data directory starts a built Unity player instead: the player's
+assemblies resolve in the same context through `PlayerAssemblies`, its startup
+hooks run in Unity's phase order around the scene, and scripts in the plan are
+found by assembly and full class name (`SceneLoadOptions.Assemblies`).
+`Disunity.Layouts` writes a player's script layouts for `unity-import`.
 
 CI defines Linux, Windows, and macOS managed jobs. A local Linux result does not
 establish Windows or macOS compatibility.

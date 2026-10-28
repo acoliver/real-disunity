@@ -4,14 +4,19 @@
 //! scripts and the managed bridge. [`PlayDriver`] then runs the loaded world in the desktop
 //! host: window keys reach the game's `Input`, each frame advances the world and renders its
 //! presentation, and requested frames are captured.
+//!
+//! [`prepare_player`] plans a built Unity player's scene and [`run_player`] starts it in the
+//! same host without a window, naming the first step that fails.
 
 mod driver;
 mod keys;
+mod player;
 mod prepare;
 mod textures;
 
 pub use driver::{Capture, PlayDriver};
 pub use keys::key_code;
+pub use player::{PreparedPlayer, prepare_player, run_player};
 pub use prepare::{Prepared, prepare};
 pub use worldrunner_original_games::Game;
 
@@ -27,6 +32,10 @@ pub enum PlayError {
     Plan(#[from] worldrunner_unity_import::PlanError),
     #[error(transparent)]
     Texture(#[from] worldrunner_unity_import::TextureError),
+    #[error(transparent)]
+    Player(#[from] worldrunner_unity_import::PlayerError),
+    #[error(transparent)]
+    Layouts(#[from] worldrunner_unity_import::script_layouts::LayoutError),
     #[error(transparent)]
     Host(#[from] worldrunner_disunity_runtime::HostError),
     #[error("{0}: {1}")]

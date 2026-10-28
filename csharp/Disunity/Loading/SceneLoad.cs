@@ -10,6 +10,10 @@ namespace Disunity.Hosting;
 public sealed record SceneLoadOptions(Assembly Scripts, Func<string, byte[]> Font)
 {
     public ulong FirstTextureIdentity { get; init; } = 1;
+
+    /// <summary>The assembly with a given name, for scripts a player's plan names by assembly
+    /// and full class name. Project plans name scripts by file and use <see cref="Scripts"/>.</summary>
+    public Func<string, Assembly>? Assemblies { get; init; }
 }
 
 /// <summary>A plan texture with the identity its sprites use, for the host to upload.</summary>

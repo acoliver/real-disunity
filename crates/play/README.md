@@ -26,6 +26,16 @@ The engine library is found through `DISUNITY_FFI_LIBRARY` or beside the `play` 
 
 Settings the engine does not reproduce and input axes it cannot deliver are printed when the scene loads. Snake is steered with W, A, S and D.
 
+## Built Unity players
+
+`play --player <data directory>` starts a scene of a built Unity player, the `<Game>_Data` directory beside its executable, without a window:
+
+```sh
+cargo run -p worldrunner-play -- --player /path/to/Game_Data --scene level0 --frames 60
+```
+
+It writes the script layouts of the player's game assemblies with `csharp/Disunity.Layouts`, plans the scene file with `unity-import`'s `plan_player_scene`, and boots the same `Disunity.Play` bridge. The bridge resolves the player's assemblies in its load context, runs the player's startup hooks in Unity's phase order around the scene, loads the scene's plan and the host advances `--frames` frames (one by default) of `--fixed-dt` milliseconds (1/60 s by default). `--scene` names the scene file, `level0` by default. Each step prints a `[player]` line, along with what the plan or the loader leaves out, so the last line before an error is the step that failed, and the error names the hook, component or frame. Builds go to `target/play/player`.
+
 ## Tests
 
 `tests/play_window.rs` plays all three games in a 480x270 window and checks the captured pixels. It needs an X display; run it as the lavapipe CI job does:

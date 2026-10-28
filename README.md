@@ -8,7 +8,7 @@ The project is MIT licensed. See [LICENSE](LICENSE).
 
 ## Current state
 
-The engine is pre-release (version 0.1). APIs change without notice and nothing is published to crates.io or NuGet. CI builds and tests every change on Linux, macOS and Windows.
+The engine is pre-release (version 0.1). APIs change without notice and nothing is published to crates.io or NuGet. Pull requests are built and tested on Linux; Windows and macOS run after every merge and nightly.
 
 What works today:
 
@@ -83,7 +83,7 @@ The `worldrunner` crate is a facade that re-exports these crates behind feature 
 | `csharp/` | `Disunity.Engine` (the `UnityEngine` API), its tests, and two small fixture projects. |
 | `docs/` | Documentation for people using the engine to make games. Start at [docs/README.md](docs/README.md). |
 | `dev-docs/` | Documentation for people and coding agents changing the engine. Start at [dev-docs/README.md](dev-docs/README.md). |
-| `.github/workflows/` | CI: CPU and managed suites on three platforms, GPU suite on Linux with software Vulkan. |
+| `.github/workflows/` | CI: `pr.yml` runs the Linux pull request gate; `platforms.yml` runs Windows, macOS and the full GPU suite after merge and nightly. |
 
 ## Contributing
 

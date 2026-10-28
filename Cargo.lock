@@ -1550,7 +1550,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "lua-resume"
 version = "0.1.0"
-source = "git+https://github.com/acoliver/lua-resume?rev=2233daed0df7fbad7b711d56eb7127f5daa79fc3#2233daed0df7fbad7b711d56eb7127f5daa79fc3"
+source = "git+https://github.com/acoliver/lua-resume?rev=e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7#e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7"
 dependencies = [
  "mlua",
  "serde",
@@ -1560,7 +1560,7 @@ dependencies = [
 [[package]]
 name = "lua-resume-debug"
 version = "0.1.0"
-source = "git+https://github.com/acoliver/lua-resume?rev=2233daed0df7fbad7b711d56eb7127f5daa79fc3#2233daed0df7fbad7b711d56eb7127f5daa79fc3"
+source = "git+https://github.com/acoliver/lua-resume?rev=e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7#e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7"
 dependencies = [
  "mlua",
 ]

@@ -1548,6 +1548,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lua-resume"
+version = "0.1.0"
+source = "git+https://github.com/acoliver/lua-resume?rev=e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7#e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7"
+dependencies = [
+ "mlua",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "lua-resume-debug"
+version = "0.1.0"
+source = "git+https://github.com/acoliver/lua-resume?rev=e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7#e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7"
+dependencies = [
+ "mlua",
+]
+
+[[package]]
 name = "lua-src"
 version = "547.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4161,6 +4179,8 @@ dependencies = [
 name = "worldrunner-script"
 version = "0.1.0"
 dependencies = [
+ "lua-resume",
+ "lua-resume-debug",
  "mlua",
  "serde",
  "serde_json",

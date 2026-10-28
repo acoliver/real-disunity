@@ -1,8 +1,6 @@
-//! Scheduler threads saved as data and restarted from their function on restore (#147).
+//! Scheduler threads saved where they stopped and continued on restore (#147).
 
-use worldrunner_script::{
-    GameScripts, LuaSnapshot, Saved, SavedWake, SchedulerNames, ScriptConfig,
-};
+use worldrunner_script::{GameScripts, LuaSnapshot, SavedWake, SchedulerNames, ScriptConfig};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -60,7 +58,7 @@ fn round_trip(snapshot: &LuaSnapshot) -> LuaSnapshot {
 }
 
 #[test]
-fn threads_restart_from_their_function_at_their_wake_time() {
+fn threads_continue_where_they_stopped_at_their_wake_time() {
     let mut saved = game();
     saved
         .run(
@@ -92,10 +90,12 @@ fn threads_restart_from_their_function_at_their_wake_time() {
             SavedWake::Finished
         ]
     );
-    assert_eq!(
-        snapshot.threads[0].function,
-        Saved::Permanent("Patrol".into())
-    );
+    let progress: Vec<bool> = snapshot
+        .threads
+        .iter()
+        .map(|t| t.resume.is_some())
+        .collect();
+    assert_eq!(progress, [true, true, true, false]);
 
     let mut restored = game();
     restored.restore(&snapshot, &["Patrol", "Guard"]).unwrap();
@@ -105,22 +105,20 @@ fn threads_restart_from_their_function_at_their_wake_time() {
         &mut restored,
         "Wakeup(Sentry.thread) DeleteThread(Units[2].thread)",
     );
-    restored.advance(60).unwrap();
-    // Restarted at its wake time, Patrol sleeps its period again before stepping, and the steps
-    // continue from the restored table. Guard starts again too, so the wakeup only restarts it
-    // and it waits to be woken once more.
+    let failures = restored.advance(60).unwrap();
+    assert_eq!(failures, []);
+    // Patrol was asleep inside its loop until 90, so it steps then without sleeping its period
+    // again first. Guard was asleep inside the function, so the wakeup finishes it.
     assert_eq!(
         json(&mut restored, "return Log"),
-        serde_json::json!(["a3@120"])
+        serde_json::json!(["s alerted@70", "a3@90", "a4@120"])
     );
-    json(&mut restored, "Wakeup(Sentry.thread)");
-    restored.advance(0).unwrap();
     assert_eq!(
         json(
             &mut restored,
-            "return { Log, coroutine.status(Units[1].thread), coroutine.status(Done) }"
+            "return { coroutine.status(Units[1].thread), coroutine.status(Sentry.thread), coroutine.status(Done) }"
         ),
-        serde_json::json!([["a3@120", "s alerted@130"], "suspended", "dead"])
+        serde_json::json!(["suspended", "dead", "dead"])
     );
 }
 

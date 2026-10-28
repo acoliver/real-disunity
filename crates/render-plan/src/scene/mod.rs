@@ -48,6 +48,7 @@ pub use water_optics::{SceneWaterOptics, SceneWaterShoreline, SceneWaterTint};
 pub use water_settings::SceneWaterSettings;
 pub use water_terms::{
     SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterSunDisk, SceneWaterWind,
+    SceneWaterZeroFrequency,
 };
 mod bloom;
 mod exposure;

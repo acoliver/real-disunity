@@ -23,7 +23,7 @@ fn water_edge_noise(point: vec2<f32>) -> f32 {
 }
 fn water_environment_gain(point: vec2<f32>, depth: f32) -> f32 {
     var gain = water.environment_terms.x;
-    if water.environment_terms.y != 0.0 {
+    if water.environment_terms.y != 0.0 || water.environment_terms.w == 2.0 {
         let noise = min((water_edge_noise(point * water.environment_terms.y) + 1.0) * 0.5, 0.6);
         let edge = 1.0 - clamp(pow(clamp(depth, 0.0, 1.0), 0.2) * 2.0 - 0.5, 0.0, 1.0);
         gain *= 1.0 - noise * edge;

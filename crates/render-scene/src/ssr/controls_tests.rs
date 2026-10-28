@@ -10,6 +10,16 @@ pub(super) fn capture_with_shader(
     occluder: bool,
     shader: Option<&str>,
 ) -> Vec<u8> {
+    capture_material(context, policy, scale, occluder, shader, 0.0)
+}
+pub(super) fn capture_material(
+    context: &GpuContext,
+    policy: SceneSsr,
+    scale: f32,
+    occluder: bool,
+    shader: Option<&str>,
+    roughness: f32,
+) -> Vec<u8> {
     let size = [65, 65];
     let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
     let mut ssr = Ssr::new(
@@ -24,7 +34,7 @@ pub(super) fn capture_with_shader(
     }
     let frame = frame();
     let (mut depths, normals, materials, colors) =
-        mirror_data(&frame, 0.0, glam::Vec2::new(0.65, 0.35), occluder);
+        mirror_data(&frame, roughness, glam::Vec2::new(0.65, 0.35), occluder);
     for depth in &mut depths {
         *depth *= scale;
     }

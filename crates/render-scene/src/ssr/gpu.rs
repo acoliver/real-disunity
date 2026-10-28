@@ -1,4 +1,13 @@
 use std::fmt::Write;
+/// A negative cutoff disables rejection while retaining its magnitude for LOD.
+pub(super) fn roughness_cutoff(settings: &worldrunner_render_plan::SceneSsr) -> f32 {
+    let cutoff = scalar(settings.roughness_cutoff_micro) / 1_000_000.0;
+    if settings.roughness_cutoff_disabled {
+        -cutoff
+    } else {
+        cutoff
+    }
+}
 pub(super) fn reduction_pipeline(
     device: &wgpu::Device,
     samples: u32,

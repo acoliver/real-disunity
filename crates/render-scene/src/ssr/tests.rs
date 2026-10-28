@@ -28,6 +28,8 @@ mod pyramid_tests;
 mod regressions;
 #[path = "replacement_tests.rs"]
 mod replacement_tests;
+#[path = "roughness_policy_tests.rs"]
+mod roughness_policy_tests;
 #[path = "trace_extent_tests.rs"]
 mod trace_extent_tests;
 #[path = "water_tests.rs"]

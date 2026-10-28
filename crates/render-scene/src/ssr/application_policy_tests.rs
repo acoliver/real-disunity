@@ -9,7 +9,7 @@ fn lod_pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline {
         "{declarations}\nfn reflection_lod({helper}\n
         @fragment fn fs_screen(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
             let roughness = array<f32, 6>(0.0, 0.125, 0.25, 0.5, 0.75, 1.0)[u32(p.x)];
-            let legacy = clamp(roughness / camera.settings.z, 0.0, 1.0) * 5.0;
+            let legacy = clamp(roughness / abs(camera.settings.z), 0.0, 1.0) * 5.0;
             return vec4<f32>(reflection_lod(roughness), legacy, 0.0, 1.0);
         }}"
     )
@@ -30,7 +30,7 @@ fn gpu_application_lod_matches_literal_oracles_and_default_bytes() {
     let group = gpu::group(context.device(), &pipeline, Some(&uniform), &[]);
     let target =
         crate::ssao::passes::texture(context.device(), [6, 1], wgpu::TextureFormat::Rgba16Float);
-    for cutoff in [0.5, 1.0] {
+    for cutoff in [0.5, 1.0, -0.5, -1.0] {
         for (downsample, expected) in [
             (1.0, [0.0, 0.625, 1.25, 2.5, 3.75, 5.0]),
             (2.0, [0.0, 0.0, 0.25, 1.5, 2.75, 4.0]),

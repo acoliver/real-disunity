@@ -196,6 +196,7 @@ fn term_descriptors_validate_ranges_and_disabled_uniform_bytes() {
     body.material.environment = Some(SceneWaterEnvironment {
         amplitude_micro: 10_000_001,
         edge_frequency_micro: 0,
+        zero_frequency: worldrunner_render_plan::SceneWaterZeroFrequency::default(),
         depth_self_occlusion: false,
     });
     assert!(body.validate().is_err());
@@ -205,6 +206,59 @@ fn term_descriptors_validate_ranges_and_disabled_uniform_bytes() {
         tile_millimeters: [0; 2],
     });
     assert!(body.validate().is_err());
+}
+#[test]
+fn zero_frequency_modes_match_constant_half_or_skip_oracle() {
+    use worldrunner_render_plan::SceneWaterZeroFrequency;
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    assert_eq!(
+        SceneWaterZeroFrequency::default(),
+        SceneWaterZeroFrequency::Skip
+    );
+    for (mode, flag) in [
+        (SceneWaterZeroFrequency::Skip, 1.0),
+        (SceneWaterZeroFrequency::ConstantHalf, 2.0),
+    ] {
+        let mut body = settings();
+        body.material.environment = Some(SceneWaterEnvironment {
+            amplitude_micro: 750_000,
+            edge_frequency_micro: 0,
+            zero_frequency: mode,
+            depth_self_occlusion: false,
+        });
+        body.validate().unwrap();
+        let encoded = terms::uniforms(&body, 0);
+        assert_eq!(&encoded[4..8], &[0.75, 0.0, 0.0, flag]);
+        let equation = equation_source().replace(
+            "vec4<f32>(0.75, 1.0, 1.0, 1.0)",
+            &format!(
+                "vec4<f32>({}, {}, {}, {})",
+                encoded[4], encoded[5], encoded[6], encoded[7]
+            ),
+        );
+        let source = format!(
+            "{equation}\n{}",
+            r"
+@group(0) @binding(0) var<storage, read_write> output: array<vec4<f32>>;
+@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let depth = array<f32, 5>(0.0, 0.01, 0.025, 0.05, 1.0)[id.x];
+    output[id.x * 2u] = vec4<f32>(water_environment_gain(vec2<f32>(17.0, -31.0), depth), 0.0, 0.0, 0.0);
+}"
+        );
+        let actual = optics_tests::compute(&context, &source);
+        for (i, depth) in [0.0f64, 0.01, 0.025, 0.05, 1.0].into_iter().enumerate() {
+            let edge = 1.0 - (2.0 * depth.powf(0.2) - 0.5).clamp(0.0, 1.0);
+            let expected = if mode == SceneWaterZeroFrequency::Skip {
+                0.75
+            } else {
+                0.75 * (1.0 - 0.5 * edge)
+            };
+            assert!((f64::from(actual[i * 8]) - expected).abs() < 0.00001);
+            if mode == SceneWaterZeroFrequency::Skip {
+                assert_eq!(actual[i * 8].to_bits(), 0.75f32.to_bits());
+            }
+        }
+    }
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use super::*;
 use worldrunner_render_plan::SceneSsrPassBehind;
 
-fn evaluate(context: &GpuContext, shader: &str, width: u32) -> Vec<f32> {
+pub(super) fn evaluate(context: &GpuContext, shader: &str, width: u32) -> Vec<f32> {
     let pipeline = gpu::pipeline(context.device(), shader, 1, false);
     let target = crate::ssao::passes::texture(
         context.device(),
@@ -132,7 +132,7 @@ fn invalid_roughness_counts_fail_while_disabled() {
             ..valid
         },
         SceneSsrPassBehind {
-            roughness_end_micro: 0,
+            roughness_start_micro: 1_000_001,
             ..valid
         },
         SceneSsrPassBehind {

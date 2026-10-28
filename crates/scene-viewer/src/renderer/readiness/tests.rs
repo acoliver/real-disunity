@@ -97,6 +97,7 @@ fn baked_effects() -> Vec<SceneEffects> {
             composition: SceneSsrComposition::ReplaceEnvironment,
             thickness_millimeters: 10,
             roughness_cutoff_micro: 1_000_000,
+            roughness_cutoff_disabled: false,
             resolution_scale_micro: 500_000,
             radiance_rounding: SceneDownsampleRounding::Ceil,
             application_lod: SceneSsrLodMapping::CutoffNormalized,

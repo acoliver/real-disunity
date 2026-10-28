@@ -1,6 +1,6 @@
 //! Preparation of a Unity Vulkan stage module for naga.
 //!
-//! Unity's SPIR-V uses three things naga 30 cannot read. Each has a rewrite here, applied in
+//! Unity's SPIR-V uses four things naga 30 cannot read. Each has a rewrite here, applied in
 //! this order:
 //! 1. Combined image samplers, which naga's SPIR-V frontend does not parse
 //!    (gfx-rs/wgpu#4323), are split into separate images and samplers with
@@ -13,6 +13,9 @@
 //! 3. `OpSNegate` with an unsigned result, which SPIR-V defines as a wrapping `0 - x`, becomes
 //!    `OpISub` from a null constant; naga turns it into a unary minus that its own validator
 //!    rejects.
+//! 4. A GLSL.std.450 bit search (`FindILsb`, `FindSMsb`, `FindUMsb`) whose result differs in
+//!    signedness from its operand runs in the operand's type and is bitcast to the result
+//!    type; naga keeps the operand's type, so storing the result fails validation.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -79,7 +82,7 @@ impl PrepareError {
     }
 }
 
-/// Applies the three rewrites to a stage module.
+/// Applies the four rewrites to a stage module.
 ///
 /// # Errors
 /// Fails when the module is not structurally valid SPIR-V, the sampler split fails, or the
@@ -90,7 +93,7 @@ pub fn prepare(words: &[u32]) -> Result<PreparedModule, PrepareError> {
     smolv::entry_points(&split.words)?;
     let bindings = resource_bindings(words, &split)?;
     Ok(PreparedModule {
-        words: signed_negate(&spec_defaults(&split.words))?,
+        words: bit_search_signedness(&signed_negate(&spec_defaults(&split.words))?)?,
         bindings,
     })
 }
@@ -395,4 +398,82 @@ fn instructions_offset(body: &[u32], op: u32) -> usize {
         at += ((word >> 16) as usize).max(1);
     }
     body.len()
+}
+
+const OP_EXT_INST_IMPORT: u32 = 11;
+const OP_EXT_INST: u32 = 12;
+const OP_BITCAST: u32 = 124;
+/// `GLSL.std.450`, as the words of a SPIR-V literal string.
+const GLSL_STD_450: [u32; 4] = [0x4c53_4c47, 0x6474_732e, 0x3035_342e, 0];
+/// The GLSL.std.450 bit searches: `FindILsb`, `FindSMsb` and `FindUMsb`.
+const BIT_SEARCHES: [u32; 3] = [73, 74, 75];
+
+/// The result type of each ID that has one.
+fn result_types(words: &[u32]) -> BTreeMap<u32, u32> {
+    instructions(words)
+        .filter(|instruction| smolv::has_result_type(opcode(instruction)))
+        .filter_map(|instruction| Some((*instruction.get(2)?, *instruction.get(1)?)))
+        .collect()
+}
+
+/// Whether each integer scalar or vector type is signed.
+fn integer_signedness(words: &[u32]) -> BTreeMap<u32, bool> {
+    let mut signed = BTreeMap::new();
+    for instruction in instructions(words) {
+        match (opcode(instruction), instruction) {
+            (OP_TYPE_INT, &[_, id, _, signedness]) => {
+                signed.insert(id, signedness != 0);
+            }
+            (OP_TYPE_VECTOR, &[_, id, component, _]) => {
+                if let Some(&component) = signed.get(&component) {
+                    signed.insert(id, component);
+                }
+            }
+            _ => {}
+        }
+    }
+    signed
+}
+
+/// Gives each GLSL.std.450 bit search whose result type differs in signedness from its
+/// operand's, which SPIR-V allows, the operand's type, followed by a bitcast to the declared
+/// result type. naga gives the search the operand's type without a cast, so storing it where
+/// the declared type is expected fails validation. The searches mean the same either way:
+/// `FindSMsb` and `FindUMsb` say how to read the operand, and the result is a bit index.
+fn bit_search_signedness(words: &[u32]) -> Result<Vec<u32>, PrepareError> {
+    let glsl: BTreeSet<u32> = instructions(words)
+        .filter(|instruction| opcode(instruction) == OP_EXT_INST_IMPORT)
+        .filter(|instruction| instruction.get(2..) == Some(&GLSL_STD_450[..]))
+        .map(|instruction| instruction[1])
+        .collect();
+    let types = result_types(words);
+    let signed = integer_signedness(words);
+    let differs = |result_type: u32, operand: u32| {
+        let operand_type = *types.get(&operand)?;
+        let mixed = signed.get(&operand_type)? != signed.get(&result_type)?;
+        mixed.then_some(operand_type)
+    };
+    let mut ids = Ids {
+        bound: words[BOUND_WORD],
+    };
+    let mut out = words[..HEADER_WORDS].to_vec();
+    for instruction in instructions(words) {
+        let &[_, result_type, result, set, search, operand] = instruction else {
+            out.extend_from_slice(instruction);
+            continue;
+        };
+        let search_op = opcode(instruction) == OP_EXT_INST
+            && glsl.contains(&set)
+            && BIT_SEARCHES.contains(&search);
+        match differs(result_type, operand).filter(|_| search_op) {
+            Some(operand_type) => {
+                let found = ids.next()?;
+                out.extend([instruction[0], operand_type, found, set, search, operand]);
+                out.extend([(4 << 16) | OP_BITCAST, result_type, result, found]);
+            }
+            None => out.extend_from_slice(instruction),
+        }
+    }
+    out[BOUND_WORD] = ids.bound;
+    Ok(out)
 }

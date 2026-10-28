@@ -328,3 +328,68 @@ fn a_panic_in_the_sampler_split_is_an_error() {
         other => panic!("expected a caught panic, got {other:?}"),
     }
 }
+
+/// A fragment shader storing `FindILsb` of an unsigned constant (ID 19) into a variable whose
+/// type, like the search's result type, is a signed int (ID 31) when `signed_result`, or the
+/// unsigned operand type (ID 6) otherwise. `set_name` is the extended instruction set's name.
+fn bit_search(signed_result: bool, set_name: [u32; 4]) -> Vec<u32> {
+    let (result_type, pointer) = if signed_result { (31, 33) } else { (6, 34) };
+    let words = [
+        op(17, &[1]),
+        op(11, &[[40].as_slice(), &set_name].concat()),
+        op(14, &[0, 1]),
+        op(15, &[4, 1, 0x6e69_616d, 0, 2]),
+        op(16, &[1, 7]),
+        op(71, &[2, 30, 0]),
+        op(19, &[4]),
+        op(33, &[5, 4]),
+        op(21, &[6, 32, 0]),
+        op(21, &[31, 32, 1]),
+        op(22, &[7, 32]),
+        op(23, &[8, 7, 4]),
+        op(32, &[14, 3, 8]),
+        op(32, &[33, 7, 31]),
+        op(32, &[34, 7, 6]),
+        op(59, &[14, 2, 3]),
+        op(43, &[7, 17, 0]),
+        op(43, &[6, 19, 8]),
+        op(44, &[8, 29, 17, 17, 17, 17]),
+        op(54, &[4, 1, 0, 5]),
+        op(248, &[20]),
+        op(59, &[pointer, 35, 7]),
+        op(12, &[result_type, 36, 40, 73, 19]),
+        op(62, &[35, 36]),
+        op(62, &[2, 29]),
+        op(253, &[]),
+        op(56, &[]),
+    ]
+    .concat();
+    [vec![0x0723_0203, 0x0001_0000, 0, 41, 0], words].concat()
+}
+
+const GLSL: [u32; 4] = [0x4c53_4c47, 0x6474_732e, 0x3035_342e, 0];
+
+#[test]
+fn casts_bit_searches_whose_result_signedness_differs() {
+    let raw = bit_search(true, GLSL);
+    assert_eq!(
+        naga_cause(&raw).as_deref(),
+        Some("validate InvalidStoreTypes")
+    );
+    let prepared = prepare(&raw).unwrap();
+    assert_eq!(naga_cause(&prepared.words), None);
+    // The search runs in the operand's type into a new ID, then is bitcast to int.
+    assert_eq!(prepared.words[3], 42);
+    assert!(contains(&prepared.words, &op(12, &[6, 41, 40, 73, 19])));
+    assert!(contains(&prepared.words, &op(124, &[31, 36, 41])));
+}
+
+#[test]
+fn leaves_other_bit_searches_and_instruction_sets_alone() {
+    let same = bit_search(false, GLSL);
+    assert_eq!(naga_cause(&same), None);
+    assert_eq!(prepare(&same).unwrap().words, same);
+    // An instruction set with another name is not GLSL.std.450, whatever its numbers mean.
+    let other = bit_search(true, [0x4c53_4c47, 0x6474_732e, 0x3135_342e, 0]);
+    assert_eq!(prepare(&other).unwrap().words, other);
+}

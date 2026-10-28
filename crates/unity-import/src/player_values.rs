@@ -3,18 +3,31 @@
 //! values and serializable classes as objects of their fields, and references as plan
 //! entries.
 
-use serde_json::{Map, Value as Json, json};
+use serde_json::{Map, Value as Json};
 use worldrunner_unity_serialized::{
     object::PPtr,
     script_data::{REFERENCES, Value},
 };
 
-use super::{PlayerPlanner, Target};
+/// Writes decoded fields, resolving each non-null object reference with `resolve`. A
+/// reference it cannot resolve, with the reason it gives, and every `[SerializeReference]`
+/// value are written as `null` and listed in `differences`. The reference registry itself is
+/// not written.
+pub(crate) struct FieldWriter<'d, F> {
+    resolve: F,
+    differences: &'d mut Vec<String>,
+}
 
-impl PlayerPlanner {
-    /// The script fields as a JSON object. The reference registry is not planned: a
-    /// `[SerializeReference]` field is planned as `null`, with a difference.
-    pub(super) fn fields(&mut self, place: &str, fields: &[(String, Value)]) -> Json {
+impl<'d, F: FnMut(PPtr) -> Result<Json, String>> FieldWriter<'d, F> {
+    pub(crate) fn new(resolve: F, differences: &'d mut Vec<String>) -> Self {
+        Self {
+            resolve,
+            differences,
+        }
+    }
+
+    /// The fields as a JSON object; `place` names the owner in differences.
+    pub(crate) fn fields(&mut self, place: &str, fields: &[(String, Value)]) -> Json {
         let mut out = Map::new();
         for (name, value) in fields {
             if name != REFERENCES {
@@ -53,28 +66,22 @@ impl PlayerPlanner {
         if pptr.is_null() {
             return Json::Null;
         }
-        let target = (pptr.file_id == 0)
-            .then(|| self.index.get(&pptr.path_id).copied())
-            .flatten();
-        match target {
-            Some(Target::Object(i)) => json!({ "$object": i }),
-            Some(Target::Transform(i)) => json!({ "$transform": i }),
-            Some(Target::Component(i, j)) => json!({ "$component": [i, j] }),
-            Some(Target::Unbuilt(class)) => {
-                self.differences.push(format!(
-                    "{path}: references a {class} component, which the engine does not build"
-                ));
-                Json::Null
-            }
-            None => {
-                self.differences.push(format!(
-                    "{path}: references object {} of file {}, which the plan does not hold",
-                    pptr.path_id, pptr.file_id
-                ));
+        match (self.resolve)(pptr) {
+            Ok(json) => json,
+            Err(reason) => {
+                self.differences.push(format!("{path}: {reason}"));
                 Json::Null
             }
         }
     }
+}
+
+/// Why a reference to an object the plan does not hold is left out.
+pub(crate) fn not_held(pptr: PPtr) -> String {
+    format!(
+        "references object {} of file {}, which the plan does not hold",
+        pptr.path_id, pptr.file_id
+    )
 }
 
 /// A float as the loader parses it; Rust writes infinities as `inf`, which .NET does not read.

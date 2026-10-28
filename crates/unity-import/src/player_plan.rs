@@ -7,13 +7,12 @@
 //! does not hold is planned as `null`, each listed in [`ScenePlan::differences`]. Running the
 //! scene then shows which of them the game uses first.
 
-mod values;
-
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
 
+use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{
     ClassId,
     classes::{GameObject, MonoBehaviour, Transform},
@@ -28,6 +27,7 @@ use crate::{
     plan::{PlanComponent, PlanObject, ScenePlan},
     player_files::PlayerFiles,
     player_scripts::script_fields,
+    player_values::{FieldWriter, not_held},
 };
 
 /// Unity's built-in tags by index; user tags start at [`FIRST_USER_TAG`].
@@ -274,7 +274,9 @@ impl PlayerPlanner {
             });
         };
         let place = format!("{owner}.{}", script.full_name);
-        let fields = self.fields(&place, &data.fields);
+        let index = &self.index;
+        let fields = FieldWriter::new(|pptr| scene_reference(index, pptr), &mut self.differences)
+            .fields(&place, &data.fields);
         Ok(PlanComponent::Script {
             script: String::new(),
             class: script.full_name,
@@ -282,5 +284,22 @@ impl PlayerPlanner {
             enabled: data.enabled,
             fields,
         })
+    }
+}
+
+/// The plan reference for a same-file reference to an object of the scene, or why there is
+/// none.
+fn scene_reference(index: &BTreeMap<i64, Target>, pptr: PPtr) -> Result<Json, String> {
+    let target = (pptr.file_id == 0)
+        .then(|| index.get(&pptr.path_id))
+        .flatten();
+    match target {
+        Some(Target::Object(i)) => Ok(json!({ "$object": i })),
+        Some(Target::Transform(i)) => Ok(json!({ "$transform": i })),
+        Some(Target::Component(i, j)) => Ok(json!({ "$component": [i, j] })),
+        Some(Target::Unbuilt(class)) => Err(format!(
+            "references a {class} component, which the engine does not build"
+        )),
+        None => Err(not_held(pptr)),
     }
 }

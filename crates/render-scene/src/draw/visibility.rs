@@ -94,10 +94,10 @@ impl MeshSelection {
         }
     }
 
-    pub fn lod(&self, distance_squared: u128) -> usize {
+    pub fn lod(&self, distance_squared: u128, scale_millionths: Option<u32>) -> usize {
         self.ceilings_squared
             .iter()
-            .position(|&ceiling| distance_squared <= ceiling)
+            .position(|&ceiling| within_ceiling(distance_squared, ceiling, scale_millionths))
             .unwrap_or_else(|| self.ceilings_squared.len().saturating_sub(1))
     }
 
@@ -196,6 +196,23 @@ impl MeshSelection {
         Bounds {
             min: bounds.min - pad,
             max: bounds.max + pad,
+        }
+    }
+}
+
+fn within_ceiling(distance: u128, ceiling: u128, scale: Option<u32>) -> bool {
+    const UNIT_SQUARED: u128 = 1_000_000_000_000;
+    let Some(scale) = scale else {
+        return distance <= ceiling;
+    };
+    let scale_squared = u128::from(scale) * u128::from(scale);
+    // Compare the rational quotients first. Only the remainders need cross
+    // multiplication, bounded by 10^28 even when the squared distances fill u128.
+    match (distance / scale_squared).cmp(&(ceiling / UNIT_SQUARED)) {
+        std::cmp::Ordering::Less => true,
+        std::cmp::Ordering::Greater => false,
+        std::cmp::Ordering::Equal => {
+            (distance % scale_squared) * UNIT_SQUARED <= (ceiling % UNIT_SQUARED) * scale_squared
         }
     }
 }
@@ -326,7 +343,7 @@ impl Selection {
                         sum.checked_add(delta * delta)
                     })
                     .expect("squared placement distance exceeds u128 millimetres");
-                let lod = mesh.lod(distance_squared);
+                let lod = mesh.lod(distance_squared, object.lod_distance_scale_millionths());
                 self.stats.drawn_per_lod[lod] += 1;
                 let slot = u32::try_from(slot).expect("validated instance slot");
                 if let Some(last) = self
@@ -415,3 +432,6 @@ mod tests;
 
 #[cfg(test)]
 mod policy_tests;
+
+#[cfg(test)]
+mod scale_tests;

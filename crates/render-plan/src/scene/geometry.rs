@@ -242,7 +242,8 @@ impl SceneMesh {
 
     /// Adopts authored inclusive distance ceilings, one per level. Beyond the
     /// final ceiling the last level remains selected. Distances are measured
-    /// from the main camera to the placement origin, without scale adjustment.
+    /// from the main camera to the placement origin, adjusted only by an
+    /// object's explicit LOD distance scale.
     pub fn with_distances(
         lods: Vec<SceneMeshLod>,
         max_distances_millimeters: Vec<u64>,
@@ -419,6 +420,7 @@ impl SceneTransform {
 /// One ordered scene object: canonical placement plus dense resource handles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneObject {
+    lod_distance_scale_millionths: Option<u32>,
     fade: Option<super::SceneFadeBand>,
     tint: super::SceneTint,
     transform: SceneTransform,
@@ -427,6 +429,37 @@ pub struct SceneObject {
 }
 
 impl SceneObject {
+    /// Scales LOD ceilings independently of geometry scale, including selection
+    /// of card levels and their complementary preceding-level geometry.
+    /// Explicit object and material fade endpoints remain in world distance.
+    /// Absence preserves authored ceilings. The accepted range is 0.000001..=100.
+    pub fn with_lod_distance_scale_millionths(
+        mut self,
+        scale: u32,
+    ) -> Result<Self, SceneValidationError> {
+        if !(1..=100_000_000).contains(&scale) {
+            return Err(SceneValidationError::RangeViolation {
+                part: "object LOD distance scale_millionths",
+                minimum: 1,
+                maximum: 100_000_000,
+                observed: u64::from(scale),
+            });
+        }
+        self.lod_distance_scale_millionths = Some(scale);
+        Ok(self)
+    }
+
+    pub const fn lod_distance_scale_millionths(&self) -> Option<u32> {
+        self.lod_distance_scale_millionths
+    }
+
+    /// Replaces placement without discarding its object-specific policies.
+    #[must_use]
+    pub const fn with_transform(mut self, transform: SceneTransform) -> Self {
+        self.transform = transform;
+        self
+    }
+
     /// Overrides material fade-in distances for this placement only.
     #[must_use]
     pub const fn with_fade(mut self, band: super::SceneFadeBand) -> Self {
@@ -454,6 +487,7 @@ impl SceneObject {
         material: MaterialHandle,
     ) -> Self {
         Self {
+            lod_distance_scale_millionths: None,
             fade: None,
             tint: super::SceneTint::WHITE,
             transform,

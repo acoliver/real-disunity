@@ -196,3 +196,17 @@ fn reads_stage_modules_in_either_encoding() {
         "the data is not SMOL-V"
     );
 }
+
+#[test]
+fn knows_which_opcodes_have_a_result_type() {
+    use worldrunner_unity_serialized::smolv::has_result_type;
+    // OpUndef, OpExtInst, OpSpecConstantTrue, OpFunctionParameter, OpLoad and OpBitcast have
+    // one. OpExtInstImport has a result but no type; OpTypeInt, OpDecorate and OpStore have
+    // neither.
+    assert!([1, 12, 48, 55, 61, 124].into_iter().all(has_result_type));
+    assert!(
+        ![11, 21, 62, 71, 9_999, u32::MAX]
+            .into_iter()
+            .any(has_result_type)
+    );
+}

@@ -333,6 +333,17 @@ pub fn decode(data: &[u8]) -> Result<Vec<u32>, SerializedError> {
     Ok(out)
 }
 
+/// Whether a SPIR-V instruction with this opcode has a result type, which is then its first
+/// operand and its result ID the second. Opcodes outside SMOL-V's table are reported as
+/// having none.
+#[must_use]
+pub fn has_result_type(opcode: u32) -> bool {
+    usize::try_from(opcode)
+        .ok()
+        .and_then(|op| OPS.get(op))
+        .is_some_and(|info| info & 2 != 0)
+}
+
 /// Checks a SPIR-V module's header and that its instructions exactly fill it, and returns
 /// each entry point's execution model (0 vertex, 4 fragment, 5 compute, and so on) in order.
 ///

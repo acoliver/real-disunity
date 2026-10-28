@@ -2,14 +2,14 @@
 
 This directory is for people and coding agents who change Real Disunity itself. It describes how the engine is put together, the exact contracts each subsystem keeps, and the checks every change must pass. Documentation for people who only use the engine to make games is in [docs](../docs/README.md).
 
-If you are a coding agent, read this page, then [architecture](architecture.md) and [quality gates](quality-gates.md), before editing anything. The skills in `.llxprt/skills/` (workflow, code standards, coordination between sessions, and play verification) are also binding.
+Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for contributor policy. Coding agents must read [AGENTS.md](../AGENTS.md) and the [agent procedure](contribution-agent.md), then [architecture](architecture.md) and [quality gates](quality-gates.md). The workflow, code standards, coordination and play-verification skills linked from the agent procedure are binding. Only Andrew manually merges all PRs; agents never merge or enable automatic merging. Andrew intends human review daily, and maintainer agents also review daily.
 
 ## Where things live
 
 | Path | What belongs there |
 | --- | --- |
 | `crates/<name>/src/` | Rust source. One crate per responsibility, as listed in [architecture](architecture.md#ownership). Split files by responsibility before they reach 750 lines. |
-| `crates/<name>/tests/` | Integration tests for that crate, with small synthetic fixtures. Tests never read from `.work/` or download anything. |
+| `crates/<name>/tests/` | Integration tests for that crate, with small synthetic fixtures. Tests never read from `.work/`. Public original-game tests fetch pinned sources through committed tooling. |
 | `crates/<name>/README.md` | Contracts that are local to one crate and that a caller of that crate needs: units, ranges, ordering, error behavior. Only some crates have one. |
 | `crates/worldrunner/examples/` | Runnable examples that use only the public facade. |
 | `crates/xtask/` | The `cargo xtask` task runner, the layer table (`src/layers.rs`) and the explicit policy registry (`policy/explicit.toml`). |
@@ -28,6 +28,7 @@ If you are a coding agent, read this page, then [architecture](architecture.md) 
 
 | Page | Covers |
 | --- | --- |
+| [contribution-agent.md](contribution-agent.md) | Agent steps, scoped claims, review-ready delivery and links to authoritative rules. |
 | [architecture.md](architecture.md) | Ownership, crate layers, how a frame flows, invariants, coordinate systems. |
 | [quality-gates.md](quality-gates.md) | `cargo xtask` commands, CI profiles, the layer and policy checks, size and complexity limits. |
 | [simulation/advancement.md](simulation/advancement.md) | `advance`/`resume`, callback order, nested lifecycle scopes, time, input and coroutines. |
@@ -53,7 +54,7 @@ Crate READMEs with contracts of their own: [camera](../crates/camera/README.md),
 
 ## Which documentation to trust
 
-The code on `main` is the source of truth. These pages describe what it does now. If a page disagrees with the code, the page is wrong: fix it in the same PR as the change you are making, or open an issue. Do not write code to match a stale page.
+Repository policy in [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md) governs contributions. For implemented behavior, the code on `main` is the source of truth. These pages describe what it does now. If a page disagrees with the code, the page is wrong: fix it in the same PR as the change you are making, or open an issue. Do not write code to match a stale page.
 
 Useful in a doc, and worth reading:
 
@@ -73,14 +74,14 @@ Not useful, and not to be written:
 
 ## Rules that apply to every change
 
-These come from `.llxprt/skills/disunity-code-standards` and are enforced by CI. They are summarized here so they are hard to miss.
+These come from `.llxprt/skills/disunity-code-standards`. CI enforces the configured checks; reviewers also enforce the architecture, source-use and behavior requirements.
 
 - Functions at most 60 lines, 6 arguments and cognitive complexity 15; type complexity 250; at most 3 `bool` fields per struct; source files under 1000 lines (aim for 750). Never raise a limit or add an `allow`.
 - Warnings are errors. Run `cargo xtask ci-cpu`, and `ci-gpu` or `ci-managed` when you touch those areas, before pushing.
 - Write the test first and watch it fail. Never weaken an assertion, widen a tolerance, add a retry or ignore a test to make it pass.
-- When behavior changes, change it everywhere. No compatibility shims, `v1`/`v2` pairs, legacy twins or flags that select old behavior.
+- When behavior changes, change it everywhere. No duplicate compatibility paths, `v1`/`v2` pairs, legacy twins or flags that select old behavior. `Disunity.Engine` owns thin C# compatibility, including managed values and delegate utilities.
 - Code must build and pass on Linux, macOS and Windows.
-- Original Unity game repositories are never modified. `rd-stranded`, a native Rust game, pins this repository by Git revision and must keep building against `main`.
+- Original Unity game scripts, assets and behavior stay unchanged apart from API binding and harness configuration. Private `rd-stranded` validation and pin updates belong to its owner; the existing game pin protects its consumer until updated. External contributors need only public checks, with public regressions free of restricted game material and no secrets or private checkout in fork CI.
 - New third-party files need an MIT-compatible license and its notices. The engine is MIT.
 
 ## Writing these pages

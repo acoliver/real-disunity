@@ -1,8 +1,8 @@
 # Writing C# scripts
 
-Real Disunity runs C# game code written against the `UnityEngine` API. The `Disunity.Engine` assembly in `csharp/Disunity` defines `UnityEngine.MonoBehaviour`, `GameObject`, `Transform`, `Rigidbody2D` and the other supported types. They are thin wrappers: every property read, write and lifecycle message goes through a C ABI to the same native world that a [Rust game](rust-games.md) uses.
+Real Disunity runs C# game code written against the `UnityEngine` API. The `Disunity.Engine` assembly in `csharp/Disunity` defines `UnityEngine.MonoBehaviour`, `GameObject`, `Transform`, `Rigidbody2D` and the other supported types. They provide thin compatibility: world state and lifecycle use a C ABI to the same native world as a [Rust game](rust-games.md). Managed value types and delegate utilities can execute in C#.
 
-This page covers writing scripts and hosting them today. Hosting is still low level, because the player that loads a Unity scene and runs it is not finished. See the [current state](../README.md#current-state).
+This page covers scripts, low-level hosting and built-player loading. The [play command](../crates/play/README.md) already loads the pinned test games through `DisunityHost.LoadScene`; arbitrary Unity game compatibility remains incomplete. See the [current state](../README.md#current-state).
 
 ## How scripts run
 
@@ -91,11 +91,13 @@ Input from the window reaches C# through `DisunityHost.PushKey`, `PushAxis` and 
 
 ## Unity projects
 
-To run an existing Unity project's scripts, the scene they belong to has to be imported and built in the world before Awake runs. The importer side of that exists; the loader does not yet. [Importing Unity projects](unity-projects.md) describes what is available now.
+To run an existing Unity project's scripts, the scene they belong to has to be imported and built in the world before Awake runs. `unity-import plan` produces the plan and `DisunityHost.LoadScene` builds it before activation. The [play command](../crates/play/README.md) uses this path for the pinned games. [Importing Unity projects](unity-projects.md) describes supported content and gaps.
 
 ## Built players
 
-A built Unity player ships its game code compiled, together with Unity packages and third-party libraries, in `<Game>_Data/Managed`. Those assemblies reference engine types through Unity's module assemblies, for example `[UnityEngine.CoreModule]UnityEngine.Vector3`. Unity's module assemblies call into Unity's native player, so they are never loaded.
+A built Unity player ships its game code compiled, together with Unity packages and third-party libraries, in `<Game>_Data/Managed`. Those assemblies reference engine types through Unity's module assemblies, for example `[UnityEngine.CoreModule]UnityEngine.Vector3`. Engine module names are resolved through generated facades forwarding supported types to `Disunity.Engine`; listed package assemblies can still be loaded and executed, as described below.
+
+Follow the [source-use policy](../CONTRIBUTING.md#permitted-references-and-inspection) before selecting player material. Runtime loading and metadata processing do not authorize agent inspection of Unity engine, library or package implementation. Only inspect game-specific material within its permissions, and stop uncertain manual inspection for Andrew's guidance.
 
 `PlayerManifest.Read` reads what the player lists about its managed code from `<Game>_Data`: the game and package assemblies in `ScriptingAssemblies.json`, in load order, and the startup hooks in `RuntimeInitializeOnLoads.json`. `PlayerAssemblies` then resolves the player's assembly names in an `AssemblyLoadContext`:
 
@@ -124,7 +126,7 @@ var game = context.LoadFromAssemblyName(new AssemblyName("Assembly-CSharp"));
 - `PlayerPrefs` keeps typed values. A value read as another type gives the default. `Save`, quitting and unloading the player write them to `PlayerPrefs.xml` in `persistentDataPath`, and configuring a player reads that file back. A file that cannot be read is ignored with a warning. `play --player` keeps each game's file under `target/play/player/persistent/<company>/<product>`.
 - `Resources.Load`, `LoadAll` and `LoadAsync` read the resource plan that `unity-import player-resources` writes. Paths are case-insensitive. A text asset's `text` drops a UTF-8 byte order mark and its `bytes` keep it. A script asset is created with its fields bound before `Awake` and is loaded once. Script assets that reference each other are all bound before any runs `Awake`. A `Load` or `LoadAll` that reaches a path naming a class the engine cannot build fails with `NotSupportedException` naming the path and class. Resources load on the main thread only. A `ResourceRequest` completes in the next frame's delayed tasks, so a coroutine that yields it resumes the frame after.
 
-Loading assemblies and resolving hooks call no hook methods. Running a player needs its scenes loaded around the scene phases and main-thread rules; see [#172](https://github.com/acoliver/real-disunity/issues/172).
+Loading assemblies and resolving hooks call no hook methods. The [player runner](../crates/play/README.md#built-unity-players) loads the scene around the startup phases and advances it on the main thread. This path reports unsupported content and does not establish arbitrary game playability.
 
 ### Jobs and native containers
 

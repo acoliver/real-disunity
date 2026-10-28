@@ -1,21 +1,37 @@
 ---
 name: disunity-play-verification
-description: Use when verifying that Snake, Pong, Breakout or rd-stranded actually run on the engine. Describes playing the real game through a harness with scripted or simulated input and screenshots, and keeping the evidence small.
+description: Use when reporting a game rendering or playing on the engine. Covers permission-aware original-game harnesses, input and screenshot observations, milestone scope and private-consumer validation.
 ---
 
-# Play verification
+# Game milestone verification
 
-A claim that a game works comes from playing it, not from unit tests alone.
+Follow [AGENTS.md](../../../AGENTS.md#source-use-required-boundaries) and
+[CONTRIBUTING.md](../../../CONTRIBUTING.md). Match the claim to what was observed.
+A first rendered scene is a valid milestone; unit tests alone do not establish
+playability or completion of an arbitrary game port.
 
-1. Build the engine and the game from the current tree. The three Unity games are fetched unchanged at their pinned revisions and built against `Disunity.Engine` by the external game harness (issue #38, E9).
-2. Run the game headless under a private Xvfb display, or windowed. On macOS use a windowless launcher; never open Terminal.
-3. Drive input the way a player would: scripted key sequences, or `xdotool` key and mouse events sent to the window after `windowfocus --sync`.
-4. Capture screenshots at meaningful moments: after load, after moving, after scoring or hitting something, after restart. Look at them and check that the expected objects are present, move and respond.
-5. Exercise restart and teardown, and check that the process exits cleanly.
-6. Report what was played and what the screenshots show. Post the few that matter on the PR or issue and delete the rest.
+1. Select a game you own or have permission to test. Inspect only game material
+   allowed by its license, modding policy or explicit permission. Use original
+   gameplay as the black-box reference. Do not consult Unity documentation or
+   inspect Unity implementation, including bundled libraries. Stop uncertain inspection.
+2. Build the engine and harness from the revision being reported. Keep original
+   scripts, assets and behavior unchanged apart from API binding and harness
+   configuration. An optional private `rd-gamename` harness is acceptable.
+   The public pinned Snake, Pong and Breakout path is documented in the
+   [play README](../../../crates/play/README.md).
+3. Run windowed or under a private Xvfb display. On macOS use a windowless launcher;
+   do not open Terminal. Drive player input through scripted keys or window events.
+4. Capture a few meaningful frames and inspect them. For a rendering milestone,
+   identify what appears and what remains unsupported. For a playability claim,
+   exercise movement, collisions or scoring as appropriate, then restart and teardown.
+5. Report the revision, commands and observed outcome. Share only material you may
+   redistribute. Keep evidence small, post useful frames on the PR and delete the rest.
 
-Coverage per game:
-- Snake: movement and steering, food, growth, game over and restart.
-- Pong: both paddles, ball, goals, score, reset.
-- Breakout: paddle, ball, brick hits and breaking, loss and respawn.
-- rd-stranded: build against the current engine revision and explore the scene with the camera.
+For the public test games, useful playability observations include Snake steering,
+food and growth; Pong paddles, goals and reset; and Breakout paddle movement, brick
+hits, loss and respawn. Report any unverified behavior explicitly.
+
+`rd-stranded` validation and pin updates belong to its private consumer owner.
+External contributors do not need access. Keep public regressions free of restricted game material and
+never require secrets or private checkouts in fork CI. The existing game pin stays
+in effect until its owner validates and updates it.

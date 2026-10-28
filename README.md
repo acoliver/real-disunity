@@ -13,14 +13,13 @@ The engine is pre-release (version 0.1). APIs change without notice and nothing 
 What works today:
 
 - **Native world simulation** (`crates/world-simulation`): objects, typed components, parenting with full affine transforms, cloning with reference remapping, deferred destruction, Unity-style lifecycle ordering (Awake, OnEnable, Start, FixedUpdate, Update, LateUpdate, OnDisable, OnDestroy), coroutines, an exact rational clock with fixed steps, timestamped keyboard and axis input, 2D physics with continuous collision, triggers and queries, and Canvas/RectTransform UI layout with TrueType text.
-- **C# scripts on `UnityEngine` names** (`csharp/Disunity`): `MonoBehaviour`, `GameObject`, `Transform`, `Instantiate`, `Destroy`, coroutines, `Input`, `Time`, `Rigidbody2D` and 2D colliders, `SpriteRenderer`, `Canvas`, `Text` and more. Every call goes to the same native world a Rust game would use. See the [supported API list](docs/unity-api.md).
+- **C# scripts on `UnityEngine` names** (`csharp/Disunity`): `MonoBehaviour`, `GameObject`, `Transform`, `Instantiate`, `Destroy`, coroutines, `Input`, `Time`, `Rigidbody2D` and 2D colliders, `SpriteRenderer`, `Canvas`, `Text` and more. World state and lifecycle use the same native world as Rust games; managed values and delegate utilities remain in C#. See the [supported API list](docs/unity-api.md).
 - **Rendering** (`crates/render-*`, `crates/scene-viewer`): sprites, tiles and UI text for 2D games, and a 3D renderer with metallic-roughness materials, cascaded shadows, terrain, water, sky and height fog, SSAO, screen-space reflections, HDR exposure, bloom, FXAA and FSR 1 upscaling. It runs on Vulkan, Metal and DX12 through wgpu, in a window or headless.
 - **Unity project import** (`crates/unity-import`): reads Unity text scenes and prefabs in both the current and the Unity 2017 prefab formats, applies prefab overrides and resolves `.meta` GUIDs. It also reads textures, sprites, tilemaps, physics materials and renderer materials. It never writes to the project it reads.
 
 What does not work yet:
 
-- **An unmodified Unity game does not run end to end.** The importer can read the scenes of the three test games (Snake, Pong and Breakout) but nothing yet loads an imported scene into a running world. That loader is in progress ([#77](https://github.com/acoliver/real-disunity/issues/77)).
-- There is no player executable. A C# game is currently hosted from Rust code through `DisunityHost`.
+- **Arbitrary Unity games are not generally supported.** The [play command](crates/play/README.md) loads and plays the pinned Snake, Pong and Breakout scenes with unchanged scripts. `DisunityHost.LoadScene` builds imported plans in the existing native world. Built-player loading is available with explicit gaps; it does not establish arbitrary game compatibility.
 - 3D physics, audio, animation, particles, mouse and gamepad input, and most of `UnityEngine.UI` beyond `Canvas` and `Text` are not implemented.
 - There is no Unreal support of any kind.
 
@@ -32,7 +31,7 @@ There are three entry points, and they all share one world implementation.
 
 1. **A native Rust game.** Depend on the `worldrunner` facade crate, build a `World`, add components, advance it each frame and hand the extracted sprites or 3D scene to the viewer. See [Writing a Rust game](docs/rust-games.md).
 2. **C# scripts against `UnityEngine`.** Reference `csharp/Disunity/Disunity.Engine.csproj`, write ordinary `MonoBehaviour` classes, and run them in the native world through `DisunityHost`. See [Writing C# scripts](docs/csharp-games.md).
-3. **An existing Unity project.** Inspect what the importer understands with the `unity-import` tool. Running the imported scene is the part still in progress. See [Importing Unity projects](docs/unity-projects.md).
+3. **An existing Unity project.** Use `unity-import` to plan supported scenes and `DisunityHost.LoadScene` to build them. The `play` command runs the three pinned test games; other projects require integration and supported content. See [Importing Unity projects](docs/unity-projects.md).
 
 ## Quick start
 
@@ -88,7 +87,9 @@ The `worldrunner` crate is a facade that re-exports these crates behind feature 
 
 ## Contributing
 
-Read [dev-docs/README.md](dev-docs/README.md) before changing code. It explains where each kind of change belongs, the enforced size and complexity limits, and how to run the same checks CI runs.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for forks, permitted references, milestone PRs and public verification. All contribution types are welcome, including a game rendering before it is fully playable. Coding agents must follow [AGENTS.md](AGENTS.md); the [developer guide](dev-docs/README.md) covers ownership and checks. Update affected README pages and contracts with each change.
+
+Andrew intends human review daily, and maintainer agents also review daily. Daily attention does not guarantee a same-day merge. Only Andrew manually merges all PRs. Agents never merge, enable auto-merge or use a merge queue.
 
 ## License
 

@@ -1,28 +1,46 @@
 ---
 name: disunity-coordination
-description: Use before starting, claiming or reviewing work in real-disunity or rd-stranded when more than one agent session is active. Defines agent identities, how to claim work on GitHub, and how to exchange reviews and warnings through issues and PRs.
+description: Use before claiming, implementing or reviewing work in real-disunity. Defines session identities, feature-scoped claims, external contributor coordination and Andrew-only merging.
 ---
 
-# Coordinating agent sessions
+# Coordinating contributors and agents
 
-Several agent sessions can work on these repositories at once, all under the same GitHub account. GitHub shows every action as `acoliver`, so identity must be stated in the text.
+[AGENTS.md](../../../AGENTS.md) and [CONTRIBUTING.md](../../../CONTRIBUTING.md)
+set review authority and contributor rules. Several sessions may share a GitHub
+account; external contributors use their own authenticated accounts.
 
-## Identities
+## Identities and claims
 
-- `mini-llxprt-disunity-1`: the session working in `real-disunity/branch-1`.
-- `mini-llxprt-disunity-2`: the session working in `real-disunity/branch-2`.
+Start agent-authored issues, PR bodies and comments with
+`[github-user/agent-name]`, using the authenticated GitHub user. An optional human
+name may follow. Internal sessions sharing an account use their assigned checkout
+identity, for example `[mini-llxprt-branch-4]`. There is no fixed list of two agents.
 
-Start every issue, PR body and comment you write with `[mini-llxprt-disunity-N]`.
+Before starting, read open issues and PRs, including the relevant plan issue.
+Claim a bounded feature in an issue or draft PR, stating the behavior, likely
+files and exclusions. Link it from the relevant plan. Claims cannot reserve an
+entire crate. Acknowledged external claims bind maintainer agents equally.
 
-## Claiming work
+Do not start overlapping work without agreement. If a claim seems quiet or stale,
+post notice on its issue and wait for an answer or Andrew's decision before taking
+it over. Never repossess it silently. Explicit task restrictions on GitHub writes
+still apply; report the coordination blocker when needed.
 
-1. Before starting, read the open issues and PRs, and the plan issue (#38 for the native world and Disunity API work).
-2. Claim a piece of work by opening an issue or draft PR that says who is doing it, the scope, the files or crates it will touch, and what it will not touch. Link it from the plan issue with a comment.
-3. Do not start work another session has claimed. If you think a claim is wrong or stale, say so on its issue and wait for an answer or for Andrew.
-4. Do not close, merge or force-push another session's PR or issue. Comment instead.
+## Reviews and integration help
 
-## Reviews and warnings
+Maintainer agents review incoming PRs daily. Andrew also intends human review
+daily. Neither cadence guarantees a same-day merge. External milestone PRs are
+exempt from the internal daily review-ready cadence. Never close them merely
+because they await maintainer review or merge.
 
-- When another session's work affects yours, or you see something that will not work, post a review or comment on its PR or issue with specifics: file, behavior, and suggested fix.
-- Read comments on your own issues and PRs before each new push, and answer them there.
-- Keep shared crates stable: if you need to change an API another session's open PR uses, say so on that PR first.
+Post concrete review findings on the relevant issue or PR: behavior, file and
+suggested fix. Read and answer comments before each new push. Warn collaborators
+before changing an API their open work uses. Offer integration help and agree its
+scope with the contributor before preparing it in your own checkout.
+
+Never modify, clean or manage another contributor's worktree or build output.
+Do not close their PR. Obtain the branch owner's explicit permission in a PR
+comment before pushing to their branch. Force pushes need explicit permission
+for that operation.
+Only Andrew manually merges all PRs. Agents never merge any PR, including their
+own, enable auto-merge, use a merge queue or run `gh pr merge`.

@@ -368,3 +368,30 @@ fn player_object_describes_supported_objects_and_rejects_the_rest() {
         assert!(stderr.contains(message), "{stderr}");
     }
 }
+
+#[test]
+fn player_shader_rejects_objects_that_are_not_shaders() {
+    let dir = tempfile::tempdir().unwrap();
+    write_scene(dir.path(), &scene(ptr(0, 5)));
+    let path = dir.path().join("level0");
+    let out = dir.path().join("chunks");
+    for (id, message) in [
+        ("2", "is a GameObject, not a Shader"),
+        ("999", "no object with path ID 999"),
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_unity-import"))
+            .args([
+                "player-shader".as_ref(),
+                path.as_os_str(),
+                id.as_ref(),
+                "0".as_ref(),
+            ])
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(message), "{stderr}");
+        assert!(!out.exists());
+    }
+}

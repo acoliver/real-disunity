@@ -196,6 +196,55 @@ fn per_platform(
 }
 
 impl CompiledBlobs {
+    /// Decompresses each chunk of one platform's compiled programs. `object` is the shader
+    /// object's bytes, which [`Self::blob`] indexes. The first chunk starts with the table of
+    /// sub-programs; each entry names the chunk, as a segment index, that holds its program.
+    ///
+    /// # Errors
+    /// Fails when the platform index is out of range, the per-platform lists disagree, a
+    /// chunk lies outside the blob, or a chunk does not decompress to its declared length.
+    pub fn platform_chunks(
+        &self,
+        object: &[u8],
+        platform: usize,
+    ) -> Result<Vec<Vec<u8>>, SerializedError> {
+        let invalid = |chunk, reason| SerializedError::InvalidShaderBlob {
+            platform,
+            chunk,
+            reason,
+        };
+        let (Some(offsets), Some(compressed), Some(decompressed)) = (
+            self.offsets.get(platform),
+            self.compressed_lengths.get(platform),
+            self.decompressed_lengths.get(platform),
+        ) else {
+            return Err(invalid(0, "the shader has no such platform"));
+        };
+        if offsets.len() != compressed.len() || offsets.len() != decompressed.len() {
+            return Err(invalid(
+                0,
+                "the chunk offset and length lists differ in length",
+            ));
+        }
+        let blob = object
+            .get(self.blob.clone())
+            .ok_or_else(|| invalid(0, "the blob range lies outside the object"))?;
+        let mut chunks = Vec::with_capacity(offsets.len());
+        for (chunk, ((&offset, &len), &out_len)) in
+            offsets.iter().zip(compressed).zip(decompressed).enumerate()
+        {
+            let start = usize::try_from(offset).map_err(|_| invalid(chunk, "offset too large"))?;
+            let input = start
+                .checked_add(usize::try_from(len).map_err(|_| invalid(chunk, "length too large"))?)
+                .and_then(|end| blob.get(start..end))
+                .ok_or_else(|| invalid(chunk, "the chunk lies outside the blob"))?;
+            let out_len =
+                usize::try_from(out_len).map_err(|_| invalid(chunk, "length too large"))?;
+            chunks.push(crate::lz4::decompress_block(input, out_len)?);
+        }
+        Ok(chunks)
+    }
+
     fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         Ok(Self {
             platforms: r.array("platform", 4, ObjectReader::u32)?,

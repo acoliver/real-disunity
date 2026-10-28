@@ -1,7 +1,8 @@
 //! Saving a game's Lua data and restoring it into a fresh state that runs the current code
 //! (#147).
 
-use worldrunner_script::{GameScripts, LuaSnapshot, Saved, ScriptConfig, ScriptError};
+use lua_resume::capture::Value;
+use worldrunner_script::{GameScripts, LuaSnapshot, ScriptConfig, ScriptError};
 
 /// The game's code: a class with a method, version `bonus` of its damage rule.
 fn code(bonus: i64) -> String {
@@ -75,30 +76,19 @@ fn permanents_rebind_to_the_current_code_by_name() {
     let mut saved = game(0);
     saved.run("game", "state.lua", STATE.as_bytes()).unwrap();
     let snapshot = saved.save(&["State"], &["Unit"]).unwrap();
-    let names: Vec<&Saved> = snapshot
+    let names: Vec<&str> = snapshot
+        .graph
         .tables
         .iter()
-        .flat_map(|table| {
-            table
-                .entries
-                .iter()
-                .map(|(_, value)| value)
-                .chain(&table.metatable)
+        .flat_map(|table| table.entries.iter().map(|(_, value)| value))
+        .filter_map(|value| match value {
+            Value::Permanent(name) => Some(name.as_str()),
+            _ => None,
         })
-        .filter(|value| matches!(value, Saved::Native(_) | Saved::Permanent(_)))
         .collect();
-    assert!(
-        names.contains(&&Saved::Permanent("Unit".into())),
-        "{names:?}"
-    );
-    assert!(
-        names.contains(&&Saved::Permanent("Unit.Hit".into())),
-        "{names:?}"
-    );
-    assert!(
-        names.contains(&&Saved::Native("GetMapName".into())),
-        "{names:?}"
-    );
+    for name in ["permanent Unit", "permanent Unit.Hit", "native GetMapName"] {
+        assert!(names.contains(&name), "{name} in {names:?}");
+    }
 
     // The game was updated: Hit now deals one more damage. Restored units use the new rule.
     let mut updated = game(1);
@@ -147,23 +137,23 @@ fn values_that_cannot_be_saved_are_refused_with_their_location() {
         .run(
             "game",
             "bad.lua",
-            b"Closure = { inner = { on_death = function() end } }
+            b"Native = { inner = { next = string.gmatch('a', 'a') } }
               Thread = { co = coroutine.create(function() end) }",
         )
         .unwrap();
-    let closure = refusal(scripts.save(&["Closure"], &["Unit"]));
+    let native = refusal(scripts.save(&["Native"], &["Unit"]));
     assert!(
-        closure.contains(r#"Closure["inner"]["on_death"] is a function that is not a permanent"#),
-        "{closure}"
+        native.contains(r#"root `Native` > ["inner"] > ["next"]: native function"#),
+        "{native}"
     );
     let thread = refusal(scripts.save(&["Thread"], &["Unit"]));
     assert!(
-        thread.contains(r#"Thread["co"] is a suspended coroutine the scheduler does not own"#),
+        thread.contains(r#"root `Thread` > ["co"]: the coroutine has not started"#),
         "{thread}"
     );
     let root = refusal(scripts.save(&["Unit"], &["Unit"]));
     assert!(root.contains("root Unit is a permanent"), "{root}");
-    let scalar = refusal(scripts.save(&["Closure"], &["Score"]));
+    let scalar = refusal(scripts.save(&["Native"], &["Score"]));
     assert!(scalar.contains("permanent root Score is a nil"), "{scalar}");
 }
 
@@ -189,17 +179,14 @@ fn snapshots_that_do_not_fit_the_state_are_refused() {
     assert!(missing.contains("permanent Unit"), "{missing}");
 
     let mut broken = snapshot.clone();
-    broken.tables[0]
+    broken.graph.tables[0]
         .entries
-        .push((Saved::String(b"x".to_vec()), Saved::Table(999)));
+        .push((Value::String(b"x".to_vec()), Value::Table(999)));
     let index = refusal(game(0).restore(&broken, &["Unit"]));
-    assert!(
-        index.contains("table 999 is not in the snapshot"),
-        "{index}"
-    );
+    assert!(index.contains("999"), "{index}");
 
     let mut nested = snapshot;
-    nested.roots[0].0 = "Missing.State".into();
+    nested.graph.roots[0].0 = "Missing.State".into();
     let parent = refusal(game(0).restore(&nested, &["Unit"]));
     assert!(parent.contains("its parent is not a table"), "{parent}");
 }

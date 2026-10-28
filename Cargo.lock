@@ -867,7 +867,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1550,7 +1550,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "lua-resume"
 version = "0.1.0"
-source = "git+https://github.com/acoliver/lua-resume?rev=e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7#e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7"
+source = "git+https://github.com/acoliver/lua-resume?rev=4e393a7bebecfeffadbb4d206809a8ab037ac83d#4e393a7bebecfeffadbb4d206809a8ab037ac83d"
 dependencies = [
  "mlua",
  "serde",
@@ -1560,7 +1560,7 @@ dependencies = [
 [[package]]
 name = "lua-resume-debug"
 version = "0.1.0"
-source = "git+https://github.com/acoliver/lua-resume?rev=e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7#e2b5f3b971d563fab5f1f2f8236b01dc2aeb1fb7"
+source = "git+https://github.com/acoliver/lua-resume?rev=4e393a7bebecfeffadbb4d206809a8ab037ac83d#4e393a7bebecfeffadbb4d206809a8ab037ac83d"
 dependencies = [
  "mlua",
 ]
@@ -2519,7 +2519,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2859,10 +2859,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3620,7 +3620,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

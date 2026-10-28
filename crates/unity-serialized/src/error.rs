@@ -32,6 +32,20 @@ pub enum SerializedError {
     },
     #[error("the {field} is {value}, which is negative")]
     Negative { field: &'static str, value: i64 },
+    #[error("the compressed block is invalid at byte {offset} of its input: {reason}")]
+    InvalidCompressedBlock { offset: usize, reason: &'static str },
+    #[error("shader platform {platform}, chunk {chunk} does not decompress: {source}")]
+    ShaderChunk {
+        platform: usize,
+        chunk: usize,
+        source: Box<SerializedError>,
+    },
+    #[error("shader platform {platform}, chunk {chunk}: {reason}")]
+    InvalidShaderBlob {
+        platform: usize,
+        chunk: usize,
+        reason: &'static str,
+    },
     #[error("byte {value} at offset {offset} is not a boolean")]
     InvalidBool { offset: usize, value: u8 },
     #[error("the string at offset {offset} has no terminating zero byte")]

@@ -20,6 +20,7 @@ pub mod font;
 pub mod graphics;
 mod header;
 pub mod light;
+pub mod lz4;
 pub mod managers;
 pub mod mesh;
 pub mod object;

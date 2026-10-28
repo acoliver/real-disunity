@@ -142,6 +142,40 @@ pub fn describe_object(open: &mut OpenFile, path_id: i64) -> Result<String, Play
     check(&bytes, &object, open.file.header.big_endian).map_err(|source| open.error(source))
 }
 
+/// Decompresses the compiled program chunks of one platform of a shader, returning Unity's
+/// `ShaderCompilerPlatform` of that platform with the chunks.
+///
+/// # Errors
+/// Fails if the object is missing, is not a shader, does not decode, or its chunks for the
+/// platform do not decompress.
+pub fn shader_chunks(
+    open: &mut OpenFile,
+    path_id: i64,
+    platform: usize,
+) -> Result<(u32, Vec<Vec<u8>>), PlayerError> {
+    let object = *open
+        .file
+        .object(path_id)
+        .ok_or_else(|| PlayerError::MissingObject {
+            path: open.path.clone(),
+            path_id,
+        })?;
+    let bytes = open.bytes(&object)?;
+    let shader = decode::<Shader>(&bytes, &object, open.file.header.big_endian)
+        .map_err(|source| open.error(source))?;
+    let chunks = shader
+        .compiled
+        .platform_chunks(&bytes, platform)
+        .map_err(|source| open.error(source))?;
+    let kind = shader
+        .compiled
+        .platforms
+        .get(platform)
+        .copied()
+        .unwrap_or_default();
+    Ok((kind, chunks))
+}
+
 /// A layout's class with its check. The class comes from the layout, so the two cannot drift.
 const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
     (T::CLASS, check::<T>)

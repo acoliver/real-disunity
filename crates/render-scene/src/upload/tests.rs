@@ -257,14 +257,7 @@ fn the_frame_layout_accepts_a_block_of_the_size_the_shader_declares() {
         &[0u8; FRAME_UNIFORM_BYTES],
     );
     let error = validation_error(device, || {
-        device.create_bind_group(&BindGroupDescriptor {
-            label: Some("frame"),
-            layout: &layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: buffer.as_entire_binding(),
-            }],
-        })
+        crate::draw::decals::empty_group(device, &layout, &buffer)
     });
     assert_eq!(error, None, "the frame uniform was rejected");
     assert_eq!(FRAME_GROUP, 0);

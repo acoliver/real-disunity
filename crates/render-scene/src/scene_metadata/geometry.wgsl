@@ -22,6 +22,11 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
     }
     if material.scattering_mode.y != 0.0 && (!scene_packed_atlas(input) || metalness > 0.05) { metalness = 0.0; }
     if scene_packed_atlas(input) && metalness > 0.05 { metalness = 0.0; }
+    let projected = scene_project_decals(input.world_position, geometric, 1u,
+        albedo.rgb, vec2<f32>(roughness, metalness));
+    albedo = vec4<f32>(projected.albedo, albedo.a);
+    roughness = projected.properties.x;
+    metalness = projected.properties.y;
     scene_apply_coverage(input);
     if masked && !scene_alpha_covered(albedo.a, input) { discard; }
     return METADATA_OUTPUT;

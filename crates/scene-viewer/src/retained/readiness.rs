@@ -11,6 +11,7 @@ pub(crate) struct Preparation {
     pub update: RetainedUpdate,
     pub scene: Option<mpsc::Receiver<Result<PreparedScene, ViewerError>>>,
     pub ids: Vec<ObjectId>,
+    pub decal_ids: Vec<u64>,
     pub pages_enabled: bool,
     pub capture_features: [bool; 4],
     pub require_pages: bool,
@@ -217,6 +218,7 @@ impl RetainedHost {
             require_geometry: false,
             update,
             scene,
+            decal_ids: self.decals.keys().copied().collect(),
             ids: if rebuild {
                 self.objects.keys().copied().collect()
             } else {

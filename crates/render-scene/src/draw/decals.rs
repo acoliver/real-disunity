@@ -1,0 +1,390 @@
+use super::{
+    DrawError,
+    visibility::{Bounds, Frustum},
+};
+use glam::{Mat4, Vec3};
+use std::cell::RefCell;
+use worldrunner_render_plan::{RenderScene, SceneDecal, SceneDecalAxis};
+
+const LIMIT: usize = 32;
+pub(crate) const BYTES: usize = 16 + LIMIT * 128;
+
+#[derive(Debug)]
+struct Entry {
+    id: u64,
+    decal: SceneDecal,
+    model: Mat4,
+    bounds: Bounds,
+    surface: [f32; 3],
+}
+#[derive(Debug)]
+struct Palette {
+    materials: Vec<u32>,
+    group: wgpu::BindGroup,
+}
+#[derive(Debug)]
+pub(super) struct Decals {
+    scene: RenderScene,
+    entries: Vec<Entry>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    layout: wgpu::BindGroupLayout,
+    palettes: RefCell<Vec<Palette>>,
+    pub buffers: Vec<wgpu::Buffer>,
+    pub slot: usize,
+}
+
+/// Checks only referenced decal materials and borrowed texture descriptors/mip ranges.
+/// No world geometry preparation or texture decoding is performed.
+pub fn validate_decal_materials(scene: &RenderScene) -> Result<(), DrawError> {
+    let mut materials: Vec<_> = scene.decals().iter().map(|d| d.material.raw()).collect();
+    materials.sort_unstable();
+    materials.dedup();
+    let mut shape = None;
+    for handle in materials {
+        let material = &scene.resources().materials()[handle as usize];
+        validate_material(material)?;
+        let index = material.albedo().raw() as usize;
+        let texture = crate::texture::prepare_texture(&scene.resources().textures()[index])
+            .map_err(|source| DrawError::Texture { index, source })?;
+        let next = (
+            texture.format(),
+            texture.width(),
+            texture.height(),
+            texture.mips().len(),
+        );
+        if shape.is_some_and(|shape| shape != next) {
+            return Err(crate::frame::FrameError::UnsupportedEffect(
+                "decal albedo array requires matching format, dimensions and mips",
+            )
+            .into());
+        }
+        shape = Some(next);
+    }
+    Ok(())
+}
+fn validate_material(material: &worldrunner_render_plan::SceneMaterial) -> Result<(), DrawError> {
+    if material.normal().is_some()
+        || material.roughness_metallic().is_some()
+        || material.features().is_some()
+        || material.impostor().is_some()
+        || material.self_illumination().is_some()
+        || material.ambient_occlusion().is_some()
+        || material.terrain_contact().is_some()
+        || material.translucency_micro() != 0
+    {
+        return Err(crate::frame::FrameError::UnsupportedEffect(
+            "decal supports albedo and scalar roughness/metalness",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+impl Decals {
+    pub fn allocate(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        prepared: &super::PreparedScene,
+        layout: &wgpu::BindGroupLayout,
+    ) -> Result<(Self, Vec<(wgpu::Buffer, wgpu::BindGroup)>), DrawError> {
+        let slots = super::resources::allocate_frame_slots(device, queue, layout);
+        let buffers: Vec<_> = slots.iter().map(|_| empty_buffer(device)).collect();
+        let palettes = slots
+            .iter()
+            .zip(&buffers)
+            .map(|((frame, _), buffer)| Palette {
+                materials: Vec::new(),
+                group: empty_group_with(device, layout, frame, buffer),
+            })
+            .collect();
+        let mut decals = Self {
+            scene: prepared.scene.clone(),
+            entries: Vec::new(),
+            device: device.clone(),
+            queue: queue.clone(),
+            layout: layout.clone(),
+            palettes: RefCell::new(palettes),
+            buffers,
+            slot: 0,
+        };
+        decals.replace(
+            prepared
+                .scene
+                .decals()
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(id, decal)| (id as u64, decal))
+                .collect(),
+        )?;
+        Ok((decals, slots))
+    }
+
+    pub fn placements(&self) -> Vec<(u64, SceneDecal)> {
+        self.entries.iter().map(|e| (e.id, e.decal)).collect()
+    }
+
+    pub fn replace(&mut self, placements: Vec<(u64, SceneDecal)>) -> Result<(), DrawError> {
+        let scene = self
+            .scene
+            .with_decals(placements.iter().map(|p| p.1).collect())
+            .map_err(|_| crate::frame::FrameError::UnsupportedEffect("invalid decal placement"))?;
+        validate_decal_materials(&scene)?;
+        self.entries = placements
+            .into_iter()
+            .map(|(id, decal)| entry(&scene, id, decal))
+            .collect();
+        self.scene = scene;
+        Ok(())
+    }
+
+    pub fn group(&self) -> wgpu::BindGroup {
+        self.palettes.borrow()[self.slot].group.clone()
+    }
+
+    pub fn prepare(&self, frame: &crate::frame::FrameUniform, buffer: &wgpu::Buffer) -> Vec<u8> {
+        let selected = selected(&self.entries, frame.view_projection, frame.camera_position);
+        let mut materials: Vec<_> = selected
+            .iter()
+            .map(|&i| self.entries[i].decal.material.raw())
+            .collect();
+        materials.sort_unstable();
+        materials.dedup();
+        let mut palettes = self.palettes.borrow_mut();
+        let palette = &mut palettes[self.slot];
+        if palette.materials != materials {
+            let texture = self.texture(&materials);
+            let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
+            palette.group = group_with(
+                &self.device,
+                &self.layout,
+                buffer,
+                &self.buffers[self.slot],
+                &view,
+                &crate::upload::material_sampler(&self.device),
+            );
+            palette.materials.clone_from(&materials);
+        }
+        self.bytes(&selected, &materials)
+    }
+
+    fn texture(&self, materials: &[u32]) -> wgpu::Texture {
+        if materials.is_empty() {
+            return empty_texture(&self.device);
+        }
+        let layers: Vec<_> = materials
+            .iter()
+            .map(|&id| {
+                let material = &self.scene.resources().materials()[id as usize];
+                crate::texture::prepare_texture(
+                    &self.scene.resources().textures()[material.albedo().raw() as usize],
+                )
+                .expect("validated decal texture")
+            })
+            .collect();
+        crate::upload::upload_palette_array(
+            &self.device,
+            &self.queue,
+            "visible decal albedo",
+            &layers,
+        )
+        .expect("validated bounded decal palette")
+    }
+
+    fn bytes(&self, selected: &[usize], materials: &[u32]) -> Vec<u8> {
+        assert!(selected.len() <= LIMIT);
+        let mut values = vec![
+            f32::from_bits(u32::try_from(selected.len()).expect("bounded decals")),
+            0.0,
+            0.0,
+            0.0,
+        ];
+        for &index in selected {
+            let Entry {
+                decal,
+                model,
+                surface,
+                ..
+            } = &self.entries[index];
+            values.extend(model.inverse().to_cols_array());
+            let axis = match decal.axis {
+                SceneDecalAxis::X => Vec3::X,
+                SceneDecalAxis::Y => Vec3::Y,
+                SceneDecalAxis::Z => Vec3::Z,
+            };
+            values.extend(model.transform_vector3(axis).normalize().to_array());
+            values.push(unit(decal.edge_fade_micro));
+            values.extend([
+                surface[0],
+                surface[1],
+                unit(decal.angle_cutoff_micro),
+                unit(decal.angle_fade_micro),
+            ]);
+            let layer = materials
+                .binary_search(&decal.material.raw())
+                .expect("selected material");
+            values.extend([
+                f32::from_bits(decal.receivers.bits()),
+                f32::from_bits(u32::try_from(layer).expect("bounded palette")),
+                f32::from_bits(match decal.axis {
+                    SceneDecalAxis::X => 0,
+                    SceneDecalAxis::Y => 1,
+                    SceneDecalAxis::Z => 2,
+                }),
+                0.0,
+            ]);
+            values.extend([surface[2], 0.0, 0.0, 0.0]);
+        }
+        let mut bytes: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
+        assert!(bytes.len() <= BYTES);
+        bytes.resize(BYTES, 0);
+        bytes
+    }
+}
+
+fn entry(scene: &RenderScene, id: u64, decal: SceneDecal) -> Entry {
+    let model = crate::geometry::model_matrix(&decal.transform)
+        * Mat4::from_scale(Vec3::from_array(
+            decal.dimensions_millimeters.map(crate::view::meters_scalar),
+        ));
+    let center = model.w_axis.truncate();
+    let half = (model.x_axis.truncate().abs()
+        + model.y_axis.truncate().abs()
+        + model.z_axis.truncate().abs())
+        * 0.5;
+    let material = &scene.resources().materials()[decal.material.raw() as usize];
+    Entry {
+        id,
+        decal,
+        model,
+        bounds: Bounds {
+            min: center - half,
+            max: center + half,
+        },
+        surface: [
+            unit(material.roughness_micro()),
+            unit(material.metalness_micro()),
+            unit(material.alpha_factor_micro()),
+        ],
+    }
+}
+fn unit(value: u32) -> f32 {
+    crate::view::meters_scalar(value) / 1000.0
+}
+fn empty_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("decal volumes"),
+        size: BYTES as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+fn empty_texture(device: &wgpu::Device) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("empty decal array"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    })
+}
+pub(crate) fn empty_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    frame: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    empty_group_with(device, layout, frame, &empty_buffer(device))
+}
+fn empty_group_with(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    frame: &wgpu::Buffer,
+    buffer: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    let texture = empty_texture(device);
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    group_with(
+        device,
+        layout,
+        frame,
+        buffer,
+        &view,
+        &crate::upload::material_sampler(device),
+    )
+}
+fn group_with(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    frame: &wgpu::Buffer,
+    decals: &wgpu::Buffer,
+    albedo: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("scene frame and decals"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: frame.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: decals.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(albedo),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+fn selected(entries: &[Entry], matrix: Mat4, camera: Vec3) -> Vec<usize> {
+    let frustum = Frustum::new(matrix);
+    let mut selected: Vec<_> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| frustum.intersects(e.bounds))
+        .map(|(i, _)| i)
+        .collect();
+    selected.sort_by(|&a, &b| {
+        let a = &entries[a];
+        let b = &entries[b];
+        b.decal
+            .priority
+            .cmp(&a.decal.priority)
+            .then_with(|| {
+                a.model
+                    .w_axis
+                    .truncate()
+                    .distance_squared(camera)
+                    .total_cmp(&b.model.w_axis.truncate().distance_squared(camera))
+            })
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    selected.truncate(LIMIT);
+    selected.sort_unstable();
+    selected
+}
+
+#[cfg(test)]
+mod tests;

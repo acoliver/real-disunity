@@ -327,12 +327,14 @@ fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
 
     // Terrain has neither an ambient occlusion map nor a screen-space
     // occlusion pass, so its ambient contribution remains unoccluded.
+    let projected = scene_project_decals(input.world_position, geometric, 2u,
+        blended.albedo, vec2<f32>(blended.roughness, blended.metalness));
     let colour = surface_lighting(
         input.world_position,
         normal,
-        blended.albedo,
-        blended.roughness,
-        blended.metalness,
+        projected.albedo,
+        projected.properties.x,
+        projected.properties.y,
         1.0,
     );
 

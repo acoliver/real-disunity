@@ -24,6 +24,8 @@ use crate::upload::{
 
 mod celestial;
 mod contact;
+pub(crate) mod decals;
+pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
 mod lod_material;
@@ -195,6 +197,7 @@ struct Retained {
 /// One scene resident on the GPU, ready to draw.
 #[derive(Debug)]
 pub struct SceneGpu {
+    decals: decals::Decals,
     sky: Option<crate::sky::Sky>,
     celestial: Option<crate::sky::meshes::Meshes>,
     caster_generation: u64,
@@ -280,24 +283,22 @@ impl SceneGpu {
         let placeholder = placeholder_texture(device, queue);
         let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());
         let sampler = material_sampler(device);
-        let (materials, material_uniforms) = upload_materials(
+        let (materials, material_uniforms) = resources::scene_materials(
             device,
             queue,
             scene,
-            &MaterialBindings {
-                layout: pipelines.material_layout(),
-                views: &views,
-                placeholder: &placeholder_view,
-                sampler: &sampler,
-                heights: &contact_heights,
-            },
+            pipelines,
+            (&views, &placeholder_view),
+            (&sampler, &contact_heights),
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
         let terrain =
             prepared_terrain(device, authority, &prepared, pipelines, &sampler, previous)?;
-        let frame_slots = allocate_frame_slots(device, queue, pipelines.frame_layout());
+        let (decals, frame_slots) =
+            decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
+            decals,
             celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
             caster_generation: 0,
@@ -335,10 +336,12 @@ impl SceneGpu {
 
     /// Writes the per-frame uniform the next draw will read.
     pub fn set_frame(&self, queue: &Queue, frame: FrameUniform) {
+        let bytes = self.decals.prepare(&frame, &self.frame_buffer);
         self.frame.set(Some(frame));
-        *self.committed_frame_group.borrow_mut() = self.frame_group.clone();
+        *self.committed_frame_group.borrow_mut() = self.decals.group();
         *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
+        queue.write_buffer(&self.decals.buffers[self.decals.slot], 0, &bytes);
     }
 
     /// Records every draw of the scene into one render pass.
@@ -427,7 +430,7 @@ impl SceneGpu {
                     .is_some_and(|current| current.same_transaction(owner))
             });
         if transaction_frame {
-            self.frame_group.clone()
+            self.decals.group()
         } else {
             self.committed_frame_group.borrow().clone()
         }
@@ -610,9 +613,7 @@ impl SceneGpu {
     }
 }
 
-use resources::{
-    MaterialBindings, allocate_frame_slots, upload_materials, upload_meshes, upload_textures,
-};
+use resources::{upload_meshes, upload_textures};
 mod prepared;
 mod resources;
 pub use prepared::PreparedScene;

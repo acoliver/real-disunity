@@ -43,7 +43,9 @@ impl Objects {
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
                 RetainedUpdate::Camera { .. } => {}
-                RetainedUpdate::Resources { .. } | RetainedUpdate::Terrain(_) => {
+                RetainedUpdate::Resources { .. }
+                | RetainedUpdate::Terrain(_)
+                | RetainedUpdate::Decal(_) => {
                     return Err(ViewerError::UnsupportedScene(
                         "scene replacement outside readiness",
                     ));
@@ -132,4 +134,21 @@ impl Resident {
         }
         Ok(())
     }
+}
+
+pub(super) fn apply_decal(
+    gpu: &mut SceneGpu,
+    update: &crate::DecalUpdate,
+) -> Result<(), ViewerError> {
+    let mut placements: BTreeMap<_, _> = gpu.decal_placements().into_iter().collect();
+    match update {
+        crate::DecalUpdate::Add { id, decal } | crate::DecalUpdate::Replace { id, decal } => {
+            placements.insert(*id, *decal);
+        }
+        crate::DecalUpdate::Remove(id) => {
+            placements.remove(id);
+        }
+    }
+    gpu.set_decal_placements(placements.into_iter().collect())?;
+    Ok(())
 }

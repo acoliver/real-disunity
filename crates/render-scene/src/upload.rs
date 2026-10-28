@@ -31,16 +31,44 @@ const PLACEHOLDER_TEXEL: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
 pub fn frame_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("frame"),
-        entries: &[BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::VERTEX_FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
+        entries: &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
             },
-            count: None,
-        }],
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
     })
 }
 
@@ -184,7 +212,7 @@ pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> Bi
         entries.extend(crate::terrain::pages::layered_gpu::textures::draw_layout());
     }
     if cached {
-        entries.extend(cached_terrain_entries());
+        install_cached_entries(&mut entries);
     }
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("terrain"),
@@ -389,4 +417,9 @@ pub(crate) fn extended_material_group(
         layout,
         entries: &entries,
     })
+}
+
+fn install_cached_entries(entries: &mut Vec<BindGroupLayoutEntry>) {
+    entries.retain(|entry| entry.binding != 1);
+    entries.extend(cached_terrain_entries());
 }

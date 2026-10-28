@@ -3,6 +3,19 @@ use worldrunner_render_plan::{SceneObject, SceneTransform};
 use super::{InstanceError, InstanceHandle, InstanceWrite, SceneGpu};
 
 impl SceneGpu {
+    /// Replaces ordered decal metadata without touching unrelated resident resources.
+    /// IDs break selection ties; input order is compositing order.
+    pub fn set_decal_placements(
+        &mut self,
+        placements: Vec<(u64, worldrunner_render_plan::SceneDecal)>,
+    ) -> Result<(), super::DrawError> {
+        self.decals.replace(placements)
+    }
+
+    pub fn decal_placements(&self) -> Vec<(u64, worldrunner_render_plan::SceneDecal)> {
+        self.decals.placements()
+    }
+
     /// Replaces the validated post description without changing resident geometry.
     pub fn set_post_settings(
         &mut self,
@@ -60,6 +73,7 @@ impl SceneGpu {
     /// Select the admitted slot before encoding. The host must retain its admission
     /// until submission completion before selecting the same slot again.
     pub fn select_frame_slot(&mut self, slot: usize) {
+        self.decals.slot = slot;
         let (buffer, group) = &self.frame_slots[slot];
         if let Some(pages) = self
             .terrain
@@ -218,12 +232,14 @@ impl SceneGpu {
         *self.drawing_frame.borrow_mut() = Some((context.publications(), frame));
         let published = self.frame.clone();
         let committed_group = self.committed_frame_group.clone();
-        let group = self.frame_group.clone();
+        let bytes = self.decals.prepare(&frame, &self.frame_buffer);
+        let group = self.decals.group();
         crate::compositor::publication::stage(context, &published.clone(), move || {
             published.set(Some(frame));
             *committed_group.borrow_mut() = group;
         });
         context.upload_buffer(&self.frame_buffer, 0, &frame.to_bytes());
+        context.upload_buffer(&self.decals.buffers[self.decals.slot], 0, &bytes);
     }
 }
 

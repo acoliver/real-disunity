@@ -9,10 +9,7 @@
 //! entry point names and the WGSL all describe the same program.
 
 use pollster;
-use wgpu::{
-    BindGroupDescriptor, BindGroupEntry, BufferDescriptor, BufferUsages, Device, ErrorFilter,
-    TextureFormat, TextureUsages,
-};
+use wgpu::{BufferDescriptor, BufferUsages, Device, ErrorFilter, TextureFormat, TextureUsages};
 
 use super::{DEPTH_FORMAT, ScenePipelines, depth_texture};
 use crate::device::GpuContext;
@@ -116,14 +113,7 @@ fn the_frame_layout_the_pipelines_expose_accepts_the_frame_uniform() {
     // actually compiled against, rather than to a second copy that happens to
     // look the same.
     let (_group, error) = validation_error(device, || {
-        device.create_bind_group(&BindGroupDescriptor {
-            label: Some("frame"),
-            layout: pipelines.frame_layout(),
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: buffer.as_entire_binding(),
-            }],
-        })
+        crate::draw::decals::empty_group(device, pipelines.frame_layout(), &buffer)
     });
 
     assert!(

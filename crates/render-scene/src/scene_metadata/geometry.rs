@@ -42,7 +42,7 @@ pub(crate) fn pipelines(
         include_str!("geometry.wgsl").replace("METADATA_OUTPUT", output)
     );
     let terrain_output = if material {
-        "vec4<f32>(mix(vec3<f32>(0.04), blended.albedo, blended.metalness), blended.roughness)"
+        "vec4<f32>(mix(vec3<f32>(0.04), projected.albedo, projected.properties.y), projected.properties.x)"
     } else {
         "vec4<f32>(normalize((screen.view * vec4<f32>(normal, 0.0)).xyz), 1.0)"
     };

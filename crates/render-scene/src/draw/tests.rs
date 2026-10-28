@@ -33,6 +33,7 @@ use worldrunner_render_plan::{
 };
 mod alpha_factor;
 mod curved_wind;
+pub(crate) mod decals;
 mod environment;
 mod fold_translucency;
 mod foliage;

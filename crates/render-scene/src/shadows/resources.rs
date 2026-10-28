@@ -17,6 +17,7 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     worldrunner_render_lighting::lighting_wgsl!(),
     worldrunner_render_post::post_wgsl!(),
     include_str!("../shader/lighting.wgsl"),
+    include_str!("../shader/decals.wgsl"),
     include_str!("../shader/camera_rays.wgsl"),
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/geometry.wgsl"),
@@ -30,6 +31,7 @@ pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
     worldrunner_render_lighting::lighting_wgsl!(),
     worldrunner_render_post::post_wgsl!(),
     include_str!("../shader/lighting.wgsl"),
+    include_str!("../shader/decals.wgsl"),
     include_str!("../shader/camera_rays.wgsl"),
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/terrain.wgsl")
@@ -320,16 +322,7 @@ pub(super) fn depth_frames(
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_SRC,
                 &[0; FRAME_UNIFORM_BYTES],
             );
-            let group = context
-                .device()
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("shadow frame"),
-                    layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    }],
-                });
+            let group = crate::draw::decals::empty_group(context.device(), layout, &buffer);
             (buffer, group)
         })
         .collect()

@@ -162,13 +162,8 @@ pub fn shader_chunks(
     Ok((kind, chunks))
 }
 
-/// Decodes a shader and decompresses one platform's chunks, with the platform's
-/// `ShaderCompilerPlatform`.
-fn load_shader(
-    open: &mut OpenFile,
-    path_id: i64,
-    platform: usize,
-) -> Result<(Shader, u32, Vec<Vec<u8>>), PlayerError> {
+/// Decodes a shader, returning it with its object bytes.
+fn decode_shader(open: &mut OpenFile, path_id: i64) -> Result<(Shader, Vec<u8>), PlayerError> {
     let object = *open
         .file
         .object(path_id)
@@ -179,6 +174,25 @@ fn load_shader(
     let bytes = open.bytes(&object)?;
     let shader = decode::<Shader>(&bytes, &object, open.file.header.big_endian)
         .map_err(|source| open.error(source))?;
+    Ok((shader, bytes))
+}
+
+/// A shader's platforms, as Unity's `ShaderCompilerPlatform` values in platform order.
+///
+/// # Errors
+/// Fails if the object is missing or is not a shader that decodes.
+pub fn shader_platforms(open: &mut OpenFile, path_id: i64) -> Result<Vec<u32>, PlayerError> {
+    decode_shader(open, path_id).map(|(shader, _)| shader.compiled.platforms)
+}
+
+/// Decodes a shader and decompresses one platform's chunks, with the platform's
+/// `ShaderCompilerPlatform`.
+fn load_shader(
+    open: &mut OpenFile,
+    path_id: i64,
+    platform: usize,
+) -> Result<(Shader, u32, Vec<Vec<u8>>), PlayerError> {
+    let (shader, bytes) = decode_shader(open, path_id)?;
     let chunks = shader
         .compiled
         .platform_chunks(&bytes, platform)

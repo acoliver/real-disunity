@@ -23,6 +23,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import components <project> <scene path>
        unity-import player <player data directory>
        unity-import player-decode <player data directory>
+       unity-import player-shader-report <player data directory>
        unity-import player-scene <player data directory> <scene file>
        unity-import player-object <serialized file> <path ID>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
@@ -45,6 +46,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
     Some(match args {
         [command, data] if command == "player" => player(Path::new(data)),
         [command, data] if command == "player-decode" => player_decode(Path::new(data)),
+        [command, data] if command == "player-shader-report" => {
+            player_shader_report(Path::new(data))
+        }
         [command, file, path_id] if command == "player-object" => {
             player_object(Path::new(file), path_id)
         }
@@ -175,6 +179,24 @@ fn print_node(node: &SceneNode, depth: usize) {
     for child in &node.children {
         print_node(child, depth + 1);
     }
+}
+
+/// Prepares every distinct Vulkan shader module of a player for naga and prints the counts,
+/// with the failures by cause and the first module of each.
+fn player_shader_report(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    let report = worldrunner_unity_import::player_shaders::shader_report(&paths)?;
+    println!(
+        "{} shaders, {} distinct modules, {} ready for naga ({} with split samplers)",
+        report.shaders, report.modules, report.ready, report.split
+    );
+    for (cause, count) in &report.failures {
+        println!("{count} {cause}: {}", report.examples[cause]);
+    }
+    Ok(())
 }
 
 /// Decodes every object whose class has a layout in every serialized file of a player, and

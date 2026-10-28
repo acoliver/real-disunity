@@ -702,3 +702,29 @@ fn byte_fade_truncates_at_band_and_byte_edges() {
         assert!((actual - expected).abs() < 1e-7, "distance={distance}");
     }
 }
+
+#[test]
+fn partition_byte_fade_matches_every_r8_fraction_bit_for_bit() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let expected = (0_u8..=255)
+        .map(|value| format!("{}u", (f32::from(value) / 255.0).to_bits()))
+        .collect::<Vec<_>>()
+        .join(",");
+    let entry = format!(
+        r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    let expected = array<u32,256>({expected});
+    var failures = 0u;
+    for (var value = 0u; value < 256u; value++) {{
+        let factor = min(1.0, (f32(value) + 0.5) / 255.0);
+        if bitcast<u32>(scene_partition_byte_coverage(factor)) != expected[value] {{ failures++; }}
+    }}
+    result[0] = vec4<f32>(f32(failures), 0.0, 0.0, 0.0);
+}}"
+    );
+    assert_eq!(evaluate(&context, &entry, None), vec![0.0; 4]);
+}
+
+#[path = "fade_handoff_tests.rs"]
+mod fade_handoff_tests;

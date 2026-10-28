@@ -86,12 +86,14 @@ pub use lod_policy::SceneFoldSampling;
 mod fade_coverage;
 mod impostor;
 mod material_features;
-pub use fade_coverage::{SceneFadeCoverage, SceneFadeQuantization, threshold_texels};
+pub use fade_coverage::{
+    SceneFadeCoverage, SceneFadeDirection, SceneFadeQuantization, SceneFadeReference,
+    threshold_texels,
+};
+pub use foliage_wind::{SceneFoliageWind, SceneWindArc, SceneWindBand, SceneWindPhase};
 pub use impostor::{
     SceneAtlasSampling, SceneFadeBand, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout,
 };
-
-pub use foliage_wind::{SceneFoliageWind, SceneWindArc, SceneWindBand, SceneWindPhase};
 mod translucency;
 pub use translucency::{SceneTranslucency, SceneTranslucencyParts};
 mod resource;

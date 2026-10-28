@@ -239,10 +239,7 @@ pub(crate) fn pack_model_instance(matrix: Mat4) -> Vec<u8> {
 pub(crate) fn pack_object(object: worldrunner_render_plan::SceneObject) -> Vec<u8> {
     let mut bytes = pack_instance(object.transform());
     if let Some(band) = object.fade() {
-        let [start, mut end] = band.millimeters().map(|v| narrow(f64::from(v) / 1000.0));
-        if band.terminal() {
-            end = -end;
-        }
+        let [start, end] = fade_band_meters(band);
         bytes[12..16].copy_from_slice(&start.to_le_bytes());
         bytes[28..32].copy_from_slice(&end.to_le_bytes());
     }
@@ -252,6 +249,13 @@ pub(crate) fn pack_object(object: worldrunner_render_plan::SceneObject) -> Vec<u
     }
     tint_instance(&mut bytes, object.tint());
     bytes
+}
+
+pub(crate) fn fade_band_meters(band: worldrunner_render_plan::SceneFadeBand) -> [f32; 2] {
+    let [start, end] = band
+        .millimeters()
+        .map(|value| millimeter_to_meter(i64::from(value)));
+    [start, if band.terminal() { -end } else { end }]
 }
 
 pub(crate) fn tint_instance(bytes: &mut [u8], tint: worldrunner_render_plan::SceneTint) {

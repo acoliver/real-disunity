@@ -322,6 +322,8 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    fade_direction: super::SceneFadeDirection,
+    fade_reference: Option<super::SceneFadeReference>,
     fade_coverage: super::SceneFadeCoverage,
     fade_quantization: super::SceneFadeQuantization,
     impostor: Option<super::SceneImpostor>,
@@ -344,6 +346,23 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    #[must_use]
+    pub const fn with_fade_direction(mut self, direction: super::SceneFadeDirection) -> Self {
+        self.fade_direction = direction;
+        self
+    }
+    pub const fn fade_direction(&self) -> super::SceneFadeDirection {
+        self.fade_direction
+    }
+    #[must_use]
+    pub const fn with_fade_reference(mut self, reference: super::SceneFadeReference) -> Self {
+        self.fade_reference = Some(reference);
+        self
+    }
+    pub const fn fade_reference(&self) -> Option<super::SceneFadeReference> {
+        self.fade_reference
+    }
+
     #[must_use]
     pub const fn with_fade_coverage(mut self, policy: super::SceneFadeCoverage) -> Self {
         self.fade_coverage = policy;
@@ -467,6 +486,8 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            fade_direction: super::SceneFadeDirection::Inclusive,
+            fade_reference: None,
             fade_coverage: super::SceneFadeCoverage::Hashed,
             fade_quantization: super::SceneFadeQuantization::Continuous,
             impostor: None,

@@ -129,8 +129,9 @@ fn split_samplers(words: &[u32]) -> Result<Split, PrepareError> {
     guarded("sampler split", || {
         use spirv_webgpu_transform::{CorrectionMap, CorrectionType, combimgsampsplitter};
         let mut corrections = CorrectionMap::default();
-        let words = combimgsampsplitter(words, &mut corrections)
+        let split = combimgsampsplitter(words, &mut corrections)
             .map_err(|()| PrepareError::SplitSamplers)?;
+        let words = sort_new_decorations(&split, words[BOUND_WORD]);
         // The map lists every decorated resource; split ones carry a correction.
         let combined = corrections
             .sets
@@ -145,6 +146,29 @@ fn split_samplers(words: &[u32]) -> Result<Split, PrepareError> {
             .collect();
         Ok(Split { words, combined })
     })
+}
+
+/// Puts the decorations of the IDs the sampler split created, those at or above the input's
+/// bound, in order of target and decoration. `spirv-webgpu-transform` emits them in hash map
+/// order, which differs from run to run; decoration order does not change what a module
+/// means.
+fn sort_new_decorations(words: &[u32], first_new: u32) -> Vec<u32> {
+    let is_new = |instruction: &[u32]| {
+        opcode(instruction) == OP_DECORATE && instruction.get(1).is_some_and(|&id| id >= first_new)
+    };
+    let mut sorted: Vec<&[u32]> = instructions(words).filter(|i| is_new(i)).collect();
+    sorted.sort_unstable_by(|a, b| a[1..].cmp(&b[1..]));
+    let mut sorted = sorted.into_iter();
+    let mut out = words[..HEADER_WORDS].to_vec();
+    for instruction in instructions(words) {
+        let next = if is_new(instruction) {
+            sorted.next().unwrap_or(instruction)
+        } else {
+            instruction
+        };
+        out.extend_from_slice(next);
+    }
+    out
 }
 
 const OP_VARIABLE: u32 = 59;

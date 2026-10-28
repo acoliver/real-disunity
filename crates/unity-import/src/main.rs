@@ -5,7 +5,9 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
     import_scene, input_axes, plan_scene,
-    player_objects::{OpenFile, decode_census, describe_object, shader_chunks},
+    player_objects::{
+        OpenFile, decode_census, describe_object, describe_shader_programs, shader_chunks,
+    },
     player_scene::{SceneNode, read_scene_hierarchy},
     read_player,
 };
@@ -22,7 +24,8 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-decode <player data directory>
        unity-import player-scene <player data directory> <scene file>
        unity-import player-object <serialized file> <path ID>
-       unity-import player-shader <serialized file> <path ID> <platform index> <output directory>";
+       unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
+       unity-import player-shader-programs <serialized file> <path ID> <platform index>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -46,6 +49,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         [command, file, path_id, platform, out] if command == "player-shader" => {
             player_shader(Path::new(file), path_id, platform, Path::new(out))
         }
+        [command, file, path_id, platform] if command == "player-shader-programs" => {
+            player_shader_programs(Path::new(file), path_id, platform)
+        }
         [command, data, scene] if command == "player-scene" => {
             read_scene_hierarchy(Path::new(data), scene)
                 .map(|roots| roots.iter().for_each(|root| print_node(root, 0)))
@@ -53,6 +59,20 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         }
         _ => return None,
     })
+}
+
+fn player_shader_programs(
+    file: &Path,
+    path_id: &str,
+    platform: &str,
+) -> Result<(), Box<dyn Error>> {
+    let mut open = OpenFile::open(file)?;
+    let text = describe_shader_programs(&mut open, path_id.parse()?, platform.parse()?)?;
+    // A platform with no variants prints nothing.
+    if !text.is_empty() {
+        println!("{text}");
+    }
+    Ok(())
 }
 
 fn player_object(file: &Path, path_id: &str) -> Result<(), Box<dyn Error>> {

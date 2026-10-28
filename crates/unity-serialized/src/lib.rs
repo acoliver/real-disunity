@@ -27,6 +27,7 @@ pub mod object;
 pub mod render_settings;
 pub mod shader;
 pub mod shader_program;
+pub mod shader_records;
 pub mod shader_state;
 pub mod sprite;
 pub mod text_asset;

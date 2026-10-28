@@ -246,6 +246,10 @@ pub(crate) fn pack_object(object: worldrunner_render_plan::SceneObject) -> Vec<u
         bytes[12..16].copy_from_slice(&start.to_le_bytes());
         bytes[28..32].copy_from_slice(&end.to_le_bytes());
     }
+    if let Some(scale) = object.lod_distance_scale_millionths() {
+        let scale = narrow(f64::from(scale) / MICRO_SCALE);
+        bytes[44..48].copy_from_slice(&scale.to_le_bytes());
+    }
     tint_instance(&mut bytes, object.tint());
     bytes
 }

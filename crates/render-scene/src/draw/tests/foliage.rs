@@ -405,8 +405,19 @@ fn mesh_card_transition_has_exact_complementary_coverage_in_all_passes() {
             } else {
                 with_material(&scene, &material(SceneAlphaMode::Opaque, true))
             };
-            let gpu = SceneGpu::upload(context.device(), &authority, &scene, &pipelines).unwrap();
-            gpu.set_frame(context.queue(), frame_from(pose()));
+            let mut gpu =
+                SceneGpu::upload(context.device(), &authority, &scene, &pipelines).unwrap();
+            let handle = gpu.instance_handles().next().unwrap();
+            let object = gpu.instance(handle).unwrap().0;
+            gpu.set_instance_object(
+                handle,
+                object.with_lod_distance_scale_millionths(500_000).unwrap(),
+            )
+            .unwrap();
+            gpu.flush_instances(context.device(), &authority).unwrap();
+            gpu.set_frame(context.queue(), super::lod_material::selection_frame(75));
+            assert_eq!(gpu.mesh_selection[0].lod(75 * 75, Some(500_000)), 1);
+            assert_eq!(gpu.mesh_selection[0].lod(75 * 75, None), 0);
             for (index, source) in geometry_sources().iter().enumerate() {
                 let entry = match (index == 3, masked) {
                     (false, false) => "fs_opaque",

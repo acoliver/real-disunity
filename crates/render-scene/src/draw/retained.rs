@@ -118,7 +118,16 @@ impl SceneGpu {
         handle: InstanceHandle,
         object: SceneObject,
     ) -> Result<(), InstanceError> {
-        self.instances.set_object(handle, object)
+        let old_scale = self
+            .instances
+            .get(handle)?
+            .0
+            .lod_distance_scale_millionths();
+        self.instances.set_object(handle, object)?;
+        if old_scale != object.lod_distance_scale_millionths() {
+            self.caster_generation = self.caster_generation.wrapping_add(1);
+        }
+        Ok(())
     }
 
     /// Changes draw membership without a GPU write, including shadow membership.

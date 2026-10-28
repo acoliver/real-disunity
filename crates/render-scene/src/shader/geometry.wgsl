@@ -236,7 +236,10 @@ fn material_vertex_pass(vertex: VertexInput, instance: InstanceInput, relief: bo
     }
     var band = material.impostor_relief.zw;
     if instance.model_column_1.w != 0.0 { band = vec2<f32>(instance.model_column_0.w, instance.model_column_1.w); }
-    if band.y != 0.0 { out.atlas_rotation.z = scene_distance_coverage(length(frame.camera_position.xyz-instance.model_column_3.xyz),band); }
+    if band.y != 0.0 {
+        let distance = length(frame.camera_position.xyz-instance.model_column_3.xyz);
+        out.atlas_rotation.z = scene_distance_coverage(distance,band);
+    }
     let displacement = scene_geometry_displacement(out.world_position, vertex.ambient_occlusion, instance);
     if material.wind_clock.x != 0u {
         out.world_position += displacement;

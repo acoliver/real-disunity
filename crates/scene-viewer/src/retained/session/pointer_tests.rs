@@ -12,7 +12,11 @@ impl RetainedDriver for Consumer {
     fn update(&mut self, _: &mut RetainedHost, _: &RetainedTick) -> Result<(), String> {
         Ok(())
     }
-    fn event(&mut self, event: &RetainedEvent) -> Result<(), String> {
+    fn event(
+        &mut self,
+        _host: &mut crate::RetainedEventHost<'_>,
+        event: &RetainedEvent,
+    ) -> Result<(), String> {
         self.0.borrow_mut().push(event.clone());
         Ok(())
     }

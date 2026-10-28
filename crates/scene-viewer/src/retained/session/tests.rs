@@ -6,7 +6,11 @@ impl RetainedDriver for Consumer {
     fn update(&mut self, _host: &mut RetainedHost, _tick: &RetainedTick) -> Result<(), String> {
         Ok(())
     }
-    fn event(&mut self, event: &RetainedEvent) -> Result<(), String> {
+    fn event(
+        &mut self,
+        _host: &mut crate::RetainedEventHost<'_>,
+        event: &RetainedEvent,
+    ) -> Result<(), String> {
         self.0.borrow_mut().push(event.clone());
         Ok(())
     }
@@ -60,7 +64,14 @@ fn input_callback_error_is_available_without_a_redraw() {
         fn update(&mut self, _host: &mut RetainedHost, _tick: &RetainedTick) -> Result<(), String> {
             Ok(())
         }
-        fn event(&mut self, _event: &RetainedEvent) -> Result<(), String> {
+        fn event(
+            &mut self,
+            _host: &mut crate::RetainedEventHost<'_>,
+            event: &RetainedEvent,
+        ) -> Result<(), String> {
+            if matches!(event, RetainedEvent::Shutdown) {
+                return Ok(());
+            }
             Err("input failure".into())
         }
     }
@@ -90,7 +101,8 @@ fn shutdown_delivers_cancellation_for_waiting_and_dispatched_requests() {
     session.shutdown().unwrap();
     session.shutdown().unwrap();
     let events = events.borrow();
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[2], RetainedEvent::Shutdown);
     for (event, id, generation) in [(&events[0], first, 0), (&events[1], second, 1)] {
         assert_eq!(
             *event,

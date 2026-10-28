@@ -1,3 +1,5 @@
+mod errors;
+mod lifecycle;
 pub(crate) mod pages;
 mod terrain;
 #[test]
@@ -66,7 +68,11 @@ fn driver_failure_cancels_captures_and_closes_windowless_execution() {
         fn update(&mut self, _: &mut RetainedHost, _: &RetainedTick) -> Result<(), String> {
             Err("update failed".into())
         }
-        fn event(&mut self, event: &RetainedEvent) -> Result<(), String> {
+        fn event(
+            &mut self,
+            _host: &mut crate::RetainedEventHost<'_>,
+            event: &RetainedEvent,
+        ) -> Result<(), String> {
             self.0.borrow_mut().push(event.clone());
             Ok(())
         }
@@ -81,6 +87,7 @@ fn driver_failure_cancels_captures_and_closes_windowless_execution() {
     assert!(events.borrow().iter().any(|event| matches!(event,
         RetainedEvent::Capture { id, outcome: RetainedCaptureOutcome::Cancelled, .. } if *id == request)));
     assert!(run.frame().is_err());
+    assert_eq!(events.borrow().last(), Some(&RetainedEvent::Shutdown));
 }
 
 #[test]
@@ -175,7 +182,11 @@ impl RetainedDriver for Driver {
         self.ticks += 1;
         Ok(())
     }
-    fn event(&mut self, event: &RetainedEvent) -> Result<(), String> {
+    fn event(
+        &mut self,
+        _host: &mut crate::RetainedEventHost<'_>,
+        event: &RetainedEvent,
+    ) -> Result<(), String> {
         self.events.borrow_mut().push(event.clone());
         Ok(())
     }
@@ -303,12 +314,10 @@ fn lifecycle_resize_readiness_pressure_and_shutdown_use_the_retained_session() {
     ));
     run.shutdown().unwrap();
     assert!(events.borrow().iter().any(|event| matches!(event, RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::Cancelled, .. } if *actual == id)));
-    assert!(
-        !events
-            .borrow()
-            .iter()
-            .any(|event| matches!(event, RetainedEvent::Input(_)))
-    );
+    assert!(events.borrow().iter().any(|event| matches!(
+        event,
+        RetainedEvent::Input(crate::RetainedInput::Resized([0, 0]))
+    )));
     assert!(run.frame().is_err());
 }
 #[test]

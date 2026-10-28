@@ -45,3 +45,31 @@ fn full_area_texture_equals_the_reference_bytes() {
     }
     assert_eq!(fnv1a(&diagonal), DIAGONAL_DIGEST);
 }
+
+/// Bytes of the `static const unsigned char` array in a reference header.
+fn header_bytes(text: &str) -> Vec<u8> {
+    let (_, body) = text.split_once("Bytes[] = {").expect("byte array");
+    let (body, _) = body.split_once('}').expect("end of array");
+    body.split(',')
+        .filter_map(|token| token.trim().strip_prefix("0x"))
+        .map(|digits| u8::from_str_radix(digits, 16).expect("hex byte"))
+        .collect()
+}
+
+/// Compares byte for byte with the published headers. Fetch them without committing:
+/// `curl -O https://raw.githubusercontent.com/iryoku/smaa/master/Textures/{AreaTex,SearchTex}.h`
+/// and run with `SMAA_REFERENCE_DIR` set to that directory.
+#[test]
+#[ignore = "needs SMAA_REFERENCE_DIR with the reference AreaTex.h and SearchTex.h"]
+fn generated_textures_equal_the_downloaded_reference_headers() {
+    let dir = std::path::PathBuf::from(std::env::var("SMAA_REFERENCE_DIR").expect("directory"));
+    let read = |name: &str| header_bytes(&std::fs::read_to_string(dir.join(name)).unwrap());
+    let area = read("AreaTex.h");
+    let search = read("SearchTex.h");
+    assert_eq!(area.len(), 160 * 560 * 2);
+    assert_eq!(search.len(), 64 * 16);
+    assert!(area == area_texture(true), "area texture differs");
+    assert!(search == search_texture(), "search texture differs");
+    assert_eq!(fnv1a(&area), AREA_DIGEST);
+    assert_eq!(fnv1a(&search), SEARCH_DIGEST);
+}

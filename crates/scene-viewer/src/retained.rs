@@ -4,6 +4,8 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod event_host;
+pub use event_host::RetainedEventHost;
 mod windowless;
 pub use windowless::WindowlessRetained;
 #[cfg(all(test, target_os = "linux"))]
@@ -94,6 +96,8 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    /// Final notification, after every outstanding capture has been cancelled.
+    Shutdown,
     Input(RetainedInput),
     Capture {
         id: u64,
@@ -120,7 +124,12 @@ pub trait RetainedDriver {
     fn render_clock(&self) -> Option<crate::RenderClock> {
         None
     }
-    fn event(&mut self, _event: &RetainedEvent) -> Result<(), String> {
+    /// Delivered during presentation pauses too. Host controls apply before returning.
+    fn event(
+        &mut self,
+        _host: &mut RetainedEventHost<'_>,
+        _event: &RetainedEvent,
+    ) -> Result<(), String> {
         Ok(())
     }
 }

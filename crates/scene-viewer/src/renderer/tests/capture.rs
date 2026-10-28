@@ -96,10 +96,24 @@ impl RetainedDriver for Consumer {
     fn update(&mut self, _: &mut RetainedHost, _: &RetainedTick) -> Result<(), String> {
         panic!("completion polling must not tick the simulation");
     }
-    fn event(&mut self, event: &RetainedEvent) -> Result<(), String> {
+    fn event(
+        &mut self,
+        host: &mut crate::RetainedEventHost<'_>,
+        event: &RetainedEvent,
+    ) -> Result<(), String> {
         assert!(!matches!(event, RetainedEvent::Presented { .. }));
+        if matches!(
+            event,
+            RetainedEvent::Input(crate::RetainedInput::Occluded(true))
+        ) {
+            host.set_cursor_grab(crate::CursorGrabMode::None)
+                .map_err(|error| error.to_string())?;
+            host.set_cursor_visible(true)
+                .map_err(|error| error.to_string())?;
+        }
         if matches!(event, RetainedEvent::Capture { .. }) {
             *self.0.borrow_mut() = Some(event.clone());
+            host.request_exit();
         }
         Ok(())
     }
@@ -155,9 +169,11 @@ fn collect_without_redraw(renderer: &mut Renderer, host: RetainedHost) -> Retain
     let completed = Rc::new(RefCell::new(None));
     let mut consumer = Consumer(completed.clone());
     let mut session = Session::new(host, &mut consumer);
+    session.window_ready(renderer.window.as_ref().unwrap().clone());
     renderer.resize([0, 0]).unwrap();
     session.surface_size([0, 0]);
     session.event(&winit::event::WindowEvent::Occluded(true), None);
+    assert!(session.take_failure().is_none());
     let deadline = Instant::now() + Duration::from_secs(10);
     while completed.borrow().is_none() {
         renderer.poll().unwrap();
@@ -169,6 +185,7 @@ fn collect_without_redraw(renderer: &mut Renderer, host: RetainedHost) -> Retain
         std::thread::yield_now();
     }
     assert!(renderer.viewport.is_none());
+    assert!(session.exit_requested());
     completed.borrow_mut().take().unwrap()
 }
 

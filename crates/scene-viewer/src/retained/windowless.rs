@@ -23,7 +23,7 @@ impl RetainedHost {
                 closed: false,
             }),
             Err(error) => {
-                session.shutdown()?;
+                let _ = session.shutdown();
                 Err(error)
             }
         }
@@ -59,28 +59,44 @@ impl WindowlessRetained<'_> {
     /// Completes existing work and delivers notifications, without requesting a frame.
     pub fn poll(&mut self) -> Result<bool, ViewerError> {
         self.ensure_open()?;
+        if self.session.host.exit {
+            self.shutdown()?;
+            return Ok(false);
+        }
         let result = self
             .renderer
             .poll()
             .and_then(|()| self.session.poll(&mut self.renderer));
-        self.finish(result)
+        let pending = self.finish(result)?;
+        if self.session.host.exit {
+            self.shutdown()?;
+            return Ok(false);
+        }
+        Ok(pending)
     }
     fn finish<T>(&mut self, result: Result<T, ViewerError>) -> Result<T, ViewerError> {
         match result {
             Ok(value) => Ok(value),
             Err(error) => {
-                self.shutdown()?;
+                let _ = self.shutdown();
                 Err(error)
             }
         }
     }
-    /// Explicit physical-pixel resize; no input events are synthesized.
+    /// Explicit physical-pixel resize, delivered even when the surface is suspended.
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
         self.ensure_open()?;
-        self.renderer.resize(size)?;
-        self.session.host.size = size;
-        Ok(())
+        self.session.surface_size(size);
+        let result = self.session.take_failure().map_or(Ok(()), Err);
+        self.finish(result)?;
+        if self.session.host.exit {
+            return self.shutdown();
+        }
+        let result = self.renderer.resize(size);
+        self.finish(result)
     }
+    /// Cancels captures, notifies the driver once, and drains submitted work.
+    /// Call explicitly to receive errors; drop reports unreturnable errors to stderr.
     pub fn shutdown(&mut self) -> Result<(), ViewerError> {
         if self.closed {
             return Ok(());
@@ -100,8 +116,9 @@ impl WindowlessRetained<'_> {
 }
 impl Drop for WindowlessRetained<'_> {
     fn drop(&mut self) {
-        self.shutdown()
-            .expect("windowless retained shutdown failed");
+        if let Err(error) = self.shutdown() {
+            super::session::report_shutdown_error("windowless retained", &error);
+        }
     }
 }
 

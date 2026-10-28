@@ -123,6 +123,14 @@ impl<'a> App<'a> {
         event_loop.exit();
     }
 
+    fn event_actions(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(error) = self.content.take_failure() {
+            self.fail(event_loop, error);
+        } else if self.content.exit_requested() {
+            event_loop.exit();
+        }
+    }
+
     fn redraw(&mut self, event_loop: &ActiveEventLoop) -> Result<(), ViewerError> {
         if self.occluded || self.suspended {
             return Ok(());
@@ -185,6 +193,7 @@ impl ApplicationHandler for App<'_> {
                 .expect("windowed renderer")
                 .request_redraw();
         }
+        self.event_actions(event_loop);
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
@@ -195,14 +204,14 @@ impl ApplicationHandler for App<'_> {
             && let Err(error) = renderer.resize([0, 0])
         {
             self.fail(event_loop, error);
+            return;
         }
+        self.event_actions(event_loop);
     }
 
     fn device_event(&mut self, event_loop: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
         self.content.device_event(&event);
-        if let Some(error) = self.content.take_failure() {
-            self.fail(event_loop, error);
-        }
+        self.event_actions(event_loop);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {

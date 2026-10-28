@@ -11,6 +11,7 @@ use worldrunner_unity_import::{
     },
     player_scene::{SceneNode, read_scene_hierarchy},
     read_player,
+    shader_prep::Backend,
 };
 
 const USAGE: &str = "usage: unity-import catalog <project>
@@ -193,6 +194,14 @@ fn player_shader_report(data: &Path) -> Result<(), Box<dyn Error>> {
         "{} shaders, {} distinct modules, {} ready for naga ({} with split samplers)",
         report.shaders, report.modules, report.ready, report.split
     );
+    let written: Vec<String> = Backend::ALL
+        .into_iter()
+        .map(|backend| {
+            let count = report.written.get(&backend).copied().unwrap_or(0);
+            format!("{} {count}", backend.name())
+        })
+        .collect();
+    println!("written by naga: {}", written.join(", "));
     for (cause, count) in &report.failures {
         println!("{count} {cause}: {}", report.examples[cause]);
     }

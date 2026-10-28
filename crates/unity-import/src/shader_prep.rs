@@ -21,7 +21,10 @@
 //! 5. An integer image access needs a coordinate vector at the image's size that the module
 //!    may not declare; naga panics without it, so `image_coords` declares it.
 
+mod backends;
 mod image_coords;
+
+pub use backends::Backend;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -69,6 +72,12 @@ pub enum PrepareError {
     Parse { cause: String, message: String },
     #[error("naga rejects the module: {cause}: {message}")]
     Validate { cause: String, message: String },
+    #[error("naga cannot write the module as {backend}: {cause}: {message}")]
+    Write {
+        backend: &'static str,
+        cause: String,
+        message: String,
+    },
     #[error("{stage} panicked: {message}")]
     Panicked {
         stage: &'static str,
@@ -88,6 +97,7 @@ impl PrepareError {
             Self::MsbSignedness => "Msb signedness".to_owned(),
             Self::Parse { cause, .. } => format!("parse {cause}"),
             Self::Validate { cause, .. } => format!("validate {cause}"),
+            Self::Write { backend, cause, .. } => format!("{backend} {cause}"),
             Self::Panicked { stage, .. } => format!("{stage} panic"),
         }
     }
@@ -270,13 +280,19 @@ fn innermost<'e>(
     current
 }
 
+/// A module naga has parsed and validated.
+pub struct NagaModule {
+    pub module: naga::Module,
+    pub info: naga::valid::ModuleInfo,
+}
+
 /// Parses and validates a prepared module with naga, with every validation capability
 /// enabled.
 ///
 /// # Errors
 /// Fails with naga's parse or validation error, named by its innermost cause, or when naga
 /// panics.
-pub fn check_with_naga(words: &[u32]) -> Result<naga::Module, PrepareError> {
+pub fn check_with_naga(words: &[u32]) -> Result<NagaModule, PrepareError> {
     guarded("naga", || {
         let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
         let options = naga::front::spv::Options::default();
@@ -288,7 +304,7 @@ pub fn check_with_naga(words: &[u32]) -> Result<naga::Module, PrepareError> {
         })?;
         let flags = naga::valid::ValidationFlags::all();
         let capabilities = naga::valid::Capabilities::all();
-        naga::valid::Validator::new(flags, capabilities)
+        let info = naga::valid::Validator::new(flags, capabilities)
             .validate(&module)
             .map_err(|error| {
                 let error = error.into_inner();
@@ -297,7 +313,7 @@ pub fn check_with_naga(words: &[u32]) -> Result<naga::Module, PrepareError> {
                     message: format!("{error:?}"),
                 }
             })?;
-        Ok(module)
+        Ok(NagaModule { module, info })
     })
 }
 

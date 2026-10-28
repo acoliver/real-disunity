@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 jpeg-decoder = { version = "0.3.2", default-features = false }
-naga = { version = "30.0.0", features = ["spv-in"] }
+naga = { version = "30.0.0", features = ["spv-in", "spv-out", "msl-out", "hlsl-out"] }
 png.workspace = true
 serde.workspace = true
 serde_json.workspace = true

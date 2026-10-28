@@ -17,7 +17,7 @@ fn folded_placement(height: i64, minimum: u32, placement: Option<SceneTransform>
         SceneMeshLod::new(0, vertices, vec![0, 1, 2, 0, 2, 3], None).unwrap(),
     ])
     .unwrap();
-    let contact = SceneTerrainContact::new(SceneTint::WHITE, 1_000_000, 0, 1)
+    let contact = SceneTerrainContact::new(SceneTint::WHITE, 1_000_000, 0, 0)
         .unwrap()
         .with_normal_fold(2000, minimum)
         .unwrap();

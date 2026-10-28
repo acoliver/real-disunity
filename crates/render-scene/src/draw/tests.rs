@@ -35,6 +35,8 @@ mod alpha_factor;
 mod curved_wind;
 pub(crate) mod decals;
 mod environment;
+mod fade_coverage;
+mod fold_only;
 mod fold_translucency;
 mod foliage;
 mod foliage_fixes;

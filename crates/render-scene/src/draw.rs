@@ -12,7 +12,6 @@ use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
 
 use crate::frame::{FRAME_UNIFORM_BYTES, FrameUniform};
 use crate::geometry::{GeometryError, pack_indices, pack_instance, pack_vertices};
-use crate::pipeline::MaterialUniform;
 use crate::renderer::ScenePipelines;
 use crate::terrain::{TERRAIN_PLACEMENT, TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
@@ -668,3 +667,5 @@ fn water_bodies(scene: &RenderScene) -> Vec<worldrunner_render_plan::SceneWaterB
         .effects()
         .map_or_else(Vec::new, |effects| effects.water_bodies().to_vec())
 }
+
+mod fade;

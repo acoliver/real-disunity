@@ -283,3 +283,19 @@ fn encode_atlas_policy(bytes: &mut [u8], value: worldrunner_render_plan::SceneIm
         );
     }
 }
+
+pub(super) fn encode_fade(
+    bytes: &mut [u8; MATERIAL_UNIFORM_BYTES],
+    coverage: worldrunner_render_plan::SceneFadeCoverage,
+    quantization: worldrunner_render_plan::SceneFadeQuantization,
+) {
+    let mut flags =
+        u32::from(quantization == worldrunner_render_plan::SceneFadeQuantization::Byte) << 1;
+    if let worldrunner_render_plan::SceneFadeCoverage::Threshold { jitter_pixels, .. } = coverage {
+        flags |= 1;
+        for (i, value) in jitter_pixels.into_iter().enumerate() {
+            bytes[440 + i * 4..444 + i * 4].copy_from_slice(&value.to_le_bytes());
+        }
+    }
+    bytes[432..436].copy_from_slice(&flags.to_le_bytes());
+}

@@ -27,7 +27,14 @@ fn transmission_and_contact_inputs_validate_ranges_without_changing_stock_channe
         assert_eq!(transmitted.alpha_mode(), base.alpha_mode());
     }
     assert!(base.with_translucency(1_000_001).is_err());
-    for (roughness, metalness, distance) in [(1_000_001, 0, 1), (0, 1_000_001, 1), (0, 0, 0)] {
+    let fold_only = SceneTerrainContact::new(SceneTint::WHITE, 0, 0, 0)
+        .unwrap()
+        .with_normal_fold(1000, 0)
+        .unwrap();
+    assert_eq!(fold_only.distance_millimeters(), 0);
+    assert_eq!(fold_only.normal_fold(), Some([1000, 0]));
+    assert_eq!(base.with_terrain_contact(fold_only).albedo(), base.albedo());
+    for (roughness, metalness, distance) in [(1_000_001, 0, 1), (0, 1_000_001, 1)] {
         assert!(
             SceneTerrainContact::new(SceneTint::WHITE, roughness, metalness, distance).is_err()
         );

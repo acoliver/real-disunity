@@ -8,7 +8,7 @@ use crate::shader;
 const MICRO_SCALE: f32 = 1_000_000.0;
 
 /// Size in bytes of the shader's `Material` uniform block.
-pub const MATERIAL_UNIFORM_BYTES: usize = 432;
+pub const MATERIAL_UNIFORM_BYTES: usize = 448;
 
 /// The fixed-function and shader-program state one material requires.
 ///
@@ -118,6 +118,8 @@ impl PipelineKey {
 /// The per-material numbers the shader reads, as distinct from pipeline state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialUniform {
+    pub fade_coverage: worldrunner_render_plan::SceneFadeCoverage,
+    pub fade_quantization: worldrunner_render_plan::SceneFadeQuantization,
     pub impostor: Option<worldrunner_render_plan::SceneImpostor>,
     pub normal_encoding: worldrunner_render_plan::SceneNormalEncoding,
     pub normal_y: worldrunner_render_plan::SceneNormalY,
@@ -166,6 +168,8 @@ impl MaterialUniform {
             texture_flags |= shader::FLAG_SELF_ILLUMINATION;
         }
         Self {
+            fade_coverage: material.fade_coverage(),
+            fade_quantization: material.fade_quantization(),
             impostor: material.impostor(),
             normal_encoding: material.normal_encoding(),
             normal_y: material.normal_y(),
@@ -215,6 +219,7 @@ impl MaterialUniform {
             bytes[320..324].copy_from_slice(&factor.to_le_bytes());
             bytes[324..328].copy_from_slice(&1.0_f32.to_le_bytes());
         }
+        features::encode_fade(&mut bytes, self.fade_coverage, self.fade_quantization);
         bytes
     }
 }

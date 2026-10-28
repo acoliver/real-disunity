@@ -9,10 +9,13 @@ using static Check;
 public enum Mood { Calm, Angry }
 
 [Serializable]
-public sealed class Wave
+public sealed class Wave : ISerializationCallbackReceiver
 {
     public int count = 1;
     public Sprite? art;
+    [NonSerialized] public string? loaded;
+    public void OnBeforeSerialize() { }
+    public void OnAfterDeserialize() => loaded = $"count={count}";
 }
 
 public sealed class Settings : ScriptableObject
@@ -25,7 +28,7 @@ public static class Outer
     public sealed class Inner : MonoBehaviour { public int value; }
 }
 
-public sealed class Rules : MonoBehaviour
+public sealed class Rules : MonoBehaviour, ISerializationCallbackReceiver
 {
     public int count = 5;
     public float speed;
@@ -37,6 +40,7 @@ public sealed class Rules : MonoBehaviour
     public Vector2Int cell;
     public Color tint;
     public LayerMask mask;
+    public RenderingLayerMask renderingMask;
     [SerializeField] private GameObject? other = null;
     public Transform? anchor;
     public Rules? peer;
@@ -53,7 +57,10 @@ public sealed class Rules : MonoBehaviour
     public sbyte small;
     public float low;
     public string? awake;
+    [NonSerialized] public string? deserialized;
     public GameObject? Other => other;
+    public void OnBeforeSerialize() { }
+    public void OnAfterDeserialize() => deserialized = $"count={count} waves={waves.Length} loaded={(waves.Length > 0 ? waves[0].loaded : null)} awake={awake ?? "no"}";
     public void Receive(int value) => received = value;
     private void Awake() => awake = $"{label} peer={peer?.gameObject.name} kept={kept}";
 }
@@ -84,7 +91,7 @@ internal static class LoaderRules
     private const string Fields = """
         {"count": "7", "speed": "2.5", "on": "1", "mood": "1", "label": "hi",
          "at": {"x": "1", "y": "2"}, "far": {"x": "1", "y": "2", "z": "3"}, "cell": {"x": "4", "y": "5"},
-         "tint": {"r": "1", "g": "0", "b": "0", "a": "1"}, "mask": {"m_Bits": "256"},
+         "tint": {"r": "1", "g": "0", "b": "0", "a": "1"}, "mask": {"m_Bits": "256"}, "renderingMask": {"m_Bits": "5"},
          "other": {"$object": 1}, "anchor": {"$transform": 1}, "peer": {"$component": [1, 0]},
          "waves": [{"count": "2", "art": {"$sprite": 0}}], "more": [{"count": "3", "art": null}],
          "settings": {"$asset": 0}, "skipped": "8", "removedField": "1",
@@ -125,12 +132,15 @@ internal static class LoaderRules
             "chars, the full ulong range, negative narrow integers and infinities bind");
         Require(a.at == new Vector2(1, 2) && a.far == new Vector3(1, 2, 3) && a.cell == new Vector2Int(4, 5), "vectors bind");
         Require(a.tint == new Color(1, 0, 0, 1) && a.mask.value == 256, "colors and layer masks bind");
+        Require(a.renderingMask.value == 5 && b.renderingMask.value == 0, "rendering layer masks bind from their m_Bits");
         Require(ReferenceEquals(a.Other, b.gameObject) && ReferenceEquals(a.anchor, b.transform) && ReferenceEquals(a.peer, b),
             "[SerializeField] fields and object, transform and component references bind");
         Require(a.waves is [{ count: 2, art: not null }] && a.more is [{ count: 3, art: null }], "serializable arrays and lists bind");
         Require(a.settings is { name: "Heavy", gravity: 4 }, "asset references bind to the loaded asset with its fields");
         Require(a.kept == 9 && a.skipped == 3, "absent fields keep initializers and [NonSerialized] fields ignore data");
         Require(a.awake == "hi peer=B kept=9", "fields bind before Awake");
+        Require(a.deserialized == "count=7 waves=1 loaded=count=2 awake=no" && a.more[0].loaded == "count=3",
+            $"OnAfterDeserialize runs after the fields, nested objects first, before Awake: {a.deserialized}");
         a.changed.Invoke(42);
         Require(b.received == 42, "persistent UnityEvent calls reach their target with the event's argument");
         a.changed.RemoveAllListeners();

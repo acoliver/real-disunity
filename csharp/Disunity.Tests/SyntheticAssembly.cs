@@ -53,10 +53,16 @@ internal sealed class SyntheticAssembly
         _metadata.AddTypeReference(outer, default, _metadata.GetOrAddString(name));
 
     /// <summary>Defines a public class with the given public instance fields.</summary>
-    public void DefineClass(string ns, string name, params SyntheticField[] fields)
+    public void DefineClass(string ns, string name, params SyntheticField[] fields) =>
+        Define(TypeAttributes.Public, ns, name, fields);
+
+    /// <summary>Defines an internal class with no fields.</summary>
+    public void DefineInternalClass(string ns, string name) => Define(TypeAttributes.NotPublic, ns, name, []);
+
+    private void Define(TypeAttributes visibility, string ns, string name, SyntheticField[] fields)
     {
         _metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Class,
+            visibility | TypeAttributes.Class,
             _metadata.GetOrAddString(ns),
             _metadata.GetOrAddString(name),
             _object,

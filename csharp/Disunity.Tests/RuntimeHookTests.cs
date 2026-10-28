@@ -44,7 +44,21 @@ internal static class RuntimeHookTests
         RunsPhasesInUnityOrderAndHooksInListedOrder();
         KeepsUnresolvedHooksAndFailsTheirPhase();
         NamesTheHookThatThrows();
+        ReportsFailuresAndContinuesWhenAsked();
         Console.WriteLine("PASS: player manifest and startup hooks in Unity's phase order");
+    }
+
+    /// <summary>With a failure handler a phase runs as in Unity: unresolved and throwing hooks
+    /// are reported and the hooks after them still run.</summary>
+    private static void ReportsFailuresAndContinuesWhenAsked()
+    {
+        HookTargets.Calls.Clear();
+        var hooks = Resolve(("", Targets, "Missing", 1), ("", Targets, "Fails", 1), ("", Targets, "BeforeScene", 1));
+        var failures = new List<string>();
+        hooks.Run(RuntimeInitializeLoadType.BeforeSceneLoad, (hook, error) => failures.Add($"{hook.Method}: {error.Message}"));
+        Require(failures.Count == 2 && failures[0].StartsWith("Missing: no static method", StringComparison.Ordinal)
+            && failures[1] == "Fails: hook body failed", "failures: " + string.Join(" | ", failures));
+        Require(HookTargets.Calls.SequenceEqual(["before-scene"]), "a hook after a failing one runs");
     }
 
     private static void Require(bool condition, string message)

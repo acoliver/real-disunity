@@ -12,7 +12,7 @@ struct ReflectionCamera {
     let p = vec2<i32>(pixel.xy);
     let surface = textureLoad(material, p, 0);
     let normal = textureLoad(normals, p, 0);
-    if normal.a == 0.0 || surface.a >= camera.settings.z || camera.settings.w != 0.0 { discard; }
+    if normal.a == 0.0 || (camera.settings.z > 0.0 && surface.a >= camera.settings.z) || camera.settings.w != 0.0 { discard; }
     let depth = textureLoad(opaque_depth, p, 0).r;
     // Both snapshots reduce the same forward samples. Any nearer water masks the receiver.
     if abs(textureLoad(final_depth, p, 0).r-depth) > max(0.001, depth*0.0001) { discard; }
@@ -24,7 +24,7 @@ struct ReflectionCamera {
     if reflection.a <= 0.0 { discard; }
     let cosine = clamp(dot(reflection_normal(normal.xyz), -reflection_incident(uv)), 0.0, 1.0);
     let fresnel = surface.rgb + (vec3<f32>(1.0)-surface.rgb)*pow(1.0-cosine,5.0);
-    let roughness_fade = 1.0 - smoothstep(camera.limits.x, camera.settings.z, surface.a);
+    let roughness_fade = select(1.0, 1.0 - smoothstep(camera.limits.x, abs(camera.settings.z), surface.a), camera.settings.z > 0.0);
     var factor = reflection_factor(fresnel, vec2<f32>(1.0, 0.0));
     var environment = vec3<f32>(0.0);
     let replacement = camera.size.w != 0.0;
@@ -51,5 +51,5 @@ fn reflection_lod(roughness: f32) -> f32 {
     if camera.limits.w != 0.0 {
         return max(roughness * f32(REFLECTION_LEVELS) - log2(camera.size.z), 0.0);
     }
-    return clamp(roughness / camera.settings.z, 0.0, 1.0) * f32(REFLECTION_LEVELS);
+    return clamp(roughness / abs(camera.settings.z), 0.0, 1.0) * f32(REFLECTION_LEVELS);
 }

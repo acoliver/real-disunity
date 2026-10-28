@@ -500,7 +500,7 @@ impl PreparedFeature for ReflectionFeature<'_> {
         values.extend([
             gpu::scalar(self.ssr.settings.max_steps),
             gpu::scalar(self.ssr.settings.thickness_millimeters) / 1000.0,
-            gpu::scalar(self.ssr.settings.roughness_cutoff_micro) / 1_000_000.0,
+            gpu::roughness_cutoff(&self.ssr.settings),
             f32::from(u8::from(self.frame.unlit || !self.ssr.settings.enabled)),
             gpu::scalar(self.color.size()[0]),
             gpu::scalar(self.color.size()[1]),

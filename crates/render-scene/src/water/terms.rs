@@ -30,7 +30,10 @@ pub(super) fn uniforms(body: &SceneWaterBody, time_milliseconds: u32) -> [f32; 3
         data[4] = super::number(i64::from(environment.amplitude_micro)) / 1000.0;
         data[5] = super::number(i64::from(environment.edge_frequency_micro)) / 1000.0;
         data[6] = f32::from(u8::from(environment.depth_self_occlusion));
-        data[7] = 1.0;
+        data[7] = match environment.zero_frequency {
+            worldrunner_render_plan::SceneWaterZeroFrequency::Skip => 1.0,
+            worldrunner_render_plan::SceneWaterZeroFrequency::ConstantHalf => 2.0,
+        };
     }
     data[8] = f32::from(u8::from(body.material.direct_surface));
     data[9] = f32::from(u8::from(body.material.metallic_micro.is_some()));

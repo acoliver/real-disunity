@@ -42,7 +42,7 @@ pub struct SceneSsrPassBehind {
     pub roughness_end_micro: u32,
 }
 
-/// Application colour LOD. The roughness cutoff still controls fading and rejection.
+/// Application colour LOD, independent of whether roughness rejection is enabled.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SceneSsrLodMapping {
     #[default]
@@ -104,6 +104,9 @@ pub struct SceneSsr {
     pub roughness_fade_start_micro: Option<u32>,
     /// Surfaces at or above this roughness receive no SSR, within 1..=1000000.
     pub roughness_cutoff_micro: u32,
+    /// Disable roughness rejection and fading without changing pass counts or LOD.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub roughness_cutoff_disabled: bool,
     /// Optional reflected linear luminance ceiling, within 1..=1000000000 milli-units.
     /// When enabled, positive luminance below 0.0001 attenuates RGB by luminance / 0.0001,
     /// even below the ceiling, matching the reference formula. Confidence is unchanged.
@@ -144,6 +147,7 @@ impl Default for SceneSsr {
             depth_relative_ao: false,
             roughness_fade_start_micro: None,
             roughness_cutoff_micro: 600_000,
+            roughness_cutoff_disabled: false,
             luminance_limit_milli: None,
             resolution_scale_micro: 1_000_000,
             radiance_rounding: super::SceneDownsampleRounding::Ceil,
@@ -181,27 +185,7 @@ impl SceneSsr {
         if let Some(levels) = self.grid_level_count {
             check("ssr grid level count", levels, 1, 33)?;
         }
-        if let Some(curve) = self.roughness_pass_behind {
-            check("ssr pass behind minimum", curve.minimum_steps, 0, 256)?;
-            check(
-                "ssr pass behind maximum",
-                curve.maximum_steps,
-                curve.minimum_steps,
-                256,
-            )?;
-            check(
-                "ssr pass behind roughness end",
-                curve.roughness_end_micro,
-                1,
-                1_000_000,
-            )?;
-            check(
-                "ssr pass behind roughness start",
-                curve.roughness_start_micro,
-                0,
-                curve.roughness_end_micro - 1,
-            )?;
-        }
+        self.validate_curve()?;
         let start = self.roughness_fade_start_micro.unwrap_or(0);
         check(
             "ssr roughness fade start",
@@ -219,6 +203,35 @@ impl SceneSsr {
                 minimum: 500_000,
                 maximum: 1_000_000,
             });
+        }
+        Ok(())
+    }
+    fn validate_curve(&self) -> Result<(), SceneValidationError> {
+        if let Some(curve) = self.roughness_pass_behind {
+            check("ssr pass behind minimum", curve.minimum_steps, 0, 256)?;
+            check(
+                "ssr pass behind maximum",
+                curve.maximum_steps,
+                curve.minimum_steps,
+                256,
+            )?;
+            check(
+                "ssr pass behind roughness end",
+                curve.roughness_end_micro,
+                0,
+                1_000_000,
+            )?;
+            check(
+                "ssr pass behind roughness start",
+                curve.roughness_start_micro,
+                0,
+                1_000_000,
+            )?;
+            if curve.roughness_start_micro == curve.roughness_end_micro {
+                return Err(SceneValidationError::UnsupportedInput {
+                    part: "ssr pass behind roughness endpoints must differ",
+                });
+            }
         }
         Ok(())
     }
@@ -272,6 +285,55 @@ fn check(part: &'static str, value: u32, min: u32, max: u32) -> Result<(), Scene
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cutoff_toggle_serializes_only_when_disabled_and_keeps_validation() {
+        let policy = SceneSsr::default();
+        let bytes = serde_json::to_value(policy).unwrap();
+        assert!(bytes.get("roughness_cutoff_disabled").is_none());
+        let disabled = SceneSsr {
+            roughness_cutoff_disabled: true,
+            ..policy
+        };
+        let encoded = serde_json::to_vec(&disabled).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<SceneSsr>(&encoded).unwrap(),
+            disabled
+        );
+        for cutoff in [0, 1_000_001] {
+            assert!(
+                SceneSsr {
+                    roughness_cutoff_micro: cutoff,
+                    ..disabled
+                }
+                .validate()
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn pass_behind_endpoints_allow_both_directions_but_never_coincide() {
+        for (start, end, valid) in [
+            (0, 1_000_000, true),
+            (1_000_000, 0, true),
+            (900_000, 100_000, true),
+            (0, 0, false),
+            (1_000_000, 1_000_000, false),
+            (1_000_001, 0, false),
+            (0, 1_000_001, false),
+        ] {
+            let policy = SceneSsr {
+                roughness_pass_behind: Some(SceneSsrPassBehind {
+                    minimum_steps: 0,
+                    maximum_steps: 8,
+                    roughness_start_micro: start,
+                    roughness_end_micro: end,
+                }),
+                ..Default::default()
+            };
+            assert_eq!(policy.validate().is_ok(), valid);
+        }
+    }
 
     #[test]
     fn unknown_traversal_fails_during_deserialization() {

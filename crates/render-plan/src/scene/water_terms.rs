@@ -1,12 +1,22 @@
 use super::{SceneValidationError, SceneWaterSettings, effects::require_range};
 
+/// Edge attenuation when the spatial noise frequency is zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneWaterZeroFrequency {
+    #[default]
+    Skip,
+    ConstantHalf,
+}
+
 /// Reflected environment controls, separate from the analytic specular amplitude.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneWaterEnvironment {
     /// Linear environment amplitude, in millionths (`0..=10_000_000`).
     pub amplitude_micro: u32,
-    /// Simplex frequency per metre, in millionths; zero disables edge noise.
+    /// Simplex frequency per metre, in millionths.
     pub edge_frequency_micro: u32,
+    /// Attenuation policy at zero frequency; Skip preserves the default output.
+    pub zero_frequency: SceneWaterZeroFrequency,
     /// Attenuate reflected radiance at shallow depths by `clamp(depth * 20, 0, 1)`.
     pub depth_self_occlusion: bool,
 }

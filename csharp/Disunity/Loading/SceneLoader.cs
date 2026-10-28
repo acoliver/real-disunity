@@ -10,6 +10,7 @@ namespace Disunity.Hosting;
 internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions options)
 {
     private readonly List<GameObject> objects = new();
+    private readonly HashSet<GameObject> templateObjects = new();
     /// <summary>Each object's planned components in order; null where the plan's component has
     /// no engine object, such as a CanvasScaler applied to its canvas.</summary>
     private readonly List<object?[]> components = new();
@@ -34,7 +35,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             BindFields();
             var unregistered = InputAxes.Register(plan.GetProperty("axes"));
             scene.Activate();
-            return new LoadedScene(templates, objects, textures, unregistered, differences);
+            return new LoadedScene(templates, objects, textures, unregistered, differences, templateObjects);
         }
         catch (Exception failure)
         {
@@ -121,6 +122,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         foreach (var value in plan.GetProperty("objects").EnumerateArray())
         {
             var created = (value.Bool("template") ? templates : scene).CreateGameObject();
+            if (value.Bool("template")) templateObjects.Add(created);
             created.name = value.Str("name");
             created.tag = value.Str("tag");
             created.layer = value.Int("layer");
@@ -170,7 +172,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
 
     private void BindFields()
     {
-        var binder = new FieldBinder(Resolve);
+        var binder = new FieldBinder(Resolve, differences.Add);
         foreach (var (script, fields, where) in scripts) binder.Bind(script, fields, where);
         var planned = plan.GetProperty("assets").EnumerateArray().ToList();
         for (var i = 0; i < planned.Count; i++)
@@ -183,13 +185,23 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
     {
         "$object" => objects[reference.Value.GetInt32()],
         "$transform" => objects[reference.Value.GetInt32()].transform,
-        "$component" => components[reference.Value[0].GetInt32()][reference.Value[1].GetInt32()]
-            ?? throw new SceneLoadException($"component {reference.Value} has no engine object scripts can reference"),
+        "$component" => ComponentReference(reference.Value[0].GetInt32(), reference.Value[1].GetInt32()),
         "$asset" => assets[reference.Value.GetInt32()],
         "$sprite" => sprites[reference.Value.GetInt32()],
         "$font" => Font(reference.Value.GetString() ?? ""),
         var other => throw new SceneLoadException($"references {other}, which scripts cannot hold"),
     };
+
+    /// <summary>A built component, or for one the player's plan marks Unsupported, a stand-in
+    /// the binder turns into a null reference with a difference. Other unbuilt components, such as
+    /// UI event components, cannot be referenced.</summary>
+    private object ComponentReference(int owner, int index)
+    {
+        if (components[owner][index] is { } built) return built;
+        var planned = plan.GetProperty("objects")[owner].GetProperty("components")[index];
+        if (planned.Str("type") == "Unsupported") return new UnbuiltComponent(planned.Str("class"));
+        throw new SceneLoadException($"component [{owner}, {index}] has no engine object scripts can reference");
+    }
 
     private Font Font(string name)
     {

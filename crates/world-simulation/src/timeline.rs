@@ -140,6 +140,15 @@ impl World {
         self.clock.time_scale = scale;
         Ok(())
     }
+    /// Sets the longest frame the clock accepts (`Time.maximumDeltaTime`); zero is refused.
+    pub fn set_max_delta(&mut self, limit: TimeSpan) -> Result<(), WorldError> {
+        self.ensure_allocation_allowed()?;
+        if limit == TimeSpan::ZERO {
+            return Err(TimeError::Configuration.into());
+        }
+        self.clock.max_delta = limit;
+        Ok(())
+    }
     pub fn configure_fixed_step(
         &mut self,
         step: TimeSpan,

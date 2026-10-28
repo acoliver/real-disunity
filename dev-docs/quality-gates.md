@@ -12,6 +12,10 @@ All checks operate on the current checkout, with no baseline of accepted excepti
 
 Every profile first runs policy, source-size, and workspace formatting checks. Failure stops the profile and is reported, not suppressed. Native host dependency downloads/builds can fail independently of an installed SDK; those failures remain failures. Cross-platform workflows are verification requirements, not evidence that cross-platform builds have already passed.
 
+For documentation-only edits, run `cargo xtask fmt`, `cargo xtask policy` and `cargo xtask source-size`, check links and review the documentation-only diff. Full local build/test profiles are unnecessary for that scope. Protected `main` still requires all seven hosted checks: CPU and managed on Linux, macOS and Windows, plus software-Vulkan GPU on Linux. [CONTRIBUTING.md](../CONTRIBUTING.md#verification-and-private-consumers) defines the public verification path; private consumer validation and pin updates belong to the consumer owner.
+
+Only Andrew manually merges all PRs after the required checks. Agents never merge, enable auto-merge or use a merge queue. Daily review attention provides no same-day merge guarantee.
+
 ## Dependency and layer policy
 
 `crates/xtask/src/layers.rs` is the authoritative package classification. New workspace packages fail until classified; workspace packages beneath `games/` are classified as games by their canonical manifest location. Package names are not classified by substrings such as `cpu` or `loader`.

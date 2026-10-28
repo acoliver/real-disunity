@@ -30,6 +30,7 @@ fn callback_scale_change_applies_to_next_admission_not_remaining_fixed_steps() {
 fn timeline_overflow_rejects_before_clock_or_input_mutation() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     world.set_time_scale(TimeSpan::ZERO).unwrap();
+    world.set_max_delta(span(9_007_199_254_740_991, 1)).unwrap();
     let work = world.advance(span(9_007_199_254_740_991, 1)).unwrap();
     finish(&mut world, work);
     let before = world.clock().clone();

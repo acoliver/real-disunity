@@ -44,6 +44,8 @@ public sealed class Rules : MonoBehaviour, ISerializationCallbackReceiver
     [SerializeField] private GameObject? other = null;
     public Transform? anchor;
     public Rules? peer;
+    public Animator? animator;
+    public Camera? view;
     public Wave[] waves = [];
     public List<Wave> more = new();
     public Settings? settings;
@@ -78,7 +80,9 @@ internal static class LoaderRules
             AxesRegisterOnlyWhenTheEngineHasTheirKeys();
             FailuresNameTheFieldAndLeaveNothingBehind();
             PlayerPlansNameScriptsByAssembly();
-            Console.WriteLine("PASS: scene plans bind fields, events, assets and axes by Unity's rules and fail cleanly");
+            ValueFieldRules.Check();
+            ReferencesToUnbuiltComponents();
+            Console.WriteLine("PASS: scene plans bind fields, value types, events, assets and axes by Unity's rules and fail cleanly");
         }
         finally
         {
@@ -86,7 +90,7 @@ internal static class LoaderRules
         }
     }
 
-    private static SceneLoadOptions Options => new(Assembly.GetExecutingAssembly(), _ => SyntheticFont.Bytes());
+    internal static SceneLoadOptions Options => new(Assembly.GetExecutingAssembly(), _ => SyntheticFont.Bytes());
 
     private const string Fields = """
         {"count": "7", "speed": "2.5", "on": "1", "mood": "1", "label": "hi",
@@ -103,15 +107,16 @@ internal static class LoaderRules
 
     /// <summary>A plan of object A with a Rules script given <paramref name="fields"/>, and its
     /// child B with a default Rules script.</summary>
-    private static string Plan(string fields, string axes = "[]")
+    internal static string Plan(string fields, string axes = "[]", string script = "Rules", string? unplanned = null)
     {
-        static JsonNode Script(string fields) => JsonNode.Parse(
-            """{"type": "Script", "script": "Assets/Rules.cs", "class": "Rules", "enabled": true, "fields": """ + fields + "}")!;
-        static JsonNode Object(string name, int? parent, JsonNode script) => new JsonObject
+        JsonNode Script(string fields) => JsonNode.Parse(
+            """{"type": "Script", "script": "Assets/Rules.cs", "class": """ + $"\"{script}\"" + """, "enabled": true, "fields": """ + fields + "}")!;
+        static JsonNode Object(string name, int? parent, JsonNode script, string? extra = null) => new JsonObject
         {
             ["name"] = name, ["tag"] = "Untagged", ["layer"] = 0, ["active"] = true, ["parent"] = parent,
             ["template"] = false, ["position"] = new JsonArray(0, 0, 0), ["rotation"] = new JsonArray(0, 0, 0, 1),
-            ["scale"] = new JsonArray(1, 1, 1), ["rect"] = null, ["components"] = new JsonArray(script),
+            ["scale"] = new JsonArray(1, 1, 1), ["rect"] = null,
+            ["components"] = extra is null ? new JsonArray(script) : new JsonArray(script, JsonNode.Parse(extra)),
         };
         var plan = JsonNode.Parse("""{"scene": "Assets/Rules.unity", "fonts": [], "axes": """ + axes + """
             ,
@@ -119,7 +124,7 @@ internal static class LoaderRules
              "textures": [{"guid": "0", "path": "Assets/art.png", "width": 8, "height": 8, "filter": "Point", "wrap": ["Clamp", "Clamp"], "srgb": true}],
              "sprites": [{"texture": 0, "name": "art", "rect": [0, 0, 8, 8], "pivot": [0.5, 0.5], "pixels_per_unit": 8, "border": [0, 0, 0, 0], "physics_shape": null}]}
             """)!;
-        plan["objects"] = new JsonArray(Object("A", null, Script(fields)), Object("B", 0, Script("{}")));
+        plan["objects"] = new JsonArray(Object("A", null, Script(fields), unplanned), Object("B", 0, Script("{}")));
         return plan.ToJsonString();
     }
 
@@ -200,7 +205,24 @@ internal static class LoaderRules
         Fails(Player(name, "Outer/Inner"), $"the plan names assembly {name}, and the loader has no assembly resolver");
     }
 
-    private static void Fails(string plan, string expected, SceneLoadOptions? options = null)
+    /// <summary>A player plan's Animator is not built, so a script's reference to it binds null
+    /// and is listed; references to other unbuilt components, or into fields that cannot hold the
+    /// class, still fail.</summary>
+    private static void ReferencesToUnbuiltComponents()
+    {
+        const string animator = """{"type": "Unsupported", "class": "Animator"}""";
+        const string reference = """{"animator": {"$component": [0, 1]}}""";
+        using (var scene = DisunityHost.LoadScene(Plan(reference, unplanned: animator), Options))
+        {
+            Require(scene.Objects[0].GetComponent<Rules>()!.animator is null, "a reference to an unbuilt component binds null");
+            Require(scene.Differences.SequenceEqual(["A component 1 (Unsupported): Animator components are not built yet",
+                "A.Rules.animator: references a Animator component, which is not built yet"]), string.Join("; ", scene.Differences));
+        }
+        Fails(Plan("""{"view": {"$component": [0, 1]}}""", unplanned: animator), "A.Rules.view: a Camera field references a Animator");
+        Fails(Plan(reference, unplanned: """{"type": "GraphicRaycaster"}"""), "component [0, 1] has no engine object scripts can reference");
+    }
+
+    internal static void Fails(string plan, string expected, SceneLoadOptions? options = null)
     {
         var before = UnityEngine.Object.FindObjectsByType<Rules>(FindObjectsSortMode.None).Length;
         try

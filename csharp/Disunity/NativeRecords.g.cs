@@ -236,6 +236,19 @@ namespace Disunity.Native
         public ulong frame;
     }
 
+    /// <summary>
+    ///  The clock values `DisunityClock` leaves out, all in seconds.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTime
+    {
+        public double unscaled_delta;
+        public double unscaled_time;
+        public double smooth_delta;
+        public double time_scale;
+        public double maximum_delta;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityBuffer
     {

@@ -9,6 +9,9 @@ internal static class Expect
     public static void Equal<T>(T expected, T actual, string what) =>
         That(EqualityComparer<T>.Default.Equals(expected, actual), $"{what}: expected {expected}, got {actual}");
 
+    public static void Near(float expected, float actual, string what, float tolerance = 1e-4f) =>
+        That(MathF.Abs(expected - actual) <= tolerance, $"{what}: expected {expected}, got {actual}");
+
     public static void Sequence<T>(IEnumerable<T> expected, IEnumerable<T> actual, string what) =>
         That(expected.SequenceEqual(actual), $"{what}: expected [{string.Join(", ", expected)}], got [{string.Join(", ", actual)}]");
 

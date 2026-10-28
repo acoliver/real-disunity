@@ -11,9 +11,11 @@ namespace Disunity.Hosting;
 /// Sets serialized script fields from a plan as Unity deserializes them. Public and
 /// <c>[SerializeField]</c> fields bind; static, readonly and <c>[NonSerialized]</c> fields do not.
 /// A field the data omits keeps its initializer, data for a field the script no longer declares
-/// is ignored, and data for a field whose type cannot be loaded fails with the field named.
+/// is ignored, and data for a field whose type cannot be loaded fails with the field named. A
+/// reference to an <see cref="UnbuiltComponent"/> binds null and reports a difference, when the
+/// binder has somewhere to report it.
 /// </summary>
-internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
+internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<string>? difference = null)
 {
     /// <summary>Sets the fields, then calls <see cref="ISerializationCallbackReceiver.OnAfterDeserialize"/>
     /// as Unity does once an object's data is loaded.</summary>
@@ -46,7 +48,7 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
         // A ulong may exceed long's range.
         if (type == typeof(ulong)) return ulong.Parse(Text(value), CultureInfo.InvariantCulture);
         if (type.IsPrimitive) return System.Convert.ChangeType(long.Parse(Text(value), CultureInfo.InvariantCulture), type, CultureInfo.InvariantCulture);
-        if (Vector(value, type) is { } vector) return vector;
+        if (ValueReader.Read(value, type) is { } builtin) return builtin;
         if (type.IsArray) return Array(value, type.GetElementType()!, path);
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) return List(value, type, path);
         if (typeof(IPersistentCalls).IsAssignableFrom(type)) return Event(value, type, path);
@@ -73,25 +75,16 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
 
     private static string Text(JsonElement value) => value.GetString() ?? throw new FormatException("expected a value");
 
-    private static float Part(JsonElement value, string name) =>
-        float.Parse(Text(value.GetProperty(name)), NumberStyles.Float, CultureInfo.InvariantCulture);
-
-    private static object? Vector(JsonElement value, Type type)
-    {
-        if (type == typeof(Vector2)) return new Vector2(Part(value, "x"), Part(value, "y"));
-        if (type == typeof(Vector3)) return new Vector3(Part(value, "x"), Part(value, "y"), Part(value, "z"));
-        if (type == typeof(Vector2Int)) return new Vector2Int((int)Part(value, "x"), (int)Part(value, "y"));
-        if (type == typeof(Quaternion)) return new Quaternion(Part(value, "x"), Part(value, "y"), Part(value, "z"), Part(value, "w"));
-        if (type == typeof(Color)) return new Color(Part(value, "r"), Part(value, "g"), Part(value, "b"), Part(value, "a"));
-        if (type == typeof(Rect)) return new Rect(Part(value, "x"), Part(value, "y"), Part(value, "width"), Part(value, "height"));
-        if (type == typeof(LayerMask)) return (LayerMask)(int)uint.Parse(Text(value.GetProperty("m_Bits")), CultureInfo.InvariantCulture);
-        if (type == typeof(RenderingLayerMask)) return (RenderingLayerMask)uint.Parse(Text(value.GetProperty("m_Bits")), CultureInfo.InvariantCulture);
-        return null;
-    }
-
-    private object Reference(JsonProperty reference, Type type, string path)
+    private object? Reference(JsonProperty reference, Type type, string path)
     {
         var target = resolve(reference);
+        if (target is UnbuiltComponent unbuilt && difference is not null)
+        {
+            if (!unbuilt.CanBeHeldBy(type))
+                throw new SceneLoadException($"{path}: a {type.Name} field references a {unbuilt.Class}");
+            difference($"{path}: references a {unbuilt.Class} component, which is not built yet");
+            return null;
+        }
         if (!type.IsInstanceOfType(target))
             throw new SceneLoadException($"{path}: a {type.Name} field references a {target.GetType().Name}");
         return target;

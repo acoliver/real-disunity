@@ -1,53 +1,75 @@
 ---
 name: disunity-workflow
-description: Use for any code change, fix, feature or verification in the real-disunity repository. Covers the PR flow, limits on worktrees and scratch output, verification with the repository's own CI commands, the rules for the original game repositories and rd-stranded, and the lessons from closed PR #35.
+description: Use for changes and verification in real-disunity. Covers review-ready PR delivery, worktree and scratch limits, public verification, unchanged games and private-consumer ownership.
 ---
 
-# real-disunity workflow
+# Real Disunity workflow
 
-## What went wrong in PR #35
-
-PR #35 tried to run the original Snake, Pong and Breakout and was closed unmerged. Avoid repeating these mistakes:
-
-- It built a parallel stack beside the engine: a second Unity API (`UnityCompat`), a second host (`CompatibilityHost`), a JSON simulation protocol, execution profiles and `compat-*` crates. The engine's own `world-simulation` crate and `csharp/Disunity` were the right owners.
-- It patched each game's scene data with per-game overlays instead of fixing the engine gap.
-- It committed about 117,000 lines of journey fixtures and a GPL-2+ font copyright file into an MIT repository.
-- It spent hours on qualification receipts, hash manifests, frozen "generations" and provenance audits. `.work` reached 325 GB, and the work stayed in one giant PR that never merged.
-- It did not coordinate with the other agent working on the same repository.
-
-The rules below exist to prevent those outcomes.
+Follow [AGENTS.md](../../../AGENTS.md), [CONTRIBUTING.md](../../../CONTRIBUTING.md)
+and the [agent procedure](../../../dev-docs/contribution-agent.md). Extend the
+existing engine owners, preserve original games and keep delivery reviewable.
 
 ## Branch and PR flow
 
-1. Start from current `origin/main`: `git fetch origin && git switch -c <topic> origin/main`.
-2. Prefer one checkout. An extra worktree is acceptable for one other active PR; remove it when that PR merges. Never keep more than two worktrees, and never create frozen source copies or "generation" directories.
-3. Commit as you go with messages that explain why.
-4. A PR is one coherent, reviewable unit that leaves `main` green: usually a few hundred to a few thousand changed lines. Avoid both one giant PR and a stream of tiny PRs.
-5. Do not stack PRs more than one deep. If a PR has not merged within a working day, stop adding work and either fix what blocks it or close it.
-6. Push, open the PR with `gh`, watch CI, fix failures, merge. Never merge a red PR.
-7. Every working session should end with something merged, or with the blocker written on the issue or PR.
+1. Check the working tree and assigned branch. External contributors work in a
+   fork. For new authorized work, branch from current `origin/main`; stay on an
+   existing assigned branch when the task specifies one. Claim the feature using
+   the [coordination skill](../disunity-coordination/SKILL.md).
+2. Prefer one checkout. Internal agents keep at most two own worktrees and stacks
+   no more than one deep. Never change another contributor's checkout or build
+   output. Push to their branch only with its owner's explicit permission recorded
+   on the PR; force pushes require permission for that operation. Prepare agreed
+   integration work in your own checkout. Do not create frozen source copies.
+3. Make one coherent, reviewable PR. A game rendering before it is playable is a
+   useful milestone. Other contribution types are welcome. External PRs are exempt
+   from the internal daily review-ready cadence; do not close them merely because
+   they await maintainer review or merge.
+4. When authorized, commit, push and open the PR; watch checks and address failures.
+   A task that forbids these operations must report the delivery blocker instead.
+5. Internal sessions target daily review-ready delivery. End with a posted,
+   review-ready PR or a blocker documented on the issue or PR. A PR waiting for
+   Andrew's review or merge may remain open. Do not demand a same-day merge.
+6. Only Andrew manually merges all PRs. Agents never merge, including their own,
+   enable auto-merge, use a merge queue or run `gh pr merge`. Maintainer agents
+   also review incoming PRs daily; Andrew intends human review daily.
 
 ## Verification
 
-- CI is the source of truth. Locally run the same commands:
-  - `cargo xtask ci-cpu`
-  - `cargo xtask ci-managed` (.NET 8 SDK)
-  - `xvfb-run -a cargo xtask ci-gpu` with `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json`
-- CI runs on Linux, macOS and Windows. Do not assume `/dev/urandom`, `/` path separators, symlink-free temp directories or non-verbatim canonical paths.
-- Tests are self-contained: anything they need is built or fetched by committed tooling. No test reads from `.work/`.
-- Games are verified by playing them through a harness, with scripted or simulated input and screenshots. See `disunity-play-verification`.
+Use the public commands in [quality gates](../../../dev-docs/quality-gates.md):
 
-## Scratch output
+- `cargo xtask ci-cpu` for code changes.
+- `cargo xtask ci-managed` for relevant managed changes (.NET 8 SDK).
+- `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-gpu`
+  for relevant GPU work on Linux with lavapipe.
 
-- `.work/` holds tool installs and package caches only. Keep anything else in it small and temporary, and delete it when the task finishes. If `.work` plus `target/` grows past about 20 GB, clean it up before continuing.
-- No qualification receipts, hash manifests, provenance JSON or before/after audits. Tests and CI results are the record.
-- Screenshots and logs worth showing go on the issue or PR, a handful at a time. Do not commit them.
+Protected `main` requires all seven hosted checks: CPU and managed on Linux,
+macOS and Windows, plus software-Vulkan GPU on Linux. Report local results and
+missing prerequisites accurately. Never weaken tests or quality gates. Keep Rust
+incremental compilation disabled.
 
-## Original games and rd-stranded
+Tests use committed tooling and isolated fixtures, never `.work/` inputs. Original
+game tests fetch pinned public checkouts through the repository tooling. Game
+claims require the observations in [play verification](../disunity-play-verification/SKILL.md).
+Update affected README pages, user docs and contracts with the change.
 
-- Never modify the original Unity game repositories. The games run unchanged; gaps are fixed in the engine or the importer, not with per-game patches.
-- rd-stranded (`github.com/acoliver/rd-stranded`) is a native Rust game that pins this repository by git revision and uses the typed Rust API. It is not converted to Unity or to Disunity. Engine changes must keep it building and running; bump its pin after engine changes it depends on.
+## Scratch, source use and consumers
 
-## Licensing
+Keep task output in your assigned checkout. `.work/` holds tool installs and
+package caches; keep other scratch small and temporary. If your own `.work/` plus
+`target/` exceeds about 20 GB, clean owned disposable output before continuing.
+Never clean another session's output. Delete disposable task files and processes
+at completion. Keep only a handful of useful logs or screenshots on the PR.
+Do not create qualification receipts, hash manifests, provenance JSON or audits.
 
-The engine is MIT. Do not add third-party files without an MIT-compatible license and the required notices. Check every recovered or bundled asset, especially fonts.
+Follow the explicit [source-use rules](../../../AGENTS.md#source-use-required-boundaries).
+Do not consult Unity documentation or inspect Unity implementation. Permitted
+game material remains subject to that game's permissions. Keep original scripts,
+assets and behavior unchanged apart from API binding and harness configuration;
+fix generalized behavior in the engine or importer. Third-party files require an
+MIT-compatible license and notices. Purchasing a game grants no redistribution rights.
+
+`rd-stranded` is a private native Rust consumer pinned by Git revision. Its owner
+handles private validation and pin updates; its current pin protects the existing
+consumer until updated. External contributors need only public checks. Keep public
+regressions free of restricted game material and fork CI independent of secrets and private checkouts.
+No private repository needs to become public.

@@ -151,7 +151,7 @@ internal static class ReviewRegressionTests
         Action fail = () => {
             reserved = tracked.Single(value => !ReferenceEquals(value, parent) && !ReferenceEquals(value, template.gameObject));
             DisunityHost.AddComponent(new FailureProbe {
-                Enter = () => throw new InvalidOperationException("B3 original nested Awake failure"),
+                Enter = () => throw EngineFault.Make("B3 original nested Awake failure"),
                 Cleanup = () => nestedDestroyed++
             });
         };
@@ -181,7 +181,7 @@ internal static class ReviewRegressionTests
     {
         public static readonly List<string> Calls = new();
         public static bool Fail;
-        private void Awake() { Calls.Add("awake"); if (Fail) throw new Exception("B4 asset fault"); }
+        private void Awake() { Calls.Add("awake"); if (Fail) throw EngineFault.Make("B4 asset fault"); }
         private void OnEnable() => Calls.Add("enable");
         private void OnDisable() => Calls.Add("disable");
         private void OnDestroy() => Calls.Add("destroy");
@@ -218,8 +218,8 @@ internal static class ReviewRegressionTests
         {
             DisunityHost.LoadWorld();
             var cleaned = 0;
-            Action enter = () => throw new Exception("B5 original nested failure");
-            if (depth == 2) enter = () => DisunityHost.AddComponent(new FailureProbe { Enter = () => throw new Exception("B5 original nested failure"), Cleanup = () => cleaned++ });
+            Action enter = () => throw EngineFault.Make("B5 original nested failure");
+            if (depth == 2) enter = () => DisunityHost.AddComponent(new FailureProbe { Enter = () => throw EngineFault.Make("B5 original nested failure"), Cleanup = () => cleaned++ });
             DisunityHost.AddComponent(new FailureProbe { Tick = () => {
                 try { DisunityHost.AddComponent(new FailureProbe { Enter = enter, Cleanup = () => cleaned++ }); }
                 catch when (catchChild) { }
@@ -250,13 +250,19 @@ internal static class ReviewRegressionTests
             probe.StartCoroutine(new ThrowingIterator());
             probe.StartCoroutine(new ThrowingIterator());
             probe.Tick = () => {
-                if (failUpdate) throw new Exception("B6 original Update failure");
+                if (failUpdate) throw EngineFault.Make("B6 original Update failure");
                 probe.gameObject.SetActive(false);
             };
-            try { DisunityHost.Step(0); throw new Exception("B6 failure lost"); }
-            catch (DisunityException error) when (error.Message.Contains(failUpdate ? "B6 original Update failure" : "B6 disposer failure")) { }
-            Require(cleaned == 1 && ThrowingIterator.Disposed == 2, "B6 disposal cannot abandon native teardown");
+            if (failUpdate)
+            {
+                try { DisunityHost.Step(0); throw new Exception("B6 failure lost"); }
+                catch (DisunityException error) when (error.Message.Contains("B6 original Update failure")) { }
+            }
+            else DisunityHost.Step(0);
+            Require(DisunityHost.ScriptExceptionCount == 2, "B6 each disposer failure is logged, not thrown");
+            Require(cleaned == (failUpdate ? 1 : 0) && ThrowingIterator.Disposed == 2, "B6 disposal cannot abandon native teardown");
             DisunityHost.UnloadWorld();
+            Require(cleaned == 1, "B6 unload destroys the script once");
         }
         Console.WriteLine("PASS: B6 cancellation disposal preserves first failure and completes cleanup");
     }
@@ -266,7 +272,7 @@ internal static class ReviewRegressionTests
         {
             DisunityHost.LoadWorld();
             var cleaned = false;
-            DisunityHost.AddComponent(new FailureProbe { Tick = () => throw new AggregateException(new Exception("B7 large λ" + new string('界', length))), Cleanup = () => cleaned = true });
+            DisunityHost.AddComponent(new FailureProbe { Tick = () => throw EngineFault.Make("B7 large λ" + new string('界', length)), Cleanup = () => cleaned = true });
             try { DisunityHost.Step(0); throw new Exception("B7 failure lost"); }
             catch (DisunityException error) when (error.Message.Contains("B7 large λ")) { }
             Require(cleaned, "B7 long UTF-8 failure reaches native cleanup");
@@ -289,8 +295,8 @@ internal static class ReviewRegressionTests
     {
         public static int Destroyed;
         public static bool FailEnable;
-        private void OnEnable() { if (FailEnable) throw new Exception("B4 enable failure"); }
-        private void OnDisable() => throw new Exception("B4 cleanup failure");
+        private void OnEnable() { if (FailEnable) throw EngineFault.Make("B4 enable failure"); }
+        private void OnDisable() => throw EngineFault.Make("B4 cleanup failure");
         private void OnDestroy() => Destroyed++;
     }
     private static void AssetCleanupFailure()

@@ -60,7 +60,7 @@ cargo run -p worldrunner-render-post --example bridge
 
 ## Inspect a Unity project
 
-The `unity-import` tool reads a Unity project without changing it and prints what the importer understands. Point it at any project directory:
+The `unity-import` tool reads a Unity project without changing it and prints what the importer understands. Select a project you have permission to inspect under the [source-use policy](../CONTRIBUTING.md#permitted-references-and-inspection):
 
 ```sh
 cargo run -p worldrunner-unity-import -- catalog path/to/UnityProject

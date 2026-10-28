@@ -32,6 +32,12 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityClock>("time").ToInt32() != 8) throw new InvalidOperationException("DisunityClock.time offset");
         if (Marshal.OffsetOf<DisunityClock>("frame").ToInt32() != 16) throw new InvalidOperationException("DisunityClock.frame offset");
         if (Marshal.SizeOf<DisunityClock>() != 24 || typeof(DisunityClock).GetFields().Length != 3) throw new InvalidOperationException("DisunityClock layout");
+        if (Marshal.OffsetOf<DisunityTime>("unscaled_delta").ToInt32() != 0) throw new InvalidOperationException("DisunityTime.unscaled_delta offset");
+        if (Marshal.OffsetOf<DisunityTime>("unscaled_time").ToInt32() != 8) throw new InvalidOperationException("DisunityTime.unscaled_time offset");
+        if (Marshal.OffsetOf<DisunityTime>("smooth_delta").ToInt32() != 16) throw new InvalidOperationException("DisunityTime.smooth_delta offset");
+        if (Marshal.OffsetOf<DisunityTime>("time_scale").ToInt32() != 24) throw new InvalidOperationException("DisunityTime.time_scale offset");
+        if (Marshal.OffsetOf<DisunityTime>("maximum_delta").ToInt32() != 32) throw new InvalidOperationException("DisunityTime.maximum_delta offset");
+        if (Marshal.SizeOf<DisunityTime>() != 40 || typeof(DisunityTime).GetFields().Length != 5) throw new InvalidOperationException("DisunityTime layout");
         if (Marshal.OffsetOf<DisunityBuffer>("handle").ToInt32() != 0) throw new InvalidOperationException("DisunityBuffer.handle offset");
         if (Marshal.OffsetOf<DisunityBuffer>("length").ToInt32() != 8) throw new InvalidOperationException("DisunityBuffer.length offset");
         if (Marshal.SizeOf<DisunityBuffer>() != 16 || typeof(DisunityBuffer).GetFields().Length != 2) throw new InvalidOperationException("DisunityBuffer layout");

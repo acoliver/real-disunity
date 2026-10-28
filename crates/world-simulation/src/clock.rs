@@ -19,6 +19,12 @@ pub struct Clock {
     pub fixed_frame: u64,
     pub fixed_step: TimeSpan,
     pub time_scale: TimeSpan,
+    /// The longest frame the clock accepts: a longer elapsed time counts as this long, as Unity's
+    /// `Time.maximumDeltaTime` does.
+    pub max_delta: TimeSpan,
+    /// Nanoseconds of `Time.smoothDeltaTime`: each frame moves it one fifth of the way from its
+    /// last value to the frame's scaled delta; the first frame sets it to that delta.
+    pub smooth_delta_nanos: u64,
     pub(crate) accumulator: TimeSpan,
     pub(crate) max_steps: u32,
 }
@@ -34,6 +40,8 @@ impl Default for Clock {
             fixed_frame: 0,
             fixed_step: TimeSpan::FIXED,
             time_scale: TimeSpan::ONE,
+            max_delta: TimeSpan::DEFAULT_MAX_DELTA,
+            smooth_delta_nanos: 0,
             accumulator: TimeSpan::ZERO,
             max_steps: 1024,
         }
@@ -42,6 +50,7 @@ impl Default for Clock {
 impl Clock {
     /// Stage all arithmetic and cutoffs before publishing any frame state.
     pub(crate) fn plan(&self, elapsed: TimeSpan) -> Result<(Self, Vec<FixedPhase>), TimeError> {
+        let elapsed = elapsed.min(self.max_delta);
         let scaled = elapsed.checked_mul(self.time_scale)?;
         let accumulated = self.accumulator.checked_add(scaled)?;
         let steps = if scaled == TimeSpan::ZERO {
@@ -64,6 +73,11 @@ impl Clock {
         next.unscaled_time = self.unscaled_time.checked_add(elapsed)?;
         next.delta = scaled;
         next.unscaled_delta = elapsed;
+        next.smooth_delta_nanos = if self.frame == 0 {
+            scaled.nanos()
+        } else {
+            (self.smooth_delta_nanos.saturating_mul(4) / 5).saturating_add(scaled.nanos() / 5)
+        };
         let mut phases = Vec::new();
         let mut fixed_time = self.fixed_time;
         let mut fixed_frame = self.fixed_frame;

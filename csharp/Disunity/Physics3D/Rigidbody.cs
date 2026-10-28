@@ -1,7 +1,7 @@
 namespace UnityEngine;
 
 /// <summary>
-/// A 3D rigid body. It cannot be attached to a GameObject (see <see cref="PhysicsComponents"/>), so
+/// A 3D rigid body. It cannot be attached to a GameObject (see <see cref="UnsupportedComponents"/>), so
 /// an instance is never simulated: its properties are stored with Unity's defaults and read back, and
 /// the force and torque methods have no effect because nothing integrates them.
 /// </summary>

@@ -328,6 +328,7 @@ pub(super) fn terrain_bind_group(
         });
     }
     if let Some(source) = layered {
+        entries.retain(|entry| !matches!(entry.binding, 2..=4));
         entries.extend(layered_entries(source));
     }
     device.create_bind_group(&BindGroupDescriptor {

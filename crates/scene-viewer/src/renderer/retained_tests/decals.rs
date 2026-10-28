@@ -1,6 +1,72 @@
 use super::*;
 use crate::{DecalUpdate, RetainedHost, RetainedUpdate};
 
+fn source_with_normal_controls() -> RenderScene {
+    use worldrunner_render_plan::{SceneNormalEncoding, SceneNormalY};
+    let base = source();
+    let mut textures = base.resources().textures().to_vec();
+    let normal_handle = TextureHandle::from_raw(u32::try_from(textures.len()).unwrap());
+    textures.push(SceneTexture::Texels {
+        format: TexelFormat::Rg8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 1,
+        height: 1,
+        mips: 1,
+        bytes: vec![128, 128].into(),
+    });
+    let normal = material(0, Some(normal_handle), None);
+    let mut materials = base.resources().materials().to_vec();
+    materials.extend([
+        normal,
+        normal.with_normal_encoding(SceneNormalEncoding::Rgb, SceneNormalY::Up),
+        normal.with_normal_encoding(SceneNormalEncoding::TwoChannelXy, SceneNormalY::Down),
+        normal.with_normal_scale(0).unwrap(),
+    ]);
+    base.with_resources(
+        SceneResources::new(textures, materials).unwrap(),
+        base.geometry().clone(),
+        base.effects().cloned(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn unsupported_decal_normal_controls_preserve_scene_and_pending_edits() {
+    let scene = source_with_normal_controls();
+    let first = u32::try_from(scene.resources().materials().len()).unwrap() - 4;
+    let mut host = RetainedHost::new(scene, crate::tests::options()).unwrap();
+    host.apply(RetainedUpdate::Decal(DecalUpdate::Add {
+        id: 7,
+        decal: decal(first),
+    }))
+    .unwrap();
+    let previous = host.scene.clone();
+    let pending = format!("{:?}", host.readiness.queue.front().unwrap().update);
+    for material in first + 1..first + 4 {
+        for update in [
+            DecalUpdate::Add {
+                id: 8,
+                decal: decal(material),
+            },
+            DecalUpdate::Replace {
+                id: 7,
+                decal: decal(material),
+            },
+        ] {
+            assert!(host.apply(RetainedUpdate::Decal(update)).is_err());
+            assert_eq!(host.scene, previous);
+            assert_eq!(host.accepted_generation(), 1);
+            assert_eq!(host.preparations_in_flight(), 1);
+            assert_eq!(host.readiness.queue.len(), 1);
+            let queued = host.readiness.queue.front().unwrap();
+            assert_eq!(queued.generation, 1);
+            assert_eq!(format!("{:?}", queued.update), pending);
+            assert_eq!(queued.decal_ids, vec![7]);
+            assert!(queued.scene.is_none());
+        }
+    }
+}
+
 fn decal(material: u32) -> SceneDecal {
     SceneDecal {
         priority: 0,
@@ -16,6 +82,7 @@ fn decal(material: u32) -> SceneDecal {
         angle_cutoff_micro: 0,
         angle_fade_micro: 0,
         receivers: SceneDecalReceivers::ALL,
+        mapping: worldrunner_render_plan::SceneDecalMapping::default(),
     }
 }
 fn material(

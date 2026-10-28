@@ -6,8 +6,11 @@ use glam::{Mat4, Vec3};
 use std::cell::RefCell;
 use worldrunner_render_plan::{RenderScene, SceneDecal, SceneDecalAxis};
 
+mod channels;
+use channels::Channel;
+
 const LIMIT: usize = 32;
-pub(crate) const BYTES: usize = 16 + LIMIT * 128;
+pub(crate) const BYTES: usize = 16 + LIMIT * 144;
 
 #[derive(Debug)]
 struct Entry {
@@ -40,33 +43,27 @@ pub fn validate_decal_materials(scene: &RenderScene) -> Result<(), DrawError> {
     let mut materials: Vec<_> = scene.decals().iter().map(|d| d.material.raw()).collect();
     materials.sort_unstable();
     materials.dedup();
-    let mut shape = None;
-    for handle in materials {
-        let material = &scene.resources().materials()[handle as usize];
-        validate_material(material)?;
-        let index = material.albedo().raw() as usize;
-        let texture = crate::texture::prepare_texture(&scene.resources().textures()[index])
-            .map_err(|source| DrawError::Texture { index, source })?;
-        let next = (
-            texture.format(),
-            texture.width(),
-            texture.height(),
-            texture.mips().len(),
-        );
-        if shape.is_some_and(|shape| shape != next) {
-            return Err(crate::frame::FrameError::UnsupportedEffect(
-                "decal albedo array requires matching format, dimensions and mips",
-            )
-            .into());
-        }
-        shape = Some(next);
+    for &handle in &materials {
+        validate_material(&scene.resources().materials()[handle as usize])?;
+    }
+    for channel in [Channel::Albedo, Channel::Normal, Channel::Surface] {
+        channel.validate(scene, &materials)?;
     }
     Ok(())
 }
 fn validate_material(material: &worldrunner_render_plan::SceneMaterial) -> Result<(), DrawError> {
     if material.normal().is_some()
-        || material.roughness_metallic().is_some()
-        || material.features().is_some()
+        && (material.normal_encoding()
+            != worldrunner_render_plan::SceneNormalEncoding::TwoChannelXy
+            || material.normal_y() != worldrunner_render_plan::SceneNormalY::Up
+            || material.normal_scale_micro() != 1_000_000)
+    {
+        return Err(crate::frame::FrameError::UnsupportedEffect(
+            "unsupported decal normal controls",
+        )
+        .into());
+    }
+    if material.features().is_some()
         || material.impostor().is_some()
         || material.self_illumination().is_some()
         || material.ambient_occlusion().is_some()
@@ -74,7 +71,7 @@ fn validate_material(material: &worldrunner_render_plan::SceneMaterial) -> Resul
         || material.translucency_micro() != 0
     {
         return Err(crate::frame::FrameError::UnsupportedEffect(
-            "decal supports albedo and scalar roughness/metalness",
+            "unsupported decal material effect",
         )
         .into());
     }
@@ -154,45 +151,25 @@ impl Decals {
         let mut palettes = self.palettes.borrow_mut();
         let palette = &mut palettes[self.slot];
         if palette.materials != materials {
-            let texture = self.texture(&materials);
-            let view = texture.create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                ..Default::default()
+            let views = [Channel::Albedo, Channel::Normal, Channel::Surface].map(|channel| {
+                channel
+                    .texture(self, &materials)
+                    .create_view(&wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2Array),
+                        ..Default::default()
+                    })
             });
             palette.group = group_with(
                 &self.device,
                 &self.layout,
                 buffer,
                 &self.buffers[self.slot],
-                &view,
+                &views,
                 &crate::upload::material_sampler(&self.device),
             );
             palette.materials.clone_from(&materials);
         }
         self.bytes(&selected, &materials)
-    }
-
-    fn texture(&self, materials: &[u32]) -> wgpu::Texture {
-        if materials.is_empty() {
-            return empty_texture(&self.device);
-        }
-        let layers: Vec<_> = materials
-            .iter()
-            .map(|&id| {
-                let material = &self.scene.resources().materials()[id as usize];
-                crate::texture::prepare_texture(
-                    &self.scene.resources().textures()[material.albedo().raw() as usize],
-                )
-                .expect("validated decal texture")
-            })
-            .collect();
-        crate::upload::upload_palette_array(
-            &self.device,
-            &self.queue,
-            "visible decal albedo",
-            &layers,
-        )
-        .expect("validated bounded decal palette")
     }
 
     fn bytes(&self, selected: &[usize], materials: &[u32]) -> Vec<u8> {
@@ -235,15 +212,41 @@ impl Decals {
                     SceneDecalAxis::Y => 1,
                     SceneDecalAxis::Z => 2,
                 }),
-                0.0,
+                f32::from_bits(
+                    Channel::Normal.layer(&self.scene, materials, decal.material.raw())
+                        | (Channel::Surface.layer(&self.scene, materials, decal.material.raw())
+                            << 8),
+                ),
             ]);
-            values.extend([surface[2], 0.0, 0.0, 0.0]);
+            mapping_values(&mut values, decal, surface[2]);
         }
         let mut bytes: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
         assert!(bytes.len() <= BYTES);
         bytes.resize(BYTES, 0);
         bytes
     }
+}
+
+fn mapping_values(values: &mut Vec<f32>, decal: &SceneDecal, alpha: f32) {
+    let (threshold, exponent) = match decal.mapping.angle {
+        worldrunner_render_plan::SceneDecalAngle::Linear => (0.0, 0.0),
+        worldrunner_render_plan::SceneDecalAngle::Power {
+            threshold_micro,
+            exponent_micro,
+        } => (unit(threshold_micro), unit(exponent_micro)),
+    };
+    values.extend([
+        alpha,
+        threshold,
+        exponent,
+        if decal.mapping.double_sided { 1.0 } else { 0.0 },
+    ]);
+    values.extend(decal.mapping.uv_scale_micro.map(|x| {
+        crate::view::meters_scalar(x.unsigned_abs()) / 1000.0 * if x < 0 { -1.0 } else { 1.0 }
+    }));
+    values.extend(decal.mapping.uv_offset_micro.map(|x| {
+        crate::view::meters_scalar(x.unsigned_abs()) / 1000.0 * if x < 0 { -1.0 } else { 1.0 }
+    }));
 }
 
 fn entry(scene: &RenderScene, id: u64, decal: SceneDecal) -> Entry {
@@ -322,7 +325,7 @@ fn empty_group_with(
         layout,
         frame,
         buffer,
-        &view,
+        &[view.clone(), view.clone(), view],
         &crate::upload::material_sampler(device),
     )
 }
@@ -331,7 +334,7 @@ fn group_with(
     layout: &wgpu::BindGroupLayout,
     frame: &wgpu::Buffer,
     decals: &wgpu::Buffer,
-    albedo: &wgpu::TextureView,
+    views: &[wgpu::TextureView; 3],
     sampler: &wgpu::Sampler,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -348,11 +351,19 @@ fn group_with(
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::TextureView(albedo),
+                resource: wgpu::BindingResource::TextureView(&views[0]),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
                 resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&views[1]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&views[2]),
             },
         ],
     })

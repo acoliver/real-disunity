@@ -62,6 +62,7 @@ mod tests {
             angle_cutoff_micro: 0,
             angle_fade_micro: 0,
             receivers: SceneDecalReceivers::ALL,
+            mapping: worldrunner_render_plan::SceneDecalMapping::default(),
         }
     }
     #[test]

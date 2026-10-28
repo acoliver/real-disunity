@@ -11,8 +11,11 @@ public partial class Transform
         DisunityHost.ThrowIfError(NativeBindings.disunity_transform_read(DisunityHost.WorldHandle, gameObject.NativeHandle, &value));
         return value;
     }
-    private unsafe void WriteLocal(DisunityTransform value) => DisunityHost.ThrowIfError(
-        NativeBindings.disunity_transform_write(DisunityHost.WorldHandle, gameObject.NativeHandle, &value));
+    private unsafe void WriteLocal(DisunityTransform value)
+    {
+        DisunityHost.ThrowIfError(NativeBindings.disunity_transform_write(DisunityHost.WorldHandle, gameObject.NativeHandle, &value));
+        MarkChanged();
+    }
     public unsafe Quaternion rotation
     {
         get
@@ -21,7 +24,11 @@ public partial class Transform
             DisunityHost.ThrowIfError(NativeBindings.disunity_rotation_read(DisunityHost.WorldHandle, gameObject.NativeHandle, &x, &y, &z, &w));
             return new(x, y, z, w);
         }
-        set => DisunityHost.ThrowIfError(NativeBindings.disunity_rotation_write(DisunityHost.WorldHandle, gameObject.NativeHandle, value.x, value.y, value.z, value.w));
+        set
+        {
+            DisunityHost.ThrowIfError(NativeBindings.disunity_rotation_write(DisunityHost.WorldHandle, gameObject.NativeHandle, value.x, value.y, value.z, value.w));
+            MarkChanged();
+        }
     }
     public Vector3 localScale
     {

@@ -315,6 +315,9 @@ fn first_failure_in_destroy_preserves_remaining_cleanup() {
 #[test]
 fn intermediate_fixed_overflow_rejects_without_publishing() {
     let mut world = World::new(WorldSettings::default()).unwrap();
+    world
+        .set_max_delta(TimeSpan::new(1000, 1).unwrap())
+        .unwrap();
     let p = 999_999_999_999;
     world
         .configure_fixed_step(TimeSpan::new(p, 1_000_000_000_000).unwrap(), 1024)

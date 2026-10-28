@@ -11,6 +11,20 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  # Safety
+        ///  Output is writable for one text style record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_text_style_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_text_style_read(ulong world, ulong handle, DisunityTextStyle* output);
+        /// <summary>
+        ///  Validates every field before changing the text. Bold or italic styles and best fit are
+        ///  reported as unsupported fields.
+        ///  # Safety
+        ///  Value is readable for one text style record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_text_style_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_text_style_write(ulong world, ulong handle, DisunityTextStyle* value);
+        /// <summary>
         ///  Creates an empty enabled tilemap on a unit grid with a centred tile anchor.
         ///  # Safety
         ///  Output is writable for one component identity.

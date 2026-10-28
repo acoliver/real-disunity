@@ -3,7 +3,8 @@ using Disunity.Hosting;
 
 namespace PortableFixture;
 
-/// <summary>External-assembly lifecycle fixture with one command from each tick phase.</summary>
+/// <summary>External-assembly lifecycle fixture with one command from each tick phase. Its failing
+/// Update throws a native error, which fails the step; an exception of the game's own is logged.</summary>
 public sealed class TriangleBehaviour(int index) : MonoBehaviour
 {
     public static int Destroyed { get; private set; }
@@ -24,7 +25,7 @@ public sealed class TriangleBehaviour(int index) : MonoBehaviour
 
     private void Update()
     {
-        if (FailUpdates) throw new InvalidOperationException("managed callback failure λ" + (LongFailure ? new string('界', 70000) : ""));
+        if (FailUpdates) throw new DisunityException(1, DisunityErrorReason.CallbackFailed, "managed callback failure λ" + (LongFailure ? new string('界', 70000) : ""));
         if (Updates != 0) UnityEngine.Object.Destroy(_asset);
         Updates++;
         gameObject.Transform.rotationY = index * 0.25f;

@@ -49,10 +49,18 @@ struct Waiting {
     args: MultiValue,
 }
 
-/// What a thread was spawned with, kept while it lives so it can be saved as data.
-struct Origin {
-    function: Function,
-    args: MultiValue,
+/// What a thread has not run yet: the function and arguments it was spawned with. A thread
+/// that has run is saved by capturing where it stopped, so this is cleared on its first resume.
+pub(crate) struct Origin {
+    start: Option<(Function, MultiValue)>,
+}
+
+/// A thread restored from a save, ready to be scheduled.
+pub(crate) struct Restored {
+    pub thread: Thread,
+    /// Set for a thread that had not run; it starts from the beginning.
+    pub start: Option<(Function, MultiValue)>,
+    pub wake: Wake,
 }
 
 /// When a saved thread runs next.
@@ -66,8 +74,8 @@ pub(crate) enum Wake {
 /// A live scheduler thread as saving sees it.
 pub(crate) struct ThreadRecord {
     pub thread: Thread,
-    pub function: Function,
-    pub args: MultiValue,
+    /// Set for a thread that has not run yet.
+    pub start: Option<(Function, MultiValue)>,
     pub wake: Wake,
 }
 
@@ -100,14 +108,10 @@ impl Scheduler {
     /// Every waiting thread, in the order it would run: by wake time, then those waiting for
     /// the next advance.
     pub(crate) fn records(&self) -> Vec<ThreadRecord> {
-        let record = |thread: &Thread, wake| {
-            let origin = &self.origins[&id(thread)];
-            ThreadRecord {
-                thread: thread.clone(),
-                function: origin.function.clone(),
-                args: origin.args.clone(),
-                wake,
-            }
+        let record = |thread: &Thread, wake| ThreadRecord {
+            thread: thread.clone(),
+            start: self.origins[&id(thread)].start.clone(),
+            wake,
         };
         let timed = self.queue.iter().map(|(&(at, _), waiting)| {
             let wake = if at == u64::MAX {
@@ -124,18 +128,19 @@ impl Scheduler {
         timed.chain(next).collect()
     }
 
-    /// Schedules restored threads, which start from the beginning of their function, with the
-    /// clock at `now`.
-    pub(crate) fn restore(&mut self, now: u64, threads: Vec<(Thread, Function, MultiValue, Wake)>) {
+    /// Schedules restored threads with the clock at `now`.
+    pub(crate) fn restore(&mut self, now: u64, threads: Vec<Restored>) {
         self.now = now;
-        for (thread, function, args, wake) in threads {
-            self.origins.insert(
-                id(&thread),
-                Origin {
-                    function,
-                    args: args.clone(),
-                },
-            );
+        for Restored {
+            thread,
+            start,
+            wake,
+        } in threads
+        {
+            let args = start
+                .as_ref()
+                .map_or_else(MultiValue::new, |(_, a)| a.clone());
+            self.origins.insert(id(&thread), Origin { start });
             match wake {
                 Wake::NextAdvance => self.deferred.push(Waiting { thread, args }),
                 Wake::At(at) => self.schedule(thread, at, args),
@@ -183,19 +188,27 @@ fn id(thread: &Thread) -> usize {
 pub(crate) type Shared = Arc<Mutex<Scheduler>>;
 
 /// Yields the token and a whole number of milliseconds, or -1 to wait until woken.
+///
+/// A named function in its own chunk, loaded like any script, so a thread asleep in it can be
+/// saved and continued.
 const SLEEP: &str = r#"
 local yield, token = ...
-return function(ms)
+local function sleep(ms)
     ms = ms or 0
     if type(ms) ~= "number" or ms ~= ms or ms < 0 then
         error("sleep time must be a non-negative number of milliseconds", 2)
     end
-    if ms == math.huge then
-        return yield(token, -1)
+    local ticks = -1
+    if ms ~= math.huge then
+        ticks = math.tointeger(math.ceil(ms))
     end
-    return yield(token, math.tointeger(math.ceil(ms)))
+    yield(token, ticks)
 end
+return sleep
 "#;
+
+/// The chunk name of [`SLEEP`], which saves refer to.
+pub(crate) const SLEEP_CHUNK: &str = "=scheduler";
 
 impl GameScripts {
     /// Registers the scheduler's functions as natives under the game's names.
@@ -205,9 +218,10 @@ impl GameScripts {
         let token = self.sleep_token().clone();
         let coroutine: Table = lua.globals().get("coroutine")?;
         let yield_fn: Function = coroutine.get("yield")?;
+        let prepared = self.prepare(SLEEP.as_bytes(), SLEEP_CHUNK)?;
         let make: Function = lua
-            .load(SLEEP)
-            .set_name("=scheduler")
+            .load(prepared)
+            .set_name(SLEEP_CHUNK)
             .set_mode(ChunkMode::Text)
             .into_function()?;
         let sleep: Function = make.call((yield_fn, token))?;
@@ -266,6 +280,9 @@ impl GameScripts {
             let mut scheduler = self.scheduler().lock().expect("scheduler");
             scheduler.running = Some(thread.clone());
             scheduler.killed_running = false;
+            if let Some(origin) = scheduler.origins.get_mut(&id(&thread)) {
+                origin.start = None;
+            }
         }
         self.instructions().store(0, Ordering::Relaxed);
         let result = self.budget().resume(self.lua(), &thread, args);
@@ -323,8 +340,7 @@ fn spawn(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
         scheduler.origins.insert(
             id(&thread),
             Origin {
-                function,
-                args: args.clone(),
+                start: Some((function, args.clone())),
             },
         );
         scheduler.deferred.push(Waiting {

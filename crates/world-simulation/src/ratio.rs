@@ -22,6 +22,12 @@ impl TimeSpan {
     pub const ZERO: Self = Self { num: 0, den: 1 };
     pub const ONE: Self = Self { num: 1, den: 1 };
     pub const FIXED: Self = Self { num: 1, den: 50 };
+    /// A third of a second to the nanosecond, Unity's default `maximumDeltaTime`. Exactly 1/3
+    /// would put a denominator of 3 into every sum with a frame time given in nanoseconds.
+    pub const DEFAULT_MAX_DELTA: Self = Self {
+        num: 333_333_333,
+        den: 1_000_000_000,
+    };
     pub fn new(num: u64, den: u64) -> Result<Self, TimeError> {
         if den == 0 || num > 9_007_199_254_740_991 || den > 1_000_000_000_000 {
             return Err(TimeError::Bounds);
@@ -76,6 +82,12 @@ impl TimeSpan {
     pub(crate) fn steps(self, fixed: Self) -> u128 {
         (u128::from(self.num) * u128::from(fixed.den))
             / (u128::from(self.den) * u128::from(fixed.num))
+    }
+    /// Whole nanoseconds, rounded down and saturated at `u64::MAX`.
+    #[must_use]
+    pub fn nanos(self) -> u64 {
+        let nanos = u128::from(self.num) * 1_000_000_000 / u128::from(self.den);
+        u64::try_from(nanos).unwrap_or(u64::MAX)
     }
     #[allow(clippy::cast_precision_loss)]
     pub fn seconds(self) -> f64 {

@@ -27,8 +27,9 @@ public sealed class LoadedScene : IDisposable
 {
     private readonly Construction templates;
     internal LoadedScene(Construction templates, IReadOnlyList<GameObject> objects, IReadOnlyList<SceneTexture> textures,
-        IReadOnlyList<string> unregisteredAxes, IReadOnlyList<string> differences)
+        IReadOnlyList<string> unregisteredAxes, IReadOnlyList<string> differences, IReadOnlySet<GameObject> templateObjects)
     {
+        TemplateObjects = templateObjects;
         this.templates = templates;
         Objects = objects;
         Textures = textures;
@@ -37,6 +38,7 @@ public sealed class LoadedScene : IDisposable
     }
     /// <summary>Every object of the plan, scene and template, in plan order.</summary>
     public IReadOnlyList<GameObject> Objects { get; }
+    internal IReadOnlySet<GameObject> TemplateObjects { get; }
     public IReadOnlyList<SceneTexture> Textures { get; }
     /// <summary>Input axes not registered because the engine cannot deliver one of their inputs;
     /// reading one fails as an unregistered axis does.</summary>
@@ -63,7 +65,9 @@ public static partial class DisunityHost
         ArgumentNullException.ThrowIfNull(options);
         EnsureWorld();
         using var document = JsonDocument.Parse(plan);
-        return new SceneLoader(document.RootElement, options).Load();
+        var loaded = new SceneLoader(document.RootElement, options).Load();
+        CurrentScene = new LoadedSceneInfo(document.RootElement.Str("scene"), loaded.TemplateObjects);
+        return loaded;
     }
 }
 

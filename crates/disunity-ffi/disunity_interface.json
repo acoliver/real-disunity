@@ -641,6 +641,16 @@
       "name": "disunity_world_resume",
       "since": "2.0.0",
       "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_time_read",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_time_write",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
     }
   ],
   "error_reason_tags": {

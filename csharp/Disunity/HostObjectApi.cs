@@ -33,4 +33,9 @@ public static partial class DisunityHost
         .SelectMany(value => (type.IsInstanceOfType(value) ? new UnityEngine.Object[] { value } : [])
             .Concat(Components(value).Where(type.IsInstanceOfType))).ToArray();
     internal static T[] FindObjects<T>() where T : UnityEngine.Object => Array.ConvertAll(FindObjects(typeof(T)), value => (T)value);
+
+    /// <summary>Every live GameObject and component of the world that is a <paramref name="type"/>, active or not.</summary>
+    internal static UnityEngine.Object[] AllObjects(Type type) => Tracked.Where(value => !value.IsDestroyed)
+        .SelectMany(value => (type.IsInstanceOfType(value) ? new UnityEngine.Object[] { value } : [])
+            .Concat(Components(value).Distinct().Where(type.IsInstanceOfType))).ToArray();
 }

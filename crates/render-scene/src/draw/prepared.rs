@@ -56,6 +56,7 @@ impl PreparedScene {
             })
             .collect::<Result<Vec<_>, _>>()?;
         descriptors::validate_atlases(scene, &textures)?;
+        super::decals::validate_decal_materials(scene)?;
         let meshes = prepare_meshes(scene)?;
         let terrain = scene
             .terrain()

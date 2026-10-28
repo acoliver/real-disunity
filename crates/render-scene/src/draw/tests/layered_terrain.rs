@@ -20,7 +20,7 @@ fn texels(size: [u32; 2], bytes: &[u8]) -> SceneTexture {
     }
 }
 
-fn layered_scene(filter: TerrainSplatFilter) -> RenderScene {
+pub(super) fn layered_scene(filter: TerrainSplatFilter) -> RenderScene {
     let resources = SceneResources::new(
         vec![
             texels([2, 1], &[60, 110, 160, 70, 150, 80, 100, 110]),
@@ -97,7 +97,7 @@ fn matching_frame() -> FrameUniform {
     frame
 }
 
-fn page_source() -> TerrainPageSource {
+pub(super) fn page_source() -> TerrainPageSource {
     TerrainPageSource {
         settings: TerrainPageSettings::new(TerrainPageSettingsParts {
             interior: [TARGET; 2],

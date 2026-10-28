@@ -7,6 +7,8 @@
 //! publication. Every constructor validates its own closure, so an invalid
 //! scene cannot exist.
 
+mod decal;
+pub use decal::{SceneDecal, SceneDecalAxis, SceneDecalReceivers};
 mod atmosphere;
 mod specular_cube;
 pub use specular_cube::SceneSpecularCube;
@@ -211,6 +213,7 @@ impl SceneGeometry {
 /// material table, and every child part carries its own validation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderScene {
+    decals: Box<[SceneDecal]>,
     resources: SceneResources,
     geometry: SceneGeometry,
     terrain: Option<std::sync::Arc<SceneTerrain>>,
@@ -226,6 +229,7 @@ impl RenderScene {
     /// reference violates its invariant.
     pub fn new(parts: SceneParts) -> Result<Self, SceneValidationError> {
         let scene = Self {
+            decals: Box::new([]),
             resources: parts.resources,
             geometry: parts.geometry,
             terrain: parts.terrain.map(std::sync::Arc::new),
@@ -248,6 +252,7 @@ impl RenderScene {
             object.transform().validate()?;
         }
         let scene = Self {
+            decals: self.decals.clone(),
             resources: self.resources.clone(),
             geometry: SceneGeometry {
                 meshes: self.geometry.meshes.clone(),
@@ -271,6 +276,7 @@ impl RenderScene {
         effects: Option<SceneEffects>,
     ) -> Result<Self, SceneValidationError> {
         let scene = Self {
+            decals: self.decals.clone(),
             resources,
             geometry,
             terrain: self.terrain.clone(),
@@ -360,6 +366,7 @@ impl RenderScene {
     }
 
     fn validate_references(&self) -> Result<(), SceneValidationError> {
+        self.validate_decals()?;
         if let Some(effects) = &self.effects {
             effects.validate()?;
         }

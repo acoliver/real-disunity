@@ -236,3 +236,5 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
 
 #[cfg(test)]
 mod tests;
+
+pub use retained::DecalUpdate;

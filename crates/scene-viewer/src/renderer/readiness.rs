@@ -100,6 +100,15 @@ impl Streaming {
         }
         if let Some((mut next_resident, scene)) = self.preparing.take() {
             next_resident.scene_mut().finish_retained_terrain();
+            let decals = next_resident.scene_mut().decal_placements();
+            next_resident.scene_mut().set_decal_placements(
+                front
+                    .decal_ids
+                    .iter()
+                    .copied()
+                    .zip(decals.into_iter().map(|(_, decal)| decal))
+                    .collect(),
+            )?;
             if let Some(effects) = scene.effects() {
                 super::retained::configure_effects(
                     context,
@@ -118,6 +127,8 @@ impl Streaming {
             );
             let old_resident = std::mem::replace(resident, next_resident);
             self.retired.push_back((serial, old_resident));
+        } else if let crate::RetainedUpdate::Decal(update) = &front.update {
+            super::retained::apply_decal(resident.scene_mut(), update)?;
         } else {
             let effects = self
                 .objects

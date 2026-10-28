@@ -28,6 +28,11 @@ pub(super) fn build_cached(
         bind_group_layouts: &groups,
         immediate_size: 0,
     });
+    // Cached pages already contain surface selection; leave its source grid unbound.
+    let source = source.replace(
+        "let centre_surface = read_surface_at(i32(round(grid.x)), i32(round(grid.y)));",
+        "let centre_surface = 0u;",
+    );
     let source = source.replace(
         "let blended = blend_surfaces(grid, world_xy, world_xy_dx, world_xy_dy, centre_surface);",
         "let blended = cached_surface(world_xy, world_xy_dx, world_xy_dy);",

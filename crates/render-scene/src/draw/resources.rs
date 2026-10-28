@@ -27,14 +27,7 @@ pub(super) fn allocate_frame_slots(
 }
 
 pub(super) fn frame_group(device: &Device, layout: &BindGroupLayout, buffer: &Buffer) -> BindGroup {
-    device.create_bind_group(&BindGroupDescriptor {
-        label: Some("frame"),
-        layout,
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: buffer.as_entire_binding(),
-        }],
-    })
+    super::decals::empty_group(device, layout, buffer)
 }
 
 /// Resolves one validated handle to its table index.
@@ -309,6 +302,9 @@ pub(super) fn terrain_bind_group(
             resource: BindingResource::TextureView(&grid_view),
         },
     ];
+    if pages.is_some() {
+        entries.retain(|entry| entry.binding != 1);
+    }
     // Albedo, normal, roughness-metallic, in the order the shader declares them.
     for (slot, view) in palette_views.iter().enumerate() {
         entries.push(BindGroupEntry {
@@ -515,4 +511,26 @@ fn layered_entries(
             }),
     );
     entries
+}
+
+pub(super) fn scene_materials(
+    device: &Device,
+    queue: &Queue,
+    scene: &RenderScene,
+    pipelines: &crate::renderer::ScenePipelines,
+    textures: (&[TextureView], &TextureView),
+    shared: (&Sampler, &Buffer),
+) -> (Vec<BindGroup>, Vec<Buffer>) {
+    upload_materials(
+        device,
+        queue,
+        scene,
+        &MaterialBindings {
+            layout: pipelines.material_layout(),
+            views: textures.0,
+            placeholder: textures.1,
+            sampler: shared.0,
+            heights: shared.1,
+        },
+    )
 }

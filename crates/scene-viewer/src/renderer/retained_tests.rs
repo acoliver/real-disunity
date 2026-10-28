@@ -706,3 +706,5 @@ fn retained_casts_shadow_replace_preserves_handle_and_receiving_membership() {
         );
     }
 }
+
+mod decals;

@@ -82,6 +82,11 @@ fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
 
     if scene_packed_atlas(input) && metalness > 0.05 { metalness = 0.0; }
 
+    let projected = scene_project_decals(input.world_position, geometric_normal, 1u,
+        albedo_sample.rgb, vec2<f32>(roughness, metalness));
+    albedo_sample = vec4<f32>(projected.albedo, albedo_sample.a);
+    roughness = projected.properties.x;
+    metalness = projected.properties.y;
     var colour = surface_lighting(
         input.world_position,
         normal,

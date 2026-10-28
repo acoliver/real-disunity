@@ -187,14 +187,7 @@ pub(super) fn render_frame(
         contents: &camera.to_bytes(),
         usage: wgpu::BufferUsages::UNIFORM,
     });
-    let frame = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &frame_layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: uniform.as_entire_binding(),
-        }],
-    });
+    let frame = crate::draw::decals::empty_group(device, &frame_layout, &uniform);
     let white = crate::upload::placeholder_texture(device, context.queue());
     let sky = Sky::new(
         device,

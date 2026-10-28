@@ -4,6 +4,8 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod decals;
+pub use decals::DecalUpdate;
 mod event_host;
 pub use event_host::RetainedEventHost;
 mod windowless;
@@ -35,6 +37,7 @@ pub struct ObjectId(pub u64);
 /// Ordered edits reference the latest accepted mesh and material tables.
 #[derive(Clone, Debug)]
 pub enum RetainedUpdate {
+    Decal(DecalUpdate),
     Add {
         id: ObjectId,
         object: SceneObject,
@@ -145,6 +148,7 @@ pub struct RetainedHost {
     pub(crate) readiness: readiness::Readiness,
     pub(crate) options: ViewerOptions,
     objects: BTreeMap<ObjectId, SceneObject>,
+    decals: BTreeMap<u64, worldrunner_render_plan::SceneDecal>,
     input_state: input::InputState,
     size: [u32; 2],
     exit: bool,
@@ -155,6 +159,7 @@ impl RetainedHost {
     pub fn new(scene: RenderScene, options: ViewerOptions) -> Result<Self, ViewerError> {
         let scene = crate::reflection_settings::startup_scene(scene, &options)?;
         crate::validate(&scene, &options)?;
+        worldrunner_render_scene::draw::validate_decal_materials(&scene)?;
         let objects = scene
             .geometry()
             .objects()
@@ -184,6 +189,13 @@ impl RetainedHost {
                 #[cfg(test)]
                 preparation_hook: None,
             },
+            decals: scene
+                .decals()
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, d)| (i as u64, d))
+                .collect(),
             scene,
             options,
             objects,
@@ -219,6 +231,9 @@ impl RetainedHost {
             return Err(ViewerError::BackPressure {
                 limit: self.readiness.limit,
             });
+        }
+        if let RetainedUpdate::Decal(edit) = &update {
+            return self.apply_decal(edit.clone());
         }
         if let RetainedUpdate::Camera {
             pose,
@@ -271,7 +286,9 @@ impl RetainedHost {
                     .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))? = *object;
                 false
             }
-            RetainedUpdate::Camera { .. } | RetainedUpdate::Terrain(_) => {
+            RetainedUpdate::Camera { .. }
+            | RetainedUpdate::Terrain(_)
+            | RetainedUpdate::Decal(_) => {
                 unreachable!("camera and terrain accepted above")
             }
             RetainedUpdate::Settings(next) => {
@@ -289,6 +306,7 @@ impl RetainedHost {
             }
         };
         let scene = self.edited_scene(replacement, &objects, effects)?;
+        worldrunner_render_scene::draw::validate_decal_materials(&scene)?;
         self.scene = scene;
         self.objects = objects;
         self.enqueue(update, rebuild);

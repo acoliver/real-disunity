@@ -237,10 +237,19 @@ fn material_vertex_pass(vertex: VertexInput, instance: InstanceInput, relief: bo
     }
     var band = material.impostor_relief.zw;
     if instance.model_column_1.w != 0.0 { band = vec2<f32>(instance.model_column_0.w, instance.model_column_1.w); }
+    let complement_fade = (material.fade_policy.x & 8u) != 0u;
+    if complement_fade { out.atlas_rotation.z = 0.0; }
     if band.y != 0.0 {
-        let distance = length(frame.camera_position.xyz-instance.model_column_3.xyz);
+        // Store the shared rejection boundary directly to avoid cancellation
+        // when complementary coverage approaches one, including byte precision.
+        if complement_fade { band.y = -band.y; }
+        let distance = scene_fade_distance(instance);
         out.atlas_rotation.z = scene_distance_coverage(distance,band);
-        if (material.fade_policy.x & 2u) != 0u { out.atlas_rotation.z = scene_byte_coverage(out.atlas_rotation.z); }
+        if (material.fade_policy.x & 2u) != 0u {
+            if (material.fade_policy.x & 12u) != 0u {
+                out.atlas_rotation.z = scene_partition_byte_coverage(out.atlas_rotation.z);
+            } else { out.atlas_rotation.z = scene_byte_coverage(out.atlas_rotation.z); }
+        }
     }
     let displacement = scene_geometry_displacement(out.world_position, vertex.ambient_occlusion, instance);
     if material.wind_clock.x != 0u {
@@ -323,12 +332,15 @@ fn scene_albedo(sampled: vec4<f32>, tint: vec4<f32>) -> vec4<f32> {
 }
 
 // Both representations use the same raster pixel threshold in every pass.
-fn scene_card_covered(pixel: vec2<f32>, coverage: f32) -> bool {
+fn scene_card_threshold(pixel: vec2<f32>) -> f32 {
     let cell = bitcast<vec2<u32>>(vec2<i32>(floor(pixel)));
     var hash = cell.x * 1664525u + cell.y * 1013904223u;
     hash = (hash ^ (hash >> 16u)) * 2246822519u;
     let threshold = (f32(hash & 65535u) + 0.5) / 65536.0;
-    return coverage >= threshold;
+    return threshold;
+}
+fn scene_card_covered(pixel: vec2<f32>, coverage: f32) -> bool {
+    return coverage >= scene_card_threshold(pixel);
 }
 
 fn scene_transmission(amount: f32, backlight: f32) -> f32 {
@@ -429,12 +441,40 @@ fn scene_byte_coverage(factor: f32) -> f32 {
 }
 
 fn scene_fade_covered(pixel: vec2<f32>, opacity: f32) -> bool {
-    if (material.fade_policy.x & 1u) == 0u { return scene_card_covered(pixel, opacity); }
-    let offset = arrayLength(&contact_heights.heights) - material.fade_policy.y;
-    let size = i32(bitcast<u32>(contact_heights.heights[offset]));
-    let jitter = bitcast<vec2<i32>>(material.fade_policy.zw) % vec2<i32>(size);
-    let point = vec2<i32>(floor(pixel)) - jitter;
-    let cell = ((point % vec2<i32>(size)) + vec2<i32>(size)) % vec2<i32>(size);
-    let threshold = contact_heights.heights[offset + 1u + u32(cell.y * size + cell.x)];
+    var threshold = scene_card_threshold(pixel);
+    if (material.fade_policy.x & 1u) != 0u {
+        let offset = arrayLength(&contact_heights.heights) - material.fade_policy.y;
+        let size = i32(bitcast<u32>(contact_heights.heights[offset]));
+        let jitter = bitcast<vec2<i32>>(material.fade_policy.zw) % vec2<i32>(size);
+        let point = vec2<i32>(floor(pixel)) - jitter;
+        let cell = ((point % vec2<i32>(size)) + vec2<i32>(size)) % vec2<i32>(size);
+        threshold = contact_heights.heights[offset + 1u + u32(cell.y * size + cell.x)];
+    }
+    if (material.fade_policy.x & 8u) != 0u { return threshold >= opacity; }
+    if (material.fade_policy.x & 4u) != 0u { return threshold < opacity; }
     return opacity >= threshold;
+}
+
+fn scene_fade_distance(instance: InstanceInput) -> f32 {
+    let address = material.fade_policy.x >> 8u;
+    if address == 0u { return length(frame.camera_position.xyz - instance.model_column_3.xyz); }
+    let offset = arrayLength(&contact_heights.heights) - address;
+    let local = vec3<f32>(contact_heights.heights[offset], contact_heights.heights[offset+1u], contact_heights.heights[offset+2u]);
+    let linear = mat3x3<f32>(instance.model_column_0.xyz, instance.model_column_1.xyz, instance.model_column_2.xyz);
+    let reference = instance.model_column_3.xyz + linear * local;
+    var eye = frame.camera_position.xyz;
+    let clamp = contact_heights.heights[offset+3u];
+    if clamp >= 0.0 { eye.z = max(eye.z, reference.z + clamp); }
+    return length(eye - reference);
+}
+
+// Encode the correctly rounded R8 fraction with integer arithmetic. Constant
+// float division may become a reciprocal multiply and move equality by one ULP.
+fn scene_partition_byte_coverage(factor: f32) -> f32 {
+    let value = u32(trunc(factor * 255.0));
+    if value == 0u { return 0.0; }
+    if value == 255u { return 1.0; }
+    let leading = firstLeadingBit(value);
+    let significand = ((value << (31u - leading)) + 127u) / 255u;
+    return bitcast<f32>(((leading + 119u) << 23u) | (significand - 8388608u));
 }

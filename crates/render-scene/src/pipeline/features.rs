@@ -191,13 +191,11 @@ pub(super) fn encode_impostor(
         if value.borders().is_some() { 1.0 } else { 0.0 },
     );
     if let Some(band) = value.fade() {
-        for (index, v) in band.millimeters().into_iter().enumerate() {
-            let direction = if index == 1 && band.terminal() {
-                -1.0
-            } else {
-                1.0
-            };
-            write_float(bytes, 280 + index * 4, v as f32 / 1000.0 * direction);
+        for (index, endpoint) in crate::geometry::fade_band_meters(band)
+            .into_iter()
+            .enumerate()
+        {
+            write_float(bytes, 280 + index * 4, endpoint);
         }
     }
     encode_atlas_policy(bytes, value);
@@ -288,6 +286,7 @@ pub(super) fn encode_fade(
     bytes: &mut [u8; MATERIAL_UNIFORM_BYTES],
     coverage: worldrunner_render_plan::SceneFadeCoverage,
     quantization: worldrunner_render_plan::SceneFadeQuantization,
+    direction: worldrunner_render_plan::SceneFadeDirection,
 ) {
     let mut flags =
         u32::from(quantization == worldrunner_render_plan::SceneFadeQuantization::Byte) << 1;
@@ -297,5 +296,10 @@ pub(super) fn encode_fade(
             bytes[440 + i * 4..444 + i * 4].copy_from_slice(&value.to_le_bytes());
         }
     }
+    flags |= match direction {
+        worldrunner_render_plan::SceneFadeDirection::Inclusive => 0,
+        worldrunner_render_plan::SceneFadeDirection::Keep => 4,
+        worldrunner_render_plan::SceneFadeDirection::Complement => 8,
+    };
     bytes[432..436].copy_from_slice(&flags.to_le_bytes());
 }

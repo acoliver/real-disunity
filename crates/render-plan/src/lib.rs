@@ -102,10 +102,10 @@ pub use scene::{
 
 pub use scene::{
     SceneAmbientOcclusion, SceneAtlasSampling, SceneCard, SceneFadeBand, SceneFadeCoverage,
-    SceneFadeQuantization, SceneFoldSampling, SceneFoliageWind, SceneImpostor,
-    SceneImpostorChannels, SceneImpostorLayout, SceneLayerBlend, SceneLayerMode,
-    SceneMaterialFeatures, SceneNormalEncoding, SceneNormalY, SceneTerrainContact, SceneTint,
-    SceneTranslucency, SceneTranslucencyParts, SceneWind, SceneWindArc, SceneWindBand,
+    SceneFadeDirection, SceneFadeQuantization, SceneFadeReference, SceneFoldSampling,
+    SceneFoliageWind, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout, SceneLayerBlend,
+    SceneLayerMode, SceneMaterialFeatures, SceneNormalEncoding, SceneNormalY, SceneTerrainContact,
+    SceneTint, SceneTranslucency, SceneTranslucencyParts, SceneWind, SceneWindArc, SceneWindBand,
     SceneWindPhase, threshold_texels,
 };
 

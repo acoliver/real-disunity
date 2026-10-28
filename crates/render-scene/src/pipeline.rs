@@ -118,6 +118,7 @@ impl PipelineKey {
 /// The per-material numbers the shader reads, as distinct from pipeline state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialUniform {
+    pub fade_direction: worldrunner_render_plan::SceneFadeDirection,
     pub fade_coverage: worldrunner_render_plan::SceneFadeCoverage,
     pub fade_quantization: worldrunner_render_plan::SceneFadeQuantization,
     pub impostor: Option<worldrunner_render_plan::SceneImpostor>,
@@ -168,6 +169,7 @@ impl MaterialUniform {
             texture_flags |= shader::FLAG_SELF_ILLUMINATION;
         }
         Self {
+            fade_direction: material.fade_direction(),
             fade_coverage: material.fade_coverage(),
             fade_quantization: material.fade_quantization(),
             impostor: material.impostor(),
@@ -219,7 +221,12 @@ impl MaterialUniform {
             bytes[320..324].copy_from_slice(&factor.to_le_bytes());
             bytes[324..328].copy_from_slice(&1.0_f32.to_le_bytes());
         }
-        features::encode_fade(&mut bytes, self.fade_coverage, self.fade_quantization);
+        features::encode_fade(
+            &mut bytes,
+            self.fade_coverage,
+            self.fade_quantization,
+            self.fade_direction,
+        );
         bytes
     }
 }

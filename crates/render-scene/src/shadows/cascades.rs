@@ -79,7 +79,10 @@ impl CascadeViews {
             .1
             .validate()
             .map_err(|_| ShadowError::InvalidSettings)?;
-        let depth = clip_adopted_depth(fitting.0, view.clip_distances_meters())?;
+        let depth = fitting
+            .1
+            .clip(fitting.0, view.clip_distances_meters())
+            .map_err(|_| ShadowError::InvalidSettings)?;
         let DepthRange::Receivers { near, .. } = depth else {
             self.no_receivers = true;
             return Ok(());
@@ -184,33 +187,6 @@ fn normalized_depth_bias(
     Ok(bias)
 }
 
-fn clip_adopted_depth(
-    depth: worldrunner_render_shadow::DepthRange,
-    clip: [f32; 2],
-) -> Result<worldrunner_render_shadow::DepthRange, ShadowError> {
-    use worldrunner_render_shadow::DepthRange;
-    depth.validate().map_err(|_| ShadowError::InvalidSettings)?;
-    let [start, end] = clip;
-    if !start.is_finite() || !end.is_finite() || start <= 0.0 || end <= start {
-        return Err(ShadowError::InvalidSettings);
-    }
-    let DepthRange::Receivers { near, far } = depth else {
-        return Ok(depth);
-    };
-    if far <= near {
-        return Err(ShadowError::InvalidSettings);
-    }
-    // Adoption already applied quantization and minimum span. Only intersect
-    // carried evidence with a camera clip interval that may have changed.
-    let near = near.max(start);
-    let far = far.min(end);
-    Ok(if far <= near {
-        DepthRange::EmptyDepth
-    } else {
-        DepthRange::Receivers { near, far }
-    })
-}
-
 pub(super) fn meters(value: u64) -> Result<f32, ShadowError> {
     let value = u32::try_from(value).map_err(|_| ShadowError::InvalidSettings)?;
     Ok(crate::view::meters_scalar(value))
@@ -226,31 +202,4 @@ pub(super) fn coverage_matrix(
         ..settings
     }
     .matrix(sun)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::clip_adopted_depth;
-    use worldrunner_render_shadow::DepthRange;
-
-    #[test]
-    fn carried_fit_only_intersects_changed_camera_clip() {
-        let depth = DepthRange::Receivers {
-            near: 8.5,
-            far: 10.0,
-        };
-        assert_eq!(clip_adopted_depth(depth, [0.5, 20.0]).unwrap(), depth);
-        assert_eq!(
-            clip_adopted_depth(depth, [9.0, 9.25]).unwrap(),
-            DepthRange::Receivers {
-                near: 9.0,
-                far: 9.25
-            }
-        );
-        assert_eq!(
-            clip_adopted_depth(depth, [11.0, 20.0]).unwrap(),
-            DepthRange::EmptyDepth
-        );
-        assert!(clip_adopted_depth(depth, [0.0, 20.0]).is_err());
-    }
 }

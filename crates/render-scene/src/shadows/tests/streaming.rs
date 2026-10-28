@@ -61,6 +61,8 @@ fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
                     near_step: 0.1,
                     far_step: 1.0,
                     minimum_span: 1.0,
+                    minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear,
+                    active_maximum: None,
                     split_lambda: 0.5,
                     split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
                 },
@@ -161,6 +163,7 @@ fn screen_source() -> RenderScene {
     let base = super::terrain::terrain_scene(&scene(&[], 600_000, None), true, false);
     let mut parts = fixture::effects_parts(600_000);
     parts.ssao = Some(SceneSsao {
+        depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
         kernel: SceneSsaoKernel::Hemisphere,
         filter: SceneSsaoFilter::DepthAwareBox,
         radius_millimeters: 1000,

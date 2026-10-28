@@ -22,7 +22,7 @@ fn corner_normals(context: &crate::device::GpuContext, normal: u16) -> wgpu::Tex
     normals
 }
 
-fn recipe() -> SceneSsao {
+pub(super) fn recipe() -> SceneSsao {
     SceneSsao {
         kernel: SceneSsaoKernel::Scalable {
             turns_micro: 7_000_000,
@@ -39,7 +39,7 @@ fn recipe() -> SceneSsao {
         ..settings()
     }
 }
-fn camera(context: &crate::device::GpuContext, screen: &SceneMetadata) {
+pub(super) fn camera(context: &crate::device::GpuContext, screen: &SceneMetadata) {
     camera_projection(
         context,
         screen,

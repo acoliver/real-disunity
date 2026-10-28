@@ -40,12 +40,23 @@ impl DepthRange {
     }
 }
 
-/// Outward quantization followed by camera clipping. Empty depth disables receivers.
+/// Which bound expands when quantized receivers span less than the requested minimum.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MinimumSpanPolicy {
+    #[default]
+    ExtendNear,
+    /// Preserve near and request a farther end before applying camera and active caps.
+    ExtendFar,
+}
+
+/// Outward quantization followed by clipping. Empty depth disables receivers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RangeFit {
     pub near_step: f32,
     pub far_step: f32,
     pub minimum_span: f32,
+    pub minimum_span_policy: MinimumSpanPolicy,
+    pub active_maximum: Option<f32>,
     pub split_lambda: f32,
     pub split_policy: crate::SplitPolicy,
 }
@@ -57,6 +68,9 @@ impl RangeFit {
             .any(|v| !v.is_finite() || *v <= 0.0)
             || !self.split_lambda.is_finite()
             || !(0.0..=1.0).contains(&self.split_lambda)
+            || self
+                .active_maximum
+                .is_some_and(|value| !value.is_finite() || value <= 0.0)
         {
             return Err(InvalidFit);
         }
@@ -75,16 +89,57 @@ impl RangeFit {
         if near > end || far < start {
             return Ok(DepthRange::EmptyDepth);
         }
-        let far = ((far / self.far_step).ceil() * self.far_step)
-            .max(start + self.minimum_span)
-            .min(end);
-        let near = ((near / self.near_step).floor() * self.near_step)
-            .max(start)
-            .min(far - self.minimum_span.min(far - start));
-        if !near.is_finite() || !far.is_finite() || far <= near {
+        let quantized_near = ((near / self.near_step).floor() * self.near_step).max(start);
+        if self
+            .active_maximum
+            .is_some_and(|maximum| maximum <= quantized_near)
+        {
+            return Ok(DepthRange::EmptyDepth);
+        }
+        let end = self.active_maximum.map_or(end, |maximum| end.min(maximum));
+        let (near, far) = self.expand_bounds(quantized_near, far, [start, end]);
+        if !near.is_finite() || !far.is_finite() {
             return Err(InvalidFit);
         }
+        if far <= near {
+            return match self.minimum_span_policy {
+                MinimumSpanPolicy::ExtendFar => Ok(DepthRange::EmptyDepth),
+                MinimumSpanPolicy::ExtendNear => Err(InvalidFit),
+            };
+        }
         Ok(DepthRange::Receivers { near, far })
+    }
+    fn expand_bounds(self, near: f32, far: f32, [start, end]: [f32; 2]) -> (f32, f32) {
+        let far = (far / self.far_step).ceil() * self.far_step;
+        match self.minimum_span_policy {
+            MinimumSpanPolicy::ExtendNear => {
+                let far = far.max(start + self.minimum_span).min(end);
+                (near.min(far - self.minimum_span.min(far - start)), far)
+            }
+            MinimumSpanPolicy::ExtendFar => (near, far.max(near + self.minimum_span).min(end)),
+        }
+    }
+    /// Reapply caps to carried evidence without quantizing or requesting its span again.
+    pub fn clip(self, depth: DepthRange, clip: [f32; 2]) -> Result<DepthRange, InvalidFit> {
+        self.validate()?;
+        depth.validate()?;
+        let [start, end] = clip;
+        if !start.is_finite() || !end.is_finite() || start <= 0.0 || end <= start {
+            return Err(InvalidFit);
+        }
+        let DepthRange::Receivers { near, far } = depth else {
+            return Ok(depth);
+        };
+        if far <= near {
+            return Err(InvalidFit);
+        }
+        let near = near.max(start);
+        let far = far.min(self.active_maximum.map_or(end, |maximum| end.min(maximum)));
+        Ok(if far <= near {
+            DepthRange::EmptyDepth
+        } else {
+            DepthRange::Receivers { near, far }
+        })
     }
     pub fn splits(self, depth: DepthRange, count: u16) -> Result<Vec<f32>, InvalidFit> {
         self.validate()?;

@@ -132,6 +132,8 @@ pub(super) fn fitted_scene() -> worldrunner_render_plan::RenderScene {
         near_step_mm: 100,
         far_step_mm: 1000,
         minimum_span_mm: 1000,
+        minimum_span_policy: worldrunner_render_plan::SceneDepthMinimumSpan::ExtendNear,
+        active_maximum_mm: None,
         splits: SceneDepthSplits::OverlapRecurrence {
             multiplier_micro: 2_000_000,
             overlap_micro: 200_000,

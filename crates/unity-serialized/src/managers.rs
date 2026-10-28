@@ -3,7 +3,7 @@
 
 use crate::{
     ClassId, SerializedError,
-    object::{Layout, ObjectReader, PPtr},
+    object::{Layout, ObjectReader, PPTR_LEN, PPtr},
 };
 
 /// The length prefix of an empty string or array.
@@ -145,8 +145,6 @@ pub struct ResourceManager {
     pub container: Vec<(String, PPtr)>,
     pub dependent_assets: Vec<ResourceDependency>,
 }
-
-const PPTR_LEN: usize = 12;
 
 impl Layout for ResourceManager {
     const CLASS: ClassId = ClassId::RESOURCE_MANAGER;

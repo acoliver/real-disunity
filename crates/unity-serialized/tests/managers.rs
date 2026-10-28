@@ -71,13 +71,40 @@ fn decodes_build_settings_with_each_flag_alone() {
             assert_eq!(decoded, expected_build(flags), "flag {hot}");
         }
     }
-    let mut flags = [false; 14];
-    flags[7] = true;
-    let decoded: BuildSettings =
-        decode_one(ClassId::BUILD_SETTINGS, build_bytes(false, flags), false).unwrap();
-    assert!(decoded.flags.get(BuildFlag::HasShadows));
-    assert!(!decoded.flags.get(BuildFlag::HasPublishingRights));
-    assert!(!decoded.flags.get(BuildFlag::HasSoftShadows));
+}
+
+/// Every flag, in Unity's stored order.
+const BUILD_FLAGS: [BuildFlag; 14] = [
+    BuildFlag::HasProVersion,
+    BuildFlag::IsNoWatermarkBuild,
+    BuildFlag::IsPrototypingBuild,
+    BuildFlag::IsEducationalBuild,
+    BuildFlag::IsEmbedded,
+    BuildFlag::IsTrial,
+    BuildFlag::HasPublishingRights,
+    BuildFlag::HasShadows,
+    BuildFlag::HasSoftShadows,
+    BuildFlag::HasLocalLightShadows,
+    BuildFlag::HasAdvancedVersion,
+    BuildFlag::EnableDynamicBatching,
+    BuildFlag::UsesOnMouseEvents,
+    BuildFlag::HasClusterRendering,
+];
+
+#[test]
+fn each_build_flag_reads_its_own_stored_byte() {
+    for (hot, &flag) in BUILD_FLAGS.iter().enumerate() {
+        let values: [bool; 14] = std::array::from_fn(|i| i == hot);
+        let decoded: BuildSettings =
+            decode_one(ClassId::BUILD_SETTINGS, build_bytes(false, values), false).unwrap();
+        for &other in &BUILD_FLAGS {
+            assert_eq!(
+                decoded.flags.get(other),
+                other == flag,
+                "{flag:?} set, {other:?} read"
+            );
+        }
+    }
 }
 
 fn tag_bytes(big_endian: bool) -> Vec<u8> {

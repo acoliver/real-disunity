@@ -22,7 +22,7 @@ pub struct AmbientLight {
     pub equator_color: [f32; 4],
     pub ground_color: [f32; 4],
     pub intensity: f32,
-    /// Unity's `AmbientMode`: 0 skybox, 1 trilight, 3 flat.
+    /// Unity's `AmbientMode`: 0 skybox, 1 trilight, 3 flat, 4 custom.
     pub mode: i32,
     /// The ambient light as Unity's order-2 spherical harmonics, 27 coefficients.
     pub probe: [f32; 27],
@@ -58,10 +58,10 @@ pub struct RenderSettings {
     pub subtractive_shadow_color: [f32; 4],
     pub skybox_material: PPtr,
     pub halo_and_flare: HaloAndFlare,
-    /// The default cookie for spot lights without one.
+    /// Unity's `m_SpotCookie` texture.
     pub spot_cookie: PPtr,
     pub reflections: SceneReflections,
-    /// The light the procedural skybox draws as the sun, or null.
+    /// The light set as the scene's sun, or null.
     pub sun: PPtr,
     pub indirect_specular_color: [f32; 4],
 }

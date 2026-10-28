@@ -11,9 +11,11 @@ namespace Disunity.Hosting;
 /// Sets serialized script fields from a plan as Unity deserializes them. Public and
 /// <c>[SerializeField]</c> fields bind; static, readonly and <c>[NonSerialized]</c> fields do not.
 /// A field the data omits keeps its initializer, data for a field the script no longer declares
-/// is ignored, and data for a field whose type cannot be loaded fails with the field named.
+/// is ignored, and data for a field whose type cannot be loaded fails with the field named. A
+/// reference to an <see cref="UnbuiltComponent"/> binds null and reports a difference, when the
+/// binder has somewhere to report it.
 /// </summary>
-internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
+internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<string>? difference = null)
 {
     /// <summary>Sets the fields, then calls <see cref="ISerializationCallbackReceiver.OnAfterDeserialize"/>
     /// as Unity does once an object's data is loaded.</summary>
@@ -73,9 +75,16 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
 
     private static string Text(JsonElement value) => value.GetString() ?? throw new FormatException("expected a value");
 
-    private object Reference(JsonProperty reference, Type type, string path)
+    private object? Reference(JsonProperty reference, Type type, string path)
     {
         var target = resolve(reference);
+        if (target is UnbuiltComponent unbuilt && difference is not null)
+        {
+            if (!unbuilt.CanBeHeldBy(type))
+                throw new SceneLoadException($"{path}: a {type.Name} field references a {unbuilt.Class}");
+            difference($"{path}: references a {unbuilt.Class} component, which is not built yet");
+            return null;
+        }
         if (!type.IsInstanceOfType(target))
             throw new SceneLoadException($"{path}: a {type.Name} field references a {target.GetType().Name}");
         return target;

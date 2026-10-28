@@ -8,16 +8,24 @@ use worldrunner_render_scene::{
 };
 
 fn setup(samples: u32, half_resolution: bool) -> (RetainedHost, Renderer) {
+    setup_policy(samples, half_resolution, false)
+}
+fn setup_policy(samples: u32, half_resolution: bool, full: bool) -> (RetainedHost, Renderer) {
     let host = RetainedHost::new(
         crate::renderer::retained_tests::source(),
         crate::ViewerOptions {
-            size: [64, 64],
+            size: if full { [65, 49] } else { [64, 64] },
             frame_profile: crate::FrameProfile::Hdr {
                 samples,
                 tone_map: crate::ToneMap::Reinhard,
             },
             ssr: Some(worldrunner_render_plan::SceneSsr {
                 enabled: true,
+                radiance_pyramid: if full {
+                    worldrunner_render_plan::SceneSsrPyramid::Full
+                } else {
+                    worldrunner_render_plan::SceneSsrPyramid::SixLevels
+                },
                 resolution_scale_micro: if half_resolution { 500_000 } else { 1_000_000 },
                 ..Default::default()
             }),
@@ -143,6 +151,7 @@ fn write_confidence_lanes(
     samples: u32,
     lane_width: u32,
     height: u32,
+    columns: u32,
 ) {
     for (sample, alpha) in [0x3000_u16, 0x3400, 0x3800, 0x3c00]
         .into_iter()
@@ -157,8 +166,8 @@ fn write_confidence_lanes(
                 texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
-                    x: u32::try_from(sample).unwrap() * lane_width,
-                    y: 0,
+                    x: u32::try_from(sample).unwrap() % columns * lane_width,
+                    y: u32::try_from(sample).unwrap() / columns * height,
                     z: 0,
                 },
                 aspect: wgpu::TextureAspect::All,
@@ -180,20 +189,48 @@ fn write_confidence_lanes(
 
 #[test]
 fn ssr_feature_readbacks_preserve_contiguous_sample_lanes() {
-    for (samples, half, expected) in [
-        (1, false, [64, 64]),
-        (4, false, [256, 64]),
-        (1, true, [32, 32]),
-        (4, true, [128, 32]),
+    for (samples, half, full, expected) in [
+        (1, false, false, [64, 64]),
+        (4, false, false, [256, 64]),
+        (1, true, false, [32, 32]),
+        (4, true, false, [128, 32]),
+        (1, false, true, [65, 49]),
+        (4, false, true, [260, 49]),
+        (1, true, true, [33, 25]),
+        (4, true, true, [132, 25]),
     ] {
-        let (_, renderer) = setup(samples, half);
+        let (mut host, renderer) = setup_policy(samples, half, full);
+        if full {
+            let recipe = RetainedCaptureRecipe::new(
+                1,
+                1,
+                CaptureJitter::None,
+                false,
+                vec![CaptureOutput::SsrConfidence],
+                400_000,
+            )
+            .unwrap();
+            // Four-sample logical storage is 378672 bytes; the padded allocation
+            // would exceed this budget. Admission must agree with actual capture.
+            assert!(host.request_capture_recipe(0, recipe).is_ok());
+        }
         let scheduler = &renderer.presentation.scheduler;
         let texture = scheduler
             .feature_target(FeatureTarget::SsrConfidence)
             .unwrap();
-        assert_eq!([texture.width(), texture.height()], expected);
-        let lane_width = if half { 32 } else { 64 };
-        write_confidence_lanes(&renderer, texture, samples, lane_width, expected[1]);
+        let target = scheduler
+            .feature_capture(FeatureTarget::SsrConfidence)
+            .unwrap();
+        assert_eq!(target.size, expected);
+        let lane_width = expected[0] / samples;
+        write_confidence_lanes(
+            &renderer,
+            texture,
+            samples,
+            lane_width,
+            expected[1],
+            target.columns,
+        );
         let device = renderer.context.device();
         let scene = scheduler.targets().texture();
         let outputs = &[CaptureOutput::SsrConfidence];
@@ -210,21 +247,25 @@ fn ssr_feature_readbacks_preserve_contiguous_sample_lanes() {
             .unwrap()
             .ssr_confidence
             .unwrap();
-        assert_eq!([image.viewport.width, image.viewport.height], expected);
-        let returned_width = image.viewport.width;
-        let trace_width = returned_width / samples;
-        assert_eq!(trace_width, lane_width);
-        for (sample, expected_alpha) in [0.125_f32, 0.25, 0.5, 1.0]
-            .into_iter()
-            .take(usize::try_from(samples).unwrap())
-            .enumerate()
-        {
-            for y in 0..image.viewport.height {
-                for x in 0..trace_width {
-                    let packed_x = u32::try_from(sample).unwrap() * trace_width + x;
-                    let index = usize::try_from(y * returned_width + packed_x).unwrap();
-                    assert_eq!(image.pixels[index].to_bits(), expected_alpha.to_bits());
-                }
+        assert_confidence_lanes(&image, samples, lane_width, expected);
+    }
+}
+
+fn assert_confidence_lanes(image: &ScalarImage, samples: u32, lane_width: u32, expected: [u32; 2]) {
+    assert_eq!([image.viewport.width, image.viewport.height], expected);
+    let returned_width = image.viewport.width;
+    let trace_width = returned_width / samples;
+    assert_eq!(trace_width, lane_width);
+    for (sample, expected_alpha) in [0.125_f32, 0.25, 0.5, 1.0]
+        .into_iter()
+        .take(usize::try_from(samples).unwrap())
+        .enumerate()
+    {
+        for y in 0..image.viewport.height {
+            for x in 0..trace_width {
+                let packed_x = u32::try_from(sample).unwrap() * trace_width + x;
+                let index = usize::try_from(y * returned_width + packed_x).unwrap();
+                assert_eq!(image.pixels[index].to_bits(), expected_alpha.to_bits());
             }
         }
     }

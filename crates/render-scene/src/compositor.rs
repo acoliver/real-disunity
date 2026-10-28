@@ -1,7 +1,7 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod capture;
-pub use capture::FeatureTarget;
+pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
 mod configuration;
 mod depth_prefix;

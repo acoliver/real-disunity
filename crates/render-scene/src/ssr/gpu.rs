@@ -6,7 +6,7 @@ pub(super) fn reduction_pipeline(
 ) -> wgpu::RenderPipeline {
     pipeline(
         device,
-        &configured_reduce_source(samples, settings.radiance_rounding),
+        &super::pyramid::reduction_source(samples, settings),
         1,
         false,
     )
@@ -216,6 +216,9 @@ pub(super) fn radiance_textures(
     config: worldrunner_render_post::FrameConfig,
     settings: &worldrunner_render_plan::SceneSsr,
 ) -> Vec<wgpu::Texture> {
+    if super::pyramid::shared(settings) {
+        return super::pyramid::textures(device, config, settings);
+    }
     settings
         .radiance_extents(config.size)
         .into_iter()
@@ -311,19 +314,17 @@ pub(super) fn resolve_pipelines(
     levels: usize,
     ao: bool,
     packed_depth: bool,
+    shared_extents: Option<&[[u32; 2]]>,
 ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+    let source = |water| {
+        let source = configured_resolve_source(levels, samples, water, ao, packed_depth);
+        shared_extents.map_or_else(
+            || source.clone(),
+            |extents| super::pyramid::resolve_source(source.clone(), extents, samples),
+        )
+    };
     (
-        pipeline(
-            device,
-            &configured_resolve_source(levels, samples, false, ao, packed_depth),
-            samples,
-            true,
-        ),
-        pipeline(
-            device,
-            &configured_resolve_source(levels, samples, true, ao, packed_depth),
-            samples,
-            true,
-        ),
+        pipeline(device, &source(false), samples, true),
+        pipeline(device, &source(true), samples, true),
     )
 }

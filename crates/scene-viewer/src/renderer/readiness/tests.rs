@@ -100,6 +100,7 @@ fn baked_effects() -> Vec<SceneEffects> {
             resolution_scale_micro: 500_000,
             radiance_rounding: SceneDownsampleRounding::Ceil,
             application_lod: SceneSsrLodMapping::CutoffNormalized,
+            radiance_pyramid: SceneSsrPyramid::SixLevels,
         })
         .unwrap();
     vec![

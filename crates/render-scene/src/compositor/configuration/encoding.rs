@@ -24,6 +24,13 @@ impl ConfiguredFrameRenderer {
         self.state.current().feature_target(feature)
     }
 
+    pub fn feature_capture(
+        &self,
+        feature: super::super::FeatureTarget,
+    ) -> Option<super::super::FeatureCapture<'_>> {
+        self.state.current().feature_capture(feature)
+    }
+
     pub fn set_clear_color(&mut self, color: wgpu::Color) -> Result<(), PostError> {
         self.state.current_mut().set_clear_color(color)?;
         self.settings.clear_color = color;

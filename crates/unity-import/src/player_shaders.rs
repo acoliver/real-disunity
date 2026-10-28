@@ -42,7 +42,11 @@ impl ShaderReport {
         match outcome {
             Ok(prepared) => {
                 self.ready += 1;
-                self.split += usize::from(!prepared.split_samplers.is_empty());
+                let split = prepared
+                    .bindings
+                    .iter()
+                    .any(|b| b.sampler_binding.is_some());
+                self.split += usize::from(split);
             }
             Err(error) => {
                 let cause = error.cause();

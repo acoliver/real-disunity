@@ -1,4 +1,6 @@
-use worldrunner_unity_import::shader_prep::{PrepareError, check_with_naga, prepare};
+use worldrunner_unity_import::shader_prep::{
+    PrepareError, ResourceBinding, check_with_naga, prepare,
+};
 
 /// Which of the three things naga cannot read a test module contains.
 #[derive(Clone, Copy, Default)]
@@ -116,7 +118,7 @@ fn naga_accepts_the_module_without_problems_unchanged_in_meaning() {
     let plain = module(Problems::default());
     assert_eq!(naga_cause(&plain), None);
     let prepared = prepare(&plain).unwrap();
-    assert!(prepared.split_samplers.is_empty());
+    assert!(prepared.bindings.is_empty());
     assert_eq!(prepared.words, plain);
 }
 
@@ -128,7 +130,7 @@ fn splits_combined_samplers_and_records_their_bindings() {
     });
     assert_eq!(naga_cause(&raw).as_deref(), Some("parse InvalidId"));
     let prepared = prepare(&raw).unwrap();
-    assert_eq!(prepared.split_samplers, [(0, 1)]);
+    assert_eq!(prepared.bindings, [binding(1, 1, Some(2))]);
     assert_eq!(naga_cause(&prepared.words), None);
 }
 
@@ -172,7 +174,7 @@ fn handles_every_problem_together() {
         unsigned_negate: true,
     };
     let prepared = prepare(&module(all)).unwrap();
-    assert_eq!(prepared.split_samplers, [(0, 1)]);
+    assert_eq!(prepared.bindings, [binding(1, 1, Some(2))]);
     assert_eq!(naga_cause(&prepared.words), None);
 }
 
@@ -188,4 +190,141 @@ fn rejects_modules_that_are_not_structurally_valid() {
         prepare(&broken[..4]),
         Err(PrepareError::Module(_))
     ));
+}
+
+/// A fragment shader with resources in set 0, declared out of binding order: combined
+/// samplers B (ID 43, binding 2) and A (ID 44, binding 0), a uniform block (ID 45,
+/// binding 1) and a separate image (ID 46, binding 3). Without `combined`, only the uniform
+/// block and the separate image.
+fn resources(combined: bool) -> Vec<u32> {
+    let mut words = [
+        op(17, &[1]),
+        op(14, &[0, 1]),
+        op(15, &[4, 1, 0x6e69_616d, 0, 2]),
+        op(16, &[1, 7]),
+        op(71, &[2, 30, 0]),
+        op(71, &[41, 2]),
+        op(72, &[41, 0, 35, 0]),
+    ]
+    .concat();
+    let mut place = |id: u32, binding: u32| {
+        words.extend([op(71, &[id, 34, 0]), op(71, &[id, 33, binding])].concat());
+    };
+    if combined {
+        place(43, 2);
+        place(44, 0);
+    }
+    place(45, 1);
+    place(46, 3);
+    words.extend(
+        [
+            op(19, &[4]),
+            op(33, &[5, 4]),
+            op(22, &[7, 32]),
+            op(23, &[8, 7, 4]),
+            op(32, &[14, 3, 8]),
+            op(59, &[14, 2, 3]),
+            op(23, &[16, 7, 2]),
+            op(43, &[7, 17, 0]),
+            op(44, &[16, 18, 17, 17]),
+            op(44, &[8, 29, 17, 17, 17, 17]),
+            op(25, &[11, 7, 1, 0, 0, 0, 1, 0]),
+            op(27, &[12, 11]),
+            op(32, &[13, 0, 12]),
+            op(32, &[40, 0, 11]),
+            op(30, &[41, 8]),
+            op(32, &[42, 2, 41]),
+        ]
+        .concat(),
+    );
+    if combined {
+        words.extend([op(59, &[13, 43, 0]), op(59, &[13, 44, 0])].concat());
+    }
+    words.extend([op(59, &[42, 45, 2]), op(59, &[40, 46, 0])].concat());
+    words.extend([op(54, &[4, 1, 0, 5]), op(248, &[20])].concat());
+    let colour = if combined {
+        let sample_a = [op(61, &[12, 50, 44]), op(87, &[8, 51, 50, 18])].concat();
+        let sample_b = [op(61, &[12, 52, 43]), op(87, &[8, 53, 52, 18])].concat();
+        words.extend([sample_a, sample_b].concat());
+        51
+    } else {
+        29
+    };
+    words.extend([op(62, &[2, colour]), op(253, &[]), op(56, &[])].concat());
+    [vec![0x0723_0203, 0x0001_0000, 0, 54, 0], words].concat()
+}
+
+fn binding(unity_binding: u32, binding: u32, sampler_binding: Option<u32>) -> ResourceBinding {
+    ResourceBinding {
+        set: 0,
+        unity_binding,
+        binding,
+        sampler_binding,
+    }
+}
+
+#[test]
+fn maps_every_binding_when_samplers_split_and_later_bindings_move() {
+    let raw = resources(true);
+    assert_eq!(naga_cause(&raw).as_deref(), Some("parse InvalidId"));
+    let prepared = prepare(&raw).unwrap();
+    assert_eq!(
+        prepared.bindings,
+        [
+            binding(0, 0, Some(1)),
+            binding(1, 2, None),
+            binding(2, 3, Some(4)),
+            binding(3, 5, None),
+        ]
+    );
+    assert_eq!(naga_cause(&prepared.words), None);
+    assert_eq!(
+        prepare(&raw).unwrap(),
+        prepared,
+        "preparation is deterministic"
+    );
+}
+
+#[test]
+fn separate_images_and_buffers_keep_their_bindings() {
+    let raw = resources(false);
+    assert_eq!(naga_cause(&raw), None);
+    let prepared = prepare(&raw).unwrap();
+    assert_eq!(
+        prepared.bindings,
+        [binding(1, 1, None), binding(3, 3, None)]
+    );
+    assert_eq!(naga_cause(&prepared.words), None);
+}
+
+#[test]
+fn leaves_signed_negation_unchanged() {
+    let mut words = module(Problems::default());
+    // Declare a signed int (ID 31) and negate the constant one (ID 19) into it, before the
+    // final store.
+    let at = words.len() - 5;
+    words.splice(at..at, op(126, &[31, 32, 19]));
+    let types = words
+        .iter()
+        .position(|&w| w == op(22, &[7, 32])[0])
+        .unwrap();
+    words.splice(types..types, op(21, &[31, 32, 1]));
+    words[3] = 33;
+    assert_eq!(naga_cause(&words), None);
+    assert_eq!(prepare(&words).unwrap().words, words);
+}
+
+#[test]
+fn a_panic_in_the_sampler_split_is_an_error() {
+    // A resource with a descriptor set but no binding, next to an image type.
+    let mut words = resources(false);
+    let binding_of_45 = op(71, &[45, 33, 1]);
+    let at = words.windows(4).position(|w| w == binding_of_45).unwrap();
+    words.drain(at..at + 4);
+    match prepare(&words) {
+        Err(error @ PrepareError::Panicked { .. }) => {
+            assert_eq!(error.cause(), "sampler split panic");
+        }
+        other => panic!("expected a caught panic, got {other:?}"),
+    }
 }

@@ -4,14 +4,15 @@
 //! this order:
 //! 1. Combined image samplers, which naga's SPIR-V frontend does not parse
 //!    (gfx-rs/wgpu#4323), are split into separate images and samplers with
-//!    `spirv-webgpu-transform`. Each sampler gets a binding of its own, recorded in
-//!    [`PreparedModule::split_samplers`] so a Unity texture can be bound to both.
+//!    `spirv-webgpu-transform`. Each sampler gets a binding of its own, and later bindings in
+//!    its descriptor set move up to make room, so [`PreparedModule::bindings`] maps every
+//!    resource's binding in Unity's module to its binding in the prepared one.
 //! 2. Specialization constants become plain constants with their default values, which is
 //!    what a pipeline gets when it supplies no specialization data; naga cannot size arrays by
 //!    specialization constants.
 //! 3. `OpSNegate` with an unsigned result, which SPIR-V defines as a wrapping `0 - x`, becomes
 //!    `OpISub` from a null constant; naga turns it into a unary minus that its own validator
-//!    rejects. With a signed result, an unsigned operand is bitcast first.
+//!    rejects.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -24,9 +25,20 @@ use worldrunner_unity_serialized::{SerializedError, smolv};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreparedModule {
     pub words: Vec<u32>,
-    /// Each combined image sampler that was split, as its descriptor set and binding. The
-    /// sampler is bound right after the image.
-    pub split_samplers: Vec<(u32, u32)>,
+    /// Every resource with a descriptor set and binding, ordered by set and Unity binding.
+    pub bindings: Vec<ResourceBinding>,
+}
+
+/// Where one of a module's resources is bound before and after preparation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ResourceBinding {
+    pub set: u32,
+    /// The binding in Unity's module.
+    pub unity_binding: u32,
+    /// The binding in the prepared module; for a split combined sampler, the image's.
+    pub binding: u32,
+    /// For a split combined sampler, the sampler's binding in the prepared module.
+    pub sampler_binding: Option<u32>,
 }
 
 /// Why a module could not be prepared or checked.
@@ -38,6 +50,8 @@ pub enum PrepareError {
     SplitSamplers,
     #[error("the module needs more IDs than SPIR-V allows")]
     IdBound,
+    #[error("after the sampler split, {0}")]
+    Bindings(&'static str),
     #[error("naga cannot parse the module: {cause}: {message}")]
     Parse { cause: String, message: String },
     #[error("naga rejects the module: {cause}: {message}")]
@@ -57,6 +71,7 @@ impl PrepareError {
             Self::Module(_) => "invalid module".to_owned(),
             Self::SplitSamplers => "sampler split".to_owned(),
             Self::IdBound => "ID bound".to_owned(),
+            Self::Bindings(_) => "bindings".to_owned(),
             Self::Parse { cause, .. } => format!("parse {cause}"),
             Self::Validate { cause, .. } => format!("validate {cause}"),
             Self::Panicked { stage, .. } => format!("{stage} panic"),
@@ -73,10 +88,18 @@ pub fn prepare(words: &[u32]) -> Result<PreparedModule, PrepareError> {
     smolv::entry_points(words)?;
     let split = split_samplers(words)?;
     smolv::entry_points(&split.words)?;
+    let bindings = resource_bindings(words, &split)?;
     Ok(PreparedModule {
         words: signed_negate(&spec_defaults(&split.words))?,
-        split_samplers: split.split_samplers,
+        bindings,
     })
+}
+
+/// A module after the sampler split, with the descriptor set and Unity binding of each
+/// combined sampler that was split.
+struct Split {
+    words: Vec<u32>,
+    combined: BTreeSet<(u32, u32)>,
 }
 
 /// The text of a panic payload.
@@ -88,7 +111,8 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "a panic without a message".to_owned())
 }
 
-/// Runs third-party code on game data, turning a panic into an error.
+/// Runs third-party code on game data, turning a panic into an error. The panic hook still
+/// runs, and a build with `panic = "abort"` aborts instead.
 fn guarded<T>(
     stage: &'static str,
     run: impl FnOnce() -> Result<T, PrepareError>,
@@ -101,23 +125,94 @@ fn guarded<T>(
     })
 }
 
-fn split_samplers(words: &[u32]) -> Result<PreparedModule, PrepareError> {
+fn split_samplers(words: &[u32]) -> Result<Split, PrepareError> {
     guarded("sampler split", || {
-        let mut corrections = spirv_webgpu_transform::CorrectionMap::default();
-        let words = spirv_webgpu_transform::combimgsampsplitter(words, &mut corrections)
+        use spirv_webgpu_transform::{CorrectionMap, CorrectionType, combimgsampsplitter};
+        let mut corrections = CorrectionMap::default();
+        let words = combimgsampsplitter(words, &mut corrections)
             .map_err(|()| PrepareError::SplitSamplers)?;
-        let mut bindings: Vec<(u32, u32)> = corrections
+        // The map lists every decorated resource; split ones carry a correction.
+        let combined = corrections
             .sets
             .iter()
             .flatten()
-            .flat_map(|(&set, bindings)| bindings.bindings.keys().map(move |&b| (set, b)))
+            .flat_map(|(&set, bindings)| {
+                let split = bindings.bindings.iter().filter(|(_, binding)| {
+                    binding.corrections.contains(&CorrectionType::SplitCombined)
+                });
+                split.map(move |(&binding, _)| (set, binding))
+            })
             .collect();
-        bindings.sort_unstable();
-        Ok(PreparedModule {
-            words,
-            split_samplers: bindings,
-        })
+        Ok(Split { words, combined })
     })
+}
+
+const OP_VARIABLE: u32 = 59;
+const DECORATION_BINDING: u32 = 33;
+const DECORATION_DESCRIPTOR_SET: u32 = 34;
+
+/// The descriptor set and binding of each variable that has both.
+fn decorated_bindings(words: &[u32]) -> BTreeMap<u32, (u32, u32)> {
+    let mut sets = BTreeMap::new();
+    let mut bindings = BTreeMap::new();
+    for instruction in instructions(words) {
+        if let (OP_DECORATE, &[_, id, decoration, value]) = (opcode(instruction), instruction) {
+            match decoration {
+                DECORATION_DESCRIPTOR_SET => sets.insert(id, value),
+                DECORATION_BINDING => bindings.insert(id, value),
+                _ => None,
+            };
+        }
+    }
+    let variables: BTreeSet<u32> = instructions(words)
+        .filter(|instruction| opcode(instruction) == OP_VARIABLE)
+        .filter_map(|instruction| instruction.get(2).copied())
+        .collect();
+    variables
+        .into_iter()
+        .filter_map(|id| Some((id, (*sets.get(&id)?, *bindings.get(&id)?))))
+        .collect()
+}
+
+/// Maps each resource's Unity binding to its prepared binding, read from the decorations of
+/// the module before and after the split. A split sampler is the new variable in its set at
+/// the binding after its image's.
+fn resource_bindings(words: &[u32], split: &Split) -> Result<Vec<ResourceBinding>, PrepareError> {
+    let before = decorated_bindings(words);
+    let after = decorated_bindings(&split.words);
+    let added: BTreeSet<(u32, u32)> = after
+        .iter()
+        .filter(|(id, _)| !before.contains_key(id))
+        .map(|(_, &place)| place)
+        .collect();
+    let mut resources = Vec::with_capacity(before.len());
+    for (id, &(set, unity_binding)) in &before {
+        let &(after_set, binding) = after
+            .get(id)
+            .filter(|(after_set, _)| *after_set == set)
+            .ok_or(PrepareError::Bindings("a resource lost its binding"))?;
+        let sampler_binding = if split.combined.contains(&(set, unity_binding)) {
+            let sampler = binding
+                .checked_add(1)
+                .filter(|&b| added.contains(&(after_set, b)));
+            Some(sampler.ok_or(PrepareError::Bindings("a split sampler has no binding"))?)
+        } else {
+            None
+        };
+        resources.push(ResourceBinding {
+            set,
+            unity_binding,
+            binding,
+            sampler_binding,
+        });
+    }
+    if added.len() != split.combined.len() {
+        return Err(PrepareError::Bindings(
+            "new bindings do not match the split samplers",
+        ));
+    }
+    resources.sort_unstable();
+    Ok(resources)
 }
 
 /// The name of an error's variant, from its `Debug` form.
@@ -213,7 +308,6 @@ fn spec_defaults(words: &[u32]) -> Vec<u32> {
 
 const OP_TYPE_INT: u32 = 21;
 const OP_TYPE_VECTOR: u32 = 23;
-const OP_BITCAST: u32 = 124;
 const OP_SNEGATE: u32 = 126;
 const OP_ISUB: u32 = 130;
 const OP_CONSTANT_NULL: u32 = 46;
@@ -262,22 +356,19 @@ fn signed_negate(words: &[u32]) -> Result<Vec<u32>, PrepareError> {
             body.extend_from_slice(instruction);
             continue;
         };
-        if opcode(instruction) != OP_SNEGATE {
+        // A signed negation stays: naga converts an unsigned operand to the result type.
+        if opcode(instruction) != OP_SNEGATE || !unsigned.contains(&result_type) {
             body.extend_from_slice(instruction);
-        } else if unsigned.contains(&result_type) {
-            let zero = if let Some(&zero) = zeros.get(&result_type) {
-                zero
-            } else {
-                let zero = ids.next()?;
-                zeros.insert(result_type, zero);
-                zero
-            };
-            body.extend([(5 << 16) | OP_ISUB, result_type, result, zero, operand]);
-        } else {
-            let cast = ids.next()?;
-            body.extend([(4 << 16) | OP_BITCAST, result_type, cast, operand]);
-            body.extend([(4 << 16) | OP_SNEGATE, result_type, result, cast]);
+            continue;
         }
+        let zero = if let Some(&zero) = zeros.get(&result_type) {
+            zero
+        } else {
+            let zero = ids.next()?;
+            zeros.insert(result_type, zero);
+            zero
+        };
+        body.extend([(5 << 16) | OP_ISUB, result_type, result, zero, operand]);
     }
     let mut out = words[..HEADER_WORDS].to_vec();
     out[BOUND_WORD] = ids.bound;

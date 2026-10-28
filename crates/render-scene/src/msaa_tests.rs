@@ -309,6 +309,18 @@ fn edge_coverage_gains_resolution_with_each_sample_count_and_interiors_are_uncha
 }
 
 #[test]
+fn resizing_keeps_every_supported_sample_count() {
+    let context = context();
+    for count in supported_samples(&context) {
+        let samples = MsaaSamples::try_from(count).unwrap();
+        let mut frame = renderer(&context, samples).unwrap();
+        assert_eq!(frame.resize(context.device(), [SIZE / 2, SIZE]), Ok(true));
+        assert_eq!(frame.targets().config().samples, count);
+        assert_eq!(frame.targets().config().size, [SIZE / 2, SIZE]);
+    }
+}
+
+#[test]
 fn unsupported_sample_counts_fail_with_a_typed_error_before_allocation() {
     let context = context();
     for invalid in [0, 3, 5, 16] {

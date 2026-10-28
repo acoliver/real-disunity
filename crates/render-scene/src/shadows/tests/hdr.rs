@@ -1,6 +1,6 @@
 use super::*;
 use crate::compositor::FrameRenderer;
-use worldrunner_render_post::{FrameConfig, Readback, ToneMap};
+use worldrunner_render_post::{FrameConfig, MsaaSamples, Readback, ToneMap};
 
 fn hdr_capture(
     context: &GpuContext,
@@ -74,7 +74,7 @@ fn exposed(source: &RenderScene, exposure: u32) -> RenderScene {
 }
 
 #[test]
-fn hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_one_and_four_samples() {
+fn hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_every_supported_sample_count() {
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for terrain in [false, true] {
@@ -108,7 +108,13 @@ fn hdr_profile_rejects_uninstalled_settings_before_gpu_execution() {
     let scope = context
         .device()
         .push_error_scope(wgpu::ErrorFilter::Validation);
-    for samples in [0, 2, 8, 3] {
+    // Counts that are never valid, plus every selectable count this adapter lacks.
+    let supported = crate::msaa_tests::supported_samples(&context);
+    let unsupported = MsaaSamples::ALL
+        .into_iter()
+        .map(MsaaSamples::count)
+        .filter(|count| !supported.contains(count));
+    for samples in [0, 3, 5, 16].into_iter().chain(unsupported) {
         assert!(
             matches!(FrameRenderer::hdr(&context, [8, 8], OffscreenTarget::COLOR_FORMAT, samples, ToneMap::Reinhard, None), Err(worldrunner_render_post::PostError::SampleCount(value)) if value == samples)
         );
@@ -198,7 +204,7 @@ fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
 }
 
 #[test]
-fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_1x_and_4x() {
+fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_every_supported_sample_count() {
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let base =

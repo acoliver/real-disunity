@@ -179,7 +179,7 @@ fn absorption_error_bound(expected: f32, background: f32, scattering: f32) -> f3
 }
 
 #[test]
-fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_samples() {
+fn production_absorption_matches_cpu_with_nonzero_scattering_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);

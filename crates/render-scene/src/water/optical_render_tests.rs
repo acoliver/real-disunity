@@ -34,7 +34,7 @@ fn renderer(
 }
 
 #[test]
-fn authored_refraction_keeps_foreground_rejection_at_1x_and_4x() {
+fn authored_refraction_keeps_foreground_rejection_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
@@ -45,7 +45,7 @@ fn authored_refraction_keeps_foreground_rejection_at_1x_and_4x() {
 }
 
 #[test]
-fn zero_bound_and_zero_opacity_preserve_original_snapshot_at_1x_and_4x() {
+fn zero_bound_and_zero_opacity_preserve_original_snapshot_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for transparent in [false, true] {
@@ -144,7 +144,7 @@ fn view_scattering_is_additive_even_without_absorption() {
 }
 
 #[test]
-fn disabled_optical_controls_are_byte_identical_to_stock_shader_at_1x_and_4x() {
+fn disabled_optical_controls_are_byte_identical_to_stock_shader_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = renderer(&context, samples, settings());

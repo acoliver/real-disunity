@@ -43,7 +43,7 @@ fn authored_mesh_uses_body_elevation_and_rejects_invalid_indices() {
 }
 
 #[test]
-fn multiple_heights_order_independently_of_body_order_at_one_and_four_samples() {
+fn multiple_heights_order_independently_of_body_order_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut low = settings();

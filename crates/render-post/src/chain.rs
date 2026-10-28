@@ -369,7 +369,7 @@ impl<F: StageFactory> PostChain<F> {
         device: &wgpu::Device,
         config: FrameConfig,
     ) -> Result<(), PostError> {
-        config.validate(&device.limits())?;
+        config.validate_device(device)?;
         self.factory.validate_config(device, config)?;
         let targets = FrameTargets::new(device, config)?;
         let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;

@@ -217,7 +217,7 @@ fn draw_water_resolve(
     );
 }
 #[test]
-fn gpu_water_selection_and_replacement_are_exact_at_one_and_four_samples() {
+fn gpu_water_selection_and_replacement_are_exact_at_every_supported_sample_count() {
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for (confidence, expected) in [

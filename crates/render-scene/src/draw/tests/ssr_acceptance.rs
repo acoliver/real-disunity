@@ -337,7 +337,7 @@ fn channel_view(context: &GpuContext, view: &wgpu::TextureView, source: &str) ->
     .collect()
 }
 #[test]
-fn geometric_water_hit_and_offscreen_miss_at_one_and_four_samples() {
+fn geometric_water_hit_and_offscreen_miss_at_every_supported_sample_count() {
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let hit = render(&context, &source(true, false), samples);

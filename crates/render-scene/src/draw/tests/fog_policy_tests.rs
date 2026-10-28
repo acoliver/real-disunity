@@ -27,7 +27,7 @@ fn transmission(frame: &FrameUniform, x: f32, y: f32, depth: f32) -> f32 {
 }
 
 #[test]
-fn full_ray_water_colour_receiver_and_ssr_replacement_at_one_and_four_samples() {
+fn full_ray_water_colour_receiver_and_ssr_replacement_at_every_supported_sample_count() {
     let context = context();
     let maps = environment(&context);
     for samples in crate::msaa_tests::supported_samples(&context) {
@@ -105,7 +105,7 @@ fn check_water(
 }
 
 #[test]
-fn full_ray_forward_publication_matches_fogged_colour_at_one_and_four_samples() {
+fn full_ray_forward_publication_matches_fogged_colour_at_every_supported_sample_count() {
     let context = context();
     let maps = environment(&context);
     for samples in crate::msaa_tests::supported_samples(&context) {

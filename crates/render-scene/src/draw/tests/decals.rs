@@ -178,7 +178,8 @@ fn srgb(value: f32) -> f32 {
     }
 }
 #[test]
-fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_1x_and_4x() {
+fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_every_supported_sample_count()
+ {
     let context = context();
     for terrain in [false, true] {
         for slope in [false, true] {

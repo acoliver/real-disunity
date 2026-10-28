@@ -279,8 +279,7 @@ pub struct Program {
     /// [`PlayerSubProgram::gpu_program_type`] says which platform's blob entries its
     /// [`PlayerSubProgram::blob_index`] refers to.
     pub player_sub_programs: Vec<Vec<PlayerSubProgram>>,
-    /// The blob entries holding variant parameters, in lists that parallel
-    /// [`Self::player_sub_programs`].
+    /// Lists of blob entries holding variant parameters, which are not read yet.
     pub parameter_blob_indices: Vec<Vec<u32>>,
     pub common_parameters: ProgramParameters,
     pub keyword_state_mask: Vec<u16>,

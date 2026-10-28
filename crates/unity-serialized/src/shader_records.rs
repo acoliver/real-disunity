@@ -4,11 +4,12 @@
 
 use std::ops::{Range, RangeInclusive};
 
-use crate::{SerializedError, cursor::Cursor};
+use crate::{SerializedError, cursor::Cursor, shader_program::PlayerSubProgram};
 
 /// Where one sub-program's record is: a byte range in the chunk its segment index names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramEntry {
+    /// The index of the chunk holding the record (Unity's segment).
     pub segment: usize,
     pub range: Range<usize>,
 }
@@ -60,14 +61,18 @@ pub fn program_table(
 /// The record format version this reader supports, as stored by Unity 2020.2 and later.
 pub const RECORD_VERSION: u32 = 202_012_090;
 
+/// Unity's `ShaderGpuProgramType` for a Vulkan SPIR-V program.
+pub const SPIRV_PROGRAM: i8 = 25;
+
 /// The `ShaderGpuProgramType`s of programs compiled for a `ShaderCompilerPlatform`, for the
-/// platforms whose programs have been checked: Direct3D 11 (4) uses `DX11VertexSM40` to
-/// `DX11DomainSM50` (15 to 22), and Vulkan (18) uses `SPIRV` (25).
+/// platforms whose programs have been checked: Direct3D 11 (4) uses Unity's
+/// `DX11VertexSM40` to `DX11DomainSM50` (15 to 22; the player checked uses 15 to 18), and
+/// Vulkan (18) uses `SPIRV` (25).
 #[must_use]
 pub const fn platform_program_types(platform: u32) -> Option<RangeInclusive<i8>> {
     match platform {
         4 => Some(15..=22),
-        18 => Some(25..=25),
+        18 => Some(SPIRV_PROGRAM..=SPIRV_PROGRAM),
         _ => None,
     }
 }
@@ -90,11 +95,11 @@ pub fn record_type(record: &[u8]) -> Result<u32, SerializedError> {
 /// One compiled sub-program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramRecord {
-    /// Unity's `ShaderGpuProgramType`; 25 is a Vulkan SPIR-V program.
+    /// Unity's `ShaderGpuProgramType`; [`SPIRV_PROGRAM`] is a Vulkan SPIR-V program.
     pub program_type: u32,
-    /// Unity's `m_StatsALU`, `m_StatsTEX`, `m_StatsFlow` and `m_StatsTempRegister`.
+    /// Four words after the type, zero in every Vulkan record of the player checked.
     pub stats: [u32; 4],
-    /// The shader keywords this variant was compiled for.
+    /// The keywords stored in the record.
     pub keywords: Vec<String>,
     /// Byte range of the compiled program within the record.
     pub code: Range<usize>,
@@ -193,9 +198,11 @@ pub fn vulkan_stages(code: &[u8]) -> Result<Vec<StageModule>, SerializedError> {
         if start < WRAPPER_LEN || range.end > code.len() {
             return Err(invalid(at, "the stage module lies outside the program"));
         }
-        let magic = code
-            .get(start..start + 4)
-            .map(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+        // A module too short for a magic number is rejected below rather than classified
+        // by bytes beyond it.
+        let magic = code[range.clone()]
+            .first_chunk::<4>()
+            .map(|bytes| u32::from_le_bytes(*bytes));
         let encoding = match magic {
             Some(SMOLV_MAGIC) => ModuleEncoding::Smolv,
             Some(SPIRV_MAGIC) => ModuleEncoding::SpirV,
@@ -213,4 +220,69 @@ pub fn vulkan_stages(code: &[u8]) -> Result<Vec<StageModule>, SerializedError> {
         });
     }
     Ok(stages)
+}
+
+/// A variant's program record for one platform, with the caller's label for the variant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlatformProgram<L> {
+    pub label: L,
+    pub entry: ProgramEntry,
+    pub record: ProgramRecord,
+}
+
+impl<L> PlatformProgram<L> {
+    /// The program's code, from the chunks the record was read from.
+    #[must_use]
+    pub fn code<'c>(&self, chunks: &'c [Vec<u8>]) -> Option<&'c [u8]> {
+        chunks
+            .get(self.entry.segment)?
+            .get(self.entry.range.clone())?
+            .get(self.record.code.clone())
+    }
+}
+
+/// Reads the program record of each variant compiled for a platform, in variant order.
+/// `types` are the platform's program types ([`platform_program_types`]); variants of other
+/// types belong to other platforms and are skipped. A platform with no chunks has no table,
+/// so it may have no variants.
+///
+/// # Errors
+/// Fails when the table is malformed, or a variant of the platform names a missing entry, a
+/// record of another type, or a malformed record.
+pub fn platform_programs<'v, L>(
+    variants: impl IntoIterator<Item = (L, &'v PlayerSubProgram)>,
+    types: &RangeInclusive<i8>,
+    chunks: &[Vec<u8>],
+) -> Result<Vec<PlatformProgram<L>>, SerializedError> {
+    let lengths: Vec<usize> = chunks.iter().map(Vec::len).collect();
+    let entries = match chunks.first() {
+        Some(first) => program_table(first, &lengths)?,
+        None => Vec::new(),
+    };
+    let mut programs = Vec::new();
+    for (label, variant) in variants {
+        if !types.contains(&variant.gpu_program_type) {
+            continue;
+        }
+        let entry = usize::try_from(variant.blob_index)
+            .ok()
+            .and_then(|index| entries.get(index))
+            .ok_or_else(|| invalid(0, "a variant names a blob entry that does not exist"))?;
+        let record = chunks
+            .get(entry.segment)
+            .and_then(|chunk| chunk.get(entry.range.clone()))
+            .ok_or_else(|| invalid(0, "a variant's entry lies outside the chunks"))?;
+        if i64::from(record_type(record)?) != i64::from(variant.gpu_program_type) {
+            return Err(invalid(
+                0,
+                "a variant's record has a different program type",
+            ));
+        }
+        programs.push(PlatformProgram {
+            label,
+            entry: entry.clone(),
+            record: read_record(record)?,
+        });
+    }
+    Ok(programs)
 }

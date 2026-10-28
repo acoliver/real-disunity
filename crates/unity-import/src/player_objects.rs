@@ -21,8 +21,7 @@ use worldrunner_unity_serialized::{
     shader::Shader,
     shader_program::PlayerSubProgram,
     shader_records::{
-        ProgramEntry, platform_program_types, program_table, read_record, record_type,
-        vulkan_stages,
+        PlatformProgram, SPIRV_PROGRAM, platform_program_types, platform_programs, vulkan_stages,
     },
     sprite::{Sprite, SpriteAtlas},
     text_asset::TextAsset,
@@ -158,22 +157,17 @@ pub fn shader_chunks(
     path_id: i64,
     platform: usize,
 ) -> Result<(u32, Vec<Vec<u8>>), PlayerError> {
-    let (shader, chunks) = load_shader(open, path_id, platform)?;
-    let kind = shader
-        .compiled
-        .platforms
-        .get(platform)
-        .copied()
-        .unwrap_or_default();
+    let (_, kind, chunks) = load_shader(open, path_id, platform)?;
     Ok((kind, chunks))
 }
 
-/// Decodes a shader and decompresses one platform's chunks.
+/// Decodes a shader and decompresses one platform's chunks, with the platform's
+/// `ShaderCompilerPlatform`.
 fn load_shader(
     open: &mut OpenFile,
     path_id: i64,
     platform: usize,
-) -> Result<(Shader, Vec<Vec<u8>>), PlayerError> {
+) -> Result<(Shader, u32, Vec<Vec<u8>>), PlayerError> {
     let object = *open
         .file
         .object(path_id)
@@ -188,14 +182,54 @@ fn load_shader(
         .compiled
         .platform_chunks(&bytes, platform)
         .map_err(|source| open.error(source))?;
-    Ok((shader, chunks))
+    let kind = shader
+        .compiled
+        .platforms
+        .get(platform)
+        .copied()
+        .unwrap_or_default();
+    Ok((shader, kind, chunks))
 }
 
-/// Describes one program record: its chunk, type, keywords, code and stage modules.
-fn describe_record(entry: &ProgramEntry, record: &[u8]) -> Result<String, SerializedError> {
-    let program = read_record(record)?;
-    let code = &record[program.code.clone()];
-    let stages = if program.program_type == VULKAN_PROGRAM {
+/// A variant's blob index, sub-shader and pass index, and stage name.
+type VariantLabel = (u32, (usize, usize), &'static str);
+
+/// Every variant of a shader, labelled with its blob index, pass and stage.
+fn variants(shader: &Shader) -> Vec<(VariantLabel, &PlayerSubProgram)> {
+    let mut found = Vec::new();
+    for (sub_index, sub_shader) in shader.parsed.sub_shaders.iter().enumerate() {
+        for (pass_index, pass) in sub_shader.passes.iter().enumerate() {
+            let p = &pass.programs;
+            for (stage, program) in [
+                ("vertex", &p.vertex),
+                ("fragment", &p.fragment),
+                ("geometry", &p.geometry),
+                ("hull", &p.hull),
+                ("domain", &p.domain),
+                ("ray_tracing", &p.ray_tracing),
+            ] {
+                let all = program.player_sub_programs.iter().flatten();
+                found.extend(all.map(|v| ((v.blob_index, (sub_index, pass_index), stage), v)));
+            }
+        }
+    }
+    found
+}
+
+/// Describes one program: its chunk, type, keywords, code and stage modules.
+fn describe_program(
+    program: &PlatformProgram<VariantLabel>,
+    chunks: &[Vec<u8>],
+) -> Result<String, SerializedError> {
+    let (blob_index, (sub_shader, pass), stage) = program.label;
+    let record = &program.record;
+    let code = program
+        .code(chunks)
+        .ok_or(SerializedError::InvalidShaderProgram {
+            offset: 0,
+            reason: "the program's code lies outside the chunks",
+        })?;
+    let stages = if i64::from(record.program_type) == i64::from(SPIRV_PROGRAM) {
         vulkan_stages(code)?
             .iter()
             .map(|stage| format!("{}:{:?}:{}", stage.slot, stage.encoding, stage.range.len()))
@@ -205,97 +239,42 @@ fn describe_record(entry: &ProgramEntry, record: &[u8]) -> Result<String, Serial
         "-".to_owned()
     };
     Ok(format!(
-        "segment={} type={} keywords={:?} code={} stages={stages} rest={}",
-        entry.segment,
-        program.program_type,
-        program.keywords,
+        "{blob_index} pass={sub_shader}.{pass} stage={stage} chunk={} type={} keywords={:?} \
+         code={} stages={stages} rest={}",
+        program.entry.segment,
+        record.program_type,
+        record.keywords,
         code.len(),
-        program.rest.len()
+        record.rest.len()
     ))
 }
 
-/// Unity's `ShaderGpuProgramType` for Vulkan SPIR-V programs.
-const VULKAN_PROGRAM: u32 = 25;
-
-/// Every variant of a shader, with its pass index and stage name.
-fn variants(shader: &Shader) -> Vec<(usize, &'static str, &PlayerSubProgram)> {
-    let passes = shader.parsed.sub_shaders.iter().flat_map(|sub| &sub.passes);
-    let mut found = Vec::new();
-    for (index, pass) in passes.enumerate() {
-        let p = &pass.programs;
-        for (stage, program) in [
-            ("vertex", &p.vertex),
-            ("fragment", &p.fragment),
-            ("geometry", &p.geometry),
-            ("hull", &p.hull),
-            ("domain", &p.domain),
-            ("ray_tracing", &p.ray_tracing),
-        ] {
-            let all = program.player_sub_programs.iter().flatten();
-            found.extend(all.map(|variant| (index, stage, variant)));
-        }
-    }
-    found
-}
-
-/// Lists the program records of one shader platform, one line per variant compiled for it.
+/// Lists the programs of one shader platform, one line per variant compiled for it.
 ///
 /// # Errors
 /// Fails if the shader's chunks do not decompress, the platform's program types are not
-/// known, a variant names a missing entry or a record of another type, or a record or Vulkan
-/// program is malformed.
+/// known, or [`platform_programs`] or a Vulkan program's stage table rejects the data.
 pub fn describe_shader_programs(
     open: &mut OpenFile,
     path_id: i64,
     platform: usize,
 ) -> Result<String, PlayerError> {
-    let (shader, chunks) = load_shader(open, path_id, platform)?;
-    let kind = shader
-        .compiled
-        .platforms
-        .get(platform)
-        .copied()
-        .unwrap_or_default();
+    let (shader, kind, chunks) = load_shader(open, path_id, platform)?;
     let types = platform_program_types(kind).ok_or_else(|| {
         open.error(SerializedError::InvalidShaderProgram {
             offset: 0,
             reason: "the program types of this shader platform are not known",
         })
     })?;
-    let lengths: Vec<usize> = chunks.iter().map(Vec::len).collect();
-    let first = chunks.first().map_or(&[][..], Vec::as_slice);
-    let entries = program_table(first, &lengths).map_err(|source| open.error(source))?;
-    let mut lines = Vec::new();
-    for (pass, stage, variant) in variants(&shader) {
-        if !types.contains(&variant.gpu_program_type) {
-            continue;
-        }
-        let line =
-            describe_variant(&entries, &chunks, variant).map_err(|source| open.error(source))?;
-        lines.push(format!(
-            "{} pass={pass} stage={stage} {line}",
-            variant.blob_index
-        ));
-    }
+    let lines = platform_programs(variants(&shader), &types, &chunks)
+        .and_then(|programs| {
+            programs
+                .iter()
+                .map(|program| describe_program(program, &chunks))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|source| open.error(source))?;
     Ok(lines.join("\n"))
-}
-
-/// Describes a variant's program record, which must have the variant's program type.
-fn describe_variant(
-    entries: &[ProgramEntry],
-    chunks: &[Vec<u8>],
-    variant: &PlayerSubProgram,
-) -> Result<String, SerializedError> {
-    let invalid = |reason| SerializedError::InvalidShaderProgram { offset: 0, reason };
-    let entry = usize::try_from(variant.blob_index)
-        .ok()
-        .and_then(|index| entries.get(index))
-        .ok_or_else(|| invalid("a variant names a blob entry that does not exist"))?;
-    let record = &chunks[entry.segment][entry.range.clone()];
-    if i64::from(record_type(record)?) != i64::from(variant.gpu_program_type) {
-        return Err(invalid("a variant's record has a different program type"));
-    }
-    describe_record(entry, record)
 }
 
 /// A layout's class with its check. The class comes from the layout, so the two cannot drift.

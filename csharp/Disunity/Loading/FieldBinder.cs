@@ -40,6 +40,8 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve)
         if (type.IsEnum) return Enum.ToObject(type, long.Parse(Text(value), CultureInfo.InvariantCulture));
         if (type == typeof(float)) return float.Parse(Text(value), NumberStyles.Float, CultureInfo.InvariantCulture);
         if (type == typeof(double)) return double.Parse(Text(value), NumberStyles.Float, CultureInfo.InvariantCulture);
+        // A ulong may exceed long's range.
+        if (type == typeof(ulong)) return ulong.Parse(Text(value), CultureInfo.InvariantCulture);
         if (type.IsPrimitive) return System.Convert.ChangeType(long.Parse(Text(value), CultureInfo.InvariantCulture), type, CultureInfo.InvariantCulture);
         if (Vector(value, type) is { } vector) return vector;
         if (type.IsArray) return Array(value, type.GetElementType()!, path);

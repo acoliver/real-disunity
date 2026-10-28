@@ -13,12 +13,13 @@ fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
 }
 
-const TYPES: [ClassId; 5] = [
+const TYPES: [ClassId; 6] = [
     ClassId::GAME_OBJECT,
     ClassId::TRANSFORM,
     ClassId::MONO_BEHAVIOUR,
     ClassId::MONO_SCRIPT,
     ClassId::LIGHT,
+    ClassId::TAG_MANAGER,
 ];
 
 fn class(class_id: ClassId) -> SerializedType {
@@ -112,6 +113,23 @@ fn layouts() -> ScriptLayouts {
     }])
 }
 
+fn write_file(dir: &Path, name: &str, objects: Vec<ObjectData>) {
+    let contents = FileContents {
+        version: 22,
+        big_endian: false,
+        unity_version: "6000.3.15f1".into(),
+        target_platform: 19,
+        type_trees: false,
+        types: TYPES.into_iter().map(class).collect(),
+        objects,
+        scripts: Vec::new(),
+        externals: Vec::new(),
+        ref_types: Vec::new(),
+        user_information: String::new(),
+    };
+    std::fs::write(dir.join(name), contents.write().unwrap()).unwrap();
+}
+
 fn write_scene(dir: &Path) {
     let contents = FileContents {
         version: 22,
@@ -188,7 +206,7 @@ fn plans_objects_scripts_and_references_and_lists_what_it_leaves_out() {
             "speed": "2.5",
             "target": {"$object": 1},
             "pivot": {"$transform": 1},
-            "light": {"$component": [0, 0]},
+            "light": Json::Null,
             "material": Json::Null,
             "nothing": Json::Null,
         })
@@ -196,7 +214,8 @@ fn plans_objects_scripts_and_references_and_lists_what_it_leaves_out() {
     assert_eq!(
         plan.differences,
         [
-            "Root.Example.Spinner.material: references object 99 of file 1, which the plan does not hold"
+            "Root.Example.Spinner.light: references a Light component, which the engine does not build",
+            "Root.Example.Spinner.material: references object 99 of file 1, which the plan does not hold",
         ]
     );
 }
@@ -213,5 +232,116 @@ fn names_the_script_whose_fields_do_not_decode() {
     assert!(
         text.contains("Root: script Example.Game:Example.Spinner"),
         "{text}"
+    );
+}
+
+/// A `Spinner` on object 2 holding each kind of value the planner writes as text, then the
+/// reference registry its `[SerializeReference]` field needs.
+fn value_behaviour() -> Vec<u8> {
+    let mut w = ObjectWriter::new(false);
+    w.pptr(ptr(0, 2))
+        .u8(1)
+        .align()
+        .pptr(ptr(0, 5))
+        .string("")
+        .unwrap();
+    w.u64(u64::MAX)
+        .u16(0xE9)
+        .align()
+        .f32(f32::NAN)
+        .f32(f32::NEG_INFINITY);
+    w.i32(2).i32(1).i32(-2).align();
+    w.i64(-2).i32(2).i32(1).i64(-2);
+    for _ in 0..3 {
+        w.string("").unwrap();
+    }
+    w.finish()
+}
+
+fn value_layouts() -> ScriptLayouts {
+    let field = |name: &str, ty| ScriptField {
+        name: name.to_owned(),
+        ty,
+    };
+    ScriptLayouts::new(vec![
+        ScriptType {
+            key: "Example.Game:Example.Spinner".to_owned(),
+            value_type: false,
+            fields: vec![
+                field("big", FieldType::Primitive(Primitive::U64)),
+                field("letter", FieldType::Primitive(Primitive::Char)),
+                field("nan", FieldType::Primitive(Primitive::F32)),
+                field("low", FieldType::Primitive(Primitive::F32)),
+                field("pair", FieldType::Composite(1)),
+                field("shape", FieldType::Reference("Example.IShape".to_owned())),
+            ],
+        },
+        ScriptType {
+            key: "Example.Game:Example.Pair".to_owned(),
+            value_type: true,
+            fields: vec![field(
+                "values",
+                FieldType::Array(Box::new(FieldType::Primitive(Primitive::I32))),
+            )],
+        },
+    ])
+}
+
+#[test]
+fn maps_user_tags_and_writes_every_value_kind_as_the_loader_reads_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut tags = ObjectWriter::new(false);
+    tags.i32(1).string("Enemy").unwrap();
+    for _ in 0..3 {
+        tags.i32(0);
+    }
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![object(1, ClassId::TAG_MANAGER, tags.finish())],
+    );
+    write_file(
+        dir.path(),
+        "level0",
+        vec![
+            object(
+                2,
+                ClassId::GAME_OBJECT,
+                game_object("Root", 20_000, &[ptr(0, 3), ptr(0, 4)]),
+            ),
+            object(3, ClassId::TRANSFORM, transform(2, ptr(0, 0), &[ptr(0, 7)])),
+            object(4, ClassId::MONO_BEHAVIOUR, value_behaviour()),
+            object(5, ClassId::MONO_SCRIPT, script()),
+            object(
+                6,
+                ClassId::GAME_OBJECT,
+                game_object("Child", 20_005, &[ptr(0, 7)]),
+            ),
+            object(7, ClassId::TRANSFORM, transform(6, ptr(0, 3), &[])),
+        ],
+    );
+    let plan = plan_player_scene(dir.path(), "level0", &value_layouts()).unwrap();
+    let tags: Vec<_> = plan.objects.iter().map(|o| o.tag.as_str()).collect();
+    assert_eq!(tags, ["Enemy", "Untagged"]);
+    let [PlanComponent::Script { fields, .. }] = &plan.objects[0].components[..] else {
+        panic!("the root has one script: {:?}", plan.objects[0].components)
+    };
+    assert_eq!(
+        *fields,
+        json!({
+            "big": "18446744073709551615",
+            "letter": "233",
+            "nan": "NaN",
+            "low": "-Infinity",
+            "pair": {"values": ["1", "-2"]},
+            "shape": Json::Null,
+        })
+    );
+    assert_eq!(
+        plan.differences,
+        [
+            "Root.Example.Spinner.shape: [SerializeReference] values are not built",
+            "Child: tag 20005 is not defined",
+        ]
     );
 }

@@ -16,7 +16,7 @@ use std::{
 
 use worldrunner_unity_serialized::{
     ClassId,
-    classes::{GameObject, Transform},
+    classes::{GameObject, MonoBehaviour, Transform},
     managers::TagManager,
     object::PPtr,
     script_data::ScriptLayouts,
@@ -122,6 +122,9 @@ enum Target {
     Object(usize),
     Transform(usize),
     Component(usize, usize),
+    /// A component of this class the engine does not build: an engine class without a plan
+    /// entry, or a `MonoBehaviour` whose script the build stripped.
+    Unbuilt(ClassId),
 }
 
 struct PlayerPlanner {
@@ -149,8 +152,11 @@ impl PlayerPlanner {
         let mut planned = 0;
         for component in &game_object.components {
             if component.path_id != transform_id {
-                self.index
-                    .insert(component.path_id, Target::Component(at, planned));
+                let target = match self.unbuilt_class(*component)? {
+                    Some(class) => Target::Unbuilt(class),
+                    None => Target::Component(at, planned),
+                };
+                self.index.insert(component.path_id, target);
                 planned += 1;
             }
         }
@@ -165,6 +171,26 @@ impl PlayerPlanner {
             self.add_object(child, Some(at))?;
         }
         Ok(())
+    }
+
+    /// The class of a component the engine does not build, or `None` for a script component
+    /// with a script.
+    fn unbuilt_class(&mut self, component: PPtr) -> Result<Option<ClassId>, PlayerError> {
+        let path = self.path.clone();
+        let file = self.files.local(&path, component)?;
+        let class = file
+            .file
+            .object(component.path_id)
+            .map(|object| object.class_id)
+            .ok_or_else(|| PlayerError::MissingObject {
+                path: path.clone(),
+                path_id: component.path_id,
+            })?;
+        if class != ClassId::MONO_BEHAVIOUR {
+            return Ok(Some(class));
+        }
+        let behaviour: MonoBehaviour = file.decode(component.path_id)?;
+        Ok(behaviour.script.is_null().then_some(class))
     }
 
     fn plan_object(

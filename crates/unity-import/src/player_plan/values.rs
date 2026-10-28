@@ -60,6 +60,12 @@ impl PlayerPlanner {
             Some(Target::Object(i)) => json!({ "$object": i }),
             Some(Target::Transform(i)) => json!({ "$transform": i }),
             Some(Target::Component(i, j)) => json!({ "$component": [i, j] }),
+            Some(Target::Unbuilt(class)) => {
+                self.differences.push(format!(
+                    "{path}: references a {class} component, which the engine does not build"
+                ));
+                Json::Null
+            }
             None => {
                 self.differences.push(format!(
                     "{path}: references object {} of file {}, which the plan does not hold",

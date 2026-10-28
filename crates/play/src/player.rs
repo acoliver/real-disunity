@@ -33,7 +33,7 @@ pub fn prepare_player(data: &Path, scene: &str) -> Result<PreparedPlayer, PlayEr
         tool.as_os_str(),
     ])?;
     let layouts_path = output.join("layouts.json");
-    let summary = run(Command::new(dotnet_host())
+    let summary = run(Command::new(crate::prepare::dotnet_host())
         .arg(tool.join("Disunity.Layouts.dll"))
         .arg(data)
         .arg(&layouts_path))?;
@@ -82,10 +82,7 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     if result.is_ok() {
         eprintln!("[player] ran {frames} frames");
     }
-    host.unload_slice()?;
-    result
-}
-
-fn dotnet_host() -> std::ffi::OsString {
-    std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into())
+    // A frame's failure says more than an unload failure that follows it.
+    let unloaded = host.unload_slice();
+    result.and(unloaded.map_err(PlayError::from))
 }

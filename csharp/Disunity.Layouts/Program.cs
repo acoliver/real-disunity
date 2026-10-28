@@ -18,6 +18,7 @@ var scripts = manifest.GameAssemblies.SelectMany(layouts.Scripts).ToList();
 using (var stream = File.Create(args[1]))
 using (var writer = new Utf8JsonWriter(stream))
     layouts.Write(writer, scripts);
-foreach (var name in layouts.Unresolved) Console.Error.WriteLine($"unresolved type: {name}");
-Console.WriteLine($"{scripts.Count} scripts, {layouts.Types.Count} types");
+// Fields of these types are left out of their layouts, so the summary names them.
+Console.WriteLine($"{scripts.Count} scripts, {layouts.Types.Count} types, {layouts.Unresolved.Count} unresolved types");
+foreach (var name in layouts.Unresolved) Console.WriteLine($"unresolved type: {name}");
 return 0;

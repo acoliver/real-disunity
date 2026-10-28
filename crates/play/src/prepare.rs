@@ -165,9 +165,13 @@ pub(crate) fn run(command: &mut Command) -> Result<String, PlayError> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// The `dotnet` host: `DOTNET_HOST_PATH` when the SDK sets it, else `dotnet` on the path.
+pub(crate) fn dotnet_host() -> std::ffi::OsString {
+    std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into())
+}
+
 pub(crate) fn dotnet(args: &[&std::ffi::OsStr]) -> Result<(), PlayError> {
-    let dotnet = std::env::var_os("DOTNET_HOST_PATH").unwrap_or_else(|| "dotnet".into());
-    run(Command::new(dotnet)
+    run(Command::new(dotnet_host())
         .args(["build", "--warnaserror", "--nologo", "-v", "quiet"])
         .args(args))
     .map(drop)

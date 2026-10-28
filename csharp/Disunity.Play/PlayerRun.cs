@@ -26,7 +26,8 @@ internal static class PlayerRun
         foreach (var unresolved in hooks.Unresolved) Log($"startup hook unresolved: {unresolved.Hook}: {unresolved.Reason}");
         var beforeScene = RuntimeHooks.PhaseOrder.Where(phase => phase != RuntimeInitializeLoadType.AfterSceneLoad);
         foreach (var phase in beforeScene) RunPhase(hooks, phase);
-        var options = new SceneLoadOptions(Load(manifest.GameAssemblies[0]), NoFont)
+        // Player plans name each script's assembly, so the default scripts assembly is unused.
+        var options = new SceneLoadOptions(typeof(PlayerRun).Assembly, NoFont)
         {
             FirstTextureIdentity = request.GetProperty("first_texture").GetUInt64(),
             Assemblies = Load,
@@ -34,8 +35,16 @@ internal static class PlayerRun
         var planPath = request.GetProperty("plan").GetString()!;
         Log($"loading scene {planPath}");
         var scene = DisunityHost.LoadScene(File.ReadAllText(planPath), options);
-        foreach (var line in scene.Differences) Log($"not reproduced: {line}");
-        RunPhase(hooks, RuntimeInitializeLoadType.AfterSceneLoad);
+        try
+        {
+            foreach (var line in scene.Differences) Log($"not reproduced: {line}");
+            RunPhase(hooks, RuntimeInitializeLoadType.AfterSceneLoad);
+        }
+        catch
+        {
+            scene.Dispose();
+            throw;
+        }
         Log("scene loaded");
         return scene;
     }

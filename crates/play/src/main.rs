@@ -107,6 +107,17 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 /// Starts a player's scene, `level0` unless `--scene` names another, and runs it headless
 /// for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
 fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
+    let windowed = arguments.game.is_some()
+        || arguments.size.is_some()
+        || !arguments.keys.is_empty()
+        || !arguments.captures.is_empty()
+        || arguments.font.is_some()
+        || arguments.seed.is_some();
+    if windowed {
+        return Err(
+            "--player runs without a window and takes only --scene, --frames and --fixed-dt".into(),
+        );
+    }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
     let prepared = prepare_player(data, scene).map_err(|error| error.to_string())?;
     let dt = arguments

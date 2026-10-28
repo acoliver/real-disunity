@@ -48,6 +48,10 @@ public sealed class Rules : MonoBehaviour
     public int kept = 9;
     [NonSerialized] public int skipped = 3;
     public int received;
+    public char letter;
+    public ulong big;
+    public sbyte small;
+    public float low;
     public string? awake;
     public GameObject? Other => other;
     public void Receive(int value) => received = value;
@@ -84,6 +88,7 @@ internal static class LoaderRules
          "other": {"$object": 1}, "anchor": {"$transform": 1}, "peer": {"$component": [1, 0]},
          "waves": [{"count": "2", "art": {"$sprite": 0}}], "more": [{"count": "3", "art": null}],
          "settings": {"$asset": 0}, "skipped": "8", "removedField": "1",
+         "letter": "233", "big": "18446744073709551615", "small": "-2", "low": "-Infinity",
          "changed": {"m_PersistentCalls": {"m_Calls": [{"m_Target": {"$component": [1, 0]}, "m_MethodName": "Receive",
            "m_Mode": "0", "m_CallState": "2", "m_Arguments": {"m_ObjectArgument": null, "m_IntArgument": "0",
            "m_FloatArgument": "0", "m_StringArgument": "", "m_BoolArgument": "0"}}]}}}
@@ -116,6 +121,8 @@ internal static class LoaderRules
         using var scene = DisunityHost.LoadScene(Plan(Fields), Options);
         var (a, b) = (scene.Objects[0].GetComponent<Rules>()!, scene.Objects[1].GetComponent<Rules>()!);
         Require((a.count, a.speed, a.on, a.mood, a.label) == (7, 2.5f, true, Mood.Angry, "hi"), "scalars and enums bind");
+        Require((a.letter, a.big, a.small, a.low) == ('\u00e9', ulong.MaxValue, (sbyte)-2, float.NegativeInfinity),
+            "chars, the full ulong range, negative narrow integers and infinities bind");
         Require(a.at == new Vector2(1, 2) && a.far == new Vector3(1, 2, 3) && a.cell == new Vector2Int(4, 5), "vectors bind");
         Require(a.tint == new Color(1, 0, 0, 1) && a.mask.value == 256, "colors and layer masks bind");
         Require(ReferenceEquals(a.Other, b.gameObject) && ReferenceEquals(a.anchor, b.transform) && ReferenceEquals(a.peer, b),

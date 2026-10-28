@@ -11,7 +11,8 @@ use crate::{
     script_builtin::{Builtin, read_builtin},
 };
 
-/// A number, `bool`, `char` or `string` field. Enums are their underlying type.
+/// A number, `bool`, `char` or `string` field. Enums of up to 32 bits are their underlying
+/// type; Unity does not serialize wider ones.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Primitive {
     Bool,
@@ -165,15 +166,22 @@ pub const REFERENCES: &str = "references";
 /// The registry format Unity 2021.2 and later write.
 const REGISTRY_VERSION: i32 = 2;
 
-/// Unity stops serializing nested `[Serializable]` classes past this depth, so a class that
-/// contains itself, directly or through a list, ends there.
+/// A `[Serializable]` class nested more than this many classes below the script keeps its
+/// other fields but leaves out those that hold classes, directly or in an array. A class
+/// holding a list of itself, or itself through another class, ends there. (A field of a
+/// class's own type is not serialized at all; the layout leaves it out.)
 pub const MAX_CLASS_DEPTH: usize = 10;
+
+/// Values nested deeper than this, counting structs, which Unity does not limit, are taken
+/// as malformed data, so a struct holding an array of itself cannot exhaust the stack.
+pub const MAX_NESTING: usize = 64;
 
 /// Reads the script fields of a `MonoBehaviour`, starting `start` bytes into its object
 /// bytes, with the layout at `root`. The fields must use every remaining byte.
 ///
 /// A type with `[SerializeReference]` fields is followed by the object's reference
-/// registry, returned as the [`REFERENCES`] field.
+/// registry, returned as the [`REFERENCES`] field. Unity 6000.3 writes registry version 2
+/// there; other versions are rejected.
 ///
 /// # Errors
 /// Fails when the data ends early or bytes remain, when a value is malformed, or when the
@@ -188,6 +196,7 @@ pub fn read_script(
     let mut reader = ScriptReader {
         r: ObjectReader::at(object, start, big_endian),
         layouts,
+        nesting: 0,
     };
     let mut fields = reader.fields(root, 0)?;
     if layouts.has_references(root) {
@@ -206,25 +215,38 @@ pub fn read_script(
 struct ScriptReader<'a, 'l> {
     r: ObjectReader<'a>,
     layouts: &'l ScriptLayouts,
+    /// Composite values entered and not yet finished.
+    nesting: usize,
 }
 
 impl ScriptReader<'_, '_> {
     fn fields(&mut self, ty: usize, depth: usize) -> Result<Vec<(String, Value)>, SerializedError> {
         let layout = &self.layouts.types[ty];
+        self.nesting += 1;
+        if self.nesting > MAX_NESTING {
+            return Err(SerializedError::UnsupportedScriptField {
+                field_type: format!("{} nested more than {MAX_NESTING} values deep", layout.key),
+            });
+        }
         let mut values = Vec::with_capacity(layout.fields.len());
         for field in &layout.fields {
             if let Some(value) = self.field(&field.ty, depth)? {
                 values.push((field.name.clone(), value));
             }
         }
+        self.nesting -= 1;
         Ok(values)
     }
 
     /// A direct field of a class or struct; `None` when Unity's nesting limit leaves it out.
     fn field(&mut self, ty: &FieldType, depth: usize) -> Result<Option<Value>, SerializedError> {
-        if let FieldType::Composite(index) = ty
+        let mut held = ty;
+        while let FieldType::Array(element) = held {
+            held = element;
+        }
+        if let FieldType::Composite(index) = held
             && !self.layouts.types[*index].value_type
-            && depth >= MAX_CLASS_DEPTH
+            && depth > MAX_CLASS_DEPTH
         {
             return Ok(None);
         }
@@ -270,8 +292,8 @@ impl ScriptReader<'_, '_> {
         })
     }
 
-    /// The registry of an object's `[SerializeReference]` values. Each entry names its class;
-    /// an entry with an empty class name is a null value with no data.
+    /// The registry of an object's `[SerializeReference]` values. Each entry names its class.
+    /// An entry with a negative ID (-1 unknown, -2 null) or an empty class name has no data.
     fn registry(&mut self) -> Result<Value, SerializedError> {
         let version = self.r.i32()?;
         if version != REGISTRY_VERSION {
@@ -293,7 +315,12 @@ impl ScriptReader<'_, '_> {
         let class = self.r.string()?;
         let namespace = self.r.string()?;
         let assembly = self.r.string()?;
-        let data = if class.is_empty() {
+        let data = if rid < 0 || class.is_empty() {
+            if rid < 0 && !class.is_empty() {
+                return Err(SerializedError::UnsupportedScriptField {
+                    field_type: format!("a registry entry {rid} that names class {class}"),
+                });
+            }
             Vec::new()
         } else {
             let name = if namespace.is_empty() {

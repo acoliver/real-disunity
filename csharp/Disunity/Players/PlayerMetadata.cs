@@ -23,9 +23,12 @@ internal sealed record DefinedSig(DefinedType Type, ImmutableArray<SigType> Args
 /// <summary>A single-dimensional, zero-based array.</summary>
 internal sealed record ArraySig(SigType Element) : SigType;
 
-/// <summary>A type Unity never serializes: a pointer, a multi-dimensional array, a generic
-/// method parameter, or a reference the assemblies cannot resolve.</summary>
+/// <summary>A type Unity never serializes: a pointer, a multi-dimensional array or a generic
+/// method parameter.</summary>
 internal sealed record UnsupportedSig(string What) : SigType;
+
+/// <summary>A reference to a type none of the assemblies defines.</summary>
+internal sealed record UnresolvedSig(string Name) : SigType;
 
 /// <summary>A type definition in one assembly's metadata.</summary>
 internal readonly record struct DefinedType(PlayerMetadata.Module Module, TypeDefinitionHandle Handle)
@@ -84,6 +87,9 @@ internal sealed class PlayerMetadata : IDisposable
     public DefinedType? Find(string assembly, string fullName)
     {
         if (_cache.TryGetValue((assembly, fullName), out var known)) return known;
+        // Not found until the search ends, so assemblies that forward a name to each other
+        // end the search instead of recursing.
+        _cache[(assembly, fullName)] = null;
         DefinedType? found = null;
         if (_modules.TryGetValue(assembly, out var module))
             found = Defined(module, fullName) ?? Forwarded(module, fullName);
@@ -180,7 +186,7 @@ internal sealed class PlayerMetadata : IDisposable
             if (metadata.Target(reader, handle) is not { } target) return new UnsupportedSig("a reference outside any assembly");
             return metadata.Find(target.Assembly, target.FullName) is { } found
                 ? new DefinedSig(found, ImmutableArray<SigType>.Empty)
-                : new UnsupportedSig($"[{target.Assembly}]{target.FullName}, which the player does not ship");
+                : new UnresolvedSig($"[{target.Assembly}]{target.FullName}");
         }
 
         public SigType GetTypeFromSpecification(MetadataReader reader, ImmutableArray<SigType> context, TypeSpecificationHandle handle, byte rawTypeKind) =>

@@ -12,11 +12,21 @@ internal static class ScriptLayoutTests
 {
     public enum Small : byte { A, B }
 
+    public enum Wide : long { A }
+
+    public enum WideUnsigned : ulong { A }
+
     public interface IShape { }
 
     [Serializable] public struct Pair { public int Count = 1; public float Weight = 1; public Pair() { } }
 
-    [Serializable] public class Node { public string Name = ""; public List<Node> Children = new(); }
+    [Serializable] public class Node { public string Name = ""; public List<Node> Children = new(); public Node? Next = null; }
+
+    [Serializable] public class GenericBase<T> { public T Item = default!; }
+
+    [Serializable] public class FromGeneric : GenericBase<int> { public int Extra = 1; }
+
+    [Serializable] public class Loose { public int Value = 1; }
 
     [Serializable] public class Circle : IShape { public float Radius = 1; }
 
@@ -41,6 +51,10 @@ internal static class ScriptLayoutTests
         public readonly int fixedValue;
         public const int Constant = 1;
         public Small small;
+        public Wide wide;
+        public WideUnsigned wideUnsigned;
+        public DayOfWeek day;
+        public char letter;
         public Vector3 position;
         public GameObject? target;
         public int[] numbers = Array.Empty<int>();
@@ -53,6 +67,8 @@ internal static class ScriptLayoutTests
         public Box<string> boxed = new();
         [SerializeReference] public IShape? shape;
         [SerializeReference] public List<IShape> shapes = new();
+        [SerializeReference] public object? any;
+        public FromGeneric fromGeneric = new();
         public Action? callback;
         public object? anything;
     }
@@ -93,10 +109,13 @@ internal static class ScriptLayoutTests
     {
         var fields = layouts.Types[key].Fields;
         Require(string.Join(" ", fields.Select(field => field.Name))
-            == "baseValue number flag small position target numbers pairs tree boxed shape shapes",
+            == "baseValue number flag small day letter position target numbers pairs tree boxed shape shapes any fromGeneric",
             $"serialized fields: {string.Join(" ", fields.Select(field => field.Name))}");
         Require(Type(fields, "flag") == new ScriptPrimitive("bool"), "a [SerializeField] bool");
         Require(Type(fields, "small") == new ScriptPrimitive("UInt8"), "an enum is its underlying type");
+        Require(Type(fields, "day") == new ScriptPrimitive("int"), "a class library enum is serialized");
+        Require(Type(fields, "letter") == new ScriptPrimitive("char"), "a char");
+        Require(Type(fields, "any") == new ScriptReference("System.Object"), "a reference to any class");
         Require(Type(fields, "position") == new ScriptBuiltin("UnityEngine.Vector3"), "Vector3 is builtin");
         Require(Type(fields, "target") == new ScriptObject("UnityEngine.GameObject"), "an object reference");
         Require(Type(fields, "numbers") == new ScriptArray(new ScriptPrimitive("int")), "an int array");
@@ -111,7 +130,11 @@ internal static class ScriptLayoutTests
         Require(pair.ValueType && pair.Fields.Select(f => f.Name).SequenceEqual(new[] { "Count", "Weight" }), "Pair layout");
         var node = layouts.Types[Nested("Node")];
         Require(!node.ValueType && Type(node.Fields, "Children") == new ScriptArray(new ScriptComposite(Nested("Node"))),
-            "a class that contains itself refers to its own key");
+            "a class with a list of itself refers to its own key");
+        Require(node.Fields.All(f => f.Name != "Next"), "a field of the class's own type is left out");
+        var derived = layouts.Types[Nested("FromGeneric")];
+        Require(derived.Fields.Select(f => f.Name).SequenceEqual(new[] { "Item", "Extra" })
+            && Type(derived.Fields, "Item") == new ScriptPrimitive("int"), "a generic base class's fields are bound");
         var boxed = layouts.Types.Keys.Single(k => k.StartsWith(Nested("Box`1"), StringComparison.Ordinal));
         Require(boxed.EndsWith("[String]", StringComparison.Ordinal), $"generic key {boxed}");
         Require(Type(layouts.Types[boxed].Fields, "Item") == new ScriptPrimitive("string"), "a generic argument is substituted");
@@ -125,6 +148,9 @@ internal static class ScriptLayoutTests
         Require(square.Fields.Select(f => f.Name).SequenceEqual(new[] { "Radius", "Side" }), "base class fields come first");
         Require(layouts.Types.ContainsKey(Nested("Circle")), "an implementing class gets a layout");
         Require(!layouts.Types.ContainsKey(Nested("AbstractValue")), "abstract classes are not serialized");
+        Require(layouts.Types.ContainsKey(Nested("Loose")) && !layouts.Types.Keys.Any(k => k.StartsWith("System.", StringComparison.Ordinal)),
+            "a System.Object reference reaches every serializable class outside the class library");
+        Require(layouts.Unresolved.Count == 0, $"unresolved: {string.Join(", ", layouts.Unresolved)}");
     }
 
     private static void ListsScriptClasses(ScriptLayouts layouts)
@@ -144,7 +170,7 @@ internal static class ScriptLayoutTests
         var first = root.GetProperty("types").GetProperty(key).GetProperty("fields")[0];
         Require(first.GetProperty("name").GetString() == "baseValue"
             && first.GetProperty("type").GetProperty("primitive").GetString() == "int", "field JSON");
-        var pairs = root.GetProperty("types").GetProperty(key).GetProperty("fields")[7].GetProperty("type");
+        var pairs = root.GetProperty("types").GetProperty(key).GetProperty("fields")[9].GetProperty("type");
         Require(pairs.GetProperty("array").GetProperty("composite").GetString() == Nested("Pair"), "nested type JSON");
     }
 

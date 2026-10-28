@@ -3,8 +3,8 @@ use worldrunner_unity_serialized::{
     object::PPtr,
     script_builtin::Builtin,
     script_data::{
-        FieldType, MAX_CLASS_DEPTH, Primitive, REFERENCES, ScriptField, ScriptLayouts, ScriptType,
-        Value, read_script,
+        FieldType, MAX_CLASS_DEPTH, MAX_NESTING, Primitive, REFERENCES, ScriptField, ScriptLayouts,
+        ScriptType, Value, read_script,
     },
 };
 
@@ -185,13 +185,16 @@ fn reads_builtins_with_their_native_layouts() {
     assert_eq!(fields[4].1, Value::Int(77));
 }
 
-/// A class that holds itself: each level has a name and the next level.
-fn chain() -> ScriptLayouts {
+/// A class that holds a list of itself: each level has a name and its children.
+fn tree() -> ScriptLayouts {
     ScriptLayouts::new(vec![class(
-        "Game:Link",
+        "Game:Node",
         vec![
             field("name", PRIM(Primitive::String)),
-            field("next", FieldType::Composite(0)),
+            field(
+                "children",
+                FieldType::Array(Box::new(FieldType::Composite(0))),
+            ),
         ],
     )])
 }
@@ -199,17 +202,42 @@ fn chain() -> ScriptLayouts {
 #[test]
 fn stops_nested_classes_at_unitys_depth_limit() {
     let mut bytes = Bytes::default();
+    // The script and the classes up to the limit hold one child each; the class past the
+    // limit has no list.
     for level in 0..=MAX_CLASS_DEPTH {
-        bytes = bytes.string(&level.to_string());
+        bytes = bytes.string(&level.to_string()).i32(1);
     }
-    let mut fields = read(bytes, &chain()).unwrap();
+    bytes = bytes.string("last");
+    let mut fields = read(bytes, &tree()).unwrap();
     let mut levels = 1;
-    while let Some((_, Value::Struct(next))) = fields.iter().find(|(name, _)| name == "next") {
-        fields = next.clone();
+    while let Some((_, Value::Array(children))) = fields.iter().find(|(name, _)| name == "children")
+    {
+        let Value::Struct(child) = &children[0] else {
+            panic!("a child is a struct")
+        };
+        fields = child.clone();
         levels += 1;
     }
-    assert_eq!(levels, MAX_CLASS_DEPTH + 1);
-    assert_eq!(names(&fields), ["name"]);
+    assert_eq!(levels, MAX_CLASS_DEPTH + 2);
+    assert_eq!(
+        fields,
+        [("name".to_owned(), Value::String("last".to_owned()))]
+    );
+}
+
+#[test]
+fn rejects_structs_nested_past_the_nesting_limit() {
+    let mut layouts = tree();
+    layouts.types[0].value_type = true;
+    let layouts = ScriptLayouts::new(layouts.types);
+    let mut bytes = Bytes::default();
+    for _ in 0..=MAX_NESTING {
+        bytes = bytes.string("").i32(1);
+    }
+    assert!(matches!(
+        read(bytes, &layouts),
+        Err(SerializedError::UnsupportedScriptField { field_type }) if field_type.contains("nested more than")
+    ));
 }
 
 #[test]
@@ -305,6 +333,18 @@ fn rejects_registries_it_cannot_read() {
     assert!(matches!(
         read(old, &layouts),
         Err(SerializedError::UnsupportedScriptField { field_type }) if field_type.contains("version 1")
+    ));
+    let null_with_class = Bytes::default()
+        .i64(-2)
+        .i32(2)
+        .i32(1)
+        .i64(-2)
+        .string("Circle")
+        .string("")
+        .string("Game");
+    assert!(matches!(
+        read(null_with_class, &layouts),
+        Err(SerializedError::UnsupportedScriptField { field_type }) if field_type.contains("entry -2")
     ));
     let unknown = Bytes::default()
         .i64(1)

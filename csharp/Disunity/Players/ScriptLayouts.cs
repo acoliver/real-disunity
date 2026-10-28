@@ -11,7 +11,8 @@ public abstract record ScriptFieldType;
 /// <summary>A number, <c>bool</c>, <c>char</c> or <c>string</c>, by Unity's type tree name:
 /// <c>bool</c>, <c>SInt8</c>, <c>UInt8</c>, <c>SInt16</c>, <c>UInt16</c>, <c>char</c>,
 /// <c>int</c>, <c>unsigned int</c>, <c>SInt64</c>, <c>UInt64</c>, <c>float</c>,
-/// <c>double</c> or <c>string</c>. Enums are their underlying type.</summary>
+/// <c>double</c> or <c>string</c>. Enums of 32 bits or fewer are their underlying type;
+/// Unity does not serialize 64-bit enums.</summary>
 public sealed record ScriptPrimitive(string Name) : ScriptFieldType;
 
 /// <summary>A reference to a <c>UnityEngine.Object</c> of the named type: a file index and a path ID.</summary>
@@ -27,7 +28,8 @@ public sealed record ScriptComposite(string Key) : ScriptFieldType;
 /// <summary>An array or <c>List&lt;T&gt;</c>.</summary>
 public sealed record ScriptArray(ScriptFieldType Element) : ScriptFieldType;
 
-/// <summary>A <c>[SerializeReference]</c> field: an ID into the object's reference registry.</summary>
+/// <summary>A <c>[SerializeReference]</c> field: an ID into the object's reference registry.
+/// <see cref="Type"/> is the declared type, <c>System.Object</c> for a field of any class.</summary>
 public sealed record ScriptReference(string Type) : ScriptFieldType;
 
 public sealed record ScriptField(string Name, ScriptFieldType Type);
@@ -42,8 +44,11 @@ public sealed record ScriptType(string Key, bool ValueType, IReadOnlyList<Script
 /// <c>[SerializeField]</c> or <c>[SerializeReference]</c>, and has a serializable type:
 /// a primitive, <c>string</c>, an enum, a <c>UnityEngine.Object</c>, a Unity builtin value,
 /// a non-abstract <c>[Serializable]</c> class or struct outside the .NET class library, or a
-/// single array or <c>List&lt;T&gt;</c> of one of those. Byte alignment, builtin layouts and
-/// Unity's nesting limit belong to the reader of the data.
+/// single array or <c>List&lt;T&gt;</c> of one of those. Enums wider than 32 bits, fixed-size
+/// buffers, and a field whose type is the class declaring it are not serialized. Byte
+/// alignment, builtin layouts and Unity's nesting limit belong to the reader of the data.
+/// References to types no assembly defines are listed in <see cref="Unresolved"/>, since the
+/// fields they hide would make the data unreadable.
 /// </summary>
 public sealed class ScriptLayouts : IDisposable
 {
@@ -60,10 +65,16 @@ public sealed class ScriptLayouts : IDisposable
     private readonly Dictionary<string, ScriptType?> _types = new(StringComparer.Ordinal);
     // The declared types of [SerializeReference] fields, whose possible values need layouts.
     private readonly List<DefinedSig> _referenced = new();
+    // Whether a [SerializeReference] field is declared as System.Object, so any class can fill it.
+    private bool _referencesAnyClass;
+    private readonly SortedSet<string> _unresolved = new(StringComparer.Ordinal);
 
     public ScriptLayouts(IEnumerable<(string Name, byte[] Image)> assemblies) => _metadata = new PlayerMetadata(assemblies);
 
     public void Dispose() => _metadata.Dispose();
+
+    /// <summary>Types the layouts reached so far reference that no assembly defines.</summary>
+    public IReadOnlyCollection<string> Unresolved => _unresolved;
 
     /// <summary>Every class and struct reached so far, by key.</summary>
     public IReadOnlyDictionary<string, ScriptType> Types =>
@@ -96,27 +107,38 @@ public sealed class ScriptLayouts : IDisposable
 
     /// <summary>
     /// Adds the layouts of every class a <c>[SerializeReference]</c> field reached so far can
-    /// hold: non-abstract, non-generic <c>[Serializable]</c> classes that derive from or
-    /// implement the field's declared type. An object's reference registry names its values'
-    /// classes, so their layouts must be known before the data is read.
+    /// hold: non-abstract, non-generic <c>[Serializable]</c> classes outside the .NET class
+    /// library that derive from or implement the field's declared type, or any such class for a
+    /// field declared as <c>System.Object</c>. An object's reference registry names its values'
+    /// classes, so their layouts must be known before the data is read. A generic class's value
+    /// has no layout, and reading one fails with the class named.
     /// </summary>
     public void AddReferenceTargets()
     {
-        for (var done = 0; done < _referenced.Count;)
+        var anyDone = false;
+        for (var done = 0; done < _referenced.Count || (_referencesAnyClass && !anyDone);)
         {
             var declared = _referenced.Skip(done).ToList();
+            var any = _referencesAnyClass && !anyDone;
             done = _referenced.Count;
-            foreach (var module in _metadata.Modules)
-                foreach (var handle in module.Reader.TypeDefinitions)
-                {
-                    var type = new DefinedSig(new DefinedType(module, handle), ImmutableArray<SigType>.Empty);
-                    var definition = type.Type.Definition;
-                    const TypeAttributes Excluded = TypeAttributes.Abstract | TypeAttributes.Interface;
-                    if ((definition.Attributes & Excluded) != 0 || (definition.Attributes & Serializable) == 0) continue;
-                    if (definition.GetGenericParameters().Count > 0 || IsValueType(type)) continue;
-                    if (declared.Any(target => AssignableTo(type, target.Type))) Composite(type);
-                }
+            anyDone |= any;
+            foreach (var type in ReferenceCandidates())
+                if (any || declared.Any(target => AssignableTo(type, target.Type))) Composite(type);
         }
+    }
+
+    /// <summary>The classes a <c>[SerializeReference]</c> value can be.</summary>
+    private IEnumerable<DefinedSig> ReferenceCandidates()
+    {
+        const TypeAttributes Excluded = TypeAttributes.Abstract | TypeAttributes.Interface;
+        foreach (var module in _metadata.Modules.Where(module => !IsClassLibrary(module.Name)).ToList())
+            foreach (var handle in module.Reader.TypeDefinitions)
+            {
+                var type = new DefinedSig(new DefinedType(module, handle), ImmutableArray<SigType>.Empty);
+                var definition = type.Type.Definition;
+                if ((definition.Attributes & Excluded) != 0 || (definition.Attributes & Serializable) == 0) continue;
+                if (definition.GetGenericParameters().Count == 0 && !IsValueType(type)) yield return type;
+            }
     }
 
     /// <summary>Whether a class derives from or implements <paramref name="target"/>.</summary>
@@ -148,6 +170,9 @@ public sealed class ScriptLayouts : IDisposable
         writer.WriteStartObject();
         writer.WriteStartArray("scripts");
         foreach (var key in scripts) writer.WriteStringValue(key);
+        writer.WriteEndArray();
+        writer.WriteStartArray("unresolved");
+        foreach (var name in _unresolved) writer.WriteStringValue(name);
         writer.WriteEndArray();
         writer.WriteStartObject("types");
         foreach (var (key, type) in Types.OrderBy(entry => entry.Key, StringComparer.Ordinal))
@@ -231,6 +256,9 @@ public sealed class ScriptLayouts : IDisposable
             var field = reader.GetFieldDefinition(handle);
             if (!Serialized(reader, field, out var reference)) continue;
             var declared = _metadata.FieldType(type.Type.Module, field, type.Args);
+            // Unity leaves out a field of the class's own type; a list of it, or a cycle
+            // through another class, is serialized up to the nesting limit.
+            if (!reference && declared is DefinedSig self && Key(self) == Key(type) && !Inherits(self, "UnityEngine.Object")) continue;
             if (Classify(declared, element: false, reference) is { } classified)
                 yield return new ScriptField(reader.GetString(field.Name), classified);
         }
@@ -255,11 +283,25 @@ public sealed class ScriptLayouts : IDisposable
 
     private ScriptFieldType? Classify(SigType type, bool element, bool reference) => type switch
     {
+        PrimitiveSig { Code: PrimitiveTypeCode.Object } when reference => AnyClass(),
         PrimitiveSig primitive => PrimitiveName(primitive.Code) is { } name ? new ScriptPrimitive(name) : null,
         ArraySig array => element ? null : Elements(array.Element, reference),
         DefinedSig defined => ClassifyDefined(defined, element, reference),
+        UnresolvedSig unresolved => Unresolve(unresolved.Name),
         _ => null,
     };
+
+    private ScriptReference AnyClass()
+    {
+        _referencesAnyClass = true;
+        return new ScriptReference("System.Object");
+    }
+
+    private ScriptFieldType? Unresolve(string name)
+    {
+        _unresolved.Add(name);
+        return null;
+    }
 
     private ScriptFieldType? Elements(SigType element, bool reference) =>
         Classify(element, element: true, reference) is { } inner and not ScriptArray ? new ScriptArray(inner) : null;
@@ -267,11 +309,15 @@ public sealed class ScriptLayouts : IDisposable
     private ScriptFieldType? ClassifyDefined(DefinedSig type, bool element, bool reference)
     {
         var name = type.Type.FullName;
+        // Enums from the class library, such as System.DayOfWeek, are serialized too.
+        if (Inherits(type, "System.Enum"))
+            return EnumUnderlying(type) is PrimitiveSig { Code: not (PrimitiveTypeCode.Int64 or PrimitiveTypeCode.UInt64) } underlying
+                ? Classify(underlying, element, reference: false)
+                : null;
         if (IsClassLibrary(type.Type.Assembly))
             return name == "System.Collections.Generic.List`1" && type.Args.Length == 1 && !element
                 ? Elements(type.Args[0], reference)
                 : null;
-        if (Inherits(type, "System.Enum")) return Classify(EnumUnderlying(type), element, reference: false);
         if (Inherits(type, "UnityEngine.Object")) return new ScriptObject(name);
         if (Builtins.Contains(name)) return new ScriptBuiltin(name);
         var definition = type.Type.Definition;
@@ -284,7 +330,7 @@ public sealed class ScriptLayouts : IDisposable
         if ((definition.Attributes & (TypeAttributes.Interface | TypeAttributes.Abstract)) != 0) return null;
         if ((definition.Attributes & Serializable) == 0) return null;
         if (Inherits(type, "System.Delegate")) return null;
-        if (type.Args.Length != definition.GetGenericParameters().Count || type.Args.Any(arg => arg is UnsupportedSig)) return null;
+        if (type.Args.Length != definition.GetGenericParameters().Count || type.Args.Any(arg => arg is UnsupportedSig or UnresolvedSig)) return null;
         return new ScriptComposite(Composite(type));
     }
 
@@ -304,7 +350,9 @@ public sealed class ScriptLayouts : IDisposable
     {
         var handle = type.Type.Definition.BaseType;
         if (handle.IsNil) return null;
-        return _metadata.Resolve(type.Type.Module, handle, type.Args) as DefinedSig;
+        var resolved = _metadata.Resolve(type.Type.Module, handle, type.Args);
+        if (resolved is UnresolvedSig unresolved) _unresolved.Add(unresolved.Name);
+        return resolved as DefinedSig;
     }
 
     /// <summary>Whether the type is, or derives from, the type with this full name.</summary>
@@ -349,6 +397,7 @@ public sealed class ScriptLayouts : IDisposable
         PrimitiveSig primitive => primitive.Code.ToString(),
         ArraySig array => Key(array.Element) + "[]",
         UnsupportedSig unsupported => unsupported.What,
+        UnresolvedSig unresolved => unresolved.Name,
         _ => "?",
     };
 

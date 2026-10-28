@@ -24,10 +24,14 @@ mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
 mod composition;
 mod depth_fitting;
+mod depth_footprint;
+pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod effects;
 mod lighting;
 mod obscurance;
-pub use depth_fitting::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
+pub use depth_fitting::{
+    SceneDepthAdoption, SceneDepthFitting, SceneDepthMinimumSpan, SceneDepthSplits,
+};
 pub use lighting::{
     SceneDiffuseEnvironment, SceneDirectDiffuse, SceneRoughnessRemap, SceneSh9,
     SceneSpecularConvention, SceneSpecularOcclusion, SceneSpecularVisibility, SceneSurfaceDisk,
@@ -62,7 +66,8 @@ pub use post::{
 };
 mod ssr;
 pub use ssr::{
-    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrPassBehind, SceneSsrTraversal,
+    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrLodMapping, SceneSsrPassBehind,
+    SceneSsrTraversal,
 };
 mod error;
 mod foliage_wind;
@@ -476,6 +481,7 @@ mod tests {
             shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
                 .expect("synthetic cascades validate"),
             ssao: Some(SceneSsao {
+                depth_footprint: crate::SceneSsaoDepthFootprint::default(),
                 kernel: crate::SceneSsaoKernel::Hemisphere,
                 filter: crate::SceneSsaoFilter::DepthAwareBox,
                 sample_count: 16,

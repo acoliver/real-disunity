@@ -1,5 +1,7 @@
 #[path = "ao_accuracy_tests.rs"]
 mod ao_accuracy_tests;
+#[path = "application_policy_tests.rs"]
+mod application_policy_tests;
 #[path = "controls_tests.rs"]
 mod controls_tests;
 #[path = "fidelity_tests.rs"]
@@ -24,6 +26,8 @@ mod ownership_tests;
 mod regressions;
 #[path = "replacement_tests.rs"]
 mod replacement_tests;
+#[path = "trace_extent_tests.rs"]
+mod trace_extent_tests;
 #[path = "water_tests.rs"]
 pub(crate) mod water_tests;
 use super::*;

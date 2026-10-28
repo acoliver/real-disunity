@@ -68,6 +68,7 @@ fn baked_effects() -> Vec<SceneEffects> {
         post: vec![],
         anti_alias: *base.anti_alias(),
         ssao: Some(SceneSsao {
+            depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
             kernel: SceneSsaoKernel::Hemisphere,
             filter: SceneSsaoFilter::DepthAwareBox,
             sample_count: 4,
@@ -97,6 +98,8 @@ fn baked_effects() -> Vec<SceneEffects> {
             thickness_millimeters: 10,
             roughness_cutoff_micro: 1_000_000,
             resolution_scale_micro: 500_000,
+            radiance_rounding: SceneDownsampleRounding::Ceil,
+            application_lod: SceneSsrLodMapping::CutoffNormalized,
         })
         .unwrap();
     vec![

@@ -27,6 +27,7 @@ fn parts() -> SceneEffectsParts {
         shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
             .expect("synthetic cascades validate"),
         ssao: Some(SceneSsao {
+            depth_footprint: crate::SceneSsaoDepthFootprint::default(),
             kernel: crate::SceneSsaoKernel::Hemisphere,
             filter: crate::SceneSsaoFilter::DepthAwareBox,
             sample_count: 16,

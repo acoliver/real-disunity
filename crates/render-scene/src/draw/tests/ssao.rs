@@ -84,6 +84,7 @@ fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
 
 fn settings(intensity: u64) -> SceneSsao {
     SceneSsao {
+        depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
         kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
         filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         radius_millimeters: 2000,

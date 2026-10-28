@@ -200,8 +200,13 @@ fn occlusion_allocations(settings: &RendererConfiguration, set: &mut AllocationS
             worldrunner_render_plan::SceneSsaoKernel::Scalable { .. }
         )
     });
+    let footprint = settings.ssao.map(|ao| ao.depth_footprint);
     let size = if scalable {
-        [w.div_ceil(2), h.div_ceil(2), 1]
+        let [width, height] = footprint
+            .expect("scalable settings")
+            .rounding
+            .half_extent([w, h]);
+        [width, height, 1]
     } else {
         [w, h, 1]
     };
@@ -226,9 +231,7 @@ fn occlusion_allocations(settings: &RendererConfiguration, set: &mut AllocationS
         },
     );
     if scalable {
-        let mut extent = [w, h];
-        for _ in 0..8 {
-            extent = extent.map(|side| side.div_ceil(2));
+        for extent in footprint.expect("scalable settings").extents([w, h]) {
             set.texture(
                 "averaged AO depth",
                 [extent[0], extent[1], 1],
@@ -236,9 +239,6 @@ fn occlusion_allocations(settings: &RendererConfiguration, set: &mut AllocationS
                 [1, 1],
                 1,
             );
-            if extent.contains(&0) || extent == [1, 1] {
-                break;
-            }
         }
     }
 }
@@ -312,12 +312,7 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
             [1, 1],
             1,
         );
-        let mut size = if ssr.resolution_scale_micro == 500_000 {
-            [w.div_ceil(2), h.div_ceil(2)]
-        } else {
-            [w, h]
-        };
-        for _ in 0..6 {
+        for size in ssr.radiance_extents([w, h]) {
             set.texture(
                 "reflection radiance",
                 [size[0] * settings.frame.samples, size[1], 1],
@@ -325,10 +320,6 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
                 [1, 1],
                 1,
             );
-            if size == [1, 1] {
-                break;
-            }
-            size = size.map(|side| side.div_ceil(2));
         }
         reflection_depth_allocations([w, h], crate::ssr::depth_level_count(&ssr, [w, h]), set);
         set.buffer("reflection uniform", 192, 1);

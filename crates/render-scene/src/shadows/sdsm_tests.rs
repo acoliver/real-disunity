@@ -1,4 +1,45 @@
 #[test]
+fn authored_range_policy_reaches_delayed_and_same_frame_fitting() {
+    use worldrunner_render_plan::{
+        SceneDepthAdoption, SceneDepthFitting, SceneDepthMinimumSpan, SceneDepthSplits,
+    };
+    let mut authored = SceneDepthFitting {
+        near_step_mm: 200,
+        far_step_mm: 10_000,
+        minimum_span_mm: 200_000,
+        minimum_span_policy: SceneDepthMinimumSpan::ExtendFar,
+        active_maximum_mm: Some(1_100_000),
+        splits: SceneDepthSplits::Practical {
+            lambda_micro: 500_000,
+        },
+        adoption: SceneDepthAdoption::FrameIndexed {
+            latency_frames: 1,
+            contraction_frames: 0,
+        },
+    };
+    assert!(authored.validate().is_ok());
+    let settings = SdsmSettings::from(&authored);
+    assert_eq!(settings.range.active_maximum, Some(1100.0));
+    let depth = DepthRange::Receivers {
+        near: 1000.0,
+        far: 1050.0,
+    };
+    for (policy, frame) in [(settings.policy, 2), (AdoptionPolicy::SameFrameCapture, 1)] {
+        let mut state = AdoptionState::new(SdsmSettings { policy, ..settings }).unwrap();
+        state.complete(&state.ticket(1), depth).unwrap();
+        assert_eq!(
+            state.adopt(frame, [0.1, 2000.0]).unwrap().unwrap().depth,
+            DepthRange::Receivers {
+                near: 1000.0,
+                far: 1100.0
+            }
+        );
+    }
+    authored.active_maximum_mm = Some(0);
+    assert!(authored.validate().is_err());
+}
+
+#[test]
 fn pending_invalidation_preserves_each_contraction_timer_and_rejects_old_evidence() {
     use std::time::Duration;
     let mut state = AdoptionState::new(config(AdoptionPolicy::QuantizedPerBound {
@@ -86,6 +127,8 @@ fn config(policy: AdoptionPolicy) -> SdsmSettings {
             near_step: 0.5,
             far_step: 1.0,
             minimum_span: 1.0,
+            minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear,
+            active_maximum: None,
             split_lambda: 0.5,
             split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
         },

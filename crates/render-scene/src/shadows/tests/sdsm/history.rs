@@ -18,6 +18,8 @@ fn gpu_capture_preserves_interactive_contraction_history_and_immediate_expansion
                     near_step: 0.01,
                     far_step: 0.01,
                     minimum_span: 0.01,
+                    minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear,
+                    active_maximum: None,
                     ..policy()
                 },
             }),
@@ -75,6 +77,8 @@ fn gpu_fixed_clock_contraction_ignores_host_delay_and_resets_on_rewind() {
                     near_step: 0.01,
                     far_step: 0.01,
                     minimum_span: 0.01,
+                    minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear,
+                    active_maximum: None,
                     ..policy()
                 },
             }),

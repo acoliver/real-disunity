@@ -63,11 +63,12 @@ pub use scene::{
     MATERIAL_MICRO_SCALE, MaterialHandle, MeshHandle, ProvenSceneContribution,
     ROTATION_MICRO_SCALE, RenderScene, RouteDeclarationRef, RouteSceneFactory, RouteSceneInput,
     SceneAlphaMode, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
-    SceneCompositionFactory, SceneContribution, SceneDirection, SceneEffects, SceneEffectsParts,
-    SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject,
-    SceneParts, ScenePlacement, ScenePostStage, SceneResources, SceneRotation, SceneShadowCascades,
-    SceneSky, SceneSsao, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, SceneSsrComposition,
-    SceneSsrGridDomain, SceneSsrPassBehind, SceneSsrTraversal, SceneSun, SceneTerrain,
+    SceneCompositionFactory, SceneContribution, SceneDirection, SceneDownsampleRounding,
+    SceneEffects, SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh,
+    SceneMeshLod, SceneObject, SceneParts, ScenePlacement, ScenePostStage, SceneResources,
+    SceneRotation, SceneShadowCascades, SceneSky, SceneSsao, SceneSsaoDepthFootprint,
+    SceneSsaoFilter, SceneSsaoKernel, SceneSsr, SceneSsrComposition, SceneSsrGridDomain,
+    SceneSsrLodMapping, SceneSsrPassBehind, SceneSsrTraversal, SceneSun, SceneTerrain,
     SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform,
     SceneValidationError, SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy,
     TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
@@ -131,7 +132,10 @@ pub use scene::{
     SceneSpecularConvention, SceneSpecularOcclusion, SceneSpecularVisibility, SceneSurfaceDisk,
 };
 
-pub use scene::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits, SceneLodMaterialSlot};
+pub use scene::{
+    SceneDepthAdoption, SceneDepthFitting, SceneDepthMinimumSpan, SceneDepthSplits,
+    SceneLodMaterialSlot,
+};
 
 pub use scene::{
     TerrainColorization, TerrainColorizationChannels, TerrainLayer, TerrainLayeredSource,

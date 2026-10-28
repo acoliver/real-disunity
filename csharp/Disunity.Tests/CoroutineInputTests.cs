@@ -70,7 +70,7 @@ internal static class CoroutineInputTests
             try { yield return null; yield return new WaitForFixedUpdate(); }
             finally { Disposed = true; }
         }
-        private void Update() { if (Fail) throw new InvalidOperationException("iterator owner failed"); }
+        private void Update() { if (Fail) throw EngineFault.Make("iterator owner failed"); }
     }
     private static void TestFailureCancellation()
     {
@@ -125,8 +125,8 @@ internal static class CoroutineInputTests
         var probe = DisunityHost.AddComponent(new Probe());
         probe.StartCoroutine(new ThrowingIterator());
         DisunityHost.ReportFault();
-        try { DisunityHost.UnloadWorld(); throw new Exception("disposal failure was lost"); }
-        catch (AggregateException error) when (error.ToString().Contains("disposal failed")) { }
+        DisunityHost.UnloadWorld();
+        Require(DisunityHost.ScriptExceptionCount == 1, "a disposal failure is logged, not thrown");
         Require(!DisunityHost.IsLoaded, "disposal failure must not leak the native world");
         DisunityHost.LoadWorld();
         DisunityHost.UnloadWorld();

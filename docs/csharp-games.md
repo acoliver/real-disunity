@@ -89,6 +89,16 @@ A process runs C# scripts through `DisunityHost` in the `worldrunner-disunity-ru
 
 Input from the window reaches C# through `DisunityHost.PushKey`, `PushAxis` and `PushFocus`, with timestamps in seconds. `Input.GetKey`, `GetKeyDown`, `GetKeyUp` and `GetAxis` read the native input state for the current fixed or dynamic phase. No input axes exist by default: register each one the scripts use, such as `Horizontal`, with `DisunityHost.RegisterInputAxis(id, new InputAxisDefinition("Horizontal", KeyCode.LeftArrow, KeyCode.RightArrow))` in `Run`.
 
+## Script exceptions
+
+An exception that a script throws does not stop the frame. The engine catches it, logs it with `Debug.LogException` against the script (so `Application.logMessageReceived` sees a message of type `Exception`), and carries on with the next script and the next message, as Unity does. This covers `Awake`, `OnEnable`, `Start`, `FixedUpdate`, `Update`, `LateUpdate`, `OnDisable`, `OnDestroy`, collision and trigger messages, the same messages on a `ScriptableObject`, and a `UnityEvent` listener invoked from any of them. A listener that throws stops the remaining listeners of that one invocation and the rest of the message that invoked it.
+
+A script that threw keeps receiving later messages: an `Update` that throws is called again next frame, and an `Awake` that threw is followed by `OnEnable` and `Start`. `Start` runs once even when it throws. A coroutine step that throws is logged and ends that coroutine, including the coroutines it nested, and its `finally` blocks run. Other coroutines on the same script are unaffected. Work posted to the main thread and `Application.quitting` handlers follow the same rule.
+
+An error that comes from the engine rather than the game still fails the step. That includes a native error (`DisunityException`), a step with no world loaded, and a scene that cannot be built. A `DisunityException` that surfaces inside a script's own call into the engine counts as an engine error too, and is not logged and skipped.
+
+The host counts the logged script exceptions in `DisunityHost.ScriptExceptionCount` and resets the count when a world loads. When a `play` run ends, the bridge writes `N script exceptions were logged; the first: <exception>` to standard error if any were logged. The run still succeeds, so read that line when a game misbehaves without failing.
+
 ## Unity projects
 
 To run an existing Unity project's scripts, the scene they belong to has to be imported and built in the world before Awake runs. The importer side of that exists; the loader does not yet. [Importing Unity projects](unity-projects.md) describes what is available now.

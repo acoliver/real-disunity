@@ -28,6 +28,7 @@ public static partial class DisunityHost
         ThrowIfError(NativeBindings.disunity_world_create(&world));
         WorldHandle = world;
         _faulted = false;
+        ResetScriptExceptions();
         _listenerDiagnostic = null;
         try { InstallMainThreadContext(); }
         catch

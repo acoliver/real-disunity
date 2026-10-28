@@ -16,6 +16,8 @@ internal static class ScriptMessages
         if (result is IEnumerator iterator) script.StartCoroutine(iterator);
     }
 
+    /// <summary>Calls the message on the script. An exception the script throws is logged against
+    /// it and the result is null, as Unity reports it and goes on. A native error fails the step.</summary>
     internal static object? Invoke(UnityEngine.Object script, string name, object? argument = null)
     {
         var parameter = argument == null ? null : argument is Collider2D ? typeof(Collider2D) : argument.GetType();
@@ -30,11 +32,14 @@ internal static class ScriptMessages
                 throw new NotSupportedException($"unsupported script message {key}");
             Methods.Add(key, method);
         }
+        // Only an exception thrown inside the script's method arrives wrapped; a binding or
+        // lookup failure is the engine's own and propagates, as does a native error.
         try { return method?.Invoke(script, argument == null ? null : [argument]); }
-        catch (TargetInvocationException error) when (error.InnerException != null)
+        catch (TargetInvocationException error) when (error.InnerException is { } inner)
         {
-            ExceptionDispatchInfo.Capture(error.InnerException).Throw();
-            throw;
+            if (!DisunityHost.IsGameException(inner)) ExceptionDispatchInfo.Capture(inner).Throw();
+            DisunityHost.ReportScriptException(inner, script);
+            return null;
         }
     }
 }

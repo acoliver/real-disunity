@@ -114,6 +114,7 @@ pub struct SceneShadowCascades {
     extents_millimeters: Box<[u64]>,
     blend_band_micro: u64,
     camera_splits: bool,
+    sampling: super::SceneShadowSampling,
 }
 
 impl SceneShadowCascades {
@@ -132,6 +133,7 @@ impl SceneShadowCascades {
             extents_millimeters: extents_millimeters.into_boxed_slice(),
             blend_band_micro,
             camera_splits: false,
+            sampling: super::SceneShadowSampling::default(),
         };
         shadows.validate()?;
         Ok(shadows)
@@ -146,6 +148,20 @@ impl SceneShadowCascades {
         let mut value = Self::new(distances_millimeters, blend_band_micro)?;
         value.camera_splits = true;
         Ok(value)
+    }
+
+    /// Replaces the validated directional sampling policy.
+    pub fn with_sampling(
+        mut self,
+        sampling: super::SceneShadowSampling,
+    ) -> Result<Self, SceneValidationError> {
+        sampling.validate()?;
+        self.sampling = sampling;
+        Ok(self)
+    }
+
+    pub const fn sampling(&self) -> super::SceneShadowSampling {
+        self.sampling
     }
 
     /// Explicit camera-view far distance of each slice, or `None` for coverage boxes.
@@ -174,6 +190,7 @@ impl SceneShadowCascades {
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         const PART: &str = "shadow cascades";
+        self.sampling.validate()?;
         if self.extents_millimeters.is_empty() {
             return Err(SceneValidationError::EmptyCollection { part: PART });
         }

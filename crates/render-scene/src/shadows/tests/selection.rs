@@ -1,6 +1,6 @@
 use super::*;
 
-const PROBE: &str = r"
+pub(super) const PROBE: &str = r"
 @vertex fn vs_probe(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let vertices = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
     return vec4<f32>(vertices[index], 0.0, 1.0);
@@ -45,7 +45,7 @@ fn gpu_receiver_selects_split_boundaries_and_blends_continuously() {
     }
 }
 
-fn upload_probe(
+pub(super) fn upload_probe(
     context: &GpuContext,
     renderer: &ShadowedScene,
     camera_splits: bool,
@@ -161,7 +161,11 @@ fn probe_pipeline(
         })
 }
 
-fn render_probe(context: &GpuContext, renderer: &ShadowedScene, source: &str) -> RgbaImage {
+pub(super) fn render_probe(
+    context: &GpuContext,
+    renderer: &ShadowedScene,
+    source: &str,
+) -> RgbaImage {
     let pipeline = probe_pipeline(context, &renderer.shadow_layout, source);
     let mut target = OffscreenTarget::new(
         context.device(),

@@ -27,6 +27,8 @@ mod depth_fitting;
 mod depth_footprint;
 pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod effects;
+mod shadow_sampling;
+pub use shadow_sampling::{SceneShadowFilter, SceneShadowSampling};
 mod lighting;
 mod obscurance;
 pub use depth_fitting::{

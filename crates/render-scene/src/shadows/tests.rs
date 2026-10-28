@@ -6,6 +6,7 @@ mod geometry;
 mod hdr;
 mod receiver;
 mod retained;
+mod sampling;
 mod scheduler;
 mod sdsm;
 mod selection;

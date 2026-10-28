@@ -555,6 +555,7 @@ impl SceneGpu {
             self.camera_selection.clone()
         };
         let mut selection = published.borrow().clone();
+        selection.casters_only = shadow_matrix.is_some();
         selection.rebuild(
             &self.instances,
             &self.mesh_selection,

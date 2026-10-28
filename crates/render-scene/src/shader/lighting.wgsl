@@ -105,8 +105,9 @@ fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: 
     var diffuse = (vec3<f32>(1.0) - fresnel) * diffuse_colour / PI;
     if SCENE_DIRECT_DIFFUSE != 0u { diffuse = diffuse_colour; }
 
-    let shadow = sunlight_visibility(world_position, normal);
-    let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, shadow);
+    let visibility = raw_sunlight_visibility(world_position, normal);
+    let shadow = direct_sunlight_visibility(visibility);
+    let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, visibility);
     var environment_roughness = roughness;
     if SCENE_ROUGHNESS_REMAP != 0u {
         environment_roughness = rd_remap_roughness(roughness_in, SCENE_ROUGHNESS_REMAP);

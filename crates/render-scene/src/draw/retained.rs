@@ -118,13 +118,11 @@ impl SceneGpu {
         handle: InstanceHandle,
         object: SceneObject,
     ) -> Result<(), InstanceError> {
-        let old_scale = self
-            .instances
-            .get(handle)?
-            .0
-            .lod_distance_scale_millionths();
+        let old = self.instances.get(handle)?.0;
         self.instances.set_object(handle, object)?;
-        if old_scale != object.lod_distance_scale_millionths() {
+        if old.lod_distance_scale_millionths() != object.lod_distance_scale_millionths()
+            || old.casts_shadow() != object.casts_shadow()
+        {
             self.caster_generation = self.caster_generation.wrapping_add(1);
         }
         Ok(())

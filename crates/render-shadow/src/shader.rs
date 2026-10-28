@@ -35,6 +35,24 @@ fn ", $prefix, "_grid(map: ", $texture, r", comparison: sampler_comparison,
     }
     return sum / f32((radius * 2 + 1) * (radius * 2 + 1));
 }
+fn ", $prefix, "_bilinear(map: ", $texture, r", uv: vec2<f32>", $layer_parameter, r", depth: f32, gradient: vec2<f32>) -> f32 {
+    let size = vec2<f32>(textureDimensions(map));
+    let position = uv * size - vec2<f32>(0.5);
+    let base = vec2<i32>(floor(position));
+    let fraction = fract(position);
+    var result = 0.0;
+    for (var y = 0; y < 2; y += 1) {
+        for (var x = 0; x < 2; x += 1) {
+            let delta = vec2<f32>(f32(x), f32(y)) - fraction;
+            let corrected = depth + dot(gradient, delta / size);
+            let coord = clamp(base + vec2<i32>(x, y), vec2<i32>(0), vec2<i32>(size) - vec2<i32>(1));
+            let stored = textureLoad(map, coord", $layer_argument, r", 0);
+            let weights = select(vec2<f32>(1.0) - fraction, fraction, vec2<bool>(x == 1, y == 1));
+            result += select(0.0, 1.0, corrected < stored) * weights.x * weights.y;
+        }
+    }
+    return result;
+}
 fn ", $prefix, "_filter(map: ", $texture, r", comparison: sampler_comparison,
     uv: vec2<f32>", $layer_parameter, r", depth: f32, half_extent_texels: f32, center_only: bool) -> f32 {
     if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) { return 1.0; }

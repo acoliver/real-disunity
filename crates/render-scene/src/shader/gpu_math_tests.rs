@@ -675,3 +675,6 @@ fn relief_normal_lighting_and_projected_depth_have_independent_oracles() {
     }
     assert_eq!(result[3].to_bits(), 0.375_f32.to_bits());
 }
+
+#[path = "shadow_strength_tests.rs"]
+mod shadow_strength_tests;

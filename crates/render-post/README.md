@@ -160,7 +160,7 @@ The area (160x560 RG8) and search (64x16 R8) lookup tables are generated at run 
 storage buffers (the stage builder has no queue for texture uploads). The orthogonal half of the
 area table is cached for the process; the diagonal half is generated only when
 `max_search_steps_diag` is set. Tests compare the output with 64-bit digests of the reference
-`AreaTex.h` and `SearchTex.h`, so the bytes are identical to the published tables.
+`AreaTex.h` and `SearchTex.h`, so the bytes are identical to the published tables. An opt-in test compares byte for byte with the downloaded headers: set `SMAA_REFERENCE_DIR` to a directory holding `AreaTex.h` and `SearchTex.h` from `iryoku/smaa` (not committed) and run `cargo test -p worldrunner-render-post smaa_lut -- --include-ignored`.
 
 SMAA reads clean stair-step shapes. A straight axis-aligned edge is already sharp and is left
 unchanged; blending happens at steps, diagonals, corners and line ends. A one-pixel line is

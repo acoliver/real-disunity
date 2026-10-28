@@ -58,12 +58,13 @@ impl<'a> Filters<'a> {
             "GRADE_COMPOSITION",
             f64::from(u8::from(settings.grading != crate::ColorGrading::default())),
         ));
-        let fxaa = settings.resolve.active_fxaa();
+        let resolve = settings.resolve;
         let upscale = settings
             .upscale
             .filter(|_| targets.config().size != targets.config().output_extent());
-        let ldr = (fxaa.is_some() || upscale.is_some())
-            .then(|| self.display_texture(targets.config().size));
+        let resolved = resolve.active_fxaa().is_some() || resolve.active_smaa().is_some();
+        let ldr =
+            (resolved || upscale.is_some()).then(|| self.display_texture(targets.config().size));
         self.pass(FilterPass {
             entry: "tone",
             level: 0,
@@ -78,19 +79,29 @@ impl<'a> Filters<'a> {
                 .as_ref()
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
         });
-        self.finish(targets, fxaa, upscale, ldr.as_ref(), output.0);
+        self.finish(targets, resolve, upscale, ldr.as_ref(), output.0);
     }
     fn finish(
         &mut self,
         targets: &FrameTargets,
-        fxaa: Option<crate::FxaaSettings>,
+        resolve: crate::PostResolve,
         upscale: Option<crate::UpscaleSettings>,
         ldr: Option<&wgpu::TextureView>,
         format: wgpu::TextureFormat,
     ) {
-        let filtered = (fxaa.is_some() && upscale.is_some())
-            .then(|| self.display_texture(targets.config().size));
-        if let Some(crate::FxaaSettings { strength, quality }) = fxaa {
+        let resolving = resolve.active_fxaa().is_some() || resolve.active_smaa().is_some();
+        let filtered =
+            (resolving && upscale.is_some()).then(|| self.display_texture(targets.config().size));
+        let (resolve_format, resolve_target) = filtered.as_ref().map_or_else(
+            || (format, StageTarget::Output),
+            |v| {
+                (
+                    wgpu::TextureFormat::Rgba32Float,
+                    StageTarget::Texture(v.clone()),
+                )
+            },
+        );
+        if let Some(crate::FxaaSettings { strength, quality }) = resolve.active_fxaa() {
             self.pass(FilterPass {
                 entry: "fxaa",
                 level: 0,
@@ -98,13 +109,18 @@ impl<'a> Filters<'a> {
                 lower: None,
                 exposure: None,
                 constants: &quality.constants(strength),
-                format: filtered
-                    .as_ref()
-                    .map_or(format, |_| wgpu::TextureFormat::Rgba32Float),
-                target: filtered
-                    .as_ref()
-                    .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
+                format: resolve_format,
+                target: resolve_target,
             });
+        } else if let Some(smaa) = resolve.active_smaa() {
+            crate::smaa_gpu::append(
+                self.device,
+                self.set,
+                ldr.unwrap(),
+                targets.config().size,
+                smaa,
+                (resolve_format, resolve_target),
+            );
         }
         if let Some(settings) = upscale {
             crate::upscale::append(

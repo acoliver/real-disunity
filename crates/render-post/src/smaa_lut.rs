@@ -32,6 +32,7 @@
 use std::sync::OnceLock;
 
 /// Area texture extent in texels (RG8, two bytes per texel, row-major).
+#[cfg(test)]
 pub(crate) const AREA_EXTENT: [u32; 2] = [160, 560];
 /// Search texture extent in texels (R8, row-major).
 pub(crate) const SEARCH_EXTENT: [u32; 2] = [64, 16];
@@ -205,10 +206,10 @@ fn area_ortho(pattern: usize, left: usize, right: usize, offset: f64) -> V2 {
     let half = d / 2.0;
     match RULES[pattern] {
         Rule::Empty => [0.0, 0.0],
-        Rule::HalfLeft(level) if left <= right => segment_area([0.0, height(level)], [half, 0.0], x),
-        Rule::HalfRight(level) if left >= right => {
-            segment_area([half, 0.0], [d, height(level)], x)
+        Rule::HalfLeft(level) if left <= right => {
+            segment_area([0.0, height(level)], [half, 0.0], x)
         }
+        Rule::HalfRight(level) if left >= right => segment_area([half, 0.0], [d, height(level)], x),
         Rule::HalfLeft(_) | Rule::HalfRight(_) => [0.0, 0.0],
         Rule::Smooth(level) => {
             let a1 = segment_area([0.0, height(level)], [half, 0.0], x);
@@ -394,9 +395,10 @@ pub(crate) fn search_texture() -> Vec<u8> {
             let source_y = 32 - y;
             let (right_side, source_x) = if x < 33 { (false, x) } else { (true, x - 33) };
             let coord = |v: usize| 0.03125 * exact(v);
-            if let (Some(left), Some(top)) =
-                (bilinear_pattern(coord(source_x)), bilinear_pattern(coord(source_y)))
-            {
+            if let (Some(left), Some(top)) = (
+                bilinear_pattern(coord(source_x)),
+                bilinear_pattern(coord(source_y)),
+            ) {
                 texture[y * width + x] = 127 * search_delta(right_side, left, top);
             }
         }

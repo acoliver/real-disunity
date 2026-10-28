@@ -68,11 +68,16 @@ mod antialias;
 mod antialias_tests;
 mod fxaa;
 mod post_filters;
+mod smaa;
+mod smaa_gpu;
 mod smaa_lut;
 #[cfg(test)]
 mod smaa_lut_tests;
+#[cfg(test)]
+mod smaa_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
+pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 mod tone_map;
 mod upscale;
 pub use hdr_post::{

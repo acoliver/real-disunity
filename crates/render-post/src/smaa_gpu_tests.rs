@@ -1,7 +1,7 @@
 //! SMAA 1x on synthetic images through the HDR post chain (display-referred, after
 //! tone mapping). Scene radiance 3.0 tone maps to 0.75 and 0.0 stays black, so
 //! every edge is far above all preset thresholds.
-use super::post_effect_tests::{chain, pixels, step};
+use super::post_effect_tests::{chain, output, paint, pixels, step};
 use crate::{HdrPostSettings, PostResolve, SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 
 struct Rig {
@@ -219,6 +219,86 @@ fn resize_rebuilds_the_passes_for_the_new_extent() {
         assert_within_plain_range(&plain, &filtered);
         if size[0] >= 17 {
             assert!(!changed(&plain, &filtered, size[0]).is_empty(), "{size:?}");
+        }
+    }
+}
+
+/// Per-pass medians for one resolve on a synthetic 1920x1080 frame of diagonal edges.
+fn timed_medians(rig: &Rig, resolve: PostResolve) -> Vec<(String, f64)> {
+    let size = [1920, 1080];
+    let chain = chain(
+        &rig.device,
+        &HdrPostSettings {
+            resolve,
+            ..HdrPostSettings::default()
+        },
+        size,
+    );
+    chain
+        .configure_timing(&rig.device, &rig.queue, crate::TimingMode::Required)
+        .unwrap();
+    let target = output(&rig.device, size);
+    let authority = crate::test_authority(&rig.queue);
+    let frames: Vec<_> = (0..7)
+        .map(|frame| {
+            let mut encoder = authority.begin(&rig.device).unwrap();
+            chain.begin_timing(frame).unwrap();
+            paint(
+                &rig.device,
+                &mut encoder,
+                chain.targets().resolved(),
+                "let v=0.25+3.0*step(0.5,fract((p.x+p.y*0.5)/37.0));return vec4<f32>(v,v*0.5,v*0.25,1.0);",
+            );
+            chain.encode(
+                &mut encoder,
+                &target.create_view(&wgpu::TextureViewDescriptor::default()),
+            );
+            chain.finish_timing(&mut encoder).unwrap();
+            let submission = encoder.finish().submit().unwrap();
+            rig.device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(submission),
+                    timeout: Some(std::time::Duration::from_mins(2)),
+                })
+                .unwrap();
+            chain.take_timings().unwrap().pop().expect("timing result")
+        })
+        .skip(2)
+        .collect();
+    (0..frames[0].passes.len())
+        .map(|pass| {
+            let mut durations: Vec<_> = frames
+                .iter()
+                .map(|frame| frame.passes[pass].duration_ns.expect("valid query pair"))
+                .collect();
+            durations.sort_by(f64::total_cmp);
+            (
+                format!("{:?}", frames[0].passes[pass].pass_id),
+                durations[durations.len() / 2],
+            )
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "explicit 1920x1080 GPU performance probe"]
+fn smaa_and_fxaa_stage_timestamps() {
+    let (device, queue) =
+        crate::gpu_tests::gpu_with_optional_features(wgpu::Features::TIMESTAMP_QUERY);
+    let rig = Rig { device, queue };
+    for (name, resolve) in [
+        ("none", PostResolve::None),
+        ("fxaa", PostResolve::fxaa(1.0)),
+        ("smaa low", PostResolve::smaa(SmaaPreset::Low)),
+        ("smaa medium", PostResolve::smaa(SmaaPreset::Medium)),
+        ("smaa high", PostResolve::smaa(SmaaPreset::High)),
+        ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra)),
+    ] {
+        let passes = timed_medians(&rig, resolve);
+        let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
+        eprintln!("{name}: total {:.3} ms (median of 5)", total / 1e6);
+        for (pass, ns) in passes {
+            eprintln!("  {pass}: {:.3} ms", ns / 1e6);
         }
     }
 }

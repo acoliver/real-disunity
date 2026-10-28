@@ -82,10 +82,62 @@ fn texture_view(
     view
 }
 
+/// Intermediate targets and lookup data owned by one schedule.
+struct Inputs {
+    edges: wgpu::TextureView,
+    weights: wgpu::TextureView,
+    area: wgpu::Buffer,
+    search: wgpu::Buffer,
+    sampler: wgpu::Sampler,
+}
+
+fn allocate(
+    device: &wgpu::Device,
+    set: &mut StageSet,
+    size: [u32; 2],
+    smaa: SmaaSettings,
+) -> Inputs {
+    Inputs {
+        edges: texture_view(
+            device,
+            set,
+            "SMAA edges",
+            size,
+            wgpu::TextureFormat::Rg8Unorm,
+        ),
+        weights: texture_view(
+            device,
+            set,
+            "SMAA blending weights",
+            size,
+            wgpu::TextureFormat::Rgba8Unorm,
+        ),
+        area: lookup_buffer(
+            device,
+            "SMAA area lookup",
+            &smaa_lut::area_texture(smaa.max_search_steps_diag.is_some()),
+        ),
+        search: lookup_buffer(device, "SMAA search lookup", &smaa_lut::search_texture()),
+        sampler: device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("SMAA edge sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        }),
+    }
+}
+
+fn view_entry(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
+    wgpu::BindGroupEntry {
+        binding,
+        resource: wgpu::BindingResource::TextureView(view),
+    }
+}
+
 /// Appends edge detection, weight calculation and neighborhood blending.
 ///
-/// `source` is display-referred color at `size`. The edges (Rg8Unorm) and weights
-/// (Rgba8Unorm) targets and the lookup buffers belong to `set`, so a resize or
+/// `source` is display-referred color at `size`. The edges (`Rg8Unorm`) and weights
+/// (`Rgba8Unorm`) targets and the lookup buffers belong to `set`, so a resize or
 /// reconfiguration rebuilds them with the rest of the schedule.
 pub(crate) fn append(
     device: &wgpu::Device,
@@ -103,68 +155,39 @@ pub(crate) fn append(
         }),
         constants: smaa.constants(),
     };
-    let edges = texture_view(
-        device,
-        set,
-        "SMAA edges",
-        size,
-        wgpu::TextureFormat::Rg8Unorm,
-    );
-    let weights = texture_view(
-        device,
-        set,
-        "SMAA blending weights",
-        size,
-        wgpu::TextureFormat::Rgba8Unorm,
-    );
-    let area = lookup_buffer(
-        device,
-        "SMAA area lookup",
-        &smaa_lut::area_texture(smaa.max_search_steps_diag.is_some()),
-    );
-    let search = lookup_buffer(device, "SMAA search lookup", &smaa_lut::search_texture());
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("SMAA edge sampler"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        ..Default::default()
-    });
-    let view = |binding, view| wgpu::BindGroupEntry {
-        binding,
-        resource: wgpu::BindingResource::TextureView(view),
-    };
+    let inputs = allocate(device, set, size, smaa);
     let [edge_stage, weight_stage, blend_stage] = STAGES;
     set.stages.push(builder.stage(&Pass {
         entry: edge_stage,
-        entries: &[view(0, source)],
+        entries: &[view_entry(0, source)],
         format: wgpu::TextureFormat::Rg8Unorm,
-        target: StageTarget::Texture(edges.clone()),
+        target: StageTarget::Texture(inputs.edges.clone()),
     }));
     set.stages.push(builder.stage(&Pass {
         entry: weight_stage,
         entries: &[
-            view(1, &edges),
+            view_entry(1, &inputs.edges),
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: area.as_entire_binding(),
+                resource: inputs.area.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
-                resource: search.as_entire_binding(),
+                resource: inputs.search.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 5,
-                resource: wgpu::BindingResource::Sampler(&sampler),
+                resource: wgpu::BindingResource::Sampler(&inputs.sampler),
             },
         ],
         format: wgpu::TextureFormat::Rgba8Unorm,
-        target: StageTarget::Texture(weights.clone()),
+        target: StageTarget::Texture(inputs.weights.clone()),
     }));
     set.stages.push(builder.stage(&Pass {
         entry: blend_stage,
-        entries: &[view(0, source), view(4, &weights)],
+        entries: &[view_entry(0, source), view_entry(4, &inputs.weights)],
         format: output.0,
         target: output.1,
     }));
-    set.resources.buffers.extend([area, search]);
+    set.resources.buffers.extend([inputs.area, inputs.search]);
 }

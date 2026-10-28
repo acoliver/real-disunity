@@ -96,8 +96,11 @@ fn add(a: V2, b: V2) -> V2 {
     [a[0] + b[0], a[1] + b[1]]
 }
 fn average(a: V2, b: V2) -> V2 {
-    let sum = add(a, b);
-    [sum[0] / 2.0, sum[1] / 2.0]
+    [f64::midpoint(a[0], b[0]), f64::midpoint(a[1], b[1])]
+}
+/// Bitwise equality; the table inputs never produce a negative zero.
+fn same(a: V2, b: V2) -> bool {
+    a[0].to_bits() == b[0].to_bits() && a[1].to_bits() == b[1].to_bits()
 }
 
 /// Truncating conversion of a 0..=1 area to the script's byte range.
@@ -156,9 +159,10 @@ fn segment_area(p1: V2, p2: V2, x: f64) -> V2 {
     if !inside {
         return [0.0, 0.0];
     }
-    let trapezoid = 1f64.copysign(y1) == 1f64.copysign(y2) || y1.abs() < 1e-4 || y2.abs() < 1e-4;
+    let trapezoid =
+        y1.is_sign_negative() == y2.is_sign_negative() || y1.abs() < 1e-4 || y2.abs() < 1e-4;
     if trapezoid {
-        let a = (y1 + y2) / 2.0;
+        let a = f64::midpoint(y1, y2);
         return if a < 0.0 {
             [a.abs(), 0.0]
         } else {
@@ -205,12 +209,10 @@ fn area_ortho(pattern: usize, left: usize, right: usize, offset: f64) -> V2 {
     };
     let half = d / 2.0;
     match RULES[pattern] {
-        Rule::Empty => [0.0, 0.0],
         Rule::HalfLeft(level) if left <= right => {
             segment_area([0.0, height(level)], [half, 0.0], x)
         }
         Rule::HalfRight(level) if left >= right => segment_area([half, 0.0], [d, height(level)], x),
-        Rule::HalfLeft(_) | Rule::HalfRight(_) => [0.0, 0.0],
         Rule::Smooth(level) => {
             let a1 = segment_area([0.0, height(level)], [half, 0.0], x);
             let a2 = segment_area([half, 0.0], [d, height(level)], x);
@@ -226,25 +228,28 @@ fn area_ortho(pattern: usize, left: usize, right: usize, offset: f64) -> V2 {
         Rule::Blend(from, to) | Rule::Full(from, to) => {
             segment_area([0.0, height(from)], [d, height(to)], x)
         }
+        Rule::Empty | Rule::HalfLeft(_) | Rule::HalfRight(_) => [0.0, 0.0],
     }
 }
 
 /// Fraction of a 30x30 sample grid over a pixel that lies on one side of `p1 -> p2`.
-fn diag_coverage(p1: V2, p2: V2, p: V2) -> f64 {
-    if p1 == p2 {
+fn diag_coverage(p1: V2, p2: V2, pixel: V2) -> f64 {
+    if same(p1, p2) {
         return 1.0;
     }
-    let (xm, ym) = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0);
-    let (a, b) = (p2[1] - p1[1], p1[0] - p2[0]);
+    let mid_x = f64::midpoint(p1[0], p2[0]);
+    let mid_y = f64::midpoint(p1[1], p2[1]);
+    let (normal_y, normal_x) = (p2[1] - p1[1], p1[0] - p2[0]);
     let steps: Vec<f64> = (0..SAMPLES_DIAG)
         .map(|i| exact(i) / exact(SAMPLES_DIAG - 1))
         .collect();
     let mut inside = 0_u32;
-    for sx in &steps {
-        let x = p[0] + sx;
-        for sy in &steps {
-            let y = p[1] + sy;
-            inside += u32::from(a * (x - xm) + b * (y - ym) > 0.0);
+    for step_x in &steps {
+        let sample_x = pixel[0] + step_x;
+        for step_y in &steps {
+            let sample_y = pixel[1] + step_y;
+            inside +=
+                u32::from(normal_y * (sample_x - mid_x) + normal_x * (sample_y - mid_y) > 0.0);
         }
     }
     f64::from(inside) / exact(SAMPLES_DIAG * SAMPLES_DIAG)
@@ -365,7 +370,7 @@ fn bilinear_pattern(texcoord: f64) -> Option<[u8; 4]> {
         let lerp = |v0: f64, v1: f64, p: f64| v0 + (v1 - v0) * p;
         let a = lerp(value(0), value(1), 1.0 - 0.25);
         let b = lerp(value(2), value(3), 1.0 - 0.25);
-        (lerp(a, b, 1.0 - 0.125) == texcoord).then_some(e)
+        (lerp(a, b, 1.0 - 0.125).to_bits() == texcoord.to_bits()).then_some(e)
     })
 }
 

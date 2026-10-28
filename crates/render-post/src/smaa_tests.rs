@@ -15,7 +15,7 @@ fn presets_match_the_reference_definitions() {
     for (preset, threshold, steps, diagonal, corners) in expected {
         let smaa = SmaaSettings::preset(preset);
         assert_eq!(smaa.edge_detection, SmaaEdgeDetection::Luma);
-        assert_eq!(smaa.threshold, threshold);
+        assert_eq!(smaa.threshold.to_bits(), f32::to_bits(threshold));
         assert_eq!(smaa.max_search_steps, steps);
         assert_eq!(smaa.max_search_steps_diag, diagonal);
         assert_eq!(smaa.corner_rounding, corners);
@@ -26,10 +26,9 @@ fn presets_match_the_reference_definitions() {
     assert_eq!(SmaaSettings::default(), SmaaSettings::HIGH);
 }
 
-#[test]
-fn custom_fields_are_validated() {
+fn invalid_cases() -> Vec<SmaaSettings> {
     let valid = SmaaSettings::HIGH;
-    let invalid = [
+    vec![
         SmaaSettings {
             threshold: 0.0,
             ..valid
@@ -62,21 +61,12 @@ fn custom_fields_are_validated() {
             corner_rounding: Some(101),
             ..valid
         },
-    ];
-    for smaa in invalid {
-        assert_eq!(
-            smaa.validate(),
-            Err(PostError::UnsupportedProfile("SMAA settings")),
-            "{smaa:?}"
-        );
-        assert!(PostResolve::Smaa(smaa).validate().is_err());
-        assert!(
-            AntiAliasing::new(MsaaSamples::X1, PostResolve::Smaa(smaa))
-                .validate()
-                .is_err()
-        );
-    }
-    for smaa in [
+    ]
+}
+
+fn boundary_cases() -> Vec<SmaaSettings> {
+    let valid = SmaaSettings::HIGH;
+    vec![
         SmaaSettings {
             threshold: 0.5,
             ..valid
@@ -105,7 +95,25 @@ fn custom_fields_are_validated() {
             corner_rounding: Some(100),
             ..valid
         },
-    ] {
+    ]
+}
+
+#[test]
+fn custom_fields_are_validated() {
+    for smaa in invalid_cases() {
+        assert_eq!(
+            smaa.validate(),
+            Err(PostError::UnsupportedProfile("SMAA settings")),
+            "{smaa:?}"
+        );
+        assert!(PostResolve::Smaa(smaa).validate().is_err());
+        assert!(
+            AntiAliasing::new(MsaaSamples::X1, PostResolve::Smaa(smaa))
+                .validate()
+                .is_err()
+        );
+    }
+    for smaa in boundary_cases() {
         assert_eq!(smaa.validate(), Ok(()), "{smaa:?}");
     }
 }
@@ -134,17 +142,24 @@ fn smaa_is_a_resolve_that_enables_the_display_path_and_excludes_fxaa() {
 
 #[test]
 fn constants_encode_disabled_features_as_off() {
-    let constant = |smaa: SmaaSettings, name: &str| {
+    let constant = |smaa: SmaaSettings, name: &str| -> u64 {
         smaa.constants()
             .into_iter()
             .find(|(key, _)| *key == name)
             .unwrap()
             .1
+            .to_bits()
     };
-    assert_eq!(constant(SmaaSettings::LOW, "DIAGONAL"), 0.0);
-    assert_eq!(constant(SmaaSettings::LOW, "CORNERS"), 0.0);
-    assert_eq!(constant(SmaaSettings::ULTRA, "DIAGONAL"), 1.0);
-    assert_eq!(constant(SmaaSettings::ULTRA, "CORNERS"), 1.0);
-    assert_eq!(constant(SmaaSettings::ULTRA, "CORNER_ROUNDING"), 0.25);
-    assert_eq!(constant(SmaaSettings::ULTRA, "MAX_SEARCH_STEPS_DIAG"), 16.0);
+    assert_eq!(constant(SmaaSettings::LOW, "DIAGONAL"), f64::to_bits(0.0));
+    assert_eq!(constant(SmaaSettings::LOW, "CORNERS"), f64::to_bits(0.0));
+    assert_eq!(constant(SmaaSettings::ULTRA, "DIAGONAL"), f64::to_bits(1.0));
+    assert_eq!(constant(SmaaSettings::ULTRA, "CORNERS"), f64::to_bits(1.0));
+    assert_eq!(
+        constant(SmaaSettings::ULTRA, "CORNER_ROUNDING"),
+        f64::to_bits(0.25)
+    );
+    assert_eq!(
+        constant(SmaaSettings::ULTRA, "MAX_SEARCH_STEPS_DIAG"),
+        f64::to_bits(16.0)
+    );
 }

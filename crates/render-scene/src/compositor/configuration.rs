@@ -120,7 +120,7 @@ impl RendererConfiguration {
     fn validate(&self, context: &GpuContext) -> Result<(), PostError> {
         super::validate_clear(self.clear_color)?;
         self.frame.validate_adapter(context.adapter())?;
-        self.frame.validate(&context.device().limits())?;
+        self.frame.validate_device(context.device())?;
         self.post.validate()?;
         if self.timing == TimingMode::Required
             && !context

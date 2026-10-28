@@ -18,9 +18,8 @@ fn effects(quality: Option<s::SceneFxaaQuality>) -> s::SceneEffects {
 fn omitted_and_explicit_default_quality_translate_identically() {
     let omitted = crate::post_settings(&effects(None)).unwrap();
     let explicit = crate::post_settings(&effects(Some(s::SceneFxaaQuality::default()))).unwrap();
-    assert_eq!(omitted.fxaa, Some(0.75));
-    assert_eq!(omitted.fxaa_quality, p::FxaaQuality::default());
-    assert_eq!(explicit.fxaa_quality, omitted.fxaa_quality);
+    assert_eq!(omitted.resolve, p::PostResolve::fxaa(0.75));
+    assert_eq!(explicit.resolve, omitted.resolve);
 }
 
 #[test]
@@ -45,16 +44,18 @@ fn scene_quality_reaches_existing_post_executor_settings() {
                 kernel,
             })))
             .unwrap();
-            assert_eq!(settings.fxaa, Some(0.75));
             assert_eq!(
-                settings.fxaa_quality,
-                p::FxaaQuality {
-                    edge_threshold: 0.125,
-                    minimum_threshold: 0.03125,
-                    subpixel_blend: 0.5,
-                    luminance: expected_luminance,
-                    kernel: expected_kernel,
-                }
+                settings.resolve,
+                p::PostResolve::fxaa_with(
+                    0.75,
+                    p::FxaaQuality {
+                        edge_threshold: 0.125,
+                        minimum_threshold: 0.03125,
+                        subpixel_blend: 0.5,
+                        luminance: expected_luminance,
+                        kernel: expected_kernel,
+                    }
+                )
             );
         }
     }

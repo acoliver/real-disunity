@@ -37,8 +37,6 @@ internal static class Check
     }
 
     /// <summary>Every live object of a game script type, found as the game would find it.</summary>
-    public static UnityEngine.Object[] Find(Type type) => (UnityEngine.Object[])typeof(UnityEngine.Object)
-        .GetMethod(nameof(UnityEngine.Object.FindObjectsByType))!
-        .MakeGenericMethod(type)
-        .Invoke(null, [UnityEngine.FindObjectsSortMode.None])!;
+    public static UnityEngine.Object[] Find(Type type) =>
+        UnityEngine.Object.FindObjectsByType(type, UnityEngine.FindObjectsSortMode.None);
 }

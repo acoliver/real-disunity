@@ -246,3 +246,8 @@ JobTests.Run();
 CustomYieldTests.Run();
 RenderingLayerMaskTests.Run();
 UnityAttributeTests.Run();
+
+ObjectModelTests.Run();
+TextureTests.Run();
+RenderTextureTests.Run();
+ShaderMaterialTests.Run();

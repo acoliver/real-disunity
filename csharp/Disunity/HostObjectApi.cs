@@ -28,6 +28,9 @@ public static partial class DisunityHost
         return flags;
     }
     internal static IEnumerable<GameObject> ActiveObjects() => Tracked.Where(value => !value.IsDestroyed && value.activeInHierarchy);
-    internal static T[] FindObjects<T>() where T : UnityEngine.Object => ActiveObjects()
-        .SelectMany(value => value is T match ? new T[] { match } : Components(value).OfType<T>()).ToArray();
+    /// <summary>Active objects of <paramref name="type"/>: GameObjects, and the components of each active GameObject.</summary>
+    internal static UnityEngine.Object[] FindObjects(Type type) => ActiveObjects()
+        .SelectMany(value => (type.IsInstanceOfType(value) ? new UnityEngine.Object[] { value } : [])
+            .Concat(Components(value).Where(type.IsInstanceOfType))).ToArray();
+    internal static T[] FindObjects<T>() where T : UnityEngine.Object => Array.ConvertAll(FindObjects(typeof(T)), value => (T)value);
 }

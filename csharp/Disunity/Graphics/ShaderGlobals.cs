@@ -1,14 +1,25 @@
+using Disunity.Hosting;
 using UnityEngine.Rendering;
 
 namespace UnityEngine;
 
 /// <summary>
 /// The global shader properties. They are stored and read back; nothing applies them to a draw yet. A global
-/// that was never set reads as zero, a matrix as identity and a texture as null.
+/// that was never set reads as zero, a matrix as identity and a texture as null. As in Unity they can only be
+/// used from the main thread.
 /// </summary>
 public sealed partial class Shader
 {
-    internal static readonly PropertyStore Globals = new();
+    private static readonly PropertyStore GlobalStore = new();
+
+    internal static PropertyStore Globals
+    {
+        get
+        {
+            DisunityHost.RequireMainThread("Shader global properties");
+            return GlobalStore;
+        }
+    }
 
     public static void SetGlobalFloat(string name, float value) => SetGlobalFloat(PropertyToID(name), value);
     public static void SetGlobalFloat(int nameID, float value) => Globals.Floats[nameID] = value;

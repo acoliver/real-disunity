@@ -8,7 +8,7 @@ public sealed class PhysicsMaterial2D : Object
     private static readonly Dictionary<ulong, PhysicsMaterial2D> Materials = new();
     private readonly ulong _world;
     private readonly ulong _handle;
-    internal override bool Destroyed => _world != DisunityHost.WorldHandle;
+    internal override bool Destroyed => AssetDestroyed || _world != DisunityHost.WorldHandle;
     public PhysicsMaterial2D() : this("") { }
     public unsafe PhysicsMaterial2D(string name)
     {

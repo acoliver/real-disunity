@@ -10,6 +10,8 @@ internal static class ObjectModelTests
 
     private sealed class Finder : MonoBehaviour { }
 
+    private sealed class Spawned : MonoBehaviour { }
+
     private sealed class Asset : ScriptableObject { }
 
     public static void Run()
@@ -23,6 +25,9 @@ internal static class ObjectModelTests
             AssetDestruction();
             AssetCloning();
             AsyncCloning();
+            AsyncCloningTiming();
+            AsyncCloningFailure();
+            InstantiateParameterPlacement();
             DontDestroy();
             Searches();
         }
@@ -52,6 +57,9 @@ internal static class ObjectModelTests
         Ensure(DisunityHost.RegisterShader("Test/Names").name == "Test/Names", "a shader's name is the registered name");
         Throws<ArgumentNullException>(() => texture.name = null!, "a null name is rejected");
         Throws<ArgumentNullException>(() => go.name = null!, "a null GameObject name is rejected");
+        var loose = new Probe();
+        Ensure(loose.name == "" && loose.ToString().StartsWith(" ("), "a component not attached to a GameObject has an empty name");
+        Throws<InvalidOperationException>(() => loose.name = "x", "naming a component before it is attached", "not attached");
     }
 
     private static void HideFlagsAndIds()
@@ -139,12 +147,72 @@ internal static class ObjectModelTests
         var viaParameters = UnityEngine.Object.Instantiate(texture, new InstantiateParameters());
         Ensure(viaParameters != texture && viaParameters.name == "Src(Clone)", "Instantiate with parameters clones an asset");
         var operation = UnityEngine.Object.InstantiateAsync(texture, 3);
+        operation.WaitForCompletion();
         var clones = operation.Result!;
         Ensure(operation.isDone && clones.Length == 3 && clones.All(clone => clone != texture), "InstantiateAsync makes the requested clones");
         var none = UnityEngine.Object.InstantiateAsync(texture, 2, default(InstantiateParameters), new System.Threading.CancellationToken(true));
+        none.WaitForCompletion();
         Ensure(none.Result!.Length == 0, "a cancelled InstantiateAsync makes no clones");
         Throws<ArgumentOutOfRangeException>(() => UnityEngine.Object.InstantiateAsync(texture, -1), "a negative count");
         Throws<NotSupportedException>(() => UnityEngine.Object.Instantiate(texture, default(UnityEngine.SceneManagement.Scene)), "instantiate into a scene", "Scene");
+    }
+
+    private static void AsyncCloningTiming()
+    {
+        var original = DisunityHost.CreateGameObject();
+        original.AddComponent<Spawned>();
+        var before = UnityEngine.Object.FindObjectsByType<Spawned>(FindObjectsSortMode.None).Length;
+
+        var fireAndForget = UnityEngine.Object.InstantiateAsync(original, 3);
+        Ensure(!fireAndForget.isDone && fireAndForget.Result is null, "Result is null before the operation is done");
+        Ensure(UnityEngine.Object.FindObjectsByType<Spawned>(FindObjectsSortMode.None).Length == before, "no clone exists before the first frame");
+        var seen = -1;
+        fireAndForget.completed += _ => seen = UnityEngine.Object.FindObjectsByType<Spawned>(FindObjectsSortMode.None).Length;
+        DisunityHost.Step(0.02f);
+        Ensure(fireAndForget.isDone, "the operation completes in the next frame");
+        Ensure(seen == before + 3, $"a completed handler sees the clones (saw {seen - before} new)");
+        Ensure(UnityEngine.Object.FindObjectsByType<Spawned>(FindObjectsSortMode.None).Length == before + 3 && fireAndForget.Result!.Length == 3,
+            "the clones appear without Result being read first");
+
+        var waited = UnityEngine.Object.InstantiateAsync(original, 2);
+        waited.WaitForCompletion();
+        Ensure(waited.isDone && waited.Result!.Length == 2 && UnityEngine.Object.FindObjectsByType<Spawned>(FindObjectsSortMode.None).Length == before + 5,
+            "WaitForCompletion makes the clones at once");
+        DisunityHost.Step(0.02f);
+        Ensure(UnityEngine.Object.FindObjectsByType<Spawned>(FindObjectsSortMode.None).Length == before + 5, "the clones are made once");
+    }
+
+    private static void AsyncCloningFailure()
+    {
+        using var log = new LogRecorder();
+        var failing = UnityEngine.Object.InstantiateAsync(ScriptableObject.CreateInstance<Asset>(), 1);
+        var completed = 0;
+        failing.completed += _ => completed++;
+        DisunityHost.Step(0.02f);
+        Ensure(failing.isDone && completed == 1 && failing.Result is null, "a failed creation still completes the operation, with no result");
+        Ensure(log.Messages.Count == 1 && log.Messages[0].StartsWith("Exception:") && log.Messages[0].Contains("Instantiate"), "the failure is logged");
+    }
+
+    private static void InstantiateParameterPlacement()
+    {
+        var parent = DisunityHost.CreateGameObject();
+        parent.transform.position = new Vector3(10, 0, 0);
+        var original = DisunityHost.CreateGameObject();
+        var local = UnityEngine.Object.Instantiate(original, new Vector3(1, 2, 0), Quaternion.identity, new InstantiateParameters { parent = parent.transform });
+        Ensure(local.transform.parent == parent.transform && local.transform.localPosition == new Vector3(1, 2, 0) && local.transform.position == new Vector3(11, 2, 0),
+            "a position under a parent is local without worldSpace");
+        var world = UnityEngine.Object.Instantiate(original, new Vector3(1, 2, 0), Quaternion.identity, new InstantiateParameters { parent = parent.transform, worldSpace = true });
+        Ensure(world.transform.parent == parent.transform && world.transform.position == new Vector3(1, 2, 0), "a position under a parent is world with worldSpace");
+        var unparented = UnityEngine.Object.Instantiate(original, new Vector3(3, 0, 0), Quaternion.identity, default(InstantiateParameters));
+        Ensure(unparented.transform.parent == null && unparented.transform.position == new Vector3(3, 0, 0), "a position without a parent is world space");
+
+        var scene = (object)default(UnityEngine.SceneManagement.Scene);
+        typeof(UnityEngine.SceneManagement.Scene).GetProperty("Handle", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(scene, 5);
+        var chosen = new InstantiateParameters { scene = (UnityEngine.SceneManagement.Scene)scene };
+        NotSupported(() => UnityEngine.Object.Instantiate(original, chosen), "a chosen scene", "InstantiateParameters.scene");
+        NotSupported(() => UnityEngine.Object.Instantiate(original, Vector3.zero, Quaternion.identity, chosen), "a chosen scene with a position", "InstantiateParameters.scene");
+        NotSupported(() => UnityEngine.Object.InstantiateAsync(original, 1, chosen, default), "a chosen scene for InstantiateAsync", "InstantiateParameters.scene");
+        NotSupported(() => UnityEngine.Object.Instantiate(original, new InstantiateParameters { parent = parent.transform, worldSpace = true }), "world space under a parent", "worldPositionStays");
     }
 
     private static void AssetCloning()
@@ -218,6 +286,15 @@ internal static class ObjectModelTests
         NotSupported(() => UnityEngine.Object.FindObjectOfType(typeof(Finder), true), "FindObjectOfType(Type, true)", "FindObjectOfType");
         NotSupported(() => UnityEngine.Object.FindFirstObjectByType(typeof(Finder), FindObjectsInactive.Include), "FindFirstObjectByType(Type, Include)", "FindFirstObjectByType");
         NotSupported(() => UnityEngine.Object.FindAnyObjectByType(typeof(Finder), FindObjectsInactive.Include), "FindAnyObjectByType(Type, Include)", "FindAnyObjectByType");
+        NotSupported(() => UnityEngine.Object.FindObjectsByType<Material>(FindObjectsSortMode.None), "finding Materials", "FindObjectsByType");
+        NotSupported(() => UnityEngine.Object.FindObjectsOfType<Texture2D>(), "finding Texture2Ds", "FindObjectsOfType");
+        NotSupported(() => UnityEngine.Object.FindFirstObjectByType<Asset>(), "finding script assets", "FindFirstObjectByType");
+        NotSupported(() => UnityEngine.Object.FindAnyObjectByType<Shader>(), "finding Shaders", "FindAnyObjectByType");
+        NotSupported(() => UnityEngine.Object.FindObjectOfType<ScriptableObject>(), "finding ScriptableObjects", "FindObjectOfType");
+        NotSupported(() => UnityEngine.Object.FindObjectsByType(typeof(Material), FindObjectsSortMode.None), "the Type overload for Materials", "FindObjectsByType");
+        NotSupported(() => UnityEngine.Object.FindObjectOfType(typeof(Texture2D)), "the Type overload for one Texture2D", "FindObjectOfType");
+        Ensure(UnityEngine.Object.FindObjectsByType<UnityEngine.Object>(FindObjectsSortMode.None).Length >= 3 && UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None).Length >= 3,
+            "Object and GameObject find scene objects");
         Throws<ArgumentNullException>(() => UnityEngine.Object.FindObjectsByType(null!, FindObjectsSortMode.None), "a null type");
         foreach (var name in new[] { "FindObjectsOfTypeAll", "FindObjectsOfTypeIncludingAssets" })
         {

@@ -2,7 +2,7 @@ namespace UnityEngine;
 
 /// <summary>
 /// Pixel access. Coordinates start at the bottom left. A read outside the level wraps by the texture's
-/// wrap modes; a write outside it is ignored. Colors are stored as given, with no sRGB conversion.
+/// wrap modes, and so does a write, as Unity documents for GetPixel and SetPixel. Colors are stored as given, with no sRGB conversion.
 /// </summary>
 public sealed partial class Texture2D
 {
@@ -31,9 +31,9 @@ public sealed partial class Texture2D
     private void Store(int x, int y, int level, Color color)
     {
         var (w, h) = (LevelWidth(level), LevelHeight(level));
-        if (x < 0 || y < 0 || x >= w || y >= h) return;
         var bytes = TexelFormats.BytesPerPixel(_format);
-        TexelFormats.Write(_format, LevelBytes(level).Slice((y * w + x) * bytes, bytes), color);
+        var index = Wrap(y, h, wrapModeV) * w + Wrap(x, w, wrapModeU);
+        TexelFormats.Write(_format, LevelBytes(level).Slice(index * bytes, bytes), color);
     }
 
     public Color GetPixel(int x, int y) => GetPixel(x, y, 0);

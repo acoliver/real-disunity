@@ -16,6 +16,13 @@ public static partial class DisunityHost
     /// <summary>Whether the caller runs on the thread that loaded the world.</summary>
     internal static bool OnMainThread => Environment.CurrentManagedThreadId == _mainThread;
 
+    /// <summary>Throws for state Unity restricts to the main thread (shader globals, the render texture pool and
+    /// the active render texture, the built-in textures), which the engine keeps without locks.</summary>
+    internal static void RequireMainThread(string what)
+    {
+        if (!OnMainThread) throw new InvalidOperationException($"{what} can only be used from the main thread");
+    }
+
     /// <summary>Installs the main thread's synchronization context for the loaded world and has
     /// the native scheduler run its work each frame.</summary>
     private static void InstallMainThreadContext()
@@ -41,7 +48,6 @@ public static partial class DisunityHost
         _previousContext = null;
     }
 
-    /// <summary>Runs <paramref name="work"/> on the main thread in the next frame's delayed tasks.</summary>
     /// <summary>Queues work for the next frame's delayed tasks; false when no world is loaded.</summary>
     internal static bool PostToMainThread(Action work)
     {

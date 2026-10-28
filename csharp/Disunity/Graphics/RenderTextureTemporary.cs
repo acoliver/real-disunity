@@ -1,3 +1,4 @@
+using Disunity.Hosting;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
@@ -6,7 +7,8 @@ namespace UnityEngine;
 /// <summary>
 /// Temporary render textures. GetTemporary hands out a released texture with an identical descriptor when
 /// there is one and creates a texture otherwise; ReleaseTemporary puts a texture back. The pool keeps the
-/// 64 most recently released textures and destroys older ones.
+/// 64 most recently released textures and destroys older ones. The pool and the active texture are main-thread
+/// state, as in Unity, and fail on other threads.
 /// </summary>
 public partial class RenderTexture
 {
@@ -18,6 +20,7 @@ public partial class RenderTexture
 
     public static RenderTexture GetTemporary(RenderTextureDescriptor desc)
     {
+        DisunityHost.RequireMainThread("RenderTexture.GetTemporary");
         Validate(desc);
         for (var i = 0; i < Pool.Count; i++)
         {
@@ -40,6 +43,7 @@ public partial class RenderTexture
     /// <summary>Throws <see cref="ArgumentException"/> for a texture GetTemporary did not hand out or one already released.</summary>
     public static void ReleaseTemporary(RenderTexture temp)
     {
+        DisunityHost.RequireMainThread("RenderTexture.ReleaseTemporary");
         ArgumentNullException.ThrowIfNull(temp);
         if (!Leased.Remove(temp))
             throw new ArgumentException("The texture was not returned by GetTemporary or is already released", nameof(temp));

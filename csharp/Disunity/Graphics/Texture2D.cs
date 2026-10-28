@@ -1,3 +1,4 @@
+using Disunity.Hosting;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Collections;
@@ -11,10 +12,11 @@ namespace UnityEngine;
 /// A 2D texture whose pixels live in managed memory, in the raw layout of its format with the mip levels
 /// stored one after another, level 0 first and each row from the bottom up, as Unity lays them out.
 /// Formats with a codec (the 8-bit, 16-bit, half and float color formats and the packed 16-bit ones)
-/// support pixel access; compressed formats and the remaining raw formats keep bytes only and their
-/// pixel access throws <see cref="NotSupportedException"/>. The bytes sit in a pinned array so the
-/// views from GetRawTextureData and GetPixelData share them; a view stays valid until the texture is
-/// reinitialized. Nothing uploads the pixels to a GPU yet.
+/// support pixel access. Compressed formats and the raw formats without a codec (the signed formats such as
+/// R8_SNorm, and RGB9e5Float) keep bytes only and their pixel access throws <see cref="NotSupportedException"/>.
+/// The bytes sit in a pinned array so the views from GetRawTextureData and GetPixelData share them. A view
+/// stays valid while the texture is reachable and not destroyed; after Reinitialize it keeps pointing at the
+/// bytes it was taken from, not at the new pixels, so take a new view. Nothing uploads the pixels to a GPU yet.
 /// </summary>
 public sealed partial class Texture2D : Texture
 {
@@ -26,6 +28,8 @@ public sealed partial class Texture2D : Texture
     private GraphicsFormat _graphics;
     private int _width, _height, _mipCount;
     private byte[] _data = [];
+    private bool _viewed;
+    private List<byte[]>? _retired;
     private long[] _offsets = [];
     private bool _readable = true;
     private string _limitGroup = "";
@@ -104,6 +108,8 @@ public sealed partial class Texture2D : Texture
         for (var level = 0; level < mips; level++)
             offsets[level + 1] = offsets[level] + TexelFormats.LevelSize(format, Math.Max(1, width >> level), Math.Max(1, height >> level));
         if (offsets[mips] > Array.MaxLength) throw new NotSupportedException($"Texture2D of {offsets[mips]} bytes is too large");
+        if (_viewed && _data.Length > 0) (_retired ??= []).Add(_data);
+        _viewed = false;
         _data = GC.AllocateArray<byte>((int)offsets[mips], pinned: true);
         (_width, _height, _format, _graphics, _mipCount, _offsets) = (width, height, format, graphics, mips, offsets);
     }
@@ -112,7 +118,7 @@ public sealed partial class Texture2D : Texture
     public override int height => _height;
     public override TextureDimension dimension => TextureDimension.Tex2D;
     public override int mipmapCount => _mipCount;
-    public override GraphicsFormat graphicsFormat => _graphics;
+    internal override GraphicsFormat GraphicsFormatCore => _graphics;
     public override bool isReadable => _readable;
     public TextureFormat format => _format;
 
@@ -146,13 +152,15 @@ public sealed partial class Texture2D : Texture
     public static Texture2D linearGrayTexture => Builtin(ref _linearGray, "UnityLinearGray", new Color32(128, 128, 128, 255), linear: true);
     public static Texture2D normalTexture => Builtin(ref _normal, "UnityNormalMap", new Color32(128, 128, 255, 128), linear: true);
 
-    /// <summary>A 4x4 texture of one color, made again if the previous one was destroyed.</summary>
+    /// <summary>A 4x4 texture of one color, made again if the previous one was destroyed. It is not readable,
+    /// so a game cannot change a texture every other user of the built-in shares.</summary>
     private static Texture2D Builtin(ref Texture2D? slot, string name, Color32 color, bool linear)
     {
+        DisunityHost.RequireMainThread("Texture2D built-in textures");
         if (slot is { } live && live) return live;
         var texture = new Texture2D(4, 4, TextureFormat.RGBA32, false, linear) { name = name, hideFlags = HideFlags.HideAndDontSave };
         texture.SetPixels32(Enumerable.Repeat(color, 16).ToArray());
-        texture.Apply(false);
+        texture.Apply(false, true);
         return slot = texture;
     }
 
@@ -226,8 +234,11 @@ public sealed partial class Texture2D : Texture
         return View<T>((int)_offsets[level], (int)(_offsets[level + 1] - _offsets[level]));
     }
 
+    internal override void OnAssetDestroyed() => _retired = null;
+
     private unsafe NativeArray<T> View<T>(int offset, int bytes) where T : struct
     {
+        _viewed = true;
         var start = (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetArrayDataReference(_data)) + offset;
         return NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<T>(start, bytes / UnsafeUtility.SizeOf<T>(), Allocator.None);
     }

@@ -12,15 +12,19 @@ internal static class ShaderMaterialTests
         Globals();
         GlobalArrays();
         GlobalKeywords();
+        ThreadSafety();
         FindShaders();
         ShaderUnsupported();
         MaterialStore();
-        MaterialArraysAndTextures();
+        MaterialArrays();
+        MaterialTextures();
         MaterialConvenience();
         MaterialKeywords();
         MaterialCopyAndLerp();
         MaterialMisc();
         PropertyBlocks();
+        PropertyBlockBuffersAndClear();
+        PropertyBlockProbes();
         SpriteMaterials();
         Console.WriteLine("PASS: Shader ids, globals, keywords and registry; Material and MaterialPropertyBlock property stores; sprite materials stay Materials");
     }
@@ -163,13 +167,45 @@ internal static class ShaderMaterialTests
         Ensure(default(GlobalKeyword).name == "", "a default keyword has an empty name");
     }
 
+    private static void ThreadSafety()
+    {
+        Parallel.For(0, 64, i =>
+        {
+            _ = new GlobalKeyword("_ShaderTestPar" + i % 8);
+            Shader.EnableKeyword("_ShaderTestParOn" + i % 8);
+            _ = Shader.globalKeywords;
+        });
+        Ensure(Shader.globalKeywords.Count(keyword => keyword.name.StartsWith("_ShaderTestPar")) == 16, "concurrent keyword use keeps one entry per keyword");
+        Ensure(Shader.enabledGlobalKeywords.Count(keyword => keyword.name.StartsWith("_ShaderTestParOn")) == 8, "concurrent enabling keeps one entry per keyword");
+
+        foreach (var (what, action) in new (string, Action)[]
+        {
+            ("Shader.SetGlobalFloat", () => Shader.SetGlobalFloat("_ShaderTestOff", 1f)),
+            ("Shader.GetGlobalFloat", () => Shader.GetGlobalFloat("_ShaderTestOff")),
+            ("RenderTexture.active", () => _ = RenderTexture.active),
+            ("RenderTexture.GetTemporary", () => RenderTexture.GetTemporary(4, 4)),
+            ("Texture2D.whiteTexture", () => _ = Texture2D.whiteTexture),
+        })
+        {
+            var failure = OnOtherThread(action);
+            Ensure(failure is InvalidOperationException && failure.Message.Contains("main thread"), $"{what} fails off the main thread (got {failure?.GetType().Name ?? "no error"})");
+        }
+        Shader.SetGlobalFloat("_ShaderTestOff", 2f);
+        Ensure(Shader.GetGlobalFloat("_ShaderTestOff") == 2f, "globals work on the main thread");
+    }
+
     private static void FindShaders()
     {
         Ensure(Shader.Find("Test/ShaderMaterial/Missing") == null, "an unknown shader is not found");
         var shader = DisunityHost.RegisterShader("Test/ShaderMaterial/Lit");
         Ensure(shader.name == "Test/ShaderMaterial/Lit" && ReferenceEquals(Shader.Find("Test/ShaderMaterial/Lit"), shader), "a registered shader is found");
         Ensure(ReferenceEquals(DisunityHost.RegisterShader("Test/ShaderMaterial/Lit"), shader) && ReferenceEquals(Shader.Find("test/shadermaterial/lit"), shader), "registering again returns the same shader; names ignore case");
-        Ensure(shader.isSupported && shader.renderQueue == 2000 && shader.passCount == 1 && shader.subshaderCount == 1 && shader.GetPassCountInSubshader(0) == 1, "a registered shader's basics");
+        Ensure(shader.isSupported, "a registered shader is supported");
+        NotSupported(() => _ = shader.renderQueue, "an undeclared shader's queue", "Shader.renderQueue");
+        NotSupported(() => _ = shader.passCount, "an undeclared shader's pass count", "Shader.passCount");
+        NotSupported(() => _ = shader.subshaderCount, "an undeclared shader's subshader count", "Shader.subshaderCount");
+        NotSupported(() => _ = shader.maximumLOD, "an undeclared shader's LOD", "Shader.maximumLOD");
+        NotSupported(() => shader.GetPassCountInSubshader(0), "pass count in a subshader", "Shader.passCount");
         Throws<ArgumentOutOfRangeException>(() => shader.GetPassCountInSubshader(1), "a second subshader", "subshaderIndex");
         Throws<ArgumentNullException>(() => Shader.Find(null!), "Find(null)");
         Throws<ArgumentNullException>(() => DisunityHost.RegisterShader(null!), "RegisterShader(null)");
@@ -264,7 +300,7 @@ internal static class ShaderMaterialTests
         Throws<ArgumentNullException>(() => new Material((Material)null!), "a copy of no material");
     }
 
-    private static void MaterialArraysAndTextures()
+    private static void MaterialArrays()
     {
         var material = new Material(DisunityHost.RegisterShader("Test/ShaderMaterial/Arrays"));
         material.SetFloatArray("_F", new[] { 1f, 2f });
@@ -299,7 +335,11 @@ internal static class ShaderMaterialTests
         Ensure(material.HasProperty("_F") && material.HasProperty("_C") && material.HasProperty("_M") && !material.HasFloat("_F"), "an array makes the property exist, but not as a float");
         Throws<ArgumentException>(() => material.SetColorArray("_E", new Color[0]), "an empty color array", "SetColorArray");
         Throws<ArgumentException>(() => material.SetVectorArray("_E", new Vector4[1024]), "an oversized vector array", "SetVectorArray");
+    }
 
+    private static void MaterialTextures()
+    {
+        var material = new Material(DisunityHost.RegisterShader("Test/ShaderMaterial/Textures"));
         var texture = new Texture2D(2, 2);
         var target = new RenderTexture(8, 8, 0);
         material.SetTexture("_MainTex", texture);
@@ -350,11 +390,14 @@ internal static class ShaderMaterialTests
         Ensure(material.mainTexture == null && material.HasTexture("_MainTex"), "an unset main texture still counts as set");
 
         var shader = material.shader;
-        Ensure(material.renderQueue == 2000 && material.rawRenderQueue == -1 && material.passCount == 1, "the queue comes from the shader by default");
-        material.renderQueue = 3000;
-        Ensure(material.renderQueue == 3000 && material.rawRenderQueue == 3000, "a stored render queue");
+        NotSupported(() => _ = material.renderQueue, "an undeclared shader's queue", "Shader.renderQueue");
+        NotSupported(() => _ = material.passCount, "an undeclared shader's pass count", "Shader.passCount");
+        var sprite = new Material(Material.SpriteUnlit.shader);
+        Ensure(sprite.renderQueue == 3000 && sprite.rawRenderQueue == -1 && sprite.passCount == 1, "the queue comes from the shader by default");
+        material.renderQueue = 2450;
+        Ensure(material.renderQueue == 2450 && material.rawRenderQueue == 2450, "a stored render queue");
         material.renderQueue = -1;
-        Ensure(material.renderQueue == shader.renderQueue && material.rawRenderQueue == -1, "-1 returns to the shader's queue");
+        Ensure(material.rawRenderQueue == -1 && sprite.renderQueue == sprite.shader.renderQueue, "-1 returns to the shader's queue");
         material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
         material.enableInstancing = true;
         material.doubleSidedGI = true;
@@ -463,10 +506,16 @@ internal static class ShaderMaterialTests
         NotSupported(() => material.FindPass("Forward"), "FindPass", "Material.FindPass");
         NotSupported(() => material.GetPassName(0), "GetPassName", "Material.GetPassName");
         NotSupported(() => material.ComputeCRC(), "ComputeCRC", "Material.ComputeCRC");
-#pragma warning disable CS0618
-        NotSupported(() => new Material("Shader \"X\" {}"), "Material(string)", "Material(string)");
-        NotSupported(() => Material.Create("Shader \"X\" {}"), "Material.Create", "Material.Create");
-#pragma warning restore CS0618
+        var obsolete = typeof(Material);
+        NotSupported(() => Invoke(obsolete.GetConstructor([typeof(string)])!, "Shader \"X\" {}"), "Material(string)", "Material(string)");
+        NotSupported(() => Invoke(obsolete.GetMethod("Create", [typeof(string)])!, "Shader \"X\" {}"), "Material.Create", "Material.Create");
+    }
+
+    /// <summary>Calls an obsolete member through reflection, so the test needs no warning suppression.</summary>
+    private static void Invoke(System.Reflection.MethodBase member, string argument)
+    {
+        try { _ = member is System.Reflection.ConstructorInfo constructor ? constructor.Invoke([argument]) : member.Invoke(null, [argument]); }
+        catch (System.Reflection.TargetInvocationException error) { throw error.InnerException!; }
     }
 
     private static void PropertyBlocks()
@@ -519,6 +568,13 @@ internal static class ShaderMaterialTests
         block.GetMatrixArray(Shader.PropertyToID("_MA"), matrices);
         Ensure(block.GetFloatArray("_FA")!.Length == 2 && block.GetFloatArray(Shader.PropertyToID("_FA2"))!.Length == 1 && block.GetVectorArray("_VA")!.Length == 1 && block.GetVectorArray(Shader.PropertyToID("_VA2"))!.Length == 1
             && block.GetMatrixArray("_MA")!.Length == 1 && block.GetMatrixArray(Shader.PropertyToID("_MA2"))!.Length == 1 && floats.Count == 2 && vectors.Count == 1 && matrices.Count == 1 && block.GetFloatArray("_Missing") == null, "arrays");
+    }
+
+    private static void PropertyBlockBuffersAndClear()
+    {
+        var block = new MaterialPropertyBlock();
+        var texture = new Texture2D(2, 2);
+        block.SetTexture("_T", texture);
         block.SetBuffer("_B", (ComputeBuffer)null!);
         block.SetBuffer(Shader.PropertyToID("_B2"), (GraphicsBuffer)null!);
         block.SetBuffer("_B3", (GraphicsBuffer)null!);
@@ -546,6 +602,11 @@ internal static class ShaderMaterialTests
         block.SetFloat("_F", 1f);
         Ensure(!block.isEmpty, "a block can be filled again");
 
+    }
+
+    private static void PropertyBlockProbes()
+    {
+        var block = new MaterialPropertyBlock();
         SphericalHarmonicsL2[] probes = [default];
         var probeList = new List<SphericalHarmonicsL2>(probes);
         NotSupported(() => block.CopySHCoefficientArraysFrom(probeList), "CopySHCoefficientArraysFrom(List)", "MaterialPropertyBlock.CopySHCoefficientArraysFrom");
@@ -574,8 +635,19 @@ internal static class ShaderMaterialTests
     {
         Ensure(Material.SpriteUnlit is Material && Material.SpriteLit is UnityEngine.Object && Material.SpriteUnlit != Material.SpriteLit, "the sprite materials are Materials and Objects");
         Ensure(Material.SpriteUnlit.SpriteMaterial == BuiltinSpriteMaterial.Unlit && Material.SpriteLit.SpriteMaterial == BuiltinSpriteMaterial.Lit, "they keep their native identity");
-        Ensure(Material.SpriteUnlit.name == "Sprites-Default" && Material.SpriteLit.shader != null && Material.SpriteLit.shader != Material.SpriteUnlit.shader, "they have names and shaders");
+        Ensure(Material.SpriteUnlit.name == "Sprites-Default" && (bool)Material.SpriteLit.shader && Material.SpriteLit.shader != Material.SpriteUnlit.shader, "they have names and shaders");
         Ensure(new Material(BuiltinSpriteMaterial.Lit).SpriteMaterial == BuiltinSpriteMaterial.Lit && new Material(Material.SpriteLit).SpriteMaterial == BuiltinSpriteMaterial.Lit, "a sprite material can be built and copied");
+        Ensure(ReferenceEquals(Shader.Find("Sprites/Default"), Material.SpriteUnlit.shader) && ReferenceEquals(Shader.Find("Universal Render Pipeline/2D/Sprite-Lit-Default"), Material.SpriteLit.shader),
+            "the sprite shaders are registered, so Shader.Find returns the material's shader");
+        Ensure(Material.SpriteUnlit.color == Color.white && Material.SpriteLit.color == Color.white && Material.SpriteUnlit.GetColor("_Color") == Color.white, "sprite materials start white");
+        Ensure(Material.SpriteUnlit.shader.renderQueue == 3000 && Material.SpriteLit.shader.renderQueue == 3000 && Material.SpriteUnlit.shader.passCount == 1, "sprite shaders report Unity's queue");
+        NotSupported(() => _ = Material.SpriteLit.shader.passCount, "the URP sprite shader's passes are unknown", "Shader.passCount");
+        Throws<InvalidOperationException>(() => UnityEngine.Object.Destroy(Material.SpriteLit), "destroying the lit sprite material", "SpriteLit");
+        Throws<InvalidOperationException>(() => UnityEngine.Object.DestroyImmediate(Material.SpriteUnlit), "destroying the unlit sprite material", "SpriteUnlit");
+        Ensure(Material.SpriteLit && Material.SpriteUnlit, "a refused destroy leaves the sprite materials alive");
+        var copy = new Material(Material.SpriteLit);
+        UnityEngine.Object.Destroy(copy);
+        Ensure(copy == null && Material.SpriteLit, "a copy of a sprite material can be destroyed");
         Throws<NotSupportedException>(() => new Material((BuiltinSpriteMaterial)7), "an unknown sprite material", "7");
         var custom = new Material(DisunityHost.RegisterShader("Test/ShaderMaterial/Custom"));
         NotSupported(() => _ = custom.SpriteMaterial, "a custom material has no sprite identity", "Material.SpriteMaterial");

@@ -74,9 +74,14 @@ public abstract class Texture : Object
     }
 
     public virtual int mipmapCount => 1;
-    public virtual GraphicsFormat graphicsFormat => GraphicsFormat.None;
+    public GraphicsFormat graphicsFormat => GraphicsFormatCore;
+
+    /// <summary>What <see cref="graphicsFormat"/> reads. RenderTexture declares its own settable
+    /// graphicsFormat, so a Texture-typed reference must reach the format through this member.</summary>
+    internal virtual GraphicsFormat GraphicsFormatCore => GraphicsFormat.None;
+
     public virtual bool isReadable => false;
-    public bool isDataSRGB => GraphicsFormats.IsSrgb(graphicsFormat);
+    public bool isDataSRGB => GraphicsFormats.IsSrgb(GraphicsFormatCore);
     public Vector2 texelSize => new(1f / Math.Max(width, 1), 1f / Math.Max(height, 1));
 
     public TextureWrapMode wrapMode

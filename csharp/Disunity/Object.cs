@@ -13,16 +13,18 @@ public sealed class SerializeReference : Attribute;
 public enum FindObjectsSortMode { None, InstanceID }
 
 /// <summary>
-/// The base of everything Unity code can hold a reference to. A scene object (GameObject or
-/// Component) is alive while its GameObject is; every other object is a managed asset, which
-/// stays alive until Destroy or DestroyImmediate marks it destroyed. A destroyed object compares
-/// equal to null and converts to false.
+/// The base of everything Unity code can hold a reference to. A scene object (GameObject or Component) is
+/// alive while its GameObject is; the native world destroys it, and destroys a ScriptableObject, when
+/// Destroy asks (DestroyImmediate is not supported for them). Every other object is a managed asset, which
+/// stays alive until Destroy or DestroyImmediate marks it destroyed. A destroyed object compares equal to null
+/// and converts to false. Searches (FindObjectsByType and the others) find scene objects only.
 /// </summary>
 public partial class Object
 {
     // Instance IDs count down from -2 in steps of -2 and are assigned when the object is built, as
     // Unity numbers objects created at run time (negative and even). The number is stable for the
-    // object's lifetime and never reused in the process.
+    // object's lifetime and never reused in the process. The counter is an int, so it wraps after about a
+    // billion objects (2^30), when IDs would repeat; a game does not create that many in one process.
     private static int _lastInstanceId;
 
     private readonly int _instanceId = Interlocked.Add(ref _lastInstanceId, -2);
@@ -33,6 +35,9 @@ public partial class Object
 
     internal virtual GameObject? Owner => null;
     internal virtual bool Destroyed => _assetDestroyed;
+
+    /// <summary>Whether Destroy or DestroyImmediate marked this object, for assets whose Destroyed also depends on other state.</summary>
+    internal bool AssetDestroyed => _assetDestroyed;
 
     public string name
     {
@@ -51,8 +56,12 @@ public partial class Object
         _name = value;
     }
 
+    /// <summary>Why this object cannot be destroyed, or null; built-in assets the engine shares process-wide refuse.</summary>
+    internal virtual string? DestroyRefusal => null;
+
     internal void MarkAssetDestroyed()
     {
+        if (DestroyRefusal is { } refusal) throw new InvalidOperationException(refusal);
         _assetDestroyed = true;
         OnAssetDestroyed();
     }
@@ -149,8 +158,14 @@ public abstract class Component : Object
     public GameObject gameObject { get; internal set; } = null!;
     internal override GameObject Owner => gameObject;
     internal override bool Destroyed => gameObject is { } owner && owner.IsDestroyed;
-    internal override string ReadName() => gameObject.name;
-    internal override void WriteName(string value) => gameObject.name = value;
+    internal override string ReadName() => gameObject is { } owner ? owner.name : "";
+
+    internal override void WriteName(string value)
+    {
+        if (gameObject is not { } owner) throw new InvalidOperationException("A component's name is its GameObject's, and this component is not attached to a GameObject yet");
+        owner.name = value;
+    }
+
     public Transform transform => gameObject.transform;
     public string tag { get => gameObject.tag; set => gameObject.tag = value; }
     public bool CompareTag(string value) => gameObject.CompareTag(value);

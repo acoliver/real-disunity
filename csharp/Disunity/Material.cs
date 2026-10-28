@@ -1,3 +1,4 @@
+using Disunity.Hosting;
 using UnityEngine.Rendering;
 
 namespace UnityEngine;
@@ -10,12 +11,19 @@ public enum BuiltinSpriteMaterial : uint { Unlit = 0, Lit = 1 }
 /// or another material has no shader declarations to consult, so it knows only what was set on it: see
 /// <see cref="Material.HasProperty(string)"/>. Unity's convenience members map to fixed names, as it does for
 /// a shader without [MainColor] and [MainTexture]: <see cref="color"/> is _Color and <see cref="mainTexture"/>,
-/// <see cref="mainTextureOffset"/> and <see cref="mainTextureScale"/> are _MainTex.
+/// <see cref="mainTextureOffset"/> and <see cref="mainTextureScale"/> are _MainTex. The sprite materials start
+/// with _Color white, as the sprite shaders declare; for any other shader a property never set reads as zero,
+/// so <see cref="color"/> reads (0, 0, 0, 0) until it is set. The sprite materials are built in and cannot be
+/// destroyed. <c>new Material(Material.SpriteLit)</c> is a copy that keeps the native sprite identity but is not
+/// the one the native 2D pipeline draws with, so editing the copy does not change what a renderer draws.
 /// </summary>
 public partial class Material : Object
 {
-    private static readonly Shader SpriteUnlitShader = new("Sprites/Default");
-    private static readonly Shader SpriteLitShader = new("Universal Render Pipeline/2D/Sprite-Lit-Default");
+    // Both sprite shaders queue as Transparent (3000). Sprites/Default is one subshader of one pass; the URP
+    // lit sprite shader's pass count is not known here.
+    private static readonly Shader SpriteUnlitShader = DisunityHost.RegisterShader("Sprites/Default").Declare(3000, 1, 1);
+    private static readonly Shader SpriteLitShader =
+        DisunityHost.RegisterShader("Universal Render Pipeline/2D/Sprite-Lit-Default").Declare(3000, null, null);
     private static readonly int ColorId = Shader.PropertyToID("_Color");
     private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
 
@@ -29,6 +37,11 @@ public partial class Material : Object
     private readonly BuiltinSpriteMaterial? _sprite;
     private int _renderQueue = -1;
 
+    internal override string? DestroyRefusal =>
+        ReferenceEquals(this, SpriteUnlit) || ReferenceEquals(this, SpriteLit)
+            ? $"The built-in sprite material '{name}' (Material.SpriteUnlit and Material.SpriteLit) cannot be destroyed: renderers draw with it"
+            : null;
+
     /// <summary>The built-in sprite material this is; only the two sprite materials have one.</summary>
     public BuiltinSpriteMaterial SpriteMaterial =>
         _sprite ?? throw new NotSupportedException("Material.SpriteMaterial is not supported yet for a material other than the built-in sprite materials");
@@ -39,6 +52,7 @@ public partial class Material : Object
             throw new NotSupportedException($"unsupported sprite material {material}");
         _sprite = material;
         shader = material == BuiltinSpriteMaterial.Unlit ? SpriteUnlitShader : SpriteLitShader;
+        color = Color.white;
         name = material == BuiltinSpriteMaterial.Unlit ? "Sprites-Default" : "Sprite-Lit-Default";
     }
 
@@ -179,7 +193,9 @@ public partial class Material : Object
         else _overrideTags[tag] = val;
     }
 
-    /// <summary>The override set on this material, or <paramref name="defaultValue"/>: the shader's own tags are not available.</summary>
+    /// <summary>The override set on this material, or <paramref name="defaultValue"/>. The shader's own tags are
+    /// not available, so a tag the shader declares but this material does not override also reads as
+    /// <paramref name="defaultValue"/>, and <paramref name="searchFallbacks"/> has no effect.</summary>
     public string GetTag(string tag, bool searchFallbacks, string defaultValue)
     {
         ArgumentNullException.ThrowIfNull(tag);

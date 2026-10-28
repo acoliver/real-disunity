@@ -7,26 +7,49 @@ namespace UnityEngine;
 /// A shader known to the engine by name. A shader exists once <see cref="DisunityHost.RegisterShader"/> has
 /// registered it, and <see cref="Find"/> returns only registered shaders. The engine has no shader programs
 /// or declarations, so the members that read a shader's passes, tags, keywords or properties throw
-/// <see cref="NotSupportedException"/> (a shader reports one subshader of one pass). The global properties and
-/// keywords are stored and read back, and nothing applies them to a draw yet.
+/// <see cref="NotSupportedException"/>, and so do renderQueue, passCount, subshaderCount and an unset maximumLOD,
+/// except for the two built-in sprite shaders, whose queue (3000) and, for Sprites/Default, pass and subshader
+/// counts (1) are known. The global properties and keywords are stored and read back, and nothing applies them
+/// to a draw yet. The globals are main-thread state, as in Unity, and fail on other threads; the global keyword
+/// lists are locked.
 /// </summary>
 public sealed partial class Shader : Object
 {
     private static readonly NameTable Properties = new(1000);
+    private static readonly object KeywordLock = new();
     private static readonly List<string> KnownKeywords = new();
     private static readonly List<string> EnabledKeywords = new();
 
+    private int? _renderQueue, _passCount, _subshaderCount, _maximumLod;
+
     internal Shader(string name) => this.name = name;
+
+    /// <summary>Records what the engine knows about a built-in shader that has no declarations to read.</summary>
+    internal Shader Declare(int renderQueue, int? passCount, int? subshaderCount)
+    {
+        (_renderQueue, _passCount, _subshaderCount) = (renderQueue, passCount, subshaderCount);
+        return this;
+    }
+
+    private int Declared(int? value, string member) =>
+        value ?? throw new NotSupportedException($"Shader.{member} is not supported yet: the engine has no declaration for shader '{name}'");
 
     public static ShaderHardwareTier globalShaderHardwareTier { get; set; } = ShaderHardwareTier.Tier3;
     public static int maximumChunksOverride { get; set; }
     public static int globalMaximumLOD { get; set; } = int.MaxValue;
     public static string globalRenderPipeline { get; set; } = "";
-    public int maximumLOD { get; set; }
+
+    /// <summary>The value set here; a shader's own LOD is not declared, so reading it before setting it throws.</summary>
+    public int maximumLOD
+    {
+        get => Declared(_maximumLod, nameof(maximumLOD));
+        set => _maximumLod = value;
+    }
+
     public bool isSupported => !Destroyed;
-    public int renderQueue => 2000;
-    public int passCount => 1;
-    public int subshaderCount => 1;
+    public int renderQueue => Declared(_renderQueue, nameof(renderQueue));
+    public int passCount => Declared(_passCount, nameof(passCount));
+    public int subshaderCount => Declared(_subshaderCount, nameof(subshaderCount));
 
     public static Shader? Find(string name) => DisunityHost.FindShader(name);
 
@@ -42,12 +65,18 @@ public sealed partial class Shader : Object
 
     internal static void NoteGlobalKeyword(string name)
     {
-        if (!KnownKeywords.Contains(name)) KnownKeywords.Add(name);
+        lock (KeywordLock)
+            if (!KnownKeywords.Contains(name)) KnownKeywords.Add(name);
     }
 
-    public static GlobalKeyword[] globalKeywords => KnownKeywords.Select(keyword => new GlobalKeyword(keyword)).ToArray();
+    public static GlobalKeyword[] globalKeywords => Snapshot(KnownKeywords).Select(keyword => new GlobalKeyword(keyword)).ToArray();
 
-    public static GlobalKeyword[] enabledGlobalKeywords => EnabledKeywords.Select(keyword => new GlobalKeyword(keyword)).ToArray();
+    public static GlobalKeyword[] enabledGlobalKeywords => Snapshot(EnabledKeywords).Select(keyword => new GlobalKeyword(keyword)).ToArray();
+
+    private static string[] Snapshot(List<string> keywords)
+    {
+        lock (KeywordLock) return keywords.ToArray();
+    }
 
     public static void EnableKeyword(string keyword) => SetGlobalKeyword(keyword, true);
 
@@ -56,7 +85,7 @@ public sealed partial class Shader : Object
     public static bool IsKeywordEnabled(string keyword)
     {
         ArgumentNullException.ThrowIfNull(keyword);
-        return EnabledKeywords.Contains(keyword);
+        lock (KeywordLock) return EnabledKeywords.Contains(keyword);
     }
 
     public static void EnableKeyword(ref GlobalKeyword keyword) => SetGlobalKeyword(keyword.name, true);
@@ -71,8 +100,11 @@ public sealed partial class Shader : Object
     {
         ArgumentNullException.ThrowIfNull(keyword);
         NoteGlobalKeyword(keyword);
-        if (enabled && !EnabledKeywords.Contains(keyword)) EnabledKeywords.Add(keyword);
-        else if (!enabled) EnabledKeywords.Remove(keyword);
+        lock (KeywordLock)
+        {
+            if (enabled && !EnabledKeywords.Contains(keyword)) EnabledKeywords.Add(keyword);
+            else if (!enabled) EnabledKeywords.Remove(keyword);
+        }
     }
 
     public int GetPassCountInSubshader(int subshaderIndex) =>

@@ -12,6 +12,8 @@ internal static class RenderTextureTests
         FormatMapping();
         DescriptorRoundTrip();
         Lifecycle();
+        LifecycleHints();
+        ReadThroughTexture();
         ActiveTexture();
         Temporaries();
         TemporaryPoolLimit();
@@ -168,6 +170,10 @@ internal static class RenderTextureTests
         texture.isPowerOfTwo = false;
         Ensure(!texture.isPowerOfTwo, "isPowerOfTwo is stored");
 
+    }
+
+    private static void LifecycleHints()
+    {
         var named = new RenderTexture(256, 128, 0) { useMipMap = true };
         Ensure(named.mipmapCount == 9 && new RenderTexture(256, 128, 0).mipmapCount == 1 && new RenderTexture(256, 128, 0, RenderTextureFormat.ARGB32, 3).mipmapCount == 3, "mip counts");
         named.autoGenerateMips = false;
@@ -199,6 +205,16 @@ internal static class RenderTextureTests
         RenderTexture.enabled = false;
         Ensure(!RenderTexture.enabled, "RenderTexture.enabled is stored");
         RenderTexture.enabled = true;
+    }
+
+    private static void ReadThroughTexture()
+    {
+        Texture srgb = new RenderTexture(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        Texture linear = new RenderTexture(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        Ensure(srgb.graphicsFormat == GraphicsFormat.R8G8B8A8_SRGB && srgb.isDataSRGB, "a Texture-typed sRGB render texture reports its format");
+        Ensure(linear.graphicsFormat == GraphicsFormat.R8G8B8A8_UNorm && !linear.isDataSRGB, "a Texture-typed linear render texture reports its format");
+        ((RenderTexture)linear).graphicsFormat = GraphicsFormat.R8G8B8A8_SRGB;
+        Ensure(linear.graphicsFormat == GraphicsFormat.R8G8B8A8_SRGB && linear.isDataSRGB, "a changed format shows through the Texture reference");
     }
 
     private static void ActiveTexture()

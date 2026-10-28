@@ -19,6 +19,20 @@ internal static class GraphicsTestSupport
         public void Dispose() => Debug.unityLogger.logHandler = _previous;
     }
 
+    /// <summary>Runs the action on another thread and returns what it threw, or null.</summary>
+    public static Exception? OnOtherThread(Action action)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { action(); }
+            catch (Exception error) { failure = error; }
+        });
+        thread.Start();
+        thread.Join();
+        return failure;
+    }
+
     public static void Ensure(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);

@@ -9,7 +9,10 @@ internal static class TextureTests
     public static void Run()
     {
         PixelRoundTrips();
+        ViewsSurviveReinitialize();
         RawLayouts();
+        PackedChannelOrder();
+        WideChannelOrder();
         MipLevels();
         Bilinear();
         BlocksAndWrapping();
@@ -55,9 +58,93 @@ internal static class TextureTests
         var low = new Texture2D(1, 1, TextureFormat.RGBA32, false);
         low.SetPixel(0, 0, new Color(2f, -1f, 0.5f, 1f));
         Near(new Color(1f, 0f, 0.5019608f, 1f), low.GetPixel(0, 0), 0.003f, "8-bit channels clamp");
-        low.SetPixel(5, 5, Color.white);
-        low.SetPixel(-1, 0, Color.white);
-        Near(new Color(1f, 0f, 0.5019608f, 1f), low.GetPixel(0, 0), 0.003f, "a write outside the texture is ignored");
+        OutOfRangeWrites();
+    }
+
+    private static void ViewsSurviveReinitialize()
+    {
+        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        texture.SetPixel(0, 0, Color.red);
+        var view = texture.GetRawTextureData<byte>();
+        Ensure(view.Length == 16 && view[0] == 255, "the view shows the pixels");
+        texture.Reinitialize(4, 4);
+        var allocations = new List<byte[]>();
+        for (var i = 0; i < 64; i++) allocations.Add(GC.AllocateArray<byte>(64, pinned: true));
+        GC.Collect();
+        GC.KeepAlive(allocations);
+        Ensure(view[0] == 255 && view.Length == 16, "a view taken before Reinitialize still reads the bytes it was taken from");
+        Ensure(texture.GetRawTextureData<byte>().Length == 64, "a new view has the new size");
+        UnityEngine.Object.Destroy(texture);
+    }
+
+    private static byte[] RawAfterSet(TextureFormat format, Color color)
+    {
+        var texture = new Texture2D(1, 1, format, false);
+        texture.SetPixel(0, 0, color);
+        return texture.GetRawTextureData();
+    }
+
+    private static void PackedChannelOrder()
+    {
+        Ensure(RawAfterSet(TextureFormat.RGB565, Color.red).SequenceEqual(new byte[] { 0x00, 0xF8 }), "RGB565 keeps red in the top five bits");
+        Ensure(RawAfterSet(TextureFormat.RGB565, Color.green).SequenceEqual(new byte[] { 0xE0, 0x07 }), "RGB565 keeps green in the middle six bits");
+        Ensure(RawAfterSet(TextureFormat.RGB565, Color.blue).SequenceEqual(new byte[] { 0x1F, 0x00 }), "RGB565 keeps blue in the low five bits");
+        var texture = new Texture2D(1, 1, TextureFormat.RGB565, false);
+        texture.LoadRawTextureData(new byte[] { 0x00, 0xF8 });
+        Near(Color.red, texture.GetPixel(0, 0), 0f, "RGB565 red reads back");
+        texture.LoadRawTextureData(new byte[] { 0x1F, 0x00 });
+        Near(Color.blue, texture.GetPixel(0, 0), 0f, "RGB565 blue reads back");
+
+        var color = new Color(1f, 0.2f, 0.6f, 0.4f);
+        Ensure(RawAfterSet(TextureFormat.RGBA4444, color).SequenceEqual(new byte[] { 0x96, 0xF3 }), "RGBA4444 packs red, green, blue, alpha from the top nibble");
+        Ensure(RawAfterSet(TextureFormat.ARGB4444, color).SequenceEqual(new byte[] { 0x39, 0x6F }), "ARGB4444 packs alpha, red, green, blue from the top nibble");
+        foreach (var format in new[] { TextureFormat.RGBA4444, TextureFormat.ARGB4444 })
+        {
+            var packed = new Texture2D(1, 1, format, false);
+            packed.SetPixel(0, 0, color);
+            Near(new Color(15 / 15f, 3 / 15f, 9 / 15f, 6 / 15f), packed.GetPixel(0, 0), 1e-6f, $"{format} reads its channels back in order");
+        }
+
+        var alpha = new Texture2D(1, 1, TextureFormat.Alpha8, false);
+        alpha.SetPixel(0, 0, new Color(0.2f, 0.4f, 0.6f, 0.5f));
+        Ensure(alpha.GetRawTextureData().SequenceEqual(new byte[] { 128 }), "Alpha8 stores only alpha");
+        Near(new Color(1f, 1f, 1f, 128 / 255f), alpha.GetPixel(0, 0), 1e-6f, "Alpha8 reads as white with its alpha (the Unity documentation does not say what the color channels are)");
+    }
+
+    private static void WideChannelOrder()
+    {
+        Ensure(RawAfterSet(TextureFormat.R16, new Color(1f, 0f, 0f, 0f)).SequenceEqual(new byte[] { 0xFF, 0xFF }), "R16 stores red");
+        Ensure(RawAfterSet(TextureFormat.RG32, new Color(0f, 1f, 0f, 0f)).SequenceEqual(new byte[] { 0, 0, 0xFF, 0xFF }), "RG32 stores green after red");
+        Ensure(RawAfterSet(TextureFormat.RGB48, new Color(0f, 0f, 1f, 0f)).SequenceEqual(new byte[] { 0, 0, 0, 0, 0xFF, 0xFF }), "RGB48 stores blue third");
+        Ensure(RawAfterSet(TextureFormat.RGBA64, new Color(0f, 0f, 0f, 1f)).SequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 0xFF, 0xFF }), "RGBA64 stores alpha fourth");
+        Ensure(RawAfterSet(TextureFormat.RHalf, new Color(2f, 0f, 0f, 0f)).SequenceEqual(new byte[] { 0x00, 0x40 }), "RHalf stores red as a half float");
+        Ensure(RawAfterSet(TextureFormat.RGHalf, new Color(0f, 2f, 0f, 0f)).SequenceEqual(new byte[] { 0, 0, 0x00, 0x40 }), "RGHalf stores green after red");
+        var color = new Color(0.25f, 0.5f, 0.75f, 1f);
+        foreach (var (format, expected) in new[]
+        {
+            (TextureFormat.R16, new Color(0.25f, 0f, 0f, 1f)), (TextureFormat.RG32, new Color(0.25f, 0.5f, 0f, 1f)),
+            (TextureFormat.RGB48, new Color(0.25f, 0.5f, 0.75f, 1f)), (TextureFormat.RGBA64, color),
+            (TextureFormat.RHalf, new Color(0.25f, 0f, 0f, 1f)), (TextureFormat.RGHalf, new Color(0.25f, 0.5f, 0f, 1f)),
+        })
+        {
+            var texture = new Texture2D(1, 1, format, false);
+            texture.SetPixel(0, 0, color);
+            Near(expected, texture.GetPixel(0, 0), 2e-5f, $"{format} keeps its channels and reads the rest as 0 and alpha as 1");
+        }
+    }
+
+    private static void OutOfRangeWrites()
+    {
+        var clamped = new Texture2D(2, 2, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        clamped.SetPixel(5, 5, Color.red);
+        clamped.SetPixel(-1, 0, Color.blue);
+        Near(Color.red, clamped.GetPixel(1, 1), 0f, "Clamp writes outside the texture land on the nearest edge texel");
+        Near(Color.blue, clamped.GetPixel(0, 0), 0f, "Clamp writes below zero land on the first texel");
+        var repeated = new Texture2D(2, 2, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Repeat };
+        repeated.SetPixel(3, 2, Color.green);
+        Near(Color.green, repeated.GetPixel(1, 0), 0f, "Repeat writes outside the texture wrap around");
+        repeated.SetPixel(-1, -1, Color.red);
+        Near(Color.red, repeated.GetPixel(1, 1), 0f, "Repeat writes below zero wrap around");
     }
 
     private static void RawLayouts()
@@ -195,7 +282,12 @@ internal static class TextureTests
         })
         {
             Ensure(texture.width == 4 && texture.height == 4 && texture.format == TextureFormat.RGBA32, $"{texture.name} is a 4x4 RGBA32 texture");
-            Ensure(texture.GetPixels32().All(pixel => pixel.Equals(color)), $"{texture.name} is one color");
+            var bytes = (byte[])typeof(Texture2D).GetField("_data", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(texture)!;
+            Ensure(bytes.Length == 64 && Enumerable.Range(0, 16).All(i => bytes[4 * i] == color.r && bytes[4 * i + 1] == color.g && bytes[4 * i + 2] == color.b && bytes[4 * i + 3] == color.a), $"{texture.name} is one color");
+            Ensure(!texture.isReadable, $"{texture.name} is not readable, so a game cannot change it");
+            Throws<InvalidOperationException>(() => texture.SetPixel(0, 0, Color.magenta), $"{texture.name} SetPixel", "not readable");
+            Throws<InvalidOperationException>(() => texture.SetPixels32([new Color32(1, 2, 3, 4)]), $"{texture.name} SetPixels32", "not readable");
+            Throws<InvalidOperationException>(() => texture.LoadRawTextureData(new byte[64]), $"{texture.name} LoadRawTextureData", "not readable");
         }
         Ensure(ReferenceEquals(Texture2D.whiteTexture, Texture2D.whiteTexture), "a built-in texture is shared");
         Ensure(Texture2D.grayTexture.graphicsFormat == GraphicsFormat.R8G8B8A8_SRGB && Texture2D.linearGrayTexture.graphicsFormat == GraphicsFormat.R8G8B8A8_UNorm, "linear gray is a linear format");

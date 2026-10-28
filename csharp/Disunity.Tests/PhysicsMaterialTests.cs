@@ -29,6 +29,12 @@ internal static class PhysicsMaterialTests
         Require(ReferenceEquals(clone.GetComponent<CircleCollider2D>()!.sharedMaterial, material), "clones share asset");
         collider.sharedMaterial = null;
         Require(collider.sharedMaterial == null && ReferenceEquals(body.sharedMaterial, material), "clearing collider retains body material");
+        var doomed = new PhysicsMaterial2D("doomed");
+        UnityEngine.Object.Destroy(doomed);
+        Require(doomed == null && !doomed, "Destroy marks a physics material destroyed");
+        var immediate = new PhysicsMaterial2D("immediate");
+        UnityEngine.Object.DestroyImmediate(immediate);
+        Require(immediate == null && !immediate, "DestroyImmediate marks a physics material destroyed");
         DisunityHost.UnloadWorld();
         Console.WriteLine("PASS: native-backed physics material identity, mutation, validation and clone sharing");
     }

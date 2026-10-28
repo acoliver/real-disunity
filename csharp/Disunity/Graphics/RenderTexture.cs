@@ -1,3 +1,4 @@
+using Disunity.Hosting;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
@@ -7,7 +8,10 @@ namespace UnityEngine;
 /// A texture a camera or command buffer draws into. The engine keeps its description and whether it is
 /// created, and has no GPU surface, so nothing draws into it and it has no pixels. A texture that is created
 /// rejects changes to its size, format and other allocation settings with <see cref="InvalidOperationException"/>
-/// until Release, where Unity logs an error and ignores the change. DiscardContents, MarkRestoreExpected,
+/// until Release. The Unity documentation does not say what a late change does, so the engine reports it instead
+/// of ignoring it. The same holds for ReleaseTemporary of a texture GetTemporary did not hand out or already got
+/// back (<see cref="ArgumentException"/>), and for reading <see cref="format"/> when the graphics format has no
+/// RenderTextureFormat (<see cref="NotSupportedException"/>). DiscardContents, MarkRestoreExpected,
 /// ApplyDynamicScale and ResolveAntiAliasedSurface are hints or work on drawn contents, so they have no effect.
 /// </summary>
 public partial class RenderTexture : Texture
@@ -84,6 +88,7 @@ public partial class RenderTexture : Texture
     public override TextureDimension dimension { get => _desc.dimension; set { Change(nameof(dimension)); _desc.dimension = value; } }
     public int volumeDepth { get => _desc.volumeDepth; set { Change(nameof(volumeDepth)); _desc.volumeDepth = value; } }
     public int antiAliasing { get => _desc.msaaSamples; set => SetAntiAliasing(value); }
+    internal override GraphicsFormat GraphicsFormatCore => _desc.graphicsFormat;
     public new GraphicsFormat graphicsFormat { get => _desc.graphicsFormat; set { Change(nameof(graphicsFormat)); _desc.graphicsFormat = value; } }
     public GraphicsFormat stencilFormat { get => _desc.stencilFormat; set { Change(nameof(stencilFormat)); _desc.stencilFormat = value; } }
     public GraphicsFormat depthStencilFormat { get => _desc.depthStencilFormat; set { Change(nameof(depthStencilFormat)); _desc.depthStencilFormat = value; } }
@@ -147,9 +152,14 @@ public partial class RenderTexture : Texture
     /// <summary>The texture drawing goes to when no other target is set. Setting a texture creates it.</summary>
     public static RenderTexture? active
     {
-        get => _active is { } current && current ? current : null;
+        get
+        {
+            DisunityHost.RequireMainThread("RenderTexture.active");
+            return _active is { } current && current ? current : null;
+        }
         set
         {
+            DisunityHost.RequireMainThread("RenderTexture.active");
             if (value is not null && value && !value._created) value.Create();
             _active = value;
         }

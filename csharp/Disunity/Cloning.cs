@@ -13,7 +13,7 @@ public static partial class DisunityHost
         EnsureWorld();
         ulong root;
         uint count;
-        ThrowIfError(NativeBindings.disunity_clone_create(WorldHandle, original.Owner.NativeHandle,
+        ThrowIfError(NativeBindings.disunity_clone_create(WorldHandle, original.Owner!.NativeHandle,
             parent?.gameObject.NativeHandle ?? 0, &root, &count));
         var rows = new DisunityCloneRow[count];
         uint written;

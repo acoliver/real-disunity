@@ -5,11 +5,8 @@ namespace UnityEngine;
 
 public class ScriptableObject : Object
 {
-    /// <summary>The asset's name; a loaded asset has the name of its file.</summary>
-    public string name { get; set; } = "";
     internal ulong Identity;
     internal ulong World;
-    internal override GameObject Owner => throw new NotSupportedException("script assets have no GameObject");
     internal override unsafe bool Destroyed
     {
         get

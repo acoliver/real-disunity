@@ -27,12 +27,10 @@ public class TextAsset : Object
         _bytes = bytes;
     }
 
-    public string name { get; set; } = "";
     public byte[] bytes => (byte[])_bytes.Clone();
     public long dataSize => _bytes.LongLength;
     public string text => _text ??= Decode(_bytes);
-    internal override GameObject Owner => throw new NotSupportedException("text assets have no GameObject");
-    internal override bool Destroyed => false;
+    internal override Object CloneAsset() => new TextAsset(name + "(Clone)", _bytes) { _text = _text };
     public override string ToString() => text;
 
     private static readonly Encoding[] Marked =

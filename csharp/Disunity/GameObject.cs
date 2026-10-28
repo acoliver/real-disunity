@@ -31,12 +31,17 @@ public sealed class GameObject : Object, IDisposable
     }
 
     internal override GameObject Owner => this;
+    internal override bool Destroyed => IsDestroyed;
+    internal override string ReadName() => DisunityHost.ObjectText(this, 0);
+    internal override void WriteName(string value) => DisunityHost.ObjectText(this, 0, value);
+
+    /// <summary>Set by DontDestroyOnLoad. The engine runs one scene, so nothing reads it yet.</summary>
+    internal bool PersistsAcrossLoads { get; set; }
     public Transform Transform { get; internal set; }
     public Transform transform => Transform;
     public T? GetComponent<T>() where T : class => DisunityHost.Components(this).OfType<T>().FirstOrDefault();
     public T AddComponent<T>() where T : Component, new() => DisunityHost.AttachComponent(this, new T());
 
-    public string name { get => DisunityHost.ObjectText(this, 0); set => DisunityHost.ObjectText(this, 0, value); }
     public string tag { get => DisunityHost.ObjectText(this, 1); set => DisunityHost.ObjectText(this, 1, value); }
     public unsafe int layer
     {

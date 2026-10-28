@@ -12,6 +12,8 @@ public enum CameraClearFlags { Skybox = 1, Color = 2, SolidColor = 2, Depth = 3,
 /// </summary>
 public sealed class Camera : NativeComponent
 {
+    public enum MonoOrStereoscopicEye { Left = 0, Right = 1, Mono = 2 }
+
     private unsafe DisunityCamera Read()
     {
         DisunityCamera value;

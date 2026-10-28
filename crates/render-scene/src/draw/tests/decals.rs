@@ -27,6 +27,7 @@ pub(crate) fn decal() -> SceneDecal {
         mapping: worldrunner_render_plan::SceneDecalMapping::default(),
         write_mask: worldrunner_render_plan::SceneDecalWriteMask::default(),
         alpha_test_cutoff_micro: None,
+        color_modifier: worldrunner_render_plan::SceneDecalColorModifier::default(),
     }
 }
 pub(crate) fn source(slope: bool, terrain_receiver: bool) -> RenderScene {
@@ -536,5 +537,7 @@ mod mapping;
 #[path = "decal_write.rs"]
 mod write;
 
+#[path = "decal_color.rs"]
+mod color;
 #[path = "decal_normal_frames.rs"]
 mod normal_frames;

@@ -9,7 +9,7 @@ pub(super) fn build_cached(
     source: (&str, bool),
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)]),
+    target: (u32, &[(&str, f64)], wgpu::FrontFace),
 ) -> (RenderPipeline, BindGroupLayout, RenderPipeline) {
     let (source, layered) = source;
     let source = if layered {
@@ -65,7 +65,7 @@ pub(super) fn build_layered(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)]),
+    target: (u32, &[(&str, f64)], wgpu::FrontFace),
 ) -> Option<LayeredPipelines> {
     if !crate::terrain::pages::layered_gpu::supported(&device.limits()) {
         return None;
@@ -89,7 +89,7 @@ pub(super) fn build_terrain_set(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)]),
+    target: (u32, &[(&str, f64)], wgpu::FrontFace),
 ) -> (
     RenderPipeline,
     BindGroupLayout,

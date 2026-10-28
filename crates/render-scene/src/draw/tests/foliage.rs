@@ -276,7 +276,7 @@ fn pass_pipelines(
             key,
             &layout,
             &buffers,
-            1,
+            (1, wgpu::FrontFace::Ccw),
             wgpu::FragmentState {
                 module: &module,
                 entry_point: Some(entry),

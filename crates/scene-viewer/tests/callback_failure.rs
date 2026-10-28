@@ -38,6 +38,7 @@ fn main() {
     })
     .unwrap();
     let options = ViewerOptions {
+        camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
         frames_in_flight: 2,
         cadence: worldrunner_scene_viewer::PresentationCadence::default(),

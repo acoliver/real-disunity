@@ -38,6 +38,8 @@ use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 /// Explicit caller-owned desktop presentation settings.
 #[derive(Clone, Debug)]
 pub struct ViewerOptions {
+    /// Raster camera convention; use the shared right-handed default unless selected explicitly.
+    pub camera_convention: worldrunner_camera::ViewConvention,
     /// Optional startup SSR override. Requires authored scene effects and HDR.
     /// Later retained settings replace the startup policy.
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
@@ -219,12 +221,15 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
         }
         worldrunner_render_scene::water::validate_settings(water)?;
     }
-    OrbitCamera::new(options.pose, options.orbit)?.view(
+    OrbitCamera::new(options.pose, options.orbit)?;
+    worldrunner_render_scene::SceneView::with_convention(
+        options.pose,
         options.camera,
         worldrunner_render_scene::Viewport {
             width: options.size[0],
             height: options.size[1],
         },
+        options.camera_convention,
     )?;
     Ok(())
 }

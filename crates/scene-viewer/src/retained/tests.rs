@@ -97,6 +97,7 @@ fn cpu_consumer_receives_update_and_frame_without_gpu() {
             self.0 += 1;
             assert_eq!(tick.frame, 0);
             host.apply(RetainedUpdate::Camera {
+                convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
                 pose: crate::tests::options().pose,
                 lens: crate::tests::options().camera,
             })
@@ -215,4 +216,97 @@ fn policy_atmosphere() -> SceneAtmosphere {
         meshes: vec![],
         background_distance_millimeters: 100_000,
     }
+}
+
+#[test]
+fn camera_convention_is_validated_queued_published_and_retained_on_resize() {
+    use worldrunner_camera::{ViewConvention, ViewHandedness};
+    let left = ViewConvention {
+        handedness: ViewHandedness::DirectXLeftHanded,
+    };
+    let mut options = crate::tests::options();
+    options.camera_convention = left;
+    let mut host = RetainedHost::new(crate::renderer::retained_tests::source(), options).unwrap();
+    let initial = host.view().unwrap().unwrap();
+    assert_eq!(initial.resolved_view().convention(), left);
+    let pose = host.options.pose;
+    let lens = host.options.camera;
+    let invalid = CameraPose {
+        target_millimeters: pose.eye_millimeters,
+        ..pose
+    };
+    assert!(
+        host.apply(RetainedUpdate::Camera {
+            pose: invalid,
+            lens,
+            convention: worldrunner_camera::ViewConvention::RIGHT_HANDED
+        })
+        .is_err()
+    );
+    assert_eq!(host.accepted_generation(), 0);
+    assert_eq!(host.options.camera_convention, left);
+    host.apply(RetainedUpdate::Camera {
+        pose,
+        lens,
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+    })
+    .unwrap();
+    assert_eq!(host.view().unwrap().unwrap(), initial);
+    host.readiness.publish_front();
+    let right = host.view().unwrap().unwrap();
+    assert_camera_mirror_and_default_bytes(&initial, &right, pose, lens);
+    host.apply(RetainedUpdate::Camera {
+        pose,
+        lens,
+        convention: left,
+    })
+    .unwrap();
+    host.readiness.publish_front();
+    host.input(RetainedInput::Resized([0, 0]));
+    assert!(host.view().unwrap().is_none());
+    host.input(RetainedInput::Resized([48, 32]));
+    let resized = host.view().unwrap().unwrap();
+    assert_eq!(resized.resolved_view().convention(), left);
+    assert_eq!(
+        resized.viewport(),
+        Viewport {
+            width: 48,
+            height: 32
+        }
+    );
+}
+
+fn assert_camera_mirror_and_default_bytes(
+    initial: &SceneView,
+    right: &SceneView,
+    pose: CameraPose,
+    lens: SceneCamera,
+) {
+    let legacy = SceneView::new(pose, lens, right.viewport()).unwrap();
+    assert_eq!(*right, legacy);
+    assert_eq!(
+        worldrunner_render_scene::frame::FrameUniform::unlit(right).to_bytes(),
+        worldrunner_render_scene::frame::FrameUniform::unlit(&legacy).to_bytes()
+    );
+    let point = glam::Vec3::new(0.4, 0.0, 0.0);
+    let a = initial.resolved_view().world_to_screen(point).unwrap();
+    let b = right.resolved_view().world_to_screen(point).unwrap();
+    // Eye (0,-2,2), target zero: +X is right, depth is sqrt(8), vertical FOV 60 degrees.
+    let size = glam::DVec2::new(
+        f64::from(right.viewport().width),
+        f64::from(right.viewport().height),
+    )
+    .as_vec2();
+    let offset = 0.4 * size.y / (2.0 * 8.0f32.sqrt() * (std::f32::consts::PI / 6.0).tan());
+    assert!((b.x - (size.x * 0.5 + offset)).abs() < 0.001);
+    assert!((a.x - (size.x * 0.5 - offset)).abs() < 0.001);
+    assert!((b.y - size.y * 0.5).abs() < 0.001);
+    assert!(
+        (a.x + b.x
+            - glam::DVec2::splat(f64::from(right.viewport().width))
+                .as_vec2()
+                .x)
+            .abs()
+            < 0.001
+    );
 }

@@ -83,7 +83,7 @@ pub(crate) struct MeshDraw {
     pub key: crate::pipeline::PipelineKey,
 }
 type PipelineCache =
-    std::cell::RefCell<std::collections::BTreeMap<[u32; 11], [wgpu::RenderPipeline; 8]>>;
+    std::cell::RefCell<std::collections::BTreeMap<[u32; 12], [wgpu::RenderPipeline; 8]>>;
 
 #[derive(Debug)]
 pub(crate) struct Meshes {
@@ -164,11 +164,13 @@ impl Meshes {
     }
     fn selected_pipelines(
         &self,
-        options: [u32; 7],
+        raster: ([u32; 7], wgpu::FrontFace),
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
     ) -> [wgpu::RenderPipeline; 8] {
-        if options == [0; 7]
+        let (options, front_face) = raster;
+        if front_face == wgpu::FrontFace::Ccw
+            && options == [0; 7]
             && lighting == worldrunner_render_plan::SceneCelestialLighting::NEUTRAL
             && !anchored
         {
@@ -187,6 +189,7 @@ impl Meshes {
             values[1],
             values[2],
             u32::from(anchored),
+            u32::from(front_face == wgpu::FrontFace::Cw),
         ];
         self.specializations
             .borrow_mut()
@@ -196,7 +199,7 @@ impl Meshes {
                     &self.device,
                     &self.scene,
                     (self.physical, self.separate, self.object_exposure),
-                    options,
+                    raster,
                     lighting,
                     anchored,
                 )
@@ -207,9 +210,12 @@ impl Meshes {
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         frame: &wgpu::BindGroup,
-        convention: worldrunner_render_plan::SceneSpecularConvention,
+        state: &crate::frame::FrameUniform,
     ) {
-        let options = convention.shader_options();
+        let options = (
+            state.specular_convention.shader_options(),
+            state.front_face(),
+        );
         for draw in &self.draws {
             let pipelines = self.selected_pipelines(options, draw.lighting, draw.anchored);
             pass.set_pipeline(&pipelines[draw.key.index()]);
@@ -278,7 +284,10 @@ mod tests {
                             context.device(),
                             &scene,
                             (meshes.physical, false, false),
-                            [roughness, visibility, occlusion, 0, 0, 0, 0],
+                            (
+                                [roughness, visibility, occlusion, 0, 0, 0, 0],
+                                wgpu::FrontFace::Ccw,
+                            ),
                             worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
                             false,
                         );

@@ -27,7 +27,7 @@ pub(crate) struct Readiness {
     pub capture_features: [bool; 4],
     pub page_wait: bool,
     pub geometry_wait: bool,
-    pub camera: (CameraPose, SceneCamera),
+    pub camera: (CameraPose, SceneCamera, worldrunner_camera::ViewConvention),
     #[cfg(test)]
     pub preparation_hook: Option<Box<dyn FnOnce() + Send>>,
 }
@@ -47,8 +47,13 @@ impl Readiness {
 
     pub(crate) fn publish_front(&mut self) -> RetainedUpdate {
         let front = self.queue.pop_front().expect("published front generation");
-        if let RetainedUpdate::Camera { pose, lens } = &front.update {
-            self.camera = (*pose, *lens);
+        if let RetainedUpdate::Camera {
+            pose,
+            lens,
+            convention,
+        } = &front.update
+        {
+            self.camera = (*pose, *lens, *convention);
         }
         assert_eq!(front.generation, self.published + 1);
         self.published = front.generation;

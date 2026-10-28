@@ -52,6 +52,7 @@ fn paged_host() -> RetainedHost {
 
 fn jump(run: &mut WindowlessRetained<'_>, dependency: bool) {
     let update = RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: crate::tests::options().pose,
         lens: crate::tests::options().camera,
     };
@@ -163,6 +164,7 @@ fn waiting_page_dependency_preserves_bounds_and_shutdown_cancellation() {
         ));
         assert!(matches!(
             run.host_mut().apply(RetainedUpdate::Camera {
+                convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
                 pose: crate::tests::options().pose,
                 lens: crate::tests::options().camera
             }),
@@ -189,6 +191,7 @@ fn disabled_paging_rejects_dependencies_before_accepting_work() {
     );
     assert!(
         host.apply_with_pages(RetainedUpdate::Camera {
+            convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
             pose: crate::tests::options().pose,
             lens: crate::tests::options().camera
         })
@@ -252,6 +255,7 @@ fn streamed_page_dependency_accepts_camera_work() {
         ));
     let mut host = host(source.with_terrain(Some(Arc::new(terrain))).unwrap());
     host.apply_with_geometry_and_pages(RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: host.options.pose,
         lens: host.options.camera,
     })

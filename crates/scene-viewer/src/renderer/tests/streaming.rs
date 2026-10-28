@@ -34,6 +34,7 @@ pub(super) fn streaming_present(event_loop: &EventLoop<()>, window: &Arc<Window>
     let mut options = crate::tests::options();
     options.pose.eye_millimeters[0] += 10_000;
     host.apply(RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: options.pose,
         lens: options.camera,
     })

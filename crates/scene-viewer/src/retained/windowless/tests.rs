@@ -1,3 +1,4 @@
+mod convention;
 mod errors;
 mod lifecycle;
 pub(crate) mod pages;

@@ -21,6 +21,7 @@ pub(super) fn retained_page_capture_present(event_loop: &EventLoop<()>, window: 
     .with_capture_limit(1)
     .unwrap();
     host.apply_with_pages(RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: crate::tests::options().pose,
         lens: crate::tests::options().camera,
     })
@@ -142,6 +143,7 @@ pub(super) fn retained_capture_present(event_loop: &EventLoop<()>, window: &Arc<
     .with_capture_limit(1)
     .unwrap();
     host.apply(RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: crate::tests::options().pose,
         lens: crate::tests::options().camera,
     })

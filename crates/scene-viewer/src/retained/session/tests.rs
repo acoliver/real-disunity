@@ -91,6 +91,7 @@ fn shutdown_delivers_cancellation_for_waiting_and_dispatched_requests() {
     let mut host = RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap();
     let first = host.request_capture(0).unwrap();
     host.apply(crate::RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         pose: crate::tests::options().pose,
         lens: crate::tests::options().camera,
     })

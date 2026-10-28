@@ -36,7 +36,11 @@ impl CascadeViews {
             camera_splits: declared.split_distances_millimeters().is_some(),
             near: view.clip_distances_meters()[0],
             blend: meters(declared.blend_band_micro())? / 1000.0,
-            view_depth: -view.view_matrix().transpose().z_axis,
+            view_depth: -view
+                .resolved_view()
+                .reconstruction_view_matrix()
+                .transpose()
+                .z_axis,
         };
         let far = view.clip_distances_meters()[1];
         let count = declared.extents_millimeters().len();
@@ -153,8 +157,8 @@ impl CascadeViews {
                 self.splits[index - 1] - (self.splits[index - 1] - previous_start) * self.blend
             };
             worldrunner_render_shadow::stable_frustum_fit(
-                view.view_matrix(),
-                view.projection_matrix(),
+                view.resolved_view().reconstruction_view_matrix(),
+                view.resolved_view().reconstruction_projection_matrix(),
                 start,
                 self.splits[index],
                 sun,

@@ -12,6 +12,7 @@ struct Objects {
     module: wgpu::ShaderModule,
     targets: Vec<Option<wgpu::ColorTargetState>>,
     samples: u32,
+    front_face: wgpu::FrontFace,
     constants: Vec<(String, f64)>,
     pipelines: [OnceLock<wgpu::RenderPipeline>; 8],
 }
@@ -22,7 +23,7 @@ impl ObjectPipelines {
         layout: &wgpu::PipelineLayout,
         targets: &[Option<wgpu::ColorTargetState>],
         module: &wgpu::ShaderModule,
-        target: (u32, &[(&str, f64)]),
+        target: (u32, &[(&str, f64)], wgpu::FrontFace),
     ) -> Self {
         Self(Rc::new(Objects {
             device: device.clone(),
@@ -30,6 +31,7 @@ impl ObjectPipelines {
             module: module.clone(),
             targets: targets.to_vec(),
             samples: target.0,
+            front_face: target.2,
             constants: target
                 .1
                 .iter()
@@ -65,7 +67,7 @@ impl Index<usize> for ObjectPipelines {
                 key,
                 &state.layout,
                 &buffers,
-                state.samples,
+                (state.samples, state.front_face),
                 wgpu::FragmentState {
                     module: &state.module,
                     entry_point: Some(entry),

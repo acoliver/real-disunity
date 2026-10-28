@@ -47,6 +47,7 @@ pub(super) fn build(
         },
         ObjectState {
             samples: target.1,
+            front_face: wgpu::FrontFace::Ccw,
             key: PipelineKey {
                 relief: false,
                 masked: false,

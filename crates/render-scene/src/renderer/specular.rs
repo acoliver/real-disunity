@@ -1,6 +1,15 @@
 use super::ScenePipelines;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+pub(super) fn raster_constants(
+    constants: &mut Vec<(&'static str, f64)>,
+    front_face: wgpu::FrontFace,
+) {
+    if front_face == wgpu::FrontFace::Cw {
+        constants.push(("SCENE_RASTER_MIRRORED", 1.0));
+    }
+}
+
 pub(crate) fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
     [
         ("SCENE_ROUGHNESS_REMAP", f64::from(options[0])),
@@ -20,6 +29,8 @@ pub(crate) fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
     ]
 }
 
+type RasterKey = ([u32; 7], u8);
+
 #[derive(Clone, Debug)]
 pub(super) struct Specialization {
     device: wgpu::Device,
@@ -27,8 +38,8 @@ pub(super) struct Specialization {
     terrain: Rc<str>,
     shadow: Option<wgpu::BindGroupLayout>,
     screen: Option<wgpu::BindGroupLayout>,
-    options: [u32; 7],
-    cache: Rc<RefCell<BTreeMap<[u32; 7], ScenePipelines>>>,
+    options: ([u32; 7], wgpu::FrontFace),
+    cache: Rc<RefCell<BTreeMap<RasterKey, ScenePipelines>>>,
 }
 impl Specialization {
     pub fn new(
@@ -37,7 +48,7 @@ impl Specialization {
         terrain: &str,
         shadow: Option<&wgpu::BindGroupLayout>,
         screen: Option<&wgpu::BindGroupLayout>,
-        options: [u32; 7],
+        options: ([u32; 7], wgpu::FrontFace),
     ) -> Self {
         Self {
             device: device.clone(),
@@ -51,18 +62,27 @@ impl Specialization {
     }
 }
 impl ScenePipelines {
+    #[cfg(test)]
     pub(crate) fn for_convention(
         &self,
         convention: worldrunner_render_plan::SceneSpecularConvention,
     ) -> Self {
-        let options = convention.shader_options();
+        self.for_raster(convention, wgpu::FrontFace::Ccw)
+    }
+
+    pub(crate) fn for_raster(
+        &self,
+        convention: worldrunner_render_plan::SceneSpecularConvention,
+        front_face: wgpu::FrontFace,
+    ) -> Self {
+        let options = (convention.shader_options(), front_face);
         let spec = &self.specialization;
         if options == spec.options {
             return self.clone();
         }
         spec.cache
             .borrow_mut()
-            .entry(options)
+            .entry((options.0, u8::from(front_face == wgpu::FrontFace::Cw)))
             .or_insert_with(|| {
                 let mut selected = Self::with_constants(
                     &spec.device,
@@ -153,4 +173,24 @@ fn disk_radius_is_part_of_existing_pipeline_cache_key() {
         pipelines.for_convention(convention(17_453)).get(key)
     );
     assert_eq!(pipelines.specialization.cache.borrow().len(), 2);
+}
+
+#[cfg(test)]
+#[test]
+fn winding_uses_existing_specialization_cache_without_changing_default_pipelines() {
+    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+    let convention = worldrunner_render_plan::SceneSpecularConvention::default();
+    let key = crate::pipeline::PipelineKey::ALL[0];
+    let right = pipelines.for_raster(convention, wgpu::FrontFace::Ccw);
+    let left = pipelines.for_raster(convention, wgpu::FrontFace::Cw);
+    let again = pipelines.for_raster(convention, wgpu::FrontFace::Cw);
+    assert_eq!(right.get(key), pipelines.get(key));
+    assert_eq!(left.get(key), again.get(key));
+    assert_ne!(left.get(key), right.get(key));
+    assert_ne!(left.terrain(), right.terrain());
+    assert_eq!(left.terrain(), again.terrain());
+    assert_ne!(left.cached_terrain, right.cached_terrain);
+    assert_eq!(left.cached_terrain, again.cached_terrain);
+    assert_eq!(pipelines.specialization.cache.borrow().len(), 1);
 }

@@ -1,3 +1,4 @@
+override SCENE_RASTER_MIRRORED: bool = false;
 override SCENE_DIRECT_DIFFUSE: u32 = 0u;
 override SCENE_DISK_INTENSITY: f32 = 0.0;
 override SCENE_DISK_RADIUS: f32 = 0.0027;
@@ -159,7 +160,9 @@ fn cotangent_frame(normal: vec3<f32>, position: vec3<f32>, uv: vec2<f32>) -> mat
     let tangent = perpendicular_dy * uv_dx.x + perpendicular_dx * uv_dy.x;
     let bitangent = perpendicular_dy * uv_dx.y + perpendicular_dx * uv_dy.y;
 
-    let scale = inverseSqrt(max(dot(tangent, tangent), dot(bitangent, bitangent)));
+    var scale = inverseSqrt(max(dot(tangent, tangent), dot(bitangent, bitangent)));
+    // A mirrored raster reverses both derivative axes of the cotangent frame.
+    if SCENE_RASTER_MIRRORED { scale = -scale; }
     return mat3x3<f32>(tangent * scale, bitangent * scale, normal);
 }
 

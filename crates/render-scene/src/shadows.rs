@@ -566,6 +566,8 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         // Each light view has its own immutable uniform range; billboards keep the main eye.
         for (index, &matrix) in self.cascades.matrices.iter().enumerate() {
             let light_frame = FrameUniform {
+                // Directional light fits use right-handed views independently of the viewer.
+                view_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
                 view_projection: matrix,
                 ..self.frame
             };

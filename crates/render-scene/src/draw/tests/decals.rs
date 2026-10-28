@@ -535,3 +535,6 @@ mod mapping;
 
 #[path = "decal_write.rs"]
 mod write;
+
+#[path = "decal_normal_frames.rs"]
+mod normal_frames;

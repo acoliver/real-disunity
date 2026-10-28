@@ -1,3 +1,29 @@
+#[test]
+fn receiver_world_respects_disabled_normal_and_alpha_rejection() {
+    use worldrunner_render_plan::SceneDecalNormalFrame;
+    let context = context();
+    let base = folded_receiver(128);
+    let receiver = products(&context, &base);
+    for bits in [0, 1, 4, 5] {
+        let mut d = interior_decal(SceneDecalWriteMask::from_bits(bits), 2);
+        let projection = products(&context, &base.with_decals(vec![d]).unwrap());
+        d.mapping.normal_frame = SceneDecalNormalFrame::ReceiverWorld;
+        let world = products(&context, &base.with_decals(vec![d]).unwrap());
+        assert_eq!(world, projection);
+        assert_eq!(world[1], receiver[1]);
+    }
+    let mut d = interior_decal(SceneDecalWriteMask::ALL, 2);
+    d.mapping.normal_frame = SceneDecalNormalFrame::ReceiverWorld;
+    d.alpha_test_cutoff_micro = Some(750_000);
+    assert_eq!(
+        products(&context, &base.with_decals(vec![d]).unwrap()),
+        receiver
+    );
+    d.alpha_test_cutoff_micro = Some(500_000);
+    let accepted = products(&context, &base.with_decals(vec![d]).unwrap());
+    assert_ne!(accepted[1], receiver[1]);
+}
+
 use super::{capture, decal, source, texel};
 use crate::draw::tests::{context, effects};
 use worldrunner_render_plan::{

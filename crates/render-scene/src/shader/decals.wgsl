@@ -43,8 +43,11 @@ fn scene_decal_blend_normal(receiver: vec3<f32>, decal: vec3<f32>, weight: f32) 
     return normalize(mix(receiver, decal, weight)) * magnitude;
 }
 fn scene_decal_correct(surface: vec3<f32>, detail: vec3<f32>) -> vec3<f32> {
-    // The south pole has no unique shortest rotation; choose a fixed half turn.
+    // Projection retains its near-pole fixed half turn.
     if surface.z < -0.999999 { return vec3<f32>(detail.x, -detail.y, -detail.z); }
+    return scene_decal_correct_basis(surface, detail);
+}
+fn scene_decal_correct_basis(surface: vec3<f32>, detail: vec3<f32>) -> vec3<f32> {
     let a = 1.0 / (1.0 + surface.z);
     let b = -surface.x * surface.y * a;
     let x = vec3<f32>(1.0 - surface.x * surface.x * a, b, -surface.x);
@@ -60,6 +63,17 @@ fn scene_decal_basis(decal: SceneDecalVolume) -> mat3x3<f32> {
     if decal.selection.z == 0u { return mat3x3<f32>(y, z, x); }
     if decal.selection.z == 1u { return mat3x3<f32>(z, x, y); }
     return mat3x3<f32>(x, y, z);
+}
+fn scene_decal_correct_normal(decal: SceneDecalVolume, geometric: vec3<f32>, encoded: vec2<f32>) -> vec3<f32> {
+    if (decal.selection.w & 524288u) != 0u {
+        let detail = scene_decal_decode(encoded);
+        // Only the exact south pole is singular; choose a fixed X-axis half turn.
+        if geometric.z == -1.0 { return vec3<f32>(detail.x, -detail.y, -detail.z); }
+        return scene_decal_correct_basis(geometric, detail);
+    }
+    let basis = scene_decal_basis(decal);
+    let detail = scene_decal_correct(transpose(basis) * geometric, scene_decal_decode(encoded));
+    return basis * detail;
 }
 fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32,
     albedo: vec3<f32>, properties: vec2<f32>, normal: vec3<f32>) -> SceneDecalSurface {
@@ -99,9 +113,8 @@ fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32
         let normal_layer = decal.selection.w & 255u;
         if normal_layer != 0u && weight > 0.0 && (decal.selection.w & 131072u) == 0u {
             let encoded = textureSampleGrad(scene_decal_normal, scene_decal_sampler, uv, i32(normal_layer - 1u), dx, dy).rg;
-            let basis = scene_decal_basis(decal);
-            let detail = scene_decal_correct(transpose(basis) * geometric, scene_decal_decode(encoded));
-            result.normal = scene_decal_blend_normal(result.normal, basis * detail, weight);
+            let detail = scene_decal_correct_normal(decal, geometric, encoded);
+            result.normal = scene_decal_blend_normal(result.normal, detail, weight);
         }
     }
     return result;

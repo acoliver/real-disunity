@@ -322,6 +322,8 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    fade_coverage: super::SceneFadeCoverage,
+    fade_quantization: super::SceneFadeQuantization,
     impostor: Option<super::SceneImpostor>,
     normal_encoding: super::SceneNormalEncoding,
     normal_y: super::SceneNormalY,
@@ -342,6 +344,23 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    #[must_use]
+    pub const fn with_fade_coverage(mut self, policy: super::SceneFadeCoverage) -> Self {
+        self.fade_coverage = policy;
+        self
+    }
+    pub const fn fade_coverage(&self) -> super::SceneFadeCoverage {
+        self.fade_coverage
+    }
+    #[must_use]
+    pub const fn with_fade_quantization(mut self, policy: super::SceneFadeQuantization) -> Self {
+        self.fade_quantization = policy;
+        self
+    }
+    pub const fn fade_quantization(&self) -> super::SceneFadeQuantization {
+        self.fade_quantization
+    }
+
     /// Multiplies filtered albedo alpha before coverage and blending, in millionths.
     /// The default is one; values outside `0..=1_000_000` are rejected.
     pub fn with_alpha_factor(mut self, micro: u32) -> Result<Self, SceneValidationError> {
@@ -448,6 +467,8 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            fade_coverage: super::SceneFadeCoverage::Hashed,
+            fade_quantization: super::SceneFadeQuantization::Continuous,
             impostor: None,
             normal_encoding: super::SceneNormalEncoding::TwoChannelXy,
             normal_y: super::SceneNormalY::Up,
@@ -590,14 +611,8 @@ impl SceneResources {
             }
         })?;
         for material in self.materials.iter() {
+            validate_auxiliary_textures(material, &self.textures, limit)?;
             require_texture("material albedo", material.albedo(), limit)?;
-            if let Some(field) = material
-                .features()
-                .and_then(|f| f.wind)
-                .and_then(super::SceneWind::field)
-            {
-                require_texture("wind force field", field.texture(), limit)?;
-            }
             if let Some(atlas) = material.impostor() {
                 atlas.validate_channels(material)?;
                 if let Some((depth, _)) = atlas.relief() {
@@ -665,3 +680,19 @@ fn require_texture(
 #[cfg(test)]
 #[path = "resource_tests.rs"]
 mod tests;
+
+fn validate_auxiliary_textures(
+    material: &SceneMaterial,
+    textures: &[SceneTexture],
+    limit: u64,
+) -> Result<(), SceneValidationError> {
+    material.fade_coverage().validate(textures)?;
+    if let Some(field) = material
+        .features()
+        .and_then(|f| f.wind)
+        .and_then(super::SceneWind::field)
+    {
+        require_texture("wind force field", field.texture(), limit)?;
+    }
+    Ok(())
+}

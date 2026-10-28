@@ -281,6 +281,7 @@ impl SceneTerrainContact {
         self.distance_millimeters
     }
 
+    /// A zero distance disables material contact while retaining any normal fold.
     pub fn new(
         tint: SceneTint,
         roughness_micro: u32,
@@ -289,11 +290,6 @@ impl SceneTerrainContact {
     ) -> Result<Self, SceneValidationError> {
         bounded("contact roughness", roughness_micro, 1_000_000)?;
         bounded("contact metalness", metalness_micro, 1_000_000)?;
-        if distance_millimeters == 0 {
-            return Err(SceneValidationError::ExtentNotPositive {
-                part: "contact distance",
-            });
-        }
         Ok(Self {
             tint,
             roughness_micro,

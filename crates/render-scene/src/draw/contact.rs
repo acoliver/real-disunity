@@ -10,14 +10,16 @@ pub(super) fn prepare(scene: &RenderScene) -> Result<Vec<u8>, DrawError> {
         .iter()
         .any(|material| material.terrain_contact().is_some())
         .then(|| scene.terrain().expect("contact admission requires terrain"));
-    height_bytes(
+    let mut bytes = height_bytes(
         terrain,
         &wgpu::Limits {
             max_buffer_size: u64::MAX,
             max_storage_buffer_binding_size: u64::MAX,
             ..Default::default()
         },
-    )
+    )?;
+    super::fade::append(scene, &mut bytes);
+    Ok(bytes)
 }
 
 pub(super) fn height_buffer(

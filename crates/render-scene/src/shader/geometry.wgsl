@@ -31,6 +31,7 @@ struct Material {
     wind_field_mode: vec4<f32>,
     alpha_factor_reserved: vec4<f32>,
     wind_modifiers: array<vec4<f32>,6>,
+    fade_policy: vec4<u32>,
 }
 
 const FLAG_NORMAL: u32 = 1u;
@@ -239,6 +240,7 @@ fn material_vertex_pass(vertex: VertexInput, instance: InstanceInput, relief: bo
     if band.y != 0.0 {
         let distance = length(frame.camera_position.xyz-instance.model_column_3.xyz);
         out.atlas_rotation.z = scene_distance_coverage(distance,band);
+        if (material.fade_policy.x & 2u) != 0u { out.atlas_rotation.z = scene_byte_coverage(out.atlas_rotation.z); }
     }
     let displacement = scene_geometry_displacement(out.world_position, vertex.ambient_occlusion, instance);
     if material.wind_clock.x != 0u {
@@ -385,8 +387,8 @@ fn scene_contact_surface(surface: vec2<f32>, weight: f32) -> vec2<f32> {
 fn scene_geometry_covered(input: VertexOutput) -> bool {
     let coverage = 1.0 - f32((input.coverage & 0x7fffffffu) >> 2u) / 1000000.0;
     let covered = scene_card_covered(input.clip_position.xy, coverage);
-    if (input.coverage & 0x80000000u) != 0u { return !covered && scene_card_covered(input.clip_position.xy, input.atlas_rotation.z); }
-    return covered && scene_card_covered(input.clip_position.xy, input.atlas_rotation.z);
+    if (input.coverage & 0x80000000u) != 0u { return !covered && scene_fade_covered(input.clip_position.xy, input.atlas_rotation.z); }
+    return covered && scene_fade_covered(input.clip_position.xy, input.atlas_rotation.z);
 }
 
 fn scene_apply_coverage(input: VertexOutput) {
@@ -420,4 +422,19 @@ fn scene_distance_coverage(distance: f32, band: vec2<f32>) -> f32 {
 
 fn material_vertex(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     return material_vertex_pass(vertex, instance, true);
+}
+
+fn scene_byte_coverage(factor: f32) -> f32 {
+    return trunc(factor * 255.0) / 255.0;
+}
+
+fn scene_fade_covered(pixel: vec2<f32>, opacity: f32) -> bool {
+    if (material.fade_policy.x & 1u) == 0u { return scene_card_covered(pixel, opacity); }
+    let offset = arrayLength(&contact_heights.heights) - material.fade_policy.y;
+    let size = i32(bitcast<u32>(contact_heights.heights[offset]));
+    let jitter = bitcast<vec2<i32>>(material.fade_policy.zw) % vec2<i32>(size);
+    let point = vec2<i32>(floor(pixel)) - jitter;
+    let cell = ((point % vec2<i32>(size)) + vec2<i32>(size)) % vec2<i32>(size);
+    let threshold = contact_heights.heights[offset + 1u + u32(cell.y * size + cell.x)];
+    return opacity >= threshold;
 }

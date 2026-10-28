@@ -280,3 +280,55 @@ fn alpha_factor_is_unit_by_default_and_rejects_out_of_range_inputs() {
         );
     }
 }
+
+#[test]
+fn threshold_policy_validates_texture_shape_format_and_handles() {
+    use crate::{SceneFadeCoverage, SceneFadeQuantization};
+    let material = SceneMaterial::new(material_parts()).unwrap();
+    assert_eq!(material.fade_coverage(), SceneFadeCoverage::Hashed);
+    assert_eq!(
+        material.fade_quantization(),
+        SceneFadeQuantization::Continuous
+    );
+    let threshold = material.with_fade_coverage(SceneFadeCoverage::Threshold {
+        texture: TextureHandle::from_raw(1),
+        jitter_pixels: [i32::MIN, i32::MAX],
+    });
+    assert!(SceneResources::new(vec![texels(&[0; 16])], vec![threshold]).is_err());
+    for (format, color_space, width, height, mips, bytes) in [
+        (TexelFormat::R8Unorm, TextureColorSpace::Linear, 2, 2, 1, 4),
+        (TexelFormat::R8Unorm, TextureColorSpace::Srgb, 2, 2, 1, 4),
+        (TexelFormat::Rg8Unorm, TextureColorSpace::Linear, 2, 2, 1, 8),
+        (TexelFormat::R8Unorm, TextureColorSpace::Linear, 2, 1, 1, 2),
+        (TexelFormat::R8Unorm, TextureColorSpace::Linear, 2, 2, 2, 5),
+    ] {
+        let texture = SceneTexture::Texels {
+            format,
+            color_space,
+            width,
+            height,
+            mips,
+            bytes: vec![0; bytes].into(),
+        };
+        let expected = format == TexelFormat::R8Unorm
+            && color_space == TextureColorSpace::Linear
+            && width == height
+            && mips == 1;
+        assert_eq!(
+            SceneResources::new(vec![texels(&[0; 16]), texture], vec![threshold]).is_ok(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn zero_contact_distance_retains_a_valid_normal_fold() {
+    let contact = crate::SceneTerrainContact::new(crate::SceneTint::WHITE, 123_456, 654_321, 0)
+        .unwrap()
+        .with_normal_fold(2000, 0)
+        .unwrap();
+    assert_eq!(contact.distance_millimeters(), 0);
+    assert_eq!(contact.normal_fold(), Some([2000, 0]));
+    assert_eq!(contact.roughness_micro(), 123_456);
+    assert_eq!(contact.metalness_micro(), 654_321);
+}

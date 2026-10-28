@@ -679,3 +679,26 @@ fn relief_normal_lighting_and_projected_depth_have_independent_oracles() {
 
 #[path = "shadow_strength_tests.rs"]
 mod shadow_strength_tests;
+
+#[test]
+fn byte_fade_truncates_at_band_and_byte_edges() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    for distance in [1.999, 2.0, 2.001, 2.999, 3.0, 3.001, 3.999, 4.0, 4.001] {
+        let entry = format!(
+            r"
+@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {{
+    result[0] = vec4(scene_byte_coverage(scene_distance_coverage({distance}, vec2(2.0,-4.0))), 0.0, 0.0, 0.0);
+}}"
+        );
+        let distance: f32 = distance;
+        let factor = if distance <= 2.0 {
+            1.0
+        } else {
+            ((4.0 - distance) / 2.0).max(0.0)
+        };
+        let expected = (factor * 255.0).trunc() / 255.0;
+        let actual = evaluate(&context, &entry, None)[0];
+        assert!((actual - expected).abs() < 1e-7, "distance={distance}");
+    }
+}

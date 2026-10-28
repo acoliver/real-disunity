@@ -1,9 +1,9 @@
 use super::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
-    BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES, GpuLod, GpuMesh, GpuTerrain,
-    MaterialUniform, Queue, RenderScene, Sampler, TERRAIN_PLACEMENT, TerrainUniformState, Texture,
-    TextureHandle, TextureView, TextureViewDescriptor, pack_instance, upload_buffer,
-    upload_palette_array, upload_texture, upload_type_grid,
+    BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES, GpuLod, GpuMesh, GpuTerrain, Queue,
+    RenderScene, Sampler, TERRAIN_PLACEMENT, TerrainUniformState, Texture, TextureHandle,
+    TextureView, TextureViewDescriptor, pack_instance, upload_buffer, upload_palette_array,
+    upload_texture, upload_type_grid,
 };
 
 pub(super) fn allocate_frame_slots(
@@ -98,7 +98,7 @@ pub(super) fn upload_materials(
             queue,
             "material",
             BufferUsages::UNIFORM,
-            &MaterialUniform::from_material(material).to_bytes(),
+            &super::fade::uniform(scene, material),
         );
         let atlas = material.impostor();
         let extra = [

@@ -113,7 +113,7 @@ public static class PlayBridge
         try
         {
             var value = DisunityHost.ObjectPosition(handle);
-            xyz[0] = value.X; xyz[1] = value.Y; xyz[2] = value.Z;
+            xyz[0] = value.x; xyz[1] = value.y; xyz[2] = value.z;
             return 0;
         }
         catch (Exception error) { LastError = error.ToString(); return -1; }

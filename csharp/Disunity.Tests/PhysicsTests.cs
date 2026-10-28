@@ -50,9 +50,9 @@ internal static class PhysicsTests
         DisunityHost.Step(0.02f);
         Require(a.Calls.Contains(prefix + "exit"), "contact exit");
         body.velocity = new Vector2(2, 0);
-        var before = a.transform.position.X;
+        var before = a.transform.position.x;
         DisunityHost.Step(0.02f);
-        Require(a.transform.position.X > before, "native body velocity moves authoritative transform");
+        Require(a.transform.position.x > before, "native body velocity moves authoritative transform");
         var clone = UnityEngine.Object.Instantiate(a.gameObject);
         Require(clone.GetComponent<Rigidbody2D>()?.velocity == body.velocity, "cloned native body wrapper");
         Require(clone.GetComponent<BoxCollider2D>()?.isTrigger == trigger, "cloned native collider wrapper");

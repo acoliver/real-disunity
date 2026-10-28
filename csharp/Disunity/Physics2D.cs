@@ -3,23 +3,6 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-public record struct Vector2(float x, float y)
-{
-    public static Vector2 zero => new(0, 0);
-    public static Vector2 one => new(1, 1);
-    public static Vector2 up => new(0, 1);
-    public static Vector2 right => new(1, 0);
-    public float sqrMagnitude => x * x + y * y;
-    public float magnitude => MathF.Sqrt(x * x + y * y);
-    public Vector2 normalized => magnitude == 0 ? zero : this / magnitude;
-    /// <summary>Unity's format, two decimals per component.</summary>
-    public override readonly string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture, "({0:F2}, {1:F2})", x, y);
-    public static Vector2 operator +(Vector2 a, Vector2 b) => new(a.x + b.x, a.y + b.y);
-    public static Vector2 operator -(Vector2 a, Vector2 b) => new(a.x - b.x, a.y - b.y);
-    public static Vector2 operator -(Vector2 a) => new(-a.x, -a.y);
-    public static Vector2 operator *(Vector2 a, float b) => new(a.x * b, a.y * b);
-    public static Vector2 operator /(Vector2 a, float b) => new(a.x / b, a.y / b);
-}
 public abstract class NativeComponent : Component
 {
 }
@@ -87,7 +70,7 @@ public sealed class Rigidbody2D : NativeComponent
         return sleeping == 1;
     }
     public void MovePosition(Vector2 position) => DisunityHost.ThrowIfError(NativeBindings.disunity_body_move_position(DisunityHost.WorldHandle, Handle, position.x, position.y));
-    public Vector2 position { get { var p = transform.position; return new(p.X, p.Y); } set { var p = transform.position; transform.position = new(value.x, value.y, p.Z); } }
+    public Vector2 position { get { var p = transform.position; return new(p.x, p.y); } set { var p = transform.position; transform.position = new(value.x, value.y, p.z); } }
 }
 public abstract class Collider2D : NativeComponent
 {

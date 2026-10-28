@@ -197,6 +197,8 @@ CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
 Console.WriteLine($"PASS: all {checkedImports.Count} native import signatures and generated ABI layout expectations");
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
 DisunityHost.ConfigureNativeLibrary(args[0]);
+MathTests.Run();
+MathGeometryTests.Run();
 ParticipantRegressionTests.Run();
 LifecycleTests.Run(args[0]);
 

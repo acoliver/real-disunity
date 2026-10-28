@@ -25,7 +25,7 @@ public sealed class Tilemap : NativeComponent
     public Vector3 tileAnchor
     {
         get { var v = Read(); return new Vector3(v.anchor_x, v.anchor_y, 0); }
-        set { var v = Read(); (v.anchor_x, v.anchor_y) = (value.X, value.Y); Write(v); }
+        set { var v = Read(); (v.anchor_x, v.anchor_y) = (value.x, value.y); Write(v); }
     }
 }
 

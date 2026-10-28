@@ -144,7 +144,7 @@ public partial class Transform : Component
         set
         {
             gameObject.ThrowIfDestroyed();
-            unsafe { DisunityHost.ThrowIfError(NativeBindings.disunity_transform_set_position(DisunityHost.WorldHandle, gameObject.NativeHandle, value.X, value.Y, value.Z)); }
+            unsafe { DisunityHost.ThrowIfError(NativeBindings.disunity_transform_set_position(DisunityHost.WorldHandle, gameObject.NativeHandle, value.x, value.y, value.z)); }
         }
     }
 

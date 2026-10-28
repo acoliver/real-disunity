@@ -3,7 +3,6 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-public readonly record struct Rect(float x, float y, float width, float height);
 public sealed class RectTransform : Transform
 {
     public RectTransform() { }

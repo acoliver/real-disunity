@@ -18,8 +18,8 @@
 //!    type; naga keeps the operand's type, so storing the result fails validation. naga also
 //!    reads an Msb search's operand as its type says, so a `FindSMsb` of an unsigned operand
 //!    or a `FindUMsb` of a signed one is an error.
-//! 5. An integer image access whose coordinate vector naga needs at the image's size, which
-//!    the module does not declare, makes naga panic; [`image_coords`] declares it.
+//! 5. An integer image access needs a coordinate vector at the image's size that the module
+//!    may not declare; naga panics without it, so `image_coords` declares it.
 
 mod image_coords;
 

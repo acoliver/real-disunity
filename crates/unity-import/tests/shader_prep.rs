@@ -478,14 +478,47 @@ fn rejects_msb_searches_whose_operand_reads_the_other_way() {
     }
 }
 
-/// A fragment shader that fetches from a sampled 2D image (ID 11) at an integer coordinate,
-/// or with `write` writes to a storage 2D image (ID 12), with the image arrayed or not. The
-/// coordinate is an `ivec3` (ID 38) for an arrayed image and an `ivec2` otherwise; the module
-/// declares no other int vector, so an arrayed access leaves naga without the `ivec2` it
-/// splits the coordinate into.
-fn image_access(write: bool, arrayed: bool) -> Vec<u32> {
-    let size = if arrayed { 3 } else { 2 };
-    let layers = u32::from(arrayed);
+/// One integer-coordinate image access to test.
+#[derive(Clone, Copy)]
+struct Access {
+    /// 95 `OpImageFetch`, 98 `OpImageRead` or 99 `OpImageWrite`.
+    op: u32,
+    /// The SPIR-V `Dim`: 1 for 2D, 2 for 3D.
+    dim: u32,
+    arrayed: bool,
+    /// The coordinate's component count.
+    coordinate: u32,
+    signed: bool,
+}
+
+const fn access(op: u32, dim: u32, arrayed: bool, coordinate: u32) -> Access {
+    Access {
+        op,
+        dim,
+        arrayed,
+        coordinate,
+        signed: true,
+    }
+}
+
+/// A fragment shader making one image access at a constant integer coordinate. Its only
+/// integer types are the coordinate's 32-bit int (ID 31) and the coordinate vector (ID 38),
+/// so naga lacks the vector it splits an arrayed or oversized coordinate into.
+fn image_access(access: Access) -> Vec<u32> {
+    let fetch = access.op == 95;
+    let (sampled, format) = if fetch { (1, 0) } else { (2, 1) };
+    let image = [
+        11,
+        7,
+        access.dim,
+        0,
+        u32::from(access.arrayed),
+        0,
+        sampled,
+        format,
+    ];
+    let mut coordinate = vec![38, 44];
+    coordinate.resize(2 + access.coordinate as usize, 39);
     let words = [
         op(17, &[1]),
         op(14, &[0, 1]),
@@ -498,39 +531,35 @@ fn image_access(write: bool, arrayed: bool) -> Vec<u32> {
         op(33, &[5, 4]),
         op(22, &[7, 32]),
         op(23, &[8, 7, 4]),
-        op(21, &[31, 32, 1]),
-        op(23, &[38, 31, size]),
+        op(21, &[31, 32, u32::from(access.signed)]),
+        op(23, &[38, 31, access.coordinate]),
         op(32, &[14, 3, 8]),
         op(59, &[14, 2, 3]),
-        op(25, &[11, 7, 1, 0, layers, 0, 1, 0]),
-        op(25, &[12, 7, 1, 0, layers, 0, 2, 1]),
-        op(32, &[13, 0, if write { 12 } else { 11 }]),
+        op(25, &image),
+        op(32, &[13, 0, 11]),
         op(59, &[13, 43, 0]),
         op(43, &[7, 17, 0]),
         op(43, &[31, 39, 0]),
         op(44, &[8, 29, 17, 17, 17, 17]),
-        op(44, &[38, 44, 39, 39, 39][..2 + size as usize]),
+        op(44, &coordinate),
         op(54, &[4, 1, 0, 5]),
         op(248, &[20]),
+        op(61, &[11, 50, 43]),
     ]
     .concat();
-    let access = if write {
-        [
-            op(61, &[12, 50, 43]),
-            op(99, &[50, 44, 29]),
-            op(62, &[2, 29]),
-        ]
-        .concat()
-    } else {
-        [
-            op(61, &[11, 50, 43]),
-            op(95, &[8, 51, 50, 44, 2, 39]),
-            op(62, &[2, 51]),
-        ]
-        .concat()
+    let use_image = match access.op {
+        95 => [op(95, &[8, 51, 50, 44, 2, 39]), op(62, &[2, 51])].concat(),
+        98 => [op(98, &[8, 51, 50, 44]), op(62, &[2, 51])].concat(),
+        _ => [op(99, &[50, 44, 29]), op(62, &[2, 29])].concat(),
     };
     let end = [op(253, &[]), op(56, &[])].concat();
-    [vec![0x0723_0203, 0x0001_0000, 0, 52, 0], words, access, end].concat()
+    [
+        vec![0x0723_0203, 0x0001_0000, 0, 52, 0],
+        words,
+        use_image,
+        end,
+    ]
+    .concat()
 }
 
 /// The vector types a module declares, as their component and size.
@@ -551,33 +580,54 @@ fn vector_types(words: &[u32]) -> Vec<[u32; 2]> {
 
 #[test]
 fn declares_the_integer_coordinate_vectors_naga_needs() {
-    for write in [false, true] {
-        let raw = image_access(write, true);
+    let unsigned = Access {
+        signed: false,
+        ..access(98, 1, true, 3)
+    };
+    for (case, needed) in [
+        (access(95, 1, true, 3), 2),
+        (unsigned, 2),
+        (access(99, 1, true, 3), 2),
+        // A 3D fetch at an `ivec4`, whose last component naga ignores.
+        (access(95, 2, false, 4), 3),
+    ] {
+        let raw = image_access(case);
         assert_eq!(
             naga_cause(&raw).as_deref(),
             Some("naga panic"),
-            "write {write}"
+            "op {}",
+            case.op
         );
         let prepared = prepare(&raw).unwrap();
-        assert_eq!(naga_cause(&prepared.words), None, "write {write}");
-        // An `ivec2` with a new ID, right after the int type it is made of.
-        assert_eq!(vector_types(&prepared.words), [[7, 4], [31, 2], [31, 3]]);
-        let int = op(21, &[31, 32, 1]);
+        assert_eq!(naga_cause(&prepared.words), None, "op {}", case.op);
+        // The vector, with a new ID, right after the int type it is made of.
+        let vectors = [[7, 4], [31, needed], [31, case.coordinate]];
+        assert_eq!(vector_types(&prepared.words), vectors);
+        let int = op(21, &[31, 32, u32::from(case.signed)]);
         let at = prepared.words.windows(4).position(|w| w == int).unwrap() + 4;
-        let ivec2 = &prepared.words[at..at + 4];
+        let vector = &prepared.words[at..at + 4];
         assert_eq!(
-            [ivec2[0], ivec2[2], ivec2[3]],
-            [op(23, &[0, 0, 0])[0], 31, 2]
+            [vector[0], vector[2], vector[3]],
+            [op(23, &[0, 0, 0])[0], 31, needed]
         );
-        assert!((52..prepared.words[3]).contains(&ivec2[1]));
+        assert!((52..prepared.words[3]).contains(&vector[1]));
     }
 }
 
 #[test]
 fn leaves_image_access_alone_when_naga_has_its_coordinate_types() {
-    for write in [false, true] {
-        let raw = image_access(write, false);
-        assert_eq!(naga_cause(&raw), None, "write {write}");
+    let unsigned = Access {
+        signed: false,
+        ..access(98, 1, false, 2)
+    };
+    for case in [
+        access(95, 1, false, 2),
+        unsigned,
+        access(99, 1, false, 2),
+        access(95, 2, false, 3),
+    ] {
+        let raw = image_access(case);
+        assert_eq!(naga_cause(&raw), None, "op {}", case.op);
         let prepared = prepare(&raw).unwrap();
         assert_eq!(vector_types(&prepared.words), vector_types(&raw));
     }

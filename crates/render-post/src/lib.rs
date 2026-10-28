@@ -68,6 +68,9 @@ mod antialias;
 mod antialias_tests;
 mod fxaa;
 mod post_filters;
+mod smaa_lut;
+#[cfg(test)]
+mod smaa_lut_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 mod tone_map;

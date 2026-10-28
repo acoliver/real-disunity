@@ -24,8 +24,9 @@ mod retained;
 pub use retained::{
     CaptureJitter, CaptureOutput, CaptureRequestError, CursorError, CursorGrabMode, KeyCode,
     LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureOutcome,
-    RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent, RetainedHost,
-    RetainedInput, RetainedTick, RetainedUpdate, WheelDelta, WindowlessRetained,
+    RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent,
+    RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, WheelDelta,
+    WindowlessRetained,
 };
 
 pub use camera::{OrbitCamera, OrbitLimits};

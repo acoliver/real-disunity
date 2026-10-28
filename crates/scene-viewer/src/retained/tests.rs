@@ -102,7 +102,11 @@ fn cpu_consumer_receives_update_and_frame_without_gpu() {
             })
             .map_err(|error| error.to_string())
         }
-        fn event(&mut self, _event: &RetainedEvent) -> Result<(), String> {
+        fn event(
+            &mut self,
+            _host: &mut crate::RetainedEventHost<'_>,
+            _event: &RetainedEvent,
+        ) -> Result<(), String> {
             Ok(())
         }
     }
@@ -119,7 +123,10 @@ fn cpu_consumer_receives_update_and_frame_without_gpu() {
         )
         .unwrap();
     consumer
-        .event(&RetainedEvent::Presented { frame: 0 })
+        .event(
+            &mut RetainedEventHost { host: &mut host },
+            &RetainedEvent::Presented { frame: 0 },
+        )
         .unwrap();
     assert_eq!(consumer.0, 1);
     assert!(host.view().unwrap().is_some());

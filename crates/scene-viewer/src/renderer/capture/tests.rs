@@ -489,7 +489,11 @@ fn session_exit_cancels_a_real_submitted_capture_before_releasing_its_buffer() {
         fn update(&mut self, _: &mut RetainedHost, _: &RetainedTick) -> Result<(), String> {
             Ok(())
         }
-        fn event(&mut self, event: &RetainedEvent) -> Result<(), String> {
+        fn event(
+            &mut self,
+            _host: &mut crate::RetainedEventHost<'_>,
+            event: &RetainedEvent,
+        ) -> Result<(), String> {
             self.0.push(event.clone());
             Ok(())
         }
@@ -505,11 +509,14 @@ fn session_exit_cancels_a_real_submitted_capture_before_releasing_its_buffer() {
     drop(session);
     assert_eq!(
         driver.0,
-        vec![RetainedEvent::Capture {
-            id,
-            generation: 0,
-            outcome: RetainedCaptureOutcome::Cancelled,
-        }]
+        vec![
+            RetainedEvent::Capture {
+                id,
+                generation: 0,
+                outcome: RetainedCaptureOutcome::Cancelled,
+            },
+            RetainedEvent::Shutdown
+        ]
     );
     assert_eq!(h.streaming.captures.pending.len(), 1);
     ticket.wait(h.context.device()).unwrap();

@@ -1,4 +1,8 @@
 #[cfg(test)]
+pub(crate) mod drop_tests;
+#[cfg(test)]
+mod lifecycle_tests;
+#[cfg(test)]
 pub(crate) mod pointer_tests;
 #[cfg(test)]
 mod tests;
@@ -20,6 +24,7 @@ pub(crate) struct Session<'a> {
     pub(super) frame: u64,
     pending: bool,
     failure: Option<String>,
+    closed: bool,
 }
 
 impl<'a> Session<'a> {
@@ -33,21 +38,31 @@ impl<'a> Session<'a> {
             frame: 0,
             pending: false,
             failure: None,
+            closed: false,
         }
     }
 
     fn input(&mut self, input: RetainedInput) {
         for input in self.host.input(input) {
-            if let Err(error) = self.driver.event(&RetainedEvent::Input(input)) {
+            if let Err(error) = self.notify(&RetainedEvent::Input(input)) {
                 self.failure = Some(error);
                 break;
             }
         }
     }
 
+    fn notify(&mut self, event: &RetainedEvent) -> Result<(), String> {
+        self.driver.event(
+            &mut super::RetainedEventHost {
+                host: &mut self.host,
+            },
+            event,
+        )
+    }
+
     fn notifications(&mut self) -> Result<(), ViewerError> {
         while let Some(event) = self.host.captures.take_event() {
-            self.driver.event(&event).map_err(ViewerError::Driver)?;
+            self.notify(&event).map_err(ViewerError::Driver)?;
         }
         Ok(())
     }
@@ -75,9 +90,24 @@ impl Content for Session<'_> {
         Ok(pending)
     }
     fn shutdown(&mut self) -> Result<(), ViewerError> {
+        if self.closed {
+            return Ok(());
+        }
+        self.closed = true;
         self.host.exit = true;
         self.host.captures.cancel();
-        self.notifications()
+        let mut failure = self.failure.take();
+        while let Some(event) = self.host.captures.take_event() {
+            let result = self.notify(&event);
+            if failure.is_none() {
+                failure = result.err();
+            }
+        }
+        let result = self.notify(&RetainedEvent::Shutdown);
+        if let Some(error) = failure {
+            return Err(ViewerError::Driver(error));
+        }
+        result.map_err(ViewerError::Driver)
     }
     fn title(&self) -> &str {
         &self.host.options.title
@@ -131,8 +161,7 @@ impl Content for Session<'_> {
             .unwrap_or(self.host.options.render_clock);
         renderer.set_clock(clock);
         if renderer.render_retained(&mut self.host)? {
-            self.driver
-                .event(&RetainedEvent::Presented { frame: self.frame })
+            self.notify(&RetainedEvent::Presented { frame: self.frame })
                 .map_err(ViewerError::Driver)?;
             self.frame += 1;
             self.pending = false;
@@ -143,4 +172,18 @@ impl Content for Session<'_> {
         }
         Ok(self.host.exit)
     }
+}
+
+impl Drop for Session<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self.shutdown() {
+            report_shutdown_error("retained session", &error);
+        }
+    }
+}
+
+pub(super) fn report_shutdown_error(context: &str, error: &ViewerError) {
+    use std::io::Write;
+    // Stderr is the crate's diagnostic channel; an I/O failure must not panic in Drop.
+    let _ = writeln!(std::io::stderr(), "{context} shutdown failed: {error}");
 }

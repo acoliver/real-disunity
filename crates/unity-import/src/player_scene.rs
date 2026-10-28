@@ -1,17 +1,14 @@
 //! A built scene's hierarchy: game objects, their transforms, components and script classes.
 
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, path::Path};
 
 use worldrunner_unity_serialized::{
     ClassId,
-    classes::{GameObject, MonoBehaviour, MonoScript, RectTransform, Transform},
+    classes::{GameObject, MonoBehaviour, RectTransform, Transform},
     object::PPtr,
 };
 
-use crate::{PlayerError, player_objects::OpenFile};
+use crate::{PlayerError, player_files::PlayerFiles};
 
 /// One game object of a scene, with its children in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -31,11 +28,7 @@ pub struct SceneNode {
 /// Fails if a file cannot be read, an object does not decode, or a reference names a file or
 /// object that does not exist.
 pub fn read_scene_hierarchy(data_dir: &Path, scene: &str) -> Result<Vec<SceneNode>, PlayerError> {
-    let mut files = Files {
-        data_dir: data_dir.to_owned(),
-        open: BTreeMap::new(),
-        scripts: BTreeMap::new(),
-    };
+    let mut files = PlayerFiles::new(data_dir);
     let scene_path = data_dir.join(scene);
     files.open_path(&scene_path)?;
     let roots = files.roots(&scene_path)?;
@@ -45,21 +38,7 @@ pub fn read_scene_hierarchy(data_dir: &Path, scene: &str) -> Result<Vec<SceneNod
         .collect()
 }
 
-struct Files {
-    data_dir: PathBuf,
-    open: BTreeMap<PathBuf, OpenFile>,
-    scripts: BTreeMap<(PathBuf, i64), String>,
-}
-
-impl Files {
-    fn open_path(&mut self, path: &Path) -> Result<&mut OpenFile, PlayerError> {
-        if !self.open.contains_key(path) {
-            let file = OpenFile::open(path)?;
-            self.open.insert(path.to_owned(), file);
-        }
-        Ok(self.open.get_mut(path).expect("opened above"))
-    }
-
+impl PlayerFiles {
     /// Transforms without a parent, ordered by path ID.
     fn roots(&mut self, path: &Path) -> Result<Vec<i64>, PlayerError> {
         let file = self.open_path(path)?;
@@ -110,18 +89,6 @@ impl Files {
         })
     }
 
-    /// The open file a same-file reference points into.
-    fn local(&mut self, path: &Path, pptr: PPtr) -> Result<&mut OpenFile, PlayerError> {
-        if pptr.file_id != 0 {
-            return Err(PlayerError::UnresolvedReference {
-                path: path.to_owned(),
-                file_id: pptr.file_id,
-                path_id: pptr.path_id,
-            });
-        }
-        self.open_path(path)
-    }
-
     fn component_name(&mut self, path: &Path, component: PPtr) -> Result<String, PlayerError> {
         let file = self.local(path, component)?;
         let class = file
@@ -136,57 +103,6 @@ impl Files {
             return Ok(class.to_string());
         }
         let behaviour: MonoBehaviour = file.decode(component.path_id)?;
-        self.script_name(path, behaviour.script)
-    }
-
-    /// The full class name of a script, from the file the reference points into.
-    fn script_name(&mut self, path: &Path, script: PPtr) -> Result<String, PlayerError> {
-        let target = self.referenced_file(path, script)?;
-        let key = (target.clone(), script.path_id);
-        if let Some(name) = self.scripts.get(&key) {
-            return Ok(name.clone());
-        }
-        let script: MonoScript = self.open_path(&target)?.decode(script.path_id)?;
-        let name = if script.namespace.is_empty() {
-            script.class_name
-        } else {
-            format!("{}.{}", script.namespace, script.class_name)
-        };
-        self.scripts.insert(key, name.clone());
-        Ok(name)
-    }
-
-    /// The path of the file a reference points into: this file, or an external file by its
-    /// name in the data directory.
-    fn referenced_file(&mut self, path: &Path, pptr: PPtr) -> Result<PathBuf, PlayerError> {
-        if pptr.file_id == 0 {
-            return Ok(path.to_owned());
-        }
-        let index = pptr
-            .file_id
-            .checked_sub(1)
-            .and_then(|id| usize::try_from(id).ok());
-        let file = self.open_path(path)?;
-        let external = index
-            .and_then(|i| file.file.externals.get(i))
-            .ok_or_else(|| PlayerError::UnresolvedReference {
-                path: path.to_owned(),
-                file_id: pptr.file_id,
-                path_id: pptr.path_id,
-            })?;
-        let name = external
-            .path
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(&external.path)
-            .to_owned();
-        if matches!(name.as_str(), "" | "." | "..") || name.contains(':') {
-            return Err(PlayerError::UnresolvedReference {
-                path: path.to_owned(),
-                file_id: pptr.file_id,
-                path_id: pptr.path_id,
-            });
-        }
-        Ok(self.data_dir.join(name))
+        Ok(self.script_class(path, behaviour.script)?.full_name)
     }
 }

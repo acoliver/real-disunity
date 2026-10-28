@@ -231,3 +231,4 @@ NamedAxisTests.Run();
 DeferredDestroyTests.Run();
 PlayerAssemblyTests.Run();
 RuntimeHookTests.Run();
+ScriptLayoutTests.Run();

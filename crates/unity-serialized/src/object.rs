@@ -93,9 +93,22 @@ pub struct ObjectReader<'a> {
 impl<'a> ObjectReader<'a> {
     #[must_use]
     pub fn new(bytes: &'a [u8], big_endian: bool) -> Self {
+        Self::at(bytes, 0, big_endian)
+    }
+
+    /// A reader of an object's bytes that starts `start` bytes in, such as at a script's
+    /// fields after the `MonoBehaviour` header. Alignment stays relative to the object.
+    #[must_use]
+    pub fn at(bytes: &'a [u8], start: usize, big_endian: bool) -> Self {
         Self {
-            cursor: Cursor::new(bytes, 0, big_endian),
+            cursor: Cursor::new(bytes, start, big_endian),
         }
+    }
+
+    /// # Errors
+    /// Fails when the data ends early.
+    pub fn f64(&mut self) -> Result<f64, SerializedError> {
+        self.cursor.u64().map(f64::from_bits)
     }
 
     /// Bytes read so far.

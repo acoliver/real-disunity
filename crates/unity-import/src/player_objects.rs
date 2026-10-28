@@ -102,7 +102,7 @@ impl OpenFile {
         decode(&bytes, &object, self.file.header.big_endian).map_err(|source| self.error(source))
     }
 
-    fn error(&self, source: SerializedError) -> PlayerError {
+    pub(crate) fn error(&self, source: SerializedError) -> PlayerError {
         PlayerError::Serialized {
             path: self.path.clone(),
             source,

@@ -63,8 +63,9 @@ impl<'a> Filters<'a> {
             .upscale
             .filter(|_| targets.config().size != targets.config().output_extent());
         let resolved = resolve.active_fxaa().is_some() || resolve.active_smaa().is_some();
-        let ldr =
-            (resolved || upscale.is_some()).then(|| self.display_texture(targets.config().size));
+        let display_format = resolve.display_format();
+        let ldr = (resolved || upscale.is_some())
+            .then(|| self.display_texture(targets.config().size, display_format));
         self.pass(FilterPass {
             entry: "tone",
             level: 0,
@@ -72,9 +73,7 @@ impl<'a> Filters<'a> {
             lower: Some(&bloom),
             exposure: Some(exposure),
             constants: &constants,
-            format: ldr
-                .as_ref()
-                .map_or(output.0, |_| wgpu::TextureFormat::Rgba32Float),
+            format: ldr.as_ref().map_or(output.0, |_| display_format),
             target: ldr
                 .as_ref()
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
@@ -90,8 +89,8 @@ impl<'a> Filters<'a> {
         format: wgpu::TextureFormat,
     ) {
         let resolving = resolve.active_fxaa().is_some() || resolve.active_smaa().is_some();
-        let filtered =
-            (resolving && upscale.is_some()).then(|| self.display_texture(targets.config().size));
+        let filtered = (resolving && upscale.is_some())
+            .then(|| self.display_texture(targets.config().size, wgpu::TextureFormat::Rgba32Float));
         let (resolve_format, resolve_target) = filtered.as_ref().map_or_else(
             || (format, StageTarget::Output),
             |v| {
@@ -135,13 +134,12 @@ impl<'a> Filters<'a> {
             );
         }
     }
-    fn display_texture(&mut self, size: [u32; 2]) -> wgpu::TextureView {
-        let texture = color_texture(
-            self.device,
-            "display-linear post input",
-            size,
-            wgpu::TextureFormat::Rgba32Float,
-        );
+    fn display_texture(
+        &mut self,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+    ) -> wgpu::TextureView {
+        let texture = color_texture(self.device, "display-linear post input", size, format);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.set.resources.textures.push(texture);
         view

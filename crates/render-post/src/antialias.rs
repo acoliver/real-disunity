@@ -114,6 +114,19 @@ impl PostResolve {
         }
     }
 
+    /// Format of the display-referred image between tone mapping and the resolve.
+    ///
+    /// FXAA keeps `Rgba32Float`, its flat-region precision contract. SMAA reads values in
+    /// 0..1 with an 11-bit mantissa, finer than the 8-bit output, and its filterable
+    /// `Rgba16Float` input halves the tone stage's store bandwidth and allows a hardware
+    /// bilinear fetch in neighborhood blending.
+    pub(crate) fn display_format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Smaa(_) => wgpu::TextureFormat::Rgba16Float,
+            _ => wgpu::TextureFormat::Rgba32Float,
+        }
+    }
+
     /// Whether the HDR display path must run for this resolve.
     pub(crate) fn requested(self) -> bool {
         self != Self::None

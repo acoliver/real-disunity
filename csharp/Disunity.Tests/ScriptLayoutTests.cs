@@ -1,0 +1,158 @@
+using System.Text;
+using System.Text.Json;
+using Disunity.Hosting;
+using UnityEngine;
+
+/// <summary>
+/// Script layouts from assembly metadata. The scripts are classes in this assembly, read
+/// through their metadata with Disunity.Engine and the .NET class library, as a player's
+/// scripts are read with its Managed directory.
+/// </summary>
+internal static class ScriptLayoutTests
+{
+    public enum Small : byte { A, B }
+
+    public interface IShape { }
+
+    [Serializable] public struct Pair { public int Count = 1; public float Weight = 1; public Pair() { } }
+
+    [Serializable] public class Node { public string Name = ""; public List<Node> Children = new(); }
+
+    [Serializable] public class Circle : IShape { public float Radius = 1; }
+
+    [Serializable] public class Square : Circle { public float Side = 1; }
+
+    [Serializable] public abstract class AbstractValue { public int Lost = 1; }
+
+    public class Plain { public int Lost = 1; }
+
+    [Serializable] public class Box<T> { public T Item = default!; }
+
+    public class Base : MonoBehaviour { [SerializeField] protected int baseValue = 1; }
+
+#pragma warning disable CS0169, CS0414, CS0649
+    public sealed class LayoutScript : Base
+    {
+        public int number;
+        [SerializeField] private bool flag;
+        private int hidden;
+        [NonSerialized] public int skipped;
+        public static int shared;
+        public readonly int fixedValue;
+        public const int Constant = 1;
+        public Small small;
+        public Vector3 position;
+        public GameObject? target;
+        public int[] numbers = Array.Empty<int>();
+        public List<Pair> pairs = new();
+        public List<int[]> nested = new();
+        public Dictionary<int, int> map = new();
+        public Node tree = new();
+        public Plain plain = new();
+        public AbstractValue? abstractValue;
+        public Box<string> boxed = new();
+        [SerializeReference] public IShape? shape;
+        [SerializeReference] public List<IShape> shapes = new();
+        public Action? callback;
+        public object? anything;
+    }
+#pragma warning restore CS0169, CS0414, CS0649
+
+    public static void Run()
+    {
+        using var layouts = Load();
+        var key = layouts.Script(Self, typeof(LayoutScript).FullName!.Replace('+', '/'))
+            ?? throw new InvalidOperationException("the test script was not found");
+        SerializesUnityFieldsInDeclarationOrderBaseFirst(layouts, key);
+        DescribesNestedAndGenericTypes(layouts);
+        AddsLayoutsForReferenceTargets(layouts);
+        ListsScriptClasses(layouts);
+        WritesJson(layouts, key);
+        Console.WriteLine("PASS: script layouts follow Unity's serialization rules");
+    }
+
+    private static readonly string Self = typeof(ScriptLayoutTests).Assembly.GetName().Name!;
+
+    private static ScriptLayouts Load()
+    {
+        // The assemblies this one references, as a player's Managed directory holds those its
+        // scripts reference, and the core library their type forwarders lead to.
+        var self = typeof(ScriptLayoutTests).Assembly;
+        var paths = self.GetReferencedAssemblies()
+            .Select(name => System.Reflection.Assembly.Load(name).Location)
+            .Append(self.Location)
+            .Append(typeof(object).Assembly.Location)
+            .Where(path => path.Length > 0)
+            .Distinct();
+        return new ScriptLayouts(paths.Select(path => (Path.GetFileNameWithoutExtension(path), File.ReadAllBytes(path))));
+    }
+
+    private static string Nested(string name) => $"{Self}:{typeof(ScriptLayoutTests).FullName}/{name}";
+
+    private static void SerializesUnityFieldsInDeclarationOrderBaseFirst(ScriptLayouts layouts, string key)
+    {
+        var fields = layouts.Types[key].Fields;
+        Require(string.Join(" ", fields.Select(field => field.Name))
+            == "baseValue number flag small position target numbers pairs tree boxed shape shapes",
+            $"serialized fields: {string.Join(" ", fields.Select(field => field.Name))}");
+        Require(Type(fields, "flag") == new ScriptPrimitive("bool"), "a [SerializeField] bool");
+        Require(Type(fields, "small") == new ScriptPrimitive("UInt8"), "an enum is its underlying type");
+        Require(Type(fields, "position") == new ScriptBuiltin("UnityEngine.Vector3"), "Vector3 is builtin");
+        Require(Type(fields, "target") == new ScriptObject("UnityEngine.GameObject"), "an object reference");
+        Require(Type(fields, "numbers") == new ScriptArray(new ScriptPrimitive("int")), "an int array");
+        Require(Type(fields, "pairs") == new ScriptArray(new ScriptComposite(Nested("Pair"))), "a list of structs");
+        Require(Type(fields, "shape") == new ScriptReference(typeof(IShape).FullName!.Replace('+', '/')), "a reference");
+        Require(Type(fields, "shapes") is ScriptArray { Element: ScriptReference }, "a list of references");
+    }
+
+    private static void DescribesNestedAndGenericTypes(ScriptLayouts layouts)
+    {
+        var pair = layouts.Types[Nested("Pair")];
+        Require(pair.ValueType && pair.Fields.Select(f => f.Name).SequenceEqual(new[] { "Count", "Weight" }), "Pair layout");
+        var node = layouts.Types[Nested("Node")];
+        Require(!node.ValueType && Type(node.Fields, "Children") == new ScriptArray(new ScriptComposite(Nested("Node"))),
+            "a class that contains itself refers to its own key");
+        var boxed = layouts.Types.Keys.Single(k => k.StartsWith(Nested("Box`1"), StringComparison.Ordinal));
+        Require(boxed.EndsWith("[String]", StringComparison.Ordinal), $"generic key {boxed}");
+        Require(Type(layouts.Types[boxed].Fields, "Item") == new ScriptPrimitive("string"), "a generic argument is substituted");
+    }
+
+    private static void AddsLayoutsForReferenceTargets(ScriptLayouts layouts)
+    {
+        Require(!layouts.Types.ContainsKey(Nested("Circle")), "reference targets are added on request");
+        layouts.AddReferenceTargets();
+        var square = layouts.Types[Nested("Square")];
+        Require(square.Fields.Select(f => f.Name).SequenceEqual(new[] { "Radius", "Side" }), "base class fields come first");
+        Require(layouts.Types.ContainsKey(Nested("Circle")), "an implementing class gets a layout");
+        Require(!layouts.Types.ContainsKey(Nested("AbstractValue")), "abstract classes are not serialized");
+    }
+
+    private static void ListsScriptClasses(ScriptLayouts layouts)
+    {
+        var scripts = layouts.Scripts(Self);
+        Require(scripts.Contains(Nested("LayoutScript")) && scripts.Contains(Nested("Base")), "MonoBehaviour classes are scripts");
+        Require(!scripts.Contains(Nested("Node")), "a serializable class is not a script");
+    }
+
+    private static void WritesJson(ScriptLayouts layouts, string key)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream)) layouts.Write(writer, new[] { key });
+        using var document = JsonDocument.Parse(Encoding.UTF8.GetString(stream.ToArray()));
+        var root = document.RootElement;
+        Require(root.GetProperty("scripts")[0].GetString() == key, "scripts are listed");
+        var first = root.GetProperty("types").GetProperty(key).GetProperty("fields")[0];
+        Require(first.GetProperty("name").GetString() == "baseValue"
+            && first.GetProperty("type").GetProperty("primitive").GetString() == "int", "field JSON");
+        var pairs = root.GetProperty("types").GetProperty(key).GetProperty("fields")[7].GetProperty("type");
+        Require(pairs.GetProperty("array").GetProperty("composite").GetString() == Nested("Pair"), "nested type JSON");
+    }
+
+    private static ScriptFieldType Type(IReadOnlyList<ScriptField> fields, string name) =>
+        fields.Single(field => field.Name == name).Type;
+
+    private static void Require(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException($"script layouts: {message}");
+    }
+}

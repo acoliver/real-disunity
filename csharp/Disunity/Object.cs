@@ -5,6 +5,11 @@ namespace UnityEngine;
 [AttributeUsage(AttributeTargets.Field)]
 public sealed class SerializeField : Attribute;
 
+/// <summary>Serializes a field by reference, so it can hold a subclass or an interface's
+/// implementation. Players store such values in each object's reference registry.</summary>
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class SerializeReference : Attribute;
+
 public enum FindObjectsSortMode { None, InstanceID }
 
 public abstract class Object

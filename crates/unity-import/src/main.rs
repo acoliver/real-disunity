@@ -25,6 +25,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player <player data directory>
        unity-import player-decode <player data directory>
        unity-import player-shader-report <player data directory>
+       unity-import player-scripts <player data directory> <script layouts JSON>
        unity-import player-scene <player data directory> <scene file>
        unity-import player-object <serialized file> <path ID>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
@@ -47,6 +48,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
     Some(match args {
         [command, data] if command == "player" => player(Path::new(data)),
         [command, data] if command == "player-decode" => player_decode(Path::new(data)),
+        [command, data, layouts] if command == "player-scripts" => {
+            player_scripts(Path::new(data), Path::new(layouts))
+        }
         [command, data] if command == "player-shader-report" => {
             player_shader_report(Path::new(data))
         }
@@ -180,6 +184,37 @@ fn print_node(node: &SceneNode, depth: usize) {
     for child in &node.children {
         print_node(child, depth + 1);
     }
+}
+
+/// Decodes the script fields of every `MonoBehaviour` in a player with script layouts, and
+/// prints the counts and the failures by script class. Fails when any script fails.
+fn player_scripts(data: &Path, layouts: &Path) -> Result<(), Box<dyn Error>> {
+    let json = std::fs::read_to_string(layouts)
+        .map_err(|error| format!("cannot read {}: {error}", layouts.display()))?;
+    let layouts = worldrunner_unity_import::script_layouts::parse_script_layouts(&json)?;
+    let names: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    let census = worldrunner_unity_import::player_scripts::script_census(data, &names, &layouts)?;
+    println!(
+        "{} of {} script components decode ({} without a script)",
+        census.decoded, census.objects, census.missing_scripts
+    );
+    for (group, (count, examples)) in &census.failures {
+        println!("{count} {group}");
+        for example in examples {
+            println!("    {example}");
+        }
+    }
+    if census.decoded != census.objects {
+        return Err(format!(
+            "{} script components do not decode",
+            census.objects - census.decoded
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// Prepares every distinct Vulkan shader module of a player for naga and prints the counts,

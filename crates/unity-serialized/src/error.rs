@@ -98,6 +98,17 @@ pub enum SerializedError {
         read: usize,
         size: u32,
     },
+    #[error(
+        "the {script} layout read {read} of the {size} bytes of script data; the layout does \
+         not match the data"
+    )]
+    ScriptTrailingBytes {
+        script: String,
+        read: usize,
+        size: usize,
+    },
+    #[error("script fields of {field_type} are not read yet")]
+    UnsupportedScriptField { field_type: String },
     #[error("object path ID {0} appears more than once")]
     DuplicatePathId(i64),
     #[error(

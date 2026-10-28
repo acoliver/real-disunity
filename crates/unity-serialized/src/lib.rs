@@ -25,6 +25,8 @@ pub mod managers;
 pub mod mesh;
 pub mod object;
 pub mod render_settings;
+pub mod script_builtin;
+pub mod script_data;
 pub mod shader;
 pub mod shader_program;
 pub mod shader_records;

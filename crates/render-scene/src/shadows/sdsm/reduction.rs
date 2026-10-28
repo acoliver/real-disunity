@@ -267,6 +267,8 @@ mod tests {
                 near_step: 1.0,
                 far_step: 1.0,
                 minimum_span: 1.0,
+                minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear,
+                active_maximum: None,
                 split_lambda: 0.5,
                 split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
             },

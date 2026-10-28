@@ -43,6 +43,8 @@ pub enum SceneSsaoFilter {
 /// Screen-space ambient occlusion parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSsao {
+    /// Sampled depth chain for the scalable kernel; other kernels require the default.
+    pub depth_footprint: super::SceneSsaoDepthFootprint,
     /// Sampling algorithm and its metadata reduction contract.
     pub kernel: SceneSsaoKernel,
     /// Reconstruction filter, independent of sampling.
@@ -70,6 +72,14 @@ impl SceneSsao {
     ///
     /// Returns [`SceneValidationError`] on the first out-of-bounds field.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
+        self.depth_footprint.validate()?;
+        if !matches!(self.kernel, SceneSsaoKernel::Scalable { .. })
+            && self.depth_footprint != super::SceneSsaoDepthFootprint::default()
+        {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "ssao depth footprint requires scalable kernel",
+            });
+        }
         self.validate_policy()?;
         require_range("ssao sample_count", u64::from(self.sample_count), 1, 64)?;
         require_range(
@@ -147,8 +157,26 @@ impl SceneSsao {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn footprint_is_validated_and_requires_scalable_sampling() {
+        let mut policy = settings();
+        for level_count in [0, 9, u32::MAX] {
+            policy.depth_footprint.level_count = level_count;
+            assert!(policy.validate().is_err());
+        }
+        policy.depth_footprint.level_count = 5;
+        policy.depth_footprint.rounding = crate::SceneDownsampleRounding::Floor;
+        assert!(policy.validate().is_ok());
+        policy.kernel = SceneSsaoKernel::Hemisphere;
+        policy.filter = SceneSsaoFilter::DepthAwareBox;
+        assert!(policy.validate().is_err());
+        policy.depth_footprint = crate::SceneSsaoDepthFootprint::default();
+        assert!(policy.validate().is_ok());
+    }
     fn settings() -> SceneSsao {
         SceneSsao {
+            depth_footprint: crate::SceneSsaoDepthFootprint::default(),
             kernel: SceneSsaoKernel::Scalable {
                 turns_micro: 7_000_000,
                 power_micro: 1_000_000,

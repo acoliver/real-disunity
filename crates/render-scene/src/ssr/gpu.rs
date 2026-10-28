@@ -1,4 +1,16 @@
 use std::fmt::Write;
+pub(super) fn reduction_pipeline(
+    device: &wgpu::Device,
+    samples: u32,
+    settings: &worldrunner_render_plan::SceneSsr,
+) -> wgpu::RenderPipeline {
+    pipeline(
+        device,
+        &configured_reduce_source(samples, settings.radiance_rounding),
+        1,
+        false,
+    )
+}
 pub(super) fn scalar(value: u32) -> f32 {
     f32::from(u16::try_from(value >> 16).expect("upper half")) * 65536.0
         + f32::from(u16::try_from(value & 65535).expect("lower half"))
@@ -144,8 +156,37 @@ pub(super) fn trace_source(samples: u32, water: bool) -> String {
     }
 }
 
+pub(super) fn configured_trace_source(
+    samples: u32,
+    water: bool,
+    rounding: worldrunner_render_plan::SceneDownsampleRounding,
+) -> String {
+    let source = trace_source(samples, water);
+    match rounding {
+        worldrunner_render_plan::SceneDownsampleRounding::Ceil => source,
+        worldrunner_render_plan::SceneDownsampleRounding::Floor => source.replace(
+            "let trace_size = ceil(camera.size.xy / camera.size.z);",
+            "let trace_size = max(floor(camera.size.xy / camera.size.z), vec2<f32>(1.0));",
+        ),
+    }
+}
+
 pub(super) fn reduce_source(samples: u32) -> String {
     include_str!("reduce.wgsl").replace("SAMPLE_LANES", &samples.to_string())
+}
+
+pub(super) fn configured_reduce_source(
+    samples: u32,
+    rounding: worldrunner_render_plan::SceneDownsampleRounding,
+) -> String {
+    let source = reduce_source(samples);
+    match rounding {
+        worldrunner_render_plan::SceneDownsampleRounding::Ceil => source,
+        worldrunner_render_plan::SceneDownsampleRounding::Floor => source.replace(
+            "let target_width = (size.x + 1) / 2;",
+            "let target_width = max(size.x / 2, 1);",
+        ),
+    }
 }
 
 pub(super) fn sampled_resolve_source(levels: usize, samples: u32, water: bool) -> String {
@@ -173,26 +214,19 @@ pub(super) fn sampled_resolve_source(levels: usize, samples: u32, water: bool) -
 pub(super) fn radiance_textures(
     device: &wgpu::Device,
     config: worldrunner_render_post::FrameConfig,
-    scale: u32,
+    settings: &worldrunner_render_plan::SceneSsr,
 ) -> Vec<wgpu::Texture> {
-    let mut extent = if scale == 500_000 {
-        config.size.map(|side| side.div_ceil(2))
-    } else {
-        config.size
-    };
-    let mut reflections = Vec::new();
-    loop {
-        reflections.push(crate::ssao::passes::texture(
-            device,
-            [extent[0] * config.samples, extent[1]],
-            wgpu::TextureFormat::Rgba16Float,
-        ));
-        if extent == [1, 1] || reflections.len() == 6 {
-            break;
-        }
-        extent = extent.map(|side| side.div_ceil(2));
-    }
-    reflections
+    settings
+        .radiance_extents(config.size)
+        .into_iter()
+        .map(|extent| {
+            crate::ssao::passes::texture(
+                device,
+                [extent[0] * config.samples, extent[1]],
+                wgpu::TextureFormat::Rgba16Float,
+            )
+        })
+        .collect()
 }
 
 pub(super) fn controls(settings: &worldrunner_render_plan::SceneSsr) -> [f32; 12] {
@@ -211,7 +245,10 @@ pub(super) fn controls(settings: &worldrunner_render_plan::SceneSsr) -> [f32; 12
         f32::from(u8::from(
             settings.traversal == worldrunner_render_plan::SceneSsrTraversal::Grid,
         )),
-        0.0,
+        f32::from(u8::from(
+            settings.application_lod
+                == worldrunner_render_plan::SceneSsrLodMapping::RoughnessDownsample,
+        )),
         settings
             .roughness_pass_behind
             .map_or(-1.0, |c| scalar(c.minimum_steps)),

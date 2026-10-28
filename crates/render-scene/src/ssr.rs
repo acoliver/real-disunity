@@ -33,11 +33,7 @@ pub(crate) fn validate_extent(
     settings: &SceneSsr,
     limits: &wgpu::Limits,
 ) -> Result<(), FrameError> {
-    let width = if settings.resolution_scale_micro == 500_000 {
-        config.size[0].div_ceil(2)
-    } else {
-        config.size[0]
-    };
+    let [width, _] = settings.radiance_extents(config.size)[0];
     if width
         .checked_mul(config.samples)
         .is_none_or(|width| width > limits.max_texture_dimension_2d)
@@ -52,6 +48,10 @@ pub(crate) fn validate_extent(
 }
 pub(crate) const fn neutral_ao() -> SceneSsao {
     SceneSsao {
+        depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint {
+            level_count: 8,
+            rounding: worldrunner_render_plan::SceneDownsampleRounding::Ceil,
+        },
         kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
         filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
         sample_count: 1,
@@ -131,7 +131,7 @@ impl Ssr {
         let final_depth =
             final_depth::FinalDepth::new(device, config.size, config.samples, &settings);
         let hierarchy = final_depth.trace_levels();
-        let reflections = gpu::radiance_textures(device, config, settings.resolution_scale_micro);
+        let reflections = gpu::radiance_textures(device, config, &settings);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("SSR camera"),
             size: 208,
@@ -139,7 +139,7 @@ impl Ssr {
             mapped_at_creation: false,
         });
         let trace = grid::pipeline(device, config, &settings, false);
-        let reduce = gpu::pipeline(device, &gpu::reduce_source(config.samples), 1, false);
+        let reduce = gpu::reduction_pipeline(device, config.samples, &settings);
         let (resolve, water_resolve) = gpu::resolve_pipelines(
             device,
             config.samples,

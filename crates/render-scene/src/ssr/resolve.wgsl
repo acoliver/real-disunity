@@ -17,7 +17,7 @@ struct ReflectionCamera {
     // Both snapshots reduce the same forward samples. Any nearer water masks the receiver.
     if abs(textureLoad(final_depth, p, 0).r-depth) > max(0.001, depth*0.0001) { discard; }
     let uv = pixel.xy / camera.size.xy;
-    let lod = clamp(surface.a / camera.settings.z, 0.0, 1.0) * f32(REFLECTION_LEVELS);
+    let lod = reflection_lod(surface.a);
     let lower = u32(floor(lod));
     let upper = min(lower+1u, REFLECTION_LEVELSu);
     let reflection = mix(reflected(lower, uv, sample), reflected(upper, uv, sample), fract(lod));
@@ -45,4 +45,11 @@ fn reflection_coordinates(uv: vec2<f32>, size: vec2<i32>, footprint: f32) -> mat
     let b = min((upper + 0.5) * footprint, (upper * footprint + base) * 0.5);
     let weight = clamp((position - a) / max(b - a, vec2<f32>(0.5)), vec2<f32>(0.0), vec2<f32>(1.0));
     return mat3x2<f32>(lower, upper, weight);
+}
+
+fn reflection_lod(roughness: f32) -> f32 {
+    if camera.limits.w != 0.0 {
+        return max(roughness * f32(REFLECTION_LEVELS) - log2(camera.size.z), 0.0);
+    }
+    return clamp(roughness / camera.settings.z, 0.0, 1.0) * f32(REFLECTION_LEVELS);
 }

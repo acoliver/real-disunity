@@ -363,3 +363,7 @@ mod scalable_tests;
 #[cfg(test)]
 #[path = "scalable_sampling_tests.rs"]
 mod scalable_sampling_tests;
+
+#[cfg(test)]
+#[path = "depth_footprint_tests.rs"]
+mod depth_footprint_tests;

@@ -22,7 +22,7 @@
 //! use worldrunner_render_post::AttachmentView;
 //! # fn frame(context: &GpuContext, renderer: &mut ShadowedScene, view: &SceneView,
 //! # color: &AttachmentView, depth: &AttachmentView) -> Result<(), ShadowError> {
-//! let range = RangeFit { near_step: 0.1, far_step: 1.0, minimum_span: 1.0, split_lambda: 0.5, split_policy: Default::default() };
+//! let range = RangeFit { near_step: 0.1, far_step: 1.0, minimum_span: 1.0, minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear, active_maximum: None, split_lambda: 0.5, split_policy: Default::default() };
 //! renderer.set_depth_fitting(context, Some(SdsmSettings {
 //!     policy: AdoptionPolicy::Interactive { latency_frames: 2, contraction_frames: 4 }, range,
 //! }))?;
@@ -287,6 +287,15 @@ impl From<&worldrunner_render_plan::SceneDepthFitting> for SdsmSettings {
                 near_step: crate::view::meters_scalar(value.near_step_mm),
                 far_step: crate::view::meters_scalar(value.far_step_mm),
                 minimum_span: crate::view::meters_scalar(value.minimum_span_mm),
+                minimum_span_policy: match value.minimum_span_policy {
+                    worldrunner_render_plan::SceneDepthMinimumSpan::ExtendNear => {
+                        worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear
+                    }
+                    worldrunner_render_plan::SceneDepthMinimumSpan::ExtendFar => {
+                        worldrunner_render_shadow::MinimumSpanPolicy::ExtendFar
+                    }
+                },
+                active_maximum: value.active_maximum_mm.map(crate::view::meters_scalar),
                 split_lambda,
                 split_policy,
             },

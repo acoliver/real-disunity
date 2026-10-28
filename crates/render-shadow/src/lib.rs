@@ -7,7 +7,7 @@
 
 mod sdsm;
 mod sdsm_policies;
-pub use sdsm::{DepthRange, RangeFilter, RangeFit};
+pub use sdsm::{DepthRange, MinimumSpanPolicy, RangeFilter, RangeFit};
 pub use sdsm_policies::{CascadeInterval, PerBoundHysteresis, SplitPolicy};
 mod config;
 pub use config::{DirectionalCoverage, DirectionalShadowConfig, InvalidShadowConfig, ShadowFilter};

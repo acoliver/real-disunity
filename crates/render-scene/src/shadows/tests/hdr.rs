@@ -175,6 +175,7 @@ fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
             super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
         let mut parts = fixture::effects_parts(600_000);
         parts.ssao = Some(SceneSsao {
+            depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
             kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
             filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
             radius_millimeters: 2000,

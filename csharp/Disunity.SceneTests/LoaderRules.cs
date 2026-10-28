@@ -78,7 +78,8 @@ internal static class LoaderRules
             AxesRegisterOnlyWhenTheEngineHasTheirKeys();
             FailuresNameTheFieldAndLeaveNothingBehind();
             PlayerPlansNameScriptsByAssembly();
-            Console.WriteLine("PASS: scene plans bind fields, events, assets and axes by Unity's rules and fail cleanly");
+            ValueFieldRules.Check();
+            Console.WriteLine("PASS: scene plans bind fields, value types, events, assets and axes by Unity's rules and fail cleanly");
         }
         finally
         {
@@ -86,7 +87,7 @@ internal static class LoaderRules
         }
     }
 
-    private static SceneLoadOptions Options => new(Assembly.GetExecutingAssembly(), _ => SyntheticFont.Bytes());
+    internal static SceneLoadOptions Options => new(Assembly.GetExecutingAssembly(), _ => SyntheticFont.Bytes());
 
     private const string Fields = """
         {"count": "7", "speed": "2.5", "on": "1", "mood": "1", "label": "hi",
@@ -103,10 +104,10 @@ internal static class LoaderRules
 
     /// <summary>A plan of object A with a Rules script given <paramref name="fields"/>, and its
     /// child B with a default Rules script.</summary>
-    private static string Plan(string fields, string axes = "[]")
+    internal static string Plan(string fields, string axes = "[]", string script = "Rules")
     {
-        static JsonNode Script(string fields) => JsonNode.Parse(
-            """{"type": "Script", "script": "Assets/Rules.cs", "class": "Rules", "enabled": true, "fields": """ + fields + "}")!;
+        JsonNode Script(string fields) => JsonNode.Parse(
+            """{"type": "Script", "script": "Assets/Rules.cs", "class": """ + $"\"{script}\"" + """, "enabled": true, "fields": """ + fields + "}")!;
         static JsonNode Object(string name, int? parent, JsonNode script) => new JsonObject
         {
             ["name"] = name, ["tag"] = "Untagged", ["layer"] = 0, ["active"] = true, ["parent"] = parent,
@@ -200,7 +201,7 @@ internal static class LoaderRules
         Fails(Player(name, "Outer/Inner"), $"the plan names assembly {name}, and the loader has no assembly resolver");
     }
 
-    private static void Fails(string plan, string expected, SceneLoadOptions? options = null)
+    internal static void Fails(string plan, string expected, SceneLoadOptions? options = null)
     {
         var before = UnityEngine.Object.FindObjectsByType<Rules>(FindObjectsSortMode.None).Length;
         try

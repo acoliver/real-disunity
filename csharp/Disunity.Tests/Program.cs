@@ -234,6 +234,7 @@ NamedAxisTests.Run();
 DeferredDestroyTests.Run();
 PlayerAssemblyTests.Run();
 RuntimeHookTests.Run();
+EngineEnumTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();

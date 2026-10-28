@@ -21,8 +21,10 @@ use worldrunner_unity_serialized::{
     shader::Shader,
     shader_program::PlayerSubProgram,
     shader_records::{
-        PlatformProgram, SPIRV_PROGRAM, platform_program_types, platform_programs, vulkan_stages,
+        ModuleEncoding, PlatformProgram, SPIRV_PROGRAM, platform_program_types, platform_programs,
+        vulkan_stages,
     },
+    smolv,
     sprite::{Sprite, SpriteAtlas},
     text_asset::TextAsset,
     ui::{Canvas, CanvasGroup, CanvasRenderer},
@@ -275,6 +277,89 @@ pub fn describe_shader_programs(
         })
         .map_err(|source| open.error(source))?;
     Ok(lines.join("\n"))
+}
+
+/// One decoded stage module of a shader's Vulkan program.
+#[derive(Debug)]
+pub struct ShaderModule {
+    /// The program's blob entry.
+    pub blob_index: u32,
+    /// The stage slot in the program's wrapper.
+    pub slot: usize,
+    /// The SPIR-V module, decoded from SMOL-V where it was stored that way.
+    pub words: Vec<u32>,
+    /// The execution model of each entry point, such as 0 for vertex or 4 for fragment.
+    pub entry_points: Vec<u32>,
+}
+
+/// Decodes every stage module of a shader's Vulkan programs on one platform. A program
+/// several variants share is decoded once.
+///
+/// # Errors
+/// Fails if the platform is not Vulkan, the shader's programs cannot be read, or a module is
+/// not valid SMOL-V or SPIR-V.
+pub fn shader_modules(
+    open: &mut OpenFile,
+    path_id: i64,
+    platform: usize,
+) -> Result<Vec<ShaderModule>, PlayerError> {
+    let (shader, kind, chunks) = load_shader(open, path_id, platform)?;
+    let types = platform_program_types(kind)
+        .filter(|types| types.contains(&SPIRV_PROGRAM))
+        .ok_or_else(|| {
+            open.error(SerializedError::InvalidShaderProgram {
+                offset: 0,
+                reason: "the shader platform is not Vulkan",
+            })
+        })?;
+    let mut programs = platform_programs(variants(&shader), &types, &chunks)
+        .map_err(|source| open.error(source))?;
+    programs.sort_by_key(|program| program.label.0);
+    programs.dedup_by_key(|program| program.label.0);
+    let mut modules = Vec::new();
+    for program in &programs {
+        decode_modules(program, &chunks, &mut modules).map_err(|source| open.error(source))?;
+    }
+    Ok(modules)
+}
+
+fn decode_modules(
+    program: &PlatformProgram<VariantLabel>,
+    chunks: &[Vec<u8>],
+    modules: &mut Vec<ShaderModule>,
+) -> Result<(), SerializedError> {
+    let code = program
+        .code(chunks)
+        .ok_or(SerializedError::InvalidShaderProgram {
+            offset: 0,
+            reason: "the program's code lies outside the chunks",
+        })?;
+    for stage in vulkan_stages(code)? {
+        let bytes = &code[stage.range.clone()];
+        let words = match stage.encoding {
+            ModuleEncoding::Smolv => smolv::decode(bytes)?,
+            ModuleEncoding::SpirV => spirv_words(bytes)?,
+        };
+        modules.push(ShaderModule {
+            blob_index: program.label.0,
+            slot: stage.slot,
+            entry_points: smolv::entry_points(&words)?,
+            words,
+        });
+    }
+    Ok(())
+}
+
+/// A module stored as plain SPIR-V, as little-endian words.
+fn spirv_words(bytes: &[u8]) -> Result<Vec<u32>, SerializedError> {
+    let (words, rest) = bytes.as_chunks::<4>();
+    if !rest.is_empty() {
+        return Err(SerializedError::InvalidShaderModule {
+            offset: bytes.len() - rest.len(),
+            reason: "the SPIR-V module is not a whole number of words",
+        });
+    }
+    Ok(words.iter().map(|&word| u32::from_le_bytes(word)).collect())
 }
 
 /// A layout's class with its check. The class comes from the layout, so the two cannot drift.

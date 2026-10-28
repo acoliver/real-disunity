@@ -41,6 +41,7 @@ mod impostor;
 mod layered_terrain;
 mod lod;
 mod lod_material;
+mod lod_scale;
 mod material_factors;
 mod normal_frames;
 mod retained;

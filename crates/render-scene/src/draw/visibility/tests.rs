@@ -63,7 +63,7 @@ fn light_and_camera_views_share_lod_but_not_visibility() {
 use super::*;
 use worldrunner_render_plan::*;
 
-fn level(index: u8) -> SceneMeshLod {
+pub(super) fn level(index: u8) -> SceneMeshLod {
     SceneMeshLod::new(
         index,
         vec![
@@ -86,7 +86,7 @@ fn level(index: u8) -> SceneMeshLod {
     .unwrap()
 }
 
-fn mesh() -> SceneMesh {
+pub(super) fn mesh() -> SceneMesh {
     SceneMesh::with_distances(
         vec![level(0), level(1), level(2)],
         vec![1_000, 2_000, 4_000],
@@ -94,7 +94,7 @@ fn mesh() -> SceneMesh {
     .unwrap()
 }
 
-fn transform(position: [i64; 3]) -> SceneTransform {
+pub(super) fn transform(position: [i64; 3]) -> SceneTransform {
     SceneTransform {
         position_millimeters: position,
         rotation: SceneRotation::IDENTITY,
@@ -115,7 +115,7 @@ fn thresholds_are_inclusive_and_the_last_level_extends_to_infinity() {
         (4_000, 2),
         (100_000, 2),
     ] {
-        assert_eq!(selection.lod(distance * distance), expected);
+        assert_eq!(selection.lod(distance * distance, None), expected);
     }
 }
 
@@ -263,7 +263,7 @@ fn rotated_scaled_bounds_enclose_every_transformed_corner() {
     }
 }
 
-fn scene() -> RenderScene {
+pub(super) fn scene() -> RenderScene {
     let material = SceneMaterial::new(SceneMaterialParts {
         albedo: TextureHandle::from_raw(0),
         normal: None,

@@ -47,10 +47,7 @@ impl InstanceBatch {
 
     pub fn set_transform(&mut self, position: usize, transform: SceneTransform) {
         let (object, _) = self.get(position);
-        self.set_object(
-            position,
-            SceneObject::new(transform, object.mesh(), object.material()).with_tint(object.tint()),
-        );
+        self.set_object(position, object.with_transform(transform));
     }
 
     pub fn set_object(&mut self, position: usize, object: SceneObject) {

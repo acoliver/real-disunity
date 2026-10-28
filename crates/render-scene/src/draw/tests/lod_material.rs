@@ -22,7 +22,7 @@ fn slot_material(texture: u32, alpha_mode: SceneAlphaMode) -> SceneMaterial {
     .unwrap()
 }
 
-fn scene(explicit: bool) -> RenderScene {
+pub(super) fn scene(explicit: bool) -> RenderScene {
     let near = quad().lods()[0].clone();
     let far = SceneMeshLod::new(1, near.vertices().to_vec(), near.indices().to_vec(), None)
         .unwrap()
@@ -69,7 +69,7 @@ fn scene(explicit: bool) -> RenderScene {
     .unwrap()
 }
 
-fn selection_frame(distance: i64) -> FrameUniform {
+pub(super) fn selection_frame(distance: i64) -> FrameUniform {
     let mut frame = frame_from(pose());
     frame.unlit = true;
     frame.camera_position =

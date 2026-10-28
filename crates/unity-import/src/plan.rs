@@ -50,6 +50,10 @@ pub struct ScenePlan {
     pub textures: Vec<PlanTexture>,
     pub fonts: Vec<PackageFont>,
     pub axes: Vec<InputAxis>,
+    /// What the plan leaves out of the scene as authored, one line each. Only player plans
+    /// leave anything out; a project plan fails instead.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub differences: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,12 +157,19 @@ pub enum PlanComponent {
         #[serde(flatten)]
         camera: UrpCamera,
     },
-    /// A project script: `class` in the compiled game assembly, from `script`'s file.
+    /// A project script: `class` in the compiled game assembly, from `script`'s file. A
+    /// player's script has no file; `class` is its full name in `assembly`.
     Script {
         script: String,
         class: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        assembly: Option<String>,
         enabled: bool,
         fields: serde_json::Value,
+    },
+    /// An engine component of a player scene that the engine cannot build yet, by class.
+    Unsupported {
+        class: String,
     },
 }
 
@@ -230,5 +241,6 @@ pub fn plan_scene(project: &Project, path: &Path) -> Result<ScenePlan, PlanError
         textures,
         fonts,
         axes: input_axes(project)?,
+        differences: Vec::new(),
     })
 }

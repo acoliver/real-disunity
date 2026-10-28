@@ -26,6 +26,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-decode <player data directory>
        unity-import player-shader-report <player data directory>
        unity-import player-scripts <player data directory> <script layouts JSON>
+       unity-import player-plan <player data directory> <scene file> <script layouts JSON>
        unity-import player-scene <player data directory> <scene file>
        unity-import player-object <serialized file> <path ID>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
@@ -48,6 +49,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
     Some(match args {
         [command, data] if command == "player" => player(Path::new(data)),
         [command, data] if command == "player-decode" => player_decode(Path::new(data)),
+        [command, data, scene, layouts] if command == "player-plan" => {
+            player_plan(Path::new(data), scene, Path::new(layouts))
+        }
         [command, data, layouts] if command == "player-scripts" => {
             player_scripts(Path::new(data), Path::new(layouts))
         }
@@ -184,6 +188,26 @@ fn print_node(node: &SceneNode, depth: usize) {
     for child in &node.children {
         print_node(child, depth + 1);
     }
+}
+
+/// Plans a player's scene file with script layouts and prints the plan as JSON on stdout,
+/// and a summary with each difference on stderr.
+fn player_plan(data: &Path, scene: &str, layouts: &Path) -> Result<(), Box<dyn Error>> {
+    let json = std::fs::read_to_string(layouts)
+        .map_err(|error| format!("cannot read {}: {error}", layouts.display()))?;
+    let layouts = worldrunner_unity_import::script_layouts::parse_script_layouts(&json)?;
+    let plan = worldrunner_unity_import::player_plan::plan_player_scene(data, scene, &layouts)?;
+    println!("{}", serde_json::to_string_pretty(&plan)?);
+    eprintln!(
+        "{}: {} objects, {} differences",
+        plan.scene,
+        plan.objects.len(),
+        plan.differences.len()
+    );
+    for difference in &plan.differences {
+        eprintln!("    {difference}");
+    }
+    Ok(())
 }
 
 /// Decodes the script fields of every `MonoBehaviour` in a player with script layouts, and

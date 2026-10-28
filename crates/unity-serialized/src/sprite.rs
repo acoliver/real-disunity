@@ -50,17 +50,24 @@ const MATRIX_LEN: usize = 64;
 /// A secondary texture's reference and the length of its name.
 const SECONDARY_TEXTURE_MIN: usize = 16;
 
+impl SecondaryTexture {
+    /// Reads a length-prefixed list of secondary textures.
+    pub(crate) fn read_all(r: &mut ObjectReader<'_>) -> Result<Vec<Self>, SerializedError> {
+        r.array("secondary texture", SECONDARY_TEXTURE_MIN, |r| {
+            Ok(Self {
+                texture: r.pptr()?,
+                name: r.string()?,
+            })
+        })
+    }
+}
+
 impl SpriteRenderData {
     fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         Ok(Self {
             texture: r.pptr()?,
             alpha_texture: r.pptr()?,
-            secondary_textures: r.array("secondary texture", SECONDARY_TEXTURE_MIN, |r| {
-                Ok(SecondaryTexture {
-                    texture: r.pptr()?,
-                    name: r.string()?,
-                })
-            })?,
+            secondary_textures: SecondaryTexture::read_all(r)?,
             sub_meshes: r.array("sub-mesh", SUB_MESH_LEN, SubMesh::read)?,
             index_buffer: r.byte_range("index buffer byte")?,
             vertex_data: VertexData::read(r)?,
@@ -113,6 +120,15 @@ pub struct RenderDataKey {
     pub local_id: i64,
 }
 
+impl RenderDataKey {
+    pub(crate) fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        Ok(Self {
+            guid: [r.u32()?, r.u32()?, r.u32()?, r.u32()?],
+            local_id: r.i64()?,
+        })
+    }
+}
+
 /// A 2D image drawn from a rectangle of a texture, with its own mesh.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sprite {
@@ -157,10 +173,7 @@ impl Layout for Sprite {
         let extrude = r.u32()?;
         let is_polygon = r.bool()?;
         r.align()?;
-        let render_data_key = RenderDataKey {
-            guid: [r.u32()?, r.u32()?, r.u32()?, r.u32()?],
-            local_id: r.i64()?,
-        };
+        let render_data_key = RenderDataKey::read(r)?;
         let atlas_tags = r.array("atlas tag", ARRAY_MIN, ObjectReader::string)?;
         let sprite_atlas = r.pptr()?;
         let render_data = SpriteRenderData::read(r)?;
@@ -184,5 +197,79 @@ impl Layout for Sprite {
             bones: r.array("sprite bone", BONE_MIN, SpriteBone::read)?,
             scriptable_objects: r.pptrs("scriptable object")?,
         })
+    }
+}
+
+/// Where an atlas placed one packed sprite, and the textures it drew it into.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpriteAtlasData {
+    pub texture: PPtr,
+    /// The separate alpha texture of a split-alpha compressed atlas, or null.
+    pub alpha_texture: PPtr,
+    /// The sprite's rectangle in the atlas texture, in pixels: x, y, width, height.
+    pub texture_rect: [f32; 4],
+    /// Offset of the texture rectangle within the sprite rectangle, in pixels.
+    pub texture_rect_offset: [f32; 2],
+    /// Unity's `atlasRectOffset`.
+    pub atlas_rect_offset: [f32; 2],
+    /// Pixels per unit and the pivot's position in the texture, as for a sprite.
+    pub uv_transform: [f32; 4],
+    /// Unity's `downscaleMultiplier` for the packed texture.
+    pub downscale_multiplier: f32,
+    /// Unity's packed settings bits, as for a sprite.
+    pub settings: u32,
+    pub secondary_textures: Vec<SecondaryTexture>,
+}
+
+impl SpriteAtlasData {
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        Ok(Self {
+            texture: r.pptr()?,
+            alpha_texture: r.pptr()?,
+            texture_rect: r.floats()?,
+            texture_rect_offset: r.floats()?,
+            atlas_rect_offset: r.floats()?,
+            uv_transform: r.floats()?,
+            // Unlike a sprite's render data, the multiplier comes before the settings.
+            downscale_multiplier: r.f32()?,
+            settings: r.u32()?,
+            secondary_textures: SecondaryTexture::read_all(r)?,
+        })
+    }
+}
+
+/// A key, then the fixed fields of the atlas data and the count of its secondary textures.
+const ATLAS_ENTRY_MIN: usize = 24 + 12 + 12 + 16 + 8 + 8 + 16 + 4 + 4 + 4;
+
+/// Sprites packed together into shared textures.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpriteAtlas {
+    pub name: String,
+    pub packed_sprites: Vec<PPtr>,
+    /// The names of the packed sprites, in the order of `packed_sprites`.
+    pub packed_sprite_names: Vec<String>,
+    /// Each packed sprite's placement, by the sprite's render data key.
+    pub render_data: Vec<(RenderDataKey, SpriteAtlasData)>,
+    pub tag: String,
+    /// Whether this atlas is a variant that scales another atlas's textures.
+    pub is_variant: bool,
+}
+
+impl Layout for SpriteAtlas {
+    const CLASS: ClassId = ClassId::SPRITE_ATLAS;
+
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        let atlas = Self {
+            name: r.string()?,
+            packed_sprites: r.pptrs("packed sprite")?,
+            packed_sprite_names: r.array("packed sprite name", ARRAY_MIN, ObjectReader::string)?,
+            render_data: r.array("atlas render data", ATLAS_ENTRY_MIN, |r| {
+                Ok((RenderDataKey::read(r)?, SpriteAtlasData::read(r)?))
+            })?,
+            tag: r.string()?,
+            is_variant: r.bool()?,
+        };
+        r.align()?;
+        Ok(atlas)
     }
 }

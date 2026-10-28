@@ -278,11 +278,15 @@ fn maps_every_binding_when_samplers_split_and_later_bindings_move() {
         ]
     );
     assert_eq!(naga_cause(&prepared.words), None);
-    assert_eq!(
-        prepare(&raw).unwrap(),
-        prepared,
-        "preparation is deterministic"
-    );
+    // spirv-webgpu-transform's hash maps are seeded per map, so repeated runs differ unless
+    // preparation puts its output in order.
+    for _ in 0..16 {
+        assert_eq!(
+            prepare(&raw).unwrap(),
+            prepared,
+            "preparation is deterministic"
+        );
+    }
 }
 
 #[test]

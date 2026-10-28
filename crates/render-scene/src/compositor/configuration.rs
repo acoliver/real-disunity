@@ -312,18 +312,43 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
             [1, 1],
             1,
         );
-        for size in ssr.radiance_extents([w, h]) {
+        radiance_allocations(settings.frame, &ssr, set);
+        reflection_depth_allocations([w, h], crate::ssr::depth_level_count(&ssr, [w, h]), set);
+        set.buffer("reflection uniform", 192, 1);
+        set.buffer("reflection staging", 192, 3);
+    }
+}
+
+fn radiance_allocations(
+    config: FrameConfig,
+    ssr: &worldrunner_render_plan::SceneSsr,
+    set: &mut AllocationSet,
+) {
+    let extents = ssr.radiance_extents(config.size);
+    if ssr.radiance_pyramid == worldrunner_render_plan::SceneSsrPyramid::Full {
+        let [w, h] = crate::ssr::pyramid::storage_extent(config, ssr)
+            .expect("validated reflection storage extent");
+        let levels = u32::try_from(extents.len()).expect("bounded reflection levels");
+        set.texture(
+            "reflection radiance",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba16Float,
+            [levels, 1],
+            1,
+        );
+        if levels > 1 {
+            set.buffer("reflection logical extents", 16, levels - 1);
+        }
+    } else {
+        for size in extents {
             set.texture(
                 "reflection radiance",
-                [size[0] * settings.frame.samples, size[1], 1],
+                [size[0] * config.samples, size[1], 1],
                 wgpu::TextureFormat::Rgba16Float,
                 [1, 1],
                 1,
             );
         }
-        reflection_depth_allocations([w, h], crate::ssr::depth_level_count(&ssr, [w, h]), set);
-        set.buffer("reflection uniform", 192, 1);
-        set.buffer("reflection staging", 192, 3);
     }
 }
 

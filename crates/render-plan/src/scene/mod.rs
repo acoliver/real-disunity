@@ -67,7 +67,7 @@ pub use post::{
 mod ssr;
 pub use ssr::{
     SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrLodMapping, SceneSsrPassBehind,
-    SceneSsrTraversal,
+    SceneSsrPyramid, SceneSsrTraversal,
 };
 mod error;
 mod foliage_wind;

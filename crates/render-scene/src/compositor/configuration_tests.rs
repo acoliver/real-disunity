@@ -1,3 +1,26 @@
+#[test]
+fn reflection_mip_inventory_counts_physical_storage_once() {
+    use worldrunner_render_plan::{SceneSsr, SceneSsrPyramid};
+    let limits = wgpu::Limits::default();
+    for (size, samples) in [([257, 5], 1), ([257, 5], 4), ([5, 257], 4), ([1, 1], 1)] {
+        let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
+        let policy = SceneSsr {
+            radiance_pyramid: SceneSsrPyramid::Full,
+            ..Default::default()
+        };
+        let mut set = AllocationSet::default();
+        radiance_allocations(config, &policy, &mut set);
+        let logical = policy.radiance_extents(size);
+        let [width, height] = crate::ssr::pyramid::storage_extent(config, &policy).unwrap();
+        let mut bytes = 0u64;
+        for level in 0..logical.len() {
+            bytes += u64::from((width >> level).max(1)) * u64::from((height >> level).max(1)) * 8;
+        }
+        bytes += u64::try_from(logical.len() - 1).unwrap() * 16;
+        assert_eq!(set.validate(&limits).unwrap(), bytes);
+    }
+}
+
 use super::*;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::{AdaptiveExposure, BufferReadback, Readback};

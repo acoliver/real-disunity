@@ -3,7 +3,7 @@ use crate::{CaptureOutput, RetainedCaptureProducts, ViewerError};
 use worldrunner_render_post::{FrameConfig, Readback, contracts::AsyncReadback};
 use worldrunner_render_scene::{
     Viewport,
-    compositor::{ConfiguredFrameRenderer, FeatureTarget},
+    compositor::{ConfiguredFrameRenderer, FeatureCapture, FeatureTarget},
     offscreen::{LinearRgbaImage, ScalarImage},
 };
 
@@ -16,21 +16,29 @@ struct Native {
     output: CaptureOutput,
     texture: wgpu::Texture,
     readback: Readback,
+    size: [u32; 2],
+    lanes: u32,
+    columns: u32,
+    stride: [u32; 2],
     mapping: Option<AsyncReadback>,
     done: bool,
 }
 impl Native {
     fn new(
         device: &wgpu::Device,
-        texture: &wgpu::Texture,
+        target: FeatureCapture<'_>,
         output: CaptureOutput,
     ) -> Result<Self, ViewerError> {
         Ok(Self {
             output,
-            texture: texture.clone(),
+            texture: target.texture.clone(),
+            size: target.size,
+            lanes: target.lanes,
+            columns: target.columns,
+            stride: target.stride,
             readback: Readback::new(
                 device,
-                FrameConfig::new([texture.width(), texture.height()], texture.format(), 1),
+                FrameConfig::new(target.size, target.texture.format(), 1),
                 256 * 1024 * 1024,
             )?,
             mapping: None,
@@ -49,8 +57,8 @@ impl Native {
         };
         self.mapping = None;
         let viewport = Viewport {
-            width: self.texture.width(),
-            height: self.texture.height(),
+            width: self.size[0],
+            height: self.size[1],
         };
         let format = self.texture.format();
         match self.output {
@@ -99,7 +107,11 @@ impl Products {
             if scene.format() != wgpu::TextureFormat::Rgba16Float || scene.sample_count() != 1 {
                 return Err(ViewerError::UnsupportedScene("linear HDR source"));
             }
-            native.push(Native::new(device, scene, CaptureOutput::LinearHdr)?);
+            native.push(Native::new(
+                device,
+                FeatureCapture::whole(scene),
+                CaptureOutput::LinearHdr,
+            )?);
         }
         Ok(Self {
             display,
@@ -125,7 +137,7 @@ impl Products {
             if outputs.contains(&output) {
                 let texture =
                     scheduler
-                        .feature_target(target)
+                        .feature_capture(target)
                         .ok_or(ViewerError::UnsupportedScene(
                             "admitted capture feature missing",
                         ))?;
@@ -144,7 +156,13 @@ impl Products {
             display.encode(encoder, output)?;
         }
         for native in &mut self.native {
-            native.readback.encode(encoder, &native.texture)?;
+            native.readback.encode_lanes(
+                encoder,
+                &native.texture,
+                native.lanes,
+                native.columns,
+                native.stride,
+            )?;
         }
         Ok(())
     }

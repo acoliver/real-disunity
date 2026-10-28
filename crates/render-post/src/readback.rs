@@ -108,6 +108,23 @@ impl Readback {
         encoder: &mut wgpu::CommandEncoder,
         source: &wgpu::Texture,
     ) -> Result<(), ReadbackError> {
+        if source.width() != self.size[0] || source.height() != self.size[1] {
+            return Err(PostError::ReadbackSource.into());
+        }
+        self.encode_lanes(encoder, source, 1, 1, self.size)
+    }
+
+    /// Copies logical sample rectangles directly into horizontal lanes in the
+    /// retained staging buffer, excluding source padding without a transfer texture.
+    pub fn encode_lanes(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::Texture,
+        lanes: u32,
+        columns: u32,
+        stride: [u32; 2],
+    ) -> Result<(), ReadbackError> {
+        let width = self.validate_lanes(source, lanes, columns, stride)?;
         let current = Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
         let retired = self
             .encoded_transaction
@@ -122,28 +139,28 @@ impl Readback {
         {
             return Err(ReadbackError::Busy);
         }
-        if source.width() != self.size[0]
-            || source.height() != self.size[1]
-            || source.format() != self.format
-            || source.dimension() != wgpu::TextureDimension::D2
-            || source.depth_or_array_layers() != 1
-            || source.sample_count() != 1
-            || !source.usage().contains(wgpu::TextureUsages::COPY_SRC)
-        {
-            return Err(PostError::ReadbackSource.into());
-        }
-        encoder.copy_texture_to_buffer(
-            source.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &self.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.pitch),
-                    rows_per_image: Some(self.size[1]),
+        for lane in 0..lanes {
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    origin: wgpu::Origin3d {
+                        x: lane % columns * stride[0],
+                        y: lane / columns * stride[1],
+                        z: 0,
+                    },
+                    ..source.as_image_copy()
                 },
-            },
-            extent(self.size),
-        );
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &self.buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: u64::from(lane) * u64::try_from(self.row).expect("validated row")
+                            / u64::from(lanes),
+                        bytes_per_row: Some(self.pitch),
+                        rows_per_image: Some(self.size[1]),
+                    },
+                },
+                extent([width, self.size[1]]),
+            );
+        }
         let pending = self.pending.clone();
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?
             .stage_write(self.write_key(), move || pending.set(true))?;
@@ -153,6 +170,37 @@ impl Readback {
         }
         self.encoded_transaction = current;
         Ok(())
+    }
+
+    fn validate_lanes(
+        &self,
+        source: &wgpu::Texture,
+        lanes: u32,
+        columns: u32,
+        stride: [u32; 2],
+    ) -> Result<u32, ReadbackError> {
+        if lanes == 0
+            || columns == 0
+            || !lanes.is_multiple_of(columns)
+            || !self.size[0].is_multiple_of(lanes)
+        {
+            return Err(PostError::ReadbackSource.into());
+        }
+        let width = self.size[0] / lanes;
+        let right = u64::from(columns - 1) * u64::from(stride[0]) + u64::from(width);
+        let bottom =
+            u64::from(lanes / columns - 1) * u64::from(stride[1]) + u64::from(self.size[1]);
+        if right > u64::from(source.width())
+            || bottom > u64::from(source.height())
+            || source.format() != self.format
+            || source.dimension() != wgpu::TextureDimension::D2
+            || source.depth_or_array_layers() != 1
+            || source.sample_count() != 1
+            || !source.usage().contains(wgpu::TextureUsages::COPY_SRC)
+        {
+            return Err(PostError::ReadbackSource.into());
+        }
+        Ok(width)
     }
 
     /// Reads a previously encoded and submitted copy, using a single bounded deadline.

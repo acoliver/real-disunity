@@ -18,6 +18,17 @@ pub struct SceneWaterSunDisk {
     pub amplitude_micro: u32,
     /// Linear luminance ceiling, in millionths; zero suppresses the highlight.
     pub peak_micro: u32,
+    /// Angular radius in microradians (`1..=100_000`); default is 2700.
+    pub angular_radius_microradians: u32,
+}
+impl Default for SceneWaterSunDisk {
+    fn default() -> Self {
+        Self {
+            amplitude_micro: 1_000_000,
+            peak_micro: 1_000_000,
+            angular_radius_microradians: 2700,
+        }
+    }
 }
 
 /// Planar seed coordinates independent of the normal map's world-space repetition.
@@ -54,6 +65,12 @@ pub(super) fn validate(settings: &SceneWaterSettings) -> Result<(), SceneValidat
     }
     if let Some(disk) = settings.sun_disk {
         require_range(
+            "water sun angular radius",
+            u64::from(disk.angular_radius_microradians),
+            1,
+            100_000,
+        )?;
+        require_range(
             "water sun amplitude",
             u64::from(disk.amplitude_micro),
             0,
@@ -86,4 +103,33 @@ pub(super) fn validate(settings: &SceneWaterSettings) -> Result<(), SceneValidat
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn disk_radii_validate_in_microradians() {
+        assert_eq!(
+            SceneWaterSunDisk::default().angular_radius_microradians,
+            2700
+        );
+        let surface = super::super::SceneSurfaceDisk::new(1_000_000, 1_000_000).unwrap();
+        assert_eq!(surface.angular_radius_microradians(), 2700);
+        for radius in [0, 1, 2700, 17_453, 100_000, 100_001, u32::MAX] {
+            let settings = SceneWaterSettings {
+                sun_disk: Some(SceneWaterSunDisk {
+                    angular_radius_microradians: radius,
+                    ..Default::default()
+                }),
+                ..SceneWaterSettings::STOCK
+            };
+            let valid = (1..=100_000).contains(&radius);
+            assert_eq!(validate(&settings).is_ok(), valid);
+            assert_eq!(
+                surface.with_angular_radius_microradians(radius).is_ok(),
+                valid
+            );
+        }
+    }
 }

@@ -98,4 +98,4 @@ mod gpu_math_bindings;
 mod policy_tests;
 
 #[cfg(test)]
-mod surface_policy_tests;
+pub(crate) mod surface_policy_tests;

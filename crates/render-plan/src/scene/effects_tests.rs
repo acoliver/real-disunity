@@ -244,7 +244,7 @@ fn scene_specular_selection_is_explicit_and_default_is_unchanged() {
         effects.specular_convention(),
         SceneSpecularConvention::default()
     );
-    assert_eq!(effects.specular_convention().shader_options(), [0; 6]);
+    assert_eq!(effects.specular_convention().shader_options(), [0; 7]);
     let selected = SceneSpecularConvention {
         roughness: SceneRoughnessRemap::Perceptual04,
         visibility: SceneSpecularVisibility::SchlickSmith,
@@ -253,5 +253,5 @@ fn scene_specular_selection_is_explicit_and_default_is_unchanged() {
     };
     let effects = effects.with_specular_convention(selected);
     assert_eq!(effects.specular_convention(), selected);
-    assert_eq!(selected.shader_options(), [1, 1, 1, 0, 0, 0]);
+    assert_eq!(selected.shader_options(), [1, 1, 1, 0, 0, 0, 0]);
 }

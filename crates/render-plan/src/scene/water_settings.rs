@@ -35,7 +35,7 @@ pub struct SceneWaterSettings {
     pub environment: Option<super::SceneWaterEnvironment>,
     /// Compose the lit surface directly, without Beer-weighting it as medium scattering.
     pub direct_surface: bool,
-    /// Finite solar highlight with a fixed 0.0027-radian angular radius.
+    /// Finite solar highlight with an authored angular radius.
     pub sun_disk: Option<super::SceneWaterSunDisk>,
     /// Independent world-to-flow-seed texture coordinates.
     pub flow_coordinates: Option<super::SceneWaterFlowCoordinates>,

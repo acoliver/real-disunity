@@ -104,11 +104,12 @@ pub enum SceneDirectDiffuse {
     LambertianPrepared,
 }
 
-/// A fixed 0.0027-radian disk with independent scene-linear highlight intensity.
+/// A finite disk with independent scene-linear highlight intensity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSurfaceDisk {
     intensity_micro: u32,
     peak_micro: u32,
+    angular_radius_microradians: u32,
 }
 impl SceneSurfaceDisk {
     pub fn new(intensity_micro: u32, peak_micro: u32) -> Result<Self, SceneValidationError> {
@@ -121,7 +122,20 @@ impl SceneSurfaceDisk {
         Ok(Self {
             intensity_micro,
             peak_micro,
+            angular_radius_microradians: 2700,
         })
+    }
+    /// Selects an angular radius in microradians (`1..=100_000`).
+    pub fn with_angular_radius_microradians(
+        mut self,
+        radius: u32,
+    ) -> Result<Self, SceneValidationError> {
+        super::effects::require_range("surface sun angular radius", u64::from(radius), 1, 100_000)?;
+        self.angular_radius_microradians = radius;
+        Ok(self)
+    }
+    pub const fn angular_radius_microradians(self) -> u32 {
+        self.angular_radius_microradians
     }
     pub const fn intensity_micro(self) -> u32 {
         self.intensity_micro
@@ -144,7 +158,7 @@ pub struct SceneSpecularConvention {
 }
 impl SceneSpecularConvention {
     /// Numeric selections shared by pipeline constants and environment preparation.
-    pub const fn shader_options(self) -> [u32; 6] {
+    pub const fn shader_options(self) -> [u32; 7] {
         let roughness = match self.roughness {
             SceneRoughnessRemap::Perceptual045 => 0,
             SceneRoughnessRemap::Perceptual04 => 1,
@@ -166,7 +180,15 @@ impl SceneSpecularConvention {
             None => (0, 0),
             Some(disk) => (disk.intensity_micro, disk.peak_micro),
         };
-        [roughness, visibility, occlusion, diffuse, intensity, peak]
+        let radius = match self.surface_disk {
+            Some(disk) if disk.angular_radius_microradians != 2700 => {
+                disk.angular_radius_microradians
+            }
+            _ => 0,
+        };
+        [
+            roughness, visibility, occlusion, diffuse, intensity, peak, radius,
+        ]
     }
 }
 impl SceneEffects {

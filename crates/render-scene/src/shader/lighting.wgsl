@@ -1,5 +1,6 @@
 override SCENE_DIRECT_DIFFUSE: u32 = 0u;
 override SCENE_DISK_INTENSITY: f32 = 0.0;
+override SCENE_DISK_RADIUS: f32 = 0.0027;
 override SCENE_DISK_PEAK: f32 = 0.0;
 
 override SCENE_ROUGHNESS_REMAP: u32 = 0u;
@@ -245,7 +246,7 @@ fn scene_limit_highlight(value: vec3<f32>, peak: f32) -> vec3<f32> {
     return value * (peak / luminance);
 }
 fn scene_disk_highlight(normal: vec3<f32>, view: vec3<f32>, light: vec3<f32>, f0: vec3<f32>, roughness: f32, shadow: f32) -> vec3<f32> {
-    let selected = scene_disk_direction(reflect(-view, normal), light);
+    let selected = scene_disk_direction(reflect(-view, normal), light, SCENE_DISK_RADIUS);
     let half_vector = normalize(view + selected);
     let dots = vec4<f32>(clamp(dot(normal, view), 0.0001, 1.0),
         max(dot(normal, selected), 0.0), max(dot(normal, half_vector), 0.0), max(dot(view, half_vector), 0.0));

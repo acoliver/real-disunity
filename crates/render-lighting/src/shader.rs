@@ -93,14 +93,20 @@ fn rd_full_ray_fog_transmittance(log_density:f32,falloff:f32,start:f32,offset:ve
 }
 
 
-fn scene_disk_direction(reflected: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
+fn scene_disk_direction(reflected: vec3<f32>, center: vec3<f32>, radius: f32) -> vec3<f32> {
     let cosine = dot(reflected, center);
-    let radius_cosine = cos(0.0027);
+    // Keep the default constant-folded, including for per-body water uniforms.
+    var radius_cosine = cos(0.0027);
+    var radius_sine = sin(0.0027);
+    if radius != 0.0027 {
+        radius_cosine = cos(radius);
+        radius_sine = sin(radius);
+    }
     if cosine >= radius_cosine { return reflected; }
     let radial = reflected - cosine * center;
     var tangent = cross(center, select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(center.x) > 0.9));
     if dot(radial, radial) > 0.0 { tangent = radial; }
-    return normalize(center * radius_cosine + normalize(tangent) * sin(0.0027));
+    return normalize(center * radius_cosine + normalize(tangent) * radius_sine);
 }
 
 

@@ -35,6 +35,9 @@ pub(super) fn uniforms(body: &SceneWaterBody, time_milliseconds: u32) -> [f32; 3
     data[8] = f32::from(u8::from(body.material.direct_surface));
     data[9] = f32::from(u8::from(body.material.metallic_micro.is_some()));
     if let Some(disk) = body.material.sun_disk {
+        if disk.angular_radius_microradians != 2700 {
+            data[14] = super::number(i64::from(disk.angular_radius_microradians) * 1000);
+        }
         data[11] = 1.0;
         data[12] = super::number(i64::from(disk.amplitude_micro)) / 1000.0;
         data[13] = super::number(i64::from(disk.peak_micro)) / 1000.0;
@@ -84,7 +87,8 @@ fn wind_uniforms(body: &SceneWaterBody, time_milliseconds: u32) -> [f32; 12] {
 
 pub(super) fn constants(options: [u32; 4]) -> Vec<(&'static str, f64)> {
     let mut constants =
-        crate::renderer::specular_constants([options[0], options[1], options[2], 0, 0, 0]).to_vec();
+        crate::renderer::specular_constants([options[0], options[1], options[2], 0, 0, 0, 0])
+            .to_vec();
     if options[3] != 0 {
         constants.push(("WATER_TERMS", f64::from(options[3])));
     }

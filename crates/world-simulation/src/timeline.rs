@@ -91,7 +91,7 @@ pub(crate) struct Scheduler {
     faulted: bool,
     terminal_failure: Option<ScriptFailure>,
     /// The host identity that receives the delayed-tasks callback each frame.
-    delayed_tasks: Option<u64>,
+    pub(crate) delayed_tasks: Option<u64>,
 }
 impl World {
     pub fn script_retained(&self, script: ComponentHandle) -> bool {
@@ -162,6 +162,10 @@ impl World {
     /// delayed tasks; `None` stops it.
     pub fn set_delayed_tasks(&mut self, identity: Option<u64>) -> Result<(), WorldError> {
         self.require_idle()?;
+        // Callbacks are routed by identity, so the phase cannot share one with a script asset.
+        if identity.is_some_and(|id| id == 0 || self.script_asset_alive(id)) {
+            return Err(WorldError::InvalidObject);
+        }
         self.scheduler.delayed_tasks = identity;
         Ok(())
     }

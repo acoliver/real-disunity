@@ -29,7 +29,13 @@ public static partial class DisunityHost
         WorldHandle = world;
         _faulted = false;
         _listenerDiagnostic = null;
-        InstallMainThreadContext();
+        try { InstallMainThreadContext(); }
+        catch
+        {
+            NativeBindings.disunity_world_destroy(world);
+            WorldHandle = 0;
+            throw;
+        }
     }
 
     public static unsafe GameObject CreateGameObject()

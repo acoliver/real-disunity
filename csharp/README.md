@@ -198,7 +198,10 @@ any thread, including `await` continuations, runs on the main thread once a fram
 in the native delayed-tasks phase, after Update coroutines and before LateUpdate.
 `disunity_world_delayed_tasks` names the identity that receives that phase as
 message 14. Work posted while the queue runs waits for the next frame, and a
-`Send` from another thread waits until a frame runs it.
+`Send` from another thread waits until a frame runs it. Work that throws is logged
+with `Debug.LogError` and the rest of the queue runs, as in Unity. Unloading drops
+queued work, fails waiting `Send` callers with `ObjectDisposedException`, and drops
+later posts. LoadWorld, Step and UnloadWorld must run on one thread, the main thread.
 
 Host PushKey, PushAxis and PushFocus accept timestamped input. Input.GetKey,
 GetKeyDown and GetKeyUp query native phase views. Fixed and dynamic edges are

@@ -24,10 +24,12 @@ public static partial class DisunityHost
     }
 
     /// <summary>Restores the context the thread had before the world loaded. Work still queued
-    /// is dropped with the world.</summary>
+    /// is dropped with the world, and threads waiting in <c>Send</c> are released with an
+    /// error.</summary>
     private static void RemoveMainThreadContext()
     {
         if (_mainThreadContext is null) return;
+        _mainThreadContext.Close();
         if (ReferenceEquals(SynchronizationContext.Current, _mainThreadContext))
             SynchronizationContext.SetSynchronizationContext(_previousContext);
         _mainThreadContext = null;

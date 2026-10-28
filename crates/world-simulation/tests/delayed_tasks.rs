@@ -86,3 +86,54 @@ fn the_receiver_runs_in_a_world_without_scripts_and_only_while_idle() {
     }
     assert!(matches!(work, Advance::Complete(_)));
 }
+
+#[test]
+fn the_receiver_cannot_share_an_identity_with_a_script_asset() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    assert!(matches!(
+        world.set_delayed_tasks(Some(0)),
+        Err(WorldError::InvalidObject)
+    ));
+    world.create_script_asset(5).unwrap();
+    assert!(matches!(
+        world.set_delayed_tasks(Some(5)),
+        Err(WorldError::InvalidObject)
+    ));
+    world.set_delayed_tasks(Some(6)).unwrap();
+    assert!(matches!(
+        world.create_script_asset(6),
+        Err(WorldError::InvalidObject)
+    ));
+}
+
+#[test]
+fn a_failed_delayed_tasks_callback_tears_the_world_down_before_late_update() {
+    let mut world = world_with_script();
+    frame(&mut world);
+    world.set_delayed_tasks(Some(77)).unwrap();
+    let failure = ScriptFailure {
+        message: "posted work failed".into(),
+    };
+    let mut calls = Vec::new();
+    let mut result = world.advance(TimeSpan::new(1, 100).unwrap());
+    loop {
+        result = match result {
+            Ok(Advance::Callback(c)) => {
+                calls.push(c.message);
+                world.resume(c.ticket, CallbackOutcome::Returned)
+            }
+            Ok(Advance::AssetCallback(c)) => {
+                world.resume(c.ticket, CallbackOutcome::Failed(failure.clone()))
+            }
+            Err(WorldError::CallbackFailed(error)) => {
+                assert_eq!(error, failure);
+                break;
+            }
+            other => panic!("{other:?}"),
+        };
+    }
+    let late = calls.iter().position(|&m| m == ScriptMessage::LateUpdate);
+    let disable = calls.iter().position(|&m| m == ScriptMessage::OnDisable);
+    assert!(late.is_none() && disable.is_some(), "{calls:?}");
+    assert_eq!(world.advance(TimeSpan::ZERO), Err(WorldError::Faulted));
+}

@@ -34,9 +34,12 @@ internal static class SynchronizationContextTests
             DefersWorkPostedWhileRunning(context!);
             SendsFromOtherThreadsThroughTheQueue(context!);
             ResumesAwaitsOnTheMainThread();
+            LogsFailuresAndRunsTheRestInOrder(context!);
+            RunsWorkWithItselfCurrentAndRestoresTheThread(context!);
         }
         finally { DisunityHost.UnloadWorld(); }
         Require(ReferenceEquals(SynchronizationContext.Current, before), "unloading the world restores the previous context");
+        UnloadingReleasesWaitingSenders();
         Console.WriteLine("PASS: the main thread synchronization context runs posted work once a frame after Update coroutines");
     }
 
@@ -95,6 +98,53 @@ internal static class SynchronizationContextTests
         Require(!task.IsCompleted, "the continuation waits for a frame");
         DisunityHost.Step(0.02f);
         Require(task.IsCompleted && resumed == main, "an await resumes on the main thread in the next frame");
+    }
+
+    private static void LogsFailuresAndRunsTheRestInOrder(SynchronizationContext context)
+    {
+        var calls = new List<string>();
+        context.Post(_ => calls.Add("first"), null);
+        context.Post(_ => throw new InvalidOperationException("posted work failed on purpose"), null);
+        context.CreateCopy().Post(_ => calls.Add("copy"), null);
+        DisunityHost.Step(0.02f);
+        Require(calls.SequenceEqual(["first", "copy"]), "work after a failure runs, in posted order, and copies share the queue");
+        context.Post(_ => calls.Add("next frame"), null);
+        DisunityHost.Step(0.02f);
+        Require(calls[^1] == "next frame", "a failure is logged and the world keeps running");
+    }
+
+    private static void RunsWorkWithItselfCurrentAndRestoresTheThread(SynchronizationContext context)
+    {
+        SynchronizationContext? during = null;
+        context.Post(_ => during = SynchronizationContext.Current, null);
+        SynchronizationContext.SetSynchronizationContext(null);
+        try
+        {
+            DisunityHost.Step(0.02f);
+            Require(ReferenceEquals(during, context) && SynchronizationContext.Current is null,
+                "work runs with the context current, and the thread's own context comes back afterwards");
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(context); }
+    }
+
+    private static void UnloadingReleasesWaitingSenders()
+    {
+        DisunityHost.LoadWorld();
+        var context = SynchronizationContext.Current!;
+        Task sender;
+        try
+        {
+            sender = Task.Run(() => context.Send(_ => throw new InvalidOperationException("ran after unload"), null));
+            Thread.Sleep(50);
+        }
+        finally { DisunityHost.UnloadWorld(); }
+        try
+        {
+            Require(sender.Wait(TimeSpan.FromSeconds(5)), "a sender waiting when the world unloads is released");
+            throw new InvalidOperationException("synchronization context: the unloaded sender's work ran");
+        }
+        catch (AggregateException error) when (error.InnerException is ObjectDisposedException) { }
+        context.Post(_ => throw new InvalidOperationException("posted after unload"), null);
     }
 
     private static void Require(bool condition, string message)

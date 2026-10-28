@@ -81,6 +81,10 @@ public static class PlayBridge
             Scene?.Dispose();
             Scene = null;
             DisunityHost.UnloadWorld();
+            // A player saves its preferences when it exits; the next run starts from the defaults.
+            UnityEngine.PlayerPrefs.Save();
+            DisunityHost.UnloadResources();
+            DisunityHost.ConfigurePlayer(PlayerEnvironment.Default);
             return 0;
         }
         catch (Exception error) { LastError = error.ToString(); return -1; }

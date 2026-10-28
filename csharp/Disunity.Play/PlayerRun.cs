@@ -10,7 +10,9 @@ namespace Disunity.Play;
 /// Starts a built Unity player the way its runtime does: the player's assemblies resolve in
 /// the bridge's load context, its startup hooks run in Unity's phase order around the first
 /// scene, and the scene loads from its plan. A player request is
-/// <c>{"player": data directory, "plan": path, "first_texture": 1}</c>. Each step writes a line
+/// <c>{"player": data directory, "plan": path, "resources": path, "identity": {...},
+/// "persistent": directory, "first_texture": 1}</c>, with the scene and resource plans and the
+/// player identity <c>unity-import</c> writes. Each step writes a line
 /// to standard error, so the first one that fails is the last line written.
 /// </summary>
 internal static class PlayerRun
@@ -22,6 +24,8 @@ internal static class PlayerRun
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
         new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies).Attach(context);
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
+        DisunityHost.ConfigurePlayer(Environment(data, request));
+        DisunityHost.LoadResources(request.GetProperty("resources").GetString()!, Load);
         var hooks = RuntimeHooks.Resolve(manifest.Hooks, Load);
         foreach (var unresolved in hooks.Unresolved) Log($"startup hook unresolved: {unresolved.Hook}: {unresolved.Reason}");
         var beforeScene = RuntimeHooks.PhaseOrder.Where(phase => phase != RuntimeInitializeLoadType.AfterSceneLoad);
@@ -59,4 +63,18 @@ internal static class PlayerRun
         throw new FileNotFoundException($"player plans name no package fonts, but the scene asked for {name}");
 
     private static void Log(string line) => Console.Error.WriteLine($"[player] {line}");
+
+    /// <summary>What <c>Application</c> reports, from the player's identity.</summary>
+    private static PlayerEnvironment Environment(string data, JsonElement request)
+    {
+        var identity = request.GetProperty("identity");
+        return new PlayerEnvironment(
+            Path.GetFullPath(data).Replace('\\', '/').TrimEnd('/'),
+            Path.GetFullPath(request.GetProperty("persistent").GetString()!).Replace('\\', '/'),
+            identity.GetProperty("company_name").GetString()!,
+            identity.GetProperty("product_name").GetString()!,
+            identity.GetProperty("version").GetString()!,
+            identity.GetProperty("unity_version").GetString()!,
+            Enum.Parse<RuntimePlatform>(identity.GetProperty("platform").GetString()!));
+    }
 }

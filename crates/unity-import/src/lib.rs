@@ -12,6 +12,7 @@ pub mod plan;
 pub mod player;
 pub mod player_files;
 mod player_hierarchy;
+pub mod player_identity;
 pub mod player_objects;
 pub mod player_plan;
 pub mod player_resources;

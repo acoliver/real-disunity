@@ -76,7 +76,7 @@ internal sealed class UnitySynchronizationContext : SynchronizationContext
             foreach (var work in items)
             {
                 try { work.Callback(work.State); }
-                catch (Exception error) { Debug.LogError(error); }
+                catch (Exception error) { Debug.LogException(error); }
                 finally { work.Done?.TrySetResult(); }
             }
         }

@@ -23,6 +23,17 @@ pub enum PlayerError {
     },
     #[error("{}: no object with path ID {path_id}", path.display())]
     MissingObject { path: PathBuf, path_id: i64 },
+    /// The names decoded from `PlayerSettings` differ from the ones `app.info` holds, which
+    /// the build writes from the same settings, so the decoder misread them.
+    #[error(
+        "{}: PlayerSettings decode to {decoded:?} but app.info names {app_info:?}",
+        path.display()
+    )]
+    IdentityMismatch {
+        path: PathBuf,
+        decoded: (String, String),
+        app_info: (String, String),
+    },
     #[error(
         "{}: the reference to file {file_id}, path ID {path_id} names no file this one lists",
         path.display()

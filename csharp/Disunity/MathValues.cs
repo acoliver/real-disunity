@@ -51,8 +51,3 @@ public static class Random
     public static float Range(float minInclusive, float maxInclusive) => minInclusive + value * (maxInclusive - minInclusive);
 }
 
-public static class Debug
-{
-    public static void Log(object? message) => Console.WriteLine(message);
-    public static void LogError(object? message) => Console.Error.WriteLine(message);
-}

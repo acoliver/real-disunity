@@ -97,16 +97,7 @@ fn expected_normal(
 
 fn check_phased_normal(bytes: &[u8], samples: u32, sample: u32, time: f32, options: (bool, bool)) {
     let (field, shore) = options;
-    let offset = if samples == 1 {
-        [0.5, 0.5]
-    } else {
-        [
-            [0.375, 0.125],
-            [0.875, 0.375],
-            [0.125, 0.625],
-            [0.625, 0.875],
-        ][usize::try_from(sample).unwrap()]
-    };
+    let offset = crate::msaa_tests::standard_sample_position(samples, sample);
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
     let inverse = frame.view_projection.inverse();
     for (x, right) in [(12u16, false), (20, true)] {

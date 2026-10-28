@@ -298,7 +298,7 @@ fn read_texture(context: &GpuContext, size: [u32; 2], texture: &wgpu::Texture) -
 }
 
 #[test]
-fn gpu_spiral_bilateral_coverage_and_composition_at_1x_and_4x() {
+fn gpu_spiral_bilateral_coverage_and_composition_at_every_supported_sample_count() {
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let scene = |intensity, alpha| {
@@ -322,7 +322,7 @@ fn gpu_spiral_bilateral_coverage_and_composition_at_1x_and_4x() {
 }
 
 #[test]
-fn gpu_scalable_shared_coverage_at_1x_and_4x() {
+fn gpu_scalable_shared_coverage_at_every_supported_sample_count() {
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let scene = |intensity, alpha| {

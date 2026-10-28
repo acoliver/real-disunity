@@ -123,7 +123,7 @@ fn expected_color(point: [u16; 2], encoded: [u8; 2], amplitude: u32, colors: &[u
 }
 
 #[test]
-fn screen_refraction_matches_cpu_pixels_and_zero_identity_at_one_and_four_samples() {
+fn screen_refraction_matches_cpu_pixels_and_zero_identity_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let colors = patterned_snapshot();
     for samples in crate::msaa_tests::supported_samples(&context) {
@@ -160,7 +160,7 @@ fn assert_displacement(
 }
 
 #[test]
-fn screen_refraction_retains_foreground_rejection_at_one_and_four_samples() {
+fn screen_refraction_retains_foreground_rejection_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let renderer = screen_renderer(&context, samples, 250_000, [204, 128]);

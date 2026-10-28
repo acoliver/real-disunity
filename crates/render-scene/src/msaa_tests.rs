@@ -81,6 +81,35 @@ fn edge_pipeline(device: &wgpu::Device, samples: u32) -> wgpu::RenderPipeline {
     })
 }
 
+/// Standard sample positions in pixel space (origin top-left, y down) for each
+/// selectable count, as fixed by the Vulkan and D3D standard sample locations.
+/// Sample-rate fragments see the position of their own sample, so CPU references
+/// of per-sample shading must use these rather than one count's table for all.
+pub(crate) fn standard_sample_position(samples: u32, sample: u32) -> [f32; 2] {
+    let table: &[[f32; 2]] = match samples {
+        1 => &[[0.5, 0.5]],
+        2 => &[[0.75, 0.75], [0.25, 0.25]],
+        4 => &[
+            [0.375, 0.125],
+            [0.875, 0.375],
+            [0.125, 0.625],
+            [0.625, 0.875],
+        ],
+        8 => &[
+            [0.5625, 0.3125],
+            [0.4375, 0.6875],
+            [0.8125, 0.5625],
+            [0.3125, 0.1875],
+            [0.1875, 0.8125],
+            [0.0625, 0.4375],
+            [0.6875, 0.9375],
+            [0.9375, 0.0625],
+        ],
+        _ => panic!("{samples}x is not a selectable sample count"),
+    };
+    table[usize::try_from(sample).unwrap()]
+}
+
 /// Renders the edge through the compositor's scene attachments; returns resolved red values.
 fn render_edge(context: &GpuContext, frame: &FrameRenderer) -> Vec<f32> {
     let device = context.device();
@@ -277,6 +306,18 @@ fn edge_coverage_gains_resolution_with_each_sample_count_and_interiors_are_uncha
         "1x and 4x are guaranteed on every adapter, got {counts:?}"
     );
     assert!(results.iter().skip(1).all(|(_, stats)| stats.levels > 0));
+}
+
+#[test]
+fn resizing_keeps_every_supported_sample_count() {
+    let context = context();
+    for count in supported_samples(&context) {
+        let samples = MsaaSamples::try_from(count).unwrap();
+        let mut frame = renderer(&context, samples).unwrap();
+        assert_eq!(frame.resize(context.device(), [SIZE / 2, SIZE]), Ok(true));
+        assert_eq!(frame.targets().config().samples, count);
+        assert_eq!(frame.targets().config().size, [SIZE / 2, SIZE]);
+    }
 }
 
 #[test]

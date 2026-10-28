@@ -110,7 +110,7 @@ fn receiver_normal(
 }
 
 #[test]
-fn lighting_strength_and_minified_normals_match_independent_cpu_at_1x_and_4x() {
+fn lighting_strength_and_minified_normals_match_independent_cpu_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for (strength, mip, phased) in [
@@ -494,7 +494,7 @@ fn octahedral_receivers_decode_normal_and_coloured_f0() {
 }
 
 #[test]
-fn zero_wind_has_identical_pixels_and_receiver_bytes_at_1x_and_4x() {
+fn zero_wind_has_identical_pixels_and_receiver_bytes_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
@@ -533,7 +533,7 @@ fn zero_wind_has_identical_pixels_and_receiver_bytes_at_1x_and_4x() {
 }
 
 #[test]
-fn opposing_wind_and_tangent_normal_use_flat_limit_at_1x_and_4x() {
+fn opposing_wind_and_tangent_normal_use_flat_limit_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();

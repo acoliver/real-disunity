@@ -613,6 +613,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_world_delayed_tasks",
+      "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_world_destroy",
       "since": "1.0.0",
       "rets": "DisunityResult"

@@ -192,6 +192,14 @@ once. Unload releases the world even when an iterator disposer throws; disposal
 failures remain errors. Coroutine joins, end-of-frame and custom yields are not
 supported.
 
+Loading a world installs Unity's main thread `SynchronizationContext`
+(`UnitySynchronizationContext`), which unloading removes. Work posted to it from
+any thread, including `await` continuations, runs on the main thread once a frame
+in the native delayed-tasks phase, after Update coroutines and before LateUpdate.
+`disunity_world_delayed_tasks` names the identity that receives that phase as
+message 14. Work posted while the queue runs waits for the next frame, and a
+`Send` from another thread waits until a frame runs it.
+
 Host PushKey, PushAxis and PushFocus accept timestamped input. Input.GetKey,
 GetKeyDown and GetKeyUp query native phase views. Fixed and dynamic edges are
 independent. The host converts external seconds once to integer nanoseconds,

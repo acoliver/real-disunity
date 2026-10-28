@@ -55,6 +55,9 @@ pub(crate) enum Task {
     Contacts,
     Dynamic,
     Coroutines(bool),
+    /// Unity's delayed tasks after `Update` coroutines: work posted to the main thread's
+    /// synchronization context runs here.
+    DelayedTasks,
     Cleanup,
 }
 #[derive(Clone, Copy)]
@@ -87,6 +90,8 @@ pub(crate) struct Scheduler {
     failure: Option<ScriptFailure>,
     faulted: bool,
     terminal_failure: Option<ScriptFailure>,
+    /// The host identity that receives the delayed-tasks callback each frame.
+    delayed_tasks: Option<u64>,
 }
 impl World {
     pub fn script_retained(&self, script: ComponentHandle) -> bool {
@@ -152,6 +157,14 @@ impl World {
         self.clock.max_steps = max_steps;
         Ok(())
     }
+    /// Names the host identity that receives an `Update` asset callback once a frame, after
+    /// `Update` coroutines and before `LateUpdate`, where Unity runs the main thread's
+    /// delayed tasks; `None` stops it.
+    pub fn set_delayed_tasks(&mut self, identity: Option<u64>) -> Result<(), WorldError> {
+        self.require_idle()?;
+        self.scheduler.delayed_tasks = identity;
+        Ok(())
+    }
     pub fn advance(&mut self, elapsed: TimeSpan) -> Result<Advance, WorldError> {
         self.require_idle()?;
         let (clock, phases) = self.clock.plan(elapsed)?;
@@ -169,6 +182,7 @@ impl World {
             Task::Dynamic,
             Task::Phase(ScriptMessage::Update),
             Task::Coroutines(false),
+            Task::DelayedTasks,
             Task::Phase(ScriptMessage::LateUpdate),
             Task::Cleanup,
         ]);
@@ -549,6 +563,14 @@ impl World {
         if !self.enter_asset(identity, message) {
             return Ok(None);
         }
+        self.issue_identity_callback(identity, message)
+    }
+    /// Suspends the scheduler on a callback to a host identity that is not a script.
+    fn issue_identity_callback(
+        &mut self,
+        identity: u64,
+        message: ScriptMessage,
+    ) -> Result<Option<Advance>, WorldError> {
         self.scheduler.sequence = self
             .scheduler
             .sequence
@@ -659,6 +681,11 @@ impl World {
             }
             Task::Asset(identity, message, _) => {
                 return self.issue_asset_callback(identity, message);
+            }
+            Task::DelayedTasks => {
+                if let Some(identity) = self.scheduler.delayed_tasks {
+                    return self.issue_identity_callback(identity, ScriptMessage::Update);
+                }
             }
             Task::Cleanup => self.enqueue_cleanup(),
         }

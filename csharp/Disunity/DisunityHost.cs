@@ -29,6 +29,7 @@ public static partial class DisunityHost
         WorldHandle = world;
         _faulted = false;
         _listenerDiagnostic = null;
+        InstallMainThreadContext();
     }
 
     public static unsafe GameObject CreateGameObject()
@@ -91,7 +92,10 @@ public static partial class DisunityHost
         InputPhase = payload.input_phase;
         try
         {
-            if (message >= 10) DispatchAsset(identity, message);
+            if (message >= 10)
+            {
+                if (!DispatchDelayedTasks(identity, message)) DispatchAsset(identity, message);
+            }
             else
             {
                 var script = Scripts[identity];
@@ -190,6 +194,7 @@ public static partial class DisunityHost
                 var world = WorldHandle;
                 WorldHandle = 0;
                 _listenerDiagnostic = null;
+                RemoveMainThreadContext();
                 ThrowIfError(NativeBindings.disunity_world_destroy(world));
             }
         }

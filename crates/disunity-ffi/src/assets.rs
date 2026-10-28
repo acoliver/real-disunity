@@ -10,6 +10,25 @@ pub extern "C" fn disunity_asset_create(world: u64, identity: u64) -> DisunityRe
     })
 }
 
+/// Makes `identity` receive message 14 once a frame, after `Update` coroutines, where
+/// Unity runs work posted to the main thread's synchronization context. `enabled` 0 stops
+/// it.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_world_delayed_tasks(
+    world: u64,
+    identity: u64,
+    enabled: u32,
+) -> DisunityResult {
+    if enabled > 1 {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        s.native
+            .set_delayed_tasks((enabled == 1).then_some(identity))
+            .map_err(crate::errors::AbiError::from)
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_asset_destroy(world: u64, identity: u64) -> DisunityResult {
     mutate(world, |s| {

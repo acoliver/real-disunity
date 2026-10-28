@@ -11,6 +11,13 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Creates an empty enabled tilemap on a unit grid with a centred tile anchor.
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_create(ulong world, ulong @object, ulong* output);
+        /// <summary>
         ///  # Safety
         ///  Value is readable for one tilemap record.
         /// </summary>

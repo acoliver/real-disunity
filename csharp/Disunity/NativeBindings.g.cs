@@ -121,6 +121,13 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_gameobject_read(ulong world, ulong @object, DisunityObjectState* output);
         [DllImport(__DllName, EntryPoint = "disunity_asset_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_asset_create(ulong world, ulong identity);
+        /// <summary>
+        ///  Makes `identity` receive message 14 once a frame, after `Update` coroutines, where
+        ///  Unity runs work posted to the main thread's synchronization context. `enabled` 0 stops
+        ///  it.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_world_delayed_tasks", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_world_delayed_tasks(ulong world, ulong identity, uint enabled);
         [DllImport(__DllName, EntryPoint = "disunity_asset_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_asset_destroy(ulong world, ulong identity);
         /// <summary>
@@ -733,12 +740,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_text_style_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_text_style_write(ulong world, ulong handle, DisunityTextStyle* value);
-        /// <summary>
-        ///  Creates an empty enabled tilemap on a unit grid with a centred tile anchor.
-        ///  # Safety
-        ///  Output is writable for one component identity.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_tilemap_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_tilemap_create(ulong world, ulong @object, ulong* output);
     }
 }

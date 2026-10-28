@@ -329,11 +329,43 @@ fn a_panic_in_the_sampler_split_is_an_error() {
     }
 }
 
-/// A fragment shader storing `FindILsb` of an unsigned constant (ID 19) into a variable whose
-/// type, like the search's result type, is a signed int (ID 31) when `signed_result`, or the
-/// unsigned operand type (ID 6) otherwise. `set_name` is the extended instruction set's name.
-fn bit_search(signed_result: bool, set_name: [u32; 4]) -> Vec<u32> {
-    let (result_type, pointer) = if signed_result { (31, 33) } else { (6, 34) };
+/// One GLSL.std.450 bit search to test.
+#[derive(Clone, Copy)]
+struct Search {
+    /// 73 `FindILsb`, 74 `FindSMsb` or 75 `FindUMsb`.
+    op: u32,
+    operand_signed: bool,
+    result_signed: bool,
+    vector: bool,
+}
+
+impl Search {
+    /// The operand's ID and type.
+    fn operand(self) -> (u32, u32) {
+        match (self.vector, self.operand_signed) {
+            (false, false) => (19, 6),
+            (false, true) => (39, 31),
+            (true, false) => (43, 37),
+            (true, true) => (44, 38),
+        }
+    }
+
+    /// The result type and a function pointer to it.
+    fn result(self) -> (u32, u32) {
+        match (self.vector, self.result_signed) {
+            (false, false) => (6, 34),
+            (false, true) => (31, 33),
+            (true, false) => (37, 46),
+            (true, true) => (38, 45),
+        }
+    }
+}
+
+/// A fragment shader storing a bit search of a constant 8 (or a vector of two) into a
+/// variable of the search's result type. Integer types: 6 uint, 31 int, 37 uvec2, 38 ivec2.
+/// `set_name` is the extended instruction set's name.
+fn bit_search(search: Search, set_name: [u32; 4]) -> Vec<u32> {
+    let ((operand, _), (result_type, pointer)) = (search.operand(), search.result());
     let words = [
         op(17, &[1]),
         op(11, &[[40].as_slice(), &set_name].concat()),
@@ -345,51 +377,99 @@ fn bit_search(signed_result: bool, set_name: [u32; 4]) -> Vec<u32> {
         op(33, &[5, 4]),
         op(21, &[6, 32, 0]),
         op(21, &[31, 32, 1]),
+        op(23, &[37, 6, 2]),
+        op(23, &[38, 31, 2]),
         op(22, &[7, 32]),
         op(23, &[8, 7, 4]),
         op(32, &[14, 3, 8]),
         op(32, &[33, 7, 31]),
         op(32, &[34, 7, 6]),
+        op(32, &[45, 7, 38]),
+        op(32, &[46, 7, 37]),
         op(59, &[14, 2, 3]),
         op(43, &[7, 17, 0]),
         op(43, &[6, 19, 8]),
+        op(43, &[31, 39, 8]),
+        op(44, &[37, 43, 19, 19]),
+        op(44, &[38, 44, 39, 39]),
         op(44, &[8, 29, 17, 17, 17, 17]),
         op(54, &[4, 1, 0, 5]),
         op(248, &[20]),
         op(59, &[pointer, 35, 7]),
-        op(12, &[result_type, 36, 40, 73, 19]),
+        op(12, &[result_type, 36, 40, search.op, operand]),
         op(62, &[35, 36]),
         op(62, &[2, 29]),
         op(253, &[]),
         op(56, &[]),
     ]
     .concat();
-    [vec![0x0723_0203, 0x0001_0000, 0, 41, 0], words].concat()
+    [vec![0x0723_0203, 0x0001_0000, 0, 47, 0], words].concat()
 }
 
 const GLSL: [u32; 4] = [0x4c53_4c47, 0x6474_732e, 0x3035_342e, 0];
 
-#[test]
-fn casts_bit_searches_whose_result_signedness_differs() {
-    let raw = bit_search(true, GLSL);
-    assert_eq!(
-        naga_cause(&raw).as_deref(),
-        Some("validate InvalidStoreTypes")
-    );
-    let prepared = prepare(&raw).unwrap();
-    assert_eq!(naga_cause(&prepared.words), None);
-    // The search runs in the operand's type into a new ID, then is bitcast to int.
-    assert_eq!(prepared.words[3], 42);
-    assert!(contains(&prepared.words, &op(12, &[6, 41, 40, 73, 19])));
-    assert!(contains(&prepared.words, &op(124, &[31, 36, 41])));
+const fn search(op: u32, operand_signed: bool, result_signed: bool, vector: bool) -> Search {
+    Search {
+        op,
+        operand_signed,
+        result_signed,
+        vector,
+    }
 }
 
 #[test]
-fn leaves_other_bit_searches_and_instruction_sets_alone() {
-    let same = bit_search(false, GLSL);
-    assert_eq!(naga_cause(&same), None);
-    assert_eq!(prepare(&same).unwrap().words, same);
+fn casts_bit_searches_whose_result_signedness_differs() {
+    for case in [
+        search(73, false, true, false),
+        search(73, true, false, true),
+        search(74, true, false, false),
+        search(75, false, true, true),
+    ] {
+        let raw = bit_search(case, GLSL);
+        assert_eq!(
+            naga_cause(&raw).as_deref(),
+            Some("validate InvalidStoreTypes")
+        );
+        let prepared = prepare(&raw).unwrap();
+        assert_eq!(naga_cause(&prepared.words), None, "search {}", case.op);
+        // The search runs in the operand's type into a new ID, then is bitcast.
+        let ((operand, operand_type), (result_type, _)) = (case.operand(), case.result());
+        assert_eq!(prepared.words[3], 48);
+        assert!(contains(
+            &prepared.words,
+            &op(12, &[operand_type, 47, 40, case.op, operand])
+        ));
+        assert!(contains(&prepared.words, &op(124, &[result_type, 36, 47])));
+    }
+}
+
+#[test]
+fn leaves_matching_bit_searches_and_other_instruction_sets_alone() {
+    for case in [
+        search(73, false, false, false),
+        search(74, true, true, true),
+        search(75, false, false, false),
+    ] {
+        let raw = bit_search(case, GLSL);
+        assert_eq!(naga_cause(&raw), None);
+        assert_eq!(prepare(&raw).unwrap().words, raw);
+    }
     // An instruction set with another name is not GLSL.std.450, whatever its numbers mean.
-    let other = bit_search(true, [0x4c53_4c47, 0x6474_732e, 0x3135_342e, 0]);
+    let other = bit_search(
+        search(73, false, true, false),
+        [0x4c53_4c47, 0x6474_732e, 0x3135_342e, 0],
+    );
     assert_eq!(prepare(&other).unwrap().words, other);
+}
+
+#[test]
+fn rejects_msb_searches_whose_operand_reads_the_other_way() {
+    for case in [
+        search(74, false, false, false),
+        search(75, true, true, true),
+    ] {
+        let error = prepare(&bit_search(case, GLSL)).unwrap_err();
+        assert!(matches!(error, PrepareError::MsbSignedness), "{error}");
+        assert_eq!(error.cause(), "Msb signedness");
+    }
 }

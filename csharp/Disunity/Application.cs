@@ -101,7 +101,7 @@ public static class Application
         try { return ask(); }
         catch (Exception error)
         {
-            Debug.LogException(error);
+            DisunityHost.ReportScriptException(error, null);
             return true;
         }
     }
@@ -109,7 +109,7 @@ public static class Application
     private static void Guarded(Action handler)
     {
         try { handler(); }
-        catch (Exception error) { Debug.LogException(error); }
+        catch (Exception error) { DisunityHost.ReportScriptException(error, null); }
     }
 
     /// <summary>Starts a new lifetime: not quit, with a fresh exit token.</summary>

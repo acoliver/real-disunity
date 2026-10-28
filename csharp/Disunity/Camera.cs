@@ -14,6 +14,8 @@ public sealed class Camera : NativeComponent
 {
     public enum MonoOrStereoscopicEye { Left = 0, Right = 1, Mono = 2 }
 
+    public enum GateFitMode { Vertical = 1, Horizontal = 2, Fill = 3, Overscan = 4, None = 0 }
+
     private unsafe DisunityCamera Read()
     {
         DisunityCamera value;

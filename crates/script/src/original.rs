@@ -18,12 +18,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use lua_resume::capture::{Debug, Permanents};
+use lua_resume_debug::new_lua_with_private_debug;
 use mlua::{ChunkMode, FromLuaMulti, Function, IntoLuaMulti, Lua, StdLib, Table, Value};
 
 use crate::config::ScriptConfig;
 use crate::coroutines::Budget;
 use crate::error::ScriptError;
 use crate::host::DEFAULT_MEMORY_LIMIT;
+use crate::load::SharedLoader;
 use crate::patches::Overlay;
 use crate::sandbox::{lua_value_to_json, restrict_base};
 
@@ -34,17 +37,24 @@ pub struct GameScripts {
     instructions: Arc<AtomicU64>,
     natives: BTreeMap<String, Function>,
     sources: BTreeMap<String, Table>,
+    /// Every source's environment and the namespace views in it, by name, for saving threads.
+    environments: Vec<(String, Table)>,
     scheduler: crate::threads::Shared,
     /// Marks a scheduler sleep among a thread's yields; scripts cannot obtain it.
     sleep_token: Table,
     budget: Budget,
+    /// The debug library for saving threads. It stays here and is never a global.
+    debug: Debug,
+    loader: SharedLoader,
+    /// The standard values, named as they were before any script ran.
+    standard: Permanents,
 }
 
 impl GameScripts {
     /// The standard library adds `coroutine` to the strict profile's `string`, `table`, `math`
     /// and `utf8`, since original scripts commonly use it.
     pub fn new(config: ScriptConfig) -> Result<Self, ScriptError> {
-        let lua = Lua::new_with(
+        let (lua, debug_table) = new_lua_with_private_debug(
             StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE,
             mlua::LuaOptions::default(),
         )?;
@@ -54,6 +64,15 @@ impl GameScripts {
         let budget = Budget::new(config.instruction_budget, Arc::clone(&instructions));
         budget.hook_main(&lua);
         crate::coroutines::install(&lua, &budget)?;
+        let loader = SharedLoader::default();
+        crate::load::install(&lua, &loader)?;
+        let mut standard = Permanents::standard(&lua)?;
+        // `ipairs` loops hold this function between iterations, and Lua gives it no name.
+        let (iterator, _, _): (Value, Value, Value) = lua.load("return ipairs({})").eval()?;
+        standard
+            .insert("ipairs iterator", iterator)
+            .map_err(|error| refused(error.to_string()))?;
+        let debug = Debug::new(&debug_table)?;
         let sleep_token = lua.create_table()?;
         Ok(Self {
             lua,
@@ -61,9 +80,13 @@ impl GameScripts {
             instructions,
             natives: BTreeMap::new(),
             sources: BTreeMap::new(),
+            environments: Vec::new(),
             scheduler: crate::threads::Shared::default(),
             sleep_token,
             budget,
+            debug,
+            loader,
+            standard,
         })
     }
 
@@ -119,6 +142,15 @@ impl GameScripts {
             grant_native(&self.lua, &mut levels, &segments(grant)?, native)?;
         }
         let env = forwarding(&self.lua, Vec::new(), levels[&Vec::new()].clone())?;
+        for path in levels.keys().filter(|path| !path.is_empty()) {
+            let (last, parent) = path.split_last().expect("not empty");
+            if let Value::Table(view) = levels[parent].raw_get::<Value>(last.as_str())? {
+                self.environments
+                    .push((format!("source {name} view {}", path.join(".")), view));
+            }
+        }
+        self.environments
+            .push((format!("source {name}"), env.clone()));
         self.sources.insert(name.into(), env);
         Ok(())
     }
@@ -127,13 +159,20 @@ impl GameScripts {
     pub fn run(&mut self, source: &str, file: &str, text: &[u8]) -> Result<(), ScriptError> {
         let env = self.environment(source)?;
         self.instructions.store(0, Ordering::Relaxed);
+        let prepared = self.prepare(text, file)?;
         let chunk = self
             .lua
-            .load(text)
+            .load(prepared)
             .set_name(file)
             .set_mode(ChunkMode::Text)
             .set_environment(env);
         chunk.exec().map_err(|error| self.error(file, error))
+    }
+
+    /// Makes statement-level `assert(...)` and `dbg(...)` calls in chunks loaded from now on
+    /// disappear, for games whose saves were made by a build that left them out. Off by default.
+    pub fn strip_debug_calls(&mut self, strip: bool) {
+        self.loader.lock().expect("loader").set_strip(strip);
     }
 
     /// Runs one of the game's original files as `source` after applying its patches, and
@@ -195,6 +234,30 @@ impl GameScripts {
         }
         self.lua.set_memory_limit(bytes)?;
         Ok(())
+    }
+
+    /// The text to load for a chunk, in the form that lets threads running it be saved.
+    pub(crate) fn prepare(&self, text: &[u8], name: &str) -> Result<String, ScriptError> {
+        self.loader
+            .lock()
+            .expect("loader")
+            .prepare(&self.lua, text, name)
+    }
+
+    pub(crate) fn loader(&self) -> &SharedLoader {
+        &self.loader
+    }
+
+    pub(crate) fn debug(&self) -> &Debug {
+        &self.debug
+    }
+
+    pub(crate) fn environments(&self) -> &[(String, Table)] {
+        &self.environments
+    }
+
+    pub(crate) fn standard(&self) -> &Permanents {
+        &self.standard
     }
 
     pub(crate) fn lua(&self) -> &Lua {

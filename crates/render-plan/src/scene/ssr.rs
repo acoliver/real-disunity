@@ -2,6 +2,10 @@
 use super::SceneValidationError;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path = "ssr_footprint_tests.rs"]
+mod footprint_tests;
+
 /// How reflected radiance contributes to the forward-lit scene before exposure.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SceneSsrComposition {
@@ -36,6 +40,15 @@ pub struct SceneSsrPassBehind {
     pub maximum_steps: u32,
     pub roughness_start_micro: u32,
     pub roughness_end_micro: u32,
+}
+
+/// Application colour LOD. The roughness cutoff still controls fading and rejection.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneSsrLodMapping {
+    #[default]
+    CutoffNormalized,
+    /// max(roughness * (level count - 1) - log2(downsample), 0).
+    RoughnessDownsample,
 }
 
 /// Optional scene/document reflection settings. No temporal history is retained.
@@ -89,6 +102,11 @@ pub struct SceneSsr {
     pub luminance_limit_milli: Option<u32>,
     /// Trace resolution: 1000000 for full or 500000 for half resolution.
     pub resolution_scale_micro: u32,
+    /// Rounding of the reflection output and each colour reduction level.
+    #[serde(default)]
+    pub radiance_rounding: super::SceneDownsampleRounding,
+    #[serde(default)]
+    pub application_lod: SceneSsrLodMapping,
     #[serde(default)]
     pub composition: SceneSsrComposition,
 }
@@ -117,11 +135,32 @@ impl Default for SceneSsr {
             roughness_cutoff_micro: 600_000,
             luminance_limit_milli: None,
             resolution_scale_micro: 1_000_000,
+            radiance_rounding: super::SceneDownsampleRounding::Ceil,
+            application_lod: SceneSsrLodMapping::CutoffNormalized,
             composition: SceneSsrComposition::Additive,
         }
     }
 }
 impl SceneSsr {
+    /// Validated, nonzero output dimensions and up to six colour levels.
+    pub fn radiance_extents(&self, size: [u32; 2]) -> Vec<[u32; 2]> {
+        assert!(!size.contains(&0), "nonzero reflection extent");
+        self.validate().expect("validated reflection policy");
+        let mut extent = if self.resolution_scale_micro == 500_000 {
+            self.radiance_rounding.half_extent(size)
+        } else {
+            size
+        };
+        let mut extents = Vec::new();
+        loop {
+            extents.push(extent);
+            if extent == [1, 1] || extents.len() == 6 {
+                break;
+            }
+            extent = self.radiance_rounding.half_extent(extent);
+        }
+        extents
+    }
     /// Validates even disabled settings, so enabling never changes their interpretation.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.validate_traversal()?;

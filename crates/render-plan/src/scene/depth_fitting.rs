@@ -22,11 +22,22 @@ pub enum SceneDepthAdoption {
         contraction_delay_ms: u64,
     },
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneDepthMinimumSpan {
+    #[default]
+    ExtendNear,
+    /// Keep the quantized near bound; extend far before applying camera and active caps.
+    /// Caps can shorten the requested span; an empty interval disables receivers.
+    ExtendFar,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneDepthFitting {
     pub near_step_mm: u32,
     pub far_step_mm: u32,
     pub minimum_span_mm: u32,
+    pub minimum_span_policy: SceneDepthMinimumSpan,
+    /// Absolute positive view depth, independent of the camera's far clip.
+    pub active_maximum_mm: Option<u32>,
     pub splits: SceneDepthSplits,
     pub adoption: SceneDepthAdoption,
 }
@@ -48,6 +59,7 @@ impl SceneDepthFitting {
             || self.near_step_mm == 0
             || self.far_step_mm == 0
             || self.minimum_span_mm == 0
+            || self.active_maximum_mm == Some(0)
         {
             return Err(SceneValidationError::UnsupportedInput {
                 part: "depth-fitting policy",
@@ -80,6 +92,8 @@ mod tests {
             near_step_mm: 100,
             far_step_mm: 1000,
             minimum_span_mm: 1000,
+            minimum_span_policy: SceneDepthMinimumSpan::ExtendNear,
+            active_maximum_mm: None,
             splits: SceneDepthSplits::OverlapRecurrence {
                 multiplier_micro: 2_000_000,
                 overlap_micro: 100_000,

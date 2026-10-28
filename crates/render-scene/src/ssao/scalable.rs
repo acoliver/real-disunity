@@ -41,8 +41,11 @@ pub(super) fn append(
     let mut previous = depth;
     let mut levels = Vec::new();
     let mut reads = Vec::new();
-    for index in 0..8 {
-        let size = [previous.width().div_ceil(2), previous.height().div_ceil(2)];
+    let extents = settings
+        .depth_footprint
+        .extents([previous.width(), previous.height()]);
+    for (index, size) in extents.into_iter().enumerate() {
+        let index = u32::try_from(index).expect("bounded depth levels");
         let target = texture(device, size, wgpu::TextureFormat::R32Float);
         let pipeline = pipeline(device, include_str!("mean_depth.wgsl"));
         let group = group(device, &pipeline, None, &[&previous]);
@@ -61,9 +64,6 @@ pub(super) fn append(
         reads.push(resource);
         previous = target.clone();
         levels.push(target);
-        if size == [1, 1] {
-            break;
-        }
     }
     let mut inputs = vec![normals];
     inputs.extend(levels.iter());

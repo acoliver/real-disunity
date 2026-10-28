@@ -15,6 +15,8 @@ fn interval_policy(step: f32, span: f32) -> RangeFit {
         near_step: step,
         far_step: step,
         minimum_span: span,
+        minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear,
+        active_maximum: None,
         split_lambda: 0.5,
         split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
     }
@@ -213,6 +215,8 @@ fn gpu_sdsm_adopted_interval_is_not_fitted_twice() {
                 near_step: step,
                 far_step: step,
                 minimum_span: span,
+                minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear,
+                active_maximum: None,
                 split_lambda: 0.5,
                 split_policy: worldrunner_render_shadow::SplitPolicy::Practical,
             };

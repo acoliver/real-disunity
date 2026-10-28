@@ -88,6 +88,7 @@ struct Inputs {
     weights: wgpu::TextureView,
     area: wgpu::Buffer,
     search: wgpu::Buffer,
+    /// Linear, clamped: edge lookups in the weight pass and color fetches in the blend pass.
     sampler: wgpu::Sampler,
 }
 
@@ -119,7 +120,7 @@ fn allocate(
         ),
         search: lookup_buffer(device, "SMAA search lookup", &smaa_lut::search_texture()),
         sampler: device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("SMAA edge sampler"),
+            label: Some("SMAA linear sampler"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
@@ -136,8 +137,8 @@ fn view_entry(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_
 
 /// Appends edge detection, weight calculation and neighborhood blending.
 ///
-/// `source` is display-referred color at `size`. The edges (`Rg8Unorm`) and weights
-/// (`Rgba8Unorm`) targets and the lookup buffers belong to `set`, so a resize or
+/// `source` is display-referred, filterable color (`Rgba16Float`) at `size`. The edges
+/// (`Rg8Unorm`) and weights (`Rgba8Unorm`) targets and the lookup buffers belong to `set`, so a resize or
 /// reconfiguration rebuilds them with the rest of the schedule.
 pub(crate) fn append(
     device: &wgpu::Device,
@@ -185,7 +186,14 @@ pub(crate) fn append(
     }));
     set.stages.push(builder.stage(&Pass {
         entry: blend_stage,
-        entries: &[view_entry(0, source), view_entry(4, &inputs.weights)],
+        entries: &[
+            view_entry(0, source),
+            view_entry(4, &inputs.weights),
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::Sampler(&inputs.sampler),
+            },
+        ],
         format: output.0,
         target: output.1,
     }));

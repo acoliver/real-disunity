@@ -101,6 +101,24 @@ fn straight_axis_aligned_edges_stay_sharp() {
     }
 }
 
+/// The display-referred intermediate is half precision. A smooth ramp has no edges, so
+/// SMAA must reproduce the plain output to within one 8-bit code of that rounding.
+#[test]
+fn half_precision_input_keeps_smooth_ramps_within_one_code() {
+    let rig = Rig::new();
+    let ramp = "let v=3.0*p.x/64.0;return vec4<f32>(v,v*0.5,v*0.25,1.0);";
+    for smaa in presets() {
+        let (plain, filtered) = rig.pair(smaa, [64, 8], ramp);
+        let worst = plain
+            .iter()
+            .zip(&filtered)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(worst <= 1, "{smaa:?} moved a ramp value by {worst} codes");
+    }
+}
+
 #[test]
 fn a_one_pixel_step_blends_only_next_to_the_edge() {
     let rig = Rig::new();

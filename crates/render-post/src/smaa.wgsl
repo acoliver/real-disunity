@@ -30,9 +30,9 @@
 //
 // Differences from the reference: the lookup textures are storage buffers read
 // with explicit bilinear arithmetic (the pass builder has no queue to upload
-// textures), the color input is Rgba32Float and so is read with point loads, and
-// neighborhood blending mixes two loaded texels where the reference uses one
-// bilinear fetch. Edge decisions use sRGB-encoded values; blending is linear.
+// textures). The color input is Rgba16Float, so edge detection uses point loads
+// and neighborhood blending uses the reference's two bilinear fetches. Edge
+// decisions use sRGB-encoded values; blending is linear.
 // There is no predication, reprojection or subsample indexing (SMAA 1x only).
 
 @group(0) @binding(0) var color: texture_2d<f32>;
@@ -402,7 +402,11 @@ fn diag_weights(uv: vec2<f32>, e: vec2<f32>) -> vec2<f32> {
         step_b = vec2<i32>(-1, 0);
     }
     let weight = amount / dot(amount, vec2<f32>(1.0));
-    // The reference exploits one bilinear fetch per side; this is the same mix.
-    return weight.x * mix(c, load_color(p + step_a), amount.x)
-        + weight.y * mix(c, load_color(p + step_b), amount.y);
+    // One bilinear fetch per side, as in the reference: sampling `amount` texels
+    // along the axis mixes this pixel with its neighbor by that fraction.
+    let dims = vec2<f32>(textureDimensions(color));
+    let toward_a = (pos.xy + vec2<f32>(step_a) * amount.x) / dims;
+    let toward_b = (pos.xy + vec2<f32>(step_b) * amount.y) / dims;
+    return weight.x * textureSampleLevel(color, linear_clamp, toward_a, 0.0)
+        + weight.y * textureSampleLevel(color, linear_clamp, toward_b, 0.0);
 }

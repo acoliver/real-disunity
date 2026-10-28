@@ -169,10 +169,36 @@ better and does not blur texture detail, but it does not smooth shader or textur
 Choose it when geometry edges dominate and the three passes fit the budget. Choose FXAA for a
 single cheap pass over noisy specular detail.
 
-Differences from the reference shader: the color input is Rgba32Float and is read with point
-loads, so neighborhood blending mixes two loaded texels where the reference uses one bilinear
-fetch; area lookups use explicit bilinear arithmetic; and predication, reprojection and
-subsample indexing (SMAA S2x, T2x, 4x) are not implemented.
+Differences from the reference shader: area lookups use explicit bilinear arithmetic, and
+predication, reprojection and subsample indexing (SMAA S2x, T2x, 4x) are not implemented.
+Edge detection reads the color input with point loads and neighborhood blending uses one
+hardware bilinear fetch per side, as the reference does.
+
+The display-referred image between tone mapping and SMAA is `Rgba16Float`. Values in 0..1
+have an 11-bit mantissa at half precision, finer than the 8-bit output, and the format is
+filterable, which the bilinear blend fetch needs. FXAA keeps its `Rgba32Float` intermediate
+and its flat-region precision contract. `PostResolve::display_format` is the one place that
+chooses the format. A resolve followed by an upscale still writes `Rgba32Float` between the
+resolve and the upscale.
+
+Measured with the ignored probe `chain::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV, Mesa 26.0.8) at 1920x1080, median of 5 timestamp-query samples per
+stage, on a synthetic frame of diagonal edges. The first column is the `Rgba32Float`
+intermediate with two point-loaded texels in the blend, the second the `Rgba16Float`
+intermediate with bilinear blending:
+
+| Stage (ms) | SMAA high before | SMAA high after |
+| --- | --- | --- |
+| tone | 2.168 | 1.152 |
+| `smaa_edges` | 0.892 | 0.547 |
+| `smaa_weights` | 1.223 | 1.184 |
+| `smaa_blend` | 1.210 | 0.571 |
+| total | 5.493 | 3.454 |
+
+The other presets moved the same way (total, before to after): low 4.989 to 2.953, medium
+4.951 to 3.124, ultra 5.674 to 3.259. FXAA measured 3.387 before and 3.102 after with no code
+change, and no AA measured 0.366 and 0.408, which bounds the run-to-run noise at about 0.3 ms.
+The weights pass reads only `Rg8Unorm` edges and is unchanged.
 
 ## Reduced internal resolution
 

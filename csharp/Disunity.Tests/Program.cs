@@ -146,6 +146,7 @@ CheckImport("disunity_rotation_read", u64, u64, f32.MakePointerType(), f32.MakeP
 CheckImport("disunity_rotation_write", u64, u64, f32, f32, f32, f32);
 CheckImport("disunity_asset_create", u64, u64);
 CheckImport("disunity_asset_destroy", u64, u64);
+CheckImport("disunity_world_delayed_tasks", u64, u64, u32);
 CheckImport("disunity_asset_alive", u64, u64, u32.MakePointerType());
 CheckImport("disunity_asset_activate", u64, u64, advance.MakePointerType());
 CheckImport("disunity_body_set_sleeping", u64, u64, u32);
@@ -232,3 +233,4 @@ DeferredDestroyTests.Run();
 PlayerAssemblyTests.Run();
 RuntimeHookTests.Run();
 ScriptLayoutTests.Run();
+SynchronizationContextTests.Run();

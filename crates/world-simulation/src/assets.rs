@@ -29,7 +29,10 @@ pub(crate) struct Assets {
 impl World {
     pub fn create_script_asset(&mut self, identity: u64) -> Result<(), WorldError> {
         self.ensure_allocation_allowed()?;
-        if identity == 0 || self.assets.states.contains_key(&identity) {
+        if identity == 0
+            || self.assets.states.contains_key(&identity)
+            || self.scheduler.delayed_tasks == Some(identity)
+        {
             return Err(WorldError::InvalidObject);
         }
         if self.assets.states.len() >= self.assets_limit as usize {

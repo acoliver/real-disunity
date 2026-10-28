@@ -13,8 +13,9 @@ The order is:
 3. Each admitted fixed step: fixed input projection, Start if newly eligible, FixedUpdate, 2D physics, contact callbacks, fixed coroutine resumptions.
 4. Dynamic input projection, Start if newly eligible, Update.
 5. Due next-frame, scaled and unscaled coroutine resumptions.
-6. Start if newly eligible, LateUpdate.
-7. Disable/destroy cleanup and native storage retirement.
+6. The delayed-tasks callback, when `set_delayed_tasks` names a host identity: one asset callback with `Update` for the host's main-thread work queue. Its identity cannot be a script asset's or zero.
+7. Start if newly eligible, LateUpdate.
+8. Disable/destroy cleanup and native storage retirement.
 
 Stable component-handle order determines each ordinary script phase. Contact order is the physics pair/phase order followed by recipient handle order. Contacts reach scripts on collider objects and body owners, with duplicate recipients removed. `Contact2d` carries a native contact ID, resolved with `contact_event`; contact eligibility is checked again before every delivery. A callback mutation can suppress a later contact recipient.
 

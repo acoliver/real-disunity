@@ -3973,6 +3973,7 @@ name = "worldrunner-disunity-runtime"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "libc",
  "libloading",
  "netcorehost",
  "serde_json",

@@ -9,6 +9,7 @@ public static partial class DisunityHost
     internal static Collider2D ResolveCollider(ulong handle) => (Collider2D)NativeComponents[handle];
     internal static unsafe T AttachComponent<T>(GameObject owner, T value) where T : Component
     {
+        PhysicsComponents.RejectUnsupported(value);
         if (value is MonoBehaviour script && !NativeBehaviourState.IsNative(value)) return (T)(Component)Attach(owner, script);
         if (value is not NativeComponent && value is not RectTransform && !NativeBehaviourState.IsNative(value)) throw new NotSupportedException($"component {typeof(T)}");
         ulong handle;

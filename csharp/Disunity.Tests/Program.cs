@@ -251,3 +251,5 @@ ObjectModelTests.Run();
 TextureTests.Run();
 RenderTextureTests.Run();
 ShaderMaterialTests.Run();
+Physics3DComponentTests.Run();
+Physics3DQueryTests.Run();

@@ -12,7 +12,9 @@ fn fragment(view_index: bool) -> Vec<u32> {
     let interface: &[u32] = if view_index { &[2, 60] } else { &[2] };
     let mut words = op(17, &[1]);
     if view_index {
-        words.extend(op(17, &[4439]));
+        // MultiView, and the SPV_KHR_multiview extension it comes from.
+        let extension = [0x5f56_5053, 0x5f52_484b, 0x746c_756d, 0x6569_7669, 0x77];
+        words.extend([op(17, &[4439]), op(10, &extension)].concat());
     }
     words.extend(
         [
@@ -21,6 +23,7 @@ fn fragment(view_index: bool) -> Vec<u32> {
             op(16, &[1, 7]),
             op(71, &[2, 30, 0]),
             op(71, &[60, 11, 4440]),
+            op(71, &[60, 14]),
             op(19, &[4]),
             op(33, &[5, 4]),
             op(22, &[7, 32]),

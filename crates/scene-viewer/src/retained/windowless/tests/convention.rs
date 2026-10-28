@@ -1,5 +1,6 @@
 mod effects;
 mod normal_map;
+mod raster;
 
 use super::*;
 use crate::{CaptureJitter, CaptureOutput, RetainedCaptureProducts, RetainedCaptureRecipe};
@@ -117,18 +118,20 @@ fn set_camera(run: &mut WindowlessRetained<'_>, handedness: ViewHandedness) {
         .unwrap();
 }
 
-fn assert_geometry_mirrored(right: &RetainedCaptureProducts, left: &RetainedCaptureProducts) {
+fn assert_geometry_mirrored(
+    right: &RetainedCaptureProducts,
+    left: &RetainedCaptureProducts,
+    scene: &RenderScene,
+) {
     let right_depth = right.depth.as_ref().unwrap();
-    let left_depth = left.depth.as_ref().unwrap();
     let width = usize::try_from(right_depth.viewport.width).unwrap();
     let height = usize::try_from(right_depth.viewport.height).unwrap();
+    raster::assert_depth_mirrored(right, left, scene);
     let normals = left.normals.as_ref().unwrap();
     let mut covered = 0;
     for y in 0..height {
         for x in 0..width {
-            let depth = right_depth.pixels[y * width + x];
             let reflected = y * width + width - 1 - x;
-            assert!((depth - left_depth.pixels[reflected]).abs() < 0.00001);
             if normals.pixels[reflected][3] > 0.0 {
                 covered += 1;
                 assert!(normals.pixels[reflected][2] > 0.0);
@@ -174,7 +177,7 @@ fn retained_camera_conventions_preserve_culling_metadata_shadows_resize_and_fixe
             let right = products(&mut run, &events);
             set_camera(&mut run, ViewHandedness::DirectXLeftHanded);
             let left = products(&mut run, &events);
-            assert_geometry_mirrored(&right, &left);
+            assert_geometry_mirrored(&right, &left, &scene());
             assert_eq!(left, products(&mut run, &events));
             assert_eq!(
                 run.host()

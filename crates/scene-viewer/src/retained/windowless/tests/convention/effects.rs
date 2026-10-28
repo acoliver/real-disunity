@@ -215,8 +215,16 @@ fn retained_effects_have_visible_receivers_and_independent_landmarks() {
     });
     assert_receivers(&captures[0][0], &captures[0][1], &captures[0][2], false);
     assert_receivers(&captures[1][0], &captures[1][1], &captures[1][2], true);
-    for (right, left) in captures[0].iter().zip(&captures[1]) {
-        assert_geometry_mirrored(right, left);
+    for (index, (right, left)) in captures[0].iter().zip(&captures[1]).enumerate() {
+        let scene = effect_scene();
+        let scene = if index == 2 {
+            scene
+                .with_objects_and_effects(vec![], scene.effects().cloned())
+                .unwrap()
+        } else {
+            scene
+        };
+        assert_geometry_mirrored(right, left, &scene);
         assert_effects_mirrored(right, left);
     }
 }

@@ -76,7 +76,7 @@ fn exposed(source: &RenderScene, exposure: u32) -> RenderScene {
 #[test]
 fn hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_one_and_four_samples() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for terrain in [false, true] {
             let mut source = scene(&[[0, 0, 1_000]], 600_000, None);
             if terrain {
@@ -170,7 +170,7 @@ fn fixed_exposure_mismatch_is_typed_before_preparation() {
 #[test]
 fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let base =
             super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
         let mut parts = fixture::effects_parts(600_000);
@@ -200,7 +200,7 @@ fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
 #[test]
 fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_1x_and_4x() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let base =
             super::terrain::terrain_scene(&scene(&[[0, 0, 1000]], 600_000, None), false, false);
         let effects = base
@@ -273,7 +273,7 @@ fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
         effects: Some(effects),
     })
     .unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let (plain_hdr, plain) = hdr_capture(&context, &source, samples, 0.001);
         let (filtered_hdr, image) = hdr_capture(&context, &filtered, samples, 0.001);
         assert_eq!(plain_hdr, filtered_hdr, "post never changes scene radiance");

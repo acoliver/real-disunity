@@ -339,3 +339,59 @@ fn fxaa_resolve_runs_at_every_supported_sample_count_and_conflicts_with_authored
         Some(PostError::UnsupportedProfile("duplicate FXAA"))
     );
 }
+
+/// Formats the scene tests attach at every sample count.
+const TESTED_FORMATS: [wgpu::TextureFormat; 4] = [
+    HDR,
+    OUTPUT,
+    wgpu::TextureFormat::Rgba8Unorm,
+    wgpu::TextureFormat::Depth32Float,
+];
+
+/// Every selectable count the adapter supports for the formats scene tests attach.
+///
+/// A count the adapter lacks is logged with the reason and must be rejected with
+/// the typed error, so a test never silently runs at a different count.
+pub(crate) fn supported_samples(context: &GpuContext) -> Vec<u32> {
+    let adapter = context.adapter();
+    let mut counts = Vec::new();
+    for samples in MsaaSamples::ALL {
+        let count = samples.count();
+        let missing = TESTED_FORMATS.into_iter().find(|&format| {
+            !adapter
+                .get_texture_format_features(format)
+                .flags
+                .sample_count_supported(count)
+        });
+        let Some(format) = missing else {
+            counts.push(count);
+            continue;
+        };
+        eprintln!(
+            "skipping {count}x: adapter {} does not support it for {format:?}",
+            adapter.get_info().name
+        );
+        // The frame contract always checks Depth32Float alongside its colour format.
+        let color = if format.is_depth_stencil_format() {
+            HDR
+        } else {
+            format
+        };
+        let expected = FrameConfig::new([SIZE, SIZE], color, count);
+        assert_eq!(
+            expected.validate_adapter(adapter),
+            Err(PostError::SampleCount(count)),
+            "{count}x is unsupported for {format:?} and must be a typed error"
+        );
+    }
+    assert!(
+        counts.starts_with(&[1]) && counts.contains(&4),
+        "1x and 4x are guaranteed on every adapter, got {counts:?}"
+    );
+    counts
+}
+
+/// Every selectable count, for checks that never touch the adapter.
+pub(crate) fn all_counts() -> [u32; 4] {
+    MsaaSamples::ALL.map(MsaaSamples::count)
+}

@@ -88,7 +88,7 @@ impl PreparedFeature for Reader {
 fn independent_snapshot_reader_and_post_water_depth_at_one_and_four_samples() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = crate::compositor::FrameRenderer::hdr(
             &context,
             [32, 32],

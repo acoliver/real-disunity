@@ -236,7 +236,7 @@ fn read_ao(context: &GpuContext, filtered: &wgpu::Texture) -> Vec<f32> {
 #[test]
 fn gpu_ssao_ambient_only_and_msaa_combinations() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let (sun_baseline, _, _) = capture(&context, &source(0, false, 255), samples);
         let (sun_ao, _, ao) = capture(&context, &source(2_000_000, false, 255), samples);
         assert!(
@@ -264,7 +264,7 @@ fn gpu_ssao_ambient_only_and_msaa_combinations() {
 #[test]
 fn gpu_ssao_uniform_alpha_mask_prepass_uses_colour_cutoff() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let (hidden, normals, _) = capture(&context, &source(1_000_000, true, 100), samples);
         assert!(
             hidden
@@ -300,7 +300,7 @@ fn read_texture(context: &GpuContext, size: [u32; 2], texture: &wgpu::Texture) -
 #[test]
 fn gpu_spiral_bilateral_coverage_and_composition_at_1x_and_4x() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let scene = |intensity, alpha| {
             source_with_policy(
                 intensity,
@@ -324,7 +324,7 @@ fn gpu_spiral_bilateral_coverage_and_composition_at_1x_and_4x() {
 #[test]
 fn gpu_scalable_shared_coverage_at_1x_and_4x() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let scene = |intensity, alpha| {
             source_with_policy(
                 intensity,

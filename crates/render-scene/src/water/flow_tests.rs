@@ -203,7 +203,7 @@ fn phased_scene(field: bool, shore: bool) -> (Vec<SceneWaterBody>, RenderScene) 
 #[test]
 fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for (field, shore) in [(false, false), (true, false), (false, true), (true, true)] {
             let (bodies, source) = phased_scene(field, shore);
             let pipelines = crate::renderer::ScenePipelines::with_samples(

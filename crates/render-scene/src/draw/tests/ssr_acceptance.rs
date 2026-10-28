@@ -1,7 +1,7 @@
 #[test]
 fn narrow_sloped_water_publishes_sample_origins_on_its_geometric_plane() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for scale in [500_000, 1_000_000] {
             let source = source_geometry(true, false, true, scale);
             let renderer = render(&context, &source, samples);
@@ -339,7 +339,7 @@ fn channel_view(context: &GpuContext, view: &wgpu::TextureView, source: &str) ->
 #[test]
 fn geometric_water_hit_and_offscreen_miss_at_one_and_four_samples() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let hit = render(&context, &source(true, false), samples);
         let miss = render(&context, &source(true, true), samples);
         for sample in 0..samples {
@@ -402,7 +402,7 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
     let maps = environment(&context);
     let reference_factor = prepared_cpu_factor(&context, &maps);
     let reference_radiance = prepared_cpu_radiance(&context, &maps);
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let source = source(false, false);
         let renderer = render_with_environment(
             &context,

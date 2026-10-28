@@ -184,7 +184,7 @@ fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_1x_and
         for slope in [false, true] {
             let base = source(slope, terrain);
             let projected = base.with_decals(vec![decal()]).unwrap();
-            for samples in [1, 4] {
+            for samples in crate::msaa_tests::supported_samples(&context) {
                 let pixels = capture(&context, &projected, samples);
                 for (x, y) in [(32, 32), (37, 32), (43, 32), (23, 32), (32, 39)] {
                     let (point, weight) = oracle(x, y, slope);
@@ -210,7 +210,7 @@ fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_1x_and
 fn masked_outside_culled_and_removed_decals_preserve_default_bytes() {
     let context = context();
     let scene = source(false, false);
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let original = capture(&context, &scene, samples);
         let mut masked = decal();
         masked.receivers = SceneDecalReceivers::TERRAIN;
@@ -252,7 +252,7 @@ fn albedo_and_scalar_material_channels_are_blended_before_lighting() {
             Some(effects()),
         )
         .unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         assert_eq!(
             capture(&context, &expected, samples),
             capture(&context, &base.with_decals(vec![d]).unwrap(), samples)
@@ -366,6 +366,7 @@ fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
         &crate::ssao::ambient_source(crate::shader::TERRAIN_WGSL),
         true,
     );
+    // A default device guarantees only 1x and 4x; the binding budget does not depend on the count.
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_screen_space(
             &device,

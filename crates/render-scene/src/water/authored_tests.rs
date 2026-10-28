@@ -193,7 +193,7 @@ fn map(bytes: Vec<u8>) -> SceneTexture {
 #[test]
 fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let (bodies, source) = authored_scene();
         let pipelines = crate::renderer::ScenePipelines::with_samples(
             context.device(),
@@ -246,7 +246,7 @@ fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
 fn configured_environment_survives_extent_replacement() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let maps = lighting_tests::environment_tests::prepare_environment(&context);
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.color_micro = [0; 3];
         body.absorption_micro = [10_000_000; 3];

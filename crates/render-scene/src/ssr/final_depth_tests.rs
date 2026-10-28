@@ -152,7 +152,7 @@ fn final_depth_without_matching_surface_metadata_does_not_sample_the_opaque_bed(
 #[test]
 fn final_depth_metadata_retains_the_forward_sample_domain() {
     use crate::frame::metadata::MetadataSampling;
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::all_counts() {
         for level in 0..7 {
             let product = FrameProduct::reflection_depth(level, samples);
             assert_eq!(

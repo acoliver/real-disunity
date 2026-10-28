@@ -36,7 +36,7 @@ fn renderer(
 #[test]
 fn authored_refraction_keeps_foreground_rejection_at_1x_and_4x() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.refraction_millimeters = Some(4000);
         let renderer = renderer(&context, samples, body);
@@ -47,7 +47,7 @@ fn authored_refraction_keeps_foreground_rejection_at_1x_and_4x() {
 #[test]
 fn zero_bound_and_zero_opacity_preserve_original_snapshot_at_1x_and_4x() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for transparent in [false, true] {
             let mut body = settings();
             body.color_micro = [0; 3];
@@ -87,7 +87,7 @@ fn zero_bound_and_zero_opacity_preserve_original_snapshot_at_1x_and_4x() {
 #[test]
 fn authored_optics_publish_fresnel_and_squared_specular_for_ssr() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.optics = Some(worldrunner_render_plan::SceneWaterOptics {
             fresnel_micro: 250_000,
@@ -124,7 +124,7 @@ fn authored_optics_publish_fresnel_and_squared_specular_for_ssr() {
 #[test]
 fn view_scattering_is_additive_even_without_absorption() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.color_micro = [0; 3];
         body.absorption_micro = [0; 3];
@@ -146,7 +146,7 @@ fn view_scattering_is_additive_even_without_absorption() {
 #[test]
 fn disabled_optical_controls_are_byte_identical_to_stock_shader_at_1x_and_4x() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = renderer(&context, samples, settings());
         let expected = read(&context, renderer.targets().texture());
         let receivers = receiver_bytes(&context, &renderer, samples);

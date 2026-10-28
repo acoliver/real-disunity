@@ -35,7 +35,7 @@ use super::*;
 #[test]
 fn water_fog_composes_only_the_camera_segment_at_one_and_four_samples() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let mut body = settings();
         body.absorption_micro = [10_000_000; 3];

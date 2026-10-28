@@ -111,6 +111,7 @@ pub struct ShadowedScene {
     pipelines: ScenePipelines,
     depth_pipelines: [wgpu::RenderPipeline; 8],
     terrain_depth_pipeline: wgpu::RenderPipeline,
+    caster_slope_bits: u32,
     depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     depth_slots: Vec<Vec<(wgpu::Buffer, wgpu::BindGroup)>>,
     frame_slot: usize,
@@ -187,11 +188,13 @@ impl ShadowedScene {
         settings.validate_light(scene.effects().ok_or(ShadowError::UnsupportedFeature(
             "shadows require an environmental profile",
         ))?)?;
+        let effects = scene.effects().expect("validated effects");
+        let sampling = effects.shadows().sampling();
         let shadow_layout = resources::layout(context.device());
         let pipelines =
             resources::receiver_pipelines(context, scene, (format, samples), &shadow_layout)?;
         let (depth_pipelines, terrain_depth_pipeline) =
-            resources::depth_pipelines(context.device(), &pipelines, settings);
+            resources::depth_pipelines(context.device(), &pipelines, settings, sampling);
         let gpu = SceneGpu::upload_prepared_reusing(
             context.device(),
             context.submission(),
@@ -200,15 +203,8 @@ impl ShadowedScene {
             previous,
         )?;
         let depth_frames = resources::depth_frames(context, pipelines.frame_layout());
-        let layers = u32::try_from(
-            scene
-                .effects()
-                .expect("validated effects")
-                .shadows()
-                .extents_millimeters()
-                .len(),
-        )
-        .expect("four cascades");
+        let layers =
+            u32::try_from(effects.shadows().extents_millimeters().len()).expect("four cascades");
         let map = ShadowMap::new(context, settings, &shadow_layout, layers)?;
         let depth_slots = vec![
             depth_frames.clone(),
@@ -221,6 +217,7 @@ impl ShadowedScene {
             pipelines,
             depth_pipelines,
             terrain_depth_pipeline,
+            caster_slope_bits: resources::slope_bias(sampling).to_bits(),
             depth_slots,
             depth_frames,
             frame_slot: 0,
@@ -229,12 +226,7 @@ impl ShadowedScene {
             shadow_layout,
             map,
             settings,
-            effects: scene
-                .effects()
-                .cloned()
-                .ok_or(ShadowError::UnsupportedFeature(
-                    "shadows require an environmental profile",
-                ))?,
+            effects: effects.clone(),
         })
     }
 
@@ -420,6 +412,20 @@ impl ShadowedScene {
         Ok(cascades)
     }
 
+    fn update_caster_pipelines(&mut self, context: &GpuContext) {
+        let sampling = self.effects.shadows().sampling();
+        let bits = resources::slope_bias(sampling).to_bits();
+        if bits != self.caster_slope_bits {
+            (self.depth_pipelines, self.terrain_depth_pipeline) = resources::depth_pipelines(
+                context.device(),
+                &self.pipelines,
+                self.settings,
+                sampling,
+            );
+            self.caster_slope_bits = bits;
+        }
+    }
+
     fn replacement_map(&self, context: &GpuContext) -> Result<Option<ShadowMap>, ShadowError> {
         let count = u32::try_from(self.effects.shadows().extents_millimeters().len())
             .expect("four cascades");
@@ -445,6 +451,7 @@ impl ShadowedScene {
             Option<(sdsm::DepthRange, sdsm::RangeFit)>,
         ),
     ) -> Result<(), ShadowError> {
+        self.update_caster_pipelines(context);
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
         let (scheduler, fitting) = input;
@@ -487,6 +494,7 @@ impl ShadowedScene {
             frame,
             shadow_uniform: &map.uniform,
             settings: self.settings,
+            sampling: self.effects.shadows().sampling(),
         };
         scheduler.encode_frame(
             context.device(),
@@ -552,6 +560,7 @@ struct ShadowFeature<'a> {
     frame: FrameUniform,
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
 }
 impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
     fn prepare(
@@ -574,7 +583,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         context.upload_buffer(
             self.shadow_uniform,
             0,
-            &resources::uniform_bytes(&self.cascades, self.settings),
+            &resources::uniform_bytes_with_sampling(&self.cascades, self.settings, self.sampling),
         );
     }
     fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
@@ -665,6 +674,7 @@ pub(crate) fn wind_test_pipelines(
             normal_bias_meters: 0.0,
             refresh_policy: CascadeRefreshPolicy::default(),
         },
+        worldrunner_render_plan::SceneShadowSampling::default(),
     )
     .0
 }

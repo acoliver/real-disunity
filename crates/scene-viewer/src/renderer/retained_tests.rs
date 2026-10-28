@@ -668,3 +668,41 @@ fn streaming_retained_install_replace_remove_pixels_and_generations() {
     assert_eq!(host.ready_generation(), 3);
     assert_eq!(frame(&mut resident, &context, &mut target), absent);
 }
+
+#[test]
+fn retained_casts_shadow_replace_preserves_handle_and_receiving_membership() {
+    use crate::{ObjectId, RetainedHost, RetainedUpdate};
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let scene = source();
+    let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
+    let mut resident = Resident::new(
+        &context,
+        &scene,
+        Some(shadow_settings()),
+        crate::FrameProfile::Legacy,
+    )
+    .unwrap();
+    let mut streaming =
+        super::readiness::Streaming::new(Some(shadow_settings()), crate::FrameProfile::Legacy);
+    let handle = resident.scene_mut().instance_handles().next().unwrap();
+    let original = resident.scene_mut().instance(handle).unwrap().0;
+    for casts in [false, true] {
+        let replacement = original.with_casts_shadow(casts);
+        host.apply(RetainedUpdate::Replace {
+            id: ObjectId(0),
+            object: replacement,
+        })
+        .unwrap();
+        publish(&context, &mut streaming, &mut resident, &mut host);
+        assert_eq!(host.object(ObjectId(0)), Some(replacement));
+        assert_eq!(
+            resident.scene_mut().instance_handles().next().unwrap(),
+            handle
+        );
+        assert_eq!(
+            resident.scene_mut().instance(handle).unwrap(),
+            (replacement, true)
+        );
+    }
+}

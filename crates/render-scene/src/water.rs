@@ -426,7 +426,7 @@ pub(crate) fn water_source(shadows: bool) -> String {
             include_str!("shader/shadows.wgsl").replace("@group(2)", "@group(1)")
         )
     } else {
-        "fn sunlight_visibility(p: vec3<f32>, n: vec3<f32>) -> f32 { return 1.0; }".to_owned()
+        include_str!("shader/unshadowed.wgsl").to_owned()
     };
     format!(
         "{}\n{}\n{}\n{}\n{shadow_source}\n{}",

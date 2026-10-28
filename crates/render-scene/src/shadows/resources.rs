@@ -53,8 +53,10 @@ pub(super) fn depth_pipelines(
     device: &wgpu::Device,
     pipelines: &ScenePipelines,
     settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
 ) -> ([wgpu::RenderPipeline; 8], wgpu::RenderPipeline) {
-    let configuration = settings.configuration();
+    let mut configuration = settings.configuration();
+    configuration.caster_bias.slope_scale = slope_bias(sampling);
     let module = depth_shader(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shadow caster"),
@@ -72,7 +74,7 @@ pub(super) fn depth_pipelines(
         &module,
         pipelines.frame_layout(),
         &buffers,
-        settings,
+        configuration,
     );
     // Relief is deliberately flat in directional maps, so its pipelines are identical.
     let objects: [_; 4] = std::array::from_fn(|index| {
@@ -117,9 +119,8 @@ fn terrain_depth_pipeline(
     module: &wgpu::ShaderModule,
     frame_layout: &wgpu::BindGroupLayout,
     buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-    settings: DirectionalShadowSettings,
+    configuration: worldrunner_render_shadow::DirectionalShadowConfig,
 ) -> wgpu::RenderPipeline {
-    let configuration = settings.configuration();
     let terrain_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("terrain shadow caster"),
         bind_group_layouts: &[Some(frame_layout)],
@@ -239,9 +240,26 @@ impl ShadowMap {
     }
 }
 
+#[cfg(test)]
 pub(super) fn uniform_bytes(
     cascades: &super::cascades::CascadeViews,
     settings: DirectionalShadowSettings,
+) -> Vec<u8> {
+    uniform_bytes_with_sampling(
+        cascades,
+        settings,
+        worldrunner_render_plan::SceneShadowSampling::default(),
+    )
+}
+
+pub(super) fn slope_bias(sampling: worldrunner_render_plan::SceneShadowSampling) -> f32 {
+    micro_unit(sampling.caster_slope_bias_micro)
+}
+
+pub(super) fn uniform_bytes_with_sampling(
+    cascades: &super::cascades::CascadeViews,
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
 ) -> Vec<u8> {
     let mut values = Vec::with_capacity(SHADOW_UNIFORM_BYTES / 4);
     for index in 0..4 {
@@ -254,7 +272,20 @@ pub(super) fn uniform_bytes(
                 .to_cols_array(),
         );
     }
-    values.extend([cascades.multiplier, settings.normal_bias_meters, 1.0, 0.0]);
+    let footprint = match sampling.filter {
+        worldrunner_render_plan::SceneShadowFilter::Grid { radius } => {
+            f32::from(u16::try_from(radius).expect("validated radius"))
+        }
+        worldrunner_render_plan::SceneShadowFilter::Bilinear2 => -1.0,
+    };
+    // The unused word stores reduction so the default uniform bytes stay unchanged.
+    let reduction = micro_unit(1_000_000 - sampling.strength_micro);
+    values.extend([
+        cascades.multiplier,
+        settings.normal_bias_meters,
+        footprint,
+        reduction,
+    ]);
     values.extend([
         if cascades.no_receivers {
             0.0
@@ -352,4 +383,10 @@ pub(super) fn receiver_pipelines(
 
     pipelines.ssao = screen_layout.is_some();
     Ok(pipelines)
+}
+
+fn micro_unit(value: u32) -> f32 {
+    let high = f32::from(u16::try_from(value / 1000).expect("validated micro-units"));
+    let low = f32::from(u16::try_from(value % 1000).expect("micro-unit remainder"));
+    (high * 1000.0 + low) / 1_000_000.0
 }

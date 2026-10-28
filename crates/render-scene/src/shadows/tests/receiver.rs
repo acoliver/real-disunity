@@ -29,7 +29,7 @@ fn receiver_scene() -> RenderScene {
 }
 
 const SCALAR_RECEIVER: &str = r"
-fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+fn raw_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
     let ndc = clip.xyz / clip.w;
     let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
@@ -40,8 +40,9 @@ fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
 
 fn scalar_pipelines(context: &GpuContext, renderer: &ShadowedScene) -> ScenePipelines {
     let original = include_str!("../../shader/shadows.wgsl");
-    let (prefix, _) = original.split_once("fn sunlight_visibility").unwrap();
-    let receiver = format!("{prefix}{SCALAR_RECEIVER}");
+    let (prefix, rest) = original.split_once("fn raw_sunlight_visibility").unwrap();
+    let (_, suffix) = rest.split_once("fn direct_sunlight_visibility").unwrap();
+    let receiver = format!("{prefix}{SCALAR_RECEIVER}fn direct_sunlight_visibility{suffix}");
     let source = resources::SHADOWED_WGSL.replace(original, &receiver);
     let terrain = resources::SHADOWED_TERRAIN_WGSL.replace(original, &receiver);
     ScenePipelines::with_screen_space(

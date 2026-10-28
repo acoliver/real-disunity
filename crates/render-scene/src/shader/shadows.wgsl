@@ -1,6 +1,6 @@
 struct DirectionalShadow {
     clip_from_world: array<mat4x4<f32>, 4>,
-    // y: world-space normal bias in metres, z: PCF radius.
+    // y: normal bias in metres, z: grid radius or -1 for bilinear, w: strength reduction.
     bias: vec4<f32>,
     // count, blend fraction, camera split policy, camera near distance.
     policy: vec4<f32>,
@@ -17,6 +17,9 @@ fn cascade_visibility(ndc: vec3<f32>, gradient: vec2<f32>, layer: i32) -> f32 {
     if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z < 0.0 || ndc.z > 1.0 {
         return 1.0;
     }
+    if shadow.bias.z < 0.0 {
+        return rd_shadow_array_bilinear(shadow_depth, uv, layer, ndc.z - shadow.depth_bias[layer], gradient);
+    }
     return rd_shadow_array_grid(shadow_depth, shadow_sampler, uv, layer, ndc.z - shadow.depth_bias[layer],
         gradient, i32(shadow.bias.z), true);
 }
@@ -30,7 +33,7 @@ fn single_shadow_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     return cascade_visibility(ndc, gradient, 0);
 }
 
-fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+fn raw_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     // The layer count is draw-uniform, so both derivative paths remain uniform.
     if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 { return single_shadow_visibility(position, normal); }
     var coordinates: array<vec3<f32>, 4>;
@@ -76,4 +79,13 @@ fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     let weight = clamp((progress - (1.0 - fade_fraction)) / fade_fraction, 0.0, 1.0);
     let next = cascade_visibility(coordinates[selected + 1], gradients[selected + 1], selected + 1);
     return mix(current, next, weight);
+}
+
+fn direct_sunlight_visibility(visibility: f32) -> f32 {
+    if shadow.bias.w == 0.0 { return visibility; }
+    return mix(1.0, visibility, 1.0 - shadow.bias.w);
+}
+
+fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+    return direct_sunlight_visibility(raw_sunlight_visibility(position, normal));
 }

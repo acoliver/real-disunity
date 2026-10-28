@@ -278,6 +278,7 @@ pub(super) struct SelectedRange {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct Selection {
+    pub casters_only: bool,
     pub ranges: Vec<SelectedRange>,
     pub stats: ViewStats,
 }
@@ -323,6 +324,7 @@ impl Selection {
             for (slot, object, visible) in batch.placements() {
                 self.stats.considered += 1;
                 if !visible
+                    || (self.casters_only && !object.casts_shadow())
                     || !frustum.intersects(mesh.placement_bounds(
                         instances,
                         object.transform(),
@@ -376,7 +378,10 @@ pub(super) fn caster_matrix(
     let mut near = terrain.map_or(0.0, |bounds| caster_near(bounds, receiver));
     for (&(_, mesh, material), batch) in &instances.batches {
         // Scan allocated slots, excluding removed placements from caster fitting.
-        for (_, object, visible) in batch.placements().filter(|(_, _, visible)| *visible) {
+        for (_, object, visible) in batch
+            .placements()
+            .filter(|(_, object, visible)| *visible && object.casts_shadow())
+        {
             debug_assert!(visible);
             near = near.min(caster_near(
                 meshes[mesh].placement_bounds(instances, object.transform(), material, 0.0),
@@ -435,3 +440,6 @@ mod policy_tests;
 
 #[cfg(test)]
 mod scale_tests;
+
+#[cfg(test)]
+mod caster_tests;

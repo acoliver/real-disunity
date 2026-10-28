@@ -420,6 +420,7 @@ impl SceneTransform {
 /// One ordered scene object: canonical placement plus dense resource handles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneObject {
+    casts_shadow: bool,
     lod_distance_scale_millionths: Option<u32>,
     fade: Option<super::SceneFadeBand>,
     tint: super::SceneTint,
@@ -429,6 +430,17 @@ pub struct SceneObject {
 }
 
 impl SceneObject {
+    /// Controls caster participation without affecting visibility or receiving.
+    #[must_use]
+    pub const fn with_casts_shadow(mut self, casts_shadow: bool) -> Self {
+        self.casts_shadow = casts_shadow;
+        self
+    }
+
+    pub const fn casts_shadow(&self) -> bool {
+        self.casts_shadow
+    }
+
     /// Scales LOD ceilings independently of geometry scale, including selection
     /// of card levels and their complementary preceding-level geometry.
     /// Explicit object and material fade endpoints remain in world distance.
@@ -487,6 +499,7 @@ impl SceneObject {
         material: MaterialHandle,
     ) -> Self {
         Self {
+            casts_shadow: true,
             lod_distance_scale_millionths: None,
             fade: None,
             tint: super::SceneTint::WHITE,

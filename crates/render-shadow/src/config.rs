@@ -21,8 +21,15 @@ impl DirectionalCoverage {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ShadowFilter {
     Center,
-    FourTap { half_extent_texels: f32 },
-    Grid { radius: u32, receiver_plane: bool },
+    /// Four individual forward-depth comparisons, bilinearly weighted.
+    Bilinear2,
+    FourTap {
+        half_extent_texels: f32,
+    },
+    Grid {
+        radius: u32,
+        receiver_plane: bool,
+    },
 }
 
 /// No game defaults: hosts select topology, comparison rules and both bias stages.
@@ -47,7 +54,7 @@ impl DirectionalShadowConfig {
     pub fn validate(self, limits: &wgpu::Limits) -> Result<Self, InvalidShadowConfig> {
         let layers = self.coverage.layers();
         let valid_filter = match self.filter {
-            ShadowFilter::Center => true,
+            ShadowFilter::Center | ShadowFilter::Bilinear2 => true,
             ShadowFilter::FourTap { half_extent_texels } => {
                 half_extent_texels.is_finite() && half_extent_texels >= 0.0
             }

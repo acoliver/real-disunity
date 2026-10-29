@@ -25,6 +25,7 @@
 //! visible.
 
 pub mod metadata;
+pub mod temporal;
 
 use crate::view::SceneView;
 use glam::{Mat3, Mat4, Vec3};
@@ -122,6 +123,10 @@ pub struct FrameUniform {
     pub unlit: bool,
     /// Deterministic animation clock shared by every geometry pass.
     pub animation_time_milliseconds: u32,
+    /// Previous-frame view data; present only while projection jitter is on.
+    ///
+    /// Not encoded in [`to_bytes`](Self::to_bytes). See [`temporal`] for the separate block.
+    pub temporal: Option<temporal::TemporalView>,
 }
 
 impl FrameUniform {
@@ -130,6 +135,16 @@ impl FrameUniform {
             worldrunner_camera::ViewHandedness::RightHanded => wgpu::FrontFace::Ccw,
             worldrunner_camera::ViewHandedness::DirectXLeftHanded => wgpu::FrontFace::Cw,
         }
+    }
+
+    /// The clip-from-scene transform CPU selection uses: culling, level of detail, streaming
+    /// and decal choice. It never carries the sub-pixel jitter that
+    /// [`view_projection`](Self::view_projection) carries while temporal jitter is on.
+    #[must_use]
+    pub fn selection_view_projection(&self) -> Mat4 {
+        self.temporal.map_or(self.view_projection, |temporal| {
+            temporal.unjittered_view_projection
+        })
     }
 
     /// A view-only frame for unlit runtime geometry, with no lighting authority required.
@@ -191,6 +206,7 @@ impl FrameUniform {
             exposure: environment.scene_exposure,
             unlit: false,
             animation_time_milliseconds: 0,
+            temporal: None,
         })
     }
 
@@ -214,6 +230,7 @@ impl FrameUniform {
             exposure: 1.0,
             unlit: true,
             animation_time_milliseconds: 0,
+            temporal: None,
         }
     }
 

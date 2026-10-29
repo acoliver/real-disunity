@@ -168,7 +168,7 @@ fn assert_checked_snapshot(
 #[test]
 fn independent_readers_omit_unused_attachments_and_producers() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for name in [
             "opaque snapshot color",
             "opaque snapshot depth",

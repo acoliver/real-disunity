@@ -83,11 +83,12 @@ radiance and NaN map to zero; positive infinity maps to one. Zero exposure maps
 all radiance to zero. `ToneMap::evaluate` provides the display-linear CPU reference;
 `ToneMapOutput::evaluate` retains its existing Reinhard semantics.
 
-FXAA uses `(R + 2G + B) / 4` as its luminance proxy. `HdrPostSettings::fxaa`
-retains the optional filter strength. `fxaa_quality: FxaaQuality` sets the relative
+FXAA uses `(R + 2G + B) / 4` as its luminance proxy. `HdrPostSettings::resolve` is
+`PostResolve::Fxaa(FxaaSettings { strength, quality })` to enable it. `strength` is
+the filter strength. `quality: FxaaQuality` sets the relative
 `edge_threshold`, absolute `minimum_threshold`, `subpixel_blend` strength multiplier,
-and `luminance` transfer. Each numeric setting must be finite and within `0..=1`,
-even while FXAA is disabled. Filtering skips contrast at or below
+and `luminance` transfer. Strength and each numeric quality setting must be finite
+and within `0..=1`; a zero strength validates but schedules no pass. Filtering skips contrast at or below
 `max(minimum_threshold, maximum * edge_threshold)`. Defaults are `0.1`, `1/64`,
 `1.0`, and `FxaaLuminance::Linear`, preserving the existing bytes and division by ten.
 `FxaaLuminance::Srgb` applies the sRGB OETF to the scalar linear luminance proxy
@@ -103,6 +104,275 @@ alpha is preserved. The filter uses explicit integer loads and bilinear
 arithmetic, without implicit derivatives in divergent control flow. See the
 [post-filter derivation](../../dev-docs/rendering/post-filters.md) for the base
 kernel; the quality controls above extend its fixed contrast cutoff and strength.
+
+## Choosing antialiasing
+
+`AntiAliasing { msaa: MsaaSamples, resolve: PostResolve }` is the one setting for
+antialiasing. `MsaaSamples` has the variants `X1`, `X2`, `X4` and `X8`;
+`MsaaSamples::try_from(u32)` rejects every other number with
+`PostError::SampleCount`. `AntiAliasing::frame_config` builds the `FrameConfig`
+for the scene attachments, and `PostResolve` goes into `HdrPostSettings::resolve`.
+`PostResolve` is `#[non_exhaustive]`: match it with a wildcard arm, because
+further resolves are added as variants. Its variants are `None`, `Fxaa`, `Smaa`
+(see [SMAA 1x](#smaa-1x)) and `Cmaa2` (see [CMAA2](#cmaa2)); one resolve is selected, never
+two. Prefer SMAA when long high-contrast geometry edges dominate and three passes fit the
+budget, FXAA as the cheaper single pass for noisy specular detail, and CMAA2 when the
+adapter has compute shaders and the image has text or thin detail that must stay crisp.
+Sharpening is a separate, optional field, `AntiAliasing::sharpen: Option<CasSettings>`, that
+composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive-sharpening)).
+`AntiAliasing::new` leaves it `None`; `with_sharpen` sets it.
+
+`AntiAliasing::jitter: Option<ProjectionJitter>` is the first part of temporal antialiasing
+(issue 256, in progress). `ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64
+frames (`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
+offset in output pixels, strictly inside (-0.5, 0.5) with +y down, and
+`clip_offset(frame_index, size)` the matching clip-space translation. `AntiAliasing::new` leaves
+jitter off, and then nothing changes. The temporal resolve that uses it, a later
+`PostResolve` variant, is not part of this release; jitter alone shimmers and is meant for tests.
+
+`FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
+`FrameConfig::validate_device` also admits 2 and 8 when the device enabled
+`TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`, and `FrameConfig::validate_adapter`
+checks the adapter's reported sample counts and resolve support for the color and
+depth formats. Run `validate_adapter` before creating a chain with 2 or 8 samples;
+wgpu otherwise reports an unsupported count as a device validation error. An
+unsupported count is always an error and is never reduced.
+
+### SMAA 1x
+
+`PostResolve::Smaa(SmaaSettings)` selects SMAA 1x instead of FXAA; `HdrPostSettings::resolve`
+holds one resolve, so the two cannot run together. `PostResolve::smaa(SmaaPreset::High)`
+builds a preset. `SmaaSettings::LOW`, `MEDIUM`, `HIGH` and `ULTRA` equal the reference
+`SMAA_PRESET_*` values:
+
+| Preset | `threshold` | `max_search_steps` | `max_search_steps_diag` | `corner_rounding` |
+| --- | --- | --- | --- | --- |
+| Low | 0.15 | 4 | off | off |
+| Medium | 0.1 | 8 | off | off |
+| High | 0.1 | 16 | 8 | 25 |
+| Ultra | 0.05 | 32 | 16 | 25 |
+
+Custom values are validated: `threshold` is above 0 and at most 0.5, `max_search_steps`
+is 0 through 112, `max_search_steps_diag` is `None` or 0 through 20, and `corner_rounding`
+is `None` or 0 through 100. `None` skips diagonal or corner handling, as the reference does
+for Low and Medium. `SmaaEdgeDetection::Luma` (default) compares Rec. 709 luma and
+`SmaaEdgeDetection::Color` compares the largest channel difference.
+
+The stage runs where FXAA runs, on the display-referred image at the render extent after tone
+mapping and before any upscale. It schedules `smaa_edges` (Rg8Unorm), `smaa_weights`
+(Rgba8Unorm) and `smaa_blend` as separate stage identities, each with its own timing slot.
+The two intermediate targets and the lookup buffers belong to the `StageSet`, so resize and
+reconfiguration rebuild them with the rest of the schedule. Edge decisions use sRGB-encoded
+values because the reference thresholds assume gamma-space input; the blend itself reads and
+writes linear color. All four channels are blended, so alpha follows the same weights as
+color and stays within the range of the pixels it mixes. A constant image is unchanged.
+
+The area (160x560 RG8) and search (64x16 R8) lookup tables are generated at run time by
+`src/smaa_lut.rs`, a Rust port of the reference `AreaTex.py` and `SearchTex.py`, and bound as
+storage buffers (the stage builder has no queue for texture uploads). The orthogonal half of the
+area table is cached for the process; the diagonal half is generated only when
+`max_search_steps_diag` is set. Tests compare the output with 64-bit digests of the reference
+`AreaTex.h` and `SearchTex.h`, so the bytes are identical to the published tables. The digests were computed from the published headers when the generator was ported; the headers themselves are not committed.
+
+SMAA reads clean stair-step shapes. A straight axis-aligned edge is already sharp and is left
+unchanged; blending happens at steps, diagonals, corners and line ends. A one-pixel line is
+softened at its ends and kept along its length. Compared with FXAA it preserves thin geometry
+better and does not blur texture detail, but it does not smooth shader or texture aliasing.
+Choose it when geometry edges dominate and the three passes fit the budget. Choose FXAA for a
+single cheap pass over noisy specular detail.
+
+Differences from the reference shader: area lookups use explicit bilinear arithmetic, and
+predication, reprojection and subsample indexing (SMAA S2x, T2x, 4x) are not implemented.
+Edge detection reads the color input with point loads and neighborhood blending uses one
+hardware bilinear fetch per side, as the reference does.
+
+The display-referred image between tone mapping and SMAA is `Rgba16Float`. Values in 0..1
+have an 11-bit mantissa at half precision, finer than the 8-bit output, and the format is
+filterable, which the bilinear blend fetch needs. FXAA keeps its `Rgba32Float` intermediate
+and its flat-region precision contract. `PostResolve::display_format` is the one place that
+chooses the format. A resolve followed by an upscale still writes `Rgba32Float` between the
+resolve and the upscale.
+
+Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV, Mesa 26.0.8) at 1920x1080, median of 5 timestamp-query samples per
+stage, on a synthetic frame of diagonal edges. The first column is the `Rgba32Float`
+intermediate with two point-loaded texels in the blend, the second the `Rgba16Float`
+intermediate with bilinear blending:
+
+| Stage (ms) | SMAA high before | SMAA high after |
+| --- | --- | --- |
+| tone | 2.168 | 1.152 |
+| `smaa_edges` | 0.892 | 0.547 |
+| `smaa_weights` | 1.223 | 1.184 |
+| `smaa_blend` | 1.210 | 0.571 |
+| total | 5.493 | 3.454 |
+
+The other presets moved the same way (total, before to after): low 4.989 to 2.953, medium
+4.951 to 3.124, ultra 5.674 to 3.259. FXAA measured 3.387 before and 3.102 after with no code
+change, and no AA measured 0.366 and 0.408, which bounds the run-to-run noise at about 0.3 ms.
+The weights pass reads only `Rg8Unorm` edges and is unchanged.
+
+### CMAA2
+
+`PostResolve::Cmaa2(Cmaa2Settings)` selects Conservative Morphological Anti-Aliasing 2.3 instead
+of FXAA or SMAA; `HdrPostSettings::resolve` holds one resolve. `PostResolve::cmaa2(Cmaa2Preset::High)`
+builds a preset. `Cmaa2Settings::LOW`, `MEDIUM`, `HIGH` and `ULTRA` equal the reference
+`CMAA2_STATIC_QUALITY_PRESET` levels. They differ only in the edge threshold:
+
+| Preset | `edge_threshold` |
+| --- | --- |
+| Low | 0.15 |
+| Medium | 0.10 |
+| High (default) | 0.07 |
+| Ultra | 0.05 |
+
+`Cmaa2Settings::edge_threshold` accepts values above 0 and up to 0.5; others fail with
+`PostError::UnsupportedProfile`. `with_extra_sharpness` turns on the reference
+`CMAA2_EXTRA_SHARPNESS` option, which keeps more text and small detail and smooths less.
+Edges are found on the square root of the display-linear color as a luma approximation, as the
+reference does for linear input.
+
+The stage runs where FXAA and SMAA run: on the display-referred image at the render extent
+after tone mapping and before any upscale. The image is `Rgba16Float` with storage binding. It
+schedules `cmaa2_clear` (a buffer clear of the counters), the compute passes `cmaa2_edges`,
+`cmaa2_candidate_args` and `cmaa2_candidates`, and the full-screen `cmaa2_present` as separate
+stage identities, each with its own timing slot. It needs compute shaders and storage buffers in
+the compute stage and in the fragment stage (read-only).
+
+Deviations from the reference `CMAA2.hlsl` (the list is also at the top of `src/cmaa2.wgsl`):
+
+- Only the single-sample path is ported. The MSAA path (`CMAA2_SUPPORT_MSAA`) is not.
+- `ComputeDispatchArgsCS` becomes the one-thread pass `cmaa2_candidate_args`, because the
+  candidate count is final only after the edge pass. It writes indirect dispatch arguments from
+  the counter into a 12-byte `INDIRECT` buffer, and `cmaa2_candidates` uses
+  `dispatch_workgroups_indirect` (`Operation::ComputeIndirect`). Lists longer than 4096
+  workgroups wrap to further rows. A buffer clear zeroes the counters instead of the reference
+  pass.
+- WGSL has no `R8Uint` storage texture and storage textures have no `InterlockedExchange`.
+  Edges are one `u32` per 2x2 quad (4 bits per pixel) in a storage buffer, and the candidate and
+  blend-item lists and the atomic list heads are storage buffers. Positions are not packed into
+  14 bits, so the packing does not limit extents to 16384 pixels.
+- The reference writes blended colors into the input image in place, in a compute pass
+  (`DeferredColorApply2x2CS`) that visits each touched quad through a location list. The input
+  here is a sampled texture, so `cmaa2_present` writes the output instead: every fragment reads
+  its pixel, walks the blend list of its 2x2 quad (the list heads are per quad, as in the
+  reference) and averages the items for its own pixel, or returns the input pixel unchanged when
+  there are none. The result and the alpha of the original pixel match the reference apply
+  pass. There is no working copy of the image, no apply pass and no location list. The edge
+  pass resets every quad head, not only the heads of quads with edges, so the fragment pass
+  never reads items of an earlier frame.
+- Samples outside the image clamp to the border instead of reading as zero.
+- A full work list drops the item instead of writing past the end. The lists hold a
+  fraction of the pixel count, as in the reference.
+- Luma edge detection, `CMAA2_COLLECT_EXPAND_BLEND_ITEMS` and
+  `CMAA2_DEFERRED_APPLY_THREADGROUP_SWAP` are enabled, and colors in the lists use the
+  `R11G11B10` E4 packing (non-HDR range, clamped to 1.99).
+
+At 1920x1080 the CMAA2 storage is about 14.6 MB of buffers (edges and list heads 2.1 MB each,
+candidates 2.1 MB, blend items 8.3 MB). There is no second image. These are counted in the post
+allocation report. Without a CMAA2 resolve none of it is allocated.
+
+Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV) at 1920x1080, median of 5 timestamp-query samples per stage, with the
+total including the `tone` stage (about 0.9 to 1.0 ms, the same work for every resolve except
+FXAA, whose `Rgba32Float` intermediate makes `tone` about 2 ms). Times are in ms. The "disc"
+frame is a sparse disc edge and the "stripes" frame is dense stripes. Run-to-run noise is about
+0.1 to 0.3 ms.
+
+| Resolve | AA stages, stripes | Total, stripes | Total, disc |
+| --- | --- | --- | --- |
+| none | none | 0.375 | 0.344 |
+| FXAA | `fxaa` 0.930 | 3.068 | 2.816 |
+| SMAA low | edges 0.542, weights 0.770, blend 0.441 | 2.760 | 2.017 |
+| SMAA medium | edges 0.543, weights 0.788, blend 0.516 | 2.932 | 2.101 |
+| SMAA high | edges 0.543, weights 1.120, blend 0.441 | 3.053 | 2.081 |
+| SMAA ultra | edges 0.543, weights 1.173, blend 0.430 | 3.144 | 1.981 |
+| CMAA2 low | edges 0.450, candidates 0.582, present 0.540 | 2.613 | 1.801 |
+| CMAA2 medium | edges 0.413, candidates 0.546, present 0.478 | 2.433 | 1.735 |
+| CMAA2 high | edges 0.429, candidates 0.522, present 0.454 | 2.374 | 1.727 |
+| CMAA2 ultra | edges 0.413, candidates 0.518, present 0.473 | 2.383 | 1.746 |
+
+On this GPU CMAA2 high now costs less than SMAA high and FXAA in total: 2.37 ms against 3.05 ms
+(SMAA) and 3.07 ms (FXAA) on stripes, and 1.73 ms against 2.08 ms and 2.82 ms on the disc. The
+FXAA total is mostly its wider `tone` intermediate. Counting only the AA passes, CMAA2 high is
+1.40 ms on stripes and 0.73 ms on the disc, SMAA high is 2.10 and 1.06 ms, and the single `fxaa`
+pass is 0.93 and 0.84 ms: CMAA2 is cheaper than SMAA on both frames, and cheaper than the FXAA
+pass only on the sparse frame. The disc edge pass costs 0.30 ms, the same as `smaa_edges` at
+0.32 ms, which is close to the time to read the 16.6 MB image once. The extra cost on the stripes
+frame is the candidate pass (0.52 ms, atomics and the line search) and the present pass
+(0.45 ms against 0.38 ms on the disc). The preset changes the time by less than the noise, because
+the fixed-size dispatches run the same number of threads whatever the edge count.
+
+How the time got here, on the stripes frame at the high preset (total with `tone`): indirect
+dispatch of the candidate and apply passes gave 3.88 ms (disc 2.71 ms); folding the apply pass
+into the present pass and dropping the full-image working copy gave 2.37 ms (disc 1.73 ms). The
+edge pass fell from 1.20 to 0.43 ms mostly because it no longer writes four `Rgba16Float`
+texels per thread. Edges were already stored packed, one `u32` per quad. One experiment was
+rejected: sharing the quad lumas through workgroup memory so each edge thread loads 4 texels
+instead of 8 (one more barrier) changed the stripes edge pass from 0.429 to 0.418 ms and the
+disc from 0.305 to 0.295 ms, within noise, so it was reverted to keep the pass simple. The probe
+skips the measurement and passes on adapters without `TIMESTAMP_QUERY`, such as lavapipe.
+
+### Contrast adaptive sharpening
+
+`CasSettings { sharpness }` selects AMD FidelityFX CAS in its sharpen-only form. It is not a
+`PostResolve` variant: it does not remove aliasing, it restores local contrast that a resolve or
+a soft texture filter took away, so it follows whichever resolve is selected. Set it with
+`AntiAliasing::with_sharpen(CasSettings::new(0.5))` or `HdrPostSettings::sharpen`.
+`sharpness` must be finite and within 0 through 1, or `PostError::UnsupportedProfile("CAS settings")`
+is returned. Sharpness 0 is the reference default with the least ringing and still sharpens;
+1 is the strongest setting. `None` schedules nothing: the stage list, intermediates and output
+bytes are those of a build without the field.
+
+The stage runs after the resolve (FXAA, SMAA, CMAA2, or tone mapping when the resolve is `None`) and
+before any upscale, at the render extent, as one fullscreen pass with the stage identity `cas`
+and its own timing slot. Its input is the display-referred image between tone mapping and the
+output, so the same intermediate rules apply: a resolve that feeds CAS writes an `Rgba16Float`
+texture, and so does tone mapping when the resolve is `None`. The FXAA, SMAA and CMAA2 intermediates
+are unchanged when CAS is off. With an upscale, CAS writes an `Rgba16Float` texture that the
+upscale reads. The allocation budget counts that one extra intermediate.
+
+For each pixel the filter reads itself and its four neighbours. The green channel gives the local
+minimum and maximum; the headroom to black or white divided by the maximum, square-rooted, is the
+amount of sharpening. Where contrast already reaches 0 or 1 the amount is 0, so flat areas and
+saturated edges are untouched. The amount scales a negative lobe between -1/8 (sharpness 0) and
+-1/5 (sharpness 1) on the four neighbours, and the result is normalized by `1 + 4w` and saturated.
+Every output channel stays within the 3x3 neighbourhood range on a soft edge, a constant image is
+unchanged at every sharpness, and alpha is copied.
+
+How it differs from RCAS: RCAS is the optional second pass of the FSR 1 upscale. It runs at the
+output extent after EASU, takes its strength in stops from 0 (strongest) through 2, and limits
+ringing from the minimum and maximum of each color channel. It exists only with an upscale. CAS
+runs without scaling, at the render extent, with a 0 through 1 sharpness and a contrast
+adaptive amount driven by headroom, so it works with MSAA, FXAA or SMAA at native resolution. With
+an upscale configured, CAS sharpens before reconstruction and RCAS after it; use both only if the
+combined result is not over-sharpened. Prefer RCAS to restore detail after upscaling and CAS to
+offset the softness of FXAA, SMAA or a soft texture filter at native resolution.
+
+Differences from the reference header: only the `noScaling` path of `CasFilter` is ported, as a
+fragment pass. Taps outside the image clamp to the edge texel. The default quality path is used
+(green-channel weights, no `CAS_BETTER_DIAGONALS`) with exact reciprocals and square roots in
+place of the `APrx` approximations, and the 16-bit packed form is not ported. The shader file
+keeps the AMD notice.
+
+`src/cas_reference.rs` is a scalar f64 reference of the same kernel. The pass alone, writing an
+`Rgba32Float` target from f32 input images with odd extents, is compared with it at an absolute
+per-channel bound of 0.00001, a few f32 ulps. Chain tests then check each resolve, resize, the
+upscale ordering and the 8-bit sRGB result.
+
+Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV, Mesa 26.0.8) at 1920x1080, median of 5 timestamp-query samples, on a
+synthetic frame of diagonal edges, sharpness 0.5:
+
+| Configuration | `cas` stage (ms) | Total (ms) |
+| --- | --- | --- |
+| tone mapping, then CAS | 0.417 | 1.678 |
+| FXAA, then CAS | 0.492 | 4.618 |
+| SMAA medium, then CAS | 0.490 | 4.644 |
+
+The CAS pass costs about 0.4 to 0.5 ms. The run-to-run noise on this adapter is about 0.3 ms
+(the FXAA and SMAA blend passes moved by more than the CAS pass between runs), so read the
+stage figure as a bound rather than a precise cost.
 
 ## Reduced internal resolution
 
@@ -139,6 +409,28 @@ presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
 `src/upscale.wgsl` ports EASU and RCAS from
 [AMD FidelityFX Super Resolution 1, ffx_fsr1.h](https://github.com/GPUOpen-Effects/FidelityFX-FSR).
 Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License. The full copyright, permission and warranty
+notice is preserved in the shader file.
+
+`src/smaa.wgsl` ports SMAA 1x from
+[SMAA.hlsl](https://github.com/iryoku/smaa/blob/master/SMAA.hlsl), and `src/smaa_lut.rs` ports
+the lookup-texture generators `Scripts/AreaTex.py` and `Scripts/SearchTex.py` from the same
+repository. Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando
+Navarro and Diego Gutierrez. Licensed under the MIT License. The full copyright, permission
+and warranty notice is preserved in both files. The port was written from the reference
+source. No code was copied from Bevy's WGSL port.
+
+`src/cmaa2.wgsl` is a modified port to WGSL of
+[CMAA2.hlsl](https://github.com/GameTechDev/CMAA2) (Conservative Morphological
+Anti-Aliasing 2.3, author Filip Strugar). Copyright (c) 2018, Intel Corporation. Licensed
+under the Apache License, Version 2.0. The full license text is in
+[LICENSE-APACHE-2.0-CMAA2.txt](LICENSE-APACHE-2.0-CMAA2.txt). The shader file carries the
+copyright and license header verbatim, a statement that it was modified, and the list of
+changes. The upstream repository has no NOTICE file.
+
+`src/cas.wgsl` ports the sharpen-only path of
+[AMD FidelityFX CAS, ffx_cas.h](https://github.com/GPUOpen-Effects/FidelityFX-CAS) (ffx-cas/ffx_cas.h).
+Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
 Licensed under the MIT License. The full copyright, permission and warranty
 notice is preserved in the shader file.
 

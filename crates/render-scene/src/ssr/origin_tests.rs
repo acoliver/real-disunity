@@ -138,7 +138,7 @@ fn probe(
 #[test]
 fn gpu_water_origin_preserves_sample_coordinates_at_both_trace_scales_and_projections() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for scale in [500_000, 1_000_000] {
             for orthographic in [false, true] {
                 let bytes = probe(&context, samples, scale, orthographic, false);
@@ -201,7 +201,7 @@ fn probe_views(
 #[test]
 fn gpu_orthographic_water_uses_parallel_incident_rays() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for scale in [500_000, 1_000_000] {
             let bytes = probe(&context, samples, scale, true, true);
             let expected: Vec<_> = [0.0, 0.0, -1.0, 1.0]

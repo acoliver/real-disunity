@@ -6,7 +6,7 @@ fn gpu_reducer_rejects_external_unsampleable_and_multisampled_attachments() {
     let valid = source(&context, [2.0; 4], true);
     for product in [FrameProduct::linear_depth(0), FrameProduct::normals()] {
         let samples = if product == FrameProduct::normals() {
-            vec![1, 4]
+            crate::msaa_tests::supported_samples(&context)
         } else {
             vec![1]
         };
@@ -23,7 +23,7 @@ fn gpu_reducer_rejects_external_unsampleable_and_multisampled_attachments() {
                 dimension: wgpu::TextureDimension::D2,
                 format: product.format(),
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | if samples == 4 {
+                    | if samples > 1 {
                         wgpu::TextureUsages::TEXTURE_BINDING
                     } else {
                         wgpu::TextureUsages::empty()

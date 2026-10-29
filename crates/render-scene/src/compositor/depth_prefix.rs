@@ -103,6 +103,7 @@ impl FrameRenderer {
             super::publication::key(&self.snapshot_ready),
             super::publication::key(&self.post_time),
             super::publication::key(&self.exposure_reset),
+            super::publication::key(&self.temporal),
         ]
     }
 }

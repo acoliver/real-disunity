@@ -163,7 +163,7 @@ fn aces_gpu_special_values() {
             for settings in [
                 HdrPostSettings::default(),
                 HdrPostSettings {
-                    fxaa: Some(0.0),
+                    resolve: crate::PostResolve::fxaa(0.0),
                     ..Default::default()
                 },
                 HdrPostSettings {

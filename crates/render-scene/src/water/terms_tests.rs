@@ -110,9 +110,9 @@ fn receiver_normal(
 }
 
 #[test]
-fn lighting_strength_and_minified_normals_match_independent_cpu_at_1x_and_4x() {
+fn lighting_strength_and_minified_normals_match_independent_cpu_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for (strength, mip, phased) in [
             (0, false, false),
             (500_000, false, false),
@@ -161,7 +161,7 @@ fn lighting_strength_and_minified_normals_match_independent_cpu_at_1x_and_4x() {
 #[test]
 fn metallic_diffuse_and_direct_composition_match_cpu_without_absorption() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for metal in [0, 100_000, 1_000_000] {
             let mut body = settings();
             body.color_micro = [250_000, 500_000, 750_000];
@@ -419,7 +419,7 @@ fn finite_highlight_peak_and_zero_amplitudes_match_cpu() {
 #[test]
 fn metallic_receiver_keeps_rgb_f0_and_oct_normal_with_no_extra_textures() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.color_micro = [250_000, 500_000, 750_000];
         body.material.metallic_micro = Some(100_000);
@@ -494,9 +494,9 @@ fn octahedral_receivers_decode_normal_and_coloured_f0() {
 }
 
 #[test]
-fn zero_wind_has_identical_pixels_and_receiver_bytes_at_1x_and_4x() {
+fn zero_wind_has_identical_pixels_and_receiver_bytes_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.normal = Some(TextureHandle::from_raw(0));
         body.material.flow = Some(TextureHandle::from_raw(0));
@@ -533,9 +533,9 @@ fn zero_wind_has_identical_pixels_and_receiver_bytes_at_1x_and_4x() {
 }
 
 #[test]
-fn opposing_wind_and_tangent_normal_use_flat_limit_at_1x_and_4x() {
+fn opposing_wind_and_tangent_normal_use_flat_limit_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.normal = Some(TextureHandle::from_raw(0));
         body.material.flow = Some(TextureHandle::from_raw(0));
@@ -596,7 +596,7 @@ fn default_disk_uniform_and_rendered_bytes_match_fixed_radius() {
         terms::uniforms(&body, 0).map(f32::to_bits),
         expected_uniforms.map(f32::to_bits)
     );
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = render(&context, body.clone(), samples, false);
         draw_water_slot(&context, &renderer, 0);
         let expected = read(&context, renderer.targets().texture());

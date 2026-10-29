@@ -62,6 +62,9 @@ pub struct ViewerOptions {
     pub frame_profile: FrameProfile,
     /// Maximum admitted submissions, in 1..=3. Select two for interactive presentation.
     pub frames_in_flight: usize,
+    /// Opt-in asynchronous GPU pass timestamps. Unsupported adapters keep rendering
+    /// and report `GpuTiming::Unavailable`; disabled requests allocate no queries.
+    pub gpu_timing: bool,
     /// Explicit surface mode: `Fifo`, `FifoRelaxed`, `Mailbox` or `Immediate`. Default: `Fifo`.
     /// Unsupported surface modes fail at startup. Ignored in windowless runs.
     pub present_mode: wgpu::PresentMode,
@@ -96,6 +99,8 @@ pub enum ViewerError {
     BackPressure { limit: usize },
     #[error("live driver failed: {0}")]
     Driver(String),
+    #[error(transparent)]
+    Timing(#[from] worldrunner_render_post::TimingError),
     #[error(transparent)]
     Dynamic(#[from] worldrunner_render_scene::dynamic::DynamicError),
     #[error(transparent)]
@@ -273,3 +278,6 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
 }
 
 pub use retained::{DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics};
+pub use retained::{
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+};

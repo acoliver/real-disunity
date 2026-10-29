@@ -113,10 +113,11 @@ antialiasing. `MsaaSamples` has the variants `X1`, `X2`, `X4` and `X8`;
 `PostError::SampleCount`. `AntiAliasing::frame_config` builds the `FrameConfig`
 for the scene attachments, and `PostResolve` goes into `HdrPostSettings::resolve`.
 `PostResolve` is `#[non_exhaustive]`: match it with a wildcard arm, because
-further resolves are added as variants. Its variants are `None`, `Fxaa` and `Smaa`
-(see [SMAA 1x](#smaa-1x)); one resolve is selected, never two. Prefer SMAA when long
-high-contrast geometry edges dominate and three passes fit the budget, and FXAA as the
-cheaper single pass for noisy specular detail.
+further resolves are added as variants. Its variants are `None`, `Fxaa`, `Smaa`
+(see [SMAA 1x](#smaa-1x)) and `Cmaa2` (see [CMAA2](#cmaa2)); one resolve is selected, never
+two. Prefer SMAA when long high-contrast geometry edges dominate and three passes fit the
+budget, FXAA as the cheaper single pass for noisy specular detail, and CMAA2 when the
+adapter has compute shaders and the image has text or thin detail that must stay crisp.
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -200,6 +201,84 @@ The other presets moved the same way (total, before to after): low 4.989 to 2.95
 change, and no AA measured 0.366 and 0.408, which bounds the run-to-run noise at about 0.3 ms.
 The weights pass reads only `Rg8Unorm` edges and is unchanged.
 
+### CMAA2
+
+`PostResolve::Cmaa2(Cmaa2Settings)` selects Conservative Morphological Anti-Aliasing 2.3 instead
+of FXAA or SMAA; `HdrPostSettings::resolve` holds one resolve. `PostResolve::cmaa2(Cmaa2Preset::High)`
+builds a preset. `Cmaa2Settings::LOW`, `MEDIUM`, `HIGH` and `ULTRA` equal the reference
+`CMAA2_STATIC_QUALITY_PRESET` levels. They differ only in the edge threshold:
+
+| Preset | `edge_threshold` |
+| --- | --- |
+| Low | 0.15 |
+| Medium | 0.10 |
+| High (default) | 0.07 |
+| Ultra | 0.05 |
+
+`Cmaa2Settings::edge_threshold` accepts values above 0 and up to 0.5; others fail with
+`PostError::UnsupportedProfile`. `with_extra_sharpness` turns on the reference
+`CMAA2_EXTRA_SHARPNESS` option, which keeps more text and small detail and smooths less.
+Edges are found on the square root of the display-linear color as a luma approximation, as the
+reference does for linear input.
+
+The stage runs where FXAA and SMAA run: on the display-referred image at the render extent
+after tone mapping and before any upscale. The image is `Rgba16Float` with storage binding. It
+schedules `cmaa2_clear` (a buffer clear of the counters), the compute passes `cmaa2_edges`,
+`cmaa2_candidates` and `cmaa2_apply`, and the full-screen `cmaa2_present` as separate stage
+identities, each with its own timing slot. It needs compute shaders and storage buffers in the
+compute stage.
+
+Deviations from the reference `CMAA2.hlsl` (the list is also at the top of `src/cmaa2.wgsl`):
+
+- Only the single-sample path is ported. The MSAA path (`CMAA2_SUPPORT_MSAA`) is not.
+- The process and apply passes are dispatched with a fixed size derived from the list
+  capacities and read the counters themselves, ending threads past the counts. The reference
+  builds indirect dispatch arguments in `ComputeDispatchArgsCS`; that pass is not ported, and
+  a buffer clear zeroes the counters instead.
+- WGSL has no `R8Uint` storage texture and storage textures have no `InterlockedExchange`.
+  Edges are one `u32` per 2x2 quad in a storage buffer, and the candidate, location and
+  blend-item lists and the atomic list heads are storage buffers. Positions are not packed into
+  14 bits, so the packing does not limit extents to 16384 pixels.
+- The reference writes blended colors into the input image. Here the edge pass copies the
+  image to a working texture, the apply pass blends into it with the alpha of the original
+  pixel, and `cmaa2_present` writes it to the output.
+- Samples outside the image clamp to the border instead of reading as zero.
+- A full work list drops the item instead of writing past the end. The lists hold a
+  fraction of the pixel count, as in the reference.
+- Luma edge detection, `CMAA2_COLLECT_EXPAND_BLEND_ITEMS` and
+  `CMAA2_DEFERRED_APPLY_THREADGROUP_SWAP` are enabled, and colors in the lists use the
+  `R11G11B10` E4 packing (non-HDR range, clamped to 1.99).
+
+At 1920x1080 the CMAA2 storage is about 16 MB of buffers (edges, list heads and candidates
+2.1 MB each, locations 1.4 MB, blend items 8.3 MB) plus a 16.6 MB `Rgba16Float` working image.
+These are counted in the post allocation report. Without a CMAA2 resolve none of it is
+allocated.
+
+Measured with the ignored probe `chain::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV) at 1920x1080, median of 5 timestamp-query samples per stage, on the
+same synthetic frame of diagonal edges as the SMAA numbers above. Times are in ms. The "AA
+total" column leaves out the `tone` stage, which is the same work for every resolve; the
+run-to-run noise is about 0.3 ms.
+
+| Resolve | `tone` | AA stages | AA total | Frame total |
+| --- | --- | --- | --- | --- |
+| none | 0.432 | none | 0 | 0.432 |
+| FXAA | 2.305 | `fxaa` 1.115 | 1.115 | 3.420 |
+| SMAA low | 1.138 | edges 0.545, weights 0.816, blend 0.544 | 1.905 | 3.043 |
+| SMAA medium | 1.215 | edges 0.542, weights 0.817, blend 0.594 | 1.953 | 3.168 |
+| SMAA high | 1.178 | edges 0.556, weights 1.167, blend 0.600 | 2.323 | 3.500 |
+| SMAA ultra | 1.199 | edges 0.544, weights 1.249, blend 0.595 | 2.388 | 3.587 |
+| CMAA2 low | 1.173 | edges 1.357, candidates 0.672, apply 0.697, present 0.738 | 3.464 | 4.636 |
+| CMAA2 medium | 1.213 | edges 1.376, candidates 0.700, apply 0.692, present 0.766 | 3.534 | 4.746 |
+| CMAA2 high | 1.192 | edges 1.398, candidates 0.695, apply 0.662, present 0.780 | 3.535 | 4.728 |
+| CMAA2 ultra | 1.180 | edges 1.357, candidates 0.695, apply 0.668, present 0.739 | 3.459 | 4.639 |
+
+The `tone` time for FXAA is higher because FXAA writes an `Rgba32Float` intermediate. On this
+integrated GPU the CMAA2 passes cost about 1.5 to 3 times the SMAA passes and more than FXAA.
+The preset changes the time by less than the noise, because the fixed-size dispatches run the
+same number of threads whatever the edge count. The probe skips the measurement and passes on
+adapters without `TIMESTAMP_QUERY`, such as lavapipe.
+
 ## Reduced internal resolution
 
 `FrameConfig::size` is the internal scene extent. Construct a configuration with
@@ -245,6 +324,14 @@ repository. Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, F
 Navarro and Diego Gutierrez. Licensed under the MIT License. The full copyright, permission
 and warranty notice is preserved in both files. The port was written from the reference
 source. No code was copied from Bevy's WGSL port.
+
+`src/cmaa2.wgsl` is a modified port to WGSL of
+[CMAA2.hlsl](https://github.com/GameTechDev/CMAA2) (Conservative Morphological
+Anti-Aliasing 2.3, author Filip Strugar). Copyright (c) 2018, Intel Corporation. Licensed
+under the Apache License, Version 2.0. The full license text is in
+[LICENSE-APACHE-2.0-CMAA2.txt](LICENSE-APACHE-2.0-CMAA2.txt). The shader file carries the
+copyright and license header verbatim, a statement that it was modified, and the list of
+changes. The upstream repository has no NOTICE file.
 
 ### Numerical checks and informational timing
 

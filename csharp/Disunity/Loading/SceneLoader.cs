@@ -57,8 +57,10 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         {
             var texture = textures[sprite.Int("texture")];
             var rect = sprite.Floats("rect");
-            sprites.Add(DisunityHost.CreateSprite(texture.Identity, texture.Width, texture.Height,
-                new Rect(rect[0], rect[1], rect[2], rect[3]), sprite.Vec2("pivot"), sprite.Float("pixels_per_unit")));
+            var created = DisunityHost.CreateSprite(texture.Identity, texture.Width, texture.Height,
+                new Rect(rect[0], rect[1], rect[2], rect[3]), sprite.Vec2("pivot"), sprite.Float("pixels_per_unit"));
+            if (sprite.TryGetProperty("name", out var name) && name.GetString() is { } text) DisunityHost.NameSprite(created, text);
+            sprites.Add(created);
         }
     }
 

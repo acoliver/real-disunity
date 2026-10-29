@@ -223,6 +223,7 @@ PhysicsMaterialTests.Run();
 
 UiTests.Run();
 SpriteTests.Run();
+SpriteAtlasTests.Run();
 
 EnabledTests.Run();
 

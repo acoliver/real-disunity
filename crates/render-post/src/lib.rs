@@ -87,6 +87,8 @@ mod smaa_lut_tests;
 mod smaa_tests;
 mod taa;
 #[cfg(test)]
+mod taa_reference;
+#[cfg(test)]
 mod taa_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use cas::CasSettings;

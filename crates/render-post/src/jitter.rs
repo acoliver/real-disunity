@@ -67,16 +67,41 @@ impl ProjectionJitter {
         })
     }
 
+    /// The offset the scene passes apply for a render target of `samples` samples per pixel.
+    ///
+    /// A multisampled frame is already box filtered over the pixel: its pixels hold area
+    /// averages, and accumulating those at shifted positions converges to the box convolved with
+    /// the jitter distribution, an image blurrier than the multisampled frame itself (static 4x
+    /// error 0.0015 against 0.00046 measured, whichever way the shifted pixel is reconstructed).
+    /// The offset is therefore zero for more than one sample: TAA then stabilises in time
+    /// and adds no spatial supersampling.
+    pub fn offset_pixels_for(self, frame_index: u64, samples: u32) -> [f32; 2] {
+        if samples > 1 {
+            [0.0; 2]
+        } else {
+            self.offset_pixels(frame_index)
+        }
+    }
+
     /// The same offset as a translation of clip space for a viewport of `size` pixels.
     ///
     /// Clip x grows to the right and clip y upwards, so the vertical pixel offset changes sign.
     /// This is the translation `ResolvedView::with_raster_sample` applies to a projection.
+    pub fn clip_offset(self, frame_index: u64, size: [u32; 2]) -> [f32; 2] {
+        Self::clip_translation(self.offset_pixels(frame_index), size)
+    }
+
+    /// [`Self::clip_offset`] for a render target of `samples` samples per pixel, as
+    /// [`Self::offset_pixels_for`].
+    pub fn clip_offset_for(self, frame_index: u64, size: [u32; 2], samples: u32) -> [f32; 2] {
+        Self::clip_translation(self.offset_pixels_for(frame_index, samples), size)
+    }
+
     #[expect(
         clippy::cast_precision_loss,
         reason = "viewport extents are far below 2^24"
     )]
-    pub fn clip_offset(self, frame_index: u64, size: [u32; 2]) -> [f32; 2] {
-        let [x, y] = self.offset_pixels(frame_index);
+    fn clip_translation([x, y]: [f32; 2], size: [u32; 2]) -> [f32; 2] {
         [x * 2.0 / size[0] as f32, -y * 2.0 / size[1] as f32]
     }
 }

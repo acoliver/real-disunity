@@ -400,7 +400,7 @@ fn mean_abs_error(a: &Image, b: &Image) -> f64 {
 /// Sub-pixel column of the wall to triangle edge in rows 32..=36, from the red channel's coverage.
 fn edge_column(image: &Image) -> f64 {
     const FIRST: usize = 10;
-    const LAST: usize = 25;
+    const LAST: usize = 28;
     let rows = 32..=36_usize;
     let mut total = 0.0;
     for row in rows.clone() {
@@ -414,9 +414,9 @@ fn edge_column(image: &Image) -> f64 {
     total / count(rows.count())
 }
 
-fn cameras(count: usize) -> Vec<i64> {
+fn cameras(count: usize, step_mm: i64) -> Vec<i64> {
     (0..count)
-        .map(|index| i64::try_from(index).unwrap() * STEP_MM)
+        .map(|index| i64::try_from(index).unwrap() * step_mm)
         .collect()
 }
 
@@ -427,6 +427,7 @@ fn converged(samples: MsaaSamples) {
     }
     let reference = supersampled(&context, 0);
     let single = Rig::new(&context, MsaaSamples::X1, PostResolve::None).render(0);
+    let still = Rig::new(&context, samples, PostResolve::None).render(0);
     let mut rig = Rig::new(&context, samples, taa());
     let accumulated = rig.run(std::iter::repeat_n(0, FRAMES));
     assert!(rig.renderer.has_temporal_history());
@@ -434,6 +435,7 @@ fn converged(samples: MsaaSamples) {
         mean_abs_error(&accumulated, &reference),
         mean_abs_error(&single, &reference),
     );
+    let still_error = mean_abs_error(&still, &reference);
     assert!(taa_error < TAA_BOUND, "{samples:?} TAA error {taa_error}");
     assert!(
         taa_error < single_error * TAA_MARGIN,
@@ -444,8 +446,16 @@ fn converged(samples: MsaaSamples) {
             taa_error <= single_error * 0.5,
             "1x TAA {taa_error} must halve the aliased frame {single_error}"
         );
+    } else {
+        assert!(
+            taa_error <= still_error * STATIC_MSAA_FACTOR,
+            "{samples:?} TAA {taa_error} vs MSAA alone {still_error}"
+        );
     }
 }
+
+/// Static MSAA plus TAA may be at most this multiple of the error of the same MSAA alone.
+const STATIC_MSAA_FACTOR: f64 = 1.5;
 
 /// Mean absolute display error of the converged image against the supersampled reference.
 const TAA_BOUND: f64 = 0.0025;
@@ -462,12 +472,12 @@ fn taa_converges_to_the_supersampled_reference_with_four_msaa_samples() {
     converged(MsaaSamples::X4);
 }
 
-fn translation(samples: MsaaSamples) {
+fn translation(samples: MsaaSamples, step_mm: i64) {
     let context = context();
     if !supported(&context, samples) {
         return;
     }
-    let path = cameras(16);
+    let path = cameras(16, step_mm);
     let last = *path.last().unwrap();
     let reference = supersampled(&context, last);
     let first_reference = supersampled(&context, 0);
@@ -526,14 +536,27 @@ const MOVING_BOUND: f64 = 0.006;
 /// Error to an unjittered render of the same camera; a smear trail of several pixels would exceed it.
 const NO_HISTORY_BOUND: f64 = 0.006;
 
+/// The second camera path: the opposite direction and a different sub-pixel phase.
+const SECOND_STEP_MM: i64 = -29;
+
 #[test]
 fn a_translating_camera_leaves_no_smear_trail_without_msaa() {
-    translation(MsaaSamples::X1);
+    translation(MsaaSamples::X1, STEP_MM);
 }
 
 #[test]
 fn a_translating_camera_leaves_no_smear_trail_with_four_msaa_samples() {
-    translation(MsaaSamples::X4);
+    translation(MsaaSamples::X4, STEP_MM);
+}
+
+#[test]
+fn a_second_camera_path_keeps_the_edge_in_place_without_msaa() {
+    translation(MsaaSamples::X1, SECOND_STEP_MM);
+}
+
+#[test]
+fn a_second_camera_path_keeps_the_edge_in_place_with_four_msaa_samples() {
+    translation(MsaaSamples::X4, SECOND_STEP_MM);
 }
 
 #[test]

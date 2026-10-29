@@ -8,7 +8,7 @@ use crate::PostError;
 /// Longest accepted history weight. A weight of 1 would never admit a new sample.
 const MAX_HISTORY_WEIGHT: f32 = 0.99;
 
-/// Accepted neighborhood clip scale, in standard deviations of the 3x3 neighborhood.
+/// Accepted scale of the 3x3 neighborhood min/max color box.
 const CLIP_SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
 /// Temporal antialiasing controls.
@@ -17,12 +17,14 @@ pub struct TaaSettings {
     /// Weight of the reprojected history in the blend, finite and within 0..=0.99. Larger
     /// values smooth more and respond more slowly; 0 keeps only the current frame.
     pub history_weight: f32,
-    /// Scale of the neighborhood color box that history is clipped to, in standard
-    /// deviations, finite and within 0.5..=2. Smaller values reject more ghosting.
+    /// Scale of the neighborhood color box that history is clipped to, finite and within
+    /// 0.5..=2. The box is the min/max of the 3x3 neighborhood in luminance-compressed
+    /// `YCoCg`, scaled about its centre: 1 keeps the box as measured, smaller values reject
+    /// more ghosting and larger ones admit more history.
     pub clip_scale: f32,
 }
 impl TaaSettings {
-    /// A 90 percent history with a one-sigma clip box.
+    /// A 90 percent history with the neighborhood min/max clip box at scale 1.
     pub const DEFAULT: Self = Self {
         history_weight: 0.9,
         clip_scale: 1.0,

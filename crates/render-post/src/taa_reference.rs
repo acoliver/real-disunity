@@ -125,18 +125,18 @@ pub(crate) fn from_ycocg([y, co, cg]: [f64; 3]) -> [f64; 3] {
     [y + co - cg, y + cg, y - co - cg]
 }
 
-/// Clips `history` onto the box `mean +- scale * sigma` along the line to `mean`. A point
+/// Clips `history` onto the box `centre +- scale * half_extent` along the line to `centre`. A point
 /// inside is unchanged; one outside is scaled toward the centre by the largest per-axis
 /// ratio of its offset to the half-extent, so hue is kept, unlike a per-channel clamp.
 pub(crate) fn clip_toward_centre(
     history: [f64; 3],
     mean: [f64; 3],
-    sigma: [f64; 3],
+    half_extent: [f64; 3],
     scale: f64,
 ) -> [f64; 3] {
     let offset: [f64; 3] = std::array::from_fn(|i| history[i] - mean[i]);
     let ratio = (0..3)
-        .map(|i| offset[i].abs() / (scale * sigma[i]).max(MIN_BOX_EXTENT))
+        .map(|i| offset[i].abs() / (scale * half_extent[i]).max(MIN_BOX_EXTENT))
         .fold(0.0, f64::max);
     if ratio <= 1.0 {
         history

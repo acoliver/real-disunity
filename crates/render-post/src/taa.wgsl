@@ -1,8 +1,8 @@
 // Temporal antialiasing resolve and history copy. The algorithm is documented, with its
 // conventions, in taa_reference.rs, which the GPU tests compare this shader against. It follows
 // Karis 2014, "High Quality Temporal Supersampling" (luminance-compressed color, 1 / (1 + luma)
-// blend weights) and Salvi 2016, "An Excursion in Temporal Supersampling" (mean plus or minus a
-// multiple of the standard deviation as the color box). Written from those descriptions.
+// blend weights) with a min/max color box of the 3x3 neighborhood in YCoCg that history is
+// clipped to along the ray to the box centre. Written from those descriptions.
 //
 // Pixel (x, y) has its centre at (x + 0.5, y + 0.5), y down. The current color holds samples
 // rendered with the projection shifted by `jitter` pixels, so pixel q holds the scene at

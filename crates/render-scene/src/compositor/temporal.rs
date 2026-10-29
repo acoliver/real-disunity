@@ -99,10 +99,11 @@ impl FrameRenderer {
         let Some(jitter) = history.jitter else {
             return frame;
         };
-        let size = self.targets().config().size;
+        let config = self.targets().config();
+        let (size, samples) = (config.size, config.samples);
         let unjittered = frame.selection_view_projection();
-        let jitter_pixels = jitter.offset_pixels(history.frame_index);
-        let [x, y] = jitter.clip_offset(history.frame_index, size);
+        let jitter_pixels = jitter.offset_pixels_for(history.frame_index, samples);
+        let [x, y] = jitter.clip_offset_for(history.frame_index, size, samples);
         let previous = history.previous.filter(|previous| previous.size == size);
         frame.view_projection = Mat4::from_translation(Vec3::new(x, y, 0.0)) * unjittered;
         frame.temporal = Some(TemporalView {

@@ -141,6 +141,7 @@ internal static class LoaderRules
         Require(ReferenceEquals(a.Other, b.gameObject) && ReferenceEquals(a.anchor, b.transform) && ReferenceEquals(a.peer, b),
             "[SerializeField] fields and object, transform and component references bind");
         Require(a.waves is [{ count: 2, art: not null }] && a.more is [{ count: 3, art: null }], "serializable arrays and lists bind");
+        Require(a.waves[0].art!.name == "art", "a planned sprite carries the name the plan gives it");
         Require(a.settings is { name: "Heavy", gravity: 4 }, "asset references bind to the loaded asset with its fields");
         Require(a.kept == 9 && a.skipped == 3, "absent fields keep initializers and [NonSerialized] fields ignore data");
         Require(a.awake == "hi peer=B kept=9", "fields bind before Awake");

@@ -17,6 +17,13 @@ pub struct Package {
     pub name: String,
     pub manifest_path: PathBuf,
     pub dependencies: Vec<Dependency>,
+    pub targets: Vec<Target>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Target {
+    pub name: String,
+    pub kind: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -13,6 +13,7 @@ mod keys;
 mod player;
 mod prepare;
 mod textures;
+mod unresolved;
 
 pub use driver::{Capture, PlayDriver};
 pub use keys::key_code;

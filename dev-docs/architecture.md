@@ -30,7 +30,7 @@ The layer of each crate is declared in `crates/xtask/src/layers.rs`, and `cargo 
 | Graphics | `render-gpu`, `render-lighting`, `render-shadow`, `render-post`, `render-scene` |
 | Host | `scene-viewer` |
 | Managed | `disunity-runtime` |
-| Tool | `unity-import`, `content-tool`, `xtask` |
+| Tool | `unity-import`, `content-tool`, `original-games` (public game sources fetched read-only at pinned revisions), `play` (runs a game's scene or built player in a window), `xtask` |
 | Facade | `worldrunner` |
 
 `world-runtime` prepares validated documents and their resources. Running object state belongs to `world-simulation`.
@@ -40,7 +40,7 @@ The layer of each crate is declared in `crates/xtask/src/layers.rs`, and `cargo 
 For a Rust game:
 
 1. The game pushes timestamped input into the `World` and calls `World::advance(elapsed)`.
-2. The world admits whole fixed steps, then runs lifecycle work, fixed updates, physics, contacts, the dynamic update, coroutines, late update and end-of-frame cleanup in a fixed order ([frame advancement](simulation/advancement.md)). With no scripts attached, `advance` returns `Advance::Complete` directly.
+2. The world admits whole fixed steps, then runs lifecycle work, fixed updates, physics, contacts, the dynamic update, coroutines, the host's delayed tasks, late update and end-of-frame cleanup in a fixed order ([frame advancement](simulation/advancement.md#dispatch-contract)). The delayed-tasks callback runs only when the host registered one with `set_delayed_tasks`; managed hosts use it for main-thread work such as completing `ResourceRequest`s. With no scripts attached, `advance` returns `Advance::Complete` directly.
 3. `render_plan::simulation::extract_world` reads sprites, tiles and the camera into a `WorldRenderPlan`, and `extract_ui` adds UI glyphs. Native XY geometry becomes scene XZ coordinates here, once.
 4. `render-scene` prepares the plan as a dynamic contribution, and `scene-viewer` presents it, or `render-scene` captures it offscreen.
 

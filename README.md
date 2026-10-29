@@ -89,7 +89,7 @@ The `worldrunner` crate is a facade that re-exports these crates behind feature 
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md) for forks, permitted references, milestone PRs and public verification. All contribution types are welcome, including a game rendering before it is fully playable. Coding agents must follow [AGENTS.md](AGENTS.md); the [developer guide](dev-docs/README.md) covers ownership and checks. Update affected README pages and contracts with each change.
 
-Andrew intends human review daily, and maintainer agents also review daily. Daily attention does not guarantee a same-day merge. Only Andrew manually merges all PRs. Agents never merge, enable auto-merge or use a merge queue.
+Andrew intends human review daily, and maintainer agents also review daily. Daily attention does not guarantee a same-day merge. Andrew merges external contributors' PRs after review. His own maintainer agents merge their own PRs once the required checks pass.
 
 ## License
 

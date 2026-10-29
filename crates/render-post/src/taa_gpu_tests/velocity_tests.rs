@@ -135,6 +135,8 @@ fn resolve_at(
         settings: TaaSettings::DEFAULT,
         samples: u32::try_from(depth.planes.len().max(1)).unwrap(),
         velocity,
+        depth_history: None,
+        depth_terms: [0.0; 2],
     }
     .resolve_pixel(at)[0]
 }

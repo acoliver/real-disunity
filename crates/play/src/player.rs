@@ -6,7 +6,7 @@ use std::time::Duration;
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_original_games::workspace_root;
 use worldrunner_unity_import::{
-    player_identity::{PlayerIdentity, player_identity, player_quality},
+    player_identity::{PlayerIdentity, player_identity, player_quality, player_scene_paths},
     player_plan::plan_player_scene,
     player_resources::plan_player_resources,
     script_layouts::{ScriptLayouts, parse_script_layouts},
@@ -41,10 +41,9 @@ pub fn prepare_player(
         plan.differences.len()
     );
     let plan_path = output.join("plan.json");
-    write(
-        &plan_path,
-        &serde_json::to_vec(&plan).expect("plans serialize"),
-    )?;
+    let plan_bytes = serde_json::to_vec(&plan).expect("plans serialize");
+    write(&plan_path, &plan_bytes)?;
+    let scenes = plan_build_scenes(data, &layouts, &output, (scene, &plan_bytes))?;
     let resources = plan_player_resources(data, &layouts, &output)?;
     eprintln!(
         "[player] planned resources: {} entries, {} assets",
@@ -56,7 +55,12 @@ pub fn prepare_player(
         &resources_path,
         &serde_json::to_vec(&resources).expect("plans serialize"),
     )?;
-    let request = write_request(&output, data, &plan_path, &resources_path, arguments)?;
+    let request = write_request(
+        &output,
+        data,
+        [&plan_path, &resources_path],
+        (&scenes, arguments),
+    )?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
         request,
@@ -83,16 +87,77 @@ fn script_layouts(root: &Path, output: &Path, data: &Path) -> Result<ScriptLayou
     Ok(parse_script_layouts(&json)?)
 }
 
+/// The file name a scene path is known by: its last component without `.unity`.
+fn scene_name(path: &str) -> &str {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    file.strip_suffix(".unity").unwrap_or(file)
+}
+
+/// The request's `scenes` list: one entry per build scene in build order, with the plan file
+/// for the scenes that planned, and `null` plus the planning `error` for those that did not.
+fn scene_entries(paths: &[String], plans: &[Result<PathBuf, String>]) -> Vec<serde_json::Value> {
+    paths
+        .iter()
+        .zip(plans)
+        .map(|(path, plan)| {
+            let name = scene_name(path);
+            match plan {
+                Ok(plan) => serde_json::json!({"name": name, "path": path, "plan": plan}),
+                Err(error) => {
+                    serde_json::json!({"name": name, "path": path, "plan": null, "error": error})
+                }
+            }
+        })
+        .collect()
+}
+
+/// Plans every scene in the player's build into `scene-{i}.json` under `output`, reusing
+/// `requested`'s bytes for the scene it already planned. A scene that fails to plan is
+/// reported on standard error and listed without a plan, so only loading it fails.
+fn plan_build_scenes(
+    data: &Path,
+    layouts: &ScriptLayouts,
+    output: &Path,
+    requested: (&str, &[u8]),
+) -> Result<Vec<serde_json::Value>, PlayError> {
+    let paths = player_scene_paths(data)?;
+    let mut plans = Vec::with_capacity(paths.len());
+    for index in 0..paths.len() {
+        let file = format!("level{index}");
+        let planned = if file == requested.0 {
+            Ok(requested.1.to_vec())
+        } else {
+            plan_player_scene(data, &file, layouts)
+                .map(|plan| serde_json::to_vec(&plan).expect("plans serialize"))
+        };
+        plans.push(match planned {
+            Ok(bytes) => {
+                let path = output.join(format!("scene-{index}.json"));
+                write(&path, &bytes)?;
+                Ok(path)
+            }
+            Err(error) => {
+                eprintln!("[player] could not plan {file}: {error}");
+                Err(error.to_string())
+            }
+        });
+    }
+    eprintln!("[player] planned {} build scenes", paths.len());
+    Ok(scene_entries(&paths, &plans))
+}
+
 /// Writes the bridge's request: the player's paths, plans, identity, command line arguments
 /// and quality levels. Each game keeps its preferences in its own
-/// `persistent/<company>/<product>` directory under `output`.
+/// `persistent/<company>/<product>` directory under `output`. `plans` are the scene plan and
+/// the resource plan; `launch` is the build's scene list and the command line.
 fn write_request(
     output: &Path,
     data: &Path,
-    plan: &Path,
-    resources: &Path,
-    arguments: &[String],
+    plans: [&Path; 2],
+    launch: (&[serde_json::Value], &[String]),
 ) -> Result<PathBuf, PlayError> {
+    let [plan, resources] = plans;
+    let (scenes, arguments) = launch;
     let identity = player_identity(data)?;
     eprintln!(
         "[player] {} {} {} built with Unity {} for {}",
@@ -108,6 +173,7 @@ fn write_request(
         .join(path_component(&identity.product_name));
     let request = output.join("request.json");
     let mut body = request_body(data, [plan, resources, &persistent], &identity, arguments);
+    body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
     }
@@ -215,6 +281,30 @@ mod tests {
         assert_eq!(
             request["arguments"],
             serde_json::json!(["-userdata", "/tmp/my saves", "-headless", "-userdata", "x"])
+        );
+    }
+
+    #[test]
+    fn the_scene_list_names_each_build_scene_and_leaves_a_failed_plan_null() {
+        let paths: Vec<String> = [
+            "Assets/GameAssets/Scenes/StartScreen.unity",
+            "Assets/GameAssets/Scenes/MainGame.unity",
+            "Assets/Loose",
+        ]
+        .map(String::from)
+        .to_vec();
+        let plans = [
+            Ok(PathBuf::from("out/scene-0.json")),
+            Err("object 3 does not decode".to_owned()),
+            Ok(PathBuf::from("out/scene-2.json")),
+        ];
+        assert_eq!(
+            serde_json::Value::Array(scene_entries(&paths, &plans)),
+            serde_json::json!([
+                {"name": "StartScreen", "path": "Assets/GameAssets/Scenes/StartScreen.unity", "plan": "out/scene-0.json"},
+                {"name": "MainGame", "path": "Assets/GameAssets/Scenes/MainGame.unity", "plan": null, "error": "object 3 does not decode"},
+                {"name": "Loose", "path": "Assets/Loose", "plan": "out/scene-2.json"},
+            ])
         );
     }
 

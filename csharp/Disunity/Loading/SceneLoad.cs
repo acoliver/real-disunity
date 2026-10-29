@@ -64,13 +64,44 @@ public static partial class DisunityHost
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(options);
+        _sceneOptions = options;
+        return LoadPlan(plan, options, null, LoadSceneMode.Single);
+    }
+
+    /// <summary>Loads a plan as a scene. <paramref name="buildIndex"/> names the build scene it is; without one, a plan
+    /// named <c>level{i}</c> is build scene <c>i</c> of the player's list, and any other plan is a scene of its own. A
+    /// single load, or the first scene, becomes the active scene and raises <c>sceneLoaded</c> then
+    /// <c>activeSceneChanged</c> from <paramref name="replaced"/>, the scene a single load unloaded, or the active one; an additive load owns the roots its load created and raises only <c>sceneLoaded</c>.</summary>
+    private static LoadedScene LoadPlan(string plan, SceneLoadOptions options, int? buildIndex, LoadSceneMode mode, Scene? replaced = null)
+    {
         EnsureWorld();
         using var document = JsonDocument.Parse(plan);
+        var before = ChildrenOf(0).ToHashSet();
         var loaded = new SceneLoader(document.RootElement, options).Load();
-        CurrentScene = new LoadedSceneInfo(document.RootElement.Str("scene"), loaded.TemplateObjects);
-        SceneManager.RaiseLoaded(ActiveScene);
+        var name = document.RootElement.Str("scene");
+        var listed = buildIndex ?? ListedLevel(name);
+        var entry = listed is { } index ? BuildScenes[index] : new BuildScene(name, "", () => plan);
+        var info = new LoadedSceneInfo(entry.Name, loaded.TemplateObjects, entry) { Handle = ++_sceneHandles, ListIndex = listed, Loaded = loaded };
+        var additive = mode == LoadSceneMode.Additive && CurrentScene is not null;
+        if (additive) info.Roots = ChildrenOf(0).Where(root => !before.Contains(root) && !loaded.TemplateObjects.Contains(root)).ToHashSet();
+        LoadedScenes.Add(info);
+        var scene = new Scene { Handle = info.Handle };
+        if (additive)
+        {
+            SceneManager.RaiseLoaded(scene, LoadSceneMode.Additive);
+            return loaded;
+        }
+        var previous = replaced ?? ActiveScene;
+        CurrentScene = info;
+        SceneManager.RaiseLoaded(scene, LoadSceneMode.Single);
+        SceneManager.RaiseActiveSceneChanged(previous, ActiveScene);
         return loaded;
     }
+
+    /// <summary>The place in the player's build list of a plan named like its level file, or null.</summary>
+    private static int? ListedLevel(string name) =>
+        _buildScenes is { } list && name.StartsWith("level", StringComparison.Ordinal)
+            && int.TryParse(name.AsSpan("level".Length), out var index) && index >= 0 && index < list.Count ? index : null;
 }
 
 /// <summary>Reads the plan's JSON values.</summary>

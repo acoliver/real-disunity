@@ -143,12 +143,9 @@ internal static class SceneManagerTests
         DisunityHost.LoadWorld();
         try
         {
-            var single = Expect.Catch<NotSupportedException>(() => SceneManager.LoadScene("X"), "LoadScene(name)");
-            Expect.That(single.Message.Contains("SceneManager.LoadScene(\"X\", Single) is not supported yet: the engine holds one scene"), single.Message);
-            var additive = Expect.Catch<NotSupportedException>(() => SceneManager.LoadScene("Y", LoadSceneMode.Additive), "LoadScene(name, mode)");
-            Expect.That(additive.Message.Contains("SceneManager.LoadScene(\"Y\", Additive) is not supported yet: the engine holds one scene"), additive.Message);
-            var async = Expect.Catch<NotSupportedException>(() => SceneManager.LoadSceneAsync("Z", LoadSceneMode.Additive), "LoadSceneAsync");
-            Expect.That(async.Message.Contains("SceneManager.LoadSceneAsync(\"Z\", Additive) is not supported yet"), async.Message);
+            Load(Plan());
+            var missing = Expect.Catch<ArgumentException>(() => SceneManager.LoadScene("X"), "LoadScene of a scene outside the build");
+            Expect.That(missing.Message.Contains("\"X\""), missing.Message);
         }
         finally { DisunityHost.UnloadWorld(); }
     }

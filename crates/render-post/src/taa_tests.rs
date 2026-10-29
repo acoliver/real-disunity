@@ -156,7 +156,8 @@ fn other_resolves_keep_their_explicit_jitter_choice() {
 }
 
 #[test]
-fn the_uniform_block_is_eighty_bytes_with_a_column_major_matrix_then_jitter_and_validity() {
+fn the_uniform_block_is_ninety_six_bytes_with_a_column_major_matrix_jitter_validity_and_depth_terms()
+ {
     use crate::{TAA_UNIFORM_BYTES, TaaUniform};
     let mut reprojection = [[0.0; 4]; 4];
     for (c, column) in reprojection.iter_mut().enumerate() {
@@ -168,17 +169,18 @@ fn the_uniform_block_is_eighty_bytes_with_a_column_major_matrix_then_jitter_and_
         reprojection,
         jitter_pixels: [0.25, -0.5],
         history_valid: true,
+        depth_terms: [1.5, -0.25],
     };
     let bytes = uniform.to_bytes();
-    assert_eq!(TAA_UNIFORM_BYTES, 80);
-    assert_eq!(bytes.len(), 80);
+    assert_eq!(TAA_UNIFORM_BYTES, 96);
+    assert_eq!(bytes.len(), 96);
     let floats: Vec<f32> = bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
         .collect();
     let expected: Vec<f32> = (0..16u8).map(f32::from).collect();
     assert_eq!(floats[..16], expected[..]);
-    assert_eq!(floats[16..], [0.25, -0.5, 1.0, 0.0]);
+    assert_eq!(floats[16..], [0.25, -0.5, 1.0, 0.0, 1.5, -0.25, 0.0, 0.0]);
     let none = TaaUniform {
         history_valid: false,
         ..uniform

@@ -267,13 +267,13 @@ pub fn fullscreen_pass(
     pipeline: &wgpu::RenderPipeline,
     groups: &[&wgpu::BindGroup],
 ) {
-    fullscreen_pass_timed(encoder, label, attachment, pipeline, groups, None);
+    fullscreen_pass_timed(encoder, label, &[Some(attachment)], pipeline, groups, None);
 }
 
 fn fullscreen_pass_timed(
     encoder: &mut wgpu::CommandEncoder,
     label: Option<&str>,
-    attachment: wgpu::RenderPassColorAttachment<'_>,
+    attachments: &[Option<wgpu::RenderPassColorAttachment<'_>>],
     pipeline: &wgpu::RenderPipeline,
     groups: &[&wgpu::BindGroup],
     stamp: Option<&timing::Stamp>,
@@ -281,7 +281,7 @@ fn fullscreen_pass_timed(
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label,
         timestamp_writes: stamp.map(timing::Stamp::render),
-        color_attachments: &[Some(attachment)],
+        color_attachments: attachments,
         ..Default::default()
     });
     pass.set_pipeline(pipeline);

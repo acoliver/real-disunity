@@ -130,6 +130,10 @@ pub(crate) struct Frame<'a> {
     pub samples: u32,
     /// Object-motion residual in previous-frame uv units; `None` is all zero.
     pub velocity: Option<&'a crate::taa_velocity::Velocity>,
+    /// Linear view depth the previous resolve stored; `None` skips the disocclusion test.
+    pub depth_history: Option<&'a Depth>,
+    /// Depth terms `(a, b)` with linear depth `b / (z - a)`; `b == 0` skips the test.
+    pub depth_terms: [f64; 2],
 }
 
 /// Luma of linear Rec. 709 color.
@@ -294,7 +298,7 @@ impl Frame<'_> {
     /// unjittered NDC (the depth texel was rasterised `jitter` pixels off its centre) and its
     /// depth go through the reprojection matrix, and the uv displacement is applied at the
     /// pixel centre, plus that texel's object-motion residual (Karis dilation).
-    fn history_uv(&self, at: [i32; 2]) -> Option<[f64; 2]> {
+    fn history_uv(&self, at: [i32; 2]) -> Option<Lookup> {
         let q = self.closest(at);
         let size = self.depth.size.map(f64::from);
         let uv = |p: [i32; 2]| {
@@ -308,14 +312,15 @@ impl Frame<'_> {
             2.0 * texel[0] - 1.0 - 2.0 * self.jitter[0] / size[0],
             1.0 - 2.0 * texel[1] + 2.0 * self.jitter[1] / size[1],
         ];
-        let m = &self.reprojection;
-        let v = [ndc[0], ndc[1], self.depth.load(q[0], q[1]), 1.0];
-        let row = |r: usize| (0..4).map(|c| m[c][r] * v[c]).sum::<f64>();
-        let w = row(3);
-        if !(w.is_finite() && w > 0.0) {
+        let matrix = &self.reprojection;
+        let device_z = self.depth.load(q[0], q[1]);
+        let point = [ndc[0], ndc[1], device_z, 1.0];
+        let row = |r: usize| (0..4).map(|c| matrix[c][r] * point[c]).sum::<f64>();
+        let clip_w = row(3);
+        if !(clip_w.is_finite() && clip_w > 0.0) {
             return None;
         }
-        let previous = [0.5 + 0.5 * row(0) / w, 0.5 - 0.5 * row(1) / w];
+        let previous = [0.5 + 0.5 * row(0) / clip_w, 0.5 - 0.5 * row(1) / clip_w];
         let unjittered = [0.5 + 0.5 * ndc[0], 0.5 - 0.5 * ndc[1]];
         let centre = uv(at);
         let residual = self.residual(q);
@@ -323,7 +328,15 @@ impl Frame<'_> {
             centre[0] + previous[0] - unjittered[0] + residual[0],
             centre[1] + previous[1] - unjittered[1] + residual[1],
         ];
-        out.iter().all(|v| (0.0..=1.0).contains(v)).then_some(out)
+        out.iter()
+            .all(|v| (0.0..=1.0).contains(v))
+            .then_some(Lookup {
+                uv: out,
+                // Sky is predicted at the far plane: its reprojected `w` only measures camera motion.
+                predicted_depth: self.linear_depth(device_z)
+                    * if device_z >= 1.0 { 1.0 } else { clip_w },
+                camera_only: residual[0] == 0.0 && residual[1] == 0.0,
+            })
     }
 
     /// Length in pixels of the displacement from the pixel centre to its history position.
@@ -389,9 +402,13 @@ impl Frame<'_> {
     pub fn resolve_pixel(&self, at: [i32; 2]) -> [f64; 4] {
         let current = self.reconstruct(at);
         let rgb = [current[0], current[1], current[2]];
-        let lookup = self.history_valid.then(|| self.history_uv(at)).flatten();
+        let lookup = self
+            .history_valid
+            .then(|| self.history_uv(at))
+            .flatten()
+            .filter(|lookup| !self.disoccluded(lookup));
         let out = lookup
-            .and_then(|uv| Some((uv, self.fetch_history(uv)?)))
+            .and_then(|l| Some((l.uv, self.fetch_history(l.uv)?)))
             .map_or(rgb, |(uv, h)| {
                 self.blend(rgb, h, self.statistics(at), self.motion_pixels(at, uv))
             });
@@ -411,6 +428,14 @@ impl Frame<'_> {
             .collect()
     }
 }
+
+#[path = "taa_disocclusion.rs"]
+mod disocclusion;
+use disocclusion::Lookup;
+
+#[cfg(test)]
+#[path = "taa_depth_tests.rs"]
+pub(crate) mod depth_tests;
 
 #[cfg(test)]
 mod tests {
@@ -476,6 +501,8 @@ mod tests {
                 settings: self.settings,
                 samples: 1,
                 velocity: None,
+                depth_history: None,
+                depth_terms: [0.0; 2],
             }
             .resolve_pixel(at)
         }
@@ -584,6 +611,8 @@ mod tests {
             settings: scene.settings,
             samples: 1,
             velocity: None,
+            depth_history: None,
+            depth_terms: [0.0; 2],
         };
         let (mean, sigma) = frame.statistics([2, 2]);
         assert!(near(&mean, &[0.25, 0.0, 0.0]), "{mean:?}");

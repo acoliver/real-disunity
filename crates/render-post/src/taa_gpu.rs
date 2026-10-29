@@ -2,16 +2,21 @@
 use crate::{Stage, StageId, StageSet, StageTarget, TaaSettings};
 
 /// Stage names, in execution order. Identities are stable for timing.
-pub const STAGES: [&str; 2] = ["taa resolve", "taa history"];
+pub const STAGES: [&str; 3] = ["taa resolve", "taa history", "taa depth history"];
 
 /// Format of the resolve output and of the history texture.
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Format of the linear-depth output and of the depth history.
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 
 /// The two textures a resolve needs besides its inputs.
 #[cfg(test)]
 pub struct Targets {
     pub output: wgpu::Texture,
     pub history: wgpu::Texture,
+    pub depth_output: wgpu::Texture,
+    pub depth_history: wgpu::Texture,
 }
 
 /// Allocates the resolve output "taa output" and the history "taa history", both
@@ -22,6 +27,8 @@ pub fn allocate(device: &wgpu::Device, size: [u32; 2]) -> Targets {
     Targets {
         output: output(device, size),
         history: history(device, size),
+        depth_output: depth_output(device, size),
+        depth_history: depth_history(device, size),
     }
 }
 
@@ -35,9 +42,40 @@ pub fn history(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
     texture(device, "taa history", size, wgpu::TextureUsages::COPY_DST)
 }
 
+/// The linear-depth output "taa depth output", the second target of the resolve. Frame slots
+/// each own one.
+pub fn depth_output(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
+    format_texture(
+        device,
+        ("taa depth output", DEPTH_FORMAT),
+        size,
+        wgpu::TextureUsages::empty(),
+    )
+}
+
+/// The depth history "taa depth history", the linear view depth of the previous frame's
+/// closest-depth texels. One is shared by every frame slot of a size, like [`history`].
+pub fn depth_history(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
+    format_texture(
+        device,
+        ("taa depth history", DEPTH_FORMAT),
+        size,
+        wgpu::TextureUsages::COPY_DST,
+    )
+}
+
 fn texture(
     device: &wgpu::Device,
     label: &str,
+    size: [u32; 2],
+    extra: wgpu::TextureUsages,
+) -> wgpu::Texture {
+    format_texture(device, (label, FORMAT), size, extra)
+}
+
+fn format_texture(
+    device: &wgpu::Device,
+    (label, format): (&str, wgpu::TextureFormat),
     size: [u32; 2],
     extra: wgpu::TextureUsages,
 ) -> wgpu::Texture {
@@ -47,7 +85,7 @@ fn texture(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: FORMAT,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_SRC
@@ -74,10 +112,16 @@ pub struct Inputs<'a> {
     pub uniform: &'a wgpu::Buffer,
     pub history: &'a wgpu::Texture,
     pub output: &'a wgpu::Texture,
+    /// [`DEPTH_FORMAT`] linear depth of the previous frame, read by the disocclusion test.
+    pub depth_history: &'a wgpu::Texture,
+    /// [`DEPTH_FORMAT`] second target of the resolve, copied into `depth_history` afterwards.
+    pub depth_output: &'a wgpu::Texture,
 }
 
-/// Appends "taa resolve", which reads `inputs` and writes `inputs.output`, then "taa history",
-/// a texture copy of the output into `inputs.history`. One history texture plus a copy-back
+/// Appends "taa resolve", which reads `inputs` and writes `inputs.output` and
+/// `inputs.depth_output`, then "taa history" and "taa depth history", texture copies of the two
+/// outputs into `inputs.history` and `inputs.depth_history`. A depth texture cannot be copied
+/// instead: the frame depth may be multisampled and has no `COPY_SRC` guarantee. One history texture plus a copy-back
 /// keeps the bind groups static and independent of which frame slot runs, which stage sets that
 /// are built once per frame slot need. A copy is cheaper than the fullscreen pass it replaces.
 ///
@@ -99,6 +143,12 @@ pub fn append(
     let output = inputs
         .output
         .create_view(&wgpu::TextureViewDescriptor::default());
+    let depth_output = inputs
+        .depth_output
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let depth_history = inputs
+        .depth_history
+        .create_view(&wgpu::TextureViewDescriptor::default());
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("TAA resolve"),
         source: wgpu::ShaderSource::Wgsl(shader(inputs.depth_samples > 1).into()),
@@ -109,21 +159,8 @@ pub fn append(
         ("SAMPLES", f64::from(inputs.depth_samples.max(1))),
     ];
     let resolve = pipeline(device, &module, "taa_resolve", &constants);
-    let zero = zero_velocity(device, inputs.depth_samples.max(1));
-    let velocity = inputs.velocity.map_or(zero, |view| {
-        assert_eq!(
-            inputs.velocity_samples,
-            inputs.depth_samples.max(1),
-            "velocity and depth must have the same sample count"
-        );
-        view.clone()
-    });
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("TAA history"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        ..Default::default()
-    });
+    let velocity = velocity_view(device, inputs);
+    let sampler = history_sampler(device);
     let resolve_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some(STAGES[0]),
         layout: &resolve.get_bind_group_layout(0),
@@ -134,19 +171,47 @@ pub fn append(
             entry(3, wgpu::BindingResource::Sampler(&sampler)),
             entry(4, inputs.uniform.as_entire_binding()),
             entry(5, wgpu::BindingResource::TextureView(&velocity)),
+            entry(6, wgpu::BindingResource::TextureView(&depth_history)),
         ],
     });
     set.stages.push(Stage::fullscreen(
         StageId::new(STAGES[0], 0),
         &resolve,
         &[&resolve_group],
-        StageTarget::Texture(output),
+        StageTarget::Pair(output, depth_output),
     ));
     set.stages.push(Stage::copy_texture(
         StageId::new(STAGES[1], 0),
         inputs.output,
         inputs.history,
     ));
+    set.stages.push(Stage::copy_texture(
+        StageId::new(STAGES[2], 0),
+        inputs.depth_output,
+        inputs.depth_history,
+    ));
+}
+
+/// The residual view of `inputs`, or a zero texture when the host has none.
+fn velocity_view(device: &wgpu::Device, inputs: &Inputs<'_>) -> wgpu::TextureView {
+    let zero = zero_velocity(device, inputs.depth_samples.max(1));
+    inputs.velocity.map_or(zero, |view| {
+        assert_eq!(
+            inputs.velocity_samples,
+            inputs.depth_samples.max(1),
+            "velocity and depth must have the same sample count"
+        );
+        view.clone()
+    })
+}
+
+fn history_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("TAA history"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    })
 }
 
 /// The residual a resolve reads when the host has none: one `Rg16Float` texel, zero from
@@ -216,7 +281,7 @@ fn pipeline(
                 constants,
                 ..Default::default()
             },
-            targets: &[Some(FORMAT.into())],
+            targets: &[Some(FORMAT.into()), Some(DEPTH_FORMAT.into())],
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,

@@ -13,7 +13,7 @@ These cover creating, finding and destroying things, which nearly every script u
 | `Object` | `Instantiate` (original; with parent; with position and rotation; with position, rotation and parent), `Destroy(obj)` for game objects and `ScriptableObject`s, `Destroy(obj, delay)` for game objects, `FindObjectOfType`, `FindFirstObjectByType`, `FindObjectsByType`, Unity-style null and equality checks on destroyed objects |
 | `GameObject` | `name`, `tag`, `layer`, `CompareTag`, `activeSelf`, `activeInHierarchy`, `SetActive`, `GetComponent<T>`, `AddComponent<T>`, `transform`, `FindGameObjectWithTag` |
 | `Component` | `gameObject`, `transform`, `tag`, `CompareTag`, `GetComponent<T>` |
-| `Behaviour` | `enabled`, `isActiveAndEnabled` |
+| `Behaviour` | `enabled` (not virtual, so a subclass's `base.enabled` reaches the component's own state), `isActiveAndEnabled` |
 | `MonoBehaviour` | Messages `Awake`, `OnEnable`, `Start` (also as a coroutine), `FixedUpdate`, `Update`, `LateUpdate`, `OnDisable`, `OnDestroy`, `OnCollisionEnter2D`/`Stay2D`/`Exit2D`, `OnTriggerEnter2D`/`Stay2D`/`Exit2D`; `StartCoroutine`, `StopCoroutine`, `StopAllCoroutines` |
 | `Transform` | `position`, `rotation`, `localPosition`, `localRotation`, `localScale`, `parent`, `SetParent(parent, worldPositionStays)` |
 | `ScriptableObject` | `name`, `CreateInstance<T>`, `CreateInstance(Type)` and `CreateInstance(string)`, with `Awake`, `OnEnable`, `OnDisable` and `OnDestroy` |
@@ -68,6 +68,7 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 | `Material` | `Material.SpriteUnlit` and `Material.SpriteLit` |
 | `Camera` | `enabled`, `clearFlags` (Skybox and Solid Color; Depth and Nothing are rejected when drawn), `backgroundColor`, `orthographic` (perspective is rejected), `orthographicSize`, `nearClipPlane`, `farClipPlane`, `depth` (whole numbers) |
 | `AudioListener`, `GUILayer`, `FlareLayer` | Exist as enable-able components. There is no audio output. |
+| `AudioSource`, `AudioClip` | The types exist so code that refers to them loads. `AddComponent<AudioSource>` throws `NotSupportedException`, and every member (`Play`, `Pause`, `UnPause`, `Stop`, `isPlaying`, `clip`, `volume`, `minDistance`, `PlayClipAtPoint`, `AudioClip.Create`, `channels`, `samples`, `length`, `GetData`, `SetData`) throws `NotSupportedException` naming the member. |
 | `UnityEngine.Rendering.Universal.Light2D` | Global lights: `color`, `intensity`, `affectedSortingLayers`, blend style 0. Other light types throw `UnsupportedLight2DException`. |
 | `UnityEngine.Rendering.Universal.UniversalAdditionalCameraData` | Base camera without post-processing, antialiasing or shadows. Enabling an unsupported option throws `UnsupportedCameraSettingException`. |
 
@@ -94,6 +95,8 @@ Text covers printable ASCII with line breaks and kerning. Font size is pixels pe
 | `Mathf` | `Min`, `Clamp` |
 | `Random` | `value`, `Range(int, int)`, `Range(float, float)`, `InitState`. A seed always repeats its sequence, but the values differ from Unity's for the same seed. |
 | `Debug` | `Log`, `LogError`, written to the console |
+| `UnityEngine.CrashReportHandler.CrashReportHandler` | `SetUserMetadata(key, value)` (a null value removes the key; a null key throws) and `GetUserMetadata(key)`. The engine sends no crash reports, so the metadata stays in memory and goes nowhere. |
+| `UnityEngine.Profiling.Profiler` | `GetMonoHeapSizeLong()` (the .NET garbage collector's heap size), `GetMonoUsedSizeLong()` and `usedHeapSizeLong` (managed memory in use). These are the engine's choice of what the figures mean. |
 | `UnityEngine.Events.UnityEvent<T>` | `AddListener`, `RemoveListener`, `RemoveAllListeners`, `Invoke`, `GetPersistentEventCount`, `GetPersistentMethodName`, `GetPersistentTarget`. Calls set in the editor load with the scene and run before runtime listeners, in authored order, with the event's argument or their fixed one; `RemoveAllListeners` leaves them, as in Unity. Clones call their own copies of the targets. |
 
 The math types are deliberately small and grow as games need them. Adding a missing helper such as `Vector3` addition is a welcome contribution; see the [developer guide](../dev-docs/README.md).

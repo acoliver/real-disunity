@@ -234,8 +234,11 @@ impl SceneGpu {
         let committed_group = self.committed_frame_group.clone();
         let bytes = self.decals.prepare(&frame, &self.frame_buffer);
         let group = self.decals.group();
+        let counts = self.decal_counts.clone();
+        let count = [super::decals::selected_count(&bytes), self.decals.count()];
         crate::compositor::publication::stage(context, &published.clone(), move || {
             published.set(Some(frame));
+            counts.set(count);
             *committed_group.borrow_mut() = group;
         });
         context.upload_buffer(&self.frame_buffer, 0, &frame.to_bytes());

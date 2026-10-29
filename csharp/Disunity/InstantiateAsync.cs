@@ -114,8 +114,8 @@ namespace UnityEngine
 
     public partial class Object
     {
-        /// <summary>Follows the InstantiateParameters table in the Unity manual, except that a clone in
-        /// world space under a parent is not supported yet (the native clone keeps local placement). A valid
+        /// <summary>Applies each InstantiateParameters setting, except that a clone in world space
+        /// under a parent is not supported yet (the native clone keeps local placement). A valid
         /// <see cref="InstantiateParameters.scene"/> throws, as the engine has one scene.</summary>
         public static T Instantiate<T>(T original, InstantiateParameters parameters) where T : Object
         {

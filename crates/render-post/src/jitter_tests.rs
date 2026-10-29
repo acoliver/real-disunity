@@ -118,6 +118,28 @@ fn clip_offset_inverts_back_to_the_pixel_offset() {
 }
 
 #[test]
+fn a_single_sample_target_keeps_the_sequence_and_a_multisampled_one_is_not_jittered() {
+    let jitter = ProjectionJitter::default();
+    for index in 0..8_u64 {
+        assert_eq!(
+            bits(jitter.offset_pixels_for(index, 1)),
+            bits(jitter.offset_pixels(index))
+        );
+        assert_eq!(
+            bits(jitter.clip_offset_for(index, [64, 64], 1)),
+            bits(jitter.clip_offset(index, [64, 64]))
+        );
+        for samples in [2, 4, 8] {
+            let offsets = [
+                jitter.offset_pixels_for(index, samples),
+                jitter.clip_offset_for(index, [64, 64], samples),
+            ];
+            assert!(offsets.iter().flatten().all(|v| v.abs() < 1e-12));
+        }
+    }
+}
+
+#[test]
 fn lengths_outside_one_to_sixty_four_are_rejected() {
     for length in [0, 65, 128, u32::MAX] {
         assert!(

@@ -1,5 +1,5 @@
 use super::{
-    Extents, GpuContext, Presentation, Renderer, Resident, ViewerError, device_errors, readiness,
+    Extents, Presentation, Renderer, Resident, ViewerError, device_errors, readiness,
     required_features, target,
 };
 
@@ -12,8 +12,11 @@ impl Renderer {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await?;
+        if let Some(callback) = &options.adapter_callback {
+            callback.notify(&adapter)?;
+        }
         let context =
-            GpuContext::from_adapter_with_features(adapter, required_features(scene)).await?;
+            super::timing::context(adapter, required_features(scene), options.gpu_timing).await?;
         let errors = device_errors(context.device(), context.submission());
         let extents = Extents::new(
             options.size,

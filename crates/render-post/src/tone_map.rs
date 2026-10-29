@@ -115,7 +115,7 @@ impl ToneMapOutput {
         }
         self.post = if let Some(post) = previous.and_then(|previous| previous.post.as_ref()) {
             let mut retained = post.clone();
-            retained.settings = settings;
+            retained.set_settings(&settings);
             Some(retained)
         } else if settings.enabled() {
             Some(Box::new(crate::hdr_post::HdrPost::new(device, &settings)?))
@@ -142,6 +142,24 @@ impl ToneMapOutput {
             crate::hdr_post::validate_delta(delta)?;
         }
         Ok(())
+    }
+    /// Uploads the TAA block of `slot`; `None` uploads zeros, so the resolve ignores history.
+    /// Without effects there is nothing to upload to.
+    pub fn prepare_taa(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        block: Option<&[u8; crate::TAA_UNIFORM_BYTES]>,
+    ) {
+        if let Some(post) = &self.post {
+            post.prepare_taa(encoder, slot, block);
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn taa_history_size(&self) -> Option<[u32; 2]> {
+        self.post
+            .as_deref()
+            .and_then(crate::hdr_post::HdrPost::taa_history_size)
     }
     /// Published exposure result for an admitted slot, suitable for asynchronous capture readback.
     pub fn exposure_buffer(&self, slot: usize) -> Option<&wgpu::Buffer> {

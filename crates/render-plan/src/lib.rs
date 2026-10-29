@@ -59,8 +59,9 @@ pub use plan::{
     build_render_world_plan,
 };
 pub use scene::{
-    BillboardPolicy, DIRECTION_MICRO_SCALE, DocumentSceneInput, EFFECTS_MICRO_SCALE,
-    MATERIAL_MICRO_SCALE, MaterialHandle, MeshHandle, ProvenSceneContribution,
+    BillboardPolicy, DEFAULT_TAA_CLIP_SCALE_MICRO, DIRECTION_MICRO_SCALE, DocumentSceneInput,
+    EFFECTS_MICRO_SCALE, MATERIAL_MICRO_SCALE, MAXIMUM_TAA_CLIP_SCALE_MICRO,
+    MINIMUM_TAA_CLIP_SCALE_MICRO, MaterialHandle, MeshHandle, ProvenSceneContribution,
     ROTATION_MICRO_SCALE, RenderScene, RouteDeclarationRef, RouteSceneFactory, RouteSceneInput,
     SceneAlphaMode, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
     SceneCompositionFactory, SceneContribution, SceneDirection, SceneDownsampleRounding,

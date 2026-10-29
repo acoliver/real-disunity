@@ -167,6 +167,7 @@ impl ShadowedScene {
             metadata,
         };
         let mut fitting = state.fitting.take().expect("fitting installed");
+        fitting.set_timing(self.scheduler.timing_state());
         let result = match state.settings.policy {
             AdoptionPolicy::SameFrameCapture => {
                 let result = self.render_capture(&input, state, &fitting);
@@ -228,17 +229,7 @@ impl ShadowedScene {
     ) -> Result<Option<AdoptedFit>, ShadowError> {
         self.request_shadow_capture();
         let context = input.context;
-        context
-            .device()
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(std::time::Duration::from_secs(30)),
-            })
-            .map_err(SdsmError::from)?;
-        context
-            .submission()
-            .drain_captures(context.device())
-            .map_err(capture_error)?;
+        drain_capture(context)?;
         let key = fitting.reducer().write_key();
         let contract = self.capture_contract(input, key)?;
         let prefix = fitting
@@ -254,6 +245,9 @@ impl ShadowedScene {
                 },
                 fitting.ticket(input.source_frame),
                 |encoder, _, _| {
+                    self.scheduler
+                        .begin_timing(input.source_frame)
+                        .map_err(worldrunner_render_post::FrameError::from)?;
                     self.scheduler.encode_depth_prefix(
                         context.device(),
                         encoder,
@@ -315,6 +309,9 @@ impl ShadowedScene {
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
+                self.scheduler
+                    .begin_timing(input.source_frame)
+                    .map_err(worldrunner_render_post::FrameError::from)?;
                 self.scheduler.encode_depth_prefix(
                     context.device(),
                     encoder,
@@ -420,4 +417,18 @@ where
         CaptureError::Poll(error) => SdsmError::from(error).into(),
         CaptureError::Preparation(error) | CaptureError::Readback(error) => error.into(),
     }
+}
+
+fn drain_capture(context: &GpuContext) -> Result<(), ShadowError> {
+    context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .map_err(SdsmError::from)?;
+    context
+        .submission()
+        .drain_captures(context.device())
+        .map_err(capture_error)
 }

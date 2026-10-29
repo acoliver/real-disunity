@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using Disunity.Hosting;
@@ -24,6 +25,27 @@ public static class NativeBridge
         catch { return -1; }
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static string? Missing() => null;
+
+    /// <summary>
+    /// Reads through a null reference, which .NET detects with a hardware fault and turns into a
+    /// NullReferenceException inside the runtime's SIGSEGV handler, and catches it. A host whose
+    /// thread keeps a signal stack too small for that handler crashes here instead.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void CatchHardwareFault()
+    {
+        try
+        {
+            _ = Missing()!.Length;
+            throw new InvalidOperationException("reading through a null reference did not fault");
+        }
+        catch (NullReferenceException)
+        {
+        }
+    }
+
     [UnmanagedCallersOnly]
     public static int Run(nint utf8Fixture)
     {
@@ -35,6 +57,7 @@ public static class NativeBridge
             {
                 return -2;
             }
+            CatchHardwareFault();
             TriangleBehaviour.FailUpdates = false;
             TriangleBehaviour.LongFailure = kind == "portable-long-failure-v1";
             AssetsBefore = FixtureAsset.Destroyed;

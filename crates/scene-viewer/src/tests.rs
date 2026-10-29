@@ -1,3 +1,103 @@
+#[test]
+fn supported_present_modes_and_latency_reach_surface_policy_unchanged() {
+    for mode in [
+        wgpu::PresentMode::Fifo,
+        wgpu::PresentMode::FifoRelaxed,
+        wgpu::PresentMode::Mailbox,
+        wgpu::PresentMode::Immediate,
+    ] {
+        let capabilities = wgpu::SurfaceCapabilities {
+            formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb],
+            present_modes: vec![mode],
+            alpha_modes: vec![wgpu::CompositeAlphaMode::Opaque],
+            usages: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            ..Default::default()
+        };
+        let mut options = options();
+        options.present_mode = mode;
+        for latency in [1, 2, 3, 16, u32::MAX] {
+            options.desired_maximum_frame_latency = latency;
+            let policy =
+                crate::renderer::surface_policy(&capabilities, [800, 600], &(&options).into())
+                    .unwrap();
+            assert_eq!(policy.present_mode, mode);
+            assert_eq!(policy.desired_maximum_frame_latency, latency);
+        }
+    }
+}
+
+#[test]
+fn presentation_defaults_remain_fifo_and_two() {
+    let options = options();
+    assert_eq!(options.present_mode, wgpu::PresentMode::Fifo);
+    assert_eq!(options.desired_maximum_frame_latency, 2);
+    let capabilities = wgpu::SurfaceCapabilities {
+        formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb],
+        present_modes: vec![wgpu::PresentMode::Fifo],
+        alpha_modes: vec![wgpu::CompositeAlphaMode::Opaque],
+        usages: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        ..Default::default()
+    };
+    let policy = crate::renderer::surface_policy(&capabilities, [800, 600], &2.into()).unwrap();
+    assert_eq!(policy.present_mode, wgpu::PresentMode::Fifo);
+    assert_eq!(policy.desired_maximum_frame_latency, 2);
+}
+
+#[test]
+fn presentation_settings_validate_without_a_display() {
+    for mode in [
+        wgpu::PresentMode::Fifo,
+        wgpu::PresentMode::FifoRelaxed,
+        wgpu::PresentMode::Mailbox,
+        wgpu::PresentMode::Immediate,
+    ] {
+        let mut options = options();
+        options.present_mode = mode;
+        for latency in [1, 2, 3, 16, u32::MAX] {
+            options.desired_maximum_frame_latency = latency;
+            assert!(validate(&scene(false), &options).is_ok());
+        }
+        options.desired_maximum_frame_latency = 0;
+        assert!(matches!(
+            RetainedHost::new(scene(false), options),
+            Err(ViewerError::InvalidOptions(_))
+        ));
+    }
+    for mode in [wgpu::PresentMode::AutoVsync, wgpu::PresentMode::AutoNoVsync] {
+        let mut options = options();
+        options.present_mode = mode;
+        assert!(matches!(
+            RetainedHost::new(scene(false), options),
+            Err(ViewerError::InvalidOptions(_))
+        ));
+    }
+}
+
+#[test]
+fn unsupported_present_mode_is_typed_before_surface_configuration() {
+    let capabilities = wgpu::SurfaceCapabilities {
+        formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb],
+        present_modes: vec![wgpu::PresentMode::Fifo],
+        alpha_modes: vec![wgpu::CompositeAlphaMode::Opaque],
+        usages: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        ..Default::default()
+    };
+    let mut options = options();
+    options.present_mode = wgpu::PresentMode::Mailbox;
+    assert!(matches!(
+        crate::renderer::surface_policy(&capabilities, [800, 600], &(&options).into()),
+        Err(ViewerError::UnsupportedPresentMode(
+            wgpu::PresentMode::Mailbox
+        ))
+    ));
+    options.present_mode = wgpu::PresentMode::Fifo;
+    options.desired_maximum_frame_latency = 4;
+    let policy =
+        crate::renderer::surface_policy(&capabilities, [800, 600], &(&options).into()).unwrap();
+    assert_eq!(policy.present_mode, wgpu::PresentMode::Fifo);
+    assert_eq!(policy.desired_maximum_frame_latency, 4);
+}
+
 use super::*;
 use worldrunner_render_plan::SceneDirection;
 use worldrunner_render_plan::*;
@@ -75,6 +175,10 @@ pub(crate) fn options() -> ViewerOptions {
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         frame_profile: crate::FrameProfile::Legacy,
         frames_in_flight: 2,
+        present_mode: wgpu::PresentMode::Fifo,
+        desired_maximum_frame_latency: 2,
+        gpu_timing: false,
+        adapter_callback: None,
         cadence: crate::PresentationCadence::default(),
         ssr: None,
         render_clock: crate::RenderClock::default(),

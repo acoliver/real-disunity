@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod commands;
+mod csharp;
 mod layers;
 mod metadata;
 mod policy;
@@ -64,7 +65,7 @@ fn finish(gate: &str, errors: &[String]) -> Result<(), String> {
     }
 }
 
-const USAGE: &str = "cargo xtask <fmt|lint|complexity|check|build|test|policy|source-size|ci|ci-cpu|ci-gpu|ci-gpu-static|ci-managed|ci-gpu-shard K/N|ci-gpu-plan N>";
+const USAGE: &str = "cargo xtask <fmt|lint|complexity|check|build|test|policy|source-size|ci|ci-cpu|ci-gpu|ci-gpu-static|ci-gpu-csharp|ci-managed|ci-gpu-shard K/N|ci-gpu-plan N>";
 
 fn dispatch(root: &Path, args: &[String]) -> Result<(), String> {
     match args {
@@ -92,10 +93,11 @@ fn dispatch_single(root: &Path, command: &str) -> Result<(), String> {
         "ci-cpu" => commands::ci(root, commands::Profile::Cpu),
         "ci-gpu" => commands::ci(root, commands::Profile::Gpu),
         "ci-gpu-static" => commands::ci_gpu_static(root),
+        "ci-gpu-csharp" => csharp::run(root),
         "ci-managed" => commands::ci(root, commands::Profile::Managed),
         "help" | "--help" | "-h" => {
             println!(
-                "{USAGE}\nFormatting is check-only. Full CI requires a GPU and .NET; use explicit CI profiles for separate runners.\nci-gpu-static runs every ci-gpu check except tests; ci-gpu-shard K/N runs one shard of the ci-gpu tests; ci-gpu-plan N lists the shards."
+                "{USAGE}\nFormatting is check-only. Full CI requires a GPU and .NET; use explicit CI profiles for separate runners.\nci-gpu-static runs every ci-gpu check except tests; ci-gpu-shard K/N runs one shard of the ci-gpu tests; ci-gpu-plan N lists the shards; ci-gpu-csharp runs the GPU tests of the packages that consume csharp/."
             );
             Ok(())
         }
@@ -126,6 +128,7 @@ mod tests {
             vec!["policy".into(), "ignored".into()],
             vec!["ci-gpu".into(), "1/2".into()],
             vec!["ci-gpu-static".into(), "ignored".into()],
+            vec!["ci-gpu-csharp".into(), "ignored".into()],
             vec!["ci-gpu-shard".into()],
             vec!["ci-gpu-plan".into()],
             vec!["ci-gpu-shard".into(), "1/2".into(), "extra".into()],

@@ -152,7 +152,7 @@ fn retained_settings_present(event_loop: &EventLoop<()>, window: &Arc<Window>) {
                 &scene,
                 shadows,
                 profile,
-                2,
+                2.into(),
             ))
             .unwrap();
             let viewport = renderer.viewport.unwrap();
@@ -222,7 +222,7 @@ impl ApplicationHandler for Harness {
                     &crate::tests::scene(false),
                     None,
                     crate::FrameProfile::Legacy,
-                    2,
+                    2.into(),
                 ))
                 .unwrap(),
             );
@@ -319,7 +319,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
             &crate::tests::scene(false),
             None,
             crate::FrameProfile::Legacy,
-            2,
+            2.into(),
         ))
         .unwrap(),
     );
@@ -495,20 +495,20 @@ fn initial_presenter(
 ) -> Presenter<'static> {
     let surface = instance.create_surface(window.clone()).unwrap();
     let capabilities = surface.get_capabilities(adapter);
-    let mut invalid = surface_policy(&capabilities, [0, 480]).unwrap();
+    let mut invalid = surface_policy(&capabilities, [0, 480], &2.into()).unwrap();
     invalid.format = wgpu::TextureFormat::R32Uint;
     assert!(matches!(
-        Presenter::new(surface, &capabilities, device, invalid),
+        Presenter::new(surface, adapter, device, invalid),
         Err(SurfaceError::UnsupportedFormat(
             wgpu::TextureFormat::R32Uint
         ))
     ));
     let surface = instance.create_surface(window.clone()).unwrap();
     let capabilities = surface.get_capabilities(adapter);
-    let mut policy = surface_policy(&capabilities, [0, 480]).unwrap();
+    let mut policy = surface_policy(&capabilities, [0, 480], &2.into()).unwrap();
     policy.present_mode = wgpu::PresentMode::AutoVsync;
     policy.alpha_mode = wgpu::CompositeAlphaMode::Auto;
-    let mut presenter = Presenter::new(surface, &capabilities, device, policy).unwrap();
+    let mut presenter = Presenter::new(surface, adapter, device, policy).unwrap();
     assert!(presenter.is_suspended());
     assert_eq!(presenter.configuration_generation(), 0);
     assert!(matches!(

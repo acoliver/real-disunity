@@ -3,7 +3,7 @@ use std::path::Path;
 use serde_json::json;
 use worldrunner_unity_import::{
     PlayerError,
-    player_identity::player_identity,
+    player_identity::{QualityLevels, player_identity, player_quality},
     player_resources::{ResourceAsset, ResourcesPlan, plan_player_resources},
 };
 use worldrunner_unity_serialized::{
@@ -18,7 +18,7 @@ fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
 }
 
-const TYPES: [ClassId; 7] = [
+const TYPES: [ClassId; 8] = [
     ClassId::RESOURCE_MANAGER,
     ClassId::TEXT_ASSET,
     ClassId::MONO_BEHAVIOUR,
@@ -26,6 +26,7 @@ const TYPES: [ClassId; 7] = [
     ClassId::LIGHT,
     ClassId::BUILD_SETTINGS,
     ClassId::PLAYER_SETTINGS,
+    ClassId::QUALITY_SETTINGS,
 ];
 
 fn object(path_id: i64, class_id: ClassId, data: Vec<u8>) -> ObjectData {
@@ -368,4 +369,52 @@ fn recognizes_a_macos_app_bundle() {
     std::fs::create_dir_all(&data).unwrap();
     write_managers(&data);
     assert_eq!(player_identity(&data).unwrap().platform, "OSXPlayer");
+}
+
+fn quality_settings(current: i32, names: &[&str]) -> Vec<u8> {
+    let mut w = ObjectWriter::new(false);
+    w.i32(current).i32(i32::try_from(names.len()).unwrap());
+    for name in names {
+        w.string(name).unwrap().bytes(&[0x5A; 192]);
+    }
+    w.bytes(&[0; 8]);
+    w.finish()
+}
+
+#[test]
+fn reads_the_quality_levels_a_player_defines() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![
+            object(1, ClassId::BUILD_SETTINGS, build_settings("6000.3.15f1")),
+            object(
+                2,
+                ClassId::QUALITY_SETTINGS,
+                quality_settings(1, &["Low", "Medium", "High"]),
+            ),
+        ],
+        &[],
+    );
+    let quality = player_quality(dir.path()).unwrap().unwrap();
+    assert_eq!(
+        quality,
+        QualityLevels {
+            names: vec!["Low".into(), "Medium".into(), "High".into()],
+            current: 1,
+        }
+    );
+    // The play request carries the levels in this shape.
+    assert_eq!(
+        serde_json::to_value(&quality).unwrap(),
+        json!({"names": ["Low", "Medium", "High"], "current": 1})
+    );
+}
+
+#[test]
+fn a_player_without_quality_settings_has_no_quality_levels() {
+    let dir = tempfile::tempdir().unwrap();
+    write_managers(dir.path());
+    assert_eq!(player_quality(dir.path()).unwrap(), None);
 }

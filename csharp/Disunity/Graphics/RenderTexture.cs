@@ -8,8 +8,7 @@ namespace UnityEngine;
 /// A texture a camera or command buffer draws into. The engine keeps its description and whether it is
 /// created, and has no GPU surface, so nothing draws into it and it has no pixels. A texture that is created
 /// rejects changes to its size, format and other allocation settings with <see cref="InvalidOperationException"/>
-/// until Release. The Unity documentation does not say what a late change does, so the engine reports it instead
-/// of ignoring it. The same holds for ReleaseTemporary of a texture GetTemporary did not hand out or already got
+/// until Release; the engine reports a late change instead of ignoring it. The same holds for ReleaseTemporary of a texture GetTemporary did not hand out or already got
 /// back (<see cref="ArgumentException"/>), and for reading <see cref="format"/> when the graphics format has no
 /// RenderTextureFormat (<see cref="NotSupportedException"/>). DiscardContents, MarkRestoreExpected,
 /// ApplyDynamicScale and ResolveAntiAliasedSurface are hints or work on drawn contents, so they have no effect.

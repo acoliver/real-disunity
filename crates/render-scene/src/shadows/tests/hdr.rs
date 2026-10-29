@@ -131,7 +131,7 @@ fn hdr_profile_rejects_uninstalled_settings_before_gpu_execution() {
         .is_ok()
     );
     let mut effects = fixture::effects_parts(600_000);
-    effects.anti_alias = SceneAntiAlias::Taa { history_micro: 0 };
+    effects.anti_alias = SceneAntiAlias::taa(1_000_000);
     let effects = SceneEffects::new(effects).unwrap();
     assert!(
         FrameRenderer::hdr(
@@ -142,7 +142,8 @@ fn hdr_profile_rejects_uninstalled_settings_before_gpu_execution() {
             ToneMap::Reinhard,
             Some(&effects)
         )
-        .is_err()
+        .is_err(),
+        "a history that never decays is rejected before GPU execution"
     );
     assert!(pollster::block_on(scope.pop()).is_none());
 }

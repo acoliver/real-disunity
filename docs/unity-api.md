@@ -76,6 +76,9 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 | Type | Supported |
 | --- | --- |
 | `GraphicsBuffer` | `GraphicsBuffer(Target.Raw, count, stride)`, `count`, `stride`, `bufferHandle` (unique for each live buffer, never 0), `SetData(array, managedStart, bufferStart, count)`, `Release`, `Dispose`. The engine has no GPU buffers yet, so it keeps the contents in managed memory and does not draw from them. `SetData` takes arrays of unmanaged elements whose size is a multiple of the stride, and the buffer index counts elements of the array's own type. Other targets throw `ArgumentException`. |
+| `UnityEngine.Rendering.BatchRendererGroup` | `BatchRendererGroup(callback, userContext)`, `RegisterMesh`, `UnregisterMesh`, `GetRegisteredMesh`, `RegisterMaterial`, `UnregisterMaterial`, `GetRegisteredMaterial`, `AddBatch` (with and without a buffer window), `RemoveBatch`, `GetConstantBufferMaxWindowSize` (65536), `Dispose`. The engine keeps the registry for the game and does not draw batches yet, so it never calls the culling callback. IDs start at 1 for each group and 0 means none. Registering the same object again returns its ID and counts the registration, and each `Unregister` takes one off. `GetRegistered...` returns `null` for an unknown ID. `AddBatch` copies the metadata and needs the handle of a live `GraphicsBuffer`. |
+| `BatchMeshID`, `BatchMaterialID`, `BatchID` | Opaque values with equality, ordering, hashing and a `Null` value. |
+| `MetadataValue`, `BatchCullingContext`, `BatchCullingOutput`, `BatchCullingOutputDrawCommands`, `BatchDrawCommand`, `BatchDrawRange`, `BatchFilterSettings` | Structs with the fields the game's culling callback reads and writes. `BatchFilterSettings` defaults to no shadow casting and no shadow receiving. |
 
 ## UI
 

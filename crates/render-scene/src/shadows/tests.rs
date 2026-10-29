@@ -4,6 +4,7 @@ mod culling;
 mod fixture;
 mod geometry;
 mod hdr;
+mod jitter;
 mod receiver;
 mod retained;
 mod sampling;

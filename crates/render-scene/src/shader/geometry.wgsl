@@ -236,13 +236,14 @@ fn material_vertex_pass(vertex: VertexInput, instance: InstanceInput, relief: bo
         }
     }
     var band = material.impostor_relief.zw;
-    if instance.model_column_1.w != 0.0 { band = vec2<f32>(instance.model_column_0.w, instance.model_column_1.w); }
+    let instance_band = vec2<f32>(instance.model_column_0.w, instance.model_column_1.w);
+    if any(bitcast<vec2<u32>>(instance_band) != vec2<u32>(0u)) { band = instance_band; }
     let complement_fade = (material.fade_policy.x & 8u) != 0u;
     if complement_fade { out.atlas_rotation.z = 0.0; }
-    if band.y != 0.0 {
+    if any(bitcast<vec2<u32>>(band) != vec2<u32>(0u)) {
         // Store the shared rejection boundary directly to avoid cancellation
         // when complementary coverage approaches one, including byte precision.
-        if complement_fade { band.y = -band.y; }
+        if complement_fade { band = scene_complement_band(band); }
         let distance = scene_fade_distance(instance);
         out.atlas_rotation.z = scene_distance_coverage(distance,band);
         if (material.fade_policy.x & 2u) != 0u {
@@ -422,7 +423,18 @@ fn scene_mask_response(channel: f32, packed_ao: f32, self_ao: f32, mapped: bool)
     return vec2<f32>(0.0, amount);
 }
 
+fn scene_complement_band(band: vec2<f32>) -> vec2<f32> {
+    if band.x < 0.0 {
+        return vec2<f32>(select(-2.0, -1.0, band.x == -2.0), band.y);
+    }
+    return vec2<f32>(band.x, -band.y);
+}
+
 fn scene_distance_coverage(distance: f32, band: vec2<f32>) -> f32 {
+    if band.x < 0.0 {
+        let terminal = band.x == -2.0;
+        return select(0.0, 1.0, (distance <= band.y) == terminal);
+    }
     if band.y < 0.0 {
         if distance <= band.x { return 1.0; }
         return max(0.0, (-band.y-distance)/max(1.0,-band.y-band.x));

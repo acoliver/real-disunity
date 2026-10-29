@@ -53,7 +53,8 @@ fn terminal_and_vertex_fold_encode_only_their_policy_lanes() {
         SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false).unwrap();
     let fade = SceneFadeBand::new(2000, 4000).unwrap();
     assert!(!fade.terminal());
-    assert!(SceneFadeBand::new(2, 2).is_err());
+    assert!(SceneFadeBand::new(2, 2).is_ok());
+    assert!(SceneFadeBand::new(3, 2).is_err());
     let a = MaterialUniform::from_material(&material(atlas.with_fade(fade))).to_bytes();
     let b = MaterialUniform::from_material(&material(atlas.with_fade(fade.with_terminal_fade())))
         .to_bytes();

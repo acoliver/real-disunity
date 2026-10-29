@@ -1,4 +1,3 @@
-use super::post_effect_tests::{adaptive, chain, output, paint};
 use super::*;
 use crate::*;
 

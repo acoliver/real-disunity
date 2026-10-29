@@ -65,6 +65,7 @@ mod tests {
             mapping: worldrunner_render_plan::SceneDecalMapping::default(),
             write_mask: worldrunner_render_plan::SceneDecalWriteMask::default(),
             alpha_test_cutoff_micro: None,
+            color_modifier: worldrunner_render_plan::SceneDecalColorModifier::default(),
         }
     }
     #[test]

@@ -51,6 +51,21 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
             3,
         );
     }
+    if settings.resolve.active_cmaa2().is_some() {
+        crate::cmaa2_gpu::allocations(&mut set, config.size);
+    }
+    if settings.sharpen.is_some() {
+        // Sharpening is one more stage between tone mapping and the output, so it adds one
+        // intermediate: the stage before it can no longer write the output.
+        let [w, h] = config.size;
+        set.texture(
+            "CAS input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            3,
+        );
+    }
     if upscale.is_some_and(|settings| settings.sharpness.is_some()) {
         let [w, h] = config.output_extent();
         set.texture(

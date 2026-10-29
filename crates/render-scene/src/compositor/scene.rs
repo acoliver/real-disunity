@@ -104,7 +104,9 @@ pub fn encode_scene(
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
     renderer.validate_taa_depth(attachments.1)?;
-    let velocity = renderer.velocity_attachment(renderer.draws_velocity(pipelines))?;
+    let writes_velocity = renderer.draws_velocity(pipelines);
+    gpu.track_previous_transforms(writes_velocity);
+    let velocity = renderer.velocity_attachment(writes_velocity)?;
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
     renderer.bind_water_inputs(&gpu.water_inputs);

@@ -408,12 +408,9 @@ fn taa_descriptor() -> worldrunner_render_post::AntiAliasing {
 }
 
 #[test]
-fn taa_is_refused_at_construction_until_its_resolve_exists() {
-    use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostError, PostResolve, ToneMap};
+fn taa_builds_at_construction_with_jitter_enabled_automatically() {
+    use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostResolve, ToneMap};
     let context = context();
-    let unavailable = Some(PostError::UnsupportedProfile(
-        "TAA resolve not yet available",
-    ));
     let build = |antialiasing: AntiAliasing, effects| {
         FrameRenderer::hdr_antialiased(
             &context,
@@ -423,13 +420,13 @@ fn taa_is_refused_at_construction_until_its_resolve_exists() {
             ToneMap::Reinhard,
             effects,
         )
-        .err()
+        .unwrap()
     };
-    assert_eq!(build(taa_descriptor(), None), unavailable);
-    assert_eq!(
-        build(taa_descriptor().with_jitter(jitter()), None),
-        unavailable
-    );
+    let automatic = build(taa_descriptor(), None);
+    assert_eq!(automatic.projection_jitter(), Some(jitter()));
+    let explicit = ProjectionJitter::new(16).unwrap();
+    let chosen = build(taa_descriptor().with_jitter(explicit), None);
+    assert_eq!(chosen.projection_jitter(), Some(explicit));
     let authored = crate::post_taa_tests::effects(
         worldrunner_render_plan::SceneAntiAlias::Taa {
             history_micro: 900_000,
@@ -437,7 +434,8 @@ fn taa_is_refused_at_construction_until_its_resolve_exists() {
         None,
     );
     let plain = AntiAliasing::new(MsaaSamples::X1, PostResolve::None);
-    assert_eq!(build(plain, Some(&authored)), unavailable);
+    let from_effects = build(plain, Some(&authored));
+    assert_eq!(from_effects.projection_jitter(), Some(jitter()));
 }
 
 #[test]

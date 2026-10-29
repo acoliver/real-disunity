@@ -146,17 +146,9 @@ fn the_merged_resolve_decides_the_jitter_whichever_route_chose_it() {
 }
 
 #[test]
-fn taa_is_refused_until_the_resolve_exists() {
-    let unavailable = Err(p::PostError::UnsupportedProfile(
-        "TAA resolve not yet available",
-    ));
-    let taa_settings = post::settings(&effects(taa(900_000), None)).unwrap();
-    assert_eq!(post::require_available(&taa_settings), unavailable);
-    for resolve in [p::PostResolve::None, p::PostResolve::fxaa(0.5)] {
-        let settings = p::HdrPostSettings {
-            resolve,
-            ..p::HdrPostSettings::default()
-        };
-        assert_eq!(post::require_available(&settings), Ok(()));
-    }
+fn authored_taa_is_accepted_by_every_construction_path() {
+    let authored = effects(taa(900_000), None);
+    let settings = post::settings(&authored).unwrap();
+    assert!(settings.resolve.active_taa().is_some());
+    assert_eq!(crate::frame::validate_stock_effects(&authored), Ok(()));
 }

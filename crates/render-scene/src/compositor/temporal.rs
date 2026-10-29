@@ -6,6 +6,7 @@
 //! prepared before the reset cannot republish a stale matrix when it is submitted afterwards.
 
 use super::FrameRenderer;
+mod taa;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use glam::{Mat4, Vec3};
 use worldrunner_render_post::{FrameError, PostError, ProjectionJitter};
@@ -25,6 +26,8 @@ pub(crate) struct TemporalHistory {
     frame_index: u64,
     epoch: u64,
     previous: Option<Published>,
+    /// TAA block of the last encoded frame, uploaded by the next output. Never published.
+    pending_taa: Option<[u8; worldrunner_render_post::TAA_UNIFORM_BYTES]>,
 }
 
 impl TemporalHistory {
@@ -121,6 +124,7 @@ impl FrameRenderer {
         encoder: &wgpu::CommandEncoder,
         frame: &FrameUniform,
     ) -> Result<(), FrameError> {
+        self.remember_taa_block(Some(frame));
         let Some(temporal) = frame.temporal else {
             return Ok(());
         };

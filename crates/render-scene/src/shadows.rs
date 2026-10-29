@@ -360,7 +360,7 @@ impl ShadowedScene {
         scheduler.validate_water(effects.water_bodies())?;
         scheduler.validate_ssr(effects.ssr())?;
         scheduler.validate_post(
-            crate::post::available_settings(effects)
+            crate::post::settings(effects)
                 .map_err(|_| FrameError::UnsupportedEffect("post settings"))?,
         )?;
         Ok(())

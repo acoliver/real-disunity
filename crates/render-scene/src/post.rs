@@ -86,26 +86,6 @@ fn authored_anti_alias(
     }
 }
 
-/// Authored post settings for a renderer that can run them today.
-///
-/// Mapping accepts TAA, but no resolve pass exists for it yet, so a renderer built from it
-/// would jitter without accumulating. This is the one place that refuses it.
-pub(crate) fn available_settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
-    let post = settings(effects)?;
-    require_available(&post)?;
-    Ok(post)
-}
-
-/// Refuses settings whose resolve the renderer cannot run yet.
-pub(crate) fn require_available(post: &HdrPostSettings) -> Result<(), PostError> {
-    if post.resolve.active_taa().is_some() {
-        return Err(PostError::UnsupportedProfile(
-            "TAA resolve not yet available",
-        ));
-    }
-    Ok(())
-}
-
 /// Projection jitter of a renderer with this merged post resolve: one rule for both authoring
 /// routes, owned by `PostResolve::effective_jitter`.
 pub(crate) fn jitter(

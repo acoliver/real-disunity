@@ -145,8 +145,7 @@ impl FrameRenderer {
     ///
     /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
     /// see [`Self::set_projection_jitter`]. It is off unless requested, except that a TAA
-    /// resolve selects the default sequence ([`PostResolve::effective_jitter`]). TAA itself is
-    /// refused with [`PostError::UnsupportedProfile`] until its resolve pass exists.
+    /// resolve selects the default sequence ([`PostResolve::effective_jitter`]).
     pub fn hdr_antialiased(
         context: &crate::device::GpuContext,
         size: [u32; 2],
@@ -157,7 +156,6 @@ impl FrameRenderer {
     ) -> Result<Self, PostError> {
         antialiasing.validate()?;
         let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
-        crate::post::require_available(&post)?;
         validate_hdr_effects(effects)?;
         let config = antialiasing.frame_config(size, wgpu::TextureFormat::Rgba16Float);
         config.validate_adapter(context.adapter())?;
@@ -430,6 +428,7 @@ impl FrameRenderer {
                 self.frame_delta,
                 self.exposure_reset.get(),
             )?;
+            self.prepare_taa(factory, encoder);
             let reset = self.exposure_reset.clone();
             publication::encode(encoder, &reset.clone(), move || {
                 reset.set(false);
@@ -638,6 +637,7 @@ impl FrameRenderer {
     ) -> Result<(), FrameError> {
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
+        self.remember_taa_block(None);
         if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",

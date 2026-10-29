@@ -21,7 +21,7 @@ impl SceneGpu {
         &mut self,
         effects: &worldrunner_render_plan::SceneEffects,
     ) -> Result<(), worldrunner_render_post::PostError> {
-        self.post = crate::post::available_settings(effects)?;
+        self.post = crate::post::settings(effects)?;
         Ok(())
     }
 

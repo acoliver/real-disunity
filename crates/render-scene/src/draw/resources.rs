@@ -412,7 +412,7 @@ pub(super) fn post_settings(
 ) -> Result<worldrunner_render_post::HdrPostSettings, crate::frame::FrameError> {
     scene
         .effects()
-        .map(crate::post::available_settings)
+        .map(crate::post::settings)
         .transpose()
         .map_err(|_| crate::frame::FrameError::UnsupportedEffect("post settings"))
         .map(Option::unwrap_or_default)

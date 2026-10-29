@@ -54,6 +54,7 @@ mod ssao;
 mod ssr;
 mod ssr_acceptance;
 mod streaming;
+mod taa;
 mod temporal;
 mod terrain_blend;
 

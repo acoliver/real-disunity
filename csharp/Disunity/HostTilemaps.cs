@@ -31,6 +31,26 @@ public static partial class DisunityHost
         tilemap.Write(value);
     }
 
+    /// <summary>The <c>TilemapRenderer</c> material. With <see cref="Material.SpriteLit"/> the tiles
+    /// take the scene's global 2D lights on their sorting layer, as lit sprites do.</summary>
+    public static unsafe Material TilemapMaterial(Tilemap tilemap)
+    {
+        ArgumentNullException.ThrowIfNull(tilemap);
+        uint value;
+        ThrowIfError(NativeBindings.disunity_tilemap_lighting_read(WorldHandle, tilemap.Handle, &value));
+        return Material.FromNative(value);
+    }
+
+    /// <summary>Sets the <c>TilemapRenderer</c> material to one of the built-in sprite materials.
+    /// Layout writes through <see cref="ConfigureTilemap"/> keep it.</summary>
+    public static void SetTilemapMaterial(Tilemap tilemap, Material material)
+    {
+        ArgumentNullException.ThrowIfNull(tilemap);
+        ArgumentNullException.ThrowIfNull(material);
+        ThrowIfError(NativeBindings.disunity_tilemap_lighting_write(WorldHandle, tilemap.Handle,
+            (uint)material.SpriteMaterial));
+    }
+
     /// <summary>Sets palette entry <paramref name="index"/>, replacing it or, at the palette's
     /// length, appending it.</summary>
     public static unsafe void SetTile(Tilemap tilemap, int index, TileDefinition tile)

@@ -106,6 +106,21 @@ impl Wall {
         assert_eq!(result.code, 0);
         header.quads
     }
+    fn lighting(&self) -> u32 {
+        let mut value = 7;
+        let result =
+            unsafe { disunity_tilemap_lighting_read(self.world, self.tilemap, &mut value) };
+        assert_eq!(result.code, 0);
+        value
+    }
+    /// The lighting the first presented tile is drawn with.
+    fn presented_lighting(&self) -> u32 {
+        assert_eq!(self.quads(), 48);
+        let mut quad = DisunityQuad::default();
+        let result = unsafe { disunity_presentation_quad(self.world, 0, &mut quad) };
+        assert_eq!(result.code, 0);
+        quad.lighting
+    }
 }
 
 impl Drop for Wall {
@@ -236,4 +251,32 @@ fn rejected_layouts_leave_the_wall_unchanged() {
     }
     assert_eq!(wall.quads(), 48);
     assert_eq!(wall.ray_left(0., 0.), wall.collider);
+}
+
+#[test]
+fn lighting_round_trips_survives_layout_writes_and_reaches_presented_tiles() {
+    let wall = wall();
+    let (world, map) = (wall.world, wall.tilemap);
+    assert_eq!(wall.lighting(), 0, "tilemaps start unlit");
+    assert_eq!(disunity_tilemap_lighting_write(world, map, 1).code, 0);
+    assert_eq!(wall.lighting(), 1);
+    assert_eq!(wall.presented_lighting(), 1, "presented tiles are lit");
+    let mut layout = DisunityTilemap::default();
+    unsafe {
+        assert_eq!(disunity_tilemap_read(world, map, &mut layout).code, 0);
+        layout.sorting_order = 3;
+        assert_eq!(disunity_tilemap_write(world, map, &layout).code, 0);
+    }
+    assert_eq!(wall.lighting(), 1, "layout writes keep the lighting");
+    assert_ne!(disunity_tilemap_lighting_write(world, map, 2).code, 0);
+    assert_eq!(wall.lighting(), 1, "a bad value changes nothing");
+    assert_eq!(disunity_tilemap_lighting_write(world, map, 0).code, 0);
+    assert_eq!(wall.presented_lighting(), 0);
+    let null = unsafe { disunity_tilemap_lighting_read(world, map, std::ptr::null_mut()) };
+    assert_ne!(null.code, 0);
+    assert_ne!(
+        disunity_tilemap_lighting_write(world, wall.collider, 1).code,
+        0,
+        "a collider is not a tilemap"
+    );
 }

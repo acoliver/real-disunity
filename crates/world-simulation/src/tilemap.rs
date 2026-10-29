@@ -4,7 +4,7 @@
 use crate::{
     WorldError,
     physics2d::{PhysicsError, Shape2d},
-    presentation::Sprite,
+    presentation::{Sprite, SpriteLighting},
 };
 use glam::{Mat4, Vec2, Vec3};
 
@@ -72,6 +72,9 @@ pub struct Tilemap {
     pub color: [f32; 4],
     pub sorting_layer: i32,
     pub sorting_order: i32,
+    /// The `TilemapRenderer` material: lit tiles take the scene's global 2D lights on their
+    /// sorting layer, as lit sprites do.
+    pub lighting: SpriteLighting,
     pub layout: TileLayout,
     pub tiles: Vec<Tile>,
     pub cells: Vec<TileCell>,
@@ -83,6 +86,7 @@ impl Default for Tilemap {
             color: [1.; 4],
             sorting_layer: 0,
             sorting_order: 0,
+            lighting: SpriteLighting::Unlit,
             layout: TileLayout::default(),
             tiles: Vec::new(),
             cells: Vec::new(),

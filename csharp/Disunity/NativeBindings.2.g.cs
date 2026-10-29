@@ -44,6 +44,19 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_tilemap_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_tilemap_read(ulong world, ulong handle, DisunityTilemap* output);
         /// <summary>
+        ///  The `TilemapRenderer` material as a sprite lighting value: 0 unlit, 1 lit by the scene's
+        ///  global 2D lights on the tilemap's sorting layer.
+        ///  # Safety
+        ///  Output is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_lighting_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_lighting_read(ulong world, ulong handle, uint* output);
+        /// <summary>
+        ///  Sets the `TilemapRenderer` material: 0 unlit, 1 lit. Layout writes keep it.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_tilemap_lighting_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_tilemap_lighting_write(ulong world, ulong handle, uint value);
+        /// <summary>
         ///  Sets palette entry `index`, replacing it or, at the palette's length, appending it. `sprite`
         ///  may be null for a tile with no sprite; only its content fields are read. A Sprite collider
         ///  starts with no physics shape; set it with `disunity_tilemap_set_tile_shape`.

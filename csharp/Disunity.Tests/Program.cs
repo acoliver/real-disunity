@@ -129,6 +129,8 @@ CheckImport("disunity_tilemap_read", u64, u64, AbiType("DisunityTilemap").MakePo
 CheckImport("disunity_tilemap_set_tile", u64, u64, u32, AbiType("DisunityTile").MakePointerType(), AbiType("DisunitySprite").MakePointerType());
 CheckImport("disunity_tilemap_set_tile_shape", u64, u64, u32, f32.MakePointerType(), u32.MakePointerType(), u32);
 CheckImport("disunity_tilemap_set_cells", u64, u64, AbiType("DisunityTileCell").MakePointerType(), u32);
+CheckImport("disunity_tilemap_lighting_write", u64, u64, u32);
+CheckImport("disunity_tilemap_lighting_read", u64, u64, u32.MakePointerType());
 CheckImport("disunity_canvas_read", u64, u64, AbiType("DisunityCanvas").MakePointerType());
 CheckImport("disunity_text_write", u64, u64, f32, bytes, u32);
 CheckImport("disunity_text_read", u64, u64, bytes, u32, u32.MakePointerType(), f32.MakePointerType());

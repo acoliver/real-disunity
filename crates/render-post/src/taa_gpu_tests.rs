@@ -18,7 +18,7 @@ use crate::{
     StageId, StageSet, StageTarget, TaaSettings, TaaUniform, color_texture,
 };
 
-mod velocity;
+mod velocity_tests;
 
 const BOUND: f64 = 1e-3;
 
@@ -472,7 +472,7 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
     let velocity = case
         .velocity
         .as_ref()
-        .map(|v| velocity::upload((&device, &queue), v));
+        .map(|v| velocity_tests::upload((&device, &queue), v));
     let chain = PostChain::new(
         &device,
         FrameConfig::new(size, taa_gpu::FORMAT, 1),

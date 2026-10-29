@@ -657,7 +657,7 @@ reprojection alone, so a cleared target needs no special case. With `velocity: N
 a 1x1 zero texture of the same sample count, which is the default of `HdrPost` today: scene passes do
 not write a residual yet, and output is unchanged from a build without the binding. The motion-adaptive
 weight reads the total displacement including the residual. The reference and GPU tests for this are in
-`taa_gpu_tests/velocity.rs`.
+`taa_gpu_tests/velocity_tests.rs`.
 
 Measured at 1920x1080 on a Radeon 780M with `smaa_and_fxaa_stage_timestamps` (median of 5, stripes
 and disc scenes). The fullscreen `taa history` pass took 0.87 to 0.97 ms of a 2.99 to 3.18 ms timed

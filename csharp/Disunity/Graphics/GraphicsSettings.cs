@@ -4,8 +4,8 @@ namespace UnityEngine.Rendering;
 /// The project's graphics settings, held as static state. Each setting starts at the value a new Unity project
 /// has: sort mode Default, sort axis (0, 0, 1), rendering layer mask 1, every light and culling flag off, shader
 /// types using the built-in shaders, light probes searching the tetrahedral hull, gate fit Horizontal, and video
-/// shaders included when referenced (the last two defaults are the engine's reading of Unity's documentation,
-/// which does not state them). The render pipeline assets are null until a host registers them with
+/// shaders included when referenced (the last two defaults are the engine's choice). The render pipeline
+/// assets are null until a host registers them with
 /// DisunityHost.SetRenderPipeline. Render pipeline settings live in the registries in
 /// <c>GraphicsSettingsPipelines.cs</c>.
 /// </summary>

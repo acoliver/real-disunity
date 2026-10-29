@@ -24,6 +24,10 @@ public sealed class WaitForSecondsRealtime(float time)
     private static float Checked(float seconds) => float.IsFinite(seconds) && seconds >= 0 ? seconds : throw new ArgumentOutOfRangeException(nameof(seconds));
 }
 public sealed class WaitForFixedUpdate : YieldInstruction;
+
+/// <summary>Resumes the coroutine once, at the end of the frame, after every LateUpdate. A coroutine that yields it
+/// from that point resumes at the end of the next frame.</summary>
+public sealed class WaitForEndOfFrame : YieldInstruction;
 public sealed class Coroutine : YieldInstruction
 {
     internal readonly Stack<IEnumerator> Iterators = new();

@@ -90,7 +90,7 @@ fn scene(feature: Feature, variant: Variant) -> RenderScene {
     if feature == Feature::Ssr && variant.feature_on {
         effects = effects.with_ssr(ssr_settings()).unwrap();
     }
-    let floor = if ambient_only { 0 } else { 1 };
+    let floor = u32::from(!ambient_only);
     let mode = SceneAlphaMode::Opaque;
     let ground = SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,
@@ -228,15 +228,19 @@ fn render(
         .collect()
 }
 
+fn count(len: usize) -> f64 {
+    f64::from(u32::try_from(len).expect("fixture sizes fit in u32"))
+}
+
 fn mean_abs_difference(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).map(|(a, b)| (a - b).abs()).sum::<f64>() / a.len() as f64
+    a.iter().zip(b).map(|(a, b)| (a - b).abs()).sum::<f64>() / count(a.len())
 }
 
 fn flicker(frames: &[Vec<f64>]) -> f64 {
     let pairs: Vec<f64> = MEASURED
         .map(|t| mean_abs_difference(&frames[t], &frames[t - 1]))
         .collect();
-    pairs.iter().sum::<f64>() / pairs.len() as f64
+    pairs.iter().sum::<f64>() / count(pairs.len())
 }
 
 fn steady(frames: &[Vec<f64>]) -> Vec<f64> {
@@ -246,7 +250,7 @@ fn steady(frames: &[Vec<f64>]) -> Vec<f64> {
             .zip(frame)
             .for_each(|(sum, value)| *sum += value);
     }
-    sum.iter().map(|sum| sum / MEASURED.len() as f64).collect()
+    sum.iter().map(|sum| sum / count(MEASURED.len())).collect()
 }
 
 fn contribution(on: &[Vec<f64>], off: &[Vec<f64>]) -> Vec<f64> {
@@ -301,8 +305,8 @@ fn assert_stable(label: &str, m: &Measurement, limits: &Limits) {
         "{label}: flicker {m:?}"
     );
     assert!(m.bias <= limits.bias, "{label}: bias {m:?}");
-    assert_eq!(
-        m.flicker_plain_with, 0.0,
+    assert!(
+        m.flicker_plain_with <= 0.0,
         "{label}: unjittered output must be static"
     );
     let allowed = (0.5 * m.flicker_taa_without).max(QUANTISATION);

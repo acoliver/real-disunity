@@ -42,28 +42,34 @@ struct WaterOutput {
 fn water_camera_transmittance(position: vec3<f32>) -> f32 {
     return scene_surface_transmission(position);
 }
-fn flow_texel(pixel: vec2<i32>, size: vec2<i32>) -> vec2<f32> {
+fn texel_wrapped(source: texture_2d<f32>, pixel: vec2<i32>, size: vec2<i32>) -> vec2<f32> {
     let wrapped = ((pixel % size) + size) % size;
-    return textureLoad(surface_flow, wrapped, 0).rg * 2.0 - 1.0;
+    return textureLoad(source, wrapped, 0).rg;
 }
-fn flow_velocity(uv: vec2<f32>) -> vec2<f32> {
-    // Interpolate velocity in float precision: sampler weight quantization is
-    // amplified by the advection period before the normal map is sampled.
-    let size = vec2<i32>(textureDimensions(surface_flow));
+// Level-0 repeat-wrapped bilinear filter in float precision. Vulkan leaves
+// sampler filter precision implementation-defined: some software samplers
+// quantize the weights and round the filtered 8-bit result.
+fn bilinear_rg(source: texture_2d<f32>, uv: vec2<f32>) -> vec2<f32> {
+    let size = vec2<i32>(textureDimensions(source));
     let coordinate = fract(uv) * vec2<f32>(size) - 0.5;
     let base = vec2<i32>(floor(coordinate));
     let fraction = fract(coordinate);
     return mix(
-        mix(flow_texel(base, size), flow_texel(base + vec2<i32>(1, 0), size), fraction.x),
-        mix(flow_texel(base + vec2<i32>(0, 1), size),
-            flow_texel(base + vec2<i32>(1, 1), size), fraction.x), fraction.y);
+        mix(texel_wrapped(source, base, size), texel_wrapped(source, base + vec2<i32>(1, 0), size), fraction.x),
+        mix(texel_wrapped(source, base + vec2<i32>(0, 1), size),
+            texel_wrapped(source, base + vec2<i32>(1, 1), size), fraction.x), fraction.y);
+}
+fn flow_velocity(uv: vec2<f32>) -> vec2<f32> {
+    // Interpolate velocity in float precision: sampler weight quantization is
+    // amplified by the advection period before the normal map is sampled.
+    return bilinear_rg(surface_flow, uv) * 2.0 - 1.0;
 }
 
 fn water_sample_normal(uv: vec2<f32>) -> vec2<f32> {
     if (WATER_TERMS & 4u) != 0u && water.terms.w != 0.0 {
         return textureSample(surface_normal, surface_sampler, uv).rg;
     }
-    return textureSampleLevel(surface_normal, surface_sampler, uv, 0.0).rg;
+    return bilinear_rg(surface_normal, uv);
 }
 fn flowing_normal(uv: vec2<f32>, depth: f32) -> vec3<f32> {
     let xy = water_sample_normal(uv) * 2.0 - 1.0;

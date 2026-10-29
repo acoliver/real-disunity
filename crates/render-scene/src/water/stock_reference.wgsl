@@ -33,25 +33,31 @@ fn water_camera_transmittance(position: vec3<f32>) -> f32 {
     return rd_height_fog_transmittance(log_density, falloff, frame.sun_irradiance.w,
         position - origin, vec3<f32>(0.0, 0.0, 1.0));
 }
-fn flow_texel(pixel: vec2<i32>, size: vec2<i32>) -> vec2<f32> {
+fn texel_wrapped(source: texture_2d<f32>, pixel: vec2<i32>, size: vec2<i32>) -> vec2<f32> {
     let wrapped = ((pixel % size) + size) % size;
-    return textureLoad(surface_flow, wrapped, 0).rg * 2.0 - 1.0;
+    return textureLoad(source, wrapped, 0).rg;
 }
-fn flow_velocity(uv: vec2<f32>) -> vec2<f32> {
-    // Interpolate velocity in float precision: sampler weight quantization is
-    // amplified by the advection period before the normal map is sampled.
-    let size = vec2<i32>(textureDimensions(surface_flow));
+// Level-0 repeat-wrapped bilinear filter in float precision. Vulkan leaves
+// sampler filter precision implementation-defined: some software samplers
+// quantize the weights and round the filtered 8-bit result.
+fn bilinear_rg(source: texture_2d<f32>, uv: vec2<f32>) -> vec2<f32> {
+    let size = vec2<i32>(textureDimensions(source));
     let coordinate = fract(uv) * vec2<f32>(size) - 0.5;
     let base = vec2<i32>(floor(coordinate));
     let fraction = fract(coordinate);
     return mix(
-        mix(flow_texel(base, size), flow_texel(base + vec2<i32>(1, 0), size), fraction.x),
-        mix(flow_texel(base + vec2<i32>(0, 1), size),
-            flow_texel(base + vec2<i32>(1, 1), size), fraction.x), fraction.y);
+        mix(texel_wrapped(source, base, size), texel_wrapped(source, base + vec2<i32>(1, 0), size), fraction.x),
+        mix(texel_wrapped(source, base + vec2<i32>(0, 1), size),
+            texel_wrapped(source, base + vec2<i32>(1, 1), size), fraction.x), fraction.y);
+}
+fn flow_velocity(uv: vec2<f32>) -> vec2<f32> {
+    // Interpolate velocity in float precision: sampler weight quantization is
+    // amplified by the advection period before the normal map is sampled.
+    return bilinear_rg(surface_flow, uv) * 2.0 - 1.0;
 }
 
 fn flowing_normal(uv: vec2<f32>) -> vec3<f32> {
-    let xy = textureSampleLevel(surface_normal, surface_sampler, uv, 0.0).rg * 2.0 - 1.0;
+    let xy = bilinear_rg(surface_normal, uv) * 2.0 - 1.0;
     return vec3<f32>(xy, sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0)));
 }
 // Vlachos (2010), "Water Flow in Portal 2": the resetting phase has zero weight.
@@ -80,7 +86,7 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>) -> vec3<f32> {
         if water.absorption.w > 0.0 {
             normal = two_phase_normal(input.world.xy, velocity);
         } else {
-            let xy = textureSampleLevel(surface_normal, surface_sampler, wave * water.surface.xy, 0.0).rg * 2.0 - 1.0;
+            let xy = bilinear_rg(surface_normal, wave * water.surface.xy) * 2.0 - 1.0;
             normal = normalize(vec3<f32>(xy, sqrt(max(1.0 - dot(xy, xy), 0.0001))));
         }
     }

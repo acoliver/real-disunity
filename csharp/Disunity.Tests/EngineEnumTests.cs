@@ -4,8 +4,8 @@ using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Spot checks of the enums generated from a Unity 6000.3 player's module metadata against
-/// values Unity documents, and the message of a failed assertion.
+/// Spot checks of the enums generated from a Unity 6000.3 player's module metadata against known
+/// values, and the message of a failed assertion.
 /// </summary>
 internal static class EngineEnumTests
 {

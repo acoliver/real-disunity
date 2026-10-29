@@ -27,7 +27,7 @@ internal static class Expect
         throw new InvalidOperationException($"{what}: expected {typeof(TException).Name}, nothing was thrown");
     }
 
-    /// <summary>Like <see cref="Throws{TException}"/>, and returns the exception for further checks.</summary>
+    /// <summary>Like <see cref="Throws{TException}"/>, and returns the exception so the caller can check its message.</summary>
     public static TException Catch<TException>(Action action, string what) where TException : Exception
     {
         try { action(); }

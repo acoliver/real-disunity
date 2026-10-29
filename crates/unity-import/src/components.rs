@@ -5,6 +5,7 @@
 
 mod body;
 mod camera;
+mod light;
 mod material;
 mod physics;
 mod renderer;
@@ -18,7 +19,8 @@ use crate::{
 };
 
 pub use body::{BodyType, Collider, Collider2D, ColliderShape, Interpolation, Rigidbody2D};
-pub use camera::{Camera, CameraParticipant, ClearFlags};
+pub use camera::{Camera, CameraOutput, CameraParticipant, ClearFlags};
+pub use light::Light3D;
 pub use material::RendererMaterial;
 pub use physics::{Combine, PhysicsMaterial};
 pub use renderer::{RendererSettings, SpriteRenderer, TilemapRenderer};

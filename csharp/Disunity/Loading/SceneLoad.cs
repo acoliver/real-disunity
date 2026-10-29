@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Disunity.Hosting;
 
@@ -67,6 +68,7 @@ public static partial class DisunityHost
         using var document = JsonDocument.Parse(plan);
         var loaded = new SceneLoader(document.RootElement, options).Load();
         CurrentScene = new LoadedSceneInfo(document.RootElement.Str("scene"), loaded.TemplateObjects);
+        SceneManager.RaiseLoaded(ActiveScene);
         return loaded;
     }
 }
@@ -78,6 +80,8 @@ internal static class PlanJson
     public static float Float(this JsonElement value, string name) => value.GetProperty(name).GetSingle();
     public static int Int(this JsonElement value, string name) => value.GetProperty(name).GetInt32();
     public static bool Bool(this JsonElement value, string name) => value.GetProperty(name).GetBoolean();
+    /// <summary>A layer mask the plan stores as an unsigned number; the engine's masks are signed.</summary>
+    public static int Mask(this JsonElement value, string name) => unchecked((int)value.GetProperty(name).GetUInt32());
     public static int? Index(this JsonElement value, string name) =>
         value.GetProperty(name).ValueKind == JsonValueKind.Null ? null : value.GetProperty(name).GetInt32();
     public static float[] Floats(this JsonElement value, string name) =>

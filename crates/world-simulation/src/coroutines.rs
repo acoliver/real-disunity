@@ -10,6 +10,7 @@ pub struct CoroutineId {
 pub enum WaitCondition {
     NextFrame,
     FixedUpdate,
+    EndOfFrame,
     Scaled(TimeSpan),
     Unscaled(TimeSpan),
 }
@@ -104,7 +105,9 @@ impl World {
         let deadline = match wait {
             WaitCondition::Scaled(span) => self.clock.time.checked_add(span)?,
             WaitCondition::Unscaled(span) => self.clock.unscaled_time.checked_add(span)?,
-            WaitCondition::NextFrame | WaitCondition::FixedUpdate => TimeSpan::ZERO,
+            WaitCondition::NextFrame | WaitCondition::FixedUpdate | WaitCondition::EndOfFrame => {
+                TimeSpan::ZERO
+            }
         };
         Ok(Coroutine {
             script,

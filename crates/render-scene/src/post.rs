@@ -2,6 +2,7 @@
 use worldrunner_render_plan::{SceneAntiAlias, SceneEffects, ScenePostStage};
 use worldrunner_render_post::{
     AdaptiveExposure, AntiAliasing, Bloom, FxaaQuality, HdrPostSettings, PostError, PostResolve,
+    ProjectionJitter, TaaSettings,
 };
 
 pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
@@ -45,25 +46,59 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
             }
         }
     }
-    match *effects.anti_alias() {
-        SceneAntiAlias::Disabled => {}
-        SceneAntiAlias::Fxaa { subpixel_micro } if fxaa_strength.is_none() => {
-            fxaa_strength = Some(micro(subpixel_micro));
-        }
-        _ => return Err(PostError::UnsupportedProfile("TAA or duplicate FXAA")),
+    let taa = authored_anti_alias(effects, &mut fxaa_strength)?;
+    if let Some(taa) = taa {
+        taa.validate()?;
     }
     out.validate()?;
     // Zero-strength requests take the unchanged fixed-output path.
     out.bloom = out.bloom.filter(|b| b.intensity > 0.0);
-    out.resolve = fxaa_strength
-        .filter(|weight| *weight > 0.0)
-        .map_or(PostResolve::None, |weight| {
-            PostResolve::fxaa_with(weight, fxaa_quality)
-        });
+    out.resolve = taa.map_or_else(
+        || {
+            fxaa_strength
+                .filter(|weight| *weight > 0.0)
+                .map_or(PostResolve::None, |weight| {
+                    PostResolve::fxaa_with(weight, fxaa_quality)
+                })
+        },
+        PostResolve::taa_with,
+    );
     Ok(out)
 }
+
+/// Resolve chosen by the authored anti-alias field. FXAA lands in `fxaa_strength`, TAA is
+/// returned; either fails when the HDR post block already chose a resolve.
+fn authored_anti_alias(
+    effects: &SceneEffects,
+    fxaa_strength: &mut Option<f32>,
+) -> Result<Option<TaaSettings>, PostError> {
+    match *effects.anti_alias() {
+        SceneAntiAlias::Disabled => Ok(None),
+        SceneAntiAlias::Fxaa { subpixel_micro } if fxaa_strength.is_none() => {
+            *fxaa_strength = Some(micro(subpixel_micro));
+            Ok(None)
+        }
+        SceneAntiAlias::Taa {
+            history_micro,
+            clip_scale_micro,
+        } if fxaa_strength.is_none() => Ok(Some(TaaSettings {
+            history_weight: micro(history_micro),
+            clip_scale: micro(clip_scale_micro),
+        })),
+        _ => Err(PostError::UnsupportedProfile("duplicate resolve")),
+    }
+}
+
+/// Projection jitter of a renderer with this merged post resolve: one rule for both authoring
+/// routes, owned by `PostResolve::effective_jitter`.
+pub(crate) fn jitter(
+    post: &HdrPostSettings,
+    explicit: Option<ProjectionJitter>,
+) -> Option<ProjectionJitter> {
+    post.resolve.effective_jitter(explicit)
+}
 /// Authored post settings with the descriptor's resolve and sharpening; the scene effects and
-/// the descriptor may not both choose a resolve.
+/// the descriptor may not both choose a resolve (FXAA or TAA).
 pub(crate) fn settings_with_antialiasing(
     effects: Option<&worldrunner_render_plan::SceneEffects>,
     antialiasing: AntiAliasing,
@@ -75,7 +110,7 @@ pub(crate) fn settings_with_antialiasing(
         .unwrap_or_default();
     if resolve != PostResolve::None {
         if post.resolve != PostResolve::None {
-            return Err(PostError::UnsupportedProfile("duplicate FXAA"));
+            return Err(PostError::UnsupportedProfile("duplicate resolve"));
         }
         post.resolve = resolve;
     }

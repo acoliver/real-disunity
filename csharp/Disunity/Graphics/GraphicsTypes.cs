@@ -85,10 +85,6 @@ namespace UnityEngine
         public static bool operator ==(GraphicsBufferHandle a, GraphicsBufferHandle b) => a.value == b.value;
         public static bool operator !=(GraphicsBufferHandle a, GraphicsBufferHandle b) => a.value != b.value;
     }
-
-    /// <summary>A GPU buffer. Only its identity exists in G1; its members come in G2.</summary>
-    public sealed class ComputeBuffer;
-
 }
 
 namespace UnityEngine.Rendering

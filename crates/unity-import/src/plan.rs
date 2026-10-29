@@ -31,7 +31,7 @@ use serde::Serialize;
 
 use crate::{
     components::{
-        Camera, CanvasScaler, ColliderShape, ComponentError, Light2D, PhysicsMaterial,
+        Camera, CanvasScaler, ColliderShape, ComponentError, Light2D, Light3D, PhysicsMaterial,
         RectTransform, RendererMaterial, Text, UrpCamera,
     },
     input::{InputAxis, input_axes},
@@ -50,6 +50,10 @@ pub struct ScenePlan {
     pub textures: Vec<PlanTexture>,
     pub fonts: Vec<PackageFont>,
     pub axes: Vec<InputAxis>,
+    /// Layer names by layer index, 32 entries with an empty string for an unnamed layer. Only
+    /// player plans carry them; a project plan leaves the list empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<String>,
     /// What the plan leaves out of the scene as authored, one line each. Only player plans
     /// leave anything out; a project plan fails instead.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -157,6 +161,12 @@ pub enum PlanComponent {
         #[serde(flatten)]
         camera: UrpCamera,
     },
+    /// A 3D light of a player scene.
+    Light {
+        enabled: bool,
+        #[serde(flatten)]
+        light: Light3D,
+    },
     /// A project script: `class` in the compiled game assembly, from `script`'s file. A
     /// player's script has no file; `class` is its full name in `assembly`.
     Script {
@@ -241,6 +251,7 @@ pub fn plan_scene(project: &Project, path: &Path) -> Result<ScenePlan, PlanError
         textures,
         fonts,
         axes: input_axes(project)?,
+        layers: Vec::new(),
         differences: Vec::new(),
     })
 }

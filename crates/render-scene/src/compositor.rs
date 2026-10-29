@@ -140,11 +140,12 @@ impl FrameRenderer {
     ///
     /// A sample count the adapter cannot render for the scene formats fails with
     /// [`PostError::SampleCount`] before any target is allocated; it is never reduced.
-    /// A resolve other than [`PostResolve::None`] conflicts with FXAA authored in
-    /// `effects` and is rejected rather than merged.
+    /// A resolve other than [`PostResolve::None`] conflicts with a resolve (FXAA or TAA)
+    /// authored in `effects` and is rejected rather than merged.
     ///
     /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
-    /// see [`Self::set_projection_jitter`]. It is off unless requested.
+    /// see [`Self::set_projection_jitter`]. It is off unless requested, except that a TAA
+    /// resolve selects the default sequence ([`PostResolve::effective_jitter`]).
     pub fn hdr_antialiased(
         context: &crate::device::GpuContext,
         size: [u32; 2],
@@ -154,6 +155,7 @@ impl FrameRenderer {
         effects: Option<&worldrunner_render_plan::SceneEffects>,
     ) -> Result<Self, PostError> {
         antialiasing.validate()?;
+        let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
         validate_hdr_effects(effects)?;
         let config = antialiasing.frame_config(size, wgpu::TextureFormat::Rgba16Float);
         config.validate_adapter(context.adapter())?;
@@ -165,7 +167,6 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
         post.validate_frame(config)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;
@@ -204,7 +205,7 @@ impl FrameRenderer {
             )?,
         };
         renderer.install_reflections(context.device(), size)?;
-        renderer.set_projection_jitter(antialiasing.jitter);
+        renderer.set_projection_jitter(crate::post::jitter(&post, antialiasing.jitter))?;
         if let Some(effects) = effects {
             renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
         }
@@ -427,6 +428,7 @@ impl FrameRenderer {
                 self.frame_delta,
                 self.exposure_reset.get(),
             )?;
+            self.prepare_taa(factory, encoder);
             let reset = self.exposure_reset.clone();
             publication::encode(encoder, &reset.clone(), move || {
                 reset.set(false);
@@ -635,6 +637,7 @@ impl FrameRenderer {
     ) -> Result<(), FrameError> {
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
+        self.remember_taa_block(None);
         if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",

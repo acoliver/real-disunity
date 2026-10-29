@@ -257,8 +257,9 @@ GradientTests.Run();
 UnityAttributeTests.Run();
 
 AssetBundleTests.Run();
-CommandBufferTests.Run();
 WebRequestTests.Run();
+JsonUtilityTests.Run();
+CommandBufferTests.Run();
 ObjectModelTests.Run();
 TransformMemberTests.Run();
 GameObjectMemberTests.Run();

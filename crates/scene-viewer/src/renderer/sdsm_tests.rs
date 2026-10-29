@@ -3,6 +3,88 @@ use super::*;
 use worldrunner_render_plan::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
 use worldrunner_render_scene::shadows::sdsm::{AdoptedFit, AdoptionPolicy};
 
+fn finish_timed_output(context: &GpuContext, presentation: &Presentation) {
+    let output = worldrunner_render_post::color_texture(
+        context.device(),
+        "depth timing output",
+        [64, 64],
+        crate::presentation::COLOR,
+    );
+    let view = output.create_view(&wgpu::TextureViewDescriptor::default());
+    let submission = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            presentation.scheduler.encode_output(encoder, &view)
+        })
+        .unwrap()
+        .submit()
+        .unwrap();
+    context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .unwrap();
+}
+
+#[test]
+fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
+    let instance = worldrunner_render_gpu::device::headless_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let supported = adapter.features() & wgpu::Features::TIMESTAMP_QUERY;
+    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+        adapter,
+        wgpu::Features::empty(),
+        worldrunner_render_post::TimingMode::Optional,
+    ))
+    .unwrap();
+    assert_eq!(
+        context.device().features() & wgpu::Features::TIMESTAMP_QUERY,
+        supported
+    );
+    if supported.is_empty() {
+        return;
+    }
+    let (mut resident, mut presentation) = fixture(&context);
+    for (frame_id, capture) in [(0, false), (1, true)] {
+        render_frame(
+            &context,
+            &mut resident,
+            &mut presentation,
+            (Some(frame_id), capture),
+        );
+        finish_timed_output(&context, &presentation);
+        let samples = presentation.scheduler.take_timings().unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].frame_id, frame_id);
+        for name in [
+            "sdsm receiver initialize",
+            "sdsm receiver reduce",
+            "post copy output",
+        ] {
+            assert_eq!(
+                samples[0]
+                    .passes
+                    .iter()
+                    .filter(
+                        |pass| pass.pass_id == crate::PassId::Stage(crate::StageId::new(name, 0))
+                    )
+                    .count(),
+                1
+            );
+        }
+        assert!(
+            samples[0]
+                .passes
+                .iter()
+                .any(|pass| pass.pass_id == crate::PassId::Geometry(crate::PassSlot::Opaque))
+        );
+    }
+}
+
 #[test]
 fn retained_sdsm_selects_delayed_fit_and_same_frame_capture_then_invalidates_resize() {
     let context =

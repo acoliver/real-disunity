@@ -51,6 +51,13 @@ impl Presentation {
     ) -> Result<Self, ViewerError> {
         let mut settings = RendererConfiguration::legacy([size.width, size.height], format);
         settings.frame.format = COLOR;
+        if context
+            .device()
+            .features()
+            .contains(crate::renderer::timing::features())
+        {
+            settings.timing = worldrunner_render_post::TimingMode::Required;
+        }
         let hdr = match profile {
             crate::FrameProfile::Legacy => None,
             crate::FrameProfile::Hdr { samples, tone_map }

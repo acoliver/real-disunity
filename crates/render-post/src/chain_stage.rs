@@ -17,6 +17,12 @@ pub enum Operation {
         destination: wgpu::Buffer,
         bytes: u64,
     },
+    /// Copies the whole of `source` into `destination`. Both are single-mip 2D textures of the
+    /// same format and extent, with `COPY_SRC` and `COPY_DST` usage respectively.
+    CopyTexture {
+        source: wgpu::Texture,
+        destination: wgpu::Texture,
+    },
     Compute {
         pipeline: wgpu::ComputePipeline,
         groups: Vec<wgpu::BindGroup>,
@@ -40,7 +46,10 @@ pub enum Operation {
 impl Operation {
     /// Whether the operation is a compute or render pass, which has an identity and a timing slot.
     pub(super) fn is_pass(&self) -> bool {
-        !matches!(self, Self::Clear(_) | Self::CopyBuffer { .. })
+        !matches!(
+            self,
+            Self::Clear(_) | Self::CopyBuffer { .. } | Self::CopyTexture { .. }
+        )
     }
 }
 
@@ -53,6 +62,23 @@ pub struct Stage {
 }
 
 impl Stage {
+    /// A texture-to-texture copy, encoded outside any pass and so without a timing slot.
+    pub fn copy_texture(
+        id: crate::StageId,
+        source: &wgpu::Texture,
+        destination: &wgpu::Texture,
+    ) -> Self {
+        Self {
+            id,
+            label: id.name,
+            enabled: true,
+            operation: Operation::CopyTexture {
+                source: source.clone(),
+                destination: destination.clone(),
+            },
+        }
+    }
+
     pub fn fullscreen(
         id: crate::StageId,
         pipeline: &wgpu::RenderPipeline,
@@ -93,6 +119,31 @@ impl Stage {
         pass
     }
 
+    fn fullscreen_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        stamp: Option<&crate::timing::Stamp>,
+        (pipeline, groups): (&wgpu::RenderPipeline, &[wgpu::BindGroup]),
+        view: &wgpu::TextureView,
+    ) {
+        fullscreen_pass_timed(
+            encoder,
+            Some(self.label),
+            wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            },
+            pipeline,
+            &groups.iter().collect::<Vec<_>>(),
+            stamp,
+        );
+    }
+
     pub(super) fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -109,6 +160,14 @@ impl Stage {
                 destination,
                 bytes,
             } => encoder.copy_buffer_to_buffer(source, 0, destination, 0, *bytes),
+            Operation::CopyTexture {
+                source,
+                destination,
+            } => encoder.copy_texture_to_texture(
+                source.as_image_copy(),
+                destination.as_image_copy(),
+                source.size(),
+            ),
             Operation::Compute {
                 pipeline,
                 groups,
@@ -130,28 +189,14 @@ impl Stage {
                 pipeline,
                 groups,
                 target,
-            } => {
-                let view = match target {
-                    StageTarget::Output => output,
-                    StageTarget::Texture(view) => view,
-                };
-                fullscreen_pass_timed(
-                    encoder,
-                    Some(self.label),
-                    wgpu::RenderPassColorAttachment {
-                        view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    },
-                    pipeline,
-                    &groups.iter().collect::<Vec<_>>(),
-                    stamp,
-                );
-            }
+            } => self.fullscreen_pass(encoder, stamp, (pipeline, groups), view_of(target, output)),
         }
+    }
+}
+
+fn view_of<'a>(target: &'a StageTarget, output: &'a wgpu::TextureView) -> &'a wgpu::TextureView {
+    match target {
+        StageTarget::Output => output,
+        StageTarget::Texture(view) => view,
     }
 }

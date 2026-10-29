@@ -240,7 +240,21 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCamera>("g").ToInt32() != 32) throw new InvalidOperationException("DisunityCamera.g offset");
         if (Marshal.OffsetOf<DisunityCamera>("b").ToInt32() != 36) throw new InvalidOperationException("DisunityCamera.b offset");
         if (Marshal.OffsetOf<DisunityCamera>("a").ToInt32() != 40) throw new InvalidOperationException("DisunityCamera.a offset");
-        if (Marshal.SizeOf<DisunityCamera>() != 44 || typeof(DisunityCamera).GetFields().Length != 11) throw new InvalidOperationException("DisunityCamera layout");
+        if (Marshal.OffsetOf<DisunityCamera>("field_of_view").ToInt32() != 44) throw new InvalidOperationException("DisunityCamera.field_of_view offset");
+        if (Marshal.OffsetOf<DisunityCamera>("target_texture").ToInt32() != 48) throw new InvalidOperationException("DisunityCamera.target_texture offset");
+        if (Marshal.OffsetOf<DisunityCamera>("culling_mask").ToInt32() != 56) throw new InvalidOperationException("DisunityCamera.culling_mask offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_x").ToInt32() != 60) throw new InvalidOperationException("DisunityCamera.viewport_x offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_y").ToInt32() != 64) throw new InvalidOperationException("DisunityCamera.viewport_y offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_width").ToInt32() != 68) throw new InvalidOperationException("DisunityCamera.viewport_width offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_height").ToInt32() != 72) throw new InvalidOperationException("DisunityCamera.viewport_height offset");
+        if (Marshal.OffsetOf<DisunityCamera>("depth_texture_mode").ToInt32() != 76) throw new InvalidOperationException("DisunityCamera.depth_texture_mode offset");
+        if (Marshal.OffsetOf<DisunityCamera>("allow_hdr").ToInt32() != 80) throw new InvalidOperationException("DisunityCamera.allow_hdr offset");
+        if (Marshal.OffsetOf<DisunityCamera>("allow_msaa").ToInt32() != 84) throw new InvalidOperationException("DisunityCamera.allow_msaa offset");
+        if (Marshal.OffsetOf<DisunityCamera>("allow_dynamic_resolution").ToInt32() != 88) throw new InvalidOperationException("DisunityCamera.allow_dynamic_resolution offset");
+        if (Marshal.OffsetOf<DisunityCamera>("use_occlusion_culling").ToInt32() != 92) throw new InvalidOperationException("DisunityCamera.use_occlusion_culling offset");
+        if (Marshal.OffsetOf<DisunityCamera>("target_display").ToInt32() != 96) throw new InvalidOperationException("DisunityCamera.target_display offset");
+        if (Marshal.OffsetOf<DisunityCamera>("camera_type").ToInt32() != 100) throw new InvalidOperationException("DisunityCamera.camera_type offset");
+        if (Marshal.SizeOf<DisunityCamera>() != 104 || typeof(DisunityCamera).GetFields().Length != 25) throw new InvalidOperationException("DisunityCamera layout");
         if (Marshal.OffsetOf<DisunityCanvasScale>("mode").ToInt32() != 0) throw new InvalidOperationException("DisunityCanvasScale.mode offset");
         if (Marshal.OffsetOf<DisunityCanvasScale>("screen_match").ToInt32() != 4) throw new InvalidOperationException("DisunityCanvasScale.screen_match offset");
         if (Marshal.OffsetOf<DisunityCanvasScale>("factor").ToInt32() != 8) throw new InvalidOperationException("DisunityCanvasScale.factor offset");
@@ -296,5 +310,5 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 5;
+    internal const uint Version = 6;
 }

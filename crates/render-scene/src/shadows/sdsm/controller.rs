@@ -84,6 +84,9 @@ impl DepthFitting {
     pub fn invalidate(&mut self) {
         self.state.invalidate();
     }
+    pub(super) fn set_timing(&mut self, timing: worldrunner_render_post::TimingState) {
+        self.reducer.set_timing(timing);
+    }
     pub fn reducer(&self) -> &DepthReducer {
         &self.reducer
     }

@@ -5,11 +5,13 @@
 //! assets: a `TextAsset` names the byte range of its contents in the player's file, and a
 //! script asset (a `ScriptableObject`) has its decoded fields written to a file beside the
 //! plan, with references to other planned resources as `{"$asset": i}`, since a few hold
-//! tables of many megabytes. Entries of other classes keep only their class, so loading one
+//! tables of many megabytes. Textures, sprites and sprite atlases are planned too, along
+//! with the ones such an object references even when the container does not list them (see
+//! [`crate::player_sprites`]). Entries of other classes keep only their class, so loading one
 //! names the class the engine does not build yet.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -24,6 +26,7 @@ use crate::{
     PlayerError,
     player_files::PlayerFiles,
     player_scripts::script_fields,
+    player_sprites::{self, AssetRef, TextureData},
     player_values::{FieldWriter, not_held},
 };
 
@@ -63,17 +66,60 @@ pub enum ResourceAsset {
         name: String,
         fields: String,
     },
+    /// A 2D texture. `format` is the `TextureFormat` value and `color_space` the decoded
+    /// value; `filter_mode` and the wrap modes are the sampler's values.
+    Texture2D {
+        name: String,
+        width: i32,
+        height: i32,
+        format: i32,
+        mip_count: i32,
+        readable: bool,
+        color_space: i32,
+        filter_mode: i32,
+        wrap_u: i32,
+        wrap_v: i32,
+        wrap_w: i32,
+        aniso_level: i32,
+        mip_bias: f32,
+        data: TextureData,
+    },
+    /// A rectangle of a texture. Rectangles and the border are in pixels (x, y, width,
+    /// height and left, bottom, right, top); the pivot is a fraction of the rectangle.
+    /// `packing_rotation` and `mesh_type` are the sprite's packed settings bits.
+    Sprite {
+        name: String,
+        rect: [f32; 4],
+        pivot: [f32; 2],
+        pixels_per_unit: f32,
+        border: [f32; 4],
+        extrude: u32,
+        texture: Option<AssetRef>,
+        texture_rect: [f32; 4],
+        texture_rect_offset: [f32; 2],
+        packed: bool,
+        packing_rotation: u32,
+        mesh_type: u32,
+    },
+    /// Sprites packed together, in the atlas's order.
+    SpriteAtlas {
+        name: String,
+        tag: String,
+        is_variant: bool,
+        sprites: Vec<AssetRef>,
+    },
 }
 
 /// An object of a player file, by file path and path ID.
-type ObjectKey = (PathBuf, i64);
+pub(crate) type ObjectKey = (PathBuf, i64);
 
-/// Plans the resources of the player in `data_dir`, writing script asset fields under
-/// `output/resources`. Script asset fields decode with `layouts`.
+/// Plans the resources of the player in `data_dir`, writing script asset fields and inline
+/// texture data under `output/resources`. Script asset fields decode with `layouts`.
 ///
 /// # Errors
-/// Fails when a file cannot be read or written, the resource manager or a text asset does
-/// not decode, or a script asset's fields do not decode with its layout.
+/// Fails when a file cannot be read or written, the resource manager, a text asset or a
+/// sprite object does not decode, a texture's streamed data cannot be found, or a script
+/// asset's fields do not decode with its layout.
 pub fn plan_player_resources(
     data_dir: &Path,
     layouts: &ScriptLayouts,
@@ -83,15 +129,12 @@ pub fn plan_player_resources(
     let managers = data_dir.join("globalgamemanagers");
     let container = resource_container(&mut files, &managers)?;
     let mut planner = ResourcePlanner {
-        files,
+        registry: Registry::new(files),
         output: output.to_owned(),
-        planned: BTreeMap::new(),
         assets: Vec::new(),
         differences: Vec::new(),
     };
     let mut entries = Vec::with_capacity(container.len());
-    // Planned objects in asset order, so references between them resolve before any is planned.
-    let mut queue = Vec::new();
     for (path, pptr) in container {
         if pptr.is_null() {
             planner
@@ -99,23 +142,24 @@ pub fn plan_player_resources(
                 .push(format!("resource {path} names no object"));
             continue;
         }
-        let file = planner.files.referenced_file(&managers, pptr)?;
-        let class = planner.class(&file, pptr.path_id)?;
-        let key = (file, pptr.path_id);
-        if buildable(class) && !planner.planned.contains_key(&key) {
-            planner.planned.insert(key.clone(), queue.len());
-            queue.push((key.clone(), class));
-        }
+        let file = planner.registry.files.referenced_file(&managers, pptr)?;
+        let class = planner.registry.class(&file, pptr.path_id)?;
+        let asset = planner.registry.admit(&(file, pptr.path_id), class)?;
         entries.push(ResourceEntry {
             path,
             class: class.to_string(),
-            asset: planner.planned.get(&key).copied(),
+            asset,
         });
     }
-    for (key, class) in queue {
+    // Objects an asset references join the queue while it is planned, so the queue grows
+    // as it is walked and asset `i` is always `queue[i]`.
+    let mut next = 0;
+    while let Some((key, class)) = planner.registry.queue.get(next).cloned() {
         let asset = planner.plan_asset(&key, class, layouts)?;
         planner.assets.push(asset);
+        next += 1;
     }
+    planner.differences.append(&mut planner.registry.notes);
     Ok(ResourcesPlan {
         entries,
         assets: planner.assets,
@@ -123,8 +167,14 @@ pub fn plan_player_resources(
     })
 }
 
+/// Whether the plan holds objects of `class` as assets.
 fn buildable(class: ClassId) -> bool {
-    class == ClassId::TEXT_ASSET || class == ClassId::MONO_BEHAVIOUR
+    class == ClassId::TEXT_ASSET || class == ClassId::MONO_BEHAVIOUR || referenced_on_demand(class)
+}
+
+/// Classes a reference plans even when the container does not list the object.
+fn referenced_on_demand(class: ClassId) -> bool {
+    class == ClassId::TEXTURE_2D || class == ClassId::SPRITE || class == ClassId::SPRITE_ATLAS
 }
 
 fn resource_container(
@@ -145,16 +195,29 @@ fn resource_container(
     Ok(manager.container)
 }
 
-struct ResourcePlanner {
-    files: PlayerFiles,
-    output: PathBuf,
-    /// The asset index of each planned object.
+/// The objects admitted to the plan, by the index of their asset.
+pub(crate) struct Registry {
+    pub(crate) files: PlayerFiles,
     planned: BTreeMap<ObjectKey, usize>,
-    assets: Vec<ResourceAsset>,
-    differences: Vec<String>,
+    /// Admitted objects in asset order.
+    pub(crate) queue: Vec<(ObjectKey, ClassId)>,
+    /// Textures the engine does not build, which are noted once.
+    rejected: BTreeSet<ObjectKey>,
+    /// Differences found while admitting and while planning textures, sprites and atlases.
+    pub(crate) notes: Vec<String>,
 }
 
-impl ResourcePlanner {
+impl Registry {
+    fn new(files: PlayerFiles) -> Self {
+        Self {
+            files,
+            planned: BTreeMap::new(),
+            queue: Vec::new(),
+            rejected: BTreeSet::new(),
+            notes: Vec::new(),
+        }
+    }
+
     fn class(&mut self, file: &Path, path_id: i64) -> Result<ClassId, PlayerError> {
         self.files
             .open_path(file)?
@@ -167,6 +230,64 @@ impl ResourcePlanner {
             })
     }
 
+    /// The asset index of the object, planning it first when it is new and the engine builds
+    /// its class; `None` when it is not built.
+    fn admit(&mut self, key: &ObjectKey, class: ClassId) -> Result<Option<usize>, PlayerError> {
+        if let Some(&index) = self.planned.get(key) {
+            return Ok(Some(index));
+        }
+        if !buildable(class) || self.rejected.contains(key) {
+            return Ok(None);
+        }
+        if class == ClassId::TEXTURE_2D
+            && let Some(flaw) = player_sprites::texture_flaw(&mut self.files, key)?
+        {
+            self.notes.push(flaw);
+            self.rejected.insert(key.clone());
+            return Ok(None);
+        }
+        self.planned.insert(key.clone(), self.queue.len());
+        self.queue.push((key.clone(), class));
+        Ok(Some(self.queue.len() - 1))
+    }
+
+    /// `{"$asset": i}` for a reference from `owner` to a planned object, or why there is none.
+    pub(crate) fn reference(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
+        self.asset_index(owner, pptr)
+            .map(|index| json!({ "$asset": index }))
+    }
+
+    /// The asset index of the object a reference from `owner` names. A texture, sprite or
+    /// atlas is planned by being referenced; objects of other classes must be planned already.
+    pub(crate) fn asset_index(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
+        let file = self
+            .files
+            .referenced_file(owner, pptr)
+            .map_err(|_| not_held(pptr))?;
+        let key = (file, pptr.path_id);
+        if let Some(&index) = self.planned.get(&key) {
+            return Ok(index);
+        }
+        let class = self.class(&key.0, key.1).map_err(|_| not_held(pptr))?;
+        if !referenced_on_demand(class) {
+            return Err(not_held(pptr));
+        }
+        match self.admit(&key, class) {
+            Ok(Some(index)) => Ok(index),
+            Ok(None) => Err(not_held(pptr)),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+}
+
+struct ResourcePlanner {
+    registry: Registry,
+    output: PathBuf,
+    assets: Vec<ResourceAsset>,
+    differences: Vec<String>,
+}
+
+impl ResourcePlanner {
     fn plan_asset(
         &mut self,
         key: &ObjectKey,
@@ -174,10 +295,25 @@ impl ResourcePlanner {
         layouts: &ScriptLayouts,
     ) -> Result<ResourceAsset, PlayerError> {
         let (file, path_id) = key;
-        if class == ClassId::TEXT_ASSET {
-            return self.text_asset(file, *path_id);
+        let index = self.assets.len();
+        match class {
+            ClassId::TEXT_ASSET => self.text_asset(file, *path_id),
+            ClassId::TEXTURE_2D => {
+                player_sprites::plan_texture(&mut self.registry, key, &self.output, index)
+            }
+            ClassId::SPRITE => player_sprites::plan_sprite(&mut self.registry, key),
+            ClassId::SPRITE_ATLAS => player_sprites::plan_atlas(&mut self.registry, key),
+            _ => self.script_asset(key, layouts),
         }
-        let data = script_fields(&mut self.files, file, *path_id, layouts)?.map_err(
+    }
+
+    fn script_asset(
+        &mut self,
+        key: &ObjectKey,
+        layouts: &ScriptLayouts,
+    ) -> Result<ResourceAsset, PlayerError> {
+        let (file, path_id) = key;
+        let data = script_fields(&mut self.registry.files, file, *path_id, layouts)?.map_err(
             |(script, reason)| PlayerError::InvalidHierarchy {
                 path: file.clone(),
                 reason: format!("resource object {path_id}: script {script}: {reason}"),
@@ -194,13 +330,9 @@ impl ResourcePlanner {
             });
         };
         let place = format!("resource {}", data.name);
-        let planned = &self.planned;
-        let files = &mut self.files;
-        let fields = FieldWriter::new(
-            |pptr| resource_reference(files, planned, file, pptr),
-            &mut self.differences,
-        )
-        .fields(&place, &data.fields);
+        let registry = &mut self.registry;
+        let fields = FieldWriter::new(|pptr| registry.reference(file, pptr), &mut self.differences)
+            .fields(&place, &data.fields);
         Ok(ResourceAsset::Script {
             class: script.full_name,
             assembly: script.assembly,
@@ -212,20 +344,13 @@ impl ResourcePlanner {
     /// Writes the fields of the asset being planned and returns the file's relative path.
     fn write_fields(&self, fields: &Json) -> Result<String, PlayerError> {
         let relative = format!("resources/{}.json", self.assets.len());
-        let target = self.output.join(&relative);
-        let io = |path: &Path| {
-            let path = path.to_owned();
-            move |source| PlayerError::Io { path, source }
-        };
-        let parent = target.parent().expect("resource files have a directory");
-        std::fs::create_dir_all(parent).map_err(io(parent))?;
         let bytes = serde_json::to_vec(fields).expect("JSON values serialize");
-        std::fs::write(&target, bytes).map_err(io(&target))?;
+        player_sprites::write_resource(&self.output, &relative, &bytes)?;
         Ok(relative)
     }
 
     fn text_asset(&mut self, file: &Path, path_id: i64) -> Result<ResourceAsset, PlayerError> {
-        let open = self.files.open_path(file)?;
+        let open = self.registry.files.open_path(file)?;
         let asset: TextAsset = open.decode(path_id)?;
         let object = *open.file.object(path_id).expect("decoded objects exist");
         let at = |position: usize| object.offset + position as u64;
@@ -239,20 +364,4 @@ impl ResourcePlanner {
             length: (asset.contents.end - asset.contents.start) as u64,
         })
     }
-}
-
-/// `{"$asset": i}` for a reference to a planned resource, or why there is none.
-fn resource_reference(
-    files: &mut PlayerFiles,
-    planned: &BTreeMap<ObjectKey, usize>,
-    owner: &Path,
-    pptr: PPtr,
-) -> Result<Json, String> {
-    let index = files
-        .referenced_file(owner, pptr)
-        .ok()
-        .and_then(|file| planned.get(&(file, pptr.path_id)));
-    index
-        .map(|index| json!({ "$asset": index }))
-        .ok_or_else(|| not_held(pptr))
 }

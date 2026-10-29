@@ -62,7 +62,7 @@ internal static class GeometryUtilityTests
         GeometryUtility.CalculateFrustumPlanes(ref matrix, span.AsSpan());
         Expect.Sequence(expected.Select(p => p.ToString()), span.Take(6).Select(p => p.ToString()), "span overload with room to spare");
         Expect.Throws<ArgumentException>(() => GeometryUtility.CalculateFrustumPlanes(matrix, new Plane[5]), "five planes are too few");
-        Expect.Throws<NotSupportedException>(() => GeometryUtility.CalculateFrustumPlanes((Camera)null!), "the Camera overload needs camera matrices");
+        Expect.Throws<ArgumentNullException>(() => GeometryUtility.CalculateFrustumPlanes((Camera)null!), "a null camera");
     }
 
     private static void BoxTests()

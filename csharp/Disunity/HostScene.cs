@@ -16,9 +16,20 @@ public static partial class DisunityHost
     /// <summary>The scene the last <see cref="LoadScene"/> built, or null before one loads and after the world unloads.</summary>
     internal static LoadedSceneInfo? CurrentScene { get; private set; }
 
+    /// <summary>The loaded scene, or an invalid scene when none is loaded.</summary>
+    internal static Scene ActiveScene => CurrentScene is null ? default : new Scene { Handle = Scene.LoadedHandle };
+
     internal static Scene SceneOf(GameObject value) =>
         CurrentScene is { } info && !value.IsDestroyed && !info.Templates.Contains(value) ? new Scene { Handle = Scene.LoadedHandle } : default;
 
     internal static List<GameObject> SceneRoots() =>
         CurrentScene is { } info ? ChildrenOf(0).Where(value => !info.Templates.Contains(value)).ToList() : new List<GameObject>();
+
+    /// <summary>Tells scripts the scene is going, while its objects still exist, then forgets the scene
+    /// handlers, which last as long as the world.</summary>
+    private static void UnloadScene()
+    {
+        if (CurrentScene is not null) SceneManager.RaiseUnloaded(ActiveScene);
+        SceneManager.ClearHandlers();
+    }
 }

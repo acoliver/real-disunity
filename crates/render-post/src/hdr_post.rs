@@ -152,6 +152,8 @@ pub(crate) struct HdrPost {
     pub exposure: [wgpu::Buffer; 3],
     carry: wgpu::Buffer,
     frame: [wgpu::Buffer; 3],
+    taa: [wgpu::Buffer; 3],
+    taa_history: crate::hdr_taa::SharedHistory,
 }
 impl HdrPost {
     pub fn new(device: &wgpu::Device, settings: &HdrPostSettings) -> Result<Self, PostError> {
@@ -183,7 +185,29 @@ impl HdrPost {
                     mapped_at_creation: false,
                 })
             }),
+            taa: std::array::from_fn(|_| crate::hdr_taa::uniform_buffer(device)),
+            taa_history: crate::hdr_taa::SharedHistory::default(),
         })
+    }
+    /// Rebind settings, keeping buffers. A history that no longer applies is dropped.
+    pub fn set_settings(&mut self, settings: &HdrPostSettings) {
+        if settings.resolve.active_taa().is_none() {
+            self.taa_history.release();
+        }
+        self.settings = *settings;
+    }
+    /// Uploads the TAA block of `slot`; `None` uploads zeros, which reads as no history.
+    pub fn prepare_taa(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        block: Option<&[u8; crate::TAA_UNIFORM_BYTES]>,
+    ) {
+        crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block);
+    }
+    #[cfg(test)]
+    pub fn taa_history_size(&self) -> Option<[u32; 2]> {
+        self.taa_history.size()
     }
     pub fn prepare(
         &self,
@@ -223,8 +247,23 @@ impl HdrPost {
     ) -> StageSet {
         let mut set = StageSet::default();
         let exposure = &self.exposure[slot];
+        let color = self.settings.resolve.active_taa().map_or_else(
+            || targets.resolved().clone(),
+            |taa| {
+                crate::hdr_taa::append(
+                    device,
+                    &mut set,
+                    targets,
+                    (taa, &self.taa_history, &self.taa[slot]),
+                )
+            },
+        );
+        let scene = crate::hdr_taa::Scene {
+            targets,
+            color: &color,
+        };
         if let Some(a) = self.settings.adaptive {
-            self.meter(device, targets, slot, a, &mut set);
+            self.meter(&scene, slot, a, &mut set);
             set.stages.push(Stage {
                 id: crate::StageId::new("publish frame exposure", 0),
                 label: "publish frame exposure",
@@ -237,7 +276,7 @@ impl HdrPost {
             });
         }
         crate::post_filters::Filters::new(device, &mut set).build(
-            targets,
+            &scene,
             &self.settings,
             exposure,
             (format, display.0, display.1),
@@ -247,12 +286,13 @@ impl HdrPost {
 
     fn meter(
         &self,
-        device: &wgpu::Device,
-        targets: &FrameTargets,
+        scene: &crate::hdr_taa::Scene<'_>,
         slot: usize,
         a: AdaptiveExposure,
         set: &mut StageSet,
     ) {
+        let device = &self.device;
+        let size = scene.targets.config().size;
         let bins = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("slot luminance histogram"),
             size: 1024,
@@ -274,14 +314,7 @@ impl HdrPost {
             operation: crate::Operation::Clear(bins.clone()),
         });
         for (entry, dispatch) in [
-            (
-                "histogram",
-                [
-                    targets.config().size[0].div_ceil(8),
-                    targets.config().size[1].div_ceil(8),
-                    1,
-                ],
-            ),
+            ("histogram", [size[0].div_ceil(8), size[1].div_ceil(8), 1]),
             ("reduce", [1, 1, 1]),
         ] {
             let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -295,7 +328,7 @@ impl HdrPost {
                 },
                 cache: None,
             });
-            let entries = self.meter_entries(targets, slot, &bins, entry);
+            let entries = self.meter_entries(scene.color, slot, &bins, entry);
             let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(entry),
                 layout: &pipeline.get_bind_group_layout(0),
@@ -316,7 +349,7 @@ impl HdrPost {
     }
     fn meter_entries<'a>(
         &'a self,
-        targets: &'a FrameTargets,
+        scene_color: &'a wgpu::TextureView,
         slot: usize,
         bins: &'a wgpu::Buffer,
         entry: &str,
@@ -325,7 +358,7 @@ impl HdrPost {
             vec![
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(targets.resolved()),
+                    resource: wgpu::BindingResource::TextureView(scene_color),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,

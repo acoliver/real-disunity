@@ -14,5 +14,8 @@ libloading.workspace = true
 netcorehost.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 serde_json.workspace = true

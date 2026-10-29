@@ -44,6 +44,14 @@ pub enum Advance {
     LifecycleComplete,
     Complete(FrameSummary),
 }
+/// Where in a frame coroutine waits are checked. An end-of-frame wait is due only in `End`,
+/// which follows `LateUpdate`; a coroutine that yields it from `End` waits for the next frame's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CoroutinePhase {
+    Fixed,
+    Update,
+    End,
+}
 #[derive(Clone, Copy)]
 pub(crate) enum Task {
     Work(LifecycleWork),
@@ -54,7 +62,7 @@ pub(crate) enum Task {
     Physics,
     Contacts,
     Dynamic,
-    Coroutines(bool),
+    Coroutines(CoroutinePhase),
     /// Unity's delayed tasks after `Update` coroutines: work posted to the main thread's
     /// synchronization context runs here.
     DelayedTasks,
@@ -194,9 +202,10 @@ impl World {
         tasks.extend([
             Task::Dynamic,
             Task::Phase(ScriptMessage::Update),
-            Task::Coroutines(false),
+            Task::Coroutines(CoroutinePhase::Update),
             Task::DelayedTasks,
             Task::Phase(ScriptMessage::LateUpdate),
+            Task::Coroutines(CoroutinePhase::End),
             Task::Cleanup,
         ]);
         self.scheduler.scopes.push(Scope {
@@ -373,7 +382,7 @@ impl World {
         }
         tasks
     }
-    fn due_coroutines(&mut self, fixed: bool) -> Vec<Task> {
+    fn due_coroutines(&mut self, phase: CoroutinePhase) -> Vec<Task> {
         let ids: Vec<_> = self.coroutines.entries.keys().copied().collect();
         let mut tasks = Vec::new();
         for id in ids {
@@ -382,17 +391,20 @@ impl World {
                 self.coroutines.cancel(id);
                 continue;
             }
+            let fixed = phase == CoroutinePhase::Fixed;
+            let update = phase == CoroutinePhase::Update;
             let due = match entry.wait {
                 WaitCondition::FixedUpdate => fixed,
-                WaitCondition::NextFrame => !fixed && entry.frame < self.clock.frame,
+                WaitCondition::EndOfFrame => phase == CoroutinePhase::End,
+                WaitCondition::NextFrame => update && entry.frame < self.clock.frame,
                 WaitCondition::Scaled(_) => {
-                    !fixed
+                    update
                         && self.clock.delta != TimeSpan::ZERO
                         && entry.deadline <= self.clock.time
                         && entry.frame < self.clock.frame
                 }
                 WaitCondition::Unscaled(_) => {
-                    !fixed
+                    update
                         && entry.deadline <= self.clock.unscaled_time
                         && entry.frame < self.clock.frame
                 }
@@ -666,7 +678,7 @@ impl World {
                     Task::Phase(ScriptMessage::FixedUpdate),
                     Task::Physics,
                     Task::Contacts,
-                    Task::Coroutines(true),
+                    Task::Coroutines(CoroutinePhase::Fixed),
                 ]);
             }
             Task::Physics => {
@@ -688,8 +700,8 @@ impl World {
                 let tasks = self.contact_tasks();
                 self.enqueue_front(tasks);
             }
-            Task::Coroutines(fixed) => {
-                let tasks = self.due_coroutines(fixed);
+            Task::Coroutines(phase) => {
+                let tasks = self.due_coroutines(phase);
                 self.enqueue_front(tasks);
             }
             Task::Asset(identity, message, _) => {

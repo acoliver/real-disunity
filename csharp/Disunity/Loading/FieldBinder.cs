@@ -11,7 +11,8 @@ namespace Disunity.Hosting;
 /// Sets serialized script fields from a plan as Unity deserializes them. Public and
 /// <c>[SerializeField]</c> fields bind; static, readonly and <c>[NonSerialized]</c> fields do not.
 /// A field the data omits keeps its initializer, data for a field the script no longer declares
-/// is ignored, and data for a field whose type cannot be loaded fails with the field named. A
+/// is ignored, and data for a field whose type cannot be loaded fails with the field named and the
+/// innermost cause. A nested serializable class is built by <see cref="SerializableInstance"/>. A
 /// reference to an <see cref="UnbuiltComponent"/> binds null and reports a difference, when the
 /// binder has somewhere to report it.
 /// </summary>
@@ -32,8 +33,16 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<str
         try { return Convert(value, type, path); }
         catch (Exception error) when (error is not SceneLoadException)
         {
-            throw new SceneLoadException($"{path}: cannot read {value} as {type.Name}: {error.Message}", error);
+            throw new SceneLoadException($"{path}: cannot read {value} as {type.Name}: {Cause(error)}", error);
         }
+    }
+
+    /// <summary>The innermost exception, which is the failure itself; reflection and type
+    /// initialization wrap it in exceptions that say nothing about the cause.</summary>
+    private static string Cause(Exception error)
+    {
+        while (error.InnerException is { } inner) error = inner;
+        return $"{error.GetType().Name}: {error.Message}";
     }
 
     private object? Convert(JsonElement value, Type type, string path)
@@ -57,8 +66,7 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<str
         if (type.IsDefined(typeof(SerializableAttribute)) && !typeof(UnityEngine.Object).IsAssignableFrom(type)
             && !typeof(IEnumerable).IsAssignableFrom(type) && !typeof(Delegate).IsAssignableFrom(type))
         {
-            var nested = Activator.CreateInstance(type, nonPublic: true)
-                ?? throw new SceneLoadException($"{path}: cannot construct {type}");
+            var nested = SerializableInstance.Create(type);
             Bind(nested, value, path);
             return nested;
         }

@@ -9,6 +9,7 @@ mod live;
 mod readiness;
 mod retained;
 mod target;
+pub(crate) mod timing;
 mod windowless;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
@@ -62,29 +63,15 @@ impl Renderer {
         scene: &RenderScene,
         shadows: Option<DirectionalShadowSettings>,
         profile: crate::FrameProfile,
-        frames_in_flight: usize,
+        startup: Startup,
     ) -> Result<Self, ViewerError> {
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display)),
-        );
-        let surface = instance.create_surface(window.clone())?;
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                ..Default::default()
-            })
-            .await?;
-        let features = required_features(scene);
-        let context = GpuContext::from_adapter_with_features(adapter, features).await?;
+        let (instance, presenter, context, policy) =
+            surface_context(display, window.clone(), scene, &startup).await?;
         let errors = device_errors(context.device(), context.submission());
         let size = window.inner_size();
         let extents = Extents::for_device([size.width, size.height], context.device())?;
         let initial = extents.unwrap_or_else(Extents::placeholder);
         let viewport = extents.map(|extents| extents.surface);
-        let capabilities = surface.get_capabilities(context.adapter());
-        let policy = surface_policy(&capabilities, [size.width, size.height])?;
-        let presenter = Presenter::new(surface, &capabilities, context.device(), policy)
-            .map_err(surface_error)?;
         let presentation = Presentation::with_profile(
             &context,
             policy.format,
@@ -100,7 +87,7 @@ impl Renderer {
             presenter,
             instance,
             window.clone(),
-            frames_in_flight,
+            startup.frames_in_flight,
         )?;
         let renderer = Self {
             clock: crate::clock::Clock::new(),
@@ -261,6 +248,10 @@ impl Renderer {
             .submission()
             .prepare(self.context.device(), |encoder, _| {
                 if !fitted {
+                    self.presentation
+                        .scheduler
+                        .begin_timing(self.streaming.captures.next_frame())
+                        .map_err(|error| ViewerError::Gpu(error.to_string()))?;
                     self.resident.render(
                         &self.context,
                         view,
@@ -342,15 +333,24 @@ fn device_errors(
 
 fn surface_error(error: SurfaceError) -> ViewerError {
     match error {
+        SurfaceError::UnsupportedPresentMode(mode) => ViewerError::UnsupportedPresentMode(mode),
         SurfaceError::Validation => ViewerError::SurfaceValidation,
+        SurfaceError::Extent { size, limit } => ViewerError::SurfaceExtent {
+            size,
+            device_limit: limit,
+        },
         other => ViewerError::Gpu(other.to_string()),
     }
 }
 
-fn surface_policy(
+pub(crate) fn surface_policy(
     capabilities: &wgpu::SurfaceCapabilities,
     size: [u32; 2],
+    startup: &Startup,
 ) -> Result<SurfacePolicy, ViewerError> {
+    if !capabilities.present_modes.contains(&startup.present_mode) {
+        return Err(ViewerError::UnsupportedPresentMode(startup.present_mode));
+    }
     let format = worldrunner_render_gpu::surface::select_format(
         capabilities,
         worldrunner_render_gpu::surface::FormatPreference::Srgb,
@@ -366,8 +366,8 @@ fn surface_policy(
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | (capabilities.usages & wgpu::TextureUsages::COPY_SRC),
         size,
-        present_mode: wgpu::PresentMode::Fifo,
-        desired_maximum_frame_latency: 2,
+        present_mode: startup.present_mode,
+        desired_maximum_frame_latency: startup.desired_maximum_frame_latency,
         alpha_mode,
     })
 }
@@ -536,3 +536,73 @@ mod hdr_tests;
 
 #[cfg(test)]
 mod sdsm_tests;
+
+#[derive(Clone, Debug)]
+pub(crate) struct Startup {
+    frames_in_flight: usize,
+    gpu_timing: bool,
+    present_mode: wgpu::PresentMode,
+    desired_maximum_frame_latency: u32,
+    adapter_callback: Option<crate::AdapterCallback>,
+}
+impl From<&crate::ViewerOptions> for Startup {
+    fn from(options: &crate::ViewerOptions) -> Self {
+        Self {
+            frames_in_flight: options.frames_in_flight,
+            gpu_timing: options.gpu_timing,
+            present_mode: options.present_mode,
+            desired_maximum_frame_latency: options.desired_maximum_frame_latency,
+            adapter_callback: options.adapter_callback.clone(),
+        }
+    }
+}
+impl From<usize> for Startup {
+    fn from(frames_in_flight: usize) -> Self {
+        Self {
+            frames_in_flight,
+            gpu_timing: false,
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            adapter_callback: None,
+        }
+    }
+}
+
+async fn surface_context(
+    display: OwnedDisplayHandle,
+    window: Arc<Window>,
+    scene: &RenderScene,
+    startup: &Startup,
+) -> Result<
+    (
+        wgpu::Instance,
+        Presenter<'static>,
+        GpuContext,
+        SurfacePolicy,
+    ),
+    ViewerError,
+> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
+        Box::new(display),
+    ));
+    let surface = instance.create_surface(window.clone())?;
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            compatible_surface: Some(&surface),
+            ..Default::default()
+        })
+        .await?;
+    let size = window.inner_size();
+    let capabilities = surface.get_capabilities(&adapter);
+    let policy = surface_policy(&capabilities, [size.width, size.height], startup)?;
+    if let Some(callback) = &startup.adapter_callback {
+        callback.notify(&adapter)?;
+    }
+    let context = timing::context(adapter, required_features(scene), startup.gpu_timing).await?;
+    let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
+        .map_err(surface_error)?;
+    Ok((instance, presenter, context, policy))
+}
+
+#[cfg(test)]
+mod adapter_tests;

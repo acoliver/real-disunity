@@ -26,4 +26,16 @@ internal static class Expect
         }
         throw new InvalidOperationException($"{what}: expected {typeof(TException).Name}, nothing was thrown");
     }
+
+    /// <summary>Like <see cref="Throws{TException}"/>, and returns the exception so the caller can check its message.</summary>
+    public static TException Catch<TException>(Action action, string what) where TException : Exception
+    {
+        try { action(); }
+        catch (Exception error)
+        {
+            That(error.GetType() == typeof(TException), $"{what}: expected {typeof(TException).Name}, got {error.GetType().Name}: {error.Message}");
+            return (TException)error;
+        }
+        throw new InvalidOperationException($"{what}: expected {typeof(TException).Name}, nothing was thrown");
+    }
 }

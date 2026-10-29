@@ -37,9 +37,18 @@ Serialized fields bind as Unity deserializes them. Public and `[SerializeField]`
 | `Input` | `GetKey`, `GetKeyDown`, `GetKeyUp`; `GetAxis` (smoothed) and `GetAxisRaw` for any axis the host registered |
 | `KeyCode` | `Space`, `A` to `Z`, the four arrow keys, `Return`, `Escape` |
 | `UnityEngine.InputSystem.Keyboard` | `Keyboard.current.aKey` and `dKey` with `isPressed` |
-| Yield instructions | `WaitForSeconds`, `WaitForSecondsRealtime`, `WaitForFixedUpdate`, `null` (next frame), nested `IEnumerator` |
+| Yield instructions | `WaitForSeconds`, `WaitForSecondsRealtime`, `WaitForFixedUpdate`, `WaitForEndOfFrame`, `null` (next frame), nested `IEnumerator` |
 
-No axes exist until the host registers them with `DisunityHost.RegisterInputAxis`, giving each a name, negative and positive keys, alternate keys, gravity, sensitivity, dead zone, snap and invert, as in Unity's Input Manager. Asking for an unregistered axis throws `ArgumentException`. Mouse input, gamepads and Input System actions are not implemented. Coroutines cannot be joined by yielding a `Coroutine`, and `WaitForEndOfFrame` and custom yield instructions are not supported.
+No axes exist until the host registers them with `DisunityHost.RegisterInputAxis`, giving each a name, negative and positive keys, alternate keys, gravity, sensitivity, dead zone, snap and invert, as in Unity's Input Manager. Asking for an unregistered axis throws `ArgumentException`. Mouse input, gamepads and Input System actions are not implemented. Coroutines cannot be joined by yielding a `Coroutine`. A coroutine that yields `WaitForEndOfFrame` resumes once, after every `LateUpdate` of the frame; one that yields it while resuming from that point waits for the end of the next frame.
+
+## Player settings and scenes
+
+| Type | Supported |
+| --- | --- |
+| `QualitySettings` | `antiAliasing`, `globalTextureMipmapLimit`, `maximumLODLevel`, `maxQueuedFrames`, `vSyncCount`, `lodBias`, `shadowDistance`, `shadows`, `activeColorSpace`, `names`, `GetQualityLevel` and `SetQualityLevel`. The state is the engine's own and resets when a world loads: one level named "Default", anti-aliasing 0, vertical sync 1, LOD bias 1, shadow distance 150, gamma. The engine does not know a project's per-level values yet, so switching levels changes only the current index. `SetQualityLevel` with an index at or above the level count selects the last level (the original Old World player calls it with 3 and defines three levels, and runs on); a negative index throws. Hosts supply levels and color space with `DisunityHost.SetQualityLevels` and `SetColorSpace`. |
+| `SceneManager` | `GetActiveScene`, `SetActiveScene`, `sceneCount`, `GetSceneAt`, and the `sceneLoaded` and `sceneUnloaded` events. `sceneLoaded` is raised once the scene's objects have received `Awake` and `OnEnable`, before any `Start`. `LoadScene` and `LoadSceneAsync` throw `NotSupportedException`: the engine holds one scene and cannot load another scene's plan at run time yet. |
+| `Cursor` | `visible`, `lockState` and `SetCursor` with a null texture. A custom cursor texture throws `NotSupportedException`. The play window does not apply the state yet; a presentation host reads `DisunityHost.CursorVisible` and `CursorLockState`. |
+| `ColorUtility` | `TryParseHtmlString` (`#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` and 23 color names), `ToHtmlStringRGB`, `ToHtmlStringRGBA` |
 
 ## 2D physics
 

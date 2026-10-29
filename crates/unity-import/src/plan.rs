@@ -50,6 +50,10 @@ pub struct ScenePlan {
     pub textures: Vec<PlanTexture>,
     pub fonts: Vec<PackageFont>,
     pub axes: Vec<InputAxis>,
+    /// Layer names by layer index, 32 entries with an empty string for an unnamed layer. Only
+    /// player plans carry them; a project plan leaves the list empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<String>,
     /// What the plan leaves out of the scene as authored, one line each. Only player plans
     /// leave anything out; a project plan fails instead.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -241,6 +245,7 @@ pub fn plan_scene(project: &Project, path: &Path) -> Result<ScenePlan, PlanError
         textures,
         fonts,
         axes: input_axes(project)?,
+        layers: Vec::new(),
         differences: Vec::new(),
     })
 }

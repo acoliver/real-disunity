@@ -10,16 +10,19 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
         width: 96,
         height: 64,
     };
-    let mut presentation = Presentation::with_profile(
+    let mut presentation = Presentation::with_settings(
         &context,
         COLOR,
-        first,
-        first,
+        [first, first],
         crate::FrameProfile::Hdr {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,
         },
         None,
+        PresentationPolicy {
+            budget: crate::PresentationBudget::default(),
+            recipes: false,
+        },
     )
     .unwrap();
     for size in [first, next] {
@@ -42,35 +45,32 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
 use super::*;
 
 #[test]
-fn near_budget_hdr_msaa_presentation_admits_without_recipes() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+fn near_budget_hdr_msaa_inventory_admits_without_recipes() {
     let size = Viewport {
         width: 4096,
         height: 2400,
     };
-    let presentation = Presentation::with_profile(
-        &context,
-        COLOR,
-        size,
-        size,
-        crate::FrameProfile::Hdr {
-            samples: 4,
-            tone_map: crate::ToneMap::Reinhard,
-        },
-        None,
-    )
-    .unwrap();
-    assert!(!presentation.recipe_capacity);
-    assert_eq!(
-        presentation
-            .scheduler
-            .configuration()
-            .additional
-            .validate(&context.device().limits())
-            .unwrap(),
-        275_251_200
+    let limits = wgpu::Limits {
+        max_texture_dimension_2d: 8192,
+        max_buffer_size: 1024 * 1024 * 1024,
+        ..Default::default()
+    };
+    let mut settings = RendererConfiguration::legacy([size.width, size.height], COLOR);
+    settings.frame = FrameConfig::new(
+        [size.width, size.height],
+        wgpu::TextureFormat::Rgba16Float,
+        4,
     );
+    settings.hdr = Some((1.0, crate::ToneMap::Reinhard));
+    settings.additional = capture_allocations(size);
+    assert_eq!(settings.additional.validate(&limits).unwrap(), 275_251_200);
+    settings
+        .allocations()
+        .validate_budget::<std::convert::Infallible>(
+            &limits,
+            AllocationBudget(crate::PresentationBudget::default().0),
+        )
+        .unwrap();
 }
 
 #[test]
@@ -100,16 +100,19 @@ fn native_capture_inventory_includes_staging_padded_read_and_three_images() {
 fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocation() {
     let context =
         pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
-    let first = Extents::new([4608, 2592], 8192).unwrap().unwrap();
-    let next = Extents::new([5120, 2880], 8192).unwrap().unwrap();
+    let first = tiny_extents([16, 16]);
+    let next = tiny_extents([24, 16]);
     assert_eq!(first.render, next.render);
-    let mut presentation = Presentation::with_profile(
+    let mut presentation = Presentation::with_settings(
         &context,
         COLOR,
-        first.render,
-        first.surface,
+        [first.render, first.surface],
         crate::FrameProfile::Legacy,
         None,
+        PresentationPolicy {
+            budget: crate::PresentationBudget::default(),
+            recipes: false,
+        },
     )
     .unwrap();
     let before = presentation
@@ -124,7 +127,7 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
     assert_eq!(presentation.capture_size, next.surface);
     assert_eq!(
         presentation.scheduler.configuration().frame.output_extent(),
-        [4096, 2304]
+        [8, 8]
     );
     let after = presentation
         .scheduler
@@ -155,4 +158,14 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
             .unwrap(),
         after
     );
+}
+
+fn tiny_extents([width, height]: [u32; 2]) -> Extents {
+    Extents {
+        render: Viewport {
+            width: 8,
+            height: 8,
+        },
+        surface: Viewport { width, height },
+    }
 }

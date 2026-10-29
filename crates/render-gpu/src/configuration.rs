@@ -120,6 +120,11 @@ impl AllocationSet {
             shared: false,
         });
     }
+    /// Declares one host-owned CPU reservation retained across generations.
+    pub fn shared_cpu(&mut self, name: &'static str, bytes: u64) {
+        self.cpu(name, bytes);
+        self.0.last_mut().unwrap().shared = true;
+    }
     pub fn extend(&mut self, other: Self) {
         self.0.extend(other.0);
     }
@@ -139,6 +144,21 @@ impl AllocationSet {
             }
         }
         Ok(())
+    }
+    /// Checks descriptor bytes without allocating CPU or GPU backing storage.
+    pub fn validate_budget<E>(
+        &self,
+        limits: &wgpu::Limits,
+        budget: AllocationBudget,
+    ) -> Result<u64, ConfigurationError<E>> {
+        let required = self.validate(limits).map_err(ConfigurationError::Invalid)?;
+        if required > budget.0 {
+            return Err(ConfigurationError::Budget {
+                required,
+                budget: budget.0,
+            });
+        }
+        Ok(required)
     }
     pub fn validate(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
         total([self], limits)
@@ -273,15 +293,7 @@ impl<T> Configuration<T> {
         limits: &wgpu::Limits,
         budget: AllocationBudget,
     ) -> Result<Self, ConfigurationError<std::convert::Infallible>> {
-        let required = allocations
-            .validate(limits)
-            .map_err(ConfigurationError::Invalid)?;
-        if required > budget.0 {
-            return Err(ConfigurationError::Budget {
-                required,
-                budget: budget.0,
-            });
-        }
+        allocations.validate_budget(limits, budget)?;
         Ok(Self {
             current,
             allocations,

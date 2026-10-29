@@ -191,7 +191,7 @@ fn prepared_work_excludes_replacement_and_limits_precede_allocator() {
 }
 
 #[test]
-fn retained_arrays_and_buffers_are_counted_once_at_peak() {
+fn retained_arrays_buffers_and_cpu_reservations_are_counted_once_at_peak() {
     let (device, authority) = context();
     let mut retained = AllocationSet::default();
     retained.shared_texture(
@@ -202,6 +202,7 @@ fn retained_arrays_and_buffers_are_counted_once_at_peak() {
         2,
     );
     retained.shared_buffer("history", 16, 1);
+    retained.shared_cpu("recipe pool", 256 * 1024 * 1024);
     let mut initial = retained.clone();
     initial.buffer("targets", 16, 1);
     let mut config = Configuration::new(
@@ -209,7 +210,7 @@ fn retained_arrays_and_buffers_are_counted_once_at_peak() {
         1,
         initial,
         &device.limits(),
-        AllocationBudget(2096),
+        AllocationBudget(256 * 1024 * 1024 + 2096),
     )
     .unwrap();
     let mut replacement = retained;
@@ -219,6 +220,6 @@ fn retained_arrays_and_buffers_are_counted_once_at_peak() {
         .unwrap();
     assert_eq!(
         config.resident_bytes(&device.limits()).unwrap(),
-        2048 + 16 + 16
+        256 * 1024 * 1024 + 2048 + 16 + 16
     );
 }

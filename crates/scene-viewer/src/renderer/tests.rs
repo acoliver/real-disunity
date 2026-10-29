@@ -120,6 +120,11 @@ fn resize_retained_settings(
 }
 
 fn retained_settings_present(event_loop: &EventLoop<()>, window: &Arc<Window>) {
+    retained_settings_profiles(event_loop, window);
+    budget::retained_budget(event_loop, window);
+}
+
+fn retained_settings_profiles(event_loop: &EventLoop<()>, window: &Arc<Window>) {
     use crate::{FrameProfile, RetainedHost, ToneMap};
     let scale = crate::RenderScale::new(500_000).unwrap();
     let upscale = crate::UpscaleSettings {
@@ -184,6 +189,7 @@ fn present_retained(renderer: &mut Renderer, host: &mut crate::RetainedHost) {
     }
 }
 
+mod budget;
 mod capture;
 mod live;
 mod recovery;

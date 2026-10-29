@@ -424,15 +424,7 @@ impl ConfiguredFrameRenderer {
             .validate(context)
             .map_err(ConfigurationError::Allocation)?;
         let allocations = settings.allocation_plan(context);
-        let required = allocations
-            .validate(&context.device().limits())
-            .map_err(ConfigurationError::Invalid)?;
-        if required > budget.0 {
-            return Err(ConfigurationError::Budget {
-                required,
-                budget: budget.0,
-            });
-        }
+        allocations.validate_budget(&context.device().limits(), budget)?;
         let _guard = context.submission().try_replacement()?;
         let renderer = allocate(&settings);
         context.submission().check_device()?;

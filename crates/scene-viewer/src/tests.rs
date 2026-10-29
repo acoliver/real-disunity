@@ -172,6 +172,7 @@ pub(crate) fn scene(water: bool) -> RenderScene {
 }
 pub(crate) fn options() -> ViewerOptions {
     ViewerOptions {
+        presentation_budget: crate::PresentationBudget::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         frame_profile: crate::FrameProfile::Legacy,
         frames_in_flight: 2,

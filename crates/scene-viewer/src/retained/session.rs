@@ -127,11 +127,13 @@ impl Content for Session<'_> {
         }
     }
     fn source(&self) -> SceneSource<'_> {
+        let mut startup = crate::renderer::Startup::from(&self.host.options);
+        startup.recipes = true;
         SceneSource::Static {
             scene: &self.host.initial_scene,
             shadows: self.host.options.shadows,
             profile: self.host.options.frame_profile,
-            startup: (&self.host.options).into(),
+            startup,
         }
     }
     fn exit_requested(&self) -> bool {

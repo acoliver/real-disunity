@@ -45,7 +45,7 @@ fn depth_fitted_recipe_then_ordinary_frame_and_plain_capture_keep_frame_identity
 }
 
 #[test]
-fn admitted_hdr_recipe_acquires_storage_and_preserves_it_across_resize() {
+fn retained_hdr_reserves_recipe_storage_at_startup_and_preserves_it_across_resize() {
     let (mut host, _) = setup();
     host.options.frame_profile = crate::FrameProfile::Hdr {
         samples: 1,
@@ -61,11 +61,15 @@ fn admitted_hdr_recipe_acquires_storage_and_preserves_it_across_resize() {
             .validate(&renderer.context.device().limits())
             .unwrap()
     };
-    let ordinary = inventory(&renderer);
+    let reserved = inventory(&renderer);
+    let generation = renderer.presentation.scheduler.generation();
+    let ordinary = 4 * 256 * 64 + 3 * 64 * 64 * 4;
+    assert_eq!(reserved, ordinary + 256 * 1024 * 1024);
     host.request_capture_recipe(0, recipe(1, 2, CaptureJitter::None))
         .unwrap();
     assert!(!renderer.render_retained(&mut host).unwrap());
     assert_eq!(inventory(&renderer), ordinary + 256 * 1024 * 1024);
+    assert_eq!(renderer.presentation.scheduler.generation(), generation);
     renderer.drain().unwrap();
     renderer
         .presentation

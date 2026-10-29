@@ -630,7 +630,7 @@ original tighter tolerance.
 ## Temporal antialiasing
 
 `PostResolve::Taa(TaaSettings)` (the scene recipe `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` authors both fields; `history_weight` 0.0 to 0.99, default 0.9; `clip_scale` 0.5 to 2.0,
-default 1.0) adds two stages, `taa resolve` and `taa history`, ahead of the luminance histogram, so
+default 1.0) adds three stages, `taa resolve`, `taa history` and `taa depth history`, ahead of the luminance histogram, so
 exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` follows Karis 2014 (color box and
 compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled
 frame is not jittered, so the sample is the MSAA pixel and a static 4x image equals MSAA alone,
@@ -686,3 +686,9 @@ built by `FrameRenderer` from the camera data, so this crate needs no matrix lib
 History lifecycle: the first frame, `reset_temporal_history`, a resize, a jitter change and a
 cancelled or failed transaction give `history_valid` = 0. The host must draw into
 `FrameTargets::depth()`.
+
+### TAA depth history
+
+`TaaUniform` is 96 bytes (`TAA_UNIFORM_BYTES`): the 80-byte block of the reprojection, jitter and `history_valid`, then `depth_terms` `(a, b)` at bytes 80..88 and 8 bytes of padding. The linear view depth of device depth `z` is `b / (z - a)` with `a = far / (far - near)` and `b = -near * far / (far - near)`; `b == 0` disables the disocclusion test. `render-scene` reads the terms off the unjittered view-projection (the z row minus `a` times the w row is the translation lane), so no near or far plane travels with `TemporalView`.
+
+`taa resolve` writes a second target, the linear depth of the closest-depth texel (`R32Float`, `taa_gpu::DEPTH_FORMAT`), through `StageTarget::Pair`, and `taa depth history` copies it into the depth history with `Operation::CopyTexture`, as the color path does; the frame depth itself cannot be copied (it may be multisampled and has no `COPY_SRC` guarantee). The depth history has the lifecycle of the color history: one texture per render size shared by all frame slots, created and replaced together with the color history, released by `release()` when TAA is no longer requested, and reset only through `history_valid`. The resolve reads it at `@binding(6)` with `textureLoad`.

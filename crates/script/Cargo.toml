@@ -12,5 +12,5 @@ serde.workspace = true
 sha2.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-lua-resume = { git = "https://github.com/acoliver/lua-resume", rev = "26511b89996f97bd101573d9ae678f9d8753ad0e" }
-lua-resume-debug = { git = "https://github.com/acoliver/lua-resume", rev = "26511b89996f97bd101573d9ae678f9d8753ad0e" }
+lua-resume = { git = "https://github.com/acoliver/lua-resume", rev = "885e4791a97d1c16f6aa6aca8b79c39a8df3fad6" }
+lua-resume-debug = { git = "https://github.com/acoliver/lua-resume", rev = "885e4791a97d1c16f6aa6aca8b79c39a8df3fad6" }

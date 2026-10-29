@@ -1,7 +1,7 @@
 //! Saving a game's Lua data and restoring it into a fresh state that runs the current code
 //! (#147).
 
-use lua_resume::capture::Value;
+use lua_resume::capture::{Metatable, Value};
 use worldrunner_script::{GameScripts, LuaSnapshot, ScriptConfig, ScriptError};
 
 /// The game's code: a class with a method, version `bonus` of its damage rule.
@@ -76,7 +76,7 @@ fn permanents_rebind_to_the_current_code_by_name() {
     let mut saved = game(0);
     saved.run("game", "state.lua", STATE.as_bytes()).unwrap();
     let snapshot = saved.save(&["State"], &["Unit"]).unwrap();
-    let names: Vec<&str> = snapshot
+    let mut names: Vec<&str> = snapshot
         .graph
         .tables
         .iter()
@@ -86,6 +86,17 @@ fn permanents_rebind_to_the_current_code_by_name() {
             _ => None,
         })
         .collect();
+    // A class table used as a metatable is named in the metatable slot, not in an entry.
+    names.extend(
+        snapshot
+            .graph
+            .tables
+            .iter()
+            .filter_map(|table| match &table.metatable {
+                Some(Metatable::Permanent(name)) => Some(name.as_str()),
+                _ => None,
+            }),
+    );
     for name in ["permanent Unit", "permanent Unit.Hit", "native GetMapName"] {
         assert!(names.contains(&name), "{name} in {names:?}");
     }
@@ -137,19 +148,13 @@ fn values_that_cannot_be_saved_are_refused_with_their_location() {
         .run(
             "game",
             "bad.lua",
-            b"Native = { inner = { next = string.gmatch('a', 'a') } }
-              Thread = { co = coroutine.create(function() end) }",
+            b"Native = { inner = { next = string.gmatch('a', 'a') } }",
         )
         .unwrap();
     let native = refusal(scripts.save(&["Native"], &["Unit"]));
     assert!(
         native.contains(r#"root `Native` > ["inner"] > ["next"]: native function"#),
         "{native}"
-    );
-    let thread = refusal(scripts.save(&["Thread"], &["Unit"]));
-    assert!(
-        thread.contains(r#"root `Thread` > ["co"]: the coroutine has not started"#),
-        "{thread}"
     );
     let root = refusal(scripts.save(&["Unit"], &["Unit"]));
     assert!(root.contains("root Unit is a permanent"), "{root}");
@@ -189,4 +194,28 @@ fn snapshots_that_do_not_fit_the_state_are_refused() {
     nested.graph.roots[0].0 = "Missing.State".into();
     let parent = refusal(game(0).restore(&nested, &["Unit"]));
     assert!(parent.contains("its parent is not a table"), "{parent}");
+}
+
+#[test]
+fn a_coroutine_that_has_not_started_is_saved_and_starts_after_restore() {
+    // Code that is part of the game's loaded chunks is what a saved closure refers to.
+    const IDLE: &[u8] = b"Idle = { n = 4, co = coroutine.create(function(a) local x = coroutine.yield(a + Idle.n) return x * 2 end) }";
+    let mut saved = game(0);
+    saved.run("game", "idle.lua", IDLE).unwrap();
+    let snapshot = round_trip(&saved.save(&["Idle"], &["Unit"]).unwrap());
+
+    let mut restored = game(0);
+    restored.run("game", "idle.lua", IDLE).unwrap();
+    restored.restore(&snapshot, &["Unit"]).unwrap();
+    let steps = restored
+        .eval_json(
+            "game",
+            "local co = Idle.co
+            local status = coroutine.status(co)
+            local _, first = coroutine.resume(co, 1)
+            local _, second = coroutine.resume(co, 21)
+            return { status, first, second, coroutine.status(co) }",
+        )
+        .unwrap();
+    assert_eq!(steps, serde_json::json!(["suspended", 5, 42, "dead"]));
 }

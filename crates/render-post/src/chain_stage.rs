@@ -119,6 +119,31 @@ impl Stage {
         pass
     }
 
+    fn fullscreen_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        stamp: Option<&crate::timing::Stamp>,
+        (pipeline, groups): (&wgpu::RenderPipeline, &[wgpu::BindGroup]),
+        view: &wgpu::TextureView,
+    ) {
+        fullscreen_pass_timed(
+            encoder,
+            Some(self.label),
+            wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            },
+            pipeline,
+            &groups.iter().collect::<Vec<_>>(),
+            stamp,
+        );
+    }
+
     pub(super) fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -164,28 +189,14 @@ impl Stage {
                 pipeline,
                 groups,
                 target,
-            } => {
-                let view = match target {
-                    StageTarget::Output => output,
-                    StageTarget::Texture(view) => view,
-                };
-                fullscreen_pass_timed(
-                    encoder,
-                    Some(self.label),
-                    wgpu::RenderPassColorAttachment {
-                        view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    },
-                    pipeline,
-                    &groups.iter().collect::<Vec<_>>(),
-                    stamp,
-                );
-            }
+            } => self.fullscreen_pass(encoder, stamp, (pipeline, groups), view_of(target, output)),
         }
+    }
+}
+
+fn view_of<'a>(target: &'a StageTarget, output: &'a wgpu::TextureView) -> &'a wgpu::TextureView {
+    match target {
+        StageTarget::Output => output,
+        StageTarget::Texture(view) => view,
     }
 }

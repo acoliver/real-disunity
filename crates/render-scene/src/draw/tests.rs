@@ -54,6 +54,7 @@ mod ssao;
 mod ssr;
 mod ssr_acceptance;
 mod streaming;
+mod temporal;
 mod terrain_blend;
 
 /// The colour format every test renders into.

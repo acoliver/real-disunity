@@ -1,0 +1,123 @@
+name: Platforms
+
+# Windows, macOS and the exhaustive serial GPU suite run after merge and every night. Pull
+# requests run only the Linux jobs in pr.yml. To run everything on a branch before merging:
+#   gh workflow run platforms.yml --ref <branch>
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  cpu:
+    name: cpu (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'push' && '["windows-latest","macos-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: cpu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: CPU libraries, tools, and facade without default features
+        run: cargo xtask ci-cpu
+
+  managed:
+    name: managed (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'push' && '["windows-latest","macos-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: managed
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Required .NET build, native host, and managed lifecycle tests
+        run: cargo xtask ci-managed
+
+  lavapipe:
+    name: lavapipe
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - uses: ./.github/actions/lavapipe
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: lavapipe
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Required full GPU suite, all targets/features and doctests
+        env:
+          WGPU_BACKEND: vulkan
+          WGPU_ADAPTER_NAME: llvmpipe
+        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu
+
+  report:
+    name: report
+    needs: [cpu, managed, lavapipe]
+    if: ${{ always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # Push runs skip the nightly-only jobs, so they use their own issue and cannot close
+      # a nightly failure that they did not re-run.
+      - name: Open, update or close the CI failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          WORKFLOW: ${{ github.event_name == 'schedule' && 'Platforms (nightly)' || 'Platforms (push)' }}
+        run: python3 .github/scripts/ci_report.py

@@ -44,7 +44,7 @@ internal static class HostTests
         var cleaned = false;
         DisunityHost.AddComponent(new Probe
         {
-            OnUpdate = () => throw new InvalidOperationException("managed failure λ"),
+            OnUpdate = () => throw EngineFault.Make("managed failure λ"),
             OnDestruction = () => cleaned = true,
         });
         try { DisunityHost.Step(0.01f); throw new Exception("callback failure was lost"); }

@@ -10,6 +10,7 @@ namespace Disunity.Hosting;
 internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions options)
 {
     private readonly List<GameObject> objects = new();
+    private readonly HashSet<GameObject> templateObjects = new();
     /// <summary>Each object's planned components in order; null where the plan's component has
     /// no engine object, such as a CanvasScaler applied to its canvas.</summary>
     private readonly List<object?[]> components = new();
@@ -34,7 +35,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             BindFields();
             var unregistered = InputAxes.Register(plan.GetProperty("axes"));
             scene.Activate();
-            return new LoadedScene(templates, objects, textures, unregistered, differences);
+            return new LoadedScene(templates, objects, textures, unregistered, differences, templateObjects);
         }
         catch (Exception failure)
         {
@@ -121,6 +122,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         foreach (var value in plan.GetProperty("objects").EnumerateArray())
         {
             var created = (value.Bool("template") ? templates : scene).CreateGameObject();
+            if (value.Bool("template")) templateObjects.Add(created);
             created.name = value.Str("name");
             created.tag = value.Str("tag");
             created.layer = value.Int("layer");

@@ -77,6 +77,9 @@ CheckImport("disunity_construction_abort", u64, u64);
 CheckImport("disunity_world_advance", u64, u64, u64, advance.MakePointerType());
 CheckImport("disunity_world_resume", u64, u64, u32, bytes, u32, advance.MakePointerType());
 CheckImport("disunity_world_clock", u64, clock.MakePointerType());
+var worldTime = AbiType("DisunityTime");
+CheckImport("disunity_world_time_read", u64, worldTime.MakePointerType());
+CheckImport("disunity_world_time_write", u64, u32, u64, u64);
 CheckImport("disunity_error_take", u64, buffer.MakePointerType());
 CheckImport("disunity_buffer_copy", u64, bytes, u32, u32.MakePointerType());
 CheckImport("disunity_buffer_free", u64);
@@ -194,6 +197,8 @@ CheckLayout(state, 32, ("object", u64, 0), ("x", f32, 8), ("y", f32, 12),
     ("z", f32, 16), ("rotation_y_radians", f32, 20), ("material_slot", u32, 24));
 CheckLayout(advance, 32, ("kind", u32, 0), ("message", u32, 4), ("ticket", u64, 8), ("script", u64, 16), ("frame", u64, 24));
 CheckLayout(clock, 24, ("delta", typeof(double), 0), ("time", typeof(double), 8), ("frame", u64, 16));
+CheckLayout(worldTime, 40, ("unscaled_delta", typeof(double), 0), ("unscaled_time", typeof(double), 8), ("smooth_delta", typeof(double), 16),
+    ("time_scale", typeof(double), 24), ("maximum_delta", typeof(double), 32));
 CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
 Console.WriteLine($"PASS: all {checkedImports.Count} native import signatures and generated ABI layout expectations");
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
@@ -252,9 +257,17 @@ GradientTests.Run();
 UnityAttributeTests.Run();
 
 ObjectModelTests.Run();
+TransformMemberTests.Run();
+GameObjectMemberTests.Run();
+CoreMemberTests.Run();
 TextureTests.Run();
 RenderTextureTests.Run();
 ShaderMaterialTests.Run();
+ProfilingTests.Run();
+GeometryUtilityTests.Run();
+SystemInfoTests.Run();
+GraphicsSettingsTests.Run();
 Physics3DComponentTests.Run();
 Physics3DQueryTests.Run();
 AnimationTests.Run();
+ScriptExceptionTests.Run();

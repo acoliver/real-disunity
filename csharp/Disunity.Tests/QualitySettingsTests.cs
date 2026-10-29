@@ -93,9 +93,21 @@ internal static class QualitySettingsTests
         Expect.Equal(3f, QualitySettings.lodBias, "switching levels keeps the stored values");
         QualitySettings.SetQualityLevel(1, true);
         Expect.Equal(1, QualitySettings.GetQualityLevel(), "SetQualityLevel with expensive changes");
-        Expect.Throws<ArgumentOutOfRangeException>(() => QualitySettings.SetQualityLevel(2), "level 2 of 2");
+        QualitySettings.SetQualityLevel(0);
+        QualitySettings.SetQualityLevel(2);
+        Expect.Equal(1, QualitySettings.GetQualityLevel(), "level 2 of 2 selects the last level");
+        QualitySettings.SetQualityLevel(0);
+        QualitySettings.SetQualityLevel(9, false);
+        Expect.Equal(1, QualitySettings.GetQualityLevel(), "level 9 of 2 with expensive changes off selects the last level");
+        QualitySettings.SetQualityLevel(0);
+        QualitySettings.SetQualityLevel(1);
         Expect.Throws<ArgumentOutOfRangeException>(() => QualitySettings.SetQualityLevel(-1, false), "level -1");
+        Expect.Throws<ArgumentOutOfRangeException>(() => QualitySettings.SetQualityLevel(-1), "level -1, one argument");
         Expect.Equal(1, QualitySettings.GetQualityLevel(), "a rejected level changes nothing");
+        DisunityHost.SetQualityLevels(["Low", "Medium", "High"], 0);
+        QualitySettings.SetQualityLevel(3);
+        Expect.Equal(2, QualitySettings.GetQualityLevel(), "SetQualityLevel(3) with three levels selects level 2");
+        DisunityHost.SetQualityLevels(["Low", "High"], 1);
     }
 
     private static void HostHooks()

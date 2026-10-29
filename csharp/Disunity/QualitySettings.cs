@@ -6,7 +6,8 @@ namespace UnityEngine;
 /// limit, no LOD level limit, two queued frames, vertical sync every frame, LOD bias 1, shadow
 /// distance 150, all shadows, gamma color space. The engine does not know the values of each of a
 /// project's quality levels yet, so switching levels changes only the current index and leaves
-/// every stored value as it is.
+/// every stored value as it is. <see cref="SetQualityLevel(int)"/> clamps an index past the last
+/// level to the last level.
 /// </summary>
 public static class QualitySettings
 {
@@ -108,15 +109,19 @@ public static class QualitySettings
         lock (Gate) return _level;
     }
 
+    /// <summary>
+    /// Selects a quality level. An index at or above the level count selects the last level: the
+    /// original Old World player calls this with 3 while it defines three levels and runs on, so
+    /// the engine clamps. A negative index throws, which is the engine's choice because nothing
+    /// observed passes one.
+    /// </summary>
     public static void SetQualityLevel(int index) => SetQualityLevel(index, true);
 
+    /// <inheritdoc cref="SetQualityLevel(int)"/>
     public static void SetQualityLevel(int index, bool applyExpensiveChanges)
     {
-        lock (Gate)
-        {
-            if (index < 0 || index >= _names.Length) throw new ArgumentOutOfRangeException(nameof(index), index, $"quality level {index} does not exist; there are {_names.Length}");
-            _level = index;
-        }
+        if (index < 0) throw new ArgumentOutOfRangeException(nameof(index), index, "a quality level index is not negative");
+        lock (Gate) _level = Math.Min(index, _names.Length - 1);
     }
 
     internal static void SetLevels(IReadOnlyList<string> levelNames, int current)

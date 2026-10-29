@@ -34,7 +34,17 @@ pub(super) struct Decals {
     layout: wgpu::BindGroupLayout,
     palettes: RefCell<Vec<Palette>>,
     pub buffers: Vec<wgpu::Buffer>,
+    /// The previous-frame block of each frame slot, bound beside the frame uniform.
+    previous: Vec<wgpu::Buffer>,
     pub slot: usize,
+}
+
+/// The buffers one frame bind group binds, so a group is built from one value.
+#[derive(Clone, Copy)]
+struct FrameBuffers<'a> {
+    frame: &'a wgpu::Buffer,
+    decals: &'a wgpu::Buffer,
+    previous: &'a wgpu::Buffer,
 }
 
 /// Checks only referenced decal materials and borrowed texture descriptors/mip ranges.
@@ -87,12 +97,21 @@ impl Decals {
     ) -> Result<(Self, Vec<(wgpu::Buffer, wgpu::BindGroup)>), DrawError> {
         let slots = super::resources::allocate_frame_slots(device, queue, layout);
         let buffers: Vec<_> = slots.iter().map(|_| empty_buffer(device)).collect();
+        let previous: Vec<_> = slots.iter().map(|_| previous_buffer(device)).collect();
         let palettes = slots
             .iter()
-            .zip(&buffers)
-            .map(|((frame, _), buffer)| Palette {
+            .zip(buffers.iter().zip(&previous))
+            .map(|((frame, _), (decals, previous))| Palette {
                 materials: Vec::new(),
-                group: empty_group_with(device, layout, frame, buffer),
+                group: empty_group_with(
+                    device,
+                    layout,
+                    FrameBuffers {
+                        frame,
+                        decals,
+                        previous,
+                    },
+                ),
             })
             .collect();
         let mut decals = Self {
@@ -103,6 +122,7 @@ impl Decals {
             layout: layout.clone(),
             palettes: RefCell::new(palettes),
             buffers,
+            previous,
             slot: 0,
         };
         decals.replace(
@@ -140,6 +160,11 @@ impl Decals {
         Ok(())
     }
 
+    /// The previous-frame block buffer of the selected frame slot.
+    pub fn previous_buffer(&self) -> &wgpu::Buffer {
+        &self.previous[self.slot]
+    }
+
     pub fn group(&self) -> wgpu::BindGroup {
         self.palettes.borrow()[self.slot].group.clone()
     }
@@ -170,8 +195,11 @@ impl Decals {
             palette.group = group_with(
                 &self.device,
                 &self.layout,
-                buffer,
-                &self.buffers[self.slot],
+                FrameBuffers {
+                    frame: buffer,
+                    decals: &self.buffers[self.slot],
+                    previous: &self.previous[self.slot],
+                },
                 &views,
                 &crate::upload::material_sampler(&self.device),
             );
@@ -320,6 +348,16 @@ fn empty_buffer(device: &wgpu::Device) -> wgpu::Buffer {
         mapped_at_creation: false,
     })
 }
+fn previous_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("previous frame"),
+        size: crate::frame::temporal::PREVIOUS_FRAME_BYTES as u64,
+        usage: wgpu::BufferUsages::UNIFORM
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    })
+}
 fn empty_texture(device: &wgpu::Device) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("empty decal array"),
@@ -341,13 +379,20 @@ pub(crate) fn empty_group(
     layout: &wgpu::BindGroupLayout,
     frame: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
-    empty_group_with(device, layout, frame, &empty_buffer(device))
+    empty_group_with(
+        device,
+        layout,
+        FrameBuffers {
+            frame,
+            decals: &empty_buffer(device),
+            previous: &previous_buffer(device),
+        },
+    )
 }
 fn empty_group_with(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
-    frame: &wgpu::Buffer,
-    buffer: &wgpu::Buffer,
+    buffers: FrameBuffers<'_>,
 ) -> wgpu::BindGroup {
     let texture = empty_texture(device);
     let view = texture.create_view(&wgpu::TextureViewDescriptor {
@@ -357,8 +402,7 @@ fn empty_group_with(
     group_with(
         device,
         layout,
-        frame,
-        buffer,
+        buffers,
         &[view.clone(), view.clone(), view],
         &crate::upload::material_sampler(device),
     )
@@ -366,8 +410,7 @@ fn empty_group_with(
 fn group_with(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
-    frame: &wgpu::Buffer,
-    decals: &wgpu::Buffer,
+    buffers: FrameBuffers<'_>,
     views: &[wgpu::TextureView; 3],
     sampler: &wgpu::Sampler,
 ) -> wgpu::BindGroup {
@@ -377,11 +420,11 @@ fn group_with(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: frame.as_entire_binding(),
+                resource: buffers.frame.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: decals.as_entire_binding(),
+                resource: buffers.decals.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 2,
@@ -398,6 +441,10 @@ fn group_with(
             wgpu::BindGroupEntry {
                 binding: 5,
                 resource: wgpu::BindingResource::TextureView(&views[2]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: buffers.previous.as_entire_binding(),
             },
         ],
     })

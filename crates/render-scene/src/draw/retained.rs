@@ -242,6 +242,11 @@ impl SceneGpu {
             *committed_group.borrow_mut() = group;
         });
         context.upload_buffer(&self.frame_buffer, 0, &frame.to_bytes());
+        context.upload_buffer(
+            self.decals.previous_buffer(),
+            0,
+            &frame.previous_frame_bytes(),
+        );
         context.upload_buffer(&self.decals.buffers[self.decals.slot], 0, &bytes);
     }
 }

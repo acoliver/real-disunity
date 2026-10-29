@@ -348,6 +348,11 @@ impl SceneGpu {
         *self.committed_frame_group.borrow_mut() = self.decals.group();
         *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
+        queue.write_buffer(
+            self.decals.previous_buffer(),
+            0,
+            &frame.previous_frame_bytes(),
+        );
         queue.write_buffer(&self.decals.buffers[self.decals.slot], 0, &bytes);
     }
 

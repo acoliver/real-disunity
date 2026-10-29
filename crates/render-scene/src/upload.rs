@@ -61,6 +61,20 @@ pub fn frame_bind_group_layout(device: &Device) -> BindGroupLayout {
                 ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
+            // The previous-frame block. Binding 1 already carries the decal list, so this
+            // takes the next free slot. A shader that never names it is unaffected.
+            BindGroupLayoutEntry {
+                binding: 6,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(
+                        crate::frame::temporal::PREVIOUS_FRAME_BYTES as u64,
+                    ),
+                },
+                count: None,
+            },
         ],
     })
 }

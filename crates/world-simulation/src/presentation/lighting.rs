@@ -103,13 +103,18 @@ impl GlobalLighting {
         Ok(())
     }
     pub fn color(&self, sprite: &SpriteRenderer) -> [f32; 4] {
-        let mut color = sprite.color;
-        if sprite.lighting == SpriteLighting::Global && self.scene_lit {
-            let sum = self
-                .layers
-                .get(&sprite.sorting_layer)
-                .copied()
-                .unwrap_or([0.; 3]);
+        self.tint(sprite.color, sprite.lighting, sprite.sorting_layer)
+    }
+    /// `color` as a sprite or tile on `sorting_layer` draws it: multiplied by the lights summed
+    /// for that layer when lit and the scene has a global light, unchanged otherwise.
+    pub fn tint(
+        &self,
+        mut color: [f32; 4],
+        lighting: SpriteLighting,
+        sorting_layer: i32,
+    ) -> [f32; 4] {
+        if lighting == SpriteLighting::Global && self.scene_lit {
+            let sum = self.layers.get(&sorting_layer).copied().unwrap_or([0.; 3]);
             for (i, value) in sum.into_iter().enumerate() {
                 color[i] *= value;
             }

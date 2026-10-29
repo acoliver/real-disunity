@@ -11,6 +11,7 @@ use crate::{
 use glam::{Mat4, Vec2, Vec4};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle,
+    presentation::SpriteLighting,
     tilemap::{Tile, TileCell, TileCollider, TileLayout, Tilemap},
 };
 
@@ -190,6 +191,39 @@ pub unsafe extern "C" fn disunity_tilemap_read(
                 anchor_y: layout.tile_anchor.y,
             };
         }
+        Ok(())
+    })
+}
+
+/// The `TilemapRenderer` material as a sprite lighting value: 0 unlit, 1 lit by the scene's
+/// global 2D lights on the tilemap's sorting layer.
+/// # Safety
+/// Output is writable for one value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_tilemap_lighting_read(
+    world: u64,
+    handle: u64,
+    output: *mut u32,
+) -> DisunityResult {
+    if output.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (_, map) = tilemap(s, handle)?;
+        unsafe { *output = map.lighting as u32 };
+        Ok(())
+    })
+}
+
+/// Sets the `TilemapRenderer` material: 0 unlit, 1 lit. Layout writes keep it.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_tilemap_lighting_write(
+    world: u64,
+    handle: u64,
+    value: u32,
+) -> DisunityResult {
+    edit(world, handle, |map| {
+        map.lighting = SpriteLighting::try_from(value)?;
         Ok(())
     })
 }

@@ -136,10 +136,9 @@ internal sealed partial class SceneLoader
         var map = owner.AddComponent<Tilemap>();
         var renderer = value.GetProperty("renderer");
         if (!renderer.Bool("enabled")) throw new SceneLoadException($"{where}: a disabled TilemapRenderer is not supported");
-        if (renderer.Str("material") != "SpritesDefault")
-            differences.Add($"{where}: tiles draw unlit; {renderer.Str("material")} would light them with the scene's 2D lights");
         DisunityHost.ConfigureTilemap(map, new TilemapSettings(value.Vec2("cell_size"), value.Vec2("cell_gap"),
             value.Vec2("tile_anchor"), 0, renderer.Int("sorting_order")));
+        DisunityHost.SetTilemapMaterial(map, Material(renderer.Str("material")));
         map.color = value.Rgba("color");
         var palette = value.GetProperty("palette").EnumerateArray().ToList();
         for (var i = 0; i < palette.Count; i++) DisunityHost.SetTile(map, i, Tile(palette[i]));

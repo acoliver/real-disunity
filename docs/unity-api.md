@@ -27,7 +27,7 @@ A host loads a Unity scene from the plan `unity-import plan` writes, with `Disun
 
 Serialized fields bind as Unity deserializes them. Public and `[SerializeField]` fields are set; static, readonly and `[NonSerialized]` fields are not. A field the scene does not mention keeps its initializer, and scene data for a field the script no longer declares is ignored. Supported field types are numbers, `bool`, enums, `string`, `Vector2`, `Vector3`, `Vector2Int`, `Quaternion`, `Color`, `Rect`, `LayerMask`, references to objects, components, sprites, fonts and `ScriptableObject` assets, `[Serializable]` classes, arrays, `List<T>` and `UnityEvent<T>`. Any other type fails the load. A `[Serializable]` class with no parameterless constructor, public or not, is created without running any constructor, so its state is exactly its serialized data, and a field the data omits holds the type's default; a class with a parameterless constructor runs it and keeps its field initializers. `Object.Instantiate` copies serializable fields the same way. When a field cannot be read, the load error names the field and the innermost exception's type and message.
 
-`LoadedScene.UnregisteredAxes` lists input axes that need mouse, joystick or keys the engine does not deliver; reading one fails as an unregistered axis does. `LoadedScene.Differences` lists authored presentation settings the engine does not reproduce, such as extrapolated bodies and lit tilemaps. `LoadedScene.Textures` gives the identity each scene texture's sprites use, for the host to upload.
+`LoadedScene.UnregisteredAxes` lists input axes that need mouse, joystick or keys the engine does not deliver; reading one fails as an unregistered axis does. `LoadedScene.Differences` lists authored presentation settings the engine does not reproduce, such as extrapolated bodies and camera shadow maps. `LoadedScene.Textures` gives the identity each scene texture's sprites use, for the host to upload.
 
 ## Time, input and coroutines
 
@@ -58,7 +58,7 @@ No axes exist until the host registers them with `DisunityHost.RegisterInputAxis
 | `Collider2D` | `enabled`, `isTrigger`, `offset`, `attachedRigidbody`, `sharedMaterial` |
 | `BoxCollider2D`, `CircleCollider2D` | `size`; `radius` |
 | `UnityEngine.Tilemaps.TilemapCollider2D` | Collides with the `Tilemap` on its object, following its cells as they change. Contacts and queries return it like any other collider. |
-| `UnityEngine.Tilemaps.Tilemap` | `enabled`, `color`, `tileAnchor`. The host sets the grid layout, tile palette and cells with `DisunityHost.ConfigureTilemap`, `SetTile` and `SetCells`; the script `Tile` and `Grid` APIs are not implemented. |
+| `UnityEngine.Tilemaps.Tilemap` | `enabled`, `color`, `tileAnchor`. The host sets the grid layout, tile palette and cells with `DisunityHost.ConfigureTilemap`, `SetTile` and `SetCells`, and the `TilemapRenderer` material with `DisunityHost.SetTilemapMaterial` (read with `TilemapMaterial`). With `Material.SpriteLit` the tiles take the scene's global 2D lights on their sorting layer, as lit sprites do. The script `Tile` and `Grid` APIs are not implemented. |
 | `PhysicsMaterial2D` | `name`, `friction`, `bounciness` |
 | `Collision2D` | `collider`, `otherCollider`, `gameObject`, `transform`, `rigidbody`, `contacts`, `contactCount`, `GetContact` |
 | `Physics2D` | `Raycast` (nearest hit), `OverlapCircle` (first hit) |

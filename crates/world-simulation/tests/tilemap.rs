@@ -3,6 +3,10 @@ use glam::{Mat4, Vec2, Vec3};
 use worldrunner_world_simulation::physics2d::{
     Body2d, Collider2d, ColliderGeometry, ContactPhase, PhysicsError, QueryFilter, Shape2d,
 };
+use worldrunner_world_simulation::presentation::{
+    GlobalLight2d, Sprite, SpriteLighting,
+    extraction::{SpriteTextures, extract_world},
+};
 use worldrunner_world_simulation::tilemap::{Tile, TileCell, TileCollider, TileLayout, Tilemap};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, LocalTransform, ObjectDesc, ObjectHandle, World, WorldError,
@@ -248,5 +252,66 @@ fn invalid_tilemaps_are_rejected_without_changing_the_world() {
         w.step_physics(0.02),
         Err(WorldError::Physics(PhysicsError::InvalidShape)),
         "a transform that flattens the shape fails the step"
+    );
+}
+
+/// One cell whose tile is tinted (0.5, 1, 1, 0.75), drawn with `lighting` at `sorting`.
+fn tinted_tile(lighting: SpriteLighting, sorting: [i32; 2]) -> Tilemap {
+    let sprite = Sprite {
+        identity: 0,
+        texture: 1,
+        rect: [0., 0., 2., 1.],
+        pivot: [0.5, 0.5],
+        pixels_per_unit: 1.,
+        texture_size: [2, 1],
+    };
+    Tilemap {
+        lighting,
+        sorting_layer: sorting[0],
+        sorting_order: sorting[1],
+        tiles: vec![Tile {
+            sprite: Some(sprite),
+            color: [0.5, 1., 1., 0.75],
+            ..Default::default()
+        }],
+        cells: vec![TileCell {
+            position: [0, 0],
+            tile: 0,
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn lit_tiles_take_the_global_light_on_their_layer_and_unlit_tiles_keep_their_tint() {
+    let mut w = World::new(WorldSettings::default()).unwrap();
+    let light = w.create_object(ObjectDesc::default()).unwrap();
+    w.add_component(
+        light,
+        ComponentDesc::GlobalLight2d(GlobalLight2d {
+            color: [0.5, 0.25, 1., 1.],
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    for map in [
+        tinted_tile(SpriteLighting::Global, [0, 1]),
+        tinted_tile(SpriteLighting::Unlit, [0, 2]),
+        tinted_tile(SpriteLighting::Global, [7, 3]),
+    ] {
+        let owner = w.create_object(ObjectDesc::default()).unwrap();
+        w.add_component(owner, ComponentDesc::Tilemap(map)).unwrap();
+    }
+    let plan = extract_world(&w, &SpriteTextures::default(), [10, 10]).unwrap();
+    let drawn: Vec<_> = plan.quads.iter().map(|q| (q.color, q.lighting)).collect();
+    assert_eq!(
+        drawn,
+        [
+            ([0.25, 0.25, 1., 0.75], SpriteLighting::Global),
+            ([0.5, 1., 1., 0.75], SpriteLighting::Unlit),
+            ([0., 0., 0., 0.75], SpriteLighting::Global),
+        ],
+        "the lit tile on layer 0 is multiplied by the light, the unlit one is not, and a lit \
+         tile on a layer no light reaches is black"
     );
 }

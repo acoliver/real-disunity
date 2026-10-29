@@ -16,6 +16,13 @@ internal static class TilemapTests
         DisunityHost.LoadWorld();
         var (tilemap, wall) = BreakoutWall();
         Require(tilemap.tileAnchor == new Vector3(0.5f, 0.5f, 0), "tile anchor");
+        Require(ReferenceEquals(DisunityHost.TilemapMaterial(tilemap), Material.SpriteUnlit), "tilemaps start unlit");
+        DisunityHost.SetTilemapMaterial(tilemap, Material.SpriteLit);
+        DisunityHost.ConfigureTilemap(tilemap, new TilemapSettings(new Vector2(2, 1), Vector2.zero, new Vector2(0.5f, 0.5f),
+            SortingOrder: 3));
+        Require(ReferenceEquals(DisunityHost.TilemapMaterial(tilemap), Material.SpriteLit), "layout writes keep the lit material");
+        DisunityHost.SetTilemapMaterial(tilemap, Material.SpriteUnlit);
+        Require(ReferenceEquals(DisunityHost.TilemapMaterial(tilemap), Material.SpriteUnlit), "the material switches back to unlit");
         Require(Physics2D.Raycast(Vector2.zero, new Vector2(-1, 0), 20).collider == wall, "the left wall blocks a ray");
         var ball = DisunityHost.AddComponent(new Ball());
         ball.transform.position = new Vector3(-7, 0, 0);

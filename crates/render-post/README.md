@@ -83,11 +83,12 @@ radiance and NaN map to zero; positive infinity maps to one. Zero exposure maps
 all radiance to zero. `ToneMap::evaluate` provides the display-linear CPU reference;
 `ToneMapOutput::evaluate` retains its existing Reinhard semantics.
 
-FXAA uses `(R + 2G + B) / 4` as its luminance proxy. `HdrPostSettings::fxaa`
-retains the optional filter strength. `fxaa_quality: FxaaQuality` sets the relative
+FXAA uses `(R + 2G + B) / 4` as its luminance proxy. `HdrPostSettings::resolve` is
+`PostResolve::Fxaa(FxaaSettings { strength, quality })` to enable it. `strength` is
+the filter strength. `quality: FxaaQuality` sets the relative
 `edge_threshold`, absolute `minimum_threshold`, `subpixel_blend` strength multiplier,
-and `luminance` transfer. Each numeric setting must be finite and within `0..=1`,
-even while FXAA is disabled. Filtering skips contrast at or below
+and `luminance` transfer. Strength and each numeric quality setting must be finite
+and within `0..=1`; a zero strength validates but schedules no pass. Filtering skips contrast at or below
 `max(minimum_threshold, maximum * edge_threshold)`. Defaults are `0.1`, `1/64`,
 `1.0`, and `FxaaLuminance::Linear`, preserving the existing bytes and division by ten.
 `FxaaLuminance::Srgb` applies the sRGB OETF to the scalar linear luminance proxy
@@ -103,6 +104,24 @@ alpha is preserved. The filter uses explicit integer loads and bilinear
 arithmetic, without implicit derivatives in divergent control flow. See the
 [post-filter derivation](../../dev-docs/rendering/post-filters.md) for the base
 kernel; the quality controls above extend its fixed contrast cutoff and strength.
+
+## Choosing antialiasing
+
+`AntiAliasing { msaa: MsaaSamples, resolve: PostResolve }` is the one setting for
+antialiasing. `MsaaSamples` has the variants `X1`, `X2`, `X4` and `X8`;
+`MsaaSamples::try_from(u32)` rejects every other number with
+`PostError::SampleCount`. `AntiAliasing::frame_config` builds the `FrameConfig`
+for the scene attachments, and `PostResolve` goes into `HdrPostSettings::resolve`.
+`PostResolve` is `#[non_exhaustive]`: match it with a wildcard arm, because
+further resolves are added as variants.
+
+`FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
+`FrameConfig::validate_device` also admits 2 and 8 when the device enabled
+`TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`, and `FrameConfig::validate_adapter`
+checks the adapter's reported sample counts and resolve support for the color and
+depth formats. Run `validate_adapter` before creating a chain with 2 or 8 samples;
+wgpu otherwise reports an unsupported count as a device validation error. An
+unsupported count is always an error and is never reduced.
 
 ## Reduced internal resolution
 

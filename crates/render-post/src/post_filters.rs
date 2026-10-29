@@ -58,7 +58,7 @@ impl<'a> Filters<'a> {
             "GRADE_COMPOSITION",
             f64::from(u8::from(settings.grading != crate::ColorGrading::default())),
         ));
-        let fxaa = settings.fxaa.filter(|weight| *weight > 0.0);
+        let fxaa = settings.resolve.active_fxaa();
         let upscale = settings
             .upscale
             .filter(|_| targets.config().size != targets.config().output_extent());
@@ -78,32 +78,26 @@ impl<'a> Filters<'a> {
                 .as_ref()
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
         });
-        self.finish(
-            targets,
-            fxaa.map(|v| (v, settings.fxaa_quality)),
-            upscale,
-            ldr.as_ref(),
-            output.0,
-        );
+        self.finish(targets, fxaa, upscale, ldr.as_ref(), output.0);
     }
     fn finish(
         &mut self,
         targets: &FrameTargets,
-        fxaa: Option<(f32, crate::FxaaQuality)>,
+        fxaa: Option<crate::FxaaSettings>,
         upscale: Option<crate::UpscaleSettings>,
         ldr: Option<&wgpu::TextureView>,
         format: wgpu::TextureFormat,
     ) {
         let filtered = (fxaa.is_some() && upscale.is_some())
             .then(|| self.display_texture(targets.config().size));
-        if let Some((weight, quality)) = fxaa {
+        if let Some(crate::FxaaSettings { strength, quality }) = fxaa {
             self.pass(FilterPass {
                 entry: "fxaa",
                 level: 0,
                 source: ldr.unwrap(),
                 lower: None,
                 exposure: None,
-                constants: &quality.constants(weight),
+                constants: &quality.constants(strength),
                 format: filtered
                     .as_ref()
                     .map_or(format, |_| wgpu::TextureFormat::Rgba32Float),

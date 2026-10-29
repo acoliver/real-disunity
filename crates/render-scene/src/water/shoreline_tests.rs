@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn oblique_candidate_ray_classifies_both_depth_orderings() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for (green, foreground) in [(64u8, true), (192, false)] {
             let mut renderer = regressions::renderer(&context, samples);
             let mut body = settings();

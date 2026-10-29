@@ -63,8 +63,12 @@ pub use gaussian::{
 mod aces;
 mod display_grading;
 pub use display_grading::{ColorGrading, Vignette};
+mod antialias;
+#[cfg(test)]
+mod antialias_tests;
 mod fxaa;
 mod post_filters;
+pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 mod tone_map;
 mod upscale;

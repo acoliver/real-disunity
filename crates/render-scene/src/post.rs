@@ -1,14 +1,18 @@
 //! Translation of authored post controls into the HDR executor's unitful settings.
 use worldrunner_render_plan::{SceneAntiAlias, SceneEffects, ScenePostStage};
-use worldrunner_render_post::{AdaptiveExposure, Bloom, HdrPostSettings, PostError};
+use worldrunner_render_post::{
+    AdaptiveExposure, Bloom, FxaaQuality, HdrPostSettings, PostError, PostResolve,
+};
 
 pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
     let mut out = HdrPostSettings::default();
+    let mut fxaa_quality = FxaaQuality::default();
+    let mut fxaa_strength = None;
     if let Some(post) = effects.hdr_post() {
         post.validate()
             .map_err(|_| PostError::UnsupportedProfile("HDR post quantities"))?;
         apply_grading(post, &mut out);
-        apply_fxaa(post, &mut out);
+        fxaa_quality = authored_fxaa_quality(post);
         out.adaptive = post.adaptive_exposure.map(adaptive);
         if let Some(b) = post.bloom {
             let pyramid = crate::post_bloom::pyramid(b);
@@ -18,7 +22,7 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
                     worldrunner_render_post::BloomKernel::SeparablePyramid(pyramid.levels);
             }
         }
-        out.fxaa = post.fxaa_subpixel_micro.map(micro);
+        fxaa_strength = post.fxaa_subpixel_micro.map(micro);
     }
     for stage in effects.post() {
         match *stage {
@@ -43,16 +47,37 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
     }
     match *effects.anti_alias() {
         SceneAntiAlias::Disabled => {}
-        SceneAntiAlias::Fxaa { subpixel_micro } if out.fxaa.is_none() => {
-            out.fxaa = Some(micro(subpixel_micro));
+        SceneAntiAlias::Fxaa { subpixel_micro } if fxaa_strength.is_none() => {
+            fxaa_strength = Some(micro(subpixel_micro));
         }
         _ => return Err(PostError::UnsupportedProfile("TAA or duplicate FXAA")),
     }
     out.validate()?;
     // Zero-strength requests take the unchanged fixed-output path.
     out.bloom = out.bloom.filter(|b| b.intensity > 0.0);
-    out.fxaa = out.fxaa.filter(|weight| *weight > 0.0);
+    out.resolve = fxaa_strength
+        .filter(|weight| *weight > 0.0)
+        .map_or(PostResolve::None, |weight| {
+            PostResolve::fxaa_with(weight, fxaa_quality)
+        });
     Ok(out)
+}
+/// Authored post settings with the descriptor's resolve; both may not choose one.
+pub(crate) fn settings_with_resolve(
+    effects: Option<&worldrunner_render_plan::SceneEffects>,
+    resolve: PostResolve,
+) -> Result<HdrPostSettings, PostError> {
+    let mut post = effects
+        .map(crate::post::settings)
+        .transpose()?
+        .unwrap_or_default();
+    if resolve != PostResolve::None {
+        if post.resolve != PostResolve::None {
+            return Err(PostError::UnsupportedProfile("duplicate FXAA"));
+        }
+        post.resolve = resolve;
+    }
+    Ok(post)
 }
 pub(crate) fn requested(effects: &SceneEffects) -> bool {
     effects.hdr_post().is_some()
@@ -95,11 +120,11 @@ fn apply_grading(post: &worldrunner_render_plan::SceneHdrPost, out: &mut HdrPost
     }
 }
 
-fn apply_fxaa(post: &worldrunner_render_plan::SceneHdrPost, out: &mut HdrPostSettings) {
+fn authored_fxaa_quality(post: &worldrunner_render_plan::SceneHdrPost) -> FxaaQuality {
     use worldrunner_render_plan::{SceneFxaaKernel, SceneFxaaLuminance};
-    use worldrunner_render_post::{FxaaKernel, FxaaLuminance, FxaaQuality};
-    if let Some(q) = post.fxaa_quality {
-        out.fxaa_quality = FxaaQuality {
+    use worldrunner_render_post::{FxaaKernel, FxaaLuminance};
+    post.fxaa_quality
+        .map_or_else(FxaaQuality::default, |q| FxaaQuality {
             edge_threshold: micro(q.edge_threshold_micro),
             minimum_threshold: micro(q.minimum_threshold_micro),
             subpixel_blend: micro(q.subpixel_blend_micro),
@@ -112,8 +137,7 @@ fn apply_fxaa(post: &worldrunner_render_plan::SceneHdrPost, out: &mut HdrPostSet
                 SceneFxaaKernel::Sobel => FxaaKernel::Sobel,
                 SceneFxaaKernel::SecondDifference => FxaaKernel::SecondDifference,
             },
-        };
-    }
+        })
 }
 
 fn metering(

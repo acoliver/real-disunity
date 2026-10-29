@@ -96,7 +96,10 @@ fn required_context() -> GpuContext {
         .expect("required headless GPU acceptance needs an adapter; it must not skip");
     eprintln!("required GPU: {:?}", context.adapter().get_info());
     assert!(
-        context.device().features().is_empty(),
+        !context
+            .device()
+            .features()
+            .intersects(wgpu::Features::TEXTURE_COMPRESSION_BC),
         "raw scenes must not require BC"
     );
     context

@@ -32,17 +32,30 @@ Contracts: [scene materials and water](../dev-docs/rendering/scene-materials.md)
 
 ## Frame profiles and post-processing
 
-A renderer is built with one frame profile. The **legacy profile** shades straight to an sRGB target with one sample, which is enough for unlit 2D. The **HDR profile** renders 16-bit float radiance with 1x or 4x MSAA, then runs a post chain before writing the display image. These effects need the HDR profile:
+A renderer is built with one frame profile. The **legacy profile** shades straight to an sRGB target with one sample, which is enough for unlit 2D. The **HDR profile** renders 16-bit float radiance with 1x, 2x, 4x or 8x MSAA, then runs a post chain before writing the display image. These effects need the HDR profile:
 
 - **Exposure**: fixed, or adaptive from a luminance histogram with separate rates for brightening and darkening. Capture modes can fix the exposure or the time step so output is reproducible.
 - **Bloom**: a threshold with a soft knee, up to eight pyramid levels, using either a tent-filter pyramid or a separable Gaussian pyramid.
 - **Tone mapping**: Reinhard.
-- **FXAA**, which can be combined with MSAA.
+- **FXAA**, which can be combined with MSAA. See [choosing antialiasing](#choosing-antialiasing).
 - **Upscaling**: render at 50% to 100% of the output size and reconstruct with FSR 1 EASU or bilinear filtering, with optional RCAS sharpening.
 - **SSAO**: hemisphere or spiral sampling with a depth-aware filter. It darkens ambient light only.
 - **Screen-space reflections** on opaque surfaces and water, blended with the environment reflection by confidence and roughness.
 
 Temporal antialiasing, vignette, filmic tone curves, color grading beyond exposure, and sorted alpha-blended 3D geometry are not implemented. Requesting one fails with a typed error.
+
+### Choosing antialiasing
+
+One `AntiAliasing` value holds the choice: an `MsaaSamples` count (`X1`, `X2`, `X4` or `X8`) and a `PostResolve` (`None` or `Fxaa`). Pass it to `FrameRenderer::hdr_antialiased`.
+
+| Choice | Cost | What it smooths |
+| --- | --- | --- |
+| MSAA | Memory and fill rate grow with the count. | Geometry edges, using coverage samples. Shader aliasing and thin alpha-tested detail stay. |
+| FXAA | One full-screen pass after tone mapping. | Edges by contrast, including shader and texture aliasing, with some softening. |
+
+MSAA 4x with no post resolve is the usual starting point. Add FXAA when the scene has specular or alpha-tested aliasing that coverage samples do not reach. 1x and 4x work on every adapter. 2x and 8x depend on the adapter and format: a count the adapter cannot render for `Rgba16Float` color and `Depth32Float` depth fails with `PostError::SampleCount` before any target is allocated. It is never reduced to a nearby count. Mesa lavapipe supports 1x, 4x and 8x and rejects 2x.
+
+If the scene effects already author FXAA, leave `resolve` at `None`; setting both is rejected. Future resolves such as SMAA, CMAA2 and TAA will be new `PostResolve` variants.
 
 Contracts: [frame executor](../dev-docs/rendering/frame-executor.md), [post filters](../dev-docs/rendering/post-filters.md), [ambient occlusion](../dev-docs/rendering/ambient-occlusion.md), [reflections](../dev-docs/rendering/reflections.md), and the [render-post README](../crates/render-post/README.md) for exposure, bloom and upscaling settings.
 

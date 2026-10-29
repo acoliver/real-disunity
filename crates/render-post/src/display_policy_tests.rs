@@ -61,7 +61,7 @@ fn fxaa_quality_defaults_and_validation() {
         ] {
             assert!(
                 HdrPostSettings {
-                    fxaa_quality: quality,
+                    resolve: crate::PostResolve::fxaa_with(1.0, quality),
                     ..Default::default()
                 }
                 .validate()
@@ -72,13 +72,16 @@ fn fxaa_quality_defaults_and_validation() {
     for value in [0.0, 1.0] {
         assert!(
             HdrPostSettings {
-                fxaa_quality: FxaaQuality {
-                    edge_threshold: value,
-                    minimum_threshold: value,
-                    subpixel_blend: value,
-                    luminance: FxaaLuminance::Srgb,
-                    kernel: crate::FxaaKernel::Sobel,
-                },
+                resolve: crate::PostResolve::fxaa_with(
+                    1.0,
+                    FxaaQuality {
+                        edge_threshold: value,
+                        minimum_threshold: value,
+                        subpixel_blend: value,
+                        luminance: FxaaLuminance::Srgb,
+                        kernel: crate::FxaaKernel::Sobel,
+                    },
+                ),
                 ..Default::default()
             }
             .validate()

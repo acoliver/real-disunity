@@ -37,7 +37,7 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     }
     gaussian_allocations(&mut set, config, &settings);
     tent_allocations(&mut set, config, &settings);
-    let fxaa = settings.fxaa.is_some_and(|weight| weight > 0.0);
+    let fxaa = settings.resolve.active_fxaa().is_some();
     let upscale = settings
         .upscale
         .filter(|_| config.size != config.output_extent());

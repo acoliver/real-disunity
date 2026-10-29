@@ -28,8 +28,8 @@ pub struct HdrPostSettings {
     pub adaptive: Option<AdaptiveExposure>,
     pub bloom: Option<Bloom>,
     pub bloom_kernel: crate::BloomKernel,
-    pub fxaa: Option<f32>,
-    pub fxaa_quality: crate::FxaaQuality,
+    /// Post-process antialiasing applied after tone mapping.
+    pub resolve: crate::PostResolve,
     pub upscale: Option<crate::UpscaleSettings>,
 }
 impl HdrPostSettings {
@@ -105,14 +105,7 @@ impl HdrPostSettings {
             return Err(PostError::UnsupportedProfile("bloom settings"));
         }
         self.validate_bloom_policies()?;
-        self.fxaa_quality.validate()?;
-        if self
-            .fxaa
-            .is_some_and(|v| !v.is_finite() || !(0.0..=1.0).contains(&v))
-        {
-            return Err(PostError::UnsupportedProfile("FXAA settings"));
-        }
-        Ok(())
+        self.resolve.validate()
     }
     fn validate_bloom_policies(self) -> Result<(), PostError> {
         if let Some(bloom) = self.bloom {
@@ -133,7 +126,7 @@ impl HdrPostSettings {
             || self.tone_map.is_some()
             || self.adaptive.is_some()
             || self.bloom.is_some()
-            || self.fxaa.is_some()
+            || self.resolve.requested()
             || self.upscale.is_some()
     }
 }

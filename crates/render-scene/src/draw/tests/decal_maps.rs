@@ -197,7 +197,7 @@ fn normal_and_packed_maps_match_independently_baked_plane_and_slope_before_light
         d.angle_cutoff_micro = 0;
         d.angle_fade_micro = 0;
         let projected = base.with_decals(vec![d]).unwrap();
-        for samples in [1, 4] {
+        for samples in crate::msaa_tests::supported_samples(&context) {
             let actual = capture(&context, &projected, samples);
             let expected = capture(&context, &expected, samples);
             for (x, y) in [(32, 32), (28, 32), (36, 32)] {

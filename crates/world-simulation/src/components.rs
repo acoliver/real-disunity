@@ -59,6 +59,7 @@ pub enum ComponentDesc {
     },
     Tilemap(crate::tilemap::Tilemap),
     Camera(crate::presentation::Camera),
+    Light(crate::presentation::Light),
     #[cfg(feature = "ui")]
     RectTransform(crate::ui::RectTransform),
     #[cfg(feature = "ui")]
@@ -83,6 +84,7 @@ impl ComponentDesc {
             Self::Sprite(value) => value.validate(),
             Self::Tilemap(value) => value.validate(),
             Self::Camera(value) => value.validate(),
+            Self::Light(value) => value.validate(),
             Self::GlobalLight2d(value) => value.validate(),
             Self::ShadowCaster2d => Err(WorldError::InvalidComponent(
                 ComponentError::UnsupportedField("ShadowCaster2D"),

@@ -16,17 +16,52 @@ pub enum ClearFlags {
     Nothing = 4,
 }
 
-/// An orthographic camera covering the whole screen and every layer.
+/// Where and how a camera renders: the flags a frame's target allows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct CameraOutput {
+    pub allow_hdr: bool,
+    pub allow_msaa: bool,
+    pub allow_dynamic_resolution: bool,
+}
+
+impl CameraOutput {
+    /// The managed `Camera`'s defaults: HDR and MSAA on, dynamic resolution off.
+    pub const DEFAULT: Self = Self {
+        allow_hdr: true,
+        allow_msaa: true,
+        allow_dynamic_resolution: false,
+    };
+}
+
+/// A camera. Project scenes plan only orthographic cameras covering the whole screen and every
+/// layer, so they carry the managed `Camera`'s defaults for the settings below `depth`; a
+/// player plan carries what the player serialized.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct Camera {
     pub enabled: bool,
     pub clear: ClearFlags,
-    /// Linear RGBA background.
+    /// RGBA background as authored; the managed camera stores the same four numbers.
     pub background: [f64; 4],
     pub orthographic_size: f64,
     pub near: f64,
     pub far: f64,
     pub depth: f64,
+    pub orthographic: bool,
+    /// Vertical field of view in degrees.
+    pub field_of_view: f64,
+    /// One bit per layer.
+    pub culling_mask: u32,
+    /// Normalized viewport x, y, width and height.
+    pub rect: [f64; 4],
+    pub target_display: i64,
+    #[serde(flatten)]
+    pub output: CameraOutput,
+    pub use_occlusion_culling: bool,
+}
+
+impl Camera {
+    pub(crate) const DEFAULT_FIELD_OF_VIEW: f64 = 60.0;
+    pub(crate) const FULL_RECT: [f64; 4] = [0.0, 0.0, 1.0, 1.0];
 }
 
 impl Scene {
@@ -73,6 +108,13 @@ impl Scene {
                 number(fields, "far clip plane", 1000.0),
             )?,
             depth: self.field(id, "m_Depth", number(fields, "m_Depth", 0.0))?,
+            orthographic: true,
+            field_of_view: Camera::DEFAULT_FIELD_OF_VIEW,
+            culling_mask: u32::MAX,
+            rect: Camera::FULL_RECT,
+            target_display: 0,
+            output: CameraOutput::DEFAULT,
+            use_occlusion_culling: true,
         })
     }
 

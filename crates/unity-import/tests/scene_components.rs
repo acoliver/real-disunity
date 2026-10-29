@@ -9,8 +9,8 @@ mod objects;
 use fixture::Fixture;
 use objects::{game_object, import, transform};
 use worldrunner_unity_import::{
-    BodyType, Camera, ClearFlags, Collider, Collider2D, ColliderShape, Interpolation, ObjectId,
-    PhysicsMaterial, Reference, RendererMaterial, RendererSettings, Rigidbody2D, Scene,
+    BodyType, Camera, CameraOutput, ClearFlags, Collider, Collider2D, ColliderShape, Interpolation,
+    ObjectId, PhysicsMaterial, Reference, RendererMaterial, RendererSettings, Rigidbody2D, Scene,
     SpriteRenderer,
 };
 
@@ -72,6 +72,17 @@ fn cameras_read_clear_lens_and_depth() {
         near: 0.3,
         far: 1000.,
         depth: -1.,
+        orthographic: true,
+        field_of_view: 60.,
+        culling_mask: u32::MAX,
+        rect: [0., 0., 1., 1.],
+        target_display: 0,
+        output: CameraOutput {
+            allow_hdr: true,
+            allow_msaa: true,
+            allow_dynamic_resolution: false,
+        },
+        use_occlusion_culling: true,
     };
     assert_eq!(scene.camera(target(&scene)).unwrap(), expected);
     let skybox = CAMERA.replace("m_ClearFlags: 2", "m_ClearFlags: 1");

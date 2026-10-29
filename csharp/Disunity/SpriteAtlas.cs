@@ -1,8 +1,8 @@
 namespace UnityEngine.U2D;
 
 /// <summary>
-/// A group of sprites a game asks for by name or all at once. The engine does not load atlases from
-/// player data yet, so only the engine builds one, from the sprites it is given.
+/// A group of sprites a game asks for by name or all at once. The engine builds one from a player's
+/// resource plan, or from the sprites it is given.
 /// <see cref="GetSprites"/> returns copies, which is the engine's choice: a game that renames the
 /// sprites it gets back does not rename the atlas's own. <see cref="GetSprite"/> returns the atlas's
 /// own sprite, the one <see cref="CanBindTo"/> accepts.

@@ -15,7 +15,9 @@ use std::{
 use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{
     ClassId,
+    camera::Camera,
     classes::{GameObject, MonoBehaviour, Transform},
+    light::Light,
     managers::TagManager,
     object::PPtr,
     script_data::ScriptLayouts,
@@ -26,6 +28,7 @@ use crate::{
     components::RectTransform,
     plan::{PlanComponent, PlanObject, ScenePlan},
     player_files::PlayerFiles,
+    player_graphics::{plan_camera, plan_light},
     player_scripts::script_fields,
     player_values::{FieldWriter, not_held},
 };
@@ -195,6 +198,9 @@ impl PlayerPlanner {
                 path: path.clone(),
                 path_id: component.path_id,
             })?;
+        if class == ClassId::CAMERA || class == ClassId::LIGHT {
+            return Ok(None);
+        }
         if class != ClassId::MONO_BEHAVIOUR {
             return Ok(Some(class));
         }
@@ -246,6 +252,37 @@ impl PlayerPlanner {
         })
     }
 
+    /// A camera or light as its plan component, and any other engine class as unsupported.
+    fn engine_component(
+        &mut self,
+        owner: &str,
+        class: ClassId,
+        component: PPtr,
+    ) -> Result<PlanComponent, PlayerError> {
+        let path = self.path.clone();
+        let invalid = |reason: String| PlayerError::InvalidHierarchy {
+            path: path.clone(),
+            reason,
+        };
+        if class == ClassId::CAMERA {
+            let camera: Camera = self
+                .files
+                .local(&path, component)?
+                .decode(component.path_id)?;
+            return plan_camera(owner, &camera, &mut self.differences).map_err(invalid);
+        }
+        if class == ClassId::LIGHT {
+            let light: Light = self
+                .files
+                .local(&path, component)?
+                .decode(component.path_id)?;
+            return plan_light(owner, &light, &mut self.differences).map_err(invalid);
+        }
+        Ok(PlanComponent::Unsupported {
+            class: class.to_string(),
+        })
+    }
+
     fn component(
         &mut self,
         owner: &str,
@@ -264,9 +301,7 @@ impl PlayerPlanner {
                 path_id: component.path_id,
             })?;
         if class != ClassId::MONO_BEHAVIOUR {
-            return Ok(PlanComponent::Unsupported {
-                class: class.to_string(),
-            });
+            return self.engine_component(owner, class, component);
         }
         let data = script_fields(&mut self.files, &path, component.path_id, layouts)?.map_err(
             |(script, reason)| PlayerError::InvalidHierarchy {

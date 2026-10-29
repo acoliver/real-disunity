@@ -1,6 +1,6 @@
 {
-  "abi_version": 5,
-  "description": "Disunity revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does.",
+  "abi_version": 6,
+  "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, and a native 3D Light component with its own record. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -125,6 +125,16 @@
     {
       "name": "disunity_camera_layer_write",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_matrix_read",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_camera_matrix_write",
+      "since": "6.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -340,6 +350,21 @@
     {
       "name": "disunity_light2d_write",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light_create",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light_read",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_light_write",
+      "since": "6.0.0",
       "rets": "DisunityResult"
     },
     {

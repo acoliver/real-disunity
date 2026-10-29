@@ -240,7 +240,21 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCamera>("g").ToInt32() != 32) throw new InvalidOperationException("DisunityCamera.g offset");
         if (Marshal.OffsetOf<DisunityCamera>("b").ToInt32() != 36) throw new InvalidOperationException("DisunityCamera.b offset");
         if (Marshal.OffsetOf<DisunityCamera>("a").ToInt32() != 40) throw new InvalidOperationException("DisunityCamera.a offset");
-        if (Marshal.SizeOf<DisunityCamera>() != 44 || typeof(DisunityCamera).GetFields().Length != 11) throw new InvalidOperationException("DisunityCamera layout");
+        if (Marshal.OffsetOf<DisunityCamera>("field_of_view").ToInt32() != 44) throw new InvalidOperationException("DisunityCamera.field_of_view offset");
+        if (Marshal.OffsetOf<DisunityCamera>("target_texture").ToInt32() != 48) throw new InvalidOperationException("DisunityCamera.target_texture offset");
+        if (Marshal.OffsetOf<DisunityCamera>("culling_mask").ToInt32() != 56) throw new InvalidOperationException("DisunityCamera.culling_mask offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_x").ToInt32() != 60) throw new InvalidOperationException("DisunityCamera.viewport_x offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_y").ToInt32() != 64) throw new InvalidOperationException("DisunityCamera.viewport_y offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_width").ToInt32() != 68) throw new InvalidOperationException("DisunityCamera.viewport_width offset");
+        if (Marshal.OffsetOf<DisunityCamera>("viewport_height").ToInt32() != 72) throw new InvalidOperationException("DisunityCamera.viewport_height offset");
+        if (Marshal.OffsetOf<DisunityCamera>("depth_texture_mode").ToInt32() != 76) throw new InvalidOperationException("DisunityCamera.depth_texture_mode offset");
+        if (Marshal.OffsetOf<DisunityCamera>("allow_hdr").ToInt32() != 80) throw new InvalidOperationException("DisunityCamera.allow_hdr offset");
+        if (Marshal.OffsetOf<DisunityCamera>("allow_msaa").ToInt32() != 84) throw new InvalidOperationException("DisunityCamera.allow_msaa offset");
+        if (Marshal.OffsetOf<DisunityCamera>("allow_dynamic_resolution").ToInt32() != 88) throw new InvalidOperationException("DisunityCamera.allow_dynamic_resolution offset");
+        if (Marshal.OffsetOf<DisunityCamera>("use_occlusion_culling").ToInt32() != 92) throw new InvalidOperationException("DisunityCamera.use_occlusion_culling offset");
+        if (Marshal.OffsetOf<DisunityCamera>("target_display").ToInt32() != 96) throw new InvalidOperationException("DisunityCamera.target_display offset");
+        if (Marshal.OffsetOf<DisunityCamera>("camera_type").ToInt32() != 100) throw new InvalidOperationException("DisunityCamera.camera_type offset");
+        if (Marshal.SizeOf<DisunityCamera>() != 104 || typeof(DisunityCamera).GetFields().Length != 25) throw new InvalidOperationException("DisunityCamera layout");
         if (Marshal.OffsetOf<DisunityCanvasScale>("mode").ToInt32() != 0) throw new InvalidOperationException("DisunityCanvasScale.mode offset");
         if (Marshal.OffsetOf<DisunityCanvasScale>("screen_match").ToInt32() != 4) throw new InvalidOperationException("DisunityCanvasScale.screen_match offset");
         if (Marshal.OffsetOf<DisunityCanvasScale>("factor").ToInt32() != 8) throw new InvalidOperationException("DisunityCanvasScale.factor offset");
@@ -248,6 +262,30 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCanvasScale>("reference_y").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvasScale.reference_y offset");
         if (Marshal.OffsetOf<DisunityCanvasScale>("match_height").ToInt32() != 20) throw new InvalidOperationException("DisunityCanvasScale.match_height offset");
         if (Marshal.SizeOf<DisunityCanvasScale>() != 24 || typeof(DisunityCanvasScale).GetFields().Length != 6) throw new InvalidOperationException("DisunityCanvasScale layout");
+        if (Marshal.OffsetOf<DisunityLight>("cookie_texture").ToInt32() != 0) throw new InvalidOperationException("DisunityLight.cookie_texture offset");
+        if (Marshal.OffsetOf<DisunityLight>("enabled").ToInt32() != 8) throw new InvalidOperationException("DisunityLight.enabled offset");
+        if (Marshal.OffsetOf<DisunityLight>("kind").ToInt32() != 12) throw new InvalidOperationException("DisunityLight.kind offset");
+        if (Marshal.OffsetOf<DisunityLight>("r").ToInt32() != 16) throw new InvalidOperationException("DisunityLight.r offset");
+        if (Marshal.OffsetOf<DisunityLight>("g").ToInt32() != 20) throw new InvalidOperationException("DisunityLight.g offset");
+        if (Marshal.OffsetOf<DisunityLight>("b").ToInt32() != 24) throw new InvalidOperationException("DisunityLight.b offset");
+        if (Marshal.OffsetOf<DisunityLight>("a").ToInt32() != 28) throw new InvalidOperationException("DisunityLight.a offset");
+        if (Marshal.OffsetOf<DisunityLight>("intensity").ToInt32() != 32) throw new InvalidOperationException("DisunityLight.intensity offset");
+        if (Marshal.OffsetOf<DisunityLight>("range").ToInt32() != 36) throw new InvalidOperationException("DisunityLight.range offset");
+        if (Marshal.OffsetOf<DisunityLight>("spot_angle").ToInt32() != 40) throw new InvalidOperationException("DisunityLight.spot_angle offset");
+        if (Marshal.OffsetOf<DisunityLight>("inner_spot_angle").ToInt32() != 44) throw new InvalidOperationException("DisunityLight.inner_spot_angle offset");
+        if (Marshal.OffsetOf<DisunityLight>("shadows").ToInt32() != 48) throw new InvalidOperationException("DisunityLight.shadows offset");
+        if (Marshal.OffsetOf<DisunityLight>("shadow_strength").ToInt32() != 52) throw new InvalidOperationException("DisunityLight.shadow_strength offset");
+        if (Marshal.OffsetOf<DisunityLight>("shadow_bias").ToInt32() != 56) throw new InvalidOperationException("DisunityLight.shadow_bias offset");
+        if (Marshal.OffsetOf<DisunityLight>("shadow_normal_bias").ToInt32() != 60) throw new InvalidOperationException("DisunityLight.shadow_normal_bias offset");
+        if (Marshal.OffsetOf<DisunityLight>("shadow_near_plane").ToInt32() != 64) throw new InvalidOperationException("DisunityLight.shadow_near_plane offset");
+        if (Marshal.OffsetOf<DisunityLight>("culling_mask").ToInt32() != 68) throw new InvalidOperationException("DisunityLight.culling_mask offset");
+        if (Marshal.OffsetOf<DisunityLight>("rendering_layer_mask").ToInt32() != 72) throw new InvalidOperationException("DisunityLight.rendering_layer_mask offset");
+        if (Marshal.OffsetOf<DisunityLight>("bounce_intensity").ToInt32() != 76) throw new InvalidOperationException("DisunityLight.bounce_intensity offset");
+        if (Marshal.OffsetOf<DisunityLight>("color_temperature").ToInt32() != 80) throw new InvalidOperationException("DisunityLight.color_temperature offset");
+        if (Marshal.OffsetOf<DisunityLight>("use_color_temperature").ToInt32() != 84) throw new InvalidOperationException("DisunityLight.use_color_temperature offset");
+        if (Marshal.OffsetOf<DisunityLight>("cookie_size").ToInt32() != 88) throw new InvalidOperationException("DisunityLight.cookie_size offset");
+        if (Marshal.OffsetOf<DisunityLight>("lightmap_bake_type").ToInt32() != 92) throw new InvalidOperationException("DisunityLight.lightmap_bake_type offset");
+        if (Marshal.SizeOf<DisunityLight>() != 96 || typeof(DisunityLight).GetFields().Length != 23) throw new InvalidOperationException("DisunityLight layout");
         if (Marshal.OffsetOf<DisunityTextStyle>("font").ToInt32() != 0) throw new InvalidOperationException("DisunityTextStyle.font offset");
         if (Marshal.OffsetOf<DisunityTextStyle>("alignment").ToInt32() != 8) throw new InvalidOperationException("DisunityTextStyle.alignment offset");
         if (Marshal.OffsetOf<DisunityTextStyle>("horizontal_overflow").ToInt32() != 12) throw new InvalidOperationException("DisunityTextStyle.horizontal_overflow offset");
@@ -296,5 +334,5 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 5;
+    internal const uint Version = 6;
 }

@@ -23,8 +23,6 @@ internal static class LightTests
             Console.WriteLine("PASS: Light defaults, attachment and clone state");
             Validation();
             Console.WriteLine("PASS: Light validation rejects negative and non-finite values and clamps angles and shadow strength");
-            CommandBuffers();
-            Console.WriteLine("PASS: Light command buffers throw NotSupportedException naming the member");
             Hierarchy();
             Console.WriteLine("PASS: a Light is a Behaviour that GetComponents<MonoBehaviour> and FindObjectsByType<MonoBehaviour> do not return");
             CloneIsolation();
@@ -94,16 +92,6 @@ internal static class LightTests
         Ensure(light.shadowStrength == 0f, "shadowStrength clamps up to 0");
         light.colorTemperature = 3200f;
         Ensure(light.colorTemperature == 3200f, "a positive temperature is stored");
-    }
-
-    private static void CommandBuffers()
-    {
-        var light = NewLight();
-        var buffer = new CommandBuffer();
-        Throws<NotSupportedException>(() => light.AddCommandBuffer(LightEvent.AfterShadowMap, buffer), "AddCommandBuffer",
-            "Light.AddCommandBuffer", "does not render 3D lights yet");
-        Throws<NotSupportedException>(() => light.RemoveCommandBuffer(LightEvent.AfterShadowMap, buffer), "RemoveCommandBuffer",
-            "Light.RemoveCommandBuffer", "does not render 3D lights yet");
     }
 
     private static void Loaded()

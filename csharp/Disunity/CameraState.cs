@@ -98,9 +98,13 @@ public sealed partial class Camera
     public void RenderWithShader(Shader shader, string replacementTag) => throw Unsupported(nameof(RenderWithShader));
     public void SetTargetBuffers(RenderBuffer colorBuffer, RenderBuffer depthBuffer) => throw Unsupported(nameof(SetTargetBuffers));
     public void SetTargetBuffers(RenderBuffer[] colorBuffer, RenderBuffer depthBuffer) => throw Unsupported(nameof(SetTargetBuffers));
-    public void AddCommandBuffer(CameraEvent evt, CommandBuffer buffer) => throw Unsupported(nameof(AddCommandBuffer));
-    public void RemoveCommandBuffer(CameraEvent evt, CommandBuffer buffer) => throw Unsupported(nameof(RemoveCommandBuffer));
-    public CommandBuffer[] GetCommandBuffers(CameraEvent evt) => throw Unsupported(nameof(GetCommandBuffers));
+    private CommandBufferSlots<CameraEvent> CommandBuffers => CommandBufferSlots<CameraEvent>.Of(this);
+    public int commandBufferCount => CommandBuffers.Count;
+    public void AddCommandBuffer(CameraEvent evt, CommandBuffer buffer) => CommandBuffers.Add(evt, buffer, "Camera.AddCommandBuffer");
+    public void RemoveCommandBuffer(CameraEvent evt, CommandBuffer buffer) => CommandBuffers.Remove(evt, buffer, "Camera.RemoveCommandBuffer");
+    public void RemoveCommandBuffers(CameraEvent evt) => CommandBuffers.RemoveAll(evt, "Camera.RemoveCommandBuffers");
+    public void RemoveAllCommandBuffers() => CommandBuffers.Clear();
+    public CommandBuffer[] GetCommandBuffers(CameraEvent evt) => CommandBuffers.Get(evt, "Camera.GetCommandBuffers");
     public bool TryGetCullingParameters(ref ScriptableCullingParameters cullingParameters) => throw Unsupported(nameof(TryGetCullingParameters));
     public bool TryGetCullingParameters(bool stereoAware, ref ScriptableCullingParameters cullingParameters) => throw Unsupported(nameof(TryGetCullingParameters));
     public Matrix4x4 GetStereoNonJitteredProjectionMatrix(StereoscopicEye eye) => throw Unsupported(nameof(GetStereoNonJitteredProjectionMatrix));

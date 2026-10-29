@@ -16,8 +16,6 @@ namespace UnityEngine;
 /// </summary>
 public sealed class Light : Behaviour
 {
-    private const string NotRendered = "the engine does not render 3D lights yet";
-
     private static readonly object CookieLock = new();
     private static readonly Dictionary<int, WeakReference<Texture>> Cookies = new();
 
@@ -87,9 +85,12 @@ public sealed class Light : Behaviour
         }
     }
 
-    public void AddCommandBuffer(LightEvent evt, CommandBuffer buffer) =>
-        throw new NotSupportedException($"Light.AddCommandBuffer: {NotRendered}");
+    private CommandBufferSlots<LightEvent> CommandBuffers => CommandBufferSlots<LightEvent>.Of(this);
+    public int commandBufferCount => CommandBuffers.Count;
+    public void AddCommandBuffer(LightEvent evt, CommandBuffer buffer) => CommandBuffers.Add(evt, buffer, "Light.AddCommandBuffer");
+    public void RemoveCommandBuffers(LightEvent evt) => CommandBuffers.RemoveAll(evt, "Light.RemoveCommandBuffers");
+    public void RemoveAllCommandBuffers() => CommandBuffers.Clear();
+    public CommandBuffer[] GetCommandBuffers(LightEvent evt) => CommandBuffers.Get(evt, "Light.GetCommandBuffers");
 
-    public void RemoveCommandBuffer(LightEvent evt, CommandBuffer buffer) =>
-        throw new NotSupportedException($"Light.RemoveCommandBuffer: {NotRendered}");
+    public void RemoveCommandBuffer(LightEvent evt, CommandBuffer buffer) => CommandBuffers.Remove(evt, buffer, "Light.RemoveCommandBuffer");
 }

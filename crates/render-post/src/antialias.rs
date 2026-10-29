@@ -1,6 +1,7 @@
 //! One typed antialiasing choice: a multisample count plus a post resolve.
 use crate::{
-    Cmaa2Preset, Cmaa2Settings, FrameConfig, FxaaQuality, PostError, SmaaPreset, SmaaSettings,
+    CasSettings, Cmaa2Preset, Cmaa2Settings, FrameConfig, FxaaQuality, PostError, SmaaPreset,
+    SmaaSettings,
 };
 
 /// Multisample count of the scene attachments.
@@ -161,18 +162,37 @@ impl PostResolve {
 }
 
 /// The application's antialiasing choice.
+///
+/// `sharpen` is independent of the resolve: it runs after FXAA, SMAA or, with `PostResolve::None`,
+/// directly after tone mapping. `None` schedules no pass and leaves the output unchanged.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AntiAliasing {
     pub msaa: MsaaSamples,
     pub resolve: PostResolve,
+    pub sharpen: Option<CasSettings>,
 }
 impl AntiAliasing {
+    /// A choice without sharpening.
     pub const fn new(msaa: MsaaSamples, resolve: PostResolve) -> Self {
-        Self { msaa, resolve }
+        Self {
+            msaa,
+            resolve,
+            sharpen: None,
+        }
+    }
+
+    /// This choice with contrast adaptive sharpening after the resolve.
+    #[must_use]
+    pub const fn with_sharpen(self, sharpen: CasSettings) -> Self {
+        Self {
+            sharpen: Some(sharpen),
+            ..self
+        }
     }
 
     pub fn validate(self) -> Result<(), PostError> {
-        self.resolve.validate()
+        self.resolve.validate()?;
+        self.sharpen.map_or(Ok(()), CasSettings::validate)
     }
 
     /// Scene attachment contract for this choice.

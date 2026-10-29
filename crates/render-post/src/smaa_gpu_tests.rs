@@ -1,7 +1,7 @@
 //! SMAA 1x on synthetic images through the HDR post chain (display-referred, after
 //! tone mapping). Scene radiance 3.0 tone maps to 0.75 and 0.0 stays black, so
 //! every edge is far above all preset thresholds.
-use super::post_effect_tests::{chain, output, paint, pixels, step};
+use crate::chain::post_effect_tests::{chain, output, paint, pixels, step};
 use crate::{HdrPostSettings, PostResolve, SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 
 pub(super) struct Rig {
@@ -241,13 +241,18 @@ fn resize_rebuilds_the_passes_for_the_new_extent() {
     }
 }
 
-/// Per-pass medians for one resolve on a synthetic 1920x1080 frame of diagonal edges.
-pub(super) fn timed_medians(rig: &Rig, resolve: PostResolve) -> Vec<(String, f64)> {
+/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame of diagonal edges.
+fn timed_medians(
+    rig: &Rig,
+    resolve: PostResolve,
+    sharpen: Option<crate::CasSettings>,
+) -> Vec<(String, f64)> {
     let size = [1920, 1080];
     let chain = chain(
         &rig.device,
         &HdrPostSettings {
             resolve,
+            sharpen,
             ..HdrPostSettings::default()
         },
         size,
@@ -312,22 +317,29 @@ fn smaa_and_fxaa_stage_timestamps() {
         eprintln!("adapter has no timestamp queries; nothing to measure");
         return;
     }
-    for (name, resolve) in [
-        ("none", PostResolve::None),
-        ("fxaa", PostResolve::fxaa(1.0)),
-        ("smaa low", PostResolve::smaa(SmaaPreset::Low)),
-        ("smaa medium", PostResolve::smaa(SmaaPreset::Medium)),
-        ("smaa high", PostResolve::smaa(SmaaPreset::High)),
-        ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra)),
-        ("cmaa2 low", PostResolve::cmaa2(crate::Cmaa2Preset::Low)),
+    let cas = Some(crate::CasSettings::new(0.5));
+    let cmaa2 = PostResolve::cmaa2;
+    for (name, resolve, sharpen) in [
+        ("none", PostResolve::None, None),
+        ("fxaa", PostResolve::fxaa(1.0), None),
+        ("smaa low", PostResolve::smaa(SmaaPreset::Low), None),
+        ("smaa medium", PostResolve::smaa(SmaaPreset::Medium), None),
+        ("smaa high", PostResolve::smaa(SmaaPreset::High), None),
+        ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra), None),
+        ("cmaa2 low", cmaa2(crate::Cmaa2Preset::Low), None),
+        ("cmaa2 medium", cmaa2(crate::Cmaa2Preset::Medium), None),
+        ("cmaa2 high", cmaa2(crate::Cmaa2Preset::High), None),
+        ("cmaa2 ultra", cmaa2(crate::Cmaa2Preset::Ultra), None),
+        ("cas", PostResolve::None, cas),
+        ("fxaa + cas", PostResolve::fxaa(1.0), cas),
         (
-            "cmaa2 medium",
-            PostResolve::cmaa2(crate::Cmaa2Preset::Medium),
+            "smaa medium + cas",
+            PostResolve::smaa(SmaaPreset::Medium),
+            cas,
         ),
-        ("cmaa2 high", PostResolve::cmaa2(crate::Cmaa2Preset::High)),
-        ("cmaa2 ultra", PostResolve::cmaa2(crate::Cmaa2Preset::Ultra)),
+        ("cmaa2 high + cas", cmaa2(crate::Cmaa2Preset::High), cas),
     ] {
-        let passes = timed_medians(&rig, resolve);
+        let passes = timed_medians(&rig, resolve, sharpen);
         let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
         eprintln!("{name}: total {:.3} ms (median of 5)", total / 1e6);
         for (pass, ns) in passes {

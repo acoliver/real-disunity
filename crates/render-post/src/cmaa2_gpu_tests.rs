@@ -1,8 +1,8 @@
 //! CMAA2 on synthetic images through the HDR post chain (display-referred, after tone
 //! mapping). Scene radiance 3.0 tone maps to 0.75 and 0.0 stays black, so every edge is far
 //! above all preset thresholds.
-use super::post_effect_tests::{chain, pixels, step};
 use super::smaa_gpu_tests::{Rig, assert_within_plain_range, changed, red};
+use crate::chain::post_effect_tests::{chain, pixels, step};
 use crate::{Cmaa2Preset, Cmaa2Settings, HdrPostSettings, PostResolve};
 
 fn render_pair(rig: &Rig, cmaa2: Cmaa2Settings, size: [u32; 2], body: &str) -> (Vec<u8>, Vec<u8>) {

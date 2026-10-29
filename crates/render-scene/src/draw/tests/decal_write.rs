@@ -197,8 +197,9 @@ fn default_uniform_bytes_match_the_existing_volume_layout() {
     values.extend([0.0, 0.0, 1.0, 0.2, 0.2, 0.8, 0.6, 0.4]);
     values.extend([f32::from_bits(3), 0.0, f32::from_bits(2), 0.0]);
     values.extend([1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]);
+    values.extend([1.0; 4]);
     let mut expected: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
-    expected.resize(16 + 32 * 144, 0);
+    expected.resize(16 + 32 * 160, 0);
     assert_eq!(actual, expected);
 }
 

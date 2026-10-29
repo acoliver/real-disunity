@@ -93,7 +93,7 @@ fn frame_expression(rotation: Quat, geometric: Vec3, world: bool) -> String {
         .join(",");
     let flags = if world { 524_288 } else { 0 };
     format!(
-        "vec4<f32>(frame_test_normal(SceneDecalVolume(mat4x4<f32>({columns}),vec4<f32>(0.0),vec4<f32>(0.0),vec4<u32>(0u,0u,2u,{flags}u),vec4<f32>(0.0),vec4<f32>(0.0)),vec3<f32>({},{},{})),1.0)",
+        "vec4<f32>(frame_test_normal(SceneDecalVolume(mat4x4<f32>({columns}),vec4<f32>(0.0),vec4<f32>(0.0),vec4<u32>(0u,0u,2u,{flags}u),vec4<f32>(0.0),vec4<f32>(0.0),vec4<f32>(1.0)),vec3<f32>({},{},{})),1.0)",
         geometric.x, geometric.y, geometric.z,
     )
 }
@@ -150,7 +150,7 @@ fn normal_basis_follows_rotated_nonuniform_hulls_for_every_projection_axis() {
         let result = evaluate(
             &context,
             &format!(
-                "vec4<f32>(scene_decal_basis(SceneDecalVolume(mat4x4<f32>(vec4<f32>(0.0,-0.333333333,0.0,0.0),vec4<f32>(0.5,0.0,0.0,0.0),vec4<f32>(0.0,0.0,0.25,0.0),vec4<f32>(0.0,0.0,0.0,1.0)),vec4<f32>(0.0),vec4<f32>(0.0),vec4<u32>(0u,0u,{axis}u,0u),vec4<f32>(0.0),vec4<f32>(0.0))) * vec3<f32>(0.6,0.0,0.8),1.0)"
+                "vec4<f32>(scene_decal_basis(SceneDecalVolume(mat4x4<f32>(vec4<f32>(0.0,-0.333333333,0.0,0.0),vec4<f32>(0.5,0.0,0.0,0.0),vec4<f32>(0.0,0.0,0.25,0.0),vec4<f32>(0.0,0.0,0.0,1.0)),vec4<f32>(0.0),vec4<f32>(0.0),vec4<u32>(0u,0u,{axis}u,0u),vec4<f32>(0.0),vec4<f32>(0.0),vec4<f32>(1.0))) * vec3<f32>(0.6,0.0,0.8),1.0)"
             ),
         );
         for (actual, expected) in result[..3].iter().zip(expected) {
@@ -224,4 +224,59 @@ fn uv_scale_offset_and_packed_surface_blend_match_independent_values() {
     for (actual, expected) in result.iter().zip([1.45, -0.8, 0.65, 0.25]) {
         assert!((actual - expected).abs() < 0.000_001);
     }
+}
+
+#[test]
+fn decal_color_matches_scalar_oracle_including_hdr_and_opacity_edges() {
+    let context = context();
+    for opacity in [0.0_f32, 0.4, 0.98, 1.0] {
+        let lower = (1.0 - opacity).max(0.0001);
+        let upper = (1.05 - opacity).min(1.0);
+        for alpha in [
+            0.0,
+            lower - 0.00001,
+            lower,
+            (lower + upper) * 0.5,
+            upper,
+            1.0,
+        ] {
+            for edge in [false, true] {
+                let result = evaluate(
+                    &context,
+                    &format!(
+                        "scene_decal_color(vec4<f32>(0.2,0.4,0.8,{alpha}), vec4<f32>(1.77,0.0,0.5,{opacity}), {edge})"
+                    ),
+                );
+                let expected_alpha = if edge && opacity == 0.0 {
+                    0.0
+                } else if edge {
+                    let t = ((alpha - lower) / (upper - lower)).clamp(0.0, 1.0);
+                    t * t * (3.0 - 2.0 * t)
+                } else {
+                    alpha * opacity
+                };
+                for (actual, expected) in result.iter().zip([0.354, 0.0, 0.4, expected_alpha]) {
+                    assert!(
+                        (actual - expected).abs() < 0.000_01,
+                        "{result:?} expected {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn default_decal_color_preserves_sample_bits() {
+    let context = context();
+    let sample = "vec4<f32>(0.1234567,1.77,0.0,0.3333333)";
+    let original = evaluate(&context, sample);
+    let modified = evaluate(
+        &context,
+        &format!("scene_decal_color({sample}, vec4<f32>(1.0), false)"),
+    );
+    assert_eq!(
+        original.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+        modified.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+    );
 }

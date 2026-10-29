@@ -728,14 +728,6 @@ fn build_slots<F: StageFactory>(
 mod post_effect_tests;
 
 #[cfg(test)]
-#[path = "post_regression_tests.rs"]
-mod post_regression_tests;
-
-#[cfg(test)]
-#[path = "timing_identity_tests.rs"]
-mod timing_identity_tests;
-
-#[cfg(test)]
 #[path = "gaussian_gpu_tests.rs"]
 mod gaussian_gpu_tests;
 
@@ -744,13 +736,9 @@ mod gaussian_gpu_tests;
 mod gaussian_benchmark;
 
 #[cfg(test)]
-#[path = "cmaa2_gpu_tests.rs"]
-mod cmaa2_gpu_tests;
-
-#[cfg(test)]
 #[path = "bloom_policy_gpu_tests.rs"]
 mod bloom_policy_gpu_tests;
 
 #[cfg(test)]
-#[path = "smaa_gpu_tests.rs"]
-mod smaa_gpu_tests;
+#[path = "chain_aa_tests.rs"]
+mod aa_tests;

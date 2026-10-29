@@ -5,6 +5,7 @@ struct SceneDecalVolume {
     selection: vec4<u32>,
     reserved: vec4<f32>,
     uv_transform: vec4<f32>,
+    color_modifier: vec4<f32>,
 }
 struct SceneDecalList {
     count: vec4<u32>,
@@ -19,6 +20,18 @@ struct SceneDecalSurface {
     albedo: vec3<f32>,
     properties: vec2<f32>,
     normal: vec3<f32>,
+}
+fn scene_decal_color(sample: vec4<f32>, modifier: vec4<f32>, edge_mode: bool) -> vec4<f32> {
+    var alpha = sample.a * modifier.a;
+    if edge_mode {
+        // At zero opacity both smoothstep endpoints coincide at one.
+        alpha = 0.0;
+        if modifier.a > 0.0 {
+            let lower = 1.0 - modifier.a;
+            alpha = smoothstep(max(lower, 0.0001), min(lower + 0.05, 1.0), sample.a);
+        }
+    }
+    return vec4<f32>(sample.rgb * modifier.rgb, alpha);
 }
 fn scene_decal_angle(cosine: f32, linear: vec2<f32>, power: vec3<f32>) -> f32 {
     let angle = select(max(0.0, cosine), abs(cosine), power.z != 0.0);
@@ -86,21 +99,23 @@ fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32
         let local = (decal.local_from_world * vec4<f32>(position, 1.0)).xyz;
         let edge = 0.5 - max(max(abs(local.x), abs(local.y)), abs(local.z));
         if edge < 0.0 { continue; }
-        var weight = scene_decal_angle(dot(geometric, decal.direction_edge.xyz), decal.surface_angle.zw, decal.reserved.yzw);
-        if weight == 0.0 { continue; }
-        let angle_weight = weight;
+        let angle_fade = scene_decal_angle(dot(geometric, decal.direction_edge.xyz), decal.surface_angle.zw, decal.reserved.yzw);
+        var weight = 1.0;
+        if angle_fade == 0.0 { continue; }
         if decal.direction_edge.w > 0.0 { weight *= clamp(edge / decal.direction_edge.w, 0.0, 1.0); }
         let uv = (scene_decal_uv(local, decal.selection.z) + 0.5) * decal.uv_transform.xy + decal.uv_transform.zw;
         let dx = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dx, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
         let dy = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dy, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
-        let sample = textureSampleGrad(scene_decal_albedo, scene_decal_sampler, uv, i32(decal.selection.y), dx, dy);
+        var sample = textureSampleGrad(scene_decal_albedo, scene_decal_sampler, uv, i32(decal.selection.y), dx, dy);
+        sample.a *= angle_fade;
         if (decal.selection.x & 4194304u) != 0u {
             let cutoff = f32((decal.selection.x >> 2u) & 1048575u) / 1000000.0;
-            if angle_weight * sample.a < cutoff { continue; }
+            if sample.a < cutoff { continue; }
         }
-        weight *= sample.a * decal.reserved.x;
+        let colored = scene_decal_color(sample, decal.color_modifier, (decal.selection.w & 1048576u) != 0u);
+        weight *= colored.a * decal.reserved.x;
         if (decal.selection.w & 65536u) == 0u {
-            result.albedo = mix(result.albedo, sample.rgb, weight);
+            result.albedo = mix(result.albedo, colored.rgb, weight);
         }
         var surface = decal.surface_angle.xy;
         let surface_layer = (decal.selection.w >> 8u) & 255u;

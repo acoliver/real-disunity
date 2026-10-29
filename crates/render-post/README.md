@@ -118,6 +118,9 @@ further resolves are added as variants. Its variants are `None`, `Fxaa`, `Smaa`
 two. Prefer SMAA when long high-contrast geometry edges dominate and three passes fit the
 budget, FXAA as the cheaper single pass for noisy specular detail, and CMAA2 when the
 adapter has compute shaders and the image has text or thin detail that must stay crisp.
+Sharpening is a separate, optional field, `AntiAliasing::sharpen: Option<CasSettings>`, that
+composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive-sharpening)).
+`AntiAliasing::new` leaves it `None`; `with_sharpen` sets it.
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -182,7 +185,7 @@ and its flat-region precision contract. `PostResolve::display_format` is the one
 chooses the format. A resolve followed by an upscale still writes `Rgba32Float` between the
 resolve and the upscale.
 
-Measured with the ignored probe `chain::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
 AMD Radeon 780M (RADV, Mesa 26.0.8) at 1920x1080, median of 5 timestamp-query samples per
 stage, on a synthetic frame of diagonal edges. The first column is the `Rgba32Float`
 intermediate with two point-loaded texels in the blend, the second the `Rgba16Float`
@@ -254,7 +257,7 @@ At 1920x1080 the CMAA2 storage is about 16 MB of buffers (edges, list heads and 
 These are counted in the post allocation report. Without a CMAA2 resolve none of it is
 allocated.
 
-Measured with the ignored probe `chain::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
 AMD Radeon 780M (RADV) at 1920x1080, median of 5 timestamp-query samples per stage, on the
 same synthetic frame of diagonal edges as the SMAA numbers above. Times are in ms. The "AA
 total" column leaves out the `tone` stage, which is the same work for every resolve; the
@@ -278,6 +281,67 @@ integrated GPU the CMAA2 passes cost about 1.5 to 3 times the SMAA passes and mo
 The preset changes the time by less than the noise, because the fixed-size dispatches run the
 same number of threads whatever the edge count. The probe skips the measurement and passes on
 adapters without `TIMESTAMP_QUERY`, such as lavapipe.
+
+### Contrast adaptive sharpening
+
+`CasSettings { sharpness }` selects AMD FidelityFX CAS in its sharpen-only form. It is not a
+`PostResolve` variant: it does not remove aliasing, it restores local contrast that a resolve or
+a soft texture filter took away, so it follows whichever resolve is selected. Set it with
+`AntiAliasing::with_sharpen(CasSettings::new(0.5))` or `HdrPostSettings::sharpen`.
+`sharpness` must be finite and within 0 through 1, or `PostError::UnsupportedProfile("CAS settings")`
+is returned. Sharpness 0 is the reference default with the least ringing and still sharpens;
+1 is the strongest setting. `None` schedules nothing: the stage list, intermediates and output
+bytes are those of a build without the field.
+
+The stage runs after the resolve (FXAA, SMAA, CMAA2, or tone mapping when the resolve is `None`) and
+before any upscale, at the render extent, as one fullscreen pass with the stage identity `cas`
+and its own timing slot. Its input is the display-referred image between tone mapping and the
+output, so the same intermediate rules apply: a resolve that feeds CAS writes an `Rgba16Float`
+texture, and so does tone mapping when the resolve is `None`. The FXAA, SMAA and CMAA2 intermediates
+are unchanged when CAS is off. With an upscale, CAS writes an `Rgba16Float` texture that the
+upscale reads. The allocation budget counts that one extra intermediate.
+
+For each pixel the filter reads itself and its four neighbours. The green channel gives the local
+minimum and maximum; the headroom to black or white divided by the maximum, square-rooted, is the
+amount of sharpening. Where contrast already reaches 0 or 1 the amount is 0, so flat areas and
+saturated edges are untouched. The amount scales a negative lobe between -1/8 (sharpness 0) and
+-1/5 (sharpness 1) on the four neighbours, and the result is normalized by `1 + 4w` and saturated.
+Every output channel stays within the 3x3 neighbourhood range on a soft edge, a constant image is
+unchanged at every sharpness, and alpha is copied.
+
+How it differs from RCAS: RCAS is the optional second pass of the FSR 1 upscale. It runs at the
+output extent after EASU, takes its strength in stops from 0 (strongest) through 2, and limits
+ringing from the minimum and maximum of each color channel. It exists only with an upscale. CAS
+runs without scaling, at the render extent, with a 0 through 1 sharpness and a contrast
+adaptive amount driven by headroom, so it works with MSAA, FXAA or SMAA at native resolution. With
+an upscale configured, CAS sharpens before reconstruction and RCAS after it; use both only if the
+combined result is not over-sharpened. Prefer RCAS to restore detail after upscaling and CAS to
+offset the softness of FXAA, SMAA or a soft texture filter at native resolution.
+
+Differences from the reference header: only the `noScaling` path of `CasFilter` is ported, as a
+fragment pass. Taps outside the image clamp to the edge texel. The default quality path is used
+(green-channel weights, no `CAS_BETTER_DIAGONALS`) with exact reciprocals and square roots in
+place of the `APrx` approximations, and the 16-bit packed form is not ported. The shader file
+keeps the AMD notice.
+
+`src/cas_reference.rs` is a scalar f64 reference of the same kernel. The pass alone, writing an
+`Rgba32Float` target from f32 input images with odd extents, is compared with it at an absolute
+per-channel bound of 0.00001, a few f32 ulps. Chain tests then check each resolve, resize, the
+upscale ordering and the 8-bit sRGB result.
+
+Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV, Mesa 26.0.8) at 1920x1080, median of 5 timestamp-query samples, on a
+synthetic frame of diagonal edges, sharpness 0.5:
+
+| Configuration | `cas` stage (ms) | Total (ms) |
+| --- | --- | --- |
+| tone mapping, then CAS | 0.417 | 1.678 |
+| FXAA, then CAS | 0.492 | 4.618 |
+| SMAA medium, then CAS | 0.490 | 4.644 |
+
+The CAS pass costs about 0.4 to 0.5 ms. The run-to-run noise on this adapter is about 0.3 ms
+(the FXAA and SMAA blend passes moved by more than the CAS pass between runs), so read the
+stage figure as a bound rather than a precise cost.
 
 ## Reduced internal resolution
 
@@ -332,6 +396,12 @@ under the Apache License, Version 2.0. The full license text is in
 [LICENSE-APACHE-2.0-CMAA2.txt](LICENSE-APACHE-2.0-CMAA2.txt). The shader file carries the
 copyright and license header verbatim, a statement that it was modified, and the list of
 changes. The upstream repository has no NOTICE file.
+
+`src/cas.wgsl` ports the sharpen-only path of
+[AMD FidelityFX CAS, ffx_cas.h](https://github.com/GPUOpen-Effects/FidelityFX-CAS) (ffx-cas/ffx_cas.h).
+Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License. The full copyright, permission and warranty
+notice is preserved in the shader file.
 
 ### Numerical checks and informational timing
 

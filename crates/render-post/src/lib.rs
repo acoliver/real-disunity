@@ -66,6 +66,9 @@ pub use display_grading::{ColorGrading, Vignette};
 mod antialias;
 #[cfg(test)]
 mod antialias_tests;
+mod cas;
+#[cfg(test)]
+mod cas_reference;
 mod cmaa2;
 mod cmaa2_gpu;
 #[cfg(test)]
@@ -80,6 +83,7 @@ mod smaa_lut_tests;
 #[cfg(test)]
 mod smaa_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
+pub use cas::CasSettings;
 pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};

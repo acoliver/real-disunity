@@ -30,6 +30,8 @@ pub struct HdrPostSettings {
     pub bloom_kernel: crate::BloomKernel,
     /// Post-process antialiasing applied after tone mapping.
     pub resolve: crate::PostResolve,
+    /// Contrast adaptive sharpening after the resolve and before any upscale.
+    pub sharpen: Option<crate::CasSettings>,
     pub upscale: Option<crate::UpscaleSettings>,
 }
 impl HdrPostSettings {
@@ -105,7 +107,8 @@ impl HdrPostSettings {
             return Err(PostError::UnsupportedProfile("bloom settings"));
         }
         self.validate_bloom_policies()?;
-        self.resolve.validate()
+        self.resolve.validate()?;
+        self.sharpen.map_or(Ok(()), crate::CasSettings::validate)
     }
     fn validate_bloom_policies(self) -> Result<(), PostError> {
         if let Some(bloom) = self.bloom {
@@ -121,12 +124,23 @@ impl HdrPostSettings {
         }
         Ok(())
     }
+    /// Format of the display-referred image between tone mapping and the later stages.
+    ///
+    /// Sharpening after no resolve introduces the intermediate, so it takes the narrow
+    /// `Rgba16Float`. Every other choice keeps the format its resolve already used.
+    pub(crate) fn display_format(self) -> wgpu::TextureFormat {
+        match (self.resolve, self.sharpen) {
+            (crate::PostResolve::None, Some(_)) => wgpu::TextureFormat::Rgba16Float,
+            _ => self.resolve.display_format(),
+        }
+    }
     pub fn enabled(self) -> bool {
         self.grading != crate::ColorGrading::default()
             || self.tone_map.is_some()
             || self.adaptive.is_some()
             || self.bloom.is_some()
             || self.resolve.requested()
+            || self.sharpen.is_some()
             || self.upscale.is_some()
     }
 }

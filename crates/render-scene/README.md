@@ -33,6 +33,27 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
 
+## Projected decal channels and opacity
+
+`SceneDecal::color_modifier` supplies nonnegative linear RGB scales and opacity
+in millionths. RGB may exceed one; opacity must lie in `0..=1_000_000`.
+The default is unit RGB, full opacity and `SceneDecalAlphaMode::Multiply`.
+Texture alpha is multiplied by angle fade before the optional alpha test.
+Values below the cutoff are rejected; equality passes. `Multiply` then scales
+that faded alpha by opacity. `OpacityEdge` instead applies smoothstep between
+`max(1 - opacity, 0.0001)` and `min(1.05 - opacity, 1)`, with zero opacity
+producing zero weight. Box edge fade and material alpha scale the resulting weight.
+
+The write mask gates albedo, normal and roughness/metalness independently.
+RGB scales affect only written albedo; all written channels share the same
+weight. Unwritten channels retain the receiver values. `ReceiverWorld` normal
+correction operates in world space independently of these controls.
+
+The uniform has a 16-byte header and 160-byte volumes. In `selection.x`, bits
+0..1 select receivers, 2..21 hold the alpha cutoff and 22 enables its test.
+In `selection.w`, bits 0..7 and 8..15 hold normal and surface layers, 16..18
+hold the inverted write mask, 19 selects `ReceiverWorld` and 20 selects `OpacityEdge`.
+
 ## Editing resident placements
 
 `SceneGpu::upload` initializes the same instance table used by later edits.

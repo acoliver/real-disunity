@@ -100,6 +100,10 @@ pub(crate) struct Ssr {
     water_resolve: wgpu::RenderPipeline,
 }
 impl Ssr {
+    pub(crate) fn material_target(&self) -> &wgpu::Texture {
+        &self.material
+    }
+
     pub(crate) fn confidence_target(&self) -> &wgpu::Texture {
         &self.reflections[0]
     }

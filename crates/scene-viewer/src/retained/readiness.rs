@@ -13,7 +13,7 @@ pub(crate) struct Preparation {
     pub ids: Vec<ObjectId>,
     pub decal_ids: Vec<u64>,
     pub pages_enabled: bool,
-    pub capture_features: [bool; 4],
+    pub capture_features: [bool; 5],
     pub require_pages: bool,
     pub require_geometry: bool,
 }
@@ -25,7 +25,7 @@ pub(crate) struct Readiness {
     pub ready: u64,
     pub published: u64,
     pub pages_enabled: bool,
-    pub capture_features: [bool; 4],
+    pub capture_features: [bool; 5],
     pub page_wait: bool,
     pub geometry_wait: bool,
     pub camera: (CameraPose, SceneCamera, worldrunner_camera::ViewConvention),

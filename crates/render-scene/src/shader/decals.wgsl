@@ -74,21 +74,30 @@ fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32
         if edge < 0.0 { continue; }
         var weight = scene_decal_angle(dot(geometric, decal.direction_edge.xyz), decal.surface_angle.zw, decal.reserved.yzw);
         if weight == 0.0 { continue; }
+        let angle_weight = weight;
         if decal.direction_edge.w > 0.0 { weight *= clamp(edge / decal.direction_edge.w, 0.0, 1.0); }
         let uv = (scene_decal_uv(local, decal.selection.z) + 0.5) * decal.uv_transform.xy + decal.uv_transform.zw;
         let dx = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dx, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
         let dy = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dy, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
         let sample = textureSampleGrad(scene_decal_albedo, scene_decal_sampler, uv, i32(decal.selection.y), dx, dy);
+        if (decal.selection.x & 4194304u) != 0u {
+            let cutoff = f32((decal.selection.x >> 2u) & 1048575u) / 1000000.0;
+            if angle_weight * sample.a < cutoff { continue; }
+        }
         weight *= sample.a * decal.reserved.x;
-        result.albedo = mix(result.albedo, sample.rgb, weight);
+        if (decal.selection.w & 65536u) == 0u {
+            result.albedo = mix(result.albedo, sample.rgb, weight);
+        }
         var surface = decal.surface_angle.xy;
         let surface_layer = (decal.selection.w >> 8u) & 255u;
         if surface_layer != 0u {
             surface = textureSampleGrad(scene_decal_surface, scene_decal_sampler, uv, i32(surface_layer - 1u), dx, dy).rb;
         }
-        result.properties = mix(result.properties, surface, weight);
+        if (decal.selection.w & 262144u) == 0u {
+            result.properties = mix(result.properties, surface, weight);
+        }
         let normal_layer = decal.selection.w & 255u;
-        if normal_layer != 0u && weight > 0.0 {
+        if normal_layer != 0u && weight > 0.0 && (decal.selection.w & 131072u) == 0u {
             let encoded = textureSampleGrad(scene_decal_normal, scene_decal_sampler, uv, i32(normal_layer - 1u), dx, dy).rg;
             let basis = scene_decal_basis(decal);
             let detail = scene_decal_correct(transpose(basis) * geometric, scene_decal_decode(encoded));

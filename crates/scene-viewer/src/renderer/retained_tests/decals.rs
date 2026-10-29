@@ -83,6 +83,8 @@ fn decal(material: u32) -> SceneDecal {
         angle_fade_micro: 0,
         receivers: SceneDecalReceivers::ALL,
         mapping: worldrunner_render_plan::SceneDecalMapping::default(),
+        write_mask: worldrunner_render_plan::SceneDecalWriteMask::default(),
+        alpha_test_cutoff_micro: None,
     }
 }
 fn material(

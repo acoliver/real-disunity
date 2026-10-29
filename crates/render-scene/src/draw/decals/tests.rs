@@ -41,3 +41,16 @@ fn overflow_uses_priority_distance_and_stable_id_but_preserves_compositing_order
     assert!(moved.contains(&1));
     assert_eq!(moved.len(), LIMIT);
 }
+
+#[test]
+fn alpha_test_selection_packing_preserves_default_receiver_bytes_and_boundaries() {
+    let mut d = decal();
+    assert_eq!(receiver_and_alpha_test(&d), d.receivers.bits());
+    for cutoff in [0, 501_961, 1_000_000] {
+        d.alpha_test_cutoff_micro = Some(cutoff);
+        let packed = receiver_and_alpha_test(&d);
+        assert_eq!(packed & 3, d.receivers.bits());
+        assert_ne!(packed & (1 << 22), 0);
+        assert_eq!((packed >> 2) & 0xfffff, cutoff);
+    }
+}

@@ -9,9 +9,11 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes an older run of the same pull request or of main, so a burst of
+# merges checks only the newest commit. Manual dispatches never cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_BUILD_JOBS: 2
@@ -23,6 +25,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
+      scope: ${{ steps.classify.outputs.scope }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -34,25 +37,30 @@ jobs:
         name: Classify the change
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
         shell: bash
         run: |
           set -uo pipefail
           full() {
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            printf 'docs_only=false\nscope=full\n' >> "$GITHUB_OUTPUT"
             echo "full build: $1"
             exit 0
           }
-          [ "$EVENT_NAME" = workflow_dispatch ] && full "manual dispatch"
+          # Runs on main can be superseded by a newer push, so each one checks the whole tree.
+          [ "$EVENT_NAME" = pull_request ] || full "$EVENT_NAME checks the whole tree"
           git rev-parse --verify --quiet HEAD^1 > /dev/null || full "no parent commit"
-          if [ "$EVENT_NAME" = pull_request ]; then
-            git rev-parse --verify --quiet HEAD^2 > /dev/null || full "no merge commit"
-          elif [ "$(git rev-parse HEAD^1)" != "$BEFORE" ]; then
-            full "push does not start at the previous tip"
-          fi
+          git rev-parse --verify --quiet HEAD^2 > /dev/null || full "no merge commit"
           git show HEAD^1:.github/scripts/ci_changes.py > "$RUNNER_TEMP/ci_changes.py" 2> /dev/null \
             || full "base commit has no classifier"
-          python3 "$RUNNER_TEMP/ci_changes.py" classify --base HEAD^1 --head HEAD
+          result="$RUNNER_TEMP/classify.out"
+          GITHUB_OUTPUT="$result" python3 "$RUNNER_TEMP/ci_changes.py" classify --base HEAD^1 --head HEAD
+          docs_only=$(sed -n 's/^docs_only=//p' "$result" | tail -n 1)
+          scope=$(sed -n 's/^scope=//p' "$result" | tail -n 1)
+          # A base classifier that predates scopes reports only docs_only.
+          if [ -z "$scope" ]; then
+            if [ "$docs_only" = true ]; then scope=docs; else scope=full; fi
+          fi
+          case "$scope" in docs|csharp|full) ;; *) full "unknown scope '$scope'" ;; esac
+          printf 'docs_only=%s\nscope=%s\n' "$([ "$scope" = docs ] && echo true || echo false)" "$scope" >> "$GITHUB_OUTPUT"
       - name: Test the CI scripts
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
@@ -74,32 +82,9 @@ jobs:
         run: python3 .github/scripts/ci_changes.py check-docs --base HEAD^1 --head HEAD
 
   cpu:
-    name: cpu (ubuntu-latest)
+    name: cpu and managed (ubuntu-latest)
     needs: classify
-    if: needs.classify.outputs.docs_only == 'false'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: 1.97.0
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          shared-key: cpu
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: CPU libraries, tools, and facade without default features
-        run: cargo xtask ci-cpu
-      - name: Verify that no Markdown file is a build input
-        run: python3 .github/scripts/ci_changes.py markdown-inputs --target target/validation --root .
-
-  managed:
-    name: managed (ubuntu-latest)
-    needs: classify
-    if: needs.classify.outputs.docs_only == 'false'
+    if: needs.classify.outputs.scope == 'csharp' || needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -115,8 +100,10 @@ jobs:
           dotnet-version: 8.0.x
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          shared-key: managed
+          shared-key: linux
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: CPU libraries, tools, and facade without default features
+        run: cargo xtask ci-cpu
       - name: Required .NET build, native host, and managed lifecycle tests
         run: cargo xtask ci-managed
       - name: Verify that no Markdown file is a build input
@@ -125,7 +112,7 @@ jobs:
   gpu-static:
     name: gpu static checks
     needs: classify
-    if: needs.classify.outputs.docs_only == 'false'
+    if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -152,9 +139,10 @@ jobs:
   gpu-tests:
     name: gpu tests (${{ matrix.shard }}/8)
     needs: classify
-    if: needs.classify.outputs.docs_only == 'false'
+    if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Shards are dealt by test name, not duration, so one can draw several slow tests.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -178,56 +166,54 @@ jobs:
           WGPU_ADAPTER_NAME: llvmpipe
         run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu-shard ${{ matrix.shard }}/8
 
+  gpu-csharp:
+    name: gpu tests of C# consumers
+    needs: classify
+    if: needs.classify.outputs.scope == 'csharp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - uses: ./.github/actions/lavapipe
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: lavapipe
+          save-if: false
+      # A change limited to csharp/ leaves every Rust source unchanged, so only the packages
+      # that build or read the C# projects can observe it. xtask policy keeps that list complete.
+      - name: GPU-required tests of the packages that consume csharp/
+        env:
+          WGPU_BACKEND: vulkan
+          WGPU_ADAPTER_NAME: llvmpipe
+        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu-csharp
+
   gate:
     name: PR gate
-    needs: [classify, docs, cpu, managed, gpu-static, gpu-tests]
+    needs: [classify, docs, cpu, gpu-static, gpu-tests, gpu-csharp]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # A documentation-only change must skip every build job, and any other change must pass
-      # every one. A skipped or cancelled job never counts as a pass for a code change.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # Each scope names the build jobs that must succeed; every other build job must be
+      # skipped. A skipped, cancelled or failed required job never counts as a pass.
       - name: Evaluate the required jobs
         env:
           NEEDS: ${{ toJSON(needs) }}
-        shell: python3 {0}
-        run: |
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["NEEDS"])
-          builds = ["cpu", "managed", "gpu-static", "gpu-tests"]
-          problems = []
-
-
-          def result(name):
-              return needs.get(name, {}).get("result")
-
-
-          for name in ("classify", "docs"):
-              if result(name) != "success":
-                  problems.append(f"{name} finished as {result(name)!r}, expected 'success'")
-          docs_only = needs.get("classify", {}).get("outputs", {}).get("docs_only")
-          if docs_only not in ("true", "false"):
-              problems.append(f"classify reported docs_only={docs_only!r}, expected 'true' or 'false'")
-          else:
-              expected = "skipped" if docs_only == "true" else "success"
-              for name in builds:
-                  if result(name) != expected:
-                      problems.append(
-                          f"{name} finished as {result(name)!r}, expected {expected!r} for docs_only={docs_only}"
-                      )
-          if problems:
-              print("PR gate failed:")
-              for problem in problems:
-                  print(f"  - {problem}")
-              sys.exit(1)
-          print(f"PR gate passed (docs_only={docs_only})")
+        run: python3 .github/scripts/ci_gate.py
 
   report:
     name: report
-    needs: [classify, docs, cpu, managed, gpu-static, gpu-tests]
+    needs: [classify, docs, cpu, gpu-static, gpu-tests, gpu-csharp]
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -248,5 +234,5 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SHA: ${{ github.sha }}
           WORKFLOW: PR
-          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          SCOPE: ${{ needs.classify.outputs.scope }}
         run: python3 .github/scripts/ci_report.py

@@ -42,8 +42,8 @@ Use the public commands in [quality gates](../../../dev-docs/quality-gates.md):
 - `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-gpu`
   for relevant GPU work on Linux with lavapipe.
 
-Protected `main` requires all seven hosted checks: CPU and managed on Linux,
-macOS and Windows, plus software-Vulkan GPU on Linux. Report local results and
+Protected `main` requires the `PR gate` check on Linux. Windows, macOS and the
+serial GPU suite run after merge and nightly. Report local results and
 missing prerequisites accurately. Never weaken tests or quality gates. Keep Rust
 incremental compilation disabled.
 

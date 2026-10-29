@@ -33,7 +33,7 @@ pub(crate) fn pipelines(
         .replace("fn fs_opaque(", "fn unused_opaque(")
         .replace("fn fs_masked(", "fn unused_masked(");
     let output = if material {
-        "vec4<f32>(mix(vec3<f32>(0.04), albedo.rgb, metalness), roughness)"
+        "vec4<f32>(scene_material_f0(albedo.rgb, metalness, DIELECTRIC_F0), roughness)"
     } else {
         "vec4<f32>(scene_metadata_direction((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0)"
     };
@@ -42,7 +42,7 @@ pub(crate) fn pipelines(
         include_str!("geometry.wgsl").replace("METADATA_OUTPUT", output)
     );
     let terrain_output = if material {
-        "vec4<f32>(mix(vec3<f32>(0.04), projected.albedo, projected.properties.y), projected.properties.x)"
+        "vec4<f32>(scene_material_f0(projected.albedo, projected.properties.y, DIELECTRIC_F0), projected.properties.x)"
     } else {
         "vec4<f32>(normalize((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0)"
     };

@@ -304,7 +304,11 @@ fn smaa_and_fxaa_stage_timestamps() {
     let (device, queue) =
         crate::gpu_tests::gpu_with_optional_features(wgpu::Features::TIMESTAMP_QUERY);
     let rig = Rig { device, queue };
-    if !rig.device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+    if !rig
+        .device
+        .features()
+        .contains(wgpu::Features::TIMESTAMP_QUERY)
+    {
         eprintln!("adapter has no timestamp queries; nothing to measure");
         return;
     }
@@ -316,7 +320,10 @@ fn smaa_and_fxaa_stage_timestamps() {
         ("smaa high", PostResolve::smaa(SmaaPreset::High)),
         ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra)),
         ("cmaa2 low", PostResolve::cmaa2(crate::Cmaa2Preset::Low)),
-        ("cmaa2 medium", PostResolve::cmaa2(crate::Cmaa2Preset::Medium)),
+        (
+            "cmaa2 medium",
+            PostResolve::cmaa2(crate::Cmaa2Preset::Medium),
+        ),
         ("cmaa2 high", PostResolve::cmaa2(crate::Cmaa2Preset::High)),
         ("cmaa2 ultra", PostResolve::cmaa2(crate::Cmaa2Preset::Ultra)),
     ] {

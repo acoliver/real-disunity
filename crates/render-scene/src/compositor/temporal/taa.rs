@@ -12,6 +12,32 @@ use worldrunner_render_post::{
     AttachmentView, FrameError, ResourceRef, TAA_UNIFORM_BYTES, TaaUniform, ToneMapOutput,
 };
 
+/// The `(a, b)` of the linear view depth `b / (z - a)` of device depth `z`, read off the
+/// unjittered view-projection `m`, or zeros when it is not a perspective projection.
+///
+/// A perspective projection with standard Z has `z_clip = a * w_clip + b * w_world`, so the
+/// z row of `m` equals `a` times the w row plus `b` in the translation lane. `a` is read from
+/// a lane where the w row is nonzero. An orthographic projection has w row (0, 0, 0, 1) and
+/// returns zeros, which disables the disocclusion test.
+fn depth_terms(m: &glam::DMat4) -> [f64; 2] {
+    let (z_row, w_row) = (m.row(2), m.row(3));
+    let Some(lane) = (0..3).max_by(|&i, &j| w_row[i].abs().total_cmp(&w_row[j].abs())) else {
+        return [0.0; 2];
+    };
+    let scale = w_row.truncate().abs().max_element();
+    if scale < f64::EPSILON * w_row[3].abs().max(1.0) {
+        return [0.0; 2];
+    }
+    let a = z_row[lane] / w_row[lane];
+    let b = z_row[3] - a * w_row[3];
+    let consistent = (0..3).all(|i| (z_row[i] - a * w_row[i]).abs() <= 1e-6 * scale.max(a.abs()));
+    if consistent && a.is_finite() && b.is_finite() {
+        [a, b]
+    } else {
+        [0.0; 2]
+    }
+}
+
 /// The TAA block for a frame's camera data.
 ///
 /// The reprojection is `previous * inverse(current)` of the unjittered matrices, computed in
@@ -30,6 +56,7 @@ pub(super) fn uniform(view: &TemporalView) -> TaaUniform {
         },
         jitter_pixels: view.jitter_pixels,
         history_valid: view.history_valid && finite,
+        depth_terms: depth_terms(&current),
     }
 }
 

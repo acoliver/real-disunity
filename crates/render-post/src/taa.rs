@@ -59,7 +59,7 @@ impl Default for TaaSettings {
 }
 
 /// Size in bytes of the [`TaaUniform`] block.
-pub const TAA_UNIFORM_BYTES: usize = 80;
+pub const TAA_UNIFORM_BYTES: usize = 96;
 
 /// Per-frame data the TAA resolve pass reads from a uniform buffer.
 ///
@@ -73,6 +73,11 @@ pub const TAA_UNIFORM_BYTES: usize = 80;
 /// | 64..72  | `jitter_pixels` x, y (+y down) |
 /// | 72..76  | `history_valid`: 1.0 when the history texture holds the previous frame, else 0.0 |
 /// | 76..80  | zero padding |
+/// | 80..88  | `depth_terms` `a`, `b`: linear view depth of device depth `z` is `b / (z - a)` |
+/// | 88..96  | zero padding |
+///
+/// `b == 0` (an all-zero block, or a projection without the terms) disables the depth-history
+/// disocclusion test.
 ///
 /// An all-zero block reads as "no history": the resolve then returns the reconstructed
 /// current color without touching the history texture.
@@ -85,6 +90,10 @@ pub struct TaaUniform {
     /// Projection jitter of the current frame in pixels, +x right and +y down.
     pub jitter_pixels: [f32; 2],
     pub history_valid: bool,
+    /// `(a, b)` of a perspective projection with standard Z, where the linear view depth
+    /// (distance along the view axis) of device depth `z` is `b / (z - a)`: `a = far / (far -
+    /// near)` and `b = -near * far / (far - near)`. `[0.0; 2]` disables the disocclusion test.
+    pub depth_terms: [f64; 2],
 }
 impl TaaUniform {
     pub fn to_bytes(self) -> [u8; TAA_UNIFORM_BYTES] {
@@ -94,6 +103,10 @@ impl TaaUniform {
             self.jitter_pixels[0],
             self.jitter_pixels[1],
             if self.history_valid { 1.0 } else { 0.0 },
+            0.0,
+            narrow(self.depth_terms[0]),
+            narrow(self.depth_terms[1]),
+            0.0,
             0.0,
         ];
         for (chunk, value) in bytes.chunks_exact_mut(4).zip(matrix.chain(tail)) {

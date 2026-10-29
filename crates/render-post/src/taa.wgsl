@@ -13,6 +13,9 @@ struct Taa {
     reprojection: mat4x4<f32>,
     // xy: jitter in pixels (+y down), z: 1 when history is valid, w: padding.
     jitter_valid: vec4<f32>,
+    // xy: (a, b) of the linear view depth b / (z - a) of device depth z; b == 0 disables the
+    // disocclusion test. zw: padding.
+    depth_terms: vec4<f32>,
 }
 @group(0) @binding(0) var color: texture_2d<f32>;
 @group(0) @binding(1) var depth: texture_depth_2d;
@@ -24,6 +27,9 @@ struct Taa {
 // camera reprojection of `history_uv` lacks, so 0 (the clear value, and the 1x1 default) leaves
 // camera reprojection alone. The multisampled build declares it texture_multisampled_2d.
 @group(0) @binding(5) var velocity: texture_2d<f32>;
+// Linear view depth of the closest-depth texel of the previous frame, R32Float, same size as
+// `color`. It is read with textureLoad only.
+@group(0) @binding(6) var depth_history: texture_2d<f32>;
 override HISTORY_WEIGHT: f32 = 0.9;
 override CLIP_SCALE: f32 = 1.0;
 // Samples per depth texel. The multisampled build of this module, which declares `depth` as
@@ -41,6 +47,9 @@ const KERNEL_SIGMA: f32 = 0.05;
 // 1 / MSAA_MOTION_K pixels). Measured values are in docs/rendering.md.
 const MOTION_K: f32 = 1.5;
 const MSAA_MOTION_K: f32 = 16.0;
+// A history sample is rejected when the depth it should have, predicted from the reprojection,
+// lies outside the stored depths of its 2x2 footprint widened by this relative tolerance.
+const DEPTH_TOLERANCE: f32 = 0.02;
 const MIN_BOX_EXTENT: f32 = 1e-4;
 const MAX_COMPRESSED_LUMA: f32 = 0.99999;
 const LUMA: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
@@ -131,11 +140,26 @@ fn closest(p: vec2<i32>, size: vec2<i32>) -> vec2<i32> {
     }
     return best;
 }
-// The history uv for the pixel (xy) and whether it is usable (z): the motion of the
+struct Lookup {
+    uv: vec2<f32>,
+    usable: bool,
+    // Linear depth the closest-depth texel had in the previous frame.
+    predicted: f32,
+    // Linear depth of the closest-depth texel now, the value stored for the next frame.
+    stored: f32,
+    // No object-motion residual: the camera reprojection alone moved the texel.
+    camera_only: bool,
+}
+// Linear view depth of device depth `z`; 0 when the depth terms are unset.
+fn linear_depth(z: f32) -> f32 {
+    let terms = taa.depth_terms;
+    return terms.y / (min(z, 1.0) - terms.x);
+}
+// The history uv for the pixel and whether it is usable: the motion of the
 // closest-depth neighbor, applied at the pixel centre. The camera motion comes from depth, the
 // object motion from the velocity of that same texel (Karis dilation), so a thin moving edge
 // carries its foreground's vector to the pixels around it.
-fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
+fn history_uv(p: vec2<i32>, size: vec2<i32>) -> Lookup {
     let size_f = vec2<f32>(size);
     let q = closest(p, size);
     let texel = (vec2<f32>(q) + 0.5) / size_f;
@@ -145,13 +169,40 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
         2.0 * texel.x - 1.0 - 2.0 * jitter.x / size_f.x,
         1.0 - 2.0 * texel.y + 2.0 * jitter.y / size_f.y,
     );
-    let clip = taa.reprojection * vec4<f32>(ndc, depth_at(q), 1.0);
+    let z = depth_at(q);
+    let clip = taa.reprojection * vec4<f32>(ndc, z, 1.0);
     let previous = vec2<f32>(0.5 + 0.5 * clip.x / clip.w, 0.5 - 0.5 * clip.y / clip.w);
     let unjittered = vec2<f32>(0.5 + 0.5 * ndc.x, 0.5 - 0.5 * ndc.y);
-    let uv = (vec2<f32>(p) + 0.5) / size_f + previous - unjittered + residual_at(q);
+    let residual = residual_at(q);
+    let uv = (vec2<f32>(p) + 0.5) / size_f + previous - unjittered + residual;
     let usable = finite(clip.w) && clip.w > 0.0 && finite(uv.x) && finite(uv.y)
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
-    return vec3<f32>(uv, select(0.0, 1.0, usable));
+    // The reprojection maps NDC, so clip.w is the previous view depth over the current one.
+    // Sky is predicted at the far plane, where only camera motion would move it.
+    let stored = linear_depth(z);
+    let predicted = stored * select(clip.w, 1.0, z >= 1.0);
+    return Lookup(uv, usable, predicted, stored, all(residual == vec2<f32>(0.0)));
+}
+// Whether the surface now visible is not the one in history. Only static or camera-only pixels
+// are tested: the residual is XY, so a moving object that changes view depth would fail
+// falsely. The prediction must lie in the interval spanned by the stored depths of the 2x2
+// footprint at the history uv (wide on steep surfaces, as at grazing angles), widened by the
+// tolerance.
+fn disoccluded(lookup: Lookup) -> bool {
+    if !lookup.camera_only || taa.depth_terms.y == 0.0 || !finite(lookup.predicted) {
+        return false;
+    }
+    let last = vec2<i32>(textureDimensions(depth_history)) - 1;
+    let base = vec2<i32>(floor(lookup.uv * vec2<f32>(last + 1) - 0.5));
+    var lo = 3.4e38;
+    var hi = -3.4e38;
+    for (var i = 0; i < 4; i++) {
+        let d = textureLoad(depth_history, clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last), 0).r;
+        lo = min(lo, d);
+        hi = max(hi, d);
+    }
+    return lookup.predicted < lo * (1.0 - DEPTH_TOLERANCE)
+        || lookup.predicted > hi * (1.0 + DEPTH_TOLERANCE);
 }
 // Catmull-Rom (bicubic) history fetch from nine bilinear taps: the two inner texels of each
 // axis merge into one tap placed so that the hardware weights reproduce their cubic weights,
@@ -184,7 +235,12 @@ fn catmull_rom(uv: vec2<f32>, size: vec2<f32>) -> vec3<f32> {
 fn fetch(uv: vec2<f32>) -> vec3<f32> {
     return textureSampleLevel(history, history_sampler, uv, 0.0).rgb;
 }
-@fragment fn taa_resolve(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+struct Resolved {
+    @location(0) color: vec4<f32>,
+    // Linear depth stored for the next frame's disocclusion test.
+    @location(1) depth: f32,
+}
+@fragment fn taa_resolve(@builtin(position) position: vec4<f32>) -> Resolved {
     let p = vec2<i32>(position.xy);
     let size = vec2<i32>(textureDimensions(color));
     let jitter = taa.jitter_valid.xy;
@@ -210,19 +266,19 @@ fn fetch(uv: vec2<f32>) -> vec3<f32> {
     let centre = 0.5 * (lo + hi);
     let half = 0.5 * (hi - lo);
     let target_uv = history_uv(p, size);
-    let fetched = catmull_rom(target_uv.xy, vec2<f32>(size));
+    let fetched = catmull_rom(target_uv.uv, vec2<f32>(size));
     let fetched_ok = finite(fetched.x) && finite(fetched.y) && finite(fetched.z);
     var rgb = current.rgb;
-    if taa.jitter_valid.z > 0.5 && target_uv.z > 0.5 && fetched_ok {
+    if taa.jitter_valid.z > 0.5 && target_uv.usable && fetched_ok && !disoccluded(target_uv) {
         let h = to_ycocg(compress(max(fetched, vec3<f32>(0.0))));
         let clipped = clip_toward_centre(h, centre, CLIP_SCALE * half);
         let history_rgb = decompress(from_ycocg(clipped));
         let size_f = vec2<f32>(size);
-        let motion = length((target_uv.xy - (vec2<f32>(p) + 0.5) / size_f) * size_f);
+        let motion = length((target_uv.uv - (vec2<f32>(p) + 0.5) / size_f) * size_f);
         let k = select(MOTION_K, MSAA_MOTION_K, SAMPLES > 1);
         let wh = HISTORY_WEIGHT * clamp(1.0 - k * motion, 0.0, 1.0);
         let wc = 1.0 - wh;
         rgb = current.rgb * wc + history_rgb * wh;
     }
-    return clean(vec4<f32>(rgb, current.a));
+    return Resolved(clean(vec4<f32>(rgb, current.a)), select(0.0, target_uv.stored, finite(target_uv.stored)));
 }

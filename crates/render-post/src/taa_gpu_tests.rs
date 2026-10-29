@@ -18,6 +18,7 @@ use crate::{
     StageId, StageSet, StageTarget, TaaSettings, TaaUniform, color_texture,
 };
 
+mod depth_tests;
 mod velocity_tests;
 
 const BOUND: f64 = 1e-3;
@@ -59,6 +60,9 @@ struct Case {
     depth_samples: Vec<Depth>,
     /// Object-motion residual; `None` binds no velocity texture.
     velocity: Option<Velocity>,
+    /// Linear view depth the previous resolve stored; `None` writes zeros and disables the test.
+    depth_history: Option<Depth>,
+    depth_terms: [f64; 2],
 }
 impl Case {
     fn new(color: Image, history: Image) -> Self {
@@ -73,6 +77,8 @@ impl Case {
             settings: TaaSettings::DEFAULT,
             depth_samples: Vec::new(),
             velocity: None,
+            depth_history: None,
+            depth_terms: [0.0; 2],
         }
     }
 
@@ -110,6 +116,8 @@ impl Case {
             settings: self.settings,
             samples: u32::try_from(self.depth_samples.len().max(1)).unwrap(),
             velocity: self.velocity.as_ref(),
+            depth_history: self.depth_history.as_ref(),
+            depth_terms: self.depth_terms,
         }
         .resolve()
     }
@@ -355,6 +363,8 @@ struct Resolve {
     uniform: wgpu::Buffer,
     history: wgpu::Texture,
     output: wgpu::Texture,
+    depth_history: wgpu::Texture,
+    depth_output: wgpu::Texture,
     velocity: Option<wgpu::TextureView>,
 }
 impl StageFactory for Resolve {
@@ -377,6 +387,8 @@ impl StageFactory for Resolve {
                 uniform: &self.uniform,
                 history: &self.history,
                 output: &self.output,
+                depth_history: &self.depth_history,
+                depth_output: &self.depth_output,
             },
             self.settings,
         );
@@ -430,14 +442,66 @@ fn uniform_buffer(device: &wgpu::Device, case: &Case) -> wgpu::Buffer {
             reprojection: case.reprojection,
             jitter_pixels: case.jitter,
             history_valid: case.valid,
+            depth_terms: case.depth_terms,
         }
         .to_bytes(),
         usage: wgpu::BufferUsages::UNIFORM,
     })
 }
 
-/// Runs the two passes and returns the resolve output and the history afterwards.
+/// Runs the passes and returns the resolve output and the history afterwards.
 fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
+    let (output, history, _) = run_with_depth(case);
+    (output, history)
+}
+
+/// Reads an `R32Float` texture.
+fn read_depth(gpu: (&wgpu::Device, &wgpu::Queue), texture: &wgpu::Texture) -> Vec<f32> {
+    let size = [texture.width(), texture.height()];
+    Readback::new(
+        gpu.0,
+        FrameConfig::new(size, texture.format(), 1),
+        1_000_000,
+    )
+    .unwrap()
+    .read(gpu.0, &crate::test_authority(gpu.1), texture)
+    .unwrap()
+    .chunks_exact(4)
+    .map(|p| f32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+    .collect()
+}
+
+/// Uploads the colour, history and depth history of `case`.
+fn write_inputs(
+    (_, queue): (&wgpu::Device, &wgpu::Queue),
+    case: &Case,
+    (color, targets): (&wgpu::Texture, &taa_gpu::Targets),
+) {
+    let bytes: Vec<u8> = case
+        .color
+        .pixels
+        .iter()
+        .flatten()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    write_texture(queue, color, &bytes, 16);
+    let bytes: Vec<u8> = case
+        .history
+        .pixels
+        .iter()
+        .flatten()
+        .flat_map(|v| f16_bits(*v).to_le_bytes())
+        .collect();
+    write_texture(queue, &targets.history, &bytes, 8);
+    if let Some(stored) = &case.depth_history {
+        let bytes: Vec<u8> = stored.values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        write_texture(queue, &targets.depth_history, &bytes, 4);
+    }
+}
+
+/// Like [`run`], also returning the linear-depth history afterwards. The depth history starts
+/// as `case.depth_history`, or zeros.
+fn run_with_depth(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>, Vec<f32>) {
     let (device, queue) = crate::gpu_tests::gpu();
     let size = case.size();
     let color = sampled(
@@ -446,23 +510,8 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
         size,
         wgpu::TextureFormat::Rgba32Float,
     );
-    let bytes: Vec<u8> = case
-        .color
-        .pixels
-        .iter()
-        .flatten()
-        .flat_map(|v| v.to_le_bytes())
-        .collect();
-    write_texture(&queue, &color, &bytes, 16);
     let targets = taa_gpu::allocate(&device, size);
-    let bytes: Vec<u8> = case
-        .history
-        .pixels
-        .iter()
-        .flatten()
-        .flat_map(|v| f16_bits(*v).to_le_bytes())
-        .collect();
-    write_texture(&queue, &targets.history, &bytes, 8);
+    write_inputs((&device, &queue), case, (&color, &targets));
     let depth = if case.depth_samples.is_empty() {
         upload_depth((&device, &queue), &case.depth)
     } else {
@@ -485,6 +534,8 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
             uniform,
             history: targets.history.clone(),
             output: targets.output.clone(),
+            depth_history: targets.depth_history.clone(),
+            depth_output: targets.depth_output.clone(),
             velocity,
         },
     )
@@ -494,7 +545,11 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
     chain.encode(&mut encoder, &view(&sink));
     queue.submit([encoder.finish()]);
     let gpu = (&device, &queue);
-    (read(gpu, &targets.output), read(gpu, &targets.history))
+    (
+        read(gpu, &targets.output),
+        read(gpu, &targets.history),
+        read_depth(gpu, &targets.depth_history),
+    )
 }
 
 fn assert_matches_reference(case: &Case, context: &str) -> Vec<[f64; 4]> {

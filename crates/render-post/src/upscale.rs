@@ -199,7 +199,7 @@ fn pass(
     ));
 }
 
-fn source_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+pub(crate) fn source_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some(label),
         entries: &[wgpu::BindGroupLayoutEntry {

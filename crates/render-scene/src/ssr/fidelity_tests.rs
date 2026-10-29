@@ -95,7 +95,7 @@ fn gpu_roughness_count_endpoints_clamping_rounding_and_constant_override() {
 #[test]
 fn application_ao_compiles_for_opaque_water_and_multisampling() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut screen = SceneMetadata::new(context.device(), [3, 3], neutral_ao()).unwrap();
         Ssr::new(
             context.device(),

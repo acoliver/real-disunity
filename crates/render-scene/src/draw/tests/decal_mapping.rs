@@ -77,7 +77,7 @@ fn power_fade_and_double_sided_projection_match_plane_and_slope_pixel_oracles() 
             };
             let expected =
                 Vec3::new(51.0, 102.0, 153.0).lerp(Vec3::new(204.0, 51.0, 26.0), weight) / 255.0;
-            for samples in [1, 4] {
+            for samples in crate::msaa_tests::supported_samples(&context) {
                 let pixels = capture(&context, &scene.with_decals(vec![d]).unwrap(), samples);
                 let offset = (32 * 64 + 32) * 4;
                 for (actual, expected) in pixels[offset..offset + 3].iter().zip(expected.to_array())

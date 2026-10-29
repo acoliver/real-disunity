@@ -123,10 +123,10 @@ fn expected_color(point: [u16; 2], encoded: [u8; 2], amplitude: u32, colors: &[u
 }
 
 #[test]
-fn screen_refraction_matches_cpu_pixels_and_zero_identity_at_one_and_four_samples() {
+fn screen_refraction_matches_cpu_pixels_and_zero_identity_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let colors = patterned_snapshot();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for encoded in [[204, 128], [51, 128], [128, 204], [128, 51]] {
             for amplitude in [0, 50_000, 250_000] {
                 assert_displacement(&context, samples, encoded, amplitude, &colors);
@@ -160,9 +160,9 @@ fn assert_displacement(
 }
 
 #[test]
-fn screen_refraction_retains_foreground_rejection_at_one_and_four_samples() {
+fn screen_refraction_retains_foreground_rejection_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let renderer = screen_renderer(&context, samples, 250_000, [204, 128]);
         let snapshot = &renderer.water.as_ref().unwrap().snapshots[0];
         let mut colors = patterned_snapshot();
@@ -183,7 +183,7 @@ fn screen_refraction_retains_foreground_rejection_at_one_and_four_samples() {
 #[test]
 fn screen_refraction_preserves_each_sample_receiver_ownership() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let unchanged = screen_renderer(&context, samples, 0, [204, 128]);
         let displaced = screen_renderer(&context, samples, 250_000, [204, 128]);
         let before = &unchanged.water.as_ref().unwrap().receivers[0];

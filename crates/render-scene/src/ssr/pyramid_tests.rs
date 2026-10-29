@@ -20,7 +20,7 @@ fn oracle(mut size: [u32; 2], ceil: bool) -> Vec<[u32; 2]> {
 
 #[test]
 fn full_chain_counts_and_rejection_precede_allocation() {
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::all_counts() {
         assert_eq!(
             pyramid::reduction_source(samples, &settings()),
             gpu::reduce_source(samples)
@@ -34,7 +34,7 @@ fn full_chain_counts_and_rejection_precede_allocation() {
         let expected = oracle(size, rounding == SceneDownsampleRounding::Ceil);
         assert_eq!(expected.len(), 10);
         assert_eq!(policy.radiance_extents(size), expected);
-        for samples in [1, 4] {
+        for samples in crate::msaa_tests::all_counts() {
             let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
             let mut limits = wgpu::Limits::downlevel_defaults();
             limits.max_texture_dimension_2d = 8192;
@@ -191,7 +191,7 @@ fn gpu_full_pyramid_preserves_first_six_levels_and_sample_lanes() {
         (SceneDownsampleRounding::Ceil, [5, 257]),
         (SceneDownsampleRounding::Ceil, [1, 7]),
     ] {
-        for samples in [1, 4] {
+        for samples in crate::msaa_tests::supported_samples(&context) {
             let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
             let policy = full(rounding);
             let actual = reduce_chain(&context, config, &policy);
@@ -333,7 +333,7 @@ fn gpu_full_chain_resolve_lod_matches_independent_oracle() {
             assert_eq!(&pixel[..2], &half(oracle).to_le_bytes());
         }
     }
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         gpu::resolve_pipelines(context.device(), samples, 10, true, false, Some(&sizes));
     }
 }

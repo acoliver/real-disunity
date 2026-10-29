@@ -52,6 +52,15 @@ impl LinearRgbaImage {
     }
 }
 
+/// Tightly packed row-major little-endian RGBA IEEE 754 binary16 texels.
+/// The first texel is the top-left pixel, with X rightward and Y downward.
+/// No row padding or display conversion is applied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rgba16FloatImage {
+    pub viewport: Viewport,
+    pub bytes: Vec<u8>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

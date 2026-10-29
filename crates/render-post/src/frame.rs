@@ -249,6 +249,28 @@ fn validate_transparency(features: &[FeatureDeclaration]) -> Result<(), FrameErr
     }
     Ok(())
 }
+/// Structural sample-count check, for callers that cannot ask the adapter.
+///
+/// 2x and 8x are admitted only when `extended` says the device enabled adapter-specific
+/// format features, and then for formats that can be multisampled at all. Whether the
+/// adapter supports the exact count is checked by `FrameConfig::validate_adapter`
+/// before a frame is built.
+pub(crate) fn sample_count_admissible(
+    format: wgpu::TextureFormat,
+    samples: u32,
+    extended: bool,
+) -> bool {
+    let probe = match samples {
+        1 => 1,
+        4 => 4,
+        2 | 8 if extended => 4,
+        _ => return false,
+    };
+    format
+        .guaranteed_format_features(wgpu::Features::empty())
+        .flags
+        .sample_count_supported(probe)
+}
 fn validate_attachments(
     pass: &PassDeclaration,
     produced: &BTreeMap<ResourceRef, AttachmentDeclaration>,
@@ -269,11 +291,7 @@ fn validate_attachments(
             .as_ref()
             .is_some_and(|item| std::ptr::eq(item, *attachment));
         if attachment.size.contains(&0)
-            || !attachment
-                .format
-                .guaranteed_format_features(wgpu::Features::empty())
-                .flags
-                .sample_count_supported(attachment.samples)
+            || !sample_count_admissible(attachment.format, attachment.samples, true)
             || attachment.format.is_depth_stencil_format() != depth
             || (depth && !attachment.format.has_depth_aspect())
             || !attachment

@@ -4,7 +4,7 @@ use worldrunner_render_post::{FrameConfig, Readback, contracts::AsyncReadback};
 use worldrunner_render_scene::{
     Viewport,
     compositor::{ConfiguredFrameRenderer, FeatureCapture, FeatureTarget},
-    offscreen::{LinearRgbaImage, ScalarImage},
+    offscreen::{LinearRgbaImage, Rgba16FloatImage, ScalarImage},
 };
 
 pub(in crate::renderer) struct Products {
@@ -62,6 +62,9 @@ impl Native {
         };
         let format = self.texture.format();
         match self.output {
+            CaptureOutput::Specular => {
+                products.specular = Some(Rgba16FloatImage { viewport, bytes });
+            }
             CaptureOutput::LinearHdr | CaptureOutput::Normals => {
                 let image = LinearRgbaImage::from_native(viewport, format, &bytes)
                     .map_err(|e| ViewerError::Gpu(e.to_string()))?;
@@ -126,6 +129,7 @@ impl Products {
         outputs: &[CaptureOutput],
     ) -> Result<(), ViewerError> {
         for (output, target) in [
+            (CaptureOutput::Specular, FeatureTarget::Specular),
             (CaptureOutput::Depth, FeatureTarget::Depth),
             (CaptureOutput::Normals, FeatureTarget::Normals),
             (

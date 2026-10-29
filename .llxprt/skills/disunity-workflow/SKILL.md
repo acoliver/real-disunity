@@ -29,9 +29,12 @@ existing engine owners, preserve original games and keep delivery reviewable.
 5. Internal sessions target daily review-ready delivery. End with a posted,
    review-ready PR or a blocker documented on the issue or PR. A PR waiting for
    Andrew's review or merge may remain open. Do not demand a same-day merge.
-6. Only Andrew manually merges all PRs. Agents never merge, including their own,
-   enable auto-merge, use a merge queue or run `gh pr merge`. Maintainer agents
-   also review incoming PRs daily; Andrew intends human review daily.
+6. A maintainer session (`mini-llxprt-branch-N`, `mac-llxprt-branch-N`) merges
+   its own PR once `PR gate` passes on the current head and review threads are
+   resolved, using a normal merge. Never merge another session's or an external
+   contributor's PR; Andrew merges external PRs. Never bypass branch rules, push
+   to main, or enable auto-merge. Maintainer agents also review incoming PRs
+   daily; Andrew intends human review daily.
 
 ## Verification
 

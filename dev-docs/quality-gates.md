@@ -17,7 +17,7 @@ Every profile first runs policy, source-size, and workspace formatting checks. F
 
 For documentation-only edits, run `cargo xtask fmt`, `cargo xtask policy` and `cargo xtask source-size`, check links and review the documentation-only diff. Full local build/test profiles are unnecessary for that scope. Protected `main` requires the `PR gate` check described under [continuous integration](#continuous-integration); for a documentation-only change it runs the documentation checks and skips the engine builds. [CONTRIBUTING.md](../CONTRIBUTING.md#verification-and-private-consumers) defines the public verification path; private consumer validation and pin updates belong to the consumer owner.
 
-Only Andrew manually merges all PRs after the required checks. Agents never merge, enable auto-merge or use a merge queue. Daily review attention provides no same-day merge guarantee.
+Merges require `PR gate`. Andrew merges external contributors' PRs; maintainer sessions merge only their own PRs once it passes. Nobody bypasses the branch rules. Daily review attention provides no same-day merge guarantee.
 
 ## Dependency and layer policy
 

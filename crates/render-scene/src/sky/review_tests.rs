@@ -94,7 +94,7 @@ fn rgb(bytes: &[u8], x: usize, y: usize) -> [f32; 3] {
 #[test]
 fn separate_surface_mask_preserves_far_mesh_below_cutoff() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let below = render(&context, &source(64, true, 0, true), samples);
         let above = render(&context, &source(192, true, 0, true), samples);
         let low = rgb(&below, 16, 16);
@@ -111,7 +111,7 @@ fn separate_surface_mask_preserves_far_mesh_below_cutoff() {
 fn zero_surface_preserves_solar_and_minified_dome_background() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     for background in [1, 2] {
-        for samples in [1, 4] {
+        for samples in crate::msaa_tests::supported_samples(&context) {
             let expected = render(&context, &source(255, false, background, false), samples);
             let actual = render(&context, &source(255, false, background, true), samples);
             for (x, y) in [(16, 16), (12, 12), (20, 20)] {

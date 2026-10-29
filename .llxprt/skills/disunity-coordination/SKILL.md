@@ -42,5 +42,6 @@ Never modify, clean or manage another contributor's worktree or build output.
 Do not close their PR. Obtain the branch owner's explicit permission in a PR
 comment before pushing to their branch. Force pushes need explicit permission
 for that operation.
-Only Andrew manually merges all PRs. Agents never merge any PR, including their
-own, enable auto-merge, use a merge queue or run `gh pr merge`.
+Maintainer sessions merge only their own PRs, after `PR gate` passes and review
+threads are resolved. Andrew merges external contributors' PRs. Never merge
+another session's PR, bypass branch rules or enable auto-merge.

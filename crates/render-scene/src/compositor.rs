@@ -8,6 +8,7 @@ mod depth_prefix;
 mod environment;
 mod output;
 pub(crate) mod publication;
+mod temporal;
 mod validation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
@@ -15,9 +16,9 @@ use output::FrameOutput;
 pub use output::FrameProfile;
 
 use worldrunner_render_post::{
-    AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, CopyOutput,
-    FeatureDeclaration, FrameConfig, FrameError, PassDeclaration, PostChain, PostError, Resources,
-    ToneMapOutput,
+    AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
+    CopyOutput, FeatureDeclaration, FrameConfig, FrameError, MsaaSamples, PassDeclaration,
+    PostChain, PostError, PostResolve, Resources, ToneMapOutput,
 };
 
 /// Retained executor for transaction-bound composition. Submission belongs to the host.
@@ -39,6 +40,7 @@ pub struct FrameRenderer {
     frame_delta: f32,
     post_time: std::rc::Rc<std::cell::Cell<f32>>,
     exposure_reset: std::rc::Rc<std::cell::Cell<bool>>,
+    temporal: std::rc::Rc<std::cell::RefCell<temporal::TemporalHistory>>,
     pub(crate) ssao: Option<crate::scene_metadata::SceneMetadata>,
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
@@ -102,6 +104,7 @@ impl FrameRenderer {
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
+            temporal: std::rc::Rc::default(),
             chain: PostChain::new(
                 device,
                 config,
@@ -111,6 +114,9 @@ impl FrameRenderer {
         })
     }
     /// HDR exposure is taken from the scene contract, never applied by geometry.
+    ///
+    /// `samples` must be 1, 2, 4 or 8, and post antialiasing comes only from `effects`.
+    /// Use [`Self::hdr_antialiased`] to select both with one typed descriptor.
     pub fn hdr(
         context: &crate::device::GpuContext,
         size: [u32; 2],
@@ -119,11 +125,37 @@ impl FrameRenderer {
         tone_map: worldrunner_render_post::ToneMap,
         effects: Option<&worldrunner_render_plan::SceneEffects>,
     ) -> Result<Self, PostError> {
-        if !matches!(samples, 1 | 4) {
-            return Err(PostError::SampleCount(samples));
-        }
+        let antialiasing = AntiAliasing::new(MsaaSamples::try_from(samples)?, PostResolve::None);
+        Self::hdr_antialiased(
+            context,
+            size,
+            output_format,
+            antialiasing,
+            tone_map,
+            effects,
+        )
+    }
+
+    /// As [`Self::hdr`], with the multisample count and post resolve chosen by `antialiasing`.
+    ///
+    /// A sample count the adapter cannot render for the scene formats fails with
+    /// [`PostError::SampleCount`] before any target is allocated; it is never reduced.
+    /// A resolve other than [`PostResolve::None`] conflicts with FXAA authored in
+    /// `effects` and is rejected rather than merged.
+    ///
+    /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
+    /// see [`Self::set_projection_jitter`]. It is off unless requested.
+    pub fn hdr_antialiased(
+        context: &crate::device::GpuContext,
+        size: [u32; 2],
+        output_format: wgpu::TextureFormat,
+        antialiasing: AntiAliasing,
+        tone_map: worldrunner_render_post::ToneMap,
+        effects: Option<&worldrunner_render_plan::SceneEffects>,
+    ) -> Result<Self, PostError> {
+        antialiasing.validate()?;
         validate_hdr_effects(effects)?;
-        let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
+        let config = antialiasing.frame_config(size, wgpu::TextureFormat::Rgba16Float);
         config.validate_adapter(context.adapter())?;
         validate_reflection_extent(
             context.device(),
@@ -133,10 +165,7 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        let post = effects
-            .map(crate::post::settings)
-            .transpose()?
-            .unwrap_or_default();
+        let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
         post.validate_frame(config)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;
@@ -160,6 +189,7 @@ impl FrameRenderer {
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
+            temporal: std::rc::Rc::default(),
             ssao: effects
                 .and_then(|effects| effects.ssao())
                 .map(|settings| {
@@ -174,6 +204,7 @@ impl FrameRenderer {
             )?,
         };
         renderer.install_reflections(context.device(), size)?;
+        renderer.set_projection_jitter(antialiasing.jitter);
         if let Some(effects) = effects {
             renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
         }
@@ -327,7 +358,7 @@ impl FrameRenderer {
             ..self.targets().config()
         };
         validate_reflection_extent(device, config, self.ssr.as_ref().map(|ssr| &ssr.settings))?;
-        config.validate(&device.limits())?;
+        config.validate_device(device)?;
         let mut replacement = self
             .ssao
             .as_ref()
@@ -375,6 +406,7 @@ impl FrameRenderer {
         }
         if changed {
             *self.snapshot_ready.borrow_mut() = Default::default();
+            self.reset_temporal_history();
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
@@ -546,7 +578,7 @@ impl FrameRenderer {
             &mut combined,
         )?;
         self.publish_snapshots(encoder, request);
-        Ok(())
+        self.stage_temporal_history(encoder, &frame)
     }
     fn publish_snapshots(
         &self,

@@ -80,10 +80,20 @@ for that operation. Prepare integration work in your own checkout; offer help
 and agree its scope with the contributor first.
 
 Andrew intends human review daily. Maintainer agents must also review daily.
-Daily attention does not promise a same-day merge. **Only Andrew manually merges
-all PRs. Agents never merge, including their own PRs.** This applies to the web UI,
-API and CLI. Never push directly to main, enable auto-merge, use a merge queue or
-run `gh pr merge`. Updating your own topic branch from main is allowed.
+Daily attention does not promise a same-day merge.
+
+**Merge authority:**
+
+- Maintainer agents are Andrew's own sessions, identified as
+  `[mini-llxprt-branch-N]` or `[mac-llxprt-branch-N]`. A maintainer agent may
+  merge **its own** PR once `PR gate` has passed on the current head, every review
+  thread is resolved and no open comment objects to the merge. Use a normal merge.
+- External contributors' PRs, including PRs written by their agents, are merged
+  only by Andrew after his review.
+- No agent merges another session's or another contributor's PR.
+- Never lift, bypass or edit branch rules or required checks to merge, never push
+  directly to main, and never enable auto-merge or a merge queue. Updating your
+  own topic branch from main is allowed.
 
 External PRs are exempt from the internal daily review-ready cadence. Never close
 them merely because they await maintainer review or merge.

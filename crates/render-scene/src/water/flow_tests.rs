@@ -97,16 +97,7 @@ fn expected_normal(
 
 fn check_phased_normal(bytes: &[u8], samples: u32, sample: u32, time: f32, options: (bool, bool)) {
     let (field, shore) = options;
-    let offset = if samples == 1 {
-        [0.5, 0.5]
-    } else {
-        [
-            [0.375, 0.125],
-            [0.875, 0.375],
-            [0.125, 0.625],
-            [0.625, 0.875],
-        ][usize::try_from(sample).unwrap()]
-    };
+    let offset = crate::msaa_tests::standard_sample_position(samples, sample);
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
     let inverse = frame.view_projection.inverse();
     for (x, right) in [(12u16, false), (20, true)] {
@@ -203,7 +194,7 @@ fn phased_scene(field: bool, shore: bool) -> (Vec<SceneWaterBody>, RenderScene) 
 #[test]
 fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for (field, shore) in [(false, false), (true, false), (false, true), (true, true)] {
             let (bodies, source) = phased_scene(field, shore);
             let pipelines = crate::renderer::ScenePipelines::with_samples(

@@ -254,9 +254,13 @@ fn attachment_shape(
         || !features
             .allowed_usages
             .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
-        || !features
-            .flags
-            .sample_count_supported(texture.sample_count())
+        || !crate::frame::sample_count_admissible(
+            format,
+            texture.sample_count(),
+            device
+                .features()
+                .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+        )
     {
         return Err(ContractError::Binding(view.allocation));
     }

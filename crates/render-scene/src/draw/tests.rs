@@ -37,6 +37,7 @@ pub(crate) mod decals;
 mod environment;
 mod fade_coverage;
 mod fade_handoff;
+mod fade_steps;
 mod fold_only;
 mod fold_translucency;
 mod foliage;

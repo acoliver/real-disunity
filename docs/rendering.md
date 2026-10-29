@@ -42,7 +42,7 @@ A renderer is built with one frame profile. The **legacy profile** shades straig
 - **SSAO**: hemisphere or spiral sampling with a depth-aware filter. It darkens ambient light only.
 - **Screen-space reflections** on opaque surfaces and water, blended with the environment reflection by confidence and roughness.
 
-Temporal antialiasing, vignette, filmic tone curves, color grading beyond exposure, and sorted alpha-blended 3D geometry are not implemented. Requesting one fails with a typed error.
+Temporal antialiasing (see below), vignette, filmic tone curves, color grading beyond exposure, and sorted alpha-blended 3D geometry are not implemented. Requesting one fails with a typed error.
 
 ### Choosing antialiasing
 
@@ -65,6 +65,12 @@ Choose CMAA2 (`PostResolve::cmaa2(Cmaa2Preset::High)`) when the scene mixes long
 FXAA, SMAA and CMAA2 are alternatives, because `resolve` holds one choice. If the scene effects already author FXAA, leave `resolve` at `None`; setting both is rejected. TAA will be a new `PostResolve` variant.
 
 Contrast adaptive sharpening is a separate setting, `AntiAliasing::sharpen`, and works with any resolve: `AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa(1.0)).with_sharpen(CasSettings::new(0.5))`. It is AMD FidelityFX CAS in its no-scaling form. For each pixel it compares the pixel with its four neighbours and sharpens where there is headroom to black and white, so flat areas and edges that already reach black or white are left alone. `sharpness` runs from 0 (the reference default, least ringing, still sharpens) to 1 (strongest). It is off by default and then costs nothing. Use it after FXAA or SMAA, which soften fine detail, or at native resolution when the image looks soft. It runs at the render extent before any upscale. RCAS, the sharpening pass of the FSR 1 upscale, is a different stage: it runs at the output extent after reconstruction, is set with `UpscaleSettings::sharpness` in stops and exists only when an upscale is configured. Use RCAS to recover detail lost by upscaling and CAS to offset the softness of the antialiasing resolve. Both can be on, but check that the combination does not over-sharpen.
+
+### Temporal antialiasing (in progress)
+
+Temporal antialiasing arrives in stages, tracked in issue 256. This stage adds the inputs and no visible change. `AntiAliasing::with_jitter(ProjectionJitter::default())` shifts the scene projection by a sub-pixel offset each frame, taken from a Halton(2,3) sequence of 8 frames (any length from 1 to 64). The offsets stay inside the pixel, so a jittered frame differs from an unjittered one by less than one pixel at every edge. The renderer also remembers the unjittered view-projection matrix and jitter of the last frame that was submitted, so a later resolve can reproject history.
+
+Jitter is off unless you request it, and then every output is byte-identical to a build without it. The resolve that accumulates the jittered frames, `PostResolve::Taa`, is not part of this release. Do not enable jitter on its own for display: each frame lands on a different sub-pixel position, so edges shimmer. The setting exists for tests and for the resolve that will follow. History resets on the first frame, on `FrameRenderer::reset_temporal_history` (call it on a camera cut), on resize, when the jitter setting changes and after a cancelled or failed frame. Shadow cascades and shadow casters never receive the jitter. Details are in the [render-scene README](../crates/render-scene/README.md#temporal-antialiasing-in-progress).
 
 Contracts: [frame executor](../dev-docs/rendering/frame-executor.md), [post filters](../dev-docs/rendering/post-filters.md), [ambient occlusion](../dev-docs/rendering/ambient-occlusion.md), [reflections](../dev-docs/rendering/reflections.md), and the [render-post README](../crates/render-post/README.md) for exposure, bloom and upscaling settings.
 

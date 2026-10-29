@@ -154,6 +154,7 @@ fn configured_frame(
         height_fog: None,
         unlit: false,
         animation_time_milliseconds: 0,
+        temporal: None,
         view: glam::Mat4::IDENTITY,
         view_projection: Mat4::IDENTITY,
         camera_position: Vec3::Z,

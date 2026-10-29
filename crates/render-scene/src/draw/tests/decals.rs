@@ -111,6 +111,17 @@ fn capture_gpu(
     let mut renderer =
         crate::compositor::FrameRenderer::with_output(context.device(), config, COLOR_FORMAT)
             .unwrap();
+    capture_with_renderer(context, &mut renderer, (gpu, pipelines), unlit)
+}
+/// Draws one frame of `gpu` through `renderer`, so a test can configure the renderer first
+/// and inspect it afterwards.
+pub(super) fn capture_with_renderer(
+    context: &GpuContext,
+    renderer: &mut crate::compositor::FrameRenderer,
+    scene: (&mut SceneGpu, &ScenePipelines),
+    unlit: bool,
+) -> Vec<u8> {
+    let (gpu, pipelines) = scene;
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -125,7 +136,7 @@ fn capture_gpu(
     let mut frame = frame_from(pose());
     frame.unlit = unlit;
     crate::compositor::encode_scene(
-        &mut renderer,
+        renderer,
         context.device(),
         &mut encoder,
         (gpu, pipelines),

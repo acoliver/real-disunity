@@ -220,6 +220,34 @@ no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
 
+## Temporal antialiasing (in progress)
+
+The temporal resolve arrives in a later change (issue 256). This change adds projection
+jitter and previous-frame view data, off by default and byte-identical when off.
+
+Select jitter with `AntiAliasing::with_jitter` on `FrameRenderer::hdr_antialiased`, or
+`FrameRenderer::set_projection_jitter` on an existing renderer. `prepare_uniform` then adds
+the sub-pixel offset of the next frame to `FrameUniform::view_projection`, the matrix the GPU
+rasterizes with, and fills `FrameUniform::temporal` with a `TemporalView`: the unjittered
+matrix, the previous submitted frame's unjittered matrix, both jitter offsets in pixels and
+whether the history is valid. `TemporalView::to_bytes` is a separate 160-byte block for the
+resolve. The 320-byte scene block keeps its layout, so with jitter on only its first sixty-four
+bytes change.
+
+Every pass that reads the scene block (forward, terrain, instanced and clutter, foliage,
+impostors, cards, sky, depth and normal prepass, SSAO, SSR, water and decals) sees the jittered
+matrix. Shadow casters draw with their own light matrices and carry no jitter, cascades are fitted
+from the unjittered `SceneView`, and CPU selection (culling, level of detail, streaming and decal
+choice) reads `FrameUniform::selection_view_projection`, which is unjittered.
+
+The previous camera advances only when the frame's transaction is submitted, like the exposure
+history. A cancelled or failed preparation changes nothing. The first frame, `reset_temporal_history`
+(call it on a camera cut), a resize, a reconfigure, and a change of jitter settings each discard
+the previous camera and restart the sequence; a frame prepared before a reset cannot republish
+after it.
+
+Jitter alone makes the image shimmer. Enable it only with the resolve, or in tests.
+
 ## Cascade refresh scheduling
 
 `DirectionalShadowSettings::refresh_policy` defaults to

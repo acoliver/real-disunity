@@ -141,7 +141,11 @@ impl Decals {
     }
 
     pub fn prepare(&self, frame: &crate::frame::FrameUniform, buffer: &wgpu::Buffer) -> Vec<u8> {
-        let selected = selected(&self.entries, frame.view_projection, frame.camera_position);
+        let selected = selected(
+            &self.entries,
+            frame.selection_view_projection(),
+            frame.camera_position,
+        );
         let mut materials: Vec<_> = selected
             .iter()
             .map(|&i| self.entries[i].decal.material.raw())

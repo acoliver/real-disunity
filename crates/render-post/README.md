@@ -122,6 +122,14 @@ Sharpening is a separate, optional field, `AntiAliasing::sharpen: Option<CasSett
 composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive-sharpening)).
 `AntiAliasing::new` leaves it `None`; `with_sharpen` sets it.
 
+`AntiAliasing::jitter: Option<ProjectionJitter>` is the first part of temporal antialiasing
+(issue 256, in progress). `ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64
+frames (`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
+offset in output pixels, strictly inside (-0.5, 0.5) with +y down, and
+`clip_offset(frame_index, size)` the matching clip-space translation. `AntiAliasing::new` leaves
+jitter off, and then nothing changes. The temporal resolve that uses it, a later
+`PostResolve` variant, is not part of this release; jitter alone shimmers and is meant for tests.
+
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
 `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`, and `FrameConfig::validate_adapter`

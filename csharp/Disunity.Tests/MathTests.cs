@@ -3,7 +3,7 @@ using System.Reflection;
 using UnityEngine;
 
 /// <summary>Known-value checks for Unity's scalar and vector math types. Each expected value is
-/// worked out by hand from Unity's documented behaviour, not read back from the engine.</summary>
+/// worked out by hand, not read back from the engine.</summary>
 internal static class MathTests
 {
     public static void Run()

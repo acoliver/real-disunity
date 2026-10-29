@@ -7,6 +7,7 @@ mod coverage;
 mod environment;
 mod literals;
 mod source;
+pub use source::rust_files;
 mod type_defs;
 mod types;
 mod use_tree;
@@ -16,8 +17,9 @@ pub fn check(root: &Path) -> Result<(), String> {
     layers::check(&data)?;
     layers::check_facade(root)?;
     check_sources(root, &data)?;
+    crate::csharp::check(&data)?;
     println!(
-        "policy: explicit layers, transitive CPU/no-default facade graphs, registered types, literal ownership, consumer index, and CPU environment lookups checked"
+        "policy: explicit layers, transitive CPU/no-default facade graphs, registered types, literal ownership, consumer index, CPU environment lookups, and C# consumer coverage checked"
     );
     Ok(())
 }

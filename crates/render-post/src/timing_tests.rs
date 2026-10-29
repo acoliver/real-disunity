@@ -2,6 +2,14 @@ use super::*;
 use crate::*;
 
 #[test]
+fn raw_counter_pairs_reject_unusable_values_but_allow_resolution_limited_intervals() {
+    assert_eq!(ticks_to_ns(0, 0, 2.0), None);
+    assert_eq!(ticks_to_ns(13, 10, 2.0), None);
+    assert_eq!(ticks_to_ns(10, 10, 2.0), Some(0.0));
+    assert_eq!(ticks_to_ns(10, 13, 2.0), Some(6.0));
+}
+
+#[test]
 fn gpu_overfull_pass_lists_drop_whole_samples_and_release_timing_admission() {
     let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
     let mut timer = PassTimer::new(&device, &queue, TimingMode::Optional).unwrap();
@@ -324,9 +332,16 @@ fn gpu_synthetic_counter_wraps_are_unavailable_counted_and_release_slots() {
     if timer.support() == TimingSupport::Unsupported {
         return;
     }
-    for (frame, begin, end) in [(1, (1_u64 << 36) - 2, 1), (2, u64::MAX - 1, 1), (3, 10, 13)] {
+    for (frame, begin, end) in [
+        (1, 0, 0),
+        (2, (1_u64 << 36) - 2, 1),
+        (3, u64::MAX - 1, 1),
+        (4, 10, 13),
+        (5, 20, 23),
+    ] {
         timer.begin_frame(frame);
         timer.stamp(PassId::Resolve).unwrap();
+        assert_eq!(timer.active, Some(0), "completed slots must be reused");
         let slot = &mut timer.slots[timer.active.take().unwrap()];
         let bytes: Vec<_> = [begin, end]
             .into_iter()
@@ -351,12 +366,12 @@ fn gpu_synthetic_counter_wraps_are_unavailable_counted_and_release_slots() {
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].frame_id, frame);
         assert_eq!(ready[0].passes[0].pass_id, PassId::Resolve);
-        if frame < 3 {
+        if frame < 4 {
             assert_eq!(ready[0].passes[0].duration_ns, None);
             assert_eq!(timer.unavailable_passes(), frame);
         } else {
             assert_eq!(ready[0].passes[0].duration_ns, Some(3.0 * timer.period_ns));
-            assert_eq!(timer.unavailable_passes(), 2);
+            assert_eq!(timer.unavailable_passes(), 3);
         }
         assert_eq!(timer.dropped_frames(), 0);
         assert!(timer.slots.iter().all(|slot| slot.pending.is_none()));

@@ -30,6 +30,7 @@ public static partial class DisunityHost
         UnityEngine.Time.Start();
         _faulted = false;
         ResetScriptExceptions();
+        ResetWorldSettings();
         _listenerDiagnostic = null;
         try { InstallMainThreadContext(); }
         catch
@@ -186,6 +187,7 @@ public static partial class DisunityHost
     public static unsafe void UnloadWorld()
     {
         if (!IsLoaded) return;
+        UnloadScene();
         try
         {
             // Objects created by final callbacks are retired by another native cleanup advance.

@@ -3,8 +3,7 @@ using System.Globalization;
 namespace UnityEngine;
 
 /// <summary>An RGBA color of four floats, normally in [0, 1]. <c>==</c> compares the colors as
-/// <see cref="Vector4"/> values, so it is approximate; <c>Equals</c> compares exactly. The named
-/// colors use the values Unity documents.</summary>
+/// <see cref="Vector4"/> values, so it is approximate; <c>Equals</c> compares exactly.</summary>
 public struct Color : IEquatable<Color>, IFormattable
 {
     public float r;

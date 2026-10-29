@@ -6,7 +6,7 @@ use std::time::Duration;
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_original_games::workspace_root;
 use worldrunner_unity_import::{
-    player_identity::{PlayerIdentity, player_identity},
+    player_identity::{PlayerIdentity, player_identity, player_quality},
     player_plan::plan_player_scene,
     player_resources::plan_player_resources,
     script_layouts::{ScriptLayouts, parse_script_layouts},
@@ -83,9 +83,9 @@ fn script_layouts(root: &Path, output: &Path, data: &Path) -> Result<ScriptLayou
     Ok(parse_script_layouts(&json)?)
 }
 
-/// Writes the bridge's request: the player's paths, plans, identity and command line
-/// arguments. Each game keeps its preferences in its own `persistent/<company>/<product>`
-/// directory under `output`.
+/// Writes the bridge's request: the player's paths, plans, identity, command line arguments
+/// and quality levels. Each game keeps its preferences in its own
+/// `persistent/<company>/<product>` directory under `output`.
 fn write_request(
     output: &Path,
     data: &Path,
@@ -107,7 +107,10 @@ fn write_request(
         .join(path_component(&identity.company_name))
         .join(path_component(&identity.product_name));
     let request = output.join("request.json");
-    let body = request_body(data, [plan, resources, &persistent], &identity, arguments);
+    let mut body = request_body(data, [plan, resources, &persistent], &identity, arguments);
+    if let Some(quality) = player_quality(data)? {
+        body["quality"] = serde_json::json!(quality);
+    }
     write(&request, body.to_string().as_bytes())?;
     Ok(request)
 }

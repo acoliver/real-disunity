@@ -34,6 +34,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             CreateComponents();
             BindFields();
             var unregistered = InputAxes.Register(plan.GetProperty("axes"));
+            ApplyLayerNames();
             scene.Activate();
             return new LoadedScene(templates, objects, textures, unregistered, differences, templateObjects);
         }
@@ -44,6 +45,14 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             if (failure is SceneLoadException) throw;
             throw new SceneLoadException($"{plan.Str("scene")}: {failure.Message}", failure);
         }
+    }
+
+    /// <summary>A plan that carries layer names replaces every layer name with them, so scripts that look a
+    /// layer up in Awake find it. A plan without them (a project plan) leaves what the host set.</summary>
+    private void ApplyLayerNames()
+    {
+        if (!plan.TryGetProperty("layers", out var layers)) return;
+        DisunityHost.SetLayerNames(layers.EnumerateArray().Select(name => name.GetString() ?? "").ToList());
     }
 
     private List<SceneTexture> Textures() => plan.GetProperty("textures").EnumerateArray()
@@ -57,8 +66,10 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         {
             var texture = textures[sprite.Int("texture")];
             var rect = sprite.Floats("rect");
-            sprites.Add(DisunityHost.CreateSprite(texture.Identity, texture.Width, texture.Height,
-                new Rect(rect[0], rect[1], rect[2], rect[3]), sprite.Vec2("pivot"), sprite.Float("pixels_per_unit")));
+            var created = DisunityHost.CreateSprite(texture.Identity, texture.Width, texture.Height,
+                new Rect(rect[0], rect[1], rect[2], rect[3]), sprite.Vec2("pivot"), sprite.Float("pixels_per_unit"));
+            if (sprite.TryGetProperty("name", out var name) && name.GetString() is { } text) DisunityHost.NameSprite(created, text);
+            sprites.Add(created);
         }
     }
 

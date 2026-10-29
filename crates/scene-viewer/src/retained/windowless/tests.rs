@@ -3,6 +3,7 @@ mod errors;
 mod lifecycle;
 pub(crate) mod pages;
 mod terrain;
+mod timing;
 #[test]
 fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
     let mut driver = Driver::default();
@@ -370,3 +371,5 @@ fn temporal_subframes_never_emit_presented_and_shutdown_cancels_accumulation() {
     run.shutdown().unwrap();
     assert!(events.borrow().iter().any(|event| matches!(event, RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::Cancelled, .. } if *actual == id)));
 }
+
+mod statistics;

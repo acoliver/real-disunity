@@ -61,8 +61,8 @@ public sealed class AnimationClip : Motion
     /// <summary>
     /// Sets the curve that animates <paramref name="propertyName"/> of the <paramref name="type"/>
     /// component at <paramref name="relativePath"/>, replacing any curve for it; a null curve removes
-    /// it. Unity documents SetCurve as working at runtime only for legacy clips, so on any other clip
-    /// it logs an error and changes nothing.
+    /// it. SetCurve works at runtime only on legacy clips; on any other clip it logs an error and
+    /// changes nothing.
     /// </summary>
     public void SetCurve(string relativePath, Type type, string propertyName, AnimationCurve curve)
     {

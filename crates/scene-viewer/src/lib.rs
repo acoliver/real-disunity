@@ -7,6 +7,8 @@
 //!
 //! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
 
+mod adapter;
+pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity};
 mod app;
 pub mod cpu_profile;
 mod live;
@@ -30,6 +32,7 @@ pub use retained::{
 };
 
 pub use camera::{OrbitCamera, OrbitLimits};
+pub use wgpu::PresentMode;
 use worldrunner_render_plan::{RenderScene, SceneCamera};
 pub use worldrunner_render_post::{RenderScale, ToneMap, UpscaleMode, UpscaleSettings};
 pub use worldrunner_render_scene::compositor::FrameProfile;
@@ -59,6 +62,16 @@ pub struct ViewerOptions {
     pub frame_profile: FrameProfile,
     /// Maximum admitted submissions, in 1..=3. Select two for interactive presentation.
     pub frames_in_flight: usize,
+    /// Opt-in asynchronous GPU pass timestamps. Unsupported adapters keep rendering
+    /// and report `GpuTiming::Unavailable`; disabled requests allocate no queries.
+    pub gpu_timing: bool,
+    /// Explicit surface mode: `Fifo`, `FifoRelaxed`, `Mailbox` or `Immediate`. Default: `Fifo`.
+    /// Unsupported surface modes fail at startup. Ignored in windowless runs.
+    pub present_mode: wgpu::PresentMode,
+    /// Positive desired latency, default 2. wgpu clamps this hint to backend limits.
+    pub desired_maximum_frame_latency: u32,
+    /// Observes the actual selected adapter before GPU scene preparation.
+    pub adapter_callback: Option<AdapterCallback>,
     /// Presentation scheduling; defaults to a 16 ms fixed interval.
     pub cadence: PresentationCadence,
     /// Shader clock, wall time by default.
@@ -87,6 +100,8 @@ pub enum ViewerError {
     #[error("live driver failed: {0}")]
     Driver(String),
     #[error(transparent)]
+    Timing(#[from] worldrunner_render_post::TimingError),
+    #[error(transparent)]
     Dynamic(#[from] worldrunner_render_scene::dynamic::DynamicError),
     #[error(transparent)]
     Readback(#[from] worldrunner_render_post::ReadbackError),
@@ -108,6 +123,8 @@ pub enum ViewerError {
     Adapter(#[from] wgpu::RequestAdapterError),
     #[error(transparent)]
     Device(#[from] worldrunner_render_scene::device::DeviceError),
+    #[error("surface does not support requested present mode {0:?}")]
+    UnsupportedPresentMode(wgpu::PresentMode),
     #[error("surface has no supported sRGB presentation format")]
     SurfaceFormat,
     #[error("physical surface extent {size:?} exceeds device dimension limit {device_limit}")]
@@ -190,6 +207,7 @@ pub fn run_live<D: LiveDriver>(driver: &mut D, options: LiveOptions) -> Result<(
 }
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {
+    validate_presentation(options)?;
     if let PresentationCadence::Fixed(interval) = options.cadence
         && (interval.is_zero() || std::time::Instant::now().checked_add(interval).is_none())
     {
@@ -238,3 +256,28 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
 mod tests;
 
 pub use retained::DecalUpdate;
+
+fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
+    if !matches!(
+        options.present_mode,
+        wgpu::PresentMode::Fifo
+            | wgpu::PresentMode::FifoRelaxed
+            | wgpu::PresentMode::Mailbox
+            | wgpu::PresentMode::Immediate
+    ) {
+        return Err(ViewerError::InvalidOptions(
+            "present mode must be Fifo, FifoRelaxed, Mailbox or Immediate",
+        ));
+    }
+    if options.desired_maximum_frame_latency == 0 {
+        return Err(ViewerError::InvalidOptions(
+            "desired maximum frame latency must be positive",
+        ));
+    }
+    Ok(())
+}
+
+pub use retained::{DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics};
+pub use retained::{
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+};

@@ -7,8 +7,8 @@ namespace UnityEngine;
 /// rigidbodies cannot be added to a world (<c>AddComponent</c> throws NotSupportedException for them),
 /// so a scene never holds a 3D collider and every query returns what Unity returns for such a scene:
 /// casts, linecasts and checks return false with a default hit, the *All and Overlap* queries return
-/// empty arrays, and the *NonAlloc queries return 0 and leave the caller's buffer untouched
-/// (Unity documents the NonAlloc result as the number of entries stored in the buffer).
+/// empty arrays, and the *NonAlloc queries return 0, the number of entries stored, and leave the
+/// caller's buffer untouched.
 /// Settings are stored with Unity's defaults and read back; they drive nothing. Simulate and
 /// SyncTransforms have nothing to advance or sync. Members that take a collider throw
 /// ArgumentNullException for null.

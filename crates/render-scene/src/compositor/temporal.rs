@@ -6,9 +6,10 @@
 //! prepared before the reset cannot republish a stale matrix when it is submitted afterwards.
 
 use super::FrameRenderer;
+mod taa;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use glam::{Mat4, Vec3};
-use worldrunner_render_post::{FrameError, ProjectionJitter};
+use worldrunner_render_post::{FrameError, PostError, ProjectionJitter};
 
 /// Unjittered camera of the last published frame.
 #[derive(Clone, Copy, Debug)]
@@ -16,6 +17,8 @@ struct Published {
     view_projection: Mat4,
     jitter_pixels: [f32; 2],
     size: [u32; 2],
+    animation_time_ms: u32,
+    camera_position: Vec3,
 }
 
 /// Frame counter and previous-frame camera, shared with the publication callbacks.
@@ -25,6 +28,8 @@ pub(crate) struct TemporalHistory {
     frame_index: u64,
     epoch: u64,
     previous: Option<Published>,
+    /// TAA block of the last encoded frame, uploaded by the next output. Never published.
+    pending_taa: Option<[u8; worldrunner_render_post::TAA_UNIFORM_BYTES]>,
 }
 
 impl TemporalHistory {
@@ -32,6 +37,13 @@ impl TemporalHistory {
         self.previous = None;
         self.frame_index = 0;
         self.epoch += 1;
+    }
+
+    /// Whether a frame at `time_ms` precedes the last published frame. Equal times (a paused
+    /// clock) keep the history; a wrapped 32-bit clock counts as moving backwards.
+    fn rewound_before(&self, time_ms: u32) -> bool {
+        self.previous
+            .is_some_and(|previous| time_ms < previous.animation_time_ms)
     }
 }
 
@@ -41,16 +53,32 @@ impl FrameRenderer {
     /// Off is the default, and then every output is byte-identical to a renderer that never
     /// had the setting. A change discards the previous-frame camera and restarts the sequence.
     /// Jitter alone makes the image shimmer; it is meant for the temporal resolve that
-    /// accumulates the frames, which a later release adds.
-    pub fn set_projection_jitter(&mut self, jitter: Option<ProjectionJitter>) {
+    /// accumulates the frames.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::UnsupportedProfile`] when `jitter` is `None` while a TAA resolve is
+    /// resident: TAA cannot accumulate unjittered frames. The selection is unchanged.
+    /// This returns a `Result` since the milestone 1 signature, which returned nothing.
+    pub fn set_projection_jitter(
+        &mut self,
+        jitter: Option<ProjectionJitter>,
+    ) -> Result<(), PostError> {
+        if jitter.is_none() && self.post_requested.resolve.active_taa().is_some() {
+            return Err(PostError::UnsupportedProfile(
+                "TAA requires projection jitter",
+            ));
+        }
         let mut history = self.temporal.borrow_mut();
         if history.jitter != jitter {
             history.jitter = jitter;
             history.reset();
         }
+        Ok(())
     }
 
-    /// The selected projection jitter, if any.
+    /// The selected projection jitter, if any. Multisampled targets apply no offset even when a
+    /// sequence is selected ([`ProjectionJitter::offset_pixels_for`]).
     pub fn projection_jitter(&self) -> Option<ProjectionJitter> {
         self.temporal.borrow().jitter
     }
@@ -77,14 +105,25 @@ impl FrameRenderer {
     /// The jitter always starts from the unjittered matrix, so preparing a frame twice does not
     /// offset it twice. Without jitter the frame is returned unchanged.
     pub(crate) fn jitter_frame(&self, mut frame: FrameUniform) -> FrameUniform {
+        if self.temporal.borrow().jitter.is_none() {
+            return frame;
+        }
+        let rewound = self
+            .temporal
+            .borrow()
+            .rewound_before(frame.animation_time_milliseconds);
+        if rewound {
+            self.temporal.borrow_mut().reset();
+        }
         let history = self.temporal.borrow();
         let Some(jitter) = history.jitter else {
             return frame;
         };
-        let size = self.targets().config().size;
+        let config = self.targets().config();
+        let (size, samples) = (config.size, config.samples);
         let unjittered = frame.selection_view_projection();
-        let jitter_pixels = jitter.offset_pixels(history.frame_index);
-        let [x, y] = jitter.clip_offset(history.frame_index, size);
+        let jitter_pixels = jitter.offset_pixels_for(history.frame_index, samples);
+        let [x, y] = jitter.clip_offset_for(history.frame_index, size, samples);
         let previous = history.previous.filter(|previous| previous.size == size);
         frame.view_projection = Mat4::from_translation(Vec3::new(x, y, 0.0)) * unjittered;
         frame.temporal = Some(TemporalView {
@@ -93,6 +132,9 @@ impl FrameRenderer {
             jitter_pixels,
             previous_jitter_pixels: previous.map_or(jitter_pixels, |p| p.jitter_pixels),
             history_valid: previous.is_some(),
+            previous_animation_time_ms: previous
+                .map_or(frame.animation_time_milliseconds, |p| p.animation_time_ms),
+            previous_camera_position: previous.map_or(frame.camera_position, |p| p.camera_position),
         });
         frame
     }
@@ -106,6 +148,7 @@ impl FrameRenderer {
         encoder: &wgpu::CommandEncoder,
         frame: &FrameUniform,
     ) -> Result<(), FrameError> {
+        self.remember_taa_block(Some(frame));
         let Some(temporal) = frame.temporal else {
             return Ok(());
         };
@@ -113,6 +156,8 @@ impl FrameRenderer {
             view_projection: temporal.unjittered_view_projection,
             jitter_pixels: temporal.jitter_pixels,
             size: self.targets().config().size,
+            animation_time_ms: frame.animation_time_milliseconds,
+            camera_position: frame.camera_position,
         };
         let epoch = self.temporal.borrow().epoch;
         let state = self.temporal.clone();
@@ -130,3 +175,7 @@ impl FrameRenderer {
 #[cfg(test)]
 #[path = "temporal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "taa_end_to_end_tests.rs"]
+mod taa_end_to_end_tests;

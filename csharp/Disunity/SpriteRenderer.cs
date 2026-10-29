@@ -3,11 +3,16 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-/// <summary>Immutable sprite content descriptor. Renderer state lives in the native world.</summary>
-public sealed class Sprite
+/// <summary>
+/// Immutable sprite content descriptor and an <see cref="Object"/>, so a game can name it, find it by
+/// instance ID and ask <c>Resources</c> for it. Its name is the one the scene's plan gives it, or empty
+/// for a sprite made without one. Renderer state lives in the native world.
+/// </summary>
+public sealed class Sprite : Object
 {
     internal readonly DisunitySprite Description;
     internal Sprite(DisunitySprite value) { Description = value; }
+    internal Sprite Copy() => new(Description) { name = name };
     public Rect rect => new(Description.x, Description.y, Description.w, Description.h);
     public float pixelsPerUnit => Description.pixels_per_unit;
     public Vector2 pivot => new(Description.pivot_x * Description.w, Description.pivot_y * Description.h);

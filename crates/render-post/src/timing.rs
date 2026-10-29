@@ -51,7 +51,8 @@ impl StageId {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PassTiming {
     pub pass_id: PassId,
-    /// None when the query pair is reversed; no duration is inferred without a counter modulus.
+    /// None for all-zero or reversed counters. Equal nonzero counters yield zero
+    /// nanoseconds because the interval can be shorter than timer resolution.
     pub duration_ns: Option<f64>,
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -135,10 +136,11 @@ impl Stamp {
 
 /// Three unread frames are retained. When full, new timing samples are declined,
 /// not rendering. Frames exceeding 1024 passes are dropped whole with the same counter.
-/// Reversed query pairs retain their IDs but have no duration and increment
-/// `unavailable_passes`. Counter width is not exposed by wgpu,
-/// so wrap cannot be resolved portably. Valid pairs require end >= begin and
-/// an interval shorter than one hardware counter cycle.
+/// All-zero and reversed query pairs retain their IDs but have no duration and
+/// increment `unavailable_passes`. Counter width is not exposed by wgpu,
+/// so wrap cannot be resolved portably. Valid pairs require end >= begin, at least
+/// one nonzero counter and an interval shorter than one hardware counter cycle.
+/// Equal nonzero counters report zero duration, allowing timer-resolution limits.
 /// Begin/finish must bracket one submitted encoder; successfully encoded frames
 /// must be submitted in preparation order, just like resident feature uploads.
 pub struct PassTimer {
@@ -332,6 +334,9 @@ impl PassTimer {
     }
 }
 fn ticks_to_ns(begin: u64, end: u64, period: f64) -> Option<f64> {
+    if begin == 0 && end == 0 {
+        return None;
+    }
     // Unknown counter modulus: reject reversed pairs rather than inventing a duration.
     // Precision is applied to the delta, not absolute ticks.
     let words = end.checked_sub(begin)?.to_le_bytes();

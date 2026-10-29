@@ -345,3 +345,41 @@ fn maps_user_tags_and_writes_every_value_kind_as_the_loader_reads_it() {
         ]
     );
 }
+
+#[test]
+fn carries_the_layer_names_of_the_tag_manager_by_layer_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut manager = ObjectWriter::new(false);
+    manager.i32(0).i32(10);
+    for layer in 0..10 {
+        let name = match layer {
+            5 => "UI",
+            9 => "Lights",
+            _ => "",
+        };
+        manager.string(name).unwrap();
+    }
+    manager.i32(0).i32(0);
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![object(1, ClassId::TAG_MANAGER, manager.finish())],
+    );
+    write_file(dir.path(), "level0", vec![]);
+    let plan = plan_player_scene(dir.path(), "level0", &ScriptLayouts::new(Vec::new())).unwrap();
+    assert_eq!(plan.layers.len(), 32);
+    assert_eq!(plan.layers[9], "Lights");
+    assert_eq!(plan.layers[5], "UI");
+    assert!(plan.layers[10..].iter().all(String::is_empty));
+    let json = serde_json::to_value(&plan).unwrap();
+    assert_eq!(json["layers"][9], "Lights");
+}
+
+#[test]
+fn leaves_the_layers_out_of_the_plan_without_a_tag_manager() {
+    let dir = tempfile::tempdir().unwrap();
+    write_scene(dir.path());
+    let plan = plan_player_scene(dir.path(), "level0", &layouts()).unwrap();
+    assert!(plan.layers.is_empty());
+    assert!(serde_json::to_value(&plan).unwrap().get("layers").is_none());
+}

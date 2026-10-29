@@ -6,6 +6,12 @@ public abstract class RenderPipelineAsset : ScriptableObject
 {
 }
 
+/// <summary>The asset of a render pipeline type; a render pipeline package derives its asset from this. It adds
+/// no members and no constraint on the pipeline type: the pipeline an asset creates comes with the slice that renders through a scriptable pipeline.</summary>
+public abstract class RenderPipelineAsset<TRenderPipeline> : RenderPipelineAsset
+{
+}
+
 /// <summary>The settings asset of one render pipeline type.</summary>
 public abstract class RenderPipelineGlobalSettings : ScriptableObject
 {

@@ -3,7 +3,8 @@
 
 Subcommands:
 
-  classify        Decide whether a diff touches only Markdown documents.
+  classify        Decide the scope of a diff: docs (only Markdown), csharp (only files under
+                  csharp/ plus Markdown) or full.
   check-docs      Verify relative links and anchors in added or modified Markdown files.
   markdown-inputs Fail when a code build read a Markdown file, which would make the
                   docs-only shortcut unsound.
@@ -90,6 +91,23 @@ def classify_changes(changes: list[Change]) -> tuple[bool, str]:
     return True, f"{len(changes)} Markdown file change(s) only"
 
 
+def scope_of_changes(changes: list[Change]) -> tuple[str, str]:
+    """Returns docs, csharp or full. C# scope needs every change to be a regular-file edit of
+    Markdown or of a path under csharp/, with at least one csharp/ path."""
+    is_docs, reason = classify_changes(changes)
+    if is_docs:
+        return "docs", reason
+    if not changes:
+        return "full", reason
+    for change in changes:
+        if is_markdown_path(change.path) or change.path.startswith("csharp/"):
+            modes = EXPECTED_MODES.get(change.status)
+            if modes is not None and (change.old_mode, change.new_mode) == modes:
+                continue
+        return "full", non_documentation_reason(change) or f"{change.path}: not a regular-file edit"
+    return "csharp", f"{len(changes)} change(s) under csharp/ or in Markdown only"
+
+
 def git_raw_diff(base: str, head: str) -> str:
     command = [
         "git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--no-color",
@@ -101,10 +119,16 @@ def git_raw_diff(base: str, head: str) -> str:
 
 def classify(base: str, head: str, diff: Callable[[str, str], str] = git_raw_diff) -> tuple[bool, str]:
     """Fails closed: any problem reading the diff means code may have changed."""
+    scope, reason = classify_scope(base, head, diff)
+    return scope == "docs", reason
+
+
+def classify_scope(base: str, head: str, diff: Callable[[str, str], str] = git_raw_diff) -> tuple[str, str]:
+    """Fails closed: any problem reading the diff selects the full build."""
     try:
-        return classify_changes(parse_raw(diff(base, head)))
+        return scope_of_changes(parse_raw(diff(base, head)))
     except (ParseError, OSError, subprocess.CalledProcessError) as error:
-        return False, f"classification failed: {error}"
+        return "full", f"classification failed: {error}"
 
 
 def append_to_file(variable: str, text: str) -> None:
@@ -116,12 +140,13 @@ def append_to_file(variable: str, text: str) -> None:
 
 def command_classify(args: argparse.Namespace) -> int:
     try:
-        docs_only, reason = classify(args.base, args.head)
+        scope, reason = classify_scope(args.base, args.head)
     except Exception as error:  # noqa: BLE001 - the gate must still run and decide
-        docs_only, reason = False, f"unexpected failure: {error}"
-    print(f"docs_only={'true' if docs_only else 'false'} ({reason})")
-    append_to_file("GITHUB_OUTPUT", f"docs_only={'true' if docs_only else 'false'}\n")
-    append_to_file("GITHUB_STEP_SUMMARY", f"docs_only: {docs_only} ({reason})\n")
+        scope, reason = "full", f"unexpected failure: {error}"
+    docs_only = "true" if scope == "docs" else "false"
+    print(f"scope={scope} ({reason})")
+    append_to_file("GITHUB_OUTPUT", f"docs_only={docs_only}\nscope={scope}\n")
+    append_to_file("GITHUB_STEP_SUMMARY", f"scope: {scope} ({reason})\n")
     return 0
 
 

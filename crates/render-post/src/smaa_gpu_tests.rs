@@ -241,11 +241,25 @@ fn resize_rebuilds_the_passes_for_the_new_extent() {
     }
 }
 
-/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame of diagonal edges.
+/// Frames of the timing probe. Diagonal stripes put edges in a few percent of the pixels; the
+/// disc has one closed edge, so list-driven passes find little to do.
+const PROBE_SCENES: [(&str, &str); 2] = [
+    (
+        "stripes",
+        "let v=0.25+3.0*step(0.5,fract((p.x+p.y*0.5)/37.0));return vec4<f32>(v,v*0.5,v*0.25,1.0);",
+    ),
+    (
+        "disc",
+        "let v=select(0.25,3.0,length(p.xy-vec2<f32>(960.0,540.0))<300.0);return vec4<f32>(v,v*0.5,v*0.25,1.0);",
+    ),
+];
+
+/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame.
 fn timed_medians(
     rig: &Rig,
     resolve: PostResolve,
     sharpen: Option<crate::CasSettings>,
+    scene: &str,
 ) -> Vec<(String, f64)> {
     let size = [1920, 1080];
     let chain = chain(
@@ -266,12 +280,7 @@ fn timed_medians(
         .map(|frame| {
             let mut encoder = authority.begin(&rig.device).unwrap();
             chain.begin_timing(frame).unwrap();
-            paint(
-                &rig.device,
-                &mut encoder,
-                chain.targets().resolved(),
-                "let v=0.25+3.0*step(0.5,fract((p.x+p.y*0.5)/37.0));return vec4<f32>(v,v*0.5,v*0.25,1.0);",
-            );
+            paint(&rig.device, &mut encoder, chain.targets().resolved(), scene);
             chain.encode(
                 &mut encoder,
                 &target.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -339,11 +348,16 @@ fn smaa_and_fxaa_stage_timestamps() {
         ),
         ("cmaa2 high + cas", cmaa2(crate::Cmaa2Preset::High), cas),
     ] {
-        let passes = timed_medians(&rig, resolve, sharpen);
-        let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
-        eprintln!("{name}: total {:.3} ms (median of 5)", total / 1e6);
-        for (pass, ns) in passes {
-            eprintln!("  {pass}: {:.3} ms", ns / 1e6);
+        for (scene_name, scene) in PROBE_SCENES {
+            let passes = timed_medians(&rig, resolve, sharpen, scene);
+            let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
+            eprintln!(
+                "{name} [{scene_name}]: total {:.3} ms (median of 5)",
+                total / 1e6
+            );
+            for (pass, ns) in passes {
+                eprintln!("  {pass}: {:.3} ms", ns / 1e6);
+            }
         }
     }
 }

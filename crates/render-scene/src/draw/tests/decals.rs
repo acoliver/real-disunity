@@ -25,6 +25,8 @@ pub(crate) fn decal() -> SceneDecal {
         angle_fade_micro: 400_000,
         receivers: SceneDecalReceivers::ALL,
         mapping: worldrunner_render_plan::SceneDecalMapping::default(),
+        write_mask: worldrunner_render_plan::SceneDecalWriteMask::default(),
+        alpha_test_cutoff_micro: None,
     }
 }
 pub(crate) fn source(slope: bool, terrain_receiver: bool) -> RenderScene {
@@ -530,3 +532,6 @@ mod maps;
 
 #[path = "decal_mapping.rs"]
 mod mapping;
+
+#[path = "decal_write.rs"]
+mod write;

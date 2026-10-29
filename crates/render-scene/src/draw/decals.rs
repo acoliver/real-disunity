@@ -4,7 +4,7 @@ use super::{
 };
 use glam::{Mat4, Vec3};
 use std::cell::RefCell;
-use worldrunner_render_plan::{RenderScene, SceneDecal, SceneDecalAxis};
+use worldrunner_render_plan::{RenderScene, SceneDecal, SceneDecalAxis, SceneDecalWriteMask};
 
 mod channels;
 use channels::Channel;
@@ -205,7 +205,7 @@ impl Decals {
                 .binary_search(&decal.material.raw())
                 .expect("selected material");
             values.extend([
-                f32::from_bits(decal.receivers.bits()),
+                f32::from_bits(receiver_and_alpha_test(decal)),
                 f32::from_bits(u32::try_from(layer).expect("bounded palette")),
                 f32::from_bits(match decal.axis {
                     SceneDecalAxis::X => 0,
@@ -215,7 +215,8 @@ impl Decals {
                 f32::from_bits(
                     Channel::Normal.layer(&self.scene, materials, decal.material.raw())
                         | (Channel::Surface.layer(&self.scene, materials, decal.material.raw())
-                            << 8),
+                            << 8)
+                        | ((SceneDecalWriteMask::ALL.bits() ^ decal.write_mask.bits()) << 16),
                 ),
             ]);
             mapping_values(&mut values, decal, surface[2]);
@@ -225,6 +226,14 @@ impl Decals {
         bytes.resize(BYTES, 0);
         bytes
     }
+}
+
+// Unused selection bits preserve the default uniform layout and bytes.
+fn receiver_and_alpha_test(decal: &SceneDecal) -> u32 {
+    decal.receivers.bits()
+        | decal
+            .alpha_test_cutoff_micro
+            .map_or(0, |cutoff| (1 << 22) | (cutoff << 2))
 }
 
 fn mapping_values(values: &mut Vec<f32>, decal: &SceneDecal, alpha: f32) {

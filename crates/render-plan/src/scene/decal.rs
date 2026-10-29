@@ -21,6 +21,29 @@ impl SceneDecalReceivers {
     }
 }
 
+/// Channels modified by a decal. Emission is not a decal-blendable channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SceneDecalWriteMask(u32);
+impl SceneDecalWriteMask {
+    pub const NONE: Self = Self(0);
+    pub const ALBEDO: Self = Self(1);
+    pub const NORMAL: Self = Self(2);
+    pub const ROUGHNESS_METALNESS: Self = Self(4);
+    pub const ALL: Self = Self(7);
+    /// Raw masks are validated when their decal enters a scene.
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+}
+impl Default for SceneDecalWriteMask {
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
 /// Opacity response to the cosine between projection and receiver normals.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SceneDecalAngle {
@@ -72,10 +95,23 @@ pub struct SceneDecal {
     pub angle_fade_micro: u32,
     pub receivers: SceneDecalReceivers,
     pub mapping: SceneDecalMapping,
+    pub write_mask: SceneDecalWriteMask,
+    /// Tests angle-faded texture alpha before edge fade and material opacity.
+    /// Equality passes; cutoff is in millionths within `0..=1_000_000`.
+    pub alpha_test_cutoff_micro: Option<u32>,
 }
 impl SceneDecal {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.transform.validate()?;
+        if self.write_mask.bits() & !SceneDecalWriteMask::ALL.bits() != 0
+            || self
+                .alpha_test_cutoff_micro
+                .is_some_and(|cutoff| cutoff > 1_000_000)
+        {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "decal write mask or alpha test",
+            });
+        }
         if let SceneDecalAngle::Power {
             threshold_micro,
             exponent_micro,
@@ -144,6 +180,27 @@ mod tests {
             angle_fade_micro: 0,
             receivers: SceneDecalReceivers::ALL,
             mapping: SceneDecalMapping::default(),
+            write_mask: SceneDecalWriteMask::default(),
+            alpha_test_cutoff_micro: None,
+        }
+    }
+    #[test]
+    fn validates_write_mask_and_alpha_test_bounds() {
+        assert_eq!(SceneDecalWriteMask::default(), SceneDecalWriteMask::ALL);
+        for bits in 0..8 {
+            let mut d = decal();
+            d.write_mask = SceneDecalWriteMask::from_bits(bits);
+            assert!(d.validate().is_ok());
+        }
+        for bits in [8, 15, u32::MAX] {
+            let mut d = decal();
+            d.write_mask = SceneDecalWriteMask::from_bits(bits);
+            assert!(d.validate().is_err());
+        }
+        for (cutoff, valid) in [(0, true), (1_000_000, true), (1_000_001, false)] {
+            let mut d = decal();
+            d.alpha_test_cutoff_micro = Some(cutoff);
+            assert_eq!(d.validate().is_ok(), valid);
         }
     }
     #[test]

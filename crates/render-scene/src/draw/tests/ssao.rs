@@ -164,16 +164,16 @@ fn capture(
     source: &RenderScene,
     samples: u32,
 ) -> (Vec<u8>, Vec<u8>, Vec<f32>) {
+    capture_metadata(context, source, samples, false)
+}
+pub(super) fn capture_metadata(
+    context: &GpuContext,
+    source: &RenderScene,
+    samples: u32,
+    material: bool,
+) -> (Vec<u8>, Vec<u8>, Vec<f32>) {
     let size = [65, 49];
-    let view = SceneView::new(
-        pose(),
-        camera(),
-        Viewport {
-            width: size[0],
-            height: size[1],
-        },
-    )
-    .unwrap();
+    let view = metadata_view(size);
     let mut renderer = FrameRenderer::hdr(
         context,
         size,
@@ -183,6 +183,11 @@ fn capture(
         source.effects(),
     )
     .unwrap();
+    if material {
+        let metadata = renderer.ssao.as_mut().unwrap();
+        (metadata.geometry.pipelines, metadata.geometry.group) =
+            crate::scene_metadata::pipelines(context.device(), &metadata.uniform, true);
+    }
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
             .unwrap();
@@ -351,4 +356,16 @@ fn gpu_scalable_shared_coverage_at_every_supported_sample_count() {
         assert!(hidden.iter().all(|byte| *byte == 0));
         assert!(ao.iter().all(|value| value.to_bits() == 1.0f32.to_bits()));
     }
+}
+
+fn metadata_view(size: [u32; 2]) -> SceneView {
+    SceneView::new(
+        pose(),
+        camera(),
+        Viewport {
+            width: size[0],
+            height: size[1],
+        },
+    )
+    .unwrap()
 }

@@ -347,7 +347,8 @@ pub(crate) fn validate_stock_effects(effects: &SceneEffects) -> Result<(), Frame
         crate::ssao::validate_settings(settings)
             .map_err(|_| FrameError::UnsupportedEffect("SSAO settings"))?;
     }
-    crate::post::settings(effects).map_err(|_| FrameError::UnsupportedEffect("post-processing"))?;
+    crate::post::available_settings(effects)
+        .map_err(|_| FrameError::UnsupportedEffect("post-processing"))?;
     Ok(())
 }
 

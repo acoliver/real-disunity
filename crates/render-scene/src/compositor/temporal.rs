@@ -8,7 +8,7 @@
 use super::FrameRenderer;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use glam::{Mat4, Vec3};
-use worldrunner_render_post::{FrameError, ProjectionJitter};
+use worldrunner_render_post::{FrameError, PostError, ProjectionJitter};
 
 /// Unjittered camera of the last published frame.
 #[derive(Clone, Copy, Debug)]
@@ -41,13 +41,28 @@ impl FrameRenderer {
     /// Off is the default, and then every output is byte-identical to a renderer that never
     /// had the setting. A change discards the previous-frame camera and restarts the sequence.
     /// Jitter alone makes the image shimmer; it is meant for the temporal resolve that
-    /// accumulates the frames, which a later release adds.
-    pub fn set_projection_jitter(&mut self, jitter: Option<ProjectionJitter>) {
+    /// accumulates the frames.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::UnsupportedProfile`] when `jitter` is `None` while a TAA resolve is
+    /// resident: TAA cannot accumulate unjittered frames. The selection is unchanged.
+    /// This returns a `Result` since the milestone 1 signature, which returned nothing.
+    pub fn set_projection_jitter(
+        &mut self,
+        jitter: Option<ProjectionJitter>,
+    ) -> Result<(), PostError> {
+        if jitter.is_none() && self.post_requested.resolve.active_taa().is_some() {
+            return Err(PostError::UnsupportedProfile(
+                "TAA requires projection jitter",
+            ));
+        }
         let mut history = self.temporal.borrow_mut();
         if history.jitter != jitter {
             history.jitter = jitter;
             history.reset();
         }
+        Ok(())
     }
 
     /// The selected projection jitter, if any.

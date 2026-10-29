@@ -377,7 +377,7 @@ fn fxaa_resolve_runs_at_every_supported_sample_count_and_conflicts_with_authored
     );
     assert_eq!(
         result.err(),
-        Some(PostError::UnsupportedProfile("duplicate FXAA"))
+        Some(PostError::UnsupportedProfile("duplicate resolve"))
     );
 }
 

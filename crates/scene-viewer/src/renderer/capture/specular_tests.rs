@@ -117,6 +117,9 @@ fn projection(base: &RenderScene) -> SceneDecal {
         angle_fade_micro: 0,
         receivers: SceneDecalReceivers::ALL,
         mapping: SceneDecalMapping::default(),
+        write_mask: worldrunner_render_plan::SceneDecalWriteMask::default(),
+        alpha_test_cutoff_micro: None,
+        color_modifier: worldrunner_render_plan::SceneDecalColorModifier::default(),
     }
 }
 

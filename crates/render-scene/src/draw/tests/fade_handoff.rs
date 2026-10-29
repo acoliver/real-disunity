@@ -5,7 +5,11 @@ use worldrunner_render_plan::{
     SceneFadeReference, SceneImpostor, SceneImpostorLayout, TexelFormat,
 };
 
-fn handoff_scene(hashed: bool, impostor: bool, directions: &[SceneFadeDirection]) -> RenderScene {
+pub(super) fn handoff_scene(
+    hashed: bool,
+    impostor: bool,
+    directions: &[SceneFadeDirection],
+) -> RenderScene {
     let base = card_scene(Some(BillboardPolicy::YawLocked), identity().rotation);
     let threshold = SceneTexture::Texels {
         format: TexelFormat::R8Unorm,
@@ -73,7 +77,7 @@ fn threshold(x: u32, y: u32, hashed: bool) -> f64 {
     (f64::from(hash & 65535) + 0.5) / 65536.0
 }
 
-fn mask(
+pub(super) fn mask(
     context: &GpuContext,
     layouts: &ScenePipelines,
     scene: &RenderScene,
@@ -289,7 +293,13 @@ fn assert_reference_mask(
     }
 }
 
-fn assert_partition_masks(a: &[u8], b: &[u8], union: &[u8], hashed: bool, boundary: f64) {
+pub(super) fn assert_partition_masks(
+    a: &[u8],
+    b: &[u8],
+    union: &[u8],
+    hashed: bool,
+    boundary: f64,
+) {
     for y in 30..34 {
         for x in 30..34 {
             let offset = ((y * TARGET + x) * 4) as usize;

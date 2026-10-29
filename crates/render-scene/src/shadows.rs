@@ -574,12 +574,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         self.gpu.commit_frame(context, self.frame);
         // Each light view has its own immutable uniform range; billboards keep the main eye.
         for (index, &matrix) in self.cascades.matrices.iter().enumerate() {
-            let light_frame = FrameUniform {
-                // Directional light fits use right-handed views independently of the viewer.
-                view_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
-                view_projection: matrix,
-                ..self.frame
-            };
+            let light_frame = light_frame(&self.frame, matrix);
             context.upload_buffer(&self.depth_frames[index].0, 0, &light_frame.to_bytes());
         }
         context.upload_buffer(
@@ -656,6 +651,18 @@ mod tests;
 impl From<std::convert::Infallible> for ShadowError {
     fn from(value: std::convert::Infallible) -> Self {
         match value {}
+    }
+}
+
+/// The uniform a shadow caster pass draws with: the light's own matrix and nothing of the
+/// viewer's sub-pixel jitter, which would make cascade edges move with the camera.
+fn light_frame(frame: &FrameUniform, matrix: glam::Mat4) -> FrameUniform {
+    FrameUniform {
+        // Directional light fits use right-handed views independently of the viewer.
+        view_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+        view_projection: matrix,
+        temporal: None,
+        ..*frame
     }
 }
 

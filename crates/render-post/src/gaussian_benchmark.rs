@@ -1,6 +1,6 @@
 //! Explicit synthetic timestamp probe. Run serially with `--ignored --nocapture`.
-use super::post_effect_tests::{output, paint};
-use super::*;
+use crate::chain::post_effect_tests::{output, paint};
+use crate::chain::*;
 use crate::{Bloom, GaussianLevel, ToneMap, ToneMapOutput};
 
 struct BenchmarkFactory;

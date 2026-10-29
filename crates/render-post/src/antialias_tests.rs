@@ -1,6 +1,6 @@
 use crate::{
-    AntiAliasing, FrameConfig, FxaaQuality, FxaaSettings, HdrPostSettings, MsaaSamples, PostError,
-    PostResolve,
+    AntiAliasing, CasSettings, FrameConfig, FxaaQuality, FxaaSettings, HdrPostSettings,
+    MsaaSamples, PostError, PostResolve,
 };
 
 #[test]
@@ -112,4 +112,52 @@ fn extended_sample_counts_need_device_support_before_allocation() {
         FrameConfig::new([8, 8], format, 3).validate_extended(&limits),
         Err(PostError::SampleCount(3)),
     );
+}
+
+#[test]
+fn sharpening_is_off_by_default_and_independent_of_the_resolve() {
+    assert_eq!(AntiAliasing::default().sharpen, None);
+    assert_eq!(
+        AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa(0.5)).sharpen,
+        None
+    );
+    let on =
+        AntiAliasing::new(MsaaSamples::X4, PostResolve::None).with_sharpen(CasSettings::new(0.5));
+    assert_eq!(on.sharpen, Some(CasSettings::new(0.5)));
+    assert_eq!(on.resolve, PostResolve::None);
+    assert_eq!(on.validate(), Ok(()));
+}
+
+#[test]
+fn sharpness_must_be_finite_and_within_zero_to_one() {
+    for sharpness in [0.0, 0.5, 1.0] {
+        assert_eq!(CasSettings::new(sharpness).validate(), Ok(()));
+    }
+    for sharpness in [-0.01, 1.01, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let settings = CasSettings::new(sharpness);
+        let error = Err(PostError::UnsupportedProfile("CAS settings"));
+        assert_eq!(settings.validate(), error);
+        assert_eq!(
+            AntiAliasing::default().with_sharpen(settings).validate(),
+            error
+        );
+        assert_eq!(
+            HdrPostSettings {
+                sharpen: Some(settings),
+                ..HdrPostSettings::default()
+            }
+            .validate(),
+            error
+        );
+    }
+}
+
+#[test]
+fn sharpening_alone_enables_the_hdr_path() {
+    let sharpen = HdrPostSettings {
+        sharpen: Some(CasSettings::default()),
+        ..HdrPostSettings::default()
+    };
+    assert!(sharpen.enabled());
+    assert!(!HdrPostSettings::default().enabled());
 }

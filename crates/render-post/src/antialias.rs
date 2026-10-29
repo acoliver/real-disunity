@@ -1,5 +1,8 @@
 //! One typed antialiasing choice: a multisample count plus a post resolve.
-use crate::{FrameConfig, FxaaQuality, PostError};
+use crate::{
+    CasSettings, Cmaa2Preset, Cmaa2Settings, FrameConfig, FxaaQuality, PostError, ProjectionJitter,
+    SmaaPreset, SmaaSettings,
+};
 
 /// Multisample count of the scene attachments.
 ///
@@ -51,6 +54,7 @@ pub struct FxaaSettings {
 
 /// Post-process antialiasing applied to the tone-mapped image.
 ///
+/// FXAA, SMAA and CMAA2 are alternatives: one resolve runs after tone mapping.
 /// New resolves are added as variants, so match with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[non_exhaustive]
@@ -58,6 +62,10 @@ pub enum PostResolve {
     #[default]
     None,
     Fxaa(FxaaSettings),
+    /// Subpixel morphological antialiasing, three passes at the render extent.
+    Smaa(SmaaSettings),
+    /// Conservative morphological antialiasing, compute passes at the render extent.
+    Cmaa2(Cmaa2Settings),
 }
 impl PostResolve {
     /// FXAA with the default quality controls.
@@ -69,10 +77,20 @@ impl PostResolve {
         Self::Fxaa(FxaaSettings { strength, quality })
     }
 
+    /// SMAA 1x at one of the reference quality presets.
+    pub const fn smaa(preset: SmaaPreset) -> Self {
+        Self::Smaa(SmaaSettings::preset(preset))
+    }
+
+    /// CMAA2 single-sample at one of the reference quality presets.
+    pub const fn cmaa2(preset: Cmaa2Preset) -> Self {
+        Self::Cmaa2(Cmaa2Settings::preset(preset))
+    }
+
     pub fn fxaa_strength(self) -> Option<f32> {
         match self {
             Self::Fxaa(fxaa) => Some(fxaa.strength),
-            Self::None => None,
+            _ => None,
         }
     }
 
@@ -87,6 +105,8 @@ impl PostResolve {
     pub fn validate(self) -> Result<(), PostError> {
         match self {
             Self::None => Ok(()),
+            Self::Smaa(smaa) => smaa.validate(),
+            Self::Cmaa2(cmaa2) => cmaa2.validate(),
             Self::Fxaa(fxaa) => {
                 fxaa.quality.validate()?;
                 if !fxaa.strength.is_finite() || !(0.0..=1.0).contains(&fxaa.strength) {
@@ -97,6 +117,44 @@ impl PostResolve {
         }
     }
 
+    /// SMAA settings that schedule passes.
+    pub(crate) fn active_smaa(self) -> Option<SmaaSettings> {
+        match self {
+            Self::Smaa(smaa) => Some(smaa),
+            _ => None,
+        }
+    }
+
+    /// Whether a resolve pass is scheduled, which needs the display-referred intermediate.
+    pub(crate) fn schedules_pass(self) -> bool {
+        self.active_fxaa().is_some()
+            || self.active_smaa().is_some()
+            || self.active_cmaa2().is_some()
+    }
+
+    /// CMAA2 settings that schedule passes.
+    pub(crate) fn active_cmaa2(self) -> Option<Cmaa2Settings> {
+        match self {
+            Self::Cmaa2(cmaa2) => Some(cmaa2),
+            _ => None,
+        }
+    }
+
+    /// Format of the display-referred image between tone mapping and the resolve.
+    ///
+    /// FXAA keeps `Rgba32Float`, its flat-region precision contract. SMAA reads values in
+    /// 0..1 with an 11-bit mantissa, finer than the 8-bit output, and its filterable
+    /// `Rgba16Float` input halves the tone stage's store bandwidth and allows a hardware
+    /// bilinear fetch in neighborhood blending. CMAA2 uses `Rgba16Float` for the same reason and
+    /// because it is a core write-only storage format, so its working copy needs no adapter
+    /// feature.
+    pub(crate) fn display_format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Smaa(_) | Self::Cmaa2(_) => wgpu::TextureFormat::Rgba16Float,
+            _ => wgpu::TextureFormat::Rgba32Float,
+        }
+    }
+
     /// Whether the HDR display path must run for this resolve.
     pub(crate) fn requested(self) -> bool {
         self != Self::None
@@ -104,18 +162,54 @@ impl PostResolve {
 }
 
 /// The application's antialiasing choice.
+///
+/// `sharpen` is independent of the resolve: it runs after FXAA, SMAA or, with `PostResolve::None`,
+/// directly after tone mapping. `None` schedules no pass and leaves the output unchanged.
+///
+/// `jitter` selects sub-pixel projection jitter for the scene passes. It is off by default, and
+/// then every output is byte-identical to a renderer without the field. Jitter alone shimmers:
+/// it exists for the temporal resolve that accumulates the jittered frames, which arrives in a
+/// later release, and for tests of the frame data that resolve will read.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AntiAliasing {
     pub msaa: MsaaSamples,
     pub resolve: PostResolve,
+    pub sharpen: Option<CasSettings>,
+    pub jitter: Option<ProjectionJitter>,
 }
 impl AntiAliasing {
+    /// A choice without sharpening.
     pub const fn new(msaa: MsaaSamples, resolve: PostResolve) -> Self {
-        Self { msaa, resolve }
+        Self {
+            msaa,
+            resolve,
+            sharpen: None,
+            jitter: None,
+        }
+    }
+
+    /// This choice with sub-pixel projection jitter. See the type documentation: without a
+    /// temporal resolve the jittered image shimmers.
+    #[must_use]
+    pub const fn with_jitter(self, jitter: ProjectionJitter) -> Self {
+        Self {
+            jitter: Some(jitter),
+            ..self
+        }
+    }
+
+    /// This choice with contrast adaptive sharpening after the resolve.
+    #[must_use]
+    pub const fn with_sharpen(self, sharpen: CasSettings) -> Self {
+        Self {
+            sharpen: Some(sharpen),
+            ..self
+        }
     }
 
     pub fn validate(self) -> Result<(), PostError> {
-        self.resolve.validate()
+        self.resolve.validate()?;
+        self.sharpen.map_or(Ok(()), CasSettings::validate)
     }
 
     /// Scene attachment contract for this choice.

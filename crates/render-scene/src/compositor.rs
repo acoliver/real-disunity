@@ -8,6 +8,7 @@ mod depth_prefix;
 mod environment;
 mod output;
 pub(crate) mod publication;
+mod temporal;
 mod validation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
@@ -39,6 +40,7 @@ pub struct FrameRenderer {
     frame_delta: f32,
     post_time: std::rc::Rc<std::cell::Cell<f32>>,
     exposure_reset: std::rc::Rc<std::cell::Cell<bool>>,
+    temporal: std::rc::Rc<std::cell::RefCell<temporal::TemporalHistory>>,
     pub(crate) ssao: Option<crate::scene_metadata::SceneMetadata>,
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
@@ -102,6 +104,7 @@ impl FrameRenderer {
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
+            temporal: std::rc::Rc::default(),
             chain: PostChain::new(
                 device,
                 config,
@@ -139,6 +142,9 @@ impl FrameRenderer {
     /// [`PostError::SampleCount`] before any target is allocated; it is never reduced.
     /// A resolve other than [`PostResolve::None`] conflicts with FXAA authored in
     /// `effects` and is rejected rather than merged.
+    ///
+    /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
+    /// see [`Self::set_projection_jitter`]. It is off unless requested.
     pub fn hdr_antialiased(
         context: &crate::device::GpuContext,
         size: [u32; 2],
@@ -159,7 +165,7 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        let post = crate::post::settings_with_resolve(effects, antialiasing.resolve)?;
+        let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
         post.validate_frame(config)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;
@@ -183,6 +189,7 @@ impl FrameRenderer {
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
+            temporal: std::rc::Rc::default(),
             ssao: effects
                 .and_then(|effects| effects.ssao())
                 .map(|settings| {
@@ -197,6 +204,7 @@ impl FrameRenderer {
             )?,
         };
         renderer.install_reflections(context.device(), size)?;
+        renderer.set_projection_jitter(antialiasing.jitter);
         if let Some(effects) = effects {
             renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
         }
@@ -398,6 +406,7 @@ impl FrameRenderer {
         }
         if changed {
             *self.snapshot_ready.borrow_mut() = Default::default();
+            self.reset_temporal_history();
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
@@ -569,7 +578,7 @@ impl FrameRenderer {
             &mut combined,
         )?;
         self.publish_snapshots(encoder, request);
-        Ok(())
+        self.stage_temporal_history(encoder, &frame)
     }
     fn publish_snapshots(
         &self,

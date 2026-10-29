@@ -506,6 +506,7 @@ impl ConfiguredFrameRenderer {
         }
         let post_time = previous.post_time.clone();
         let reset = previous.exposure_reset.clone();
+        let temporal = previous.temporal.clone();
         let timing = previous.chain.timing_state();
         let (elapsed, animation_time) = (previous.elapsed_seconds, previous.animation_time);
         let (selected_time, delta) = (previous.selected_time, previous.frame_delta);
@@ -521,6 +522,8 @@ impl ConfiguredFrameRenderer {
                 next.retain_environment_conventions(environment_conventions);
                 next.post_time = post_time;
                 next.exposure_reset = reset;
+                next.temporal = temporal;
+                next.reset_temporal_history();
                 next.elapsed_seconds = elapsed;
                 next.animation_time = animation_time;
                 next.selected_time = selected_time;
@@ -593,6 +596,7 @@ fn build(
         frame_delta: 0.0,
         post_time: std::rc::Rc::default(),
         exposure_reset: std::rc::Rc::default(),
+        temporal: std::rc::Rc::default(),
         ssao: settings
             .ssao
             .map(|ssao| {

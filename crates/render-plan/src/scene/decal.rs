@@ -56,6 +56,18 @@ pub enum SceneDecalAngle {
     },
 }
 
+/// Coordinate frame for correcting decoded detail normals onto the receiver.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneDecalNormalFrame {
+    /// Correct in the placement's projection basis, then return to world space.
+    #[default]
+    Projection,
+    /// Correct onto the world-space geometric normal, without placement rotation.
+    /// At exactly negative Z, use an X-axis half turn: `(dx, -dy, -dz)`.
+    /// Every nonsingular receiver uses the reference basis without a pole threshold.
+    ReceiverWorld,
+}
+
 /// Sampling controls independent of the projection hull.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneDecalMapping {
@@ -66,6 +78,8 @@ pub struct SceneDecalMapping {
     pub angle: SceneDecalAngle,
     /// Uses the absolute projection cosine, accepting both sides.
     pub double_sided: bool,
+    /// Used for both shading and normal metadata.
+    pub normal_frame: SceneDecalNormalFrame,
 }
 impl Default for SceneDecalMapping {
     fn default() -> Self {
@@ -74,6 +88,35 @@ impl Default for SceneDecalMapping {
             uv_offset_micro: [0; 2],
             angle: SceneDecalAngle::Linear,
             double_sided: false,
+            normal_frame: SceneDecalNormalFrame::Projection,
+        }
+    }
+}
+
+/// Alpha response to the sampled texture alpha.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneDecalAlphaMode {
+    #[default]
+    Multiply,
+    /// Opacity sets the lower edge to 1 - opacity, with a 0.05 transition.
+    OpacityEdge,
+}
+
+/// Linear RGB scales and opacity in millionths, matching other decal controls.
+/// RGB is nonnegative and may exceed one; no packed-byte normalization is used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SceneDecalColorModifier {
+    pub rgb_scale_micro: [u32; 3],
+    /// Must be in [0, `1_000_000`]. Zero opacity also disables `OpacityEdge`.
+    pub opacity_micro: u32,
+    pub alpha_mode: SceneDecalAlphaMode,
+}
+impl Default for SceneDecalColorModifier {
+    fn default() -> Self {
+        Self {
+            rgb_scale_micro: [1_000_000; 3],
+            opacity_micro: 1_000_000,
+            alpha_mode: SceneDecalAlphaMode::Multiply,
         }
     }
 }
@@ -95,6 +138,7 @@ pub struct SceneDecal {
     pub angle_fade_micro: u32,
     pub receivers: SceneDecalReceivers,
     pub mapping: SceneDecalMapping,
+    pub color_modifier: SceneDecalColorModifier,
     pub write_mask: SceneDecalWriteMask,
     /// Tests angle-faded texture alpha before edge fade and material opacity.
     /// Equality passes; cutoff is in millionths within `0..=1_000_000`.
@@ -103,6 +147,11 @@ pub struct SceneDecal {
 impl SceneDecal {
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         self.transform.validate()?;
+        if self.color_modifier.opacity_micro > 1_000_000 {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "decal opacity",
+            });
+        }
         if self.write_mask.bits() & !SceneDecalWriteMask::ALL.bits() != 0
             || self
                 .alpha_test_cutoff_micro
@@ -180,6 +229,7 @@ mod tests {
             angle_fade_micro: 0,
             receivers: SceneDecalReceivers::ALL,
             mapping: SceneDecalMapping::default(),
+            color_modifier: SceneDecalColorModifier::default(),
             write_mask: SceneDecalWriteMask::default(),
             alpha_test_cutoff_micro: None,
         }
@@ -201,6 +251,18 @@ mod tests {
             let mut d = decal();
             d.alpha_test_cutoff_micro = Some(cutoff);
             assert_eq!(d.validate().is_ok(), valid);
+        }
+    }
+    #[test]
+    fn color_modifier_uses_nonnegative_millionths_and_validates_opacity() {
+        let mut d = decal();
+        assert_eq!(d.color_modifier.rgb_scale_micro, [1_000_000; 3]);
+        assert_eq!(d.color_modifier.opacity_micro, 1_000_000);
+        assert_eq!(d.color_modifier.alpha_mode, SceneDecalAlphaMode::Multiply);
+        for opacity in [0, 500_000, 1_000_000, 1_000_001] {
+            d.color_modifier.rgb_scale_micro = [0, 1_770_000, u32::MAX];
+            d.color_modifier.opacity_micro = opacity;
+            assert_eq!(d.validate().is_ok(), opacity <= 1_000_000);
         }
     }
     #[test]
@@ -227,6 +289,15 @@ mod tests {
         assert_eq!(mapping.uv_offset_micro, [0; 2]);
         assert_eq!(mapping.angle, SceneDecalAngle::Linear);
         assert!(!mapping.double_sided);
+        assert_eq!(mapping.normal_frame, SceneDecalNormalFrame::Projection);
+        for frame in [
+            SceneDecalNormalFrame::Projection,
+            SceneDecalNormalFrame::ReceiverWorld,
+        ] {
+            let mut d = decal();
+            d.mapping.normal_frame = frame;
+            assert!(d.validate().is_ok());
+        }
         for (threshold_micro, exponent_micro, valid) in [
             (0, 2_400_000, false),
             (1_000_001, 2_400_000, false),

@@ -10,7 +10,7 @@ mod channels;
 use channels::Channel;
 
 const LIMIT: usize = 32;
-pub(crate) const BYTES: usize = 16 + LIMIT * 144;
+pub(crate) const BYTES: usize = 16 + LIMIT * 160;
 
 #[derive(Debug)]
 struct Entry {
@@ -141,7 +141,11 @@ impl Decals {
     }
 
     pub fn prepare(&self, frame: &crate::frame::FrameUniform, buffer: &wgpu::Buffer) -> Vec<u8> {
-        let selected = selected(&self.entries, frame.view_projection, frame.camera_position);
+        let selected = selected(
+            &self.entries,
+            frame.selection_view_projection(),
+            frame.camera_position,
+        );
         let mut materials: Vec<_> = selected
             .iter()
             .map(|&i| self.entries[i].decal.material.raw())
@@ -216,10 +220,17 @@ impl Decals {
                     Channel::Normal.layer(&self.scene, materials, decal.material.raw())
                         | (Channel::Surface.layer(&self.scene, materials, decal.material.raw())
                             << 8)
-                        | ((SceneDecalWriteMask::ALL.bits() ^ decal.write_mask.bits()) << 16),
+                        | ((SceneDecalWriteMask::ALL.bits() ^ decal.write_mask.bits()) << 16)
+                        | normal_frame_bits(decal.mapping.normal_frame)
+                        | (u32::from(
+                            decal.color_modifier.alpha_mode
+                                == worldrunner_render_plan::SceneDecalAlphaMode::OpacityEdge,
+                        ) << 20),
                 ),
             ]);
             mapping_values(&mut values, decal, surface[2]);
+            values.extend(decal.color_modifier.rgb_scale_micro.map(unit));
+            values.push(unit(decal.color_modifier.opacity_micro));
         }
         let mut bytes: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
         assert!(bytes.len() <= BYTES);
@@ -228,7 +239,10 @@ impl Decals {
     }
 }
 
-// Unused selection bits preserve the default uniform layout and bytes.
+// Each volume is 160 bytes, following the 16-byte list header.
+// selection.x: receivers 0..1, alpha cutoff millionths 2..21, alpha-test enable 22.
+// selection.w: normal layer 0..7, surface layer 8..15, inverted write mask 16..18,
+// ReceiverWorld 19, OpacityEdge 20. Remaining bits are zero.
 fn receiver_and_alpha_test(decal: &SceneDecal) -> u32 {
     decal.receivers.bits()
         | decal
@@ -256,6 +270,13 @@ fn mapping_values(values: &mut Vec<f32>, decal: &SceneDecal, alpha: f32) {
     values.extend(decal.mapping.uv_offset_micro.map(|x| {
         crate::view::meters_scalar(x.unsigned_abs()) / 1000.0 * if x < 0 { -1.0 } else { 1.0 }
     }));
+}
+
+fn normal_frame_bits(frame: worldrunner_render_plan::SceneDecalNormalFrame) -> u32 {
+    match frame {
+        worldrunner_render_plan::SceneDecalNormalFrame::Projection => 0,
+        worldrunner_render_plan::SceneDecalNormalFrame::ReceiverWorld => 1 << 19,
+    }
 }
 
 fn entry(scene: &RenderScene, id: u64, decal: SceneDecal) -> Entry {

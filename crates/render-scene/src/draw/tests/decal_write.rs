@@ -1,3 +1,29 @@
+#[test]
+fn receiver_world_respects_disabled_normal_and_alpha_rejection() {
+    use worldrunner_render_plan::SceneDecalNormalFrame;
+    let context = context();
+    let base = folded_receiver(128);
+    let receiver = products(&context, &base);
+    for bits in [0, 1, 4, 5] {
+        let mut d = interior_decal(SceneDecalWriteMask::from_bits(bits), 2);
+        let projection = products(&context, &base.with_decals(vec![d]).unwrap());
+        d.mapping.normal_frame = SceneDecalNormalFrame::ReceiverWorld;
+        let world = products(&context, &base.with_decals(vec![d]).unwrap());
+        assert_eq!(world, projection);
+        assert_eq!(world[1], receiver[1]);
+    }
+    let mut d = interior_decal(SceneDecalWriteMask::ALL, 2);
+    d.mapping.normal_frame = SceneDecalNormalFrame::ReceiverWorld;
+    d.alpha_test_cutoff_micro = Some(750_000);
+    assert_eq!(
+        products(&context, &base.with_decals(vec![d]).unwrap()),
+        receiver
+    );
+    d.alpha_test_cutoff_micro = Some(500_000);
+    let accepted = products(&context, &base.with_decals(vec![d]).unwrap());
+    assert_ne!(accepted[1], receiver[1]);
+}
+
 use super::{capture, decal, source, texel};
 use crate::draw::tests::{context, effects};
 use worldrunner_render_plan::{
@@ -171,8 +197,9 @@ fn default_uniform_bytes_match_the_existing_volume_layout() {
     values.extend([0.0, 0.0, 1.0, 0.2, 0.2, 0.8, 0.6, 0.4]);
     values.extend([f32::from_bits(3), 0.0, f32::from_bits(2), 0.0]);
     values.extend([1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]);
+    values.extend([1.0; 4]);
     let mut expected: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
-    expected.resize(16 + 32 * 144, 0);
+    expected.resize(16 + 32 * 160, 0);
     assert_eq!(actual, expected);
 }
 

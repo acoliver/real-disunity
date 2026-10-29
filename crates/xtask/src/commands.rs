@@ -120,10 +120,28 @@ pub fn standalone(root: &Path, command: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
+fn preflight(root: &Path) -> Result<(), String> {
     crate::policy::check(root)?;
     crate::source_size::check(root)?;
-    run_command(root, "cargo", &["fmt", "--all", "--check"])?;
+    run_command(root, "cargo", &["fmt", "--all", "--check"])
+}
+
+const GPU_REQUIRED_NOTICE: &str = "GPU required mode: all selected tests, including ignored tests, run without name filters; missing adapters are errors";
+
+/// Every `ci-gpu` check except the test run, which `ci-gpu-shard` splits across runners.
+pub fn ci_gpu_static(root: &Path) -> Result<(), String> {
+    preflight(root)?;
+    let data = metadata::read(root, &["--locked", "--all-features"])?;
+    let selected = selection(&data, Profile::Gpu)?;
+    eprintln!("{GPU_REQUIRED_NOTICE}");
+    for command in ["lint", "complexity", "check", "build", "doc"] {
+        execute(root, command, &selected, true)?;
+    }
+    Ok(())
+}
+
+pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
+    preflight(root)?;
     if profile == Profile::Managed {
         run_command(
             root,
@@ -154,9 +172,7 @@ pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
     let selected = selection(&data, profile)?;
     let gpu = matches!(profile, Profile::Full | Profile::Gpu);
     if gpu {
-        eprintln!(
-            "GPU required mode: all selected tests, including ignored tests, run without name filters; missing adapters are errors"
-        );
+        eprintln!("{GPU_REQUIRED_NOTICE}");
     }
     for command in ["lint", "complexity", "check", "build", "test", "doc"] {
         execute(root, command, &selected, gpu)?;

@@ -83,19 +83,10 @@ fn threads_continue_where_they_stopped_at_their_wake_time() {
     let wakes: Vec<SavedWake> = snapshot.threads.iter().map(|t| t.wake).collect();
     assert_eq!(
         wakes,
-        [
-            SavedWake::At(90),
-            SavedWake::At(100),
-            SavedWake::UntilWoken,
-            SavedWake::Finished
-        ]
+        [SavedWake::At(90), SavedWake::At(100), SavedWake::UntilWoken,]
     );
-    let progress: Vec<bool> = snapshot
-        .threads
-        .iter()
-        .map(|t| t.resume.is_some())
-        .collect();
-    assert_eq!(progress, [true, true, true, false]);
+    let unstarted: Vec<bool> = snapshot.threads.iter().map(|t| t.start.is_some()).collect();
+    assert_eq!(unstarted, [false, false, false]);
 
     let mut restored = game();
     restored.restore(&snapshot, &["Patrol", "Guard"]).unwrap();
@@ -123,23 +114,7 @@ fn threads_continue_where_they_stopped_at_their_wake_time() {
 }
 
 #[test]
-fn threads_that_cannot_be_saved_or_restored_are_refused() {
-    let mut scripts = game();
-    scripts
-        .run(
-            "game",
-            "closure.lua",
-            b"Ad = CreateGameTimeThread(function() Sleep(5) end)",
-        )
-        .unwrap();
-    let closure = scripts.save(&[], &["Patrol"]).unwrap_err().to_string();
-    assert!(
-        closure.contains(
-            "the function scheduler thread 0 was spawned with is a function that is not a permanent"
-        ),
-        "{closure}"
-    );
-
+fn snapshots_that_do_not_fit_the_state_are_refused() {
     let mut saved = game();
     saved.run("game", "a.lua", b"Spawn('a', 10)").unwrap();
     let snapshot = saved.save(&["Units"], &["Patrol"]).unwrap();

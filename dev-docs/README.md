@@ -19,7 +19,7 @@ Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for contributor policy. Coding 
 | `csharp/README.md` | ABI binding regeneration and managed host behavior. |
 | `docs/` | User documentation. See [what belongs in docs](../docs/what-belongs-here.md). |
 | `dev-docs/` | This directory: architecture, quality gates and subsystem contracts that span more than one crate. |
-| `.github/workflows/` | CI. `quality.yml` runs the CPU and managed profiles on three platforms; `software-vulkan.yml` runs the GPU profile on Linux with lavapipe. |
+| `.github/workflows/` | CI. `pr.yml` runs the Linux `PR gate`; `platforms.yml` runs Windows, macOS and the full serial GPU suite after merge and nightly. `.github/scripts/` holds the change classifier and failure reporter. See [quality gates](quality-gates.md#continuous-integration). |
 | `.llxprt/` | Agent configuration: `LLXPRT.md` (shared memory) and `skills/`. Nothing else in it is tracked. |
 | `.work/` | Untracked scratch for tool installs and caches. Keep it small and delete what you create. |
 | `target/` | Cargo output. Untracked. |

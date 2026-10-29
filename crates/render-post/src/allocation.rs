@@ -51,6 +51,9 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
             3,
         );
     }
+    if settings.resolve.active_cmaa2().is_some() {
+        crate::cmaa2_gpu::allocations(&mut set, config.size);
+    }
     if upscale.is_some_and(|settings| settings.sharpness.is_some()) {
         let [w, h] = config.output_extent();
         set.texture(

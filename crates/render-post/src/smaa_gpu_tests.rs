@@ -311,6 +311,9 @@ fn smaa_and_fxaa_stage_timestamps() {
         ("smaa medium", PostResolve::smaa(SmaaPreset::Medium)),
         ("smaa high", PostResolve::smaa(SmaaPreset::High)),
         ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra)),
+        ("cmaa2 low", PostResolve::cmaa2(crate::Cmaa2Preset::Low)),
+        ("cmaa2 high", PostResolve::cmaa2(crate::Cmaa2Preset::High)),
+        ("cmaa2 ultra", PostResolve::cmaa2(crate::Cmaa2Preset::Ultra)),
     ] {
         let passes = timed_medians(&rig, resolve);
         let total: f64 = passes.iter().map(|(_, ns)| ns).sum();

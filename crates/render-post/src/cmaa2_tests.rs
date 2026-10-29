@@ -115,3 +115,30 @@ fn constants_carry_the_threshold_and_the_sharpness_option() {
         f64::to_bits(1.0)
     );
 }
+
+#[test]
+fn allocation_accounting_covers_the_working_image_and_work_lists() {
+    use crate::{FrameConfig, allocation::post_allocations};
+    let config = FrameConfig::new([256, 128], wgpu::TextureFormat::Rgba16Float, 1);
+    let limits = wgpu::Limits::default();
+    let bytes = |resolve| {
+        post_allocations(
+            config,
+            HdrPostSettings {
+                resolve,
+                ..HdrPostSettings::default()
+            },
+        )
+        .validate(&limits)
+        .unwrap()
+    };
+    let none = bytes(PostResolve::None);
+    let cmaa2 = bytes(PostResolve::cmaa2(Cmaa2Preset::High));
+    // Two Rgba16Float images (display input and working copy) plus the lists, for 3 frame slots.
+    let images = 2 * 8 * 256 * 128 * 3;
+    assert!(
+        cmaa2 - none > images,
+        "CMAA2 adds {} bytes, expected more than the images' {images}",
+        cmaa2 - none
+    );
+}

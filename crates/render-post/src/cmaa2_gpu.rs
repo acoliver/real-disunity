@@ -2,6 +2,8 @@
 //!
 //! Frame order: clear the counters, detect edges (compute), process shape candidates (compute),
 //! apply the queued blends (compute), present the working image (fullscreen).
+use worldrunner_render_gpu::configuration::AllocationSet;
+
 use crate::{Cmaa2Settings, Operation, Stage, StageId, StageSet, StageTarget};
 
 /// Stage names, in execution order. Identities are stable for timing.
@@ -33,11 +35,10 @@ struct Capacity {
 }
 
 impl Capacity {
-    fn new(device: &wgpu::Device, [width, height]: [u32; 2]) -> Self {
+    /// Capacities for `size`, none larger than one storage binding of `max_binding` bytes.
+    fn new(max_binding: u64, [width, height]: [u32; 2]) -> Self {
         let pixels = u64::from(width) * u64::from(height);
-        let limits = device.limits();
-        let fits =
-            |count: u64, element: u64| count.min(limits.max_storage_buffer_binding_size / element);
+        let fits = |count: u64, element: u64| count.min(max_binding / element);
         Self {
             quads: u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)),
             candidates: fits(pixels.div_ceil(4).max(16), 4),
@@ -45,6 +46,22 @@ impl Capacity {
             items: fits(pixels.div_ceil(2).max(32), 8),
         }
     }
+}
+
+/// Declares the CMAA2 storage for `size`, in step with `allocate`, plus the display-referred
+/// input image that the resolve reads.
+pub(crate) fn allocations(set: &mut AllocationSet, size: [u32; 2]) {
+    let capacity = Capacity::new(u64::MAX, size);
+    let extent = [size[0], size[1], 1];
+    let format = wgpu::TextureFormat::Rgba16Float;
+    set.texture("display-linear post input", extent, format, [1, 1], 3);
+    set.texture("CMAA2 working image", extent, format, [1, 1], 3);
+    set.buffer("CMAA2 edges", capacity.quads * 4, 3);
+    set.buffer("CMAA2 counters", CONTROL_BYTES, 3);
+    set.buffer("CMAA2 shape candidates", capacity.candidates * 4, 3);
+    set.buffer("CMAA2 blend list heads", capacity.quads * 4, 3);
+    set.buffer("CMAA2 blend items", capacity.items * 8, 3);
+    set.buffer("CMAA2 blend locations", capacity.locations * 4, 3);
 }
 
 /// `[x, y, 1]` workgroup counts covering `groups` groups in rows of `DISPATCH_ROW`.
@@ -84,7 +101,7 @@ fn storage(
 }
 
 fn allocate(device: &wgpu::Device, set: &mut StageSet, size: [u32; 2]) -> Inputs {
-    let capacity = Capacity::new(device, size);
+    let capacity = Capacity::new(device.limits().max_storage_buffer_binding_size, size);
     let none = wgpu::BufferUsages::empty();
     let work = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("CMAA2 working image"),
@@ -321,7 +338,7 @@ pub(crate) fn append(
         source,
         inputs: allocate(device, set, size),
         size,
-        capacity: Capacity::new(device, size),
+        capacity: Capacity::new(device.limits().max_storage_buffer_binding_size, size),
     };
     set.stages.extend([
         schedule.clear(),

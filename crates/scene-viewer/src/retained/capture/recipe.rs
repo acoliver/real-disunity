@@ -13,6 +13,11 @@ pub enum CaptureOutput {
     LinearHdr,
     Depth,
     Normals,
+    /// Post-decal pixel-centre SSR material plane: linear F0 RGB and the material
+    /// roughness channel as stored for SSR, before lighting remap and lower clamp.
+    /// Under `SceneRoughnessRemap::LinearAlpha`, alpha is the authored GGX alpha
+    /// channel, not perceptual roughness. Before water; requires SSR.
+    Specular,
     AmbientOcclusion,
     SsrConfidence,
 }
@@ -182,6 +187,7 @@ fn output_storage(
         .ok_or(CaptureRequestError::InvalidRecipe)?;
     let (texel_bytes, cpu_bytes) = match output {
         CaptureOutput::Srgb8 => (4, 4),
+        CaptureOutput::Specular => (8, 8),
         CaptureOutput::LinearHdr | CaptureOutput::Normals => (8, 24),
         CaptureOutput::SsrConfidence => (8, 12),
         CaptureOutput::Depth | CaptureOutput::AmbientOcclusion => (4, 8),
@@ -218,6 +224,17 @@ pub struct RetainedCaptureProducts {
     pub depth: Option<worldrunner_render_scene::offscreen::ScalarImage>,
     /// View-space XYZ normals; alpha is coverage, zero for uncovered pixels.
     pub normals: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    /// Native raster-size `RGBA16Float`: linear F0 RGB and the material roughness
+    /// channel as stored for SSR, after textures, contact surfaces and ordered
+    /// projected decals, before the lighting roughness remap and lower clamp.
+    /// Under `SceneRoughnessRemap::LinearAlpha`, alpha is the authored GGX alpha
+    /// channel, not perceptual roughness; authored zero remains zero.
+    /// F0 = mix(0.04, linear albedo, metalness). Uncovered pixels are (0, 0, 0, 1).
+    /// This is the single-sample pixel-centre opaque/masked SSR receiver plane,
+    /// before water, transparent surfaces, exposure, lighting and post-processing.
+    /// Bytes are tightly packed little-endian half floats, top-left first, row-major,
+    /// exactly width * height * 8 bytes. No MSAA lanes or coverage alpha.
+    pub specular: Option<worldrunner_render_scene::offscreen::Rgba16FloatImage>,
     /// Filtered ambient visibility in [0, 1], decoded from the target red channel.
     pub ambient_occlusion: Option<worldrunner_render_scene::offscreen::ScalarImage>,
     /// Confidence in [0, 1] from trace alpha, at native trace resolution.
@@ -233,6 +250,20 @@ pub struct RetainedCaptureProducts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn specular_budget_accounts_for_native_bytes_without_msaa_lanes() {
+        for samples in [1, 4] {
+            // Two padded staging copies and one tightly packed raw plane.
+            assert_eq!(
+                output_storage(CaptureOutput::Specular, [33, 2], samples),
+                Ok(2576)
+            );
+        }
+        assert_eq!(
+            output_storage(CaptureOutput::Specular, [u32::MAX; 2], 1),
+            Err(CaptureRequestError::InvalidRecipe)
+        );
+    }
     #[test]
     fn recipes_reject_empty_duplicate_and_over_budget_outputs() {
         let make = |outputs, max| {

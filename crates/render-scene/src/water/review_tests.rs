@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn opaque_auxiliary_is_not_a_water_target() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         renderer
             .install_water(context.device(), settings())

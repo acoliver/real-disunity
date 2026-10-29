@@ -32,7 +32,7 @@ FrameProduct describes an existing executor ResourceRef, numerical meaning, text
 | --- | --- | --- |
 | Prepass depth | Depth32Float | Device depth, cleared to one |
 | Prepass normal | Rgba16Float | View-space unit normal RGB, coverage alpha; uncovered alpha zero |
-| Reflection material | Rgba16Float | Linear F0 RGB, perceptual roughness alpha |
+| Reflection material | Rgba16Float | Linear F0 RGB, post-decal material roughness channel in alpha before lighting remap or lower clamp |
 | Conservative depth | R32Float | Nearest positive view depth in metres |
 | Averaged depth/normal | Rgba16Float | Separate declared reduction meaning, not a traversal input |
 | Environment specular | Rgba16Float | Linear HDR replaceable specular radiance, not total shaded colour |

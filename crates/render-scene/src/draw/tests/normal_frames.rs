@@ -131,7 +131,7 @@ fn mapped_material() -> SceneMaterial {
     .unwrap()
 }
 
-fn diagnostic(source: &str) -> String {
+pub(super) fn diagnostic(source: &str) -> String {
     source.replace(
         "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
         "return vec4<f32>(normal * 0.2 + 0.4, 1.0);",
@@ -147,7 +147,7 @@ fn srgb(linear: f32) -> f32 {
     }
 }
 
-fn assert_normal(pixels: &[u8], normal: Vec3) {
+pub(super) fn assert_normal(pixels: &[u8], normal: Vec3) {
     let offset = (32 * TARGET as usize + 32) * 4;
     for (channel, expected) in normal.to_array().into_iter().enumerate() {
         let code = srgb(expected * 0.2 + 0.4) * 255.0;

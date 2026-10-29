@@ -71,6 +71,7 @@ fn frame() -> FrameUniform {
         exposure: 1.0,
         unlit: false,
         animation_time_milliseconds: 0,
+        temporal: None,
     }
 }
 fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {

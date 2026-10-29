@@ -83,15 +83,16 @@ fn check_floor(context: &GpuContext, samples: u32, traversal: SceneSsrTraversal,
             usize::try_from(extent[0] * extent[1] * samples * 8).unwrap()
         );
         assert_coordinates(&bytes, extent, samples);
-        if size == [7, 5] && samples == 4 {
-            let lanes: Vec<_> = bytes[..12 * 8]
+        if size == [7, 5] {
+            // The first row holds three texels of each sample lane, in lane order.
+            let lanes: Vec<_> = bytes[..usize::try_from(3 * samples).unwrap() * 8]
                 .chunks_exact(8)
                 .map(|pixel| u16::from_le_bytes([pixel[0], pixel[1]]))
                 .collect();
-            assert_eq!(
-                lanes,
-                [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0].map(half)
-            );
+            let expected: Vec<_> = (0..samples)
+                .flat_map(|lane| [half(gpu::scalar(lane)); 3])
+                .collect();
+            assert_eq!(lanes, expected);
             assert_pixel(&bytes[..8], [0.0, 1.0 / 6.0, 0.25, 1.0]);
         }
     }
@@ -100,7 +101,7 @@ fn check_floor(context: &GpuContext, samples: u32, traversal: SceneSsrTraversal,
 #[test]
 fn gpu_floor_trace_lanes_and_origins_match_allocated_extents() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for traversal in [SceneSsrTraversal::Conservative, SceneSsrTraversal::Grid] {
             for water in [false, true] {
                 check_floor(&context, samples, traversal, water);
@@ -116,7 +117,7 @@ fn gpu_default_trace_coordinates_preserve_legacy_bytes() {
         resolution_scale_micro: 500_000,
         ..settings()
     };
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for water in [false, true] {
             let legacy = gpu::trace_source(samples, water);
             assert_eq!(

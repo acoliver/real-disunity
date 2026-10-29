@@ -151,6 +151,10 @@ internal static class PlayerSpriteTests
         Expect.That(TextureIdentity(a) >= 1UL << 40 && TextureIdentity(other) >= 1UL << 40, "player textures take identities from 2^40, above any scene texture");
         Expect.That(TextureIdentity(Sprite.Create(locked, new Rect(2, 2, 2, 2), Vector2.zero)) == TextureIdentity(other), "a texture keeps its identity for its lifetime");
         Console.WriteLine("PASS: player textures keep one identity each, in a range clear of scene textures");
+        var slots = new SecondarySpriteTexture[2];
+        Expect.That(a.GetSecondaryTextureCount() == 0 && a.GetSecondaryTextures(slots) == 0 && slots[0].texture is null, "a built sprite has no secondary textures");
+        Expect.Throws<ArgumentNullException>(() => a.GetSecondaryTextures(null!), "a null secondary texture array");
+        Console.WriteLine("PASS: sprites report no secondary textures");
     }
 
     private static void SpriteCreateChecksItsArguments()

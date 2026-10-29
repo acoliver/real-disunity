@@ -23,6 +23,11 @@ internal static class SceneSwitchTests
         public Unloadable() => throw new TypeLoadException("Could not load type 'Missing' from assembly 'Engine'.");
     }
 
+    private sealed class Failing : MonoBehaviour
+    {
+        public Failing() => throw new InvalidOperationException("outer", new ArgumentException("inner"));
+    }
+
     private sealed class Keeper : MonoBehaviour
     {
         private void Awake() => DontDestroyOnLoad(gameObject);
@@ -96,6 +101,8 @@ internal static class SceneSwitchTests
         Console.WriteLine("PASS: Additive loads add a scene beside the active one; SetActiveScene and a later Single load");
         AnUnloadableScriptIsLeftOff();
         Console.WriteLine("PASS: a script whose class cannot load is left off its object and the scene still loads");
+        AFailedScriptNamesItsCause();
+        Console.WriteLine("PASS: a scene load error names the script's exception and each inner exception");
     }
 
     private static void TheBuildListNamesTheScenes() => InWorld(() =>
@@ -301,6 +308,19 @@ internal static class SceneSwitchTests
             Expect.That(Log.Contains("Awake:Fine"), "the rest of the scene wakes");
             var difference = loaded.Differences.Single();
             Expect.That(difference.Contains("Unloadable") && difference.Contains("is not built") && difference.Contains("'Missing'"), difference);
+        }
+        finally { DisunityHost.UnloadWorld(); }
+    }
+
+    private static void AFailedScriptNamesItsCause()
+    {
+        DisunityHost.LoadWorld();
+        try
+        {
+            var failure = Expect.Catch<SceneLoadException>(() => DisunityHost.LoadScene(Plan("Main", ("Bad", "Failing")), Options), "a script whose constructor throws");
+            Expect.That(failure.Message.Contains("Bad component 0 (Script): InvalidOperationException: outer <- ArgumentException: inner"), failure.Message);
+            Expect.That(failure.InnerException is InvalidOperationException, "the cause is the script's exception, not the reflection wrapper");
+            Expect.That(GameObject.Find("Bad") == null, "nothing stays in the world");
         }
         finally { DisunityHost.UnloadWorld(); }
     }

@@ -43,7 +43,8 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             templates.Dispose();
             scene.Dispose();
             if (failure is SceneLoadException) throw;
-            throw new SceneLoadException($"{plan.Str("scene")}: {failure.Message}", failure);
+            var cause = Cause(failure);
+            throw new SceneLoadException($"{plan.Str("scene")}: {Describe(cause)}", cause);
         }
     }
 
@@ -164,8 +165,8 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
                 try { components[i][j] = Component(objects[i], list[j], where); }
                 catch (Exception error) when (error is not SceneLoadException)
                 {
-                    var cause = error is System.Reflection.TargetInvocationException { InnerException: { } inner } ? inner : error;
-                    throw new SceneLoadException($"{where}: {cause.GetType().Name}: {cause.Message}", cause);
+                    var cause = Cause(error);
+                    throw new SceneLoadException($"{where}: {Describe(cause)}", cause);
                 }
             }
         }
@@ -195,6 +196,19 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         if (!value.Bool("enabled")) script.enabled = false;
         scripts.Add((script, value.GetProperty("fields"), $"{owner.name}.{type.Name}"));
         return script;
+    }
+
+    /// <summary>The exception a reflection call wrapped, or the exception itself.</summary>
+    private static Exception Cause(Exception error) =>
+        error is System.Reflection.TargetInvocationException { InnerException: { } inner } ? inner : error;
+
+    /// <summary>The exception's type and message followed by those of each inner exception, so a failed type
+    /// initializer names what it tripped on.</summary>
+    private static string Describe(Exception error)
+    {
+        var parts = new List<string>();
+        for (Exception? e = error; e is not null && parts.Count < 6; e = e.InnerException) parts.Add($"{e.GetType().Name}: {e.Message}");
+        return string.Join(" <- ", parts);
     }
 
     private static TypeLoadException? Unloadable(Exception error) => error switch

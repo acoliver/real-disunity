@@ -4,21 +4,18 @@ namespace UnityEngine.SceneManagement;
 
 public readonly partial struct Scene
 {
-    /// <summary>The handle of the one loaded scene.</summary>
-    internal const int LoadedHandle = 1;
-
     public int handle => Handle;
-    public bool isLoaded => IsValid();
-    public string name => IsValid() && DisunityHost.CurrentScene is { } info ? info.Name : "";
-    public string path => "";
+    public bool isLoaded => IsValid() && DisunityHost.CurrentScene?.Handle == Handle;
+    public string name => DisunityHost.SceneInfo(Handle)?.Name ?? "";
+    public string path => DisunityHost.SceneInfo(Handle)?.Path ?? "";
 
-    /// <summary>The scene's index in the build: the number in a player's level name, 0 for a project plan, -1 for an invalid scene.</summary>
-    public int buildIndex => IsValid() && DisunityHost.CurrentScene is { } info ? info.BuildIndex : -1;
+    /// <summary>The scene's place in the build list, or the number in a plan named like a player's level, or 0 for a project plan; -1 for a scene that is not loaded.</summary>
+    public int buildIndex => DisunityHost.SceneInfo(Handle)?.BuildIndex ?? -1;
 
-    public int rootCount => IsValid() ? DisunityHost.SceneRoots().Count : 0;
+    public int rootCount => isLoaded ? DisunityHost.SceneRoots().Count : 0;
 
-    /// <summary>The scene's objects with no parent, in sibling order; empty for an invalid scene.</summary>
-    public GameObject[] GetRootGameObjects() => IsValid() ? DisunityHost.SceneRoots().ToArray() : [];
+    /// <summary>The scene's objects with no parent, in sibling order; empty for a scene that is not loaded. Roots marked DontDestroyOnLoad are not the scene's.</summary>
+    public GameObject[] GetRootGameObjects() => isLoaded ? DisunityHost.SceneRoots().ToArray() : [];
 
     public void GetRootGameObjects(List<GameObject> rootGameObjects)
     {

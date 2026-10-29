@@ -64,13 +64,37 @@ public static partial class DisunityHost
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(options);
+        _sceneOptions = options;
+        return LoadPlan(plan, options, null);
+    }
+
+    /// <summary>Loads a plan and makes it the loaded scene. <paramref name="buildIndex"/> names the build scene it is;
+    /// without one, a plan named <c>level{i}</c> is build scene <c>i</c> of the player's list, and any other plan is a
+    /// scene of its own. Raises <c>sceneLoaded</c> and then <c>activeSceneChanged</c>.</summary>
+    private static LoadedScene LoadPlan(string plan, SceneLoadOptions options, int? buildIndex)
+    {
         EnsureWorld();
         using var document = JsonDocument.Parse(plan);
         var loaded = new SceneLoader(document.RootElement, options).Load();
-        CurrentScene = new LoadedSceneInfo(document.RootElement.Str("scene"), loaded.TemplateObjects);
+        var name = document.RootElement.Str("scene");
+        var previous = ActiveScene;
+        var listed = buildIndex ?? ListedLevel(name);
+        var entry = listed is { } index ? BuildScenes[index] : new BuildScene(name, "", () => plan);
+        CurrentScene = new LoadedSceneInfo(entry.Name, loaded.TemplateObjects, entry)
+        {
+            Handle = ++_sceneHandles,
+            ListIndex = listed,
+            Loaded = loaded,
+        };
         SceneManager.RaiseLoaded(ActiveScene);
+        SceneManager.RaiseActiveSceneChanged(previous, ActiveScene);
         return loaded;
     }
+
+    /// <summary>The place in the player's build list of a plan named like its level file, or null.</summary>
+    private static int? ListedLevel(string name) =>
+        _buildScenes is { } list && name.StartsWith("level", StringComparison.Ordinal)
+            && int.TryParse(name.AsSpan("level".Length), out var index) && index >= 0 && index < list.Count ? index : null;
 }
 
 /// <summary>Reads the plan's JSON values.</summary>

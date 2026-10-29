@@ -19,6 +19,27 @@ backend can clamp to its supported range. It is independent of
 `frames_in_flight`, which bounds admitted engine submissions in `1..=3`.
 Windowless hosts validate both presentation fields but ignore them because they
 have no surface.
+## Presentation allocation budget
+
+Set `presentation_budget: PresentationBudget::default()` for a 1 GiB limit, or
+`PresentationBudget(bytes)` for an explicit positive byte limit. Zero returns
+`ViewerError::InvalidOptions` before window or GPU startup. This limit covers the
+presentation allocation inventory, including CPU capture storage, rather than
+all scene resources or total process memory.
+
+Creation, resize and retained settings changes use the same budget. Rejections
+remain typed as `ViewerError::Configuration(ConfigurationError::Budget {
+required, budget })`. The required bytes include renderer generations that
+coexist during replacement. No rendering quality is reduced to fit the budget.
+
+Desktop and windowless retained hosts reserve the 256 MiB capture-recipe pool in
+the initial inventory, reducing the headroom available to renderer targets even
+when no capture is requested. This host-wide pool is counted once across renderer
+generations. Requesting a recipe does not replace renderer targets or create a
+second renderer generation. Ordinary desktop and live presentation do
+not reserve that pool. Attachment resize still creates replacement targets while
+the previous targets remain alive, so its old-plus-new peak must fit.
+
 
 ## Selected adapter
 

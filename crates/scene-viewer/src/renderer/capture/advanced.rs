@@ -92,7 +92,6 @@ impl Renderer {
                 width: host.size()[0],
                 height: host.size()[1],
             };
-            self.presentation.reserve_recipe_storage(&self.context)?;
             self.streaming.captures.active = Some(Active {
                 id,
                 frame: self.streaming.captures.next_frame(),

@@ -21,6 +21,8 @@ mod clock;
 pub use clock::RenderClock;
 mod camera;
 mod presentation;
+mod presentation_budget;
+pub use presentation_budget::PresentationBudget;
 mod renderer;
 mod retained;
 pub use retained::{
@@ -41,6 +43,8 @@ use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 /// Explicit caller-owned desktop presentation settings.
 #[derive(Clone, Debug)]
 pub struct ViewerOptions {
+    /// Presentation descriptor-byte limit, including replacement overlap. Default: 1 GiB.
+    pub presentation_budget: PresentationBudget,
     /// Raster camera convention; use the shared right-handed default unless selected explicitly.
     pub camera_convention: worldrunner_camera::ViewConvention,
     /// Optional startup SSR override. Requires authored scene effects and HDR.
@@ -95,6 +99,13 @@ impl Default for PresentationCadence {
 /// Startup, presentation or scene rendering failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ViewerError {
+    #[error(transparent)]
+    Configuration(
+        #[from]
+        worldrunner_render_gpu::configuration::ConfigurationError<
+            worldrunner_render_post::PostError,
+        >,
+    ),
     #[error("retained preparation bound {limit} reached")]
     BackPressure { limit: usize },
     #[error("live driver failed: {0}")]
@@ -258,6 +269,7 @@ mod tests;
 pub use retained::DecalUpdate;
 
 fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
+    options.presentation_budget.validate()?;
     if !matches!(
         options.present_mode,
         wgpu::PresentMode::Fifo

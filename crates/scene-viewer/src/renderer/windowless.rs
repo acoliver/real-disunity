@@ -23,13 +23,16 @@ impl Renderer {
             context.device().limits().max_texture_dimension_2d,
         )?
         .expect("validated nonzero extent");
-        let presentation = Presentation::with_profile(
+        let presentation = Presentation::with_settings(
             &context,
             crate::presentation::COLOR,
-            extents.render,
-            extents.surface,
+            [extents.render, extents.surface],
             options.frame_profile,
             scene.effects(),
+            crate::presentation::PresentationPolicy {
+                budget: options.presentation_budget,
+                recipes: true,
+            },
         )?;
         let resident = Resident::new(&context, scene, options.shadows, options.frame_profile)?;
         let execution =

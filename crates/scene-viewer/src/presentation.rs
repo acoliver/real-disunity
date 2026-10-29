@@ -1,11 +1,43 @@
 #[cfg(test)]
+mod budget_tests;
+
+#[cfg(test)]
 mod capture_budget_tests;
 
 use crate::ViewerError;
+mod setup;
+
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::FrameConfig;
 use worldrunner_render_scene::Viewport;
 use worldrunner_render_scene::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
+
+#[derive(Clone, Copy)]
+pub(crate) struct PresentationPolicy {
+    pub budget: crate::PresentationBudget,
+    pub recipes: bool,
+}
+
+impl PresentationPolicy {
+    pub(super) fn inventory(
+        self,
+        mut settings: RendererConfiguration,
+        capture_size: Viewport,
+        limits: &wgpu::Limits,
+    ) -> Result<RendererConfiguration, ViewerError> {
+        settings.additional = capture_allocations(capture_size);
+        if self.recipes {
+            settings.additional.extend(recipe_allocations());
+        }
+        settings
+            .allocations()
+            .validate_budget::<worldrunner_render_post::PostError>(
+                limits,
+                AllocationBudget(self.budget.0),
+            )?;
+        Ok(settings)
+    }
+}
 
 /// Keep the scene renderer's sRGB contract; copy output adds no new display look.
 pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -41,6 +73,7 @@ impl Presentation {
         .unwrap()
     }
 
+    #[cfg(test)]
     pub fn with_profile(
         context: &worldrunner_render_scene::device::GpuContext,
         format: wgpu::TextureFormat,
@@ -49,55 +82,33 @@ impl Presentation {
         profile: crate::FrameProfile,
         effects: Option<&worldrunner_render_plan::SceneEffects>,
     ) -> Result<Self, ViewerError> {
-        let mut settings = RendererConfiguration::legacy([size.width, size.height], format);
-        settings.frame.format = COLOR;
-        if context
-            .device()
-            .features()
-            .contains(crate::renderer::timing::features())
-        {
-            settings.timing = worldrunner_render_post::TimingMode::Required;
-        }
-        let hdr = match profile {
-            crate::FrameProfile::Legacy => None,
-            crate::FrameProfile::Hdr { samples, tone_map }
-            | crate::FrameProfile::HdrUpscaled {
-                samples, tone_map, ..
-            } => Some((samples, tone_map)),
-        };
-        if let Some((samples, tone_map)) = hdr {
-            settings.frame = FrameConfig::new(
-                [size.width, size.height],
-                wgpu::TextureFormat::Rgba16Float,
-                samples,
-            );
-            let exposure = effects.map_or(1.0, |effects| {
-                f64::from(effects.grading().exposure_micro) / 1_000_000.0
-            });
-            settings.hdr = Some((exposure, tone_map));
-            settings.post = effects
-                .map(worldrunner_render_scene::post_settings)
-                .transpose()?
-                .unwrap_or_default();
-            settings.ssao = effects.and_then(|effects| effects.ssao()).copied();
-            settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
-            settings.water =
-                effects.map_or_else(Vec::new, |effects| effects.water_bodies().to_vec());
-        }
-        let scale = if let crate::FrameProfile::HdrUpscaled { scale, upscale, .. } = profile {
-            settings.post.upscale = Some(upscale);
-            settings.frame = settings
-                .frame
-                .with_render_extent(scale.extent([size.width, size.height])?);
-            Some(scale)
-        } else {
-            None
-        };
-        settings.additional = capture_allocations(capture_size);
-        let recipe_capacity = false;
+        Self::with_settings(
+            context,
+            format,
+            [size, capture_size],
+            profile,
+            effects,
+            PresentationPolicy {
+                budget: crate::PresentationBudget::default(),
+                recipes: true,
+            },
+        )
+    }
+
+    pub fn with_settings(
+        context: &worldrunner_render_scene::device::GpuContext,
+        format: wgpu::TextureFormat,
+        [size, capture_size]: [Viewport; 2],
+        profile: crate::FrameProfile,
+        effects: Option<&worldrunner_render_plan::SceneEffects>,
+        policy: PresentationPolicy,
+    ) -> Result<Self, ViewerError> {
+        let (settings, scale) =
+            setup::configuration(context.device().features(), format, size, profile, effects)?;
+        let settings = policy.inventory(settings, capture_size, &context.device().limits())?;
+        let recipe_capacity = policy.recipes;
         let scheduler =
-            ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1024 * 1024 * 1024))
-                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            ConfiguredFrameRenderer::new(context, settings, AllocationBudget(policy.budget.0))?;
         let targets = Targets::new(context.device(), &scheduler, size);
         Ok(Self {
             scheduler,
@@ -106,24 +117,6 @@ impl Presentation {
             capture_size,
             recipe_capacity,
         })
-    }
-
-    pub fn reserve_recipe_storage(
-        &mut self,
-        context: &worldrunner_render_scene::device::GpuContext,
-    ) -> Result<(), ViewerError> {
-        if !self.recipe_capacity {
-            let mut settings = self.scheduler.configuration().clone();
-            settings
-                .additional
-                .cpu("capture recipe storage reservation", 256 * 1024 * 1024);
-            self.scheduler
-                .reconfigure(context, settings)
-                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
-            self.recipe_capacity = true;
-            self.refresh_targets();
-        }
-        Ok(())
     }
 
     pub fn resize(
@@ -167,13 +160,9 @@ impl Presentation {
             }
             settings.additional = capture_allocations(capture_size);
             if self.recipe_capacity {
-                settings
-                    .additional
-                    .cpu("capture recipe storage reservation", 256 * 1024 * 1024);
+                settings.additional.extend(recipe_allocations());
             }
-            self.scheduler
-                .reconfigure(context, settings)
-                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            self.scheduler.reconfigure(context, settings)?;
             self.targets = Targets::new(context.device(), &self.scheduler, size);
             self.capture_size = capture_size;
         }
@@ -195,6 +184,12 @@ impl Presentation {
             depth: self.scheduler.targets().depth().clone(),
         };
     }
+}
+
+fn recipe_allocations() -> worldrunner_render_gpu::configuration::AllocationSet {
+    let mut allocations = worldrunner_render_gpu::configuration::AllocationSet::default();
+    allocations.shared_cpu("capture recipe storage reservation", 256 * 1024 * 1024);
+    allocations
 }
 
 fn capture_allocations(size: Viewport) -> worldrunner_render_gpu::configuration::AllocationSet {

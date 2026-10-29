@@ -66,6 +66,9 @@ pub use display_grading::{ColorGrading, Vignette};
 mod antialias;
 #[cfg(test)]
 mod antialias_tests;
+mod cas;
+#[cfg(test)]
+mod cas_reference;
 mod fxaa;
 mod post_filters;
 mod smaa;
@@ -76,6 +79,7 @@ mod smaa_lut_tests;
 #[cfg(test)]
 mod smaa_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
+pub use cas::CasSettings;
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 mod tone_map;

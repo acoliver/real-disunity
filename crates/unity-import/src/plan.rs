@@ -31,8 +31,8 @@ use serde::Serialize;
 
 use crate::{
     components::{
-        Camera, CanvasScaler, ColliderShape, ComponentError, Light2D, Light3D, PhysicsMaterial,
-        RectTransform, RendererMaterial, Text, UrpCamera,
+        Camera, CanvasGroupInput, CanvasScaler, ColliderShape, ComponentError, Light2D, Light3D,
+        PhysicsMaterial, RectTransform, RendererMaterial, Text, UrpCamera,
     },
     input::{InputAxis, input_axes},
     package::PackageFont,
@@ -160,6 +160,13 @@ pub enum PlanComponent {
         enabled: bool,
         #[serde(flatten)]
         camera: UrpCamera,
+    },
+    /// A canvas group of a player scene.
+    CanvasGroup {
+        enabled: bool,
+        alpha: f64,
+        #[serde(flatten)]
+        input: CanvasGroupInput,
     },
     /// A 3D light of a player scene.
     Light {

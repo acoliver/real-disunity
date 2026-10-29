@@ -21,6 +21,7 @@ use worldrunner_unity_serialized::{
     managers::TagManager,
     object::PPtr,
     script_data::ScriptLayouts,
+    ui::CanvasGroup,
 };
 
 use crate::{
@@ -28,7 +29,7 @@ use crate::{
     components::RectTransform,
     plan::{PlanComponent, PlanObject, ScenePlan},
     player_files::PlayerFiles,
-    player_graphics::{plan_camera, plan_light},
+    player_graphics::{plan_camera, plan_canvas_group, plan_light},
     player_scripts::script_fields,
     player_values::{FieldWriter, not_held},
 };
@@ -198,7 +199,7 @@ impl PlayerPlanner {
                 path: path.clone(),
                 path_id: component.path_id,
             })?;
-        if class == ClassId::CAMERA || class == ClassId::LIGHT {
+        if [ClassId::CAMERA, ClassId::LIGHT, ClassId::CANVAS_GROUP].contains(&class) {
             return Ok(None);
         }
         if class != ClassId::MONO_BEHAVIOUR {
@@ -252,7 +253,7 @@ impl PlayerPlanner {
         })
     }
 
-    /// A camera or light as its plan component, and any other engine class as unsupported.
+    /// A camera, light or canvas group as its plan component, and any other engine class as unsupported.
     fn engine_component(
         &mut self,
         owner: &str,
@@ -277,6 +278,13 @@ impl PlayerPlanner {
                 .local(&path, component)?
                 .decode(component.path_id)?;
             return plan_light(owner, &light, &mut self.differences).map_err(invalid);
+        }
+        if class == ClassId::CANVAS_GROUP {
+            let group: CanvasGroup = self
+                .files
+                .local(&path, component)?
+                .decode(component.path_id)?;
+            return Ok(plan_canvas_group(&group));
         }
         Ok(PlanComponent::Unsupported {
             class: class.to_string(),

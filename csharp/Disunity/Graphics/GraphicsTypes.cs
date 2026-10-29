@@ -87,9 +87,6 @@ namespace UnityEngine
     }
 
     /// <summary>A GPU buffer. Only its identity exists in G1; its members come in G2.</summary>
-    public sealed class ComputeBuffer;
-
-    /// <summary>A GPU buffer. Only its identity exists in G1; its members come in G2.</summary>
     public sealed class GraphicsBuffer;
 }
 

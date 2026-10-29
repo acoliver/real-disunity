@@ -303,7 +303,6 @@ impl Frame<'_> {
     }
 
     /// The whole image, row-major.
-    #[expect(dead_code, reason = "used by the GPU comparison tests")]
     pub fn resolve(&self) -> Vec<[f64; 4]> {
         (0..self.color.size[1])
             .flat_map(|y| (0..self.color.size[0]).map(move |x| [x, y]))

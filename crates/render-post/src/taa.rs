@@ -55,3 +55,53 @@ impl Default for TaaSettings {
         Self::DEFAULT
     }
 }
+
+/// Size in bytes of the [`TaaUniform`] block.
+pub const TAA_UNIFORM_BYTES: usize = 80;
+
+/// Per-frame data the TAA resolve pass reads from a uniform buffer.
+///
+/// The host computes the reprojection in f64, where inverting a view-projection matrix with
+/// a long far plane stays accurate, and this block carries it to the GPU as f32. Layout,
+/// little-endian, matching the `Taa` struct in `taa.wgsl`:
+///
+/// | bytes   | content |
+/// |---------|---------|
+/// | 0..64   | `reprojection`, column-major `mat4x4<f32>` |
+/// | 64..72  | `jitter_pixels` x, y (+y down) |
+/// | 72..76  | `history_valid`: 1.0 when the history texture holds the previous frame, else 0.0 |
+/// | 76..80  | zero padding |
+///
+/// An all-zero block reads as "no history": the resolve then returns the reconstructed
+/// current color without touching the history texture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TaaUniform {
+    /// Previous unjittered view-projection times the inverse of the current unjittered
+    /// view-projection, as columns (`m[column][row]`) applied to column vectors. It maps
+    /// (NDC x, NDC y, device depth 0..1, 1) of the current frame to the previous clip space.
+    pub reprojection: [[f64; 4]; 4],
+    /// Projection jitter of the current frame in pixels, +x right and +y down.
+    pub jitter_pixels: [f32; 2],
+    pub history_valid: bool,
+}
+impl TaaUniform {
+    pub fn to_bytes(self) -> [u8; TAA_UNIFORM_BYTES] {
+        let mut bytes = [0; TAA_UNIFORM_BYTES];
+        let matrix = self.reprojection.iter().flatten().map(|v| narrow(*v));
+        let tail = [
+            self.jitter_pixels[0],
+            self.jitter_pixels[1],
+            if self.history_valid { 1.0 } else { 0.0 },
+            0.0,
+        ];
+        for (chunk, value) in bytes.chunks_exact_mut(4).zip(matrix.chain(tail)) {
+            chunk.copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
+}
+
+#[expect(clippy::cast_possible_truncation, reason = "the GPU block is f32")]
+fn narrow(v: f64) -> f32 {
+    v as f32
+}

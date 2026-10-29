@@ -86,6 +86,9 @@ mod smaa_lut_tests;
 #[cfg(test)]
 mod smaa_tests;
 mod taa;
+mod taa_gpu;
+#[cfg(test)]
+mod taa_gpu_tests;
 #[cfg(test)]
 mod taa_reference;
 #[cfg(test)]
@@ -96,7 +99,11 @@ pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use jitter::ProjectionJitter;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
-pub use taa::TaaSettings;
+pub use taa::{TAA_UNIFORM_BYTES, TaaSettings, TaaUniform};
+pub use taa_gpu::{
+    FORMAT as TAA_FORMAT, Inputs as TaaInputs, Targets as TaaTargets, allocate as allocate_taa,
+    append as append_taa,
+};
 mod tone_map;
 mod upscale;
 pub use hdr_post::{

@@ -36,9 +36,8 @@ impl Capacity {
     fn new(device: &wgpu::Device, [width, height]: [u32; 2]) -> Self {
         let pixels = u64::from(width) * u64::from(height);
         let limits = device.limits();
-        let fits = |count: u64, element: u64| {
-            count.min(u64::from(limits.max_storage_buffer_binding_size) / element)
-        };
+        let fits =
+            |count: u64, element: u64| count.min(limits.max_storage_buffer_binding_size / element);
         Self {
             quads: u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)),
             candidates: fits(pixels.div_ceil(4).max(16), 4),
@@ -223,6 +222,80 @@ impl Builder<'_> {
     }
 }
 
+/// Everything the four passes bind, so each pass is built by one short method.
+struct Schedule<'a> {
+    builder: Builder<'a>,
+    source: &'a wgpu::TextureView,
+    inputs: Inputs,
+    size: [u32; 2],
+    capacity: Capacity,
+}
+
+impl Schedule<'_> {
+    fn clear(&self) -> Stage {
+        let name = STAGES[0];
+        Stage {
+            id: StageId::new(name, 0),
+            label: name,
+            enabled: true,
+            operation: Operation::Clear(self.inputs.control.clone()),
+        }
+    }
+
+    fn edges(&self) -> Stage {
+        let inputs = &self.inputs;
+        self.builder.compute(
+            STAGES[1],
+            &[
+                view_entry(0, self.source),
+                view_entry(1, &inputs.work),
+                buffer_entry(3, &inputs.edges),
+                buffer_entry(4, &inputs.control),
+                buffer_entry(5, &inputs.candidates),
+                buffer_entry(6, &inputs.heads),
+            ],
+            [
+                self.size[0].div_ceil(EDGE_GROUP_PIXELS),
+                self.size[1].div_ceil(EDGE_GROUP_PIXELS),
+                1,
+            ],
+        )
+    }
+
+    fn candidates(&self) -> Stage {
+        let inputs = &self.inputs;
+        self.builder.compute(
+            STAGES[2],
+            &[
+                view_entry(0, self.source),
+                buffer_entry(3, &inputs.edges),
+                buffer_entry(4, &inputs.control),
+                buffer_entry(5, &inputs.candidates),
+                buffer_entry(6, &inputs.heads),
+                buffer_entry(7, &inputs.items),
+                buffer_entry(8, &inputs.locations),
+            ],
+            list_dispatch(self.capacity.candidates.div_ceil(CANDIDATES_PER_GROUP)),
+        )
+    }
+
+    fn apply(&self) -> Stage {
+        let inputs = &self.inputs;
+        self.builder.compute(
+            STAGES[3],
+            &[
+                view_entry(0, self.source),
+                view_entry(1, &inputs.work),
+                buffer_entry(4, &inputs.control),
+                buffer_entry(6, &inputs.heads),
+                buffer_entry(7, &inputs.items),
+                buffer_entry(8, &inputs.locations),
+            ],
+            list_dispatch(self.capacity.locations.div_ceil(LOCATIONS_PER_GROUP)),
+        )
+    }
+}
+
 /// Appends the CMAA2 stages.
 ///
 /// `source` is display-referred color (`Rgba16Float`) at `size`. The working image, the work
@@ -236,66 +309,30 @@ pub(crate) fn append(
     cmaa2: Cmaa2Settings,
     output: (wgpu::TextureFormat, StageTarget),
 ) {
-    let builder = Builder {
-        device,
-        module: device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("CMAA2"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("cmaa2.wgsl").into()),
-        }),
-        constants: cmaa2.constants(),
+    let schedule = Schedule {
+        builder: Builder {
+            device,
+            module: device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("CMAA2"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("cmaa2.wgsl").into()),
+            }),
+            constants: cmaa2.constants(),
+        },
+        source,
+        inputs: allocate(device, set, size),
+        size,
+        capacity: Capacity::new(device, size),
     };
-    let inputs = allocate(device, set, size);
-    let capacity = Capacity::new(device, size);
-    let [clear, edges, candidates, apply, _] = STAGES;
-    set.stages.push(Stage {
-        id: StageId::new(clear, 0),
-        label: clear,
-        enabled: true,
-        operation: Operation::Clear(inputs.control.clone()),
-    });
-    set.stages.push(builder.compute(
-        edges,
-        &[
-            view_entry(0, source),
-            view_entry(1, &inputs.work),
-            buffer_entry(3, &inputs.edges),
-            buffer_entry(4, &inputs.control),
-            buffer_entry(5, &inputs.candidates),
-            buffer_entry(6, &inputs.heads),
-        ],
-        [
-            size[0].div_ceil(EDGE_GROUP_PIXELS),
-            size[1].div_ceil(EDGE_GROUP_PIXELS),
-            1,
-        ],
-    ));
-    set.stages.push(builder.compute(
-        candidates,
-        &[
-            view_entry(0, source),
-            buffer_entry(3, &inputs.edges),
-            buffer_entry(4, &inputs.control),
-            buffer_entry(5, &inputs.candidates),
-            buffer_entry(6, &inputs.heads),
-            buffer_entry(7, &inputs.items),
-            buffer_entry(8, &inputs.locations),
-        ],
-        list_dispatch(capacity.candidates.div_ceil(CANDIDATES_PER_GROUP)),
-    ));
-    set.stages.push(builder.compute(
-        apply,
-        &[
-            view_entry(0, source),
-            view_entry(1, &inputs.work),
-            buffer_entry(4, &inputs.control),
-            buffer_entry(6, &inputs.heads),
-            buffer_entry(7, &inputs.items),
-            buffer_entry(8, &inputs.locations),
-        ],
-        list_dispatch(capacity.locations.div_ceil(LOCATIONS_PER_GROUP)),
-    ));
-    set.stages
-        .push(builder.present(&[view_entry(2, &inputs.work)], output));
+    set.stages.extend([
+        schedule.clear(),
+        schedule.edges(),
+        schedule.candidates(),
+        schedule.apply(),
+        schedule
+            .builder
+            .present(&[view_entry(2, &schedule.inputs.work)], output),
+    ]);
+    let inputs = schedule.inputs;
     set.resources.buffers.extend([
         inputs.edges,
         inputs.control,

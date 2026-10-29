@@ -60,6 +60,7 @@ impl Cmaa2Settings {
     }
 
     /// The same settings with the reference `CMAA2_EXTRA_SHARPNESS` option on.
+    #[must_use]
     pub const fn with_extra_sharpness(self) -> Self {
         Self {
             extra_sharpness: true,

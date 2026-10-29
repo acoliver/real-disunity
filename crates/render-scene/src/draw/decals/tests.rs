@@ -2,6 +2,41 @@ use super::*;
 use crate::draw::tests::decals::{decal, source};
 
 #[test]
+fn normal_frame_packing_preserves_default_bytes_and_texture_layer_bits() {
+    use worldrunner_render_plan::{SceneDecalMapping, SceneDecalNormalFrame};
+    let d = decal();
+    let mut values = Vec::new();
+    mapping_values(&mut values, &d, 1.0);
+    let actual: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
+    let expected: Vec<_> = [1.0_f32, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    assert_eq!(actual, expected);
+    assert_eq!(
+        normal_frame_bits(SceneDecalMapping::default().normal_frame),
+        0
+    );
+    for frame in [
+        SceneDecalNormalFrame::Projection,
+        SceneDecalNormalFrame::ReceiverWorld,
+    ] {
+        let flags = normal_frame_bits(frame);
+        assert_eq!(
+            flags >> 19,
+            u32::from(frame == SceneDecalNormalFrame::ReceiverWorld)
+        );
+        for mask in 0..8 {
+            let packed = flags | 0x11 | (32 << 8) | ((7 ^ mask) << 16);
+            assert_eq!(packed & 255, 17);
+            assert_eq!((packed >> 8) & 255, 32);
+            assert_eq!((packed >> 16) & 7, 7 ^ mask);
+            assert_eq!(packed >> 19, flags >> 19);
+        }
+    }
+}
+
+#[test]
 fn two_thousand_authored_placements_are_culled_before_the_frame_bound() {
     let placements: Vec<_> = (0..2000)
         .map(|i| {

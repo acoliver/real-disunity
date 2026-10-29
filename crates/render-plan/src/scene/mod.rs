@@ -6,11 +6,10 @@
 //! interpretation, no `Default`, no fallback, and no data borrowed from a
 //! publication. Every constructor validates its own closure, so an invalid
 //! scene cannot exist.
-
 mod decal;
 pub use decal::{
-    SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalReceivers,
-    SceneDecalWriteMask,
+    SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalNormalFrame,
+    SceneDecalReceivers, SceneDecalWriteMask,
 };
 mod atmosphere;
 mod specular_cube;
@@ -122,7 +121,6 @@ mod terrain_pages;
 pub use terrain_pages::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 #[cfg(test)]
 mod terrain_pages_tests;
-
 pub use composition::{
     DocumentSceneInput, ProvenSceneContribution, RouteDeclarationRef, RouteSceneFactory,
     RouteSceneInput, SceneCompositionFactory, SceneContribution, ScenePlacement,
@@ -745,7 +743,6 @@ mod tests {
         assert!(scene.terrain().is_none());
     }
 }
-
 mod wind_field;
 pub use wind_field::{ScenePlanarWindField, SceneStaticWindModifier};
 mod terrain_streaming;

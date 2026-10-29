@@ -56,6 +56,18 @@ pub enum SceneDecalAngle {
     },
 }
 
+/// Coordinate frame for correcting decoded detail normals onto the receiver.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneDecalNormalFrame {
+    /// Correct in the placement's projection basis, then return to world space.
+    #[default]
+    Projection,
+    /// Correct onto the world-space geometric normal, without placement rotation.
+    /// At exactly negative Z, use an X-axis half turn: `(dx, -dy, -dz)`.
+    /// Every nonsingular receiver uses the reference basis without a pole threshold.
+    ReceiverWorld,
+}
+
 /// Sampling controls independent of the projection hull.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneDecalMapping {
@@ -66,6 +78,8 @@ pub struct SceneDecalMapping {
     pub angle: SceneDecalAngle,
     /// Uses the absolute projection cosine, accepting both sides.
     pub double_sided: bool,
+    /// Used for both shading and normal metadata.
+    pub normal_frame: SceneDecalNormalFrame,
 }
 impl Default for SceneDecalMapping {
     fn default() -> Self {
@@ -74,6 +88,7 @@ impl Default for SceneDecalMapping {
             uv_offset_micro: [0; 2],
             angle: SceneDecalAngle::Linear,
             double_sided: false,
+            normal_frame: SceneDecalNormalFrame::Projection,
         }
     }
 }
@@ -227,6 +242,15 @@ mod tests {
         assert_eq!(mapping.uv_offset_micro, [0; 2]);
         assert_eq!(mapping.angle, SceneDecalAngle::Linear);
         assert!(!mapping.double_sided);
+        assert_eq!(mapping.normal_frame, SceneDecalNormalFrame::Projection);
+        for frame in [
+            SceneDecalNormalFrame::Projection,
+            SceneDecalNormalFrame::ReceiverWorld,
+        ] {
+            let mut d = decal();
+            d.mapping.normal_frame = frame;
+            assert!(d.validate().is_ok());
+        }
         for (threshold_micro, exponent_micro, valid) in [
             (0, 2_400_000, false),
             (1_000_001, 2_400_000, false),

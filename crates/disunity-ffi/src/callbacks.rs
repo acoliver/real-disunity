@@ -41,6 +41,7 @@ pub(crate) fn wait(
     match kind {
         0 => Ok(WaitCondition::NextFrame),
         1 => Ok(WaitCondition::FixedUpdate),
+        4 => Ok(WaitCondition::EndOfFrame),
         2 | 3 => {
             let span = TimeSpan::new(num, den).map_err(crate::errors::AbiError::from)?;
             Ok(if kind == 2 {

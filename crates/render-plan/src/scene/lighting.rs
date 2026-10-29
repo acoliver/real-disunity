@@ -35,6 +35,20 @@ pub enum SceneDiffuseEnvironment {
 }
 
 impl SceneEffects {
+    /// Overrides the shadow light in scene Z-up coordinates without changing the direct sun.
+    /// The unit direction is validated by construction. `None` follows the direct sun.
+    #[must_use]
+    pub fn with_shadow_direction(mut self, direction: Option<super::SceneDirection>) -> Self {
+        self.shadow_direction = direction;
+        self
+    }
+
+    /// Independent shadow light, or `None` when shadows follow the direct sun.
+    #[must_use]
+    pub const fn shadow_direction(&self) -> Option<super::SceneDirection> {
+        self.shadow_direction
+    }
+
     /// Selects a validated linear RGB multiplier for the scene sun only.
     #[must_use]
     pub fn with_sun_tint(mut self, tint: super::SceneTint) -> Self {

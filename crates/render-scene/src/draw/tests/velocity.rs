@@ -10,7 +10,8 @@ use crate::compositor::FrameRenderer;
 use glam::{Mat4, Vec3, Vec4};
 use worldrunner_render_plan::{SceneAmbientOcclusion, SceneMaterialFeatures, SceneTint, SceneWind};
 use worldrunner_render_post::{
-    AntiAliasing, AttachmentView, MsaaSamples, PostResolve, ResourceRef, ToneMap,
+    AntiAliasing, AttachmentView, FrameConfig, MsaaSamples, PostResolve, Readback, ResourceRef,
+    ToneMap,
 };
 
 const HDR: TextureFormat = TextureFormat::Rgba16Float;
@@ -275,5 +276,128 @@ fn a_renderer_without_taa_allocates_no_velocity_target_and_refuses_velocity_pipe
         !ScenePipelines::with_samples(context.device(), HDR, 1)
             .unwrap()
             .writes_velocity()
+    );
+}
+
+fn output_texture(device: &Device) -> Texture {
+    device.create_texture(&TextureDescriptor {
+        label: Some("end to end output"),
+        size: Extent3d {
+            width: TARGET,
+            height: TARGET,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: COLOR_FORMAT,
+        usage: TextureUsages::RENDER_ATTACHMENT
+            | TextureUsages::TEXTURE_BINDING
+            | TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
+/// Draws one frame per clock, rotating frame slots as a host does, and returns the tone mapped
+/// output of the last. `velocity` selects the velocity pipelines; without them the TAA resolve
+/// reads zero residuals, which is the behaviour before the object pass wrote velocity.
+fn output_after(
+    context: &GpuContext,
+    scene: &RenderScene,
+    taa: Option<bool>,
+    clocks: &[f32],
+) -> Vec<u8> {
+    let device = context.device();
+    let (scene, effects, resolve) = match taa {
+        Some(_) => {
+            let (scene, effects) = with_taa(scene);
+            (scene, effects, PostResolve::None)
+        }
+        None => (scene.clone(), effects(), PostResolve::None),
+    };
+    let pipelines = if taa == Some(true) {
+        ScenePipelines::with_taa_velocity(device, HDR, 1).unwrap()
+    } else {
+        ScenePipelines::with_samples(device, HDR, 1).unwrap()
+    };
+    let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+    let mut renderer = FrameRenderer::hdr_antialiased(
+        context,
+        [TARGET, TARGET],
+        COLOR_FORMAT,
+        AntiAliasing::new(MsaaSamples::X1, resolve),
+        ToneMap::Reinhard,
+        Some(&effects),
+    )
+    .unwrap();
+    let output = output_texture(device);
+    let view = output.create_view(&TextureViewDescriptor::default());
+    let color = AttachmentView::new(
+        ResourceRef::new("scene color"),
+        renderer.targets().scene().texture(),
+    )
+    .unwrap();
+    let depth = AttachmentView::new(
+        ResourceRef::new("scene depth"),
+        renderer.targets().depth().texture(),
+    )
+    .unwrap();
+    for (index, &seconds) in clocks.iter().enumerate() {
+        renderer.select_frame_slot(index % 3);
+        renderer.set_frame_time(seconds).unwrap();
+        let mut encoder = context.submission().begin(device).unwrap();
+        crate::compositor::encode_scene(
+            &mut renderer,
+            device,
+            &mut encoder,
+            (&mut gpu, &pipelines),
+            (&color, &depth),
+            frame_from(pose()),
+        )
+        .unwrap();
+        renderer.encode_output(&mut encoder, &view).unwrap();
+        encoder.finish().submit().unwrap();
+    }
+    Readback::new(
+        device,
+        FrameConfig::new([TARGET, TARGET], COLOR_FORMAT, 1),
+        1 << 20,
+    )
+    .unwrap()
+    .read(device, context.submission(), &output)
+    .unwrap()
+}
+
+fn mean_error(image: &[u8], reference: &[u8]) -> f64 {
+    let sum: u32 = image
+        .iter()
+        .zip(reference)
+        .map(|(a, b)| u32::from(a.abs_diff(*b)))
+        .sum();
+    f64::from(sum) / f64::from(u32::try_from(image.len()).unwrap()) / 255.0
+}
+
+#[test]
+fn swaying_foliage_under_a_fixed_camera_resolves_closer_to_the_unjittered_frame_with_velocity() {
+    // 16 frames of rigid sway at 31.25 ms steps (about 1.5 px a frame at the quad), error measured
+    // as the mean absolute difference of the 8-bit output from the unjittered frame at the last clock.
+    let context = context();
+    let clocks: Vec<f32> = (1..=16_u8).map(|step| f32::from(step) * 0.03125).collect();
+    let scene = windy();
+    let reference = output_after(&context, &scene, None, &clocks[15..]);
+    let without = mean_error(
+        &output_after(&context, &scene, Some(false), &clocks),
+        &reference,
+    );
+    let with = mean_error(
+        &output_after(&context, &scene, Some(true), &clocks),
+        &reference,
+    );
+    // Measured on lavapipe: 0.01417 without velocity (the previous behaviour) and 0.00856 with it,
+    // a ratio of 0.60. The bound leaves margin for driver differences and still fails if the
+    // resolve ignores the residual.
+    assert!(
+        with < 0.75 * without,
+        "with velocity {with}, without {without}"
     );
 }

@@ -117,7 +117,7 @@ fn constants_carry_the_threshold_and_the_sharpness_option() {
 }
 
 #[test]
-fn allocation_accounting_covers_the_working_image_and_work_lists() {
+fn allocation_accounting_covers_the_display_input_and_work_lists_but_no_second_image() {
     use crate::{FrameConfig, allocation::post_allocations};
     let config = FrameConfig::new([256, 128], wgpu::TextureFormat::Rgba16Float, 1);
     let limits = wgpu::Limits::default();
@@ -134,11 +134,19 @@ fn allocation_accounting_covers_the_working_image_and_work_lists() {
     };
     let none = bytes(PostResolve::None);
     let cmaa2 = bytes(PostResolve::cmaa2(Cmaa2Preset::High));
-    // Two Rgba16Float images (display input and working copy) plus the lists, for 3 frame slots.
-    let images = 2 * 8 * 256 * 128 * 3;
+    // One Rgba16Float image, the display-referred input, for 3 frame slots. The lists add about
+    // seven bytes a pixel, less than the eight of a second image, so a working copy would
+    // push the total past two images.
+    let image = 8 * 256 * 128 * 3;
     assert!(
-        cmaa2 - none > images,
-        "CMAA2 adds {} bytes, expected more than the images' {images}",
+        cmaa2 - none > image,
+        "CMAA2 adds {} bytes, expected more than the input image's {image}",
         cmaa2 - none
+    );
+    assert!(
+        cmaa2 - none < 2 * image,
+        "CMAA2 adds {} bytes, expected less than two images' {}",
+        cmaa2 - none,
+        2 * image
     );
 }

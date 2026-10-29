@@ -11,13 +11,11 @@ const SOFT_EDGE: &str =
     "let v=0.5+2.0*clamp((p.x-8.0)/6.0,0.0,1.0);return vec4<f32>(v,v*0.8,v*0.6,0.75);";
 const STEPPED: &str =
     "let edge=select(8.0,9.0,p.y>8.0);let v=select(0.0,3.0,p.x>edge);return vec4<f32>(v,v,v,1.0);";
-const CMAA2_STAGES: [&str; 7] = [
+const CMAA2_STAGES: [&str; 5] = [
     "cmaa2_clear",
     "cmaa2_edges",
     "cmaa2_candidate_args",
     "cmaa2_candidates",
-    "cmaa2_apply_args",
-    "cmaa2_apply",
     "cmaa2_present",
 ];
 

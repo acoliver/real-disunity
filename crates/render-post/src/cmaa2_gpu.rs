@@ -1,39 +1,33 @@
 //! Schedules the CMAA2 passes. The shader is `cmaa2.wgsl`.
 //!
 //! Frame order: clear the counters, detect edges (compute), write the candidate dispatch
-//! arguments (one thread), process shape candidates (compute, indirect), write the apply
-//! dispatch arguments (one thread), apply the queued blends (compute, indirect), present the
-//! working image (fullscreen).
+//! arguments (one thread), process shape candidates (compute, indirect), then the fullscreen
+//! pass that resolves the queued blends while it writes the output.
 use worldrunner_render_gpu::configuration::AllocationSet;
 
 use crate::{Cmaa2Settings, Operation, Stage, StageId, StageSet, StageTarget};
 
 /// Stage names, in execution order. Identities are stable for timing.
-pub(crate) const STAGES: [&str; 7] = [
+pub(crate) const STAGES: [&str; 5] = [
     "cmaa2_clear",
     "cmaa2_edges",
     "cmaa2_candidate_args",
     "cmaa2_candidates",
-    "cmaa2_apply_args",
-    "cmaa2_apply",
     "cmaa2_present",
 ];
 
 /// Pixels of one edge workgroup's output: 14 quads of 2x2 pixels in each direction.
 const EDGE_GROUP_PIXELS: u32 = 28;
-/// Counters: shape candidates, deferred blend locations, deferred blend items, padding.
-const CONTROL_BYTES: u64 = 16;
-/// Indirect dispatch arguments: three `u32` for the candidate pass, then three for the apply
-/// pass. The apply pass starts at byte `APPLY_ARGUMENTS`.
-const ARGUMENT_BYTES: u64 = 24;
-const APPLY_ARGUMENTS: u64 = 12;
+/// Counters: shape candidates and deferred blend items.
+const CONTROL_BYTES: u64 = 8;
+/// Indirect dispatch arguments: three `u32` workgroup counts for the candidate pass.
+const ARGUMENT_BYTES: u64 = 12;
 
 /// Element counts of the work lists. Like the reference they hold a fraction of the pixel count
 /// and drop work items when a pathological image fills them.
 struct Capacity {
     quads: u64,
     candidates: u64,
-    locations: u64,
     items: u64,
 }
 
@@ -45,7 +39,6 @@ impl Capacity {
         Self {
             quads: u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)),
             candidates: fits(pixels.div_ceil(4).max(16), 4),
-            locations: fits(pixels.div_ceil(6).max(16), 4),
             items: fits(pixels.div_ceil(2).max(32), 8),
         }
     }
@@ -58,26 +51,22 @@ pub(crate) fn allocations(set: &mut AllocationSet, size: [u32; 2]) {
     let extent = [size[0], size[1], 1];
     let format = wgpu::TextureFormat::Rgba16Float;
     set.texture("display-linear post input", extent, format, [1, 1], 3);
-    set.texture("CMAA2 working image", extent, format, [1, 1], 3);
     set.buffer("CMAA2 edges", capacity.quads * 4, 3);
     set.buffer("CMAA2 counters", CONTROL_BYTES, 3);
     set.buffer("CMAA2 dispatch arguments", ARGUMENT_BYTES, 3);
     set.buffer("CMAA2 shape candidates", capacity.candidates * 4, 3);
     set.buffer("CMAA2 blend list heads", capacity.quads * 4, 3);
     set.buffer("CMAA2 blend items", capacity.items * 8, 3);
-    set.buffer("CMAA2 blend locations", capacity.locations * 4, 3);
 }
 
-/// Working image and lists owned by one schedule.
+/// Work lists owned by one schedule.
 struct Inputs {
-    work: wgpu::TextureView,
     edges: wgpu::Buffer,
     control: wgpu::Buffer,
     arguments: wgpu::Buffer,
     candidates: wgpu::Buffer,
     heads: wgpu::Buffer,
     items: wgpu::Buffer,
-    locations: wgpu::Buffer,
 }
 
 fn storage(
@@ -94,23 +83,10 @@ fn storage(
     })
 }
 
-fn allocate(device: &wgpu::Device, set: &mut StageSet, size: [u32; 2]) -> Inputs {
+fn allocate(device: &wgpu::Device, size: [u32; 2]) -> Inputs {
     let capacity = Capacity::new(device.limits().max_storage_buffer_binding_size, size);
     let none = wgpu::BufferUsages::empty();
-    let work = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("CMAA2 working image"),
-        size: crate::targets::extent(size),
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba16Float,
-        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-    let view = work.create_view(&wgpu::TextureViewDescriptor::default());
-    set.resources.textures.push(work);
     Inputs {
-        work: view,
         edges: storage(device, "CMAA2 edges", capacity.quads * 4, none),
         control: storage(
             device,
@@ -132,12 +108,6 @@ fn allocate(device: &wgpu::Device, set: &mut StageSet, size: [u32; 2]) -> Inputs
         ),
         heads: storage(device, "CMAA2 blend list heads", capacity.quads * 4, none),
         items: storage(device, "CMAA2 blend items", capacity.items * 8, none),
-        locations: storage(
-            device,
-            "CMAA2 blend locations",
-            capacity.locations * 4,
-            none,
-        ),
     }
 }
 
@@ -233,7 +203,7 @@ impl Builder<'_> {
         entries: &[wgpu::BindGroupEntry<'_>],
         output: (wgpu::TextureFormat, StageTarget),
     ) -> Stage {
-        let name = STAGES[6];
+        let name = STAGES[4];
         let pipeline = self
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -269,7 +239,7 @@ impl Builder<'_> {
     }
 }
 
-/// Everything the four passes bind, so each pass is built by one short method.
+/// Everything the passes bind, so each pass is built by one short method.
 struct Schedule<'a> {
     builder: Builder<'a>,
     source: &'a wgpu::TextureView,
@@ -294,7 +264,6 @@ impl Schedule<'_> {
             STAGES[1],
             &[
                 view_entry(0, self.source),
-                view_entry(1, &inputs.work),
                 buffer_entry(3, &inputs.edges),
                 buffer_entry(4, &inputs.control),
                 buffer_entry(5, &inputs.candidates),
@@ -308,17 +277,30 @@ impl Schedule<'_> {
         )
     }
 
-    /// One thread turns a list counter into the dispatch arguments of the pass after it.
-    fn arguments(&self, name: &'static str, list: (u32, &wgpu::Buffer)) -> Stage {
+    /// One thread turns the candidate counter into the dispatch arguments of the candidate pass.
+    fn arguments(&self) -> Stage {
         let inputs = &self.inputs;
         self.builder.compute(
-            name,
+            STAGES[2],
             &[
                 buffer_entry(4, &inputs.control),
-                buffer_entry(list.0, list.1),
+                buffer_entry(5, &inputs.candidates),
                 buffer_entry(9, &inputs.arguments),
             ],
             [1, 1, 1],
+        )
+    }
+
+    /// The fullscreen pass reads the heads and items through read-only bindings.
+    fn present(&self, output: (wgpu::TextureFormat, StageTarget)) -> Stage {
+        let inputs = &self.inputs;
+        self.builder.present(
+            &[
+                view_entry(0, self.source),
+                buffer_entry(10, &inputs.heads),
+                buffer_entry(11, &inputs.items),
+            ],
+            output,
         )
     }
 
@@ -333,32 +315,15 @@ impl Schedule<'_> {
                 buffer_entry(5, &inputs.candidates),
                 buffer_entry(6, &inputs.heads),
                 buffer_entry(7, &inputs.items),
-                buffer_entry(8, &inputs.locations),
             ],
             (&inputs.arguments, 0),
-        )
-    }
-
-    fn apply(&self) -> Stage {
-        let inputs = &self.inputs;
-        self.builder.indirect(
-            STAGES[5],
-            &[
-                view_entry(0, self.source),
-                view_entry(1, &inputs.work),
-                buffer_entry(4, &inputs.control),
-                buffer_entry(6, &inputs.heads),
-                buffer_entry(7, &inputs.items),
-                buffer_entry(8, &inputs.locations),
-            ],
-            (&inputs.arguments, APPLY_ARGUMENTS),
         )
     }
 }
 
 /// Appends the CMAA2 stages.
 ///
-/// `source` is display-referred color (`Rgba16Float`) at `size`. The working image, the work
+/// `source` is display-referred color (`Rgba16Float`) at `size`. The work
 /// lists and their counters belong to `set`, so a resize or reconfiguration rebuilds them with
 /// the rest of the schedule.
 pub(crate) fn append(
@@ -379,19 +344,15 @@ pub(crate) fn append(
             constants: cmaa2.constants(),
         },
         source,
-        inputs: allocate(device, set, size),
+        inputs: allocate(device, size),
         size,
     };
     set.stages.extend([
         schedule.clear(),
         schedule.edges(),
-        schedule.arguments(STAGES[2], (5, &schedule.inputs.candidates)),
+        schedule.arguments(),
         schedule.candidates(),
-        schedule.arguments(STAGES[4], (8, &schedule.inputs.locations)),
-        schedule.apply(),
-        schedule
-            .builder
-            .present(&[view_entry(2, &schedule.inputs.work)], output),
+        schedule.present(output),
     ]);
     let inputs = schedule.inputs;
     set.resources.buffers.extend([
@@ -401,6 +362,5 @@ pub(crate) fn append(
         inputs.candidates,
         inputs.heads,
         inputs.items,
-        inputs.locations,
     ]);
 }

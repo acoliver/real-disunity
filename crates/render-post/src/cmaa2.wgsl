@@ -30,14 +30,16 @@
 //   buffers addressed by linear pixel or quad index, and the quad list heads are an atomic
 //   buffer, because storage textures have no InterlockedExchange. Positions are not packed
 //   into 14 bits, so extents are not limited to 16384.
-// * ComputeDispatchArgsCS is split into two one-thread entry points, one per list, because the
-//   candidate count is only final after the edge pass and the location count after the
-//   candidate pass. Each writes indirect dispatch arguments from its counter. Long lists wrap
-//   to further rows of 4096 workgroups. The control counters are cleared by a buffer clear
-//   before the edge pass instead of by ComputeDispatchArgsCS.
-// * The reference writes blended colors into the input image with a UAV. Here the edge pass
-//   copies the image to a working texture, the apply pass writes blended colors into it with
-//   the alpha of the original pixel, and a final pass presents it.
+// * ComputeDispatchArgsCS is a one-thread entry point that writes the indirect dispatch
+//   arguments of the candidate pass from its counter. Long lists wrap to further rows of 4096
+//   workgroups. The control counters are cleared by a buffer clear before the edge pass instead
+//   of by ComputeDispatchArgsCS.
+// * The reference writes blended colors into the input image with a UAV, in a compute pass
+//   (DeferredColorApply2x2CS) that visits each touched quad. Here the final fullscreen pass
+//   does that work for its own pixel: it reads the pixel, and when its quad received blend
+//   items it averages the items for that pixel (with the alpha of the original pixel) instead
+//   of copying it. No working copy of the image and no apply pass or location list is needed,
+//   and the output keeps the display-referred image's format conversion.
 // * Samples outside the image are clamped to the border instead of reading as zero.
 // * List overflow drops the work item instead of writing past the end of a list.
 // * ComputeSimpleShapeBlendValues is ported with dontTestShapeValidity = true, the only way
@@ -50,27 +52,27 @@ override THRESHOLD: f32 = 0.07;
 override EXTRA_SHARPNESS: bool = false;
 
 @group(0) @binding(0) var color_in: texture_2d<f32>;
-@group(0) @binding(1) var work_out: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(2) var work_in: texture_2d<f32>;
 @group(0) @binding(3) var<storage, read_write> edge_store: array<u32>;
-// Counters: 0 shape candidates, 1 deferred blend locations, 2 deferred blend items.
+// Counters: 0 shape candidates, 1 deferred blend items.
 @group(0) @binding(4) var<storage, read_write> control: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> candidates: array<u32>;
 @group(0) @binding(6) var<storage, read_write> heads: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> items: array<vec2<u32>>;
-@group(0) @binding(8) var<storage, read_write> locations: array<u32>;
-// Indirect dispatch arguments: x, y, z of the candidate pass, then of the apply pass.
+// Indirect dispatch arguments: x, y, z of the candidate pass.
 @group(0) @binding(9) var<storage, read_write> dispatch_args: array<u32>;
+// Read-only views of the heads and items for the fragment stage, which cannot bind
+// read-write storage.
+@group(0) @binding(10) var<storage, read> heads_view: array<u32>;
+@group(0) @binding(11) var<storage, read> items_view: array<vec2<u32>>;
 
 const NO_ITEM: u32 = 0xFFFFFFFFu;
 const COUNT_CANDIDATES: u32 = 0u;
-const COUNT_LOCATIONS: u32 = 1u;
-const COUNT_ITEMS: u32 = 2u;
+const COUNT_ITEMS: u32 = 1u;
 const MAX_LINE_LENGTH: f32 = 86.0;
 const SYMMETRY_CORRECTION: f32 = 0.22;
 const EDGE_KERNEL: u32 = 16u;
 const CANDIDATE_THREADS: u32 = 128u;
-const APPLY_CANDIDATES_PER_GROUP: u32 = 32u;
+const MAX_ITEMS_PER_QUAD: u32 = 32u;
 const BLEND_ITEM_SLOTS: u32 = 768u;
 // Workgroups per row of an indirect dispatch; longer lists wrap to further rows, which keeps
 // every dimension within the device limit at any extent.
@@ -150,12 +152,6 @@ fn store_color_sample(pixel: vec2<i32>, color: vec3<f32>, complex_shape: bool) {
     let header = item | (offset_xy << 30u) | (select(0u, 1u, complex_shape) << 29u);
     let previous = atomicExchange(&heads[quad_index], header);
     items[item] = vec2<u32>(previous, pack_color(color));
-    if previous == NO_ITEM {
-        let slot = atomicAdd(&control[COUNT_LOCATIONS], 1u);
-        if slot < arrayLength(&locations) {
-            locations[slot] = quad_index;
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +160,6 @@ fn store_color_sample(pixel: vec2<i32>, color: vec3<f32>, complex_shape: bool) {
 var<workgroup> frac_edges_h: array<vec4<f32>, 256>;
 var<workgroup> frac_edges_v: array<vec4<f32>, 256>;
 var<private> lumas: array<f32, 8>;
-var<private> colors: array<vec4<f32>, 8>;
 var<private> quad_edges: array<vec2<f32>, 4>;
 var<private> hood: array<vec2<f32>, 16>;
 var<private> confirmed: array<vec4<f32>, 4>;
@@ -261,26 +256,17 @@ fn collect_candidates(pixel: vec2<i32>) -> u32 {
     return packed;
 }
 
-fn copy_quad(pixel: vec2<i32>) {
-    for (var i = 0; i < 4; i++) {
-        let at = pixel + vec2<i32>(i & 1, i >> 1);
-        if in_image(at) {
-            textureStore(work_out, at, colors[(i & 1) + (i >> 1) * 3]);
-        }
-    }
-}
-
 fn process_quad(pixel: vec2<i32>, center: u32) {
     let quad = vec2<u32>(pixel / 2);
     if quad.x >= quads_wide() || quad.y >= quads_high() { return; }
-    copy_quad(pixel);
     let top_row = vec2<f32>(frac_edges_h[center - EDGE_KERNEL].z, frac_edges_h[center - EDGE_KERNEL].w);
     let left_column = vec2<f32>(frac_edges_v[center - 1u].y, frac_edges_v[center - 1u].w);
     let total = quad_edges[0] + quad_edges[1] + quad_edges[2] + quad_edges[3] + top_row + left_column;
     var packed = 0u;
     let quad_index = quad.y * quads_wide() + quad.x;
+    // Every quad starts empty, so the final pass never reads items of an earlier frame.
+    atomicStore(&heads[quad_index], NO_ITEM);
     if total.x + total.y > 0.0 {
-        atomicStore(&heads[quad_index], NO_ITEM);
         load_neighbourhood(center, top_row, left_column);
         confirm_edges(top_row, left_column);
         packed = collect_candidates(pixel);
@@ -299,8 +285,7 @@ fn cmaa2_edges(
     let in_kernel = local.x != 0u && local.x != EDGE_KERNEL - 1u
         && local.y != 0u && local.y != EDGE_KERNEL - 1u;
     for (var i = 0; i < 8; i++) {
-        colors[i] = load_rgba(pixel + vec2<i32>(i % 3, i / 3));
-        lumas[i] = edge_luma(colors[i].rgb);
+        lumas[i] = edge_luma(load_rgb(pixel + vec2<i32>(i % 3, i / 3)));
     }
     quad_edges[0] = edge_pair(0, 0);
     quad_edges[1] = edge_pair(1, 0);
@@ -317,24 +302,14 @@ fn cmaa2_edges(
 // ---------------------------------------------------------------------------
 // Dispatch arguments (ComputeDispatchArgsCS)
 
-fn write_dispatch_args(first: u32, count: u32, per_group: u32) {
-    let groups = (count + per_group - 1u) / per_group;
-    let x = min(groups, DISPATCH_ROW);
-    dispatch_args[first] = x;
-    dispatch_args[first + 1u] = select(1u, (groups + x - 1u) / max(x, 1u), groups > 0u);
-    dispatch_args[first + 2u] = 1u;
-}
-
 @compute @workgroup_size(1, 1, 1)
 fn cmaa2_candidate_args() {
     let count = min(atomicLoad(&control[COUNT_CANDIDATES]), arrayLength(&candidates));
-    write_dispatch_args(0u, count, CANDIDATE_THREADS);
-}
-
-@compute @workgroup_size(1, 1, 1)
-fn cmaa2_apply_args() {
-    let count = min(atomicLoad(&control[COUNT_LOCATIONS]), arrayLength(&locations));
-    write_dispatch_args(3u, count, APPLY_CANDIDATES_PER_GROUP);
+    let groups = (count + CANDIDATE_THREADS - 1u) / CANDIDATE_THREADS;
+    let x = min(groups, DISPATCH_ROW);
+    dispatch_args[0] = x;
+    dispatch_args[1] = select(1u, (groups + x - 1u) / max(x, 1u), groups > 0u);
+    dispatch_args[2] = 1u;
 }
 
 // ---------------------------------------------------------------------------
@@ -575,38 +550,27 @@ fn cmaa2_candidates(
 }
 
 // ---------------------------------------------------------------------------
-// Pass 3: resolve the queued colors of each touched quad (DeferredColorApply2x2CS)
+// Pass 3: present the image, resolving the queued colors of each touched quad
+// (DeferredColorApply2x2CS, done per pixel)
 
-@compute @workgroup_size(4, 32, 1)
-fn cmaa2_apply(
-    @builtin(workgroup_id) group: vec3<u32>,
-    @builtin(num_workgroups) groups: vec3<u32>,
-    @builtin(local_invocation_id) local: vec3<u32>,
-) {
-    let slot = (group.y * groups.x + group.x) * APPLY_CANDIDATES_PER_GROUP + local.y;
-    let count = min(atomicLoad(&control[COUNT_LOCATIONS]), arrayLength(&locations));
-    if slot >= count { return; }
-    let quad_index = locations[slot];
-    let quad = vec2<u32>(quad_index % quads_wide(), quad_index / quads_wide());
-    let pixel = vec2<i32>(quad * 2u) + vec2<i32>(i32(local.x & 1u), i32(local.x >> 1u));
-    var header = atomicLoad(&heads[quad_index]);
+@fragment fn cmaa2_present(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    let pixel = vec2<i32>(p.xy);
+    let color = textureLoad(color_in, pixel, 0);
+    let quad = vec2<u32>(pixel) / 2u;
+    var header = heads_view[quad.y * quads_wide() + quad.x];
+    let slot = (u32(pixel.y) & 1u) * 2u + (u32(pixel.x) & 1u);
     var sum = vec4<f32>(0.0);
     // The bound keeps corrupt data from hanging the GPU, as in the reference.
-    for (var i = 0u; header != NO_ITEM && i < 32u; i++) {
-        let item = items[header & 0x1FFFFFFFu];
-        if (header >> 30u) == local.x {
+    for (var i = 0u; header != NO_ITEM && i < MAX_ITEMS_PER_QUAD; i++) {
+        let item = items_view[header & 0x1FFFFFFFu];
+        if (header >> 30u) == slot {
             let weight = 0.8 + f32((header >> 29u) & 1u);
             sum += vec4<f32>(unpack_color(item.y) * weight, weight);
         }
         header = item.x;
     }
-    if sum.a == 0.0 || !in_image(pixel) { return; }
-    textureStore(work_out, pixel, vec4<f32>(sum.rgb / sum.a, textureLoad(color_in, pixel, 0).a));
-}
-
-// ---------------------------------------------------------------------------
-// Pass 4: present the working image
-
-@fragment fn cmaa2_present(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
-    return textureLoad(work_in, vec2<i32>(p.xy), 0);
+    if sum.a == 0.0 {
+        return color;
+    }
+    return vec4<f32>(sum.rgb / sum.a, color.a);
 }

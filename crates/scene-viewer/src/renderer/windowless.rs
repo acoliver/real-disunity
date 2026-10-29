@@ -12,6 +12,9 @@ impl Renderer {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await?;
+        if let Some(callback) = &options.adapter_callback {
+            callback.notify(&adapter)?;
+        }
         let context =
             GpuContext::from_adapter_with_features(adapter, required_features(scene)).await?;
         let errors = device_errors(context.device(), context.submission());

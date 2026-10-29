@@ -1,4 +1,37 @@
 #[test]
+fn adapter_classification_covers_every_device_type() {
+    use super::AdapterClass;
+    for (kind, expected) in [
+        (wgpu::DeviceType::DiscreteGpu, AdapterClass::Discrete),
+        (wgpu::DeviceType::IntegratedGpu, AdapterClass::Integrated),
+        (wgpu::DeviceType::VirtualGpu, AdapterClass::Virtual),
+        (wgpu::DeviceType::Cpu, AdapterClass::Software),
+        (wgpu::DeviceType::Other, AdapterClass::Other),
+    ] {
+        assert_eq!(AdapterClass::from(kind), expected);
+    }
+}
+
+#[test]
+fn selected_adapter_identity_matches_actual_device() {
+    let context = context();
+    let info = context.adapter().get_info();
+    let identity = context.adapter_identity();
+    assert_eq!(identity.name, info.name);
+    assert_eq!(identity.class, super::AdapterClass::from(info.device_type));
+    if info.device_type == wgpu::DeviceType::Cpu {
+        assert_eq!(identity.class, super::AdapterClass::Software);
+    }
+    if info.name.to_lowercase().contains("llvmpipe") {
+        assert_eq!(identity.class, super::AdapterClass::Software);
+    }
+    eprintln!(
+        "adapter {}: {:?} via {:?}",
+        identity.name, identity.class, info.backend
+    );
+}
+
+#[test]
 fn dropping_context_releases_its_queue_without_waiting_for_device_loss() {
     let instance = worldrunner_render_gpu::device::headless_instance();
     for _ in 0..3 {

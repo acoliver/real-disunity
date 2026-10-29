@@ -30,39 +30,8 @@ fn start_deadline_watchdog() {
 // A separate test executable keeps the native event loop on the main thread.
 fn main() {
     start_deadline_watchdog();
-    let scene = RenderScene::new(SceneParts {
-        resources: SceneResources::new(vec![], vec![]).unwrap(),
-        geometry: SceneGeometry::new(vec![], vec![]).unwrap(),
-        terrain: None,
-        effects: None,
-    })
-    .unwrap();
-    let options = ViewerOptions {
-        camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
-        frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
-        frames_in_flight: 2,
-        cadence: worldrunner_scene_viewer::PresentationCadence::default(),
-        ssr: None,
-        render_clock: worldrunner_scene_viewer::RenderClock::default(),
-        title: "Callback failure regression".into(),
-        size: [64, 64],
-        camera: SceneCamera {
-            vertical_fov_millidegrees: 60_000,
-            near_plane_millimeters: 100,
-            far_plane_millimeters: 1_000_000,
-        },
-        pose: CameraPose {
-            eye_millimeters: [0, -2000, 2000],
-            target_millimeters: [0; 3],
-        },
-        orbit: OrbitLimits {
-            min_distance_millimeters: 100.0,
-            max_distance_millimeters: 10_000.0,
-            min_elevation_radians: -1.4,
-            max_elevation_radians: 1.4,
-        },
-        shadows: None,
-    };
+    let scene = scene();
+    let options = options();
     let dropped = Rc::new(Cell::new(false));
     let callback_drop = CallbackDrop(dropped.clone());
     let called = Rc::new(Cell::new(0));
@@ -89,4 +58,46 @@ fn main() {
     assert_eq!(called.get(), 3);
     assert!(dropped.get(), "the application must release its callback");
     println!("application callback failure propagates and cleans up: passed");
+}
+
+fn options() -> ViewerOptions {
+    ViewerOptions {
+        camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+        frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
+        frames_in_flight: 2,
+        present_mode: wgpu::PresentMode::Fifo,
+        desired_maximum_frame_latency: 2,
+        adapter_callback: None,
+        cadence: worldrunner_scene_viewer::PresentationCadence::default(),
+        ssr: None,
+        render_clock: worldrunner_scene_viewer::RenderClock::default(),
+        title: "Callback failure regression".into(),
+        size: [64, 64],
+        camera: SceneCamera {
+            vertical_fov_millidegrees: 60_000,
+            near_plane_millimeters: 100,
+            far_plane_millimeters: 1_000_000,
+        },
+        pose: CameraPose {
+            eye_millimeters: [0, -2000, 2000],
+            target_millimeters: [0; 3],
+        },
+        orbit: OrbitLimits {
+            min_distance_millimeters: 100.0,
+            max_distance_millimeters: 10_000.0,
+            min_elevation_radians: -1.4,
+            max_elevation_radians: 1.4,
+        },
+        shadows: None,
+    }
+}
+
+fn scene() -> RenderScene {
+    RenderScene::new(SceneParts {
+        resources: SceneResources::new(vec![], vec![]).unwrap(),
+        geometry: SceneGeometry::new(vec![], vec![]).unwrap(),
+        terrain: None,
+        effects: None,
+    })
+    .unwrap()
 }

@@ -11,7 +11,7 @@ public static partial class DisunityHost
     {
         UnsupportedComponents.Reject(value);
         if (value is MonoBehaviour script && !NativeBehaviourState.IsNative(value)) return (T)(Component)Attach(owner, script);
-        if (value is not NativeComponent && value is not RectTransform && !NativeBehaviourState.IsNative(value)) throw new NotSupportedException($"component {typeof(T)}");
+        if (value is not NativeComponent && value is not Light && value is not RectTransform && !NativeBehaviourState.IsNative(value)) throw new NotSupportedException($"component {typeof(T)}");
         ulong handle;
         if (NativeBehaviourState.IsNative(value))
         {
@@ -20,6 +20,8 @@ public static partial class DisunityHost
         }
         else if (value is Camera)
             ThrowIfError(NativeBindings.disunity_camera_create(WorldHandle, owner.NativeHandle, &handle));
+        else if (value is Light)
+            ThrowIfError(NativeBindings.disunity_light_create(WorldHandle, owner.NativeHandle, &handle));
         else if (value is SpriteRenderer)
         {
             ThrowIfError(NativeBindings.disunity_sprite_create(WorldHandle, owner.NativeHandle, &handle));

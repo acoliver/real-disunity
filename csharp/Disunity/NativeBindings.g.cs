@@ -276,6 +276,26 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_light2d_layers_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_light2d_layers_read(ulong world, ulong handle, int* output, uint capacity, uint* written);
         /// <summary>
+        ///  Creates a light with the engine's default settings on a live object.
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light_create(ulong world, ulong @object, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one Light record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light_read(ulong world, ulong handle, DisunityLight* output);
+        /// <summary>
+        ///  Validates every setting before changing the light; a rejected write changes nothing.
+        ///  # Safety
+        ///  Value is readable for one Light record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_light_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_light_write(ulong world, ulong handle, DisunityLight* value);
+        /// <summary>
         ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>
@@ -723,27 +743,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_object_flags", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_object_flags(ulong world, ulong @object, uint* output);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one fixed-step duration in seconds.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_world_fixed_delta", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_world_fixed_delta(ulong world, double* output);
-        [DllImport(__DllName, EntryPoint = "disunity_body_move_position", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_body_move_position(ulong world, ulong body, float x, float y);
-        /// <summary>
-        ///  # Safety
-        ///  Each output is writable for one quaternion coordinate.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_rotation_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_rotation_read(ulong world, ulong @object, float* x, float* y, float* z, float* w);
-        [DllImport(__DllName, EntryPoint = "disunity_rotation_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_rotation_write(ulong world, ulong @object, float x, float y, float z, float w);
-        /// <summary>
-        ///  # Safety
-        ///  `alive` is writable for one lifetime flag. Stale objects return false.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_object_alive", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_object_alive(ulong world, ulong @object, uint* alive);
     }
 }

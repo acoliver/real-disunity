@@ -49,6 +49,34 @@ pub struct DisunityCanvasScale {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct DisunityLight {
+    pub cookie_texture: u64,
+    pub enabled: u32,
+    pub kind: u32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub intensity: f32,
+    pub range: f32,
+    pub spot_angle: f32,
+    pub inner_spot_angle: f32,
+    pub shadows: u32,
+    pub shadow_strength: f32,
+    pub shadow_bias: f32,
+    pub shadow_normal_bias: f32,
+    pub shadow_near_plane: f32,
+    pub culling_mask: u32,
+    pub rendering_layer_mask: u32,
+    pub bounce_intensity: f32,
+    pub color_temperature: f32,
+    pub use_color_temperature: u32,
+    pub cookie_size: f32,
+    pub lightmap_bake_type: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunitySprite {
     pub identity: u64,

@@ -142,6 +142,8 @@ impl crate::ComponentDesc {
 pub mod camera;
 pub mod camera_data;
 pub use camera::{Camera, CameraClear, CameraFlags, Projection};
+pub mod light;
 pub mod lighting;
 pub use camera_data::UniversalAdditionalCameraData;
+pub use light::{Light, LightBakeType, LightKind, LightSettings, LightShadowMode};
 pub use lighting::{GlobalLight2d, Light2dType, SpriteLighting};

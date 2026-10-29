@@ -22,6 +22,7 @@ internal sealed partial class SceneLoader
         "Text" => Text(owner, value, where),
         "GraphicRaycaster" or "EventSystem" or "StandaloneInputModule" => Unbuilt(where),
         "Light2D" => Light(owner, value),
+        "Light" => Light3D(owner, value),
         "UniversalAdditionalCameraData" => CameraData(owner, value, where),
         "Script" => Script(owner, value, where),
         "Unsupported" => Unbuilt(where, $"{value.Str("class")} components are not built yet"),
@@ -170,6 +171,31 @@ internal sealed partial class SceneLoader
         light.intensity = value.Float("intensity");
         light.blendStyleIndex = value.Int("blend_style");
         light.affectedSortingLayers = value.GetProperty("target_sorting_layers").EnumerateArray().Select(l => l.GetInt32()).ToArray();
+        light.enabled = value.Bool("enabled");
+        return light;
+    }
+
+    private static Light Light3D(GameObject owner, JsonElement value)
+    {
+        var light = owner.AddComponent<Light>();
+        light.type = value.Variant<LightType>("kind");
+        light.color = value.Rgba("color");
+        light.intensity = value.Float("intensity");
+        light.range = value.Float("range");
+        light.spotAngle = value.Float("spot_angle");
+        light.innerSpotAngle = value.Float("inner_spot_angle");
+        light.shadows = value.Variant<LightShadows>("shadows");
+        light.shadowStrength = value.Float("shadow_strength");
+        light.shadowBias = value.Float("shadow_bias");
+        light.shadowNormalBias = value.Float("shadow_normal_bias");
+        light.shadowNearPlane = value.Float("shadow_near_plane");
+        light.cullingMask = value.Mask("culling_mask");
+        light.renderingLayerMask = value.Mask("rendering_layer_mask");
+        light.bounceIntensity = value.Float("bounce_intensity");
+        light.colorTemperature = value.Float("color_temperature");
+        light.useColorTemperature = value.Bool("use_color_temperature");
+        light.cookieSize = value.Float("cookie_size");
+        light.lightmapBakeType = (LightmapBakeType)value.Int("lightmap_bake_type");
         light.enabled = value.Bool("enabled");
         return light;
     }

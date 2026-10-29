@@ -181,13 +181,16 @@ def report_recovery(gh: Gh, context: dict) -> None:
         gh(["issue", "close", str(number), "--repo", repo, "--reason", "completed"], None)
 
 
-def report(gh: Gh, context: dict, needs: dict, docs_only: bool) -> str:
+def report(gh: Gh, context: dict, needs: dict, partial: bool) -> str:
+    """`partial` marks a run that skipped part of the suite, so it cannot prove recovery."""
     failed = failed_needs(needs)
+    if failed and all(needs[name].get("result") == "cancelled" for name in failed):
+        return "run was cancelled, usually superseded by a newer commit; nothing reported"
     if failed:
         report_failure(gh, context, failed)
         return "failure reported"
-    if docs_only:
-        return "documentation-only run proves nothing about earlier failures"
+    if partial:
+        return "partial run proves nothing about earlier failures"
     report_recovery(gh, context)
     return "success"
 
@@ -201,8 +204,8 @@ def context_from_environment(environment: dict) -> dict:
 def main() -> int:
     needs = json.loads(os.environ["NEEDS"])
     context = context_from_environment(os.environ)
-    docs_only = os.environ.get("DOCS_ONLY", "") == "true"
-    print(report(gh_command, context, needs, docs_only))
+    partial = os.environ.get("SCOPE", "full") != "full"
+    print(report(gh_command, context, needs, partial))
     return 0
 
 

@@ -227,27 +227,32 @@ reference does for linear input.
 The stage runs where FXAA and SMAA run: on the display-referred image at the render extent
 after tone mapping and before any upscale. The image is `Rgba16Float` with storage binding. It
 schedules `cmaa2_clear` (a buffer clear of the counters), the compute passes `cmaa2_edges`,
-`cmaa2_candidate_args`, `cmaa2_candidates`, `cmaa2_apply_args` and `cmaa2_apply`, and the
-full-screen `cmaa2_present` as separate stage identities, each with its own timing slot. It needs compute shaders and storage buffers in the
-compute stage.
+`cmaa2_candidate_args` and `cmaa2_candidates`, and the full-screen `cmaa2_present` as separate
+stage identities, each with its own timing slot. It needs compute shaders and storage buffers in
+the compute stage and in the fragment stage (read-only).
 
 Deviations from the reference `CMAA2.hlsl` (the list is also at the top of `src/cmaa2.wgsl`):
 
 - Only the single-sample path is ported. The MSAA path (`CMAA2_SUPPORT_MSAA`) is not.
-- `ComputeDispatchArgsCS` is split into two one-thread passes, `cmaa2_candidate_args` and
-  `cmaa2_apply_args`, because the candidate count is final only after the edge pass and the
-  location count only after the candidate pass. Each writes indirect dispatch arguments from its
-  counter into a 24-byte `INDIRECT` buffer, and `cmaa2_candidates` and `cmaa2_apply` use
+- `ComputeDispatchArgsCS` becomes the one-thread pass `cmaa2_candidate_args`, because the
+  candidate count is final only after the edge pass. It writes indirect dispatch arguments from
+  the counter into a 12-byte `INDIRECT` buffer, and `cmaa2_candidates` uses
   `dispatch_workgroups_indirect` (`Operation::ComputeIndirect`). Lists longer than 4096
   workgroups wrap to further rows. A buffer clear zeroes the counters instead of the reference
   pass.
 - WGSL has no `R8Uint` storage texture and storage textures have no `InterlockedExchange`.
-  Edges are one `u32` per 2x2 quad in a storage buffer, and the candidate, location and
+  Edges are one `u32` per 2x2 quad (4 bits per pixel) in a storage buffer, and the candidate and
   blend-item lists and the atomic list heads are storage buffers. Positions are not packed into
   14 bits, so the packing does not limit extents to 16384 pixels.
-- The reference writes blended colors into the input image. Here the edge pass copies the
-  image to a working texture, the apply pass blends into it with the alpha of the original
-  pixel, and `cmaa2_present` writes it to the output.
+- The reference writes blended colors into the input image in place, in a compute pass
+  (`DeferredColorApply2x2CS`) that visits each touched quad through a location list. The input
+  here is a sampled texture, so `cmaa2_present` writes the output instead: every fragment reads
+  its pixel, walks the blend list of its 2x2 quad (the list heads are per quad, as in the
+  reference) and averages the items for its own pixel, or returns the input pixel unchanged when
+  there are none. The result and the alpha of the original pixel match the reference apply
+  pass. There is no working copy of the image, no apply pass and no location list. The edge
+  pass resets every quad head, not only the heads of quads with edges, so the fragment pass
+  never reads items of an earlier frame.
 - Samples outside the image clamp to the border instead of reading as zero.
 - A full work list drops the item instead of writing past the end. The lists hold a
   fraction of the pixel count, as in the reference.
@@ -255,35 +260,50 @@ Deviations from the reference `CMAA2.hlsl` (the list is also at the top of `src/
   `CMAA2_DEFERRED_APPLY_THREADGROUP_SWAP` are enabled, and colors in the lists use the
   `R11G11B10` E4 packing (non-HDR range, clamped to 1.99).
 
-At 1920x1080 the CMAA2 storage is about 16 MB of buffers (edges, list heads and candidates
-2.1 MB each, locations 1.4 MB, blend items 8.3 MB) plus a 16.6 MB `Rgba16Float` working image.
-These are counted in the post allocation report. Without a CMAA2 resolve none of it is
-allocated.
+At 1920x1080 the CMAA2 storage is about 14.6 MB of buffers (edges and list heads 2.1 MB each,
+candidates 2.1 MB, blend items 8.3 MB). There is no second image. These are counted in the post
+allocation report. Without a CMAA2 resolve none of it is allocated.
 
 Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
-AMD Radeon 780M (RADV) at 1920x1080, median of 5 timestamp-query samples per stage, on the
-same synthetic frame of diagonal edges as the SMAA numbers above. Times are in ms. The "AA
-total" column leaves out the `tone` stage, which is the same work for every resolve; the
-run-to-run noise is about 0.3 ms.
+AMD Radeon 780M (RADV) at 1920x1080, median of 5 timestamp-query samples per stage, with the
+total including the `tone` stage (about 0.9 to 1.0 ms, the same work for every resolve except
+FXAA, whose `Rgba32Float` intermediate makes `tone` about 2 ms). Times are in ms. The "disc"
+frame is a sparse disc edge and the "stripes" frame is dense stripes. Run-to-run noise is about
+0.1 to 0.3 ms.
 
-| Resolve | `tone` | AA stages | AA total | Frame total |
-| --- | --- | --- | --- | --- |
-| none | 0.432 | none | 0 | 0.432 |
-| FXAA | 2.305 | `fxaa` 1.115 | 1.115 | 3.420 |
-| SMAA low | 1.138 | edges 0.545, weights 0.816, blend 0.544 | 1.905 | 3.043 |
-| SMAA medium | 1.215 | edges 0.542, weights 0.817, blend 0.594 | 1.953 | 3.168 |
-| SMAA high | 1.178 | edges 0.556, weights 1.167, blend 0.600 | 2.323 | 3.500 |
-| SMAA ultra | 1.199 | edges 0.544, weights 1.249, blend 0.595 | 2.388 | 3.587 |
-| CMAA2 low | 1.173 | edges 1.357, candidates 0.672, apply 0.697, present 0.738 | 3.464 | 4.636 |
-| CMAA2 medium | 1.213 | edges 1.376, candidates 0.700, apply 0.692, present 0.766 | 3.534 | 4.746 |
-| CMAA2 high | 1.192 | edges 1.398, candidates 0.695, apply 0.662, present 0.780 | 3.535 | 4.728 |
-| CMAA2 ultra | 1.180 | edges 1.357, candidates 0.695, apply 0.668, present 0.739 | 3.459 | 4.639 |
+| Resolve | AA stages, stripes | Total, stripes | Total, disc |
+| --- | --- | --- | --- |
+| none | none | 0.375 | 0.344 |
+| FXAA | `fxaa` 0.930 | 3.068 | 2.816 |
+| SMAA low | edges 0.542, weights 0.770, blend 0.441 | 2.760 | 2.017 |
+| SMAA medium | edges 0.543, weights 0.788, blend 0.516 | 2.932 | 2.101 |
+| SMAA high | edges 0.543, weights 1.120, blend 0.441 | 3.053 | 2.081 |
+| SMAA ultra | edges 0.543, weights 1.173, blend 0.430 | 3.144 | 1.981 |
+| CMAA2 low | edges 0.450, candidates 0.582, present 0.540 | 2.613 | 1.801 |
+| CMAA2 medium | edges 0.413, candidates 0.546, present 0.478 | 2.433 | 1.735 |
+| CMAA2 high | edges 0.429, candidates 0.522, present 0.454 | 2.374 | 1.727 |
+| CMAA2 ultra | edges 0.413, candidates 0.518, present 0.473 | 2.383 | 1.746 |
 
-The `tone` time for FXAA is higher because FXAA writes an `Rgba32Float` intermediate. On this
-integrated GPU the CMAA2 passes cost about 1.5 to 3 times the SMAA passes and more than FXAA.
-The preset changes the time by less than the noise, because the fixed-size dispatches run the
-same number of threads whatever the edge count. The probe skips the measurement and passes on
-adapters without `TIMESTAMP_QUERY`, such as lavapipe.
+On this GPU CMAA2 high now costs less than SMAA high and FXAA in total: 2.37 ms against 3.05 ms
+(SMAA) and 3.07 ms (FXAA) on stripes, and 1.73 ms against 2.08 ms and 2.82 ms on the disc. The
+FXAA total is mostly its wider `tone` intermediate. Counting only the AA passes, CMAA2 high is
+1.40 ms on stripes and 0.73 ms on the disc, SMAA high is 2.10 and 1.06 ms, and the single `fxaa`
+pass is 0.93 and 0.84 ms: CMAA2 is cheaper than SMAA on both frames, and cheaper than the FXAA
+pass only on the sparse frame. The disc edge pass costs 0.30 ms, the same as `smaa_edges` at
+0.32 ms, which is close to the time to read the 16.6 MB image once. The extra cost on the stripes
+frame is the candidate pass (0.52 ms, atomics and the line search) and the present pass
+(0.45 ms against 0.38 ms on the disc). The preset changes the time by less than the noise, because
+the fixed-size dispatches run the same number of threads whatever the edge count.
+
+How the time got here, on the stripes frame at the high preset (total with `tone`): indirect
+dispatch of the candidate and apply passes gave 3.88 ms (disc 2.71 ms); folding the apply pass
+into the present pass and dropping the full-image working copy gave 2.37 ms (disc 1.73 ms). The
+edge pass fell from 1.20 to 0.43 ms mostly because it no longer writes four `Rgba16Float`
+texels per thread. Edges were already stored packed, one `u32` per quad. One experiment was
+rejected: sharing the quad lumas through workgroup memory so each edge thread loads 4 texels
+instead of 8 (one more barrier) changed the stripes edge pass from 0.429 to 0.418 ms and the
+disc from 0.305 to 0.295 ms, within noise, so it was reverted to keep the pass simple. The probe
+skips the measurement and passes on adapters without `TIMESTAMP_QUERY`, such as lavapipe.
 
 ### Contrast adaptive sharpening
 

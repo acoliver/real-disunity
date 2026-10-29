@@ -244,6 +244,7 @@ UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();
+TextCoreTests.Run();
 EnvironmentTests.Run();
 
 NativeArrayTests.Run();

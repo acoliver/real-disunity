@@ -24,8 +24,10 @@ override CLIP_SCALE: f32 = 1.0;
 // Samples per depth texel. The multisampled build of this module, which declares `depth` as
 // texture_depth_multisampled_2d, sets it to the frame's sample count.
 override SAMPLES: i32 = 1;
-// Gaussian sigma, in pixels, of the unjitter reconstruction.
-const KERNEL_SIGMA: f32 = 0.47;
+// Gaussian sigma, in pixels, of the unjitter reconstruction. It is so narrow that only the
+// sample nearest the pixel centre counts, so the frames accumulate to the box-filtered pixel.
+// Wider kernels blur every frame and the accumulation converges to a blurred image.
+const KERNEL_SIGMA: f32 = 0.05;
 const MIN_BOX_EXTENT: f32 = 1e-4;
 const MAX_COMPRESSED_LUMA: f32 = 0.99999;
 const LUMA: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
@@ -116,6 +118,37 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     return vec3<f32>(uv, select(0.0, 1.0, usable));
 }
+// Catmull-Rom (bicubic) history fetch from nine bilinear taps: the two inner texels of each
+// axis merge into one tap placed so that the hardware weights reproduce their cubic weights,
+// and the outer texels take one tap each. Corner weights are negative, so the sum can undershoot
+// and is clamped at zero by the caller.
+fn catmull_rom(uv: vec2<f32>, size: vec2<f32>) -> vec3<f32> {
+    let position = uv * size;
+    let centre = floor(position - 0.5) + 0.5;
+    let f = position - centre;
+    let w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+    let w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    let w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+    let w3 = f * f * (-0.5 + 0.5 * f);
+    let w12 = w1 + w2;
+    let tap0 = (centre - 1.0) / size;
+    let tap12 = (centre + w2 / w12) / size;
+    let tap3 = (centre + 2.0) / size;
+    var sum = vec3<f32>(0.0);
+    sum += fetch(vec2<f32>(tap0.x, tap0.y)) * (w0.x * w0.y);
+    sum += fetch(vec2<f32>(tap12.x, tap0.y)) * (w12.x * w0.y);
+    sum += fetch(vec2<f32>(tap3.x, tap0.y)) * (w3.x * w0.y);
+    sum += fetch(vec2<f32>(tap0.x, tap12.y)) * (w0.x * w12.y);
+    sum += fetch(vec2<f32>(tap12.x, tap12.y)) * (w12.x * w12.y);
+    sum += fetch(vec2<f32>(tap3.x, tap12.y)) * (w3.x * w12.y);
+    sum += fetch(vec2<f32>(tap0.x, tap3.y)) * (w0.x * w3.y);
+    sum += fetch(vec2<f32>(tap12.x, tap3.y)) * (w12.x * w3.y);
+    sum += fetch(vec2<f32>(tap3.x, tap3.y)) * (w3.x * w3.y);
+    return sum;
+}
+fn fetch(uv: vec2<f32>) -> vec3<f32> {
+    return textureSampleLevel(history, history_sampler, uv, 0.0).rgb;
+}
 @fragment fn taa_resolve(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let p = vec2<i32>(position.xy);
     let size = vec2<i32>(textureDimensions(color));
@@ -123,7 +156,6 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
     var samples: array<vec3<f32>, 9>;
     var sum = vec4<f32>(0.0);
     var total = 0.0;
-    var mean = vec3<f32>(0.0);
     for (var i = 0; i < 9; i++) {
         let d = vec2<i32>(i % 3 - 1, i / 3 - 1);
         let s = load_color(p + d, size);
@@ -132,24 +164,26 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
         sum += w * s;
         total += w;
         samples[i] = to_ycocg(compress(s.rgb));
-        mean += samples[i] / 9.0;
     }
     let current = sum / total;
-    var variance = vec3<f32>(0.0);
-    for (var i = 0; i < 9; i++) {
-        let d = samples[i] - mean;
-        variance += d * d / 9.0;
+    var lo = samples[0];
+    var hi = samples[0];
+    for (var i = 1; i < 9; i++) {
+        lo = min(lo, samples[i]);
+        hi = max(hi, samples[i]);
     }
+    let centre = 0.5 * (lo + hi);
+    let half = 0.5 * (hi - lo);
     let target_uv = history_uv(p, size);
-    let fetched = textureSampleLevel(history, history_sampler, target_uv.xy, 0.0).rgb;
+    let fetched = catmull_rom(target_uv.xy, vec2<f32>(size));
     let fetched_ok = finite(fetched.x) && finite(fetched.y) && finite(fetched.z);
     var rgb = current.rgb;
     if taa.jitter_valid.z > 0.5 && target_uv.z > 0.5 && fetched_ok {
         let h = to_ycocg(compress(max(fetched, vec3<f32>(0.0))));
-        let clipped = clip_toward_centre(h, mean, CLIP_SCALE * sqrt(variance));
+        let clipped = clip_toward_centre(h, centre, CLIP_SCALE * half);
         let history_rgb = decompress(from_ycocg(clipped));
-        let wc = (1.0 - HISTORY_WEIGHT) / (1.0 + max(luma(current.rgb), 0.0));
-        let wh = HISTORY_WEIGHT / (1.0 + max(luma(history_rgb), 0.0));
+        let wc = (1.0 - HISTORY_WEIGHT);
+        let wh = HISTORY_WEIGHT;
         rgb = (current.rgb * wc + history_rgb * wh) / (wc + wh);
     }
     return clean(vec4<f32>(rgb, current.a));

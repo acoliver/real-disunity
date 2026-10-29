@@ -76,11 +76,11 @@ Settings, both finite and range checked by `TaaSettings::validate`:
 | Field | Range | Default | Effect |
 | --- | --- | --- | --- |
 | `history_weight` | 0.0 to 0.99 | 0.9 | Share of the reprojected history in the blend. Higher is smoother and slower to follow change. |
-| `clip_scale` | 0.5 to 2.0 | 1.0 | Width of the color box around the 3x3 mean, in standard deviations. Smaller rejects history sooner and ghosts less. |
+| `clip_scale` | 0.5 to 2.0 | 1.0 | Scale of the min/max color box of the 3x3 neighborhood, about its centre. Smaller rejects history sooner and ghosts less. |
 
 The scene recipe `SceneAntiAlias::Taa { history_micro }` maps to the same resolve. Jitter is automatic: a TAA resolve selects `ProjectionJitter::default()` unless `AntiAliasing::with_jitter` chose another length, and `FrameRenderer::set_projection_jitter(None)` returns an error while TAA is resident. TAA is one resolve, so it excludes FXAA, SMAA and CMAA2.
 
-The pass runs before exposure metering, bloom and tone mapping, on the scene-referred `Rgba16Float` image. History therefore holds no exposure, so an adaptive exposure change cannot ghost, and metering and bloom see the accumulated image instead of a shimmering jittered one. Blend weights and the color box use luminance-compressed values so a bright pixel cannot dominate. MSAA works with TAA: the hardware resolve runs first, and with 4x or 8x samples the depth used for reprojection is the per-sample minimum.
+The pass runs before exposure metering, bloom and tone mapping, on the scene-referred `Rgba16Float` image. History therefore holds no exposure, so an adaptive exposure change cannot ghost, and metering and bloom see the accumulated image instead of a shimmering jittered one. The color box uses luminance-compressed values so a bright pixel cannot dominate the clip, and the blend is linear because luminance weights pulled every edge toward its darker side. The current frame is reconstructed from the sample nearest the pixel centre, so the jittered frames accumulate to a box-filtered pixel instead of a blurred one. MSAA works with TAA: the hardware resolve runs first, and with 4x or 8x samples the depth used for reprojection is the per-sample minimum.
 
 Depth contract: draw the scene into `FrameRenderer::targets().depth()`. The resolve reads that texture, and `encode_scene` refuses another depth attachment while TAA is resident. Call `FrameRenderer::reset_temporal_history()` on a camera cut. History also resets on the first frame, on resize, when the jitter changes and after a cancelled or failed frame. A reset frame equals the first frame of a fresh renderer.
 
@@ -89,10 +89,10 @@ Limits of this release:
 - There are no per-object motion vectors. Reprojection uses the camera only, so moving objects and wind-deformed geometry rely on the neighborhood clip and soften or trail slightly.
 - Sky and other pixels at depth 1.0 reproject approximately.
 - SSAO and SSR run on the jittered matrix, so their output shimmers with the jitter.
-- History is read with a bilinear filter, which softens detail under sub-pixel motion. With 4x MSAA a moving edge is softer than MSAA alone.
+- History is read with a Catmull-Rom filter (nine bilinear taps, negative lobes clamped to zero). With 4x MSAA, TAA in motion is still worse than MSAA alone (0.0027 against 0.0004 at 64x64), and a static 4x image converges to 0.0016 against 0.0005.
 - There is no depth history, so a pixel uncovered by motion is detected only by the color clip.
 
-Measured on lavapipe at 64x64 against a 4x supersampled reference, after 32 static frames: mean error 0.0030 (1x) and 0.0022 (4x MSAA) on 8-bit sRGB values, against 0.0044 for one unantialiased frame. The tests are in `crates/render-scene/src/compositor/taa_end_to_end_tests.rs`. Details of the passes are in the [post crate README](../crates/render-post/README.md#temporal-antialiasing) and [render-scene README](../crates/render-scene/README.md#temporal-antialiasing).
+Measured on lavapipe at 64x64 against a 4x supersampled reference, after 32 static frames: mean error 0.0020 (1x) and 0.0016 (4x MSAA) on 8-bit sRGB values, against 0.0044 for one unantialiased frame and 0.0005 for 4x MSAA alone. In motion at 1x TAA measures 0.0031 against 0.0033 when history is reset every frame. The tests are in `crates/render-scene/src/compositor/taa_end_to_end_tests.rs`. Details of the passes are in the [post crate README](../crates/render-post/README.md#temporal-antialiasing) and [render-scene README](../crates/render-scene/README.md#temporal-antialiasing).
 
 ## Windows, headless rendering and capture
 

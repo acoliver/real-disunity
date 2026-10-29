@@ -439,12 +439,18 @@ fn converged(samples: MsaaSamples) {
         taa_error < single_error * TAA_MARGIN,
         "{samples:?} TAA {taa_error} vs single frame {single_error}"
     );
+    if samples == MsaaSamples::X1 {
+        assert!(
+            taa_error <= single_error * 0.5,
+            "1x TAA {taa_error} must halve the aliased frame {single_error}"
+        );
+    }
 }
 
 /// Mean absolute display error of the converged image against the supersampled reference.
-const TAA_BOUND: f64 = 0.0035;
+const TAA_BOUND: f64 = 0.0025;
 /// The converged image must beat one unjittered, unantialiased 1x frame by this factor.
-const TAA_MARGIN: f64 = 0.75;
+const TAA_MARGIN: f64 = 0.5;
 
 #[test]
 fn taa_converges_to_the_supersampled_reference_without_msaa() {
@@ -505,6 +511,12 @@ fn translation(samples: MsaaSamples) {
         "reset edge {edges:?}"
     );
     assert!(reset > single * 0.5, "reset {reset} single {single}");
+    if samples == MsaaSamples::X1 {
+        assert!(
+            moving < reset,
+            "history must help in motion: {moving} vs reset {reset}"
+        );
+    }
 }
 
 /// Edge position bound in pixels: the TAA edge may trail the true edge by at most half a pixel.

@@ -142,6 +142,19 @@ fn one_history_is_shared_by_all_slots_and_replaced_on_resize() {
 }
 
 fn tone_row(device: &wgpu::Device, queue: &wgpu::Queue, settings: &HdrPostSettings) -> Vec<u8> {
+    // Half a pixel of jitter and no history: pixels on the step average the two samples that
+    // are equally near their centre, which the unjittered scene color never does.
+    let block = crate::TaaUniform {
+        reprojection: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        jitter_pixels: [0.5, 0.0],
+        history_valid: false,
+    }
+    .to_bytes();
     let chain = PostChain::new(
         device,
         FrameConfig::new([8, 4], wgpu::TextureFormat::Rgba16Float, 1),
@@ -161,7 +174,7 @@ fn tone_row(device: &wgpu::Device, queue: &wgpu::Queue, settings: &HdrPostSettin
         .factory()
         .prepare_effects(&mut encoder, 0, 0.031, true)
         .unwrap();
-    chain.factory().prepare_taa(&mut encoder, 0, None);
+    chain.factory().prepare_taa(&mut encoder, 0, Some(&block));
     chain.encode(
         &mut encoder,
         &out.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -179,18 +192,13 @@ fn tone_mapping_reads_the_taa_output_not_the_raw_scene_color() {
     let (device, queue) = crate::gpu_tests::gpu();
     let plain = tone_row(&device, &queue, &settings(false, false));
     let taa = tone_row(&device, &queue, &settings(true, false));
-    // Without TAA the step is exact; the resolve's reconstruction filter softens it.
+    // Without TAA the step is exact; the jittered resolve reconstructs the pixel on the step
+    // from both of its nearest samples.
     assert_eq!(red(&plain, 3), red(&plain, 0));
     assert!(
         red(&taa, 3) > red(&taa, 0),
         "{} {}",
         red(&taa, 3),
         red(&taa, 0)
-    );
-    assert!(
-        red(&taa, 4) < red(&plain, 4),
-        "{} {}",
-        red(&taa, 4),
-        red(&plain, 4)
     );
 }

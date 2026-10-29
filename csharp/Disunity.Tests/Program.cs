@@ -258,6 +258,7 @@ UnityAttributeTests.Run();
 
 AssetBundleTests.Run();
 CommandBufferTests.Run();
+WebRequestTests.Run();
 ObjectModelTests.Run();
 TransformMemberTests.Run();
 GameObjectMemberTests.Run();

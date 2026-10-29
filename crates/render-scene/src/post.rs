@@ -78,9 +78,12 @@ fn authored_anti_alias(
             *fxaa_strength = Some(micro(subpixel_micro));
             Ok(None)
         }
-        SceneAntiAlias::Taa { history_micro } if fxaa_strength.is_none() => Ok(Some(TaaSettings {
+        SceneAntiAlias::Taa {
+            history_micro,
+            clip_scale_micro,
+        } if fxaa_strength.is_none() => Ok(Some(TaaSettings {
             history_weight: micro(history_micro),
-            ..TaaSettings::DEFAULT
+            clip_scale: micro(clip_scale_micro),
         })),
         _ => Err(PostError::UnsupportedProfile("duplicate resolve")),
     }

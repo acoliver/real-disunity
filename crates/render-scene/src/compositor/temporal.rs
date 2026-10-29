@@ -17,6 +17,8 @@ struct Published {
     view_projection: Mat4,
     jitter_pixels: [f32; 2],
     size: [u32; 2],
+    animation_time_ms: u32,
+    camera_position: Vec3,
 }
 
 /// Frame counter and previous-frame camera, shared with the publication callbacks.
@@ -35,6 +37,13 @@ impl TemporalHistory {
         self.previous = None;
         self.frame_index = 0;
         self.epoch += 1;
+    }
+
+    /// Whether a frame at `time_ms` precedes the last published frame. Equal times (a paused
+    /// clock) keep the history; a wrapped 32-bit clock counts as moving backwards.
+    fn rewound_before(&self, time_ms: u32) -> bool {
+        self.previous
+            .is_some_and(|previous| time_ms < previous.animation_time_ms)
     }
 }
 
@@ -96,6 +105,16 @@ impl FrameRenderer {
     /// The jitter always starts from the unjittered matrix, so preparing a frame twice does not
     /// offset it twice. Without jitter the frame is returned unchanged.
     pub(crate) fn jitter_frame(&self, mut frame: FrameUniform) -> FrameUniform {
+        if self.temporal.borrow().jitter.is_none() {
+            return frame;
+        }
+        let rewound = self
+            .temporal
+            .borrow()
+            .rewound_before(frame.animation_time_milliseconds);
+        if rewound {
+            self.temporal.borrow_mut().reset();
+        }
         let history = self.temporal.borrow();
         let Some(jitter) = history.jitter else {
             return frame;
@@ -113,6 +132,9 @@ impl FrameRenderer {
             jitter_pixels,
             previous_jitter_pixels: previous.map_or(jitter_pixels, |p| p.jitter_pixels),
             history_valid: previous.is_some(),
+            previous_animation_time_ms: previous
+                .map_or(frame.animation_time_milliseconds, |p| p.animation_time_ms),
+            previous_camera_position: previous.map_or(frame.camera_position, |p| p.camera_position),
         });
         frame
     }
@@ -134,6 +156,8 @@ impl FrameRenderer {
             view_projection: temporal.unjittered_view_projection,
             jitter_pixels: temporal.jitter_pixels,
             size: self.targets().config().size,
+            animation_time_ms: frame.animation_time_milliseconds,
+            camera_position: frame.camera_position,
         };
         let epoch = self.temporal.borrow().epoch;
         let state = self.temporal.clone();

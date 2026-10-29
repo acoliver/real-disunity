@@ -213,7 +213,7 @@ capped at ten seconds after long pauses;
 `set_frame_delta` supplies an explicit simulation step. Fixed capture policies
 override wall-clock timing. `reset_exposure` resets the ordered history once at the next output.
 The shared temporal carry and slot-local published results survive resize. Nonneutral grading remains
-rejected, including requests with zero weights. An authored TAA maps to `PostResolve::Taa`. MSAA and FXAA may run together.
+rejected, including requests with zero weights. An authored TAA (`SceneAntiAlias::Taa { history_micro, clip_scale_micro }`) maps to `PostResolve::Taa` with `TaaSettings { history_weight, clip_scale }`. MSAA and FXAA may run together.
 
 `FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
@@ -231,7 +231,7 @@ Select jitter with `AntiAliasing::with_jitter` on `FrameRenderer::hdr_antialiase
 the sub-pixel offset of the next frame to `FrameUniform::view_projection`, the matrix the GPU
 rasterizes with, and fills `FrameUniform::temporal` with a `TemporalView`: the unjittered
 matrix, the previous submitted frame's unjittered matrix, both jitter offsets in pixels and
-whether the history is valid. `TemporalView::to_bytes` is a separate 160-byte block.
+whether the history is valid. `TemporalView::to_bytes` is a separate 176-byte block (it also carries the previous published frame's animation clock and camera position; a clock that moves backwards discards the history).
 `encode_frame` turns it into the 80-byte `TaaUniform` (reprojection in f64) that `encode_output`
 uploads for the frame slot. Draw into `targets().depth()` while TAA is resident. The 320-byte scene block keeps its layout, so with jitter on only its first sixty-four
 bytes change.

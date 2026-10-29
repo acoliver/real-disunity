@@ -50,6 +50,8 @@ pub(crate) const MAX_COMPRESSED_LUMA: f64 = 1.0 - 1e-5;
 pub(crate) struct Depth {
     pub size: [i32; 2],
     pub values: Vec<f32>,
+    /// The sample planes `values` is the minimum of; empty for a single-sample depth.
+    pub planes: Vec<Vec<f32>>,
 }
 impl Depth {
     pub fn from_fn(size: [i32; 2], mut depth: impl FnMut(i32, i32) -> f32) -> Self {
@@ -57,7 +59,11 @@ impl Depth {
             .flat_map(|y| (0..size[0]).map(move |x| (x, y)))
             .map(|(x, y)| depth(x, y))
             .collect();
-        Self { size, values }
+        Self {
+            size,
+            values,
+            planes: Vec::new(),
+        }
     }
 
     /// The per-pixel minimum over equally sized sample planes, the depth a multisampled
@@ -75,7 +81,23 @@ impl Depth {
         Self {
             size: first.size,
             values,
+            planes: planes.iter().map(|p| p.values.clone()).collect(),
         }
+    }
+
+    /// The sample of a texel with the smallest depth; the first wins a tie, which is the
+    /// sample whose per-sample data accompanies the minimum depth. Zero for one sample.
+    pub fn winning_sample(&self, x: i32, y: i32) -> usize {
+        let x = x.clamp(0, self.size[0] - 1);
+        let y = y.clamp(0, self.size[1] - 1);
+        let index = usize::try_from(y * self.size[0] + x).unwrap();
+        let mut best = 0;
+        for (s, plane) in self.planes.iter().enumerate() {
+            if plane[index] < self.planes[best][index] {
+                best = s;
+            }
+        }
+        best
     }
 
     pub fn load(&self, x: i32, y: i32) -> f64 {
@@ -106,6 +128,8 @@ pub(crate) struct Frame<'a> {
     pub settings: TaaSettings,
     /// Samples per pixel of the frame's render target; selects the motion slope.
     pub samples: u32,
+    /// Object-motion residual in previous-frame uv units; `None` is all zero.
+    pub velocity: Option<&'a crate::taa_velocity::Velocity>,
 }
 
 /// Luma of linear Rec. 709 color.
@@ -257,11 +281,19 @@ impl Frame<'_> {
         best
     }
 
+    /// The object-motion residual of the closest-depth texel `q`, from the same texel (and, for
+    /// a multisampled frame, the same minimum-depth sample) that supplies the depth.
+    fn residual(&self, q: [i32; 2]) -> [f64; 2] {
+        self.velocity.map_or([0.0; 2], |velocity| {
+            velocity.load(q, self.depth.winning_sample(q[0], q[1]))
+        })
+    }
+
     /// UV in the history image for the pixel, or `None` when the point cannot be reprojected
     /// or lands outside the image. The motion is that of the closest-depth neighbor: its
     /// unjittered NDC (the depth texel was rasterised `jitter` pixels off its centre) and its
     /// depth go through the reprojection matrix, and the uv displacement is applied at the
-    /// pixel centre.
+    /// pixel centre, plus that texel's object-motion residual (Karis dilation).
     fn history_uv(&self, at: [i32; 2]) -> Option<[f64; 2]> {
         let q = self.closest(at);
         let size = self.depth.size.map(f64::from);
@@ -286,9 +318,10 @@ impl Frame<'_> {
         let previous = [0.5 + 0.5 * row(0) / w, 0.5 - 0.5 * row(1) / w];
         let unjittered = [0.5 + 0.5 * ndc[0], 0.5 - 0.5 * ndc[1]];
         let centre = uv(at);
+        let residual = self.residual(q);
         let out = [
-            centre[0] + previous[0] - unjittered[0],
-            centre[1] + previous[1] - unjittered[1],
+            centre[0] + previous[0] - unjittered[0] + residual[0],
+            centre[1] + previous[1] - unjittered[1] + residual[1],
         ];
         out.iter().all(|v| (0.0..=1.0).contains(v)).then_some(out)
     }
@@ -442,6 +475,7 @@ mod tests {
                 history_valid: self.valid,
                 settings: self.settings,
                 samples: 1,
+                velocity: None,
             }
             .resolve_pixel(at)
         }
@@ -549,6 +583,7 @@ mod tests {
             history_valid: true,
             settings: scene.settings,
             samples: 1,
+            velocity: None,
         };
         let (mean, sigma) = frame.statistics([2, 2]);
         assert!(near(&mean, &[0.25, 0.0, 0.0]), "{mean:?}");

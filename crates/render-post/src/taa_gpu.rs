@@ -56,12 +56,21 @@ fn texture(
     })
 }
 
+/// Format of the object-motion residual texture a resolve reads.
+pub const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+
 /// Views and buffers one resolve reads and writes.
 pub struct Inputs<'a> {
     pub color: &'a wgpu::TextureView,
     pub depth: &'a wgpu::TextureView,
     /// Sample count of `depth`: 1 for a `texture_depth_2d`, more for a multisampled one.
     pub depth_samples: u32,
+    /// Object-motion residual, `Rg16Float` (see `taa.wgsl`). `None` binds a zero texture, so
+    /// the resolve uses camera reprojection alone.
+    pub velocity: Option<&'a wgpu::TextureView>,
+    /// Sample count of `velocity`; it must equal `depth_samples` (the winning depth sample
+    /// selects the velocity sample). Ignored when `velocity` is `None`.
+    pub velocity_samples: u32,
     pub uniform: &'a wgpu::Buffer,
     pub history: &'a wgpu::Texture,
     pub output: &'a wgpu::Texture,
@@ -100,6 +109,15 @@ pub fn append(
         ("SAMPLES", f64::from(inputs.depth_samples.max(1))),
     ];
     let resolve = pipeline(device, &module, "taa_resolve", &constants);
+    let zero = zero_velocity(device, inputs.depth_samples.max(1));
+    let velocity = inputs.velocity.map_or(zero, |view| {
+        assert_eq!(
+            inputs.velocity_samples,
+            inputs.depth_samples.max(1),
+            "velocity and depth must have the same sample count"
+        );
+        view.clone()
+    });
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("TAA history"),
         mag_filter: wgpu::FilterMode::Linear,
@@ -115,6 +133,7 @@ pub fn append(
             entry(2, wgpu::BindingResource::TextureView(&history)),
             entry(3, wgpu::BindingResource::Sampler(&sampler)),
             entry(4, inputs.uniform.as_entire_binding()),
+            entry(5, wgpu::BindingResource::TextureView(&velocity)),
         ],
     });
     set.stages.push(Stage::fullscreen(
@@ -130,11 +149,36 @@ pub fn append(
     ));
 }
 
-/// The shader source. The multisampled build differs only in the type of the `depth` binding.
+/// The residual a resolve reads when the host has none: one `Rg16Float` texel, zero from
+/// creation, with `samples` samples so that it matches the module's `velocity` binding.
+fn zero_velocity(device: &wgpu::Device, samples: u32) -> wgpu::TextureView {
+    let extra = if samples > 1 {
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+    } else {
+        wgpu::TextureUsages::empty()
+    };
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("taa zero velocity"),
+            size: crate::targets::extent([1, 1]),
+            mip_level_count: 1,
+            sample_count: samples,
+            dimension: wgpu::TextureDimension::D2,
+            format: VELOCITY_FORMAT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | extra,
+            view_formats: &[],
+        })
+        .create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+/// The shader source. The multisampled build differs only in the types of the `depth` and
+/// `velocity` bindings.
 fn shader(multisampled: bool) -> String {
     let source = include_str!("taa.wgsl");
     if multisampled {
-        source.replace(DEPTH_BINDING, MULTISAMPLED_DEPTH_BINDING)
+        source
+            .replace(DEPTH_BINDING, MULTISAMPLED_DEPTH_BINDING)
+            .replace(VELOCITY_BINDING, MULTISAMPLED_VELOCITY_BINDING)
     } else {
         source.to_owned()
     }
@@ -142,6 +186,8 @@ fn shader(multisampled: bool) -> String {
 
 const DEPTH_BINDING: &str = "var depth: texture_depth_2d;";
 const MULTISAMPLED_DEPTH_BINDING: &str = "var depth: texture_depth_multisampled_2d;";
+const VELOCITY_BINDING: &str = "var velocity: texture_2d<f32>;";
+const MULTISAMPLED_VELOCITY_BINDING: &str = "var velocity: texture_multisampled_2d<f32>;";
 
 fn entry(binding: u32, resource: wgpu::BindingResource<'_>) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry { binding, resource }

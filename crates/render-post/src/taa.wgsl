@@ -19,6 +19,11 @@ struct Taa {
 @group(0) @binding(2) var history: texture_2d<f32>;
 @group(0) @binding(3) var history_sampler: sampler;
 @group(0) @binding(4) var<uniform> taa: Taa;
+// Object-motion residual in uv units of the previous frame, Rg16Float:
+// uv(P_prev * world_prev) - uv(P_prev * world_now) of the surface a texel shows. It is what the
+// camera reprojection of `history_uv` lacks, so 0 (the clear value, and the 1x1 default) leaves
+// camera reprojection alone. The multisampled build declares it texture_multisampled_2d.
+@group(0) @binding(5) var velocity: texture_2d<f32>;
 override HISTORY_WEIGHT: f32 = 0.9;
 override CLIP_SCALE: f32 = 1.0;
 // Samples per depth texel. The multisampled build of this module, which declares `depth` as
@@ -92,6 +97,26 @@ fn depth_at(q: vec2<i32>) -> f32 {
     }
     return d;
 }
+// The sample of texel `q` with the smallest depth; the first wins a tie. Its velocity goes with
+// the depth `depth_at` returns, because the closest sample is the surface that is visible.
+fn winning_sample(q: vec2<i32>) -> i32 {
+    var best = 0;
+    var best_depth = textureLoad(depth, q, 0);
+    for (var s = 1; s < SAMPLES; s++) {
+        let d = textureLoad(depth, q, s);
+        if d < best_depth {
+            best = s;
+            best_depth = d;
+        }
+    }
+    return best;
+}
+// The object-motion residual of the closest-depth texel `q`. The load is clamped so that the
+// 1x1 zero texture bound when a host has no velocity reads its texel for every `q`.
+fn residual_at(q: vec2<i32>) -> vec2<f32> {
+    let last = vec2<i32>(textureDimensions(velocity)) - 1;
+    return textureLoad(velocity, min(q, last), winning_sample(q)).xy;
+}
 // The texel of the 3x3 neighborhood with the smallest depth; the first wins a tie.
 fn closest(p: vec2<i32>, size: vec2<i32>) -> vec2<i32> {
     var best = clamp(p, vec2<i32>(0), size - 1);
@@ -107,7 +132,9 @@ fn closest(p: vec2<i32>, size: vec2<i32>) -> vec2<i32> {
     return best;
 }
 // The history uv for the pixel (xy) and whether it is usable (z): the motion of the
-// closest-depth neighbor, applied at the pixel centre.
+// closest-depth neighbor, applied at the pixel centre. The camera motion comes from depth, the
+// object motion from the velocity of that same texel (Karis dilation), so a thin moving edge
+// carries its foreground's vector to the pixels around it.
 fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
     let size_f = vec2<f32>(size);
     let q = closest(p, size);
@@ -121,7 +148,7 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
     let clip = taa.reprojection * vec4<f32>(ndc, depth_at(q), 1.0);
     let previous = vec2<f32>(0.5 + 0.5 * clip.x / clip.w, 0.5 - 0.5 * clip.y / clip.w);
     let unjittered = vec2<f32>(0.5 + 0.5 * ndc.x, 0.5 - 0.5 * ndc.y);
-    let uv = (vec2<f32>(p) + 0.5) / size_f + previous - unjittered;
+    let uv = (vec2<f32>(p) + 0.5) / size_f + previous - unjittered + residual_at(q);
     let usable = finite(clip.w) && clip.w > 0.0 && finite(uv.x) && finite(uv.y)
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     return vec3<f32>(uv, select(0.0, 1.0, usable));

@@ -1,8 +1,9 @@
 // CMAA2 (Conservative Morphological Anti-Aliasing 2.3), single-sample path.
 //
-// THIS FILE WAS MODIFIED: it is a port of CMAA2.hlsl to WGSL by the Real Disunity project.
-// The structure, constants and heuristics follow the original; see crates/render-post/README.md
-// for the list of deviations.
+// THIS FILE WAS MODIFIED: it is a port of CMAA2.hlsl to WGSL, made by Real Disunity contributors.
+// It is not the original Intel work. The structure, constants and heuristics follow the original;
+// see crates/render-post/README.md for the list of deviations. The full license text is in
+// crates/render-post/LICENSE-APACHE-2.0-CMAA2.txt.
 //
 // Original work: Conservative Morphological Anti-Aliasing, version 2.3
 // Author: Filip Strugar (filip.strugar@intel.com)
@@ -10,7 +11,7 @@
 //
 // Copyright (c) 2018, Intel Corporation
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
+// Licensed under the Apache License, Version 2.0 ( the "License" );
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //

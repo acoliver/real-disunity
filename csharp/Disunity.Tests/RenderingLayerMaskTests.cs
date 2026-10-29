@@ -30,7 +30,7 @@ internal static class RenderingLayerMaskTests
     private static void NamesTheDefaultLayer()
     {
         Expect.Equal(0, RenderingLayerMask.NameToRenderingLayer("Default"), "Default is layer 0");
-        Expect.Equal(-1, RenderingLayerMask.NameToRenderingLayer("No such layer"), "an unknown name is -1, as Unity documents");
+        Expect.Equal(-1, RenderingLayerMask.NameToRenderingLayer("No such layer"), "an unknown name is -1");
         Expect.Equal(-1, RenderingLayerMask.NameToRenderingLayer("default"), "names are case sensitive");
         Expect.Equal("Default", RenderingLayerMask.RenderingLayerToName(0), "layer 0 is named Default");
         Expect.Equal(32, RenderingLayerMask.GetRenderingLayerCount(), "a project has 32 rendering layers");

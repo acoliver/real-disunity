@@ -122,13 +122,14 @@ Sharpening is a separate, optional field, `AntiAliasing::sharpen: Option<CasSett
 composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive-sharpening)).
 `AntiAliasing::new` leaves it `None`; `with_sharpen` sets it.
 
-`AntiAliasing::jitter: Option<ProjectionJitter>` is the first part of temporal antialiasing
-(issue 256, in progress). `ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64
-frames (`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
+`AntiAliasing::jitter: Option<ProjectionJitter>` shifts the projection by a sub-pixel offset.
+`ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64 frames
+(`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
 offset in output pixels, strictly inside (-0.5, 0.5) with +y down, and
-`clip_offset(frame_index, size)` the matching clip-space translation. `AntiAliasing::new` leaves
-jitter off, and then nothing changes. The temporal resolve that uses it, a later
-`PostResolve` variant, is not part of this release; jitter alone shimmers and is meant for tests.
+`clip_offset(frame_index, size)` the matching clip-space translation. The projection shift moves
+the scene by +offset, so the pixel at `q` holds the scene at `q + 0.5 - offset`. `AntiAliasing::new`
+leaves jitter off. `PostResolve::Taa` turns it on with the default sequence
+(`PostResolve::effective_jitter`); see [Temporal antialiasing](#temporal-antialiasing).
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -625,3 +626,61 @@ level, and a caller-owned exposure-copy and composite schedule. Each RGB channel
 allows `0.006 * abs(reference) + 0.0002` for accumulated half-float stores and
 bilinear interpolation. The existing default-policy comparisons retain their
 original tighter tolerance.
+
+## Temporal antialiasing
+
+`PostResolve::Taa(TaaSettings)` (the scene recipe `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` authors both fields; `history_weight` 0.0 to 0.99, default 0.9; `clip_scale` 0.5 to 2.0,
+default 1.0) adds two stages, `taa resolve` and `taa history`, ahead of the luminance histogram, so
+exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` follows Karis 2014 (color box and
+compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled
+frame is not jittered, so the sample is the MSAA pixel and a static 4x image equals MSAA alone,
+0.00046 against 0.00161 with jitter at 64x64; resampling the shifted frame gave 0.00153), the box is the
+3x3 min/max, the blend is linear and history is read with Catmull-Rom; the history weight is scaled by `clamp(1 - k * offset_px, 0, 1)` (a motion-adaptive blend factor, as in Karis 2014 and later TAA talks), k = 1.5 at 1x and 16 on multisampled frames, so static pixels keep the full weight (static 1x 0.00201 against 0.00436 aliased, static 4x equal to MSAA alone) and in motion 4x TAA equals MSAA alone (0.00036 and 0.00043 against 0.00036 and 0.00043) while 1x TAA is 0.88x and 0.73x the history-reset error (mean over frames, +41 and -29 mm per frame); the cost is less supersampling of moving pixels. An explicit `with_jitter` sequence on a multisampled target is ignored; `taa_reference.rs` is the f64 reference the GPU tests compare against.
+
+`taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or
+`texture_depth_multisampled_2d` with a per-sample minimum when MSAA is on), the history texture and
+the per-slot uniform block, and writes the TAA image. `taa history` copies that image into the
+history texture with `Operation::CopyTexture` (`copy_texture_to_texture`, encoded outside a render
+pass, so it has no timing slot). One `Rgba16Float` history texture per render size is shared by all
+frame-slot stage sets, so the history is the previous frame whichever slot ran it and however many
+frames are in flight. A resize replaces it, and settings without TAA release it. The shader ignores
+the history while the block says it is invalid, so no clear is needed.
+
+`taa resolve` also binds an object-motion residual at `@binding(5) velocity` (`taa_gpu::Inputs::velocity`
+with `velocity_samples`). The format is `Rg16Float`; the value is the object-only residual in
+previous-frame uv units, `uv(P_prev * world_prev) - uv(P_prev * world_now)`, where `world_prev` is the
+same surface with the previous transform and animation time. `history_uv` adds the residual of the
+closest-depth texel to the camera reprojection (Karis dilation: depth and velocity come from the same
+texel, and from the minimum-depth sample when the target is multisampled, where the binding is
+`texture_multisampled_2d` and its sample count must equal the depth's). Zero means camera
+reprojection alone, so a cleared target needs no special case. With `velocity: None` the resolve binds
+a 1x1 zero texture of the same sample count, which is the default of `HdrPost` today: scene passes do
+not write a residual yet, and output is unchanged from a build without the binding. The motion-adaptive
+weight reads the total displacement including the residual. The reference and GPU tests for this are in
+`taa_gpu_tests/velocity_tests.rs`.
+
+Measured at 1920x1080 on a Radeon 780M with `smaa_and_fxaa_stage_timestamps` (median of 5, stripes
+and disc scenes). The fullscreen `taa history` pass took 0.87 to 0.97 ms of a 2.99 to 3.18 ms timed
+TAA path (`taa resolve` 1.81 to 1.89 ms, `taa history`, `tone` 0.31 to 0.33 ms). The texture copy has
+no timestamp, so the probe also times 24 frames in one submission without queries: the whole chain
+(scene paint, TAA and tone) fell from 3.95 and 3.86 ms per frame to 3.37 and 3.39 ms, so the copy
+costs about 0.4 ms against 0.9 ms for the pass, a saving of 0.5 to 0.6 ms per frame. Sampling the
+resolve output into a second history target and swapping the two needs bind groups that change per
+frame, which slot-static stage sets cannot hold, so it was not tried.
+
+`TaaUniform` is the per-frame block, `TAA_UNIFORM_BYTES` = 80 bytes, little-endian, one uniform
+buffer per frame slot uploaded by `ToneMapOutput::prepare_taa`:
+
+| Bytes | Content |
+| --- | --- |
+| 0..64 | `reprojection`, column-major `mat4x4<f32>`: previous unjittered view-projection times the inverse current one, computed in f64 by the host |
+| 64..72 | `jitter_pixels` x, y (+y down) |
+| 72..76 | `history_valid`: 1.0 when the history texture holds the previous frame, else 0.0 |
+| 76..80 | zero |
+
+An all-zero block means no history: the stage returns the reconstructed current color. The block is
+built by `FrameRenderer` from the camera data, so this crate needs no matrix library.
+
+History lifecycle: the first frame, `reset_temporal_history`, a resize, a jitter change and a
+cancelled or failed transaction give `history_valid` = 0. The host must draw into
+`FrameTargets::depth()`.

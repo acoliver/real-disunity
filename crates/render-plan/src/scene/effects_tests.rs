@@ -157,9 +157,7 @@ fn quantity_bounds_fail_closed() {
         })
     ));
     let mut staged = parts();
-    staged.anti_alias = SceneAntiAlias::Taa {
-        history_micro: 1_000_001,
-    };
+    staged.anti_alias = SceneAntiAlias::taa(1_000_001);
     assert!(matches!(
         SceneEffects::new(staged),
         Err(SceneValidationError::RangeViolation { .. })
@@ -255,4 +253,64 @@ fn scene_specular_selection_is_explicit_and_default_is_unchanged() {
     let effects = effects.with_specular_convention(selected);
     assert_eq!(effects.specular_convention(), selected);
     assert_eq!(selected.shader_options(), [1, 1, 1, 0, 0, 0, 0]);
+}
+
+fn taa_with_clip(clip_scale_micro: u32) -> Result<SceneEffects, SceneValidationError> {
+    let mut staged = parts();
+    staged.anti_alias = SceneAntiAlias::Taa {
+        history_micro: 900_000,
+        clip_scale_micro,
+    };
+    SceneEffects::new(staged)
+}
+
+#[test]
+fn the_taa_constructor_keeps_the_default_clip_scale() {
+    assert_eq!(
+        SceneAntiAlias::taa(900_000),
+        SceneAntiAlias::Taa {
+            history_micro: 900_000,
+            clip_scale_micro: 1_000_000,
+        }
+    );
+    assert_eq!(DEFAULT_TAA_CLIP_SCALE_MICRO, 1_000_000);
+}
+
+#[test]
+fn the_taa_clip_scale_accepts_exactly_its_published_bounds() {
+    assert_eq!(MINIMUM_TAA_CLIP_SCALE_MICRO, 500_000);
+    assert_eq!(MAXIMUM_TAA_CLIP_SCALE_MICRO, 2_000_000);
+    for accepted in [500_000, 750_000, 1_000_000, 2_000_000] {
+        assert!(taa_with_clip(accepted).is_ok(), "{accepted}");
+    }
+    for (rejected, observed) in [(0, 0), (499_999, 499_999), (2_000_001, 2_000_001)] {
+        assert!(
+            matches!(
+                taa_with_clip(rejected),
+                Err(SceneValidationError::RangeViolation {
+                    part: "TAA clip scale",
+                    minimum: 500_000,
+                    maximum: 2_000_000,
+                    observed: seen,
+                }) if seen == observed
+            ),
+            "{rejected}"
+        );
+    }
+}
+
+#[test]
+fn the_taa_history_weight_is_still_checked_beside_the_clip_scale() {
+    let mut staged = parts();
+    staged.anti_alias = SceneAntiAlias::Taa {
+        history_micro: 1_000_001,
+        clip_scale_micro: 1_000_000,
+    };
+    assert!(matches!(
+        SceneEffects::new(staged),
+        Err(SceneValidationError::RangeViolation {
+            part: "anti-alias weight",
+            ..
+        })
+    ));
 }

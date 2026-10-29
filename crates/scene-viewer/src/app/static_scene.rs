@@ -72,7 +72,7 @@ impl Content for StaticScene {
             scene: &self.scene,
             shadows: self.options.shadows,
             profile: self.options.frame_profile,
-            frames_in_flight: self.options.frames_in_flight,
+            startup: (&self.options).into(),
         }
     }
 

@@ -9,7 +9,7 @@ pub(super) fn streaming_present(event_loop: &EventLoop<()>, window: &Arc<Window>
         &scene,
         None,
         crate::FrameProfile::Legacy,
-        2,
+        2.into(),
     ))
     .unwrap();
     let size = renderer.viewport.unwrap();

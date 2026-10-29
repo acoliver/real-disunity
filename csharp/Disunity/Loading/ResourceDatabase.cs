@@ -9,7 +9,8 @@ namespace Disunity.Hosting;
 /// A player's resources from a plan <c>unity-import</c> writes (<c>player_resources</c>).
 /// Each container entry names a lower-case path, the Unity class of its object and, when the
 /// engine builds that class, a planned asset. Assets are built the first time they load and
-/// kept for the world's lifetime: a text asset reads its byte range from the player file, and
+/// kept for the world's lifetime: a text asset reads its byte range from the player file, a
+/// texture, sprite or sprite atlas is built from its plan (see <c>ResourceDatabase.Sprites.cs</c>), and
 /// a script asset binds its fields before its <c>Awake</c> and <c>OnEnable</c>, as Unity
 /// deserializes an asset before activating it. Script assets one load reaches through their
 /// references are all bound before any of them is activated, so assets that reference each
@@ -17,7 +18,7 @@ namespace Disunity.Hosting;
 /// built again on its next load. Loading an entry of a class the engine does not build fails
 /// with the path and class named. Resources load on the main thread only.
 /// </summary>
-internal sealed class ResourceDatabase
+internal sealed partial class ResourceDatabase
 {
     private readonly record struct Entry(string Path, string Class, int? Asset);
 
@@ -94,6 +95,9 @@ internal sealed class ResourceDatabase
     private Type AssetType(JsonElement asset) => asset.Str("type") switch
     {
         "TextAsset" => typeof(TextAsset),
+        "Texture2D" => typeof(Texture2D),
+        "Sprite" => typeof(Sprite),
+        "SpriteAtlas" => typeof(UnityEngine.U2D.SpriteAtlas),
         "Script" => ScriptType(asset),
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
@@ -140,20 +144,35 @@ internal sealed class ResourceDatabase
     {
         if (_built.TryGetValue(index, out var built) && (built || _binding.Exists(entry => entry.Index == index))) return built;
         var asset = _assets[index];
-        return asset.Str("type") == "TextAsset" ? _built[index] = Text(asset) : Script(index, asset);
+        return asset.Str("type") switch
+        {
+            "TextAsset" => _built[index] = Text(asset),
+            "Texture2D" => _built[index] = Texture(asset),
+            "Sprite" => _built[index] = PlayerSprite(asset),
+            "SpriteAtlas" => _built[index] = Atlas(asset),
+            _ => Script(index, asset),
+        };
     }
 
     private static TextAsset Text(JsonElement asset)
     {
         var (name, path) = (asset.Str("name"), asset.Str("file"));
         var (offset, length) = (asset.GetProperty("offset").GetInt64(), asset.GetProperty("length").GetInt64());
-        using var file = File.OpenRead(path);
-        if (offset < 0 || length < 0 || length > int.MaxValue || offset > file.Length - length)
-            throw new InvalidDataException($"resource {name}: bytes {offset}+{length} lie outside {path} ({file.Length} bytes)");
-        file.Seek(offset, SeekOrigin.Begin);
+        if (length < 0 || length > int.MaxValue)
+            throw new InvalidDataException($"resource {name}: {length} bytes cannot be read");
         var bytes = new byte[length];
-        file.ReadExactly(bytes);
+        ReadBytes(name, path, offset, bytes);
         return new TextAsset(name, bytes);
+    }
+
+    /// <summary>Fills <paramref name="destination"/> from <paramref name="path"/> at <paramref name="offset"/>.</summary>
+    private static void ReadBytes(string name, string path, long offset, Span<byte> destination)
+    {
+        using var file = File.OpenRead(path);
+        if (offset < 0 || offset > file.Length - destination.Length)
+            throw new InvalidDataException($"resource {name}: bytes {offset}+{destination.Length} lie outside {path} ({file.Length} bytes)");
+        file.Seek(offset, SeekOrigin.Begin);
+        file.ReadExactly(destination);
     }
 
     private ScriptableObject Script(int index, JsonElement asset)

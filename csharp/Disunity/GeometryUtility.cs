@@ -4,9 +4,8 @@ namespace UnityEngine;
 /// Frustum, bounds and polygon helpers. Frustum planes come from the rows of the matrix
 /// (Gribb and Hartmann): for a point in clip space, -w &lt;= x, y, z &lt;= w, each side adds or subtracts a row
 /// from the fourth row. The planes are in Unity's order (left, right, bottom, top, near, far), their normals
-/// point into the frustum and each is normalized. The Camera overloads need the camera's projection and
-/// world-to-camera matrices, which the engine's native camera does not expose yet, so they throw
-/// NotSupportedException.
+/// point into the frustum and each is normalized. A camera's planes come from its projection matrix times
+/// its world-to-camera matrix.
 /// </summary>
 public sealed class GeometryUtility
 {
@@ -15,7 +14,7 @@ public sealed class GeometryUtility
     private const int PlaneCount = 6;
     private const float DegenerateArea = 1e-9f;
 
-    public static Plane[] CalculateFrustumPlanes(Camera camera) => throw CameraMatrices(nameof(CalculateFrustumPlanes));
+    public static Plane[] CalculateFrustumPlanes(Camera camera) => CalculateFrustumPlanes(WorldToProjection(camera));
 
     public static Plane[] CalculateFrustumPlanes(Matrix4x4 worldToProjectionMatrix)
     {
@@ -26,9 +25,9 @@ public sealed class GeometryUtility
 
     public static Plane[] CalculateFrustumPlanes(ref Matrix4x4 worldToProjectionMatrix) => CalculateFrustumPlanes(worldToProjectionMatrix);
 
-    public static void CalculateFrustumPlanes(Camera camera, Span<Plane> planes) => throw CameraMatrices(nameof(CalculateFrustumPlanes));
+    public static void CalculateFrustumPlanes(Camera camera, Span<Plane> planes) => Extract(WorldToProjection(camera), planes);
 
-    public static void CalculateFrustumPlanes(Camera camera, Plane[] planes) => throw CameraMatrices(nameof(CalculateFrustumPlanes));
+    public static void CalculateFrustumPlanes(Camera camera, Plane[] planes) => CalculateFrustumPlanes(WorldToProjection(camera), planes);
 
     public static void CalculateFrustumPlanes(Matrix4x4 worldToProjectionMatrix, Span<Plane> planes) => Extract(worldToProjectionMatrix, planes);
 
@@ -127,6 +126,9 @@ public sealed class GeometryUtility
         return length > 0f ? new Plane(normal / length, row.w / length) : default;
     }
 
-    private static NotSupportedException CameraMatrices(string member) =>
-        new($"GeometryUtility.{member} for a Camera is not supported yet: it needs the camera's projection and world-to-camera matrices, which come in a later slice. Pass the matrix product instead.");
+    private static Matrix4x4 WorldToProjection(Camera camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        return camera.projectionMatrix * camera.worldToCameraMatrix;
+    }
 }

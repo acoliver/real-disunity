@@ -47,7 +47,9 @@ internal static class PresentationTests
         Require(camera.backgroundColor == new Color(0.25f, 0.5f, 0.75f, 0), "background colour");
         Require(camera.orthographicSize == 8 && camera.depth == -1, "lens and depth");
         Require(camera.nearClipPlane == 0.3f && camera.farClipPlane == 1000, "clip planes");
-        Rejects<DisunityException>(() => camera.orthographic = false, "perspective is unsupported");
+        camera.orthographic = false;
+        Require(!camera.orthographic && camera.orthographicSize == 8, "a perspective lens is stored and keeps the orthographic size");
+        camera.orthographic = true;
         Rejects<DisunityException>(() => camera.orthographicSize = 0, "zero orthographic size");
         Rejects<DisunityException>(() => camera.farClipPlane = 0.1f, "far plane before near plane");
         Rejects<ArgumentException>(() => camera.depth = 0.5f, "fractional depth");

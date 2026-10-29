@@ -73,7 +73,7 @@ namespace UnityEngine
         public string groupName { get; }
     }
 
-    /// <summary>The identity of a compute or graphics buffer. Its members come with the buffer types in G2.</summary>
+    /// <summary>The identity of a graphics buffer, unique for each live <see cref="GraphicsBuffer"/>.</summary>
     public struct GraphicsBufferHandle : IEquatable<GraphicsBufferHandle>, IComparable<GraphicsBufferHandle>
     {
         public uint value;
@@ -85,9 +85,6 @@ namespace UnityEngine
         public static bool operator ==(GraphicsBufferHandle a, GraphicsBufferHandle b) => a.value == b.value;
         public static bool operator !=(GraphicsBufferHandle a, GraphicsBufferHandle b) => a.value != b.value;
     }
-
-    /// <summary>A GPU buffer. Only its identity exists in G1; its members come in G2.</summary>
-    public sealed class GraphicsBuffer;
 }
 
 namespace UnityEngine.Rendering

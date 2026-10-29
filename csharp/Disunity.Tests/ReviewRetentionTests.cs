@@ -12,14 +12,14 @@ internal static class ReviewRetentionTests
     {
         public Payload Serialized = new();
         public Rigidbody2D? Body;
-        public static int Destroyed;
-        private void OnDestroy() => Destroyed++;
+        public static int DestroyedCount;
+        private void OnDestroy() => DestroyedCount++;
     }
     public static void Run()
     {
         DisunityHost.LoadWorld();
         var world = DisunityHost.WorldHandle;
-        Retained.Destroyed = 0;
+        Retained.DestroyedCount = 0;
         for (var cycle = 0; cycle < 32; cycle++)
         {
             var weak = SpawnAndRetire(cycle % 2 == 0);
@@ -29,7 +29,7 @@ internal static class ReviewRetentionTests
             if (weak.Any(reference => reference.IsAlive)) throw new InvalidOperationException("B2 retired wrappers or serialized payload retained in loaded world");
             if (DisunityHost.WorldHandle != world || !DisunityHost.IsLoaded) throw new InvalidOperationException("B2 collectibility requires the same loaded world");
         }
-        if (Retained.Destroyed != 32) throw new InvalidOperationException("B2 native script cleanup did not complete");
+        if (Retained.DestroyedCount != 32) throw new InvalidOperationException("B2 native script cleanup did not complete");
         DisunityHost.UnloadWorld();
         Console.WriteLine("PASS: B2 repeated in-world wrapper and serialized payload collectibility including inactive scriptless objects");
     }

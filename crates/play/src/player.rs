@@ -94,13 +94,19 @@ fn scene_name(path: &str) -> &str {
 }
 
 /// The request's `scenes` list: one entry per build scene in build order, with the plan file
-/// for the scenes that planned and `null` for those that did not.
-fn scene_entries(paths: &[String], plans: &[Option<PathBuf>]) -> Vec<serde_json::Value> {
+/// for the scenes that planned, and `null` plus the planning `error` for those that did not.
+fn scene_entries(paths: &[String], plans: &[Result<PathBuf, String>]) -> Vec<serde_json::Value> {
     paths
         .iter()
         .zip(plans)
         .map(|(path, plan)| {
-            serde_json::json!({"name": scene_name(path), "path": path, "plan": plan})
+            let name = scene_name(path);
+            match plan {
+                Ok(plan) => serde_json::json!({"name": name, "path": path, "plan": plan}),
+                Err(error) => {
+                    serde_json::json!({"name": name, "path": path, "plan": null, "error": error})
+                }
+            }
         })
         .collect()
 }
@@ -128,11 +134,11 @@ fn plan_build_scenes(
             Ok(bytes) => {
                 let path = output.join(format!("scene-{index}.json"));
                 write(&path, &bytes)?;
-                Some(path)
+                Ok(path)
             }
             Err(error) => {
                 eprintln!("[player] could not plan {file}: {error}");
-                None
+                Err(error.to_string())
             }
         });
     }
@@ -288,15 +294,15 @@ mod tests {
         .map(String::from)
         .to_vec();
         let plans = [
-            Some(PathBuf::from("out/scene-0.json")),
-            None,
-            Some(PathBuf::from("out/scene-2.json")),
+            Ok(PathBuf::from("out/scene-0.json")),
+            Err("object 3 does not decode".to_owned()),
+            Ok(PathBuf::from("out/scene-2.json")),
         ];
         assert_eq!(
             serde_json::Value::Array(scene_entries(&paths, &plans)),
             serde_json::json!([
                 {"name": "StartScreen", "path": "Assets/GameAssets/Scenes/StartScreen.unity", "plan": "out/scene-0.json"},
-                {"name": "MainGame", "path": "Assets/GameAssets/Scenes/MainGame.unity", "plan": null},
+                {"name": "MainGame", "path": "Assets/GameAssets/Scenes/MainGame.unity", "plan": null, "error": "object 3 does not decode"},
                 {"name": "Loose", "path": "Assets/Loose", "plan": "out/scene-2.json"},
             ])
         );

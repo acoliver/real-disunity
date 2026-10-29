@@ -12,9 +12,10 @@ namespace Disunity.Play;
 /// scene, and the scene loads from its plan. A player request is
 /// <c>{"player": data directory, "plan": path, "resources": path, "identity": {...},
 /// "persistent": directory, "arguments": [the player's command line after its executable path],
-/// "first_texture": 1, "quality": {"names": [...], "current": 0}}</c>, with the scene and
+/// "first_texture": 1, "quality": {"names": [...], "current": 0},
+/// "scenes": [{"name": ..., "path": ..., "plan": path or null, "error": why it has no plan}]}</c>, with the scene and
 /// resource plans, the player identity and its quality levels (when it defines any)
-/// <c>unity-import</c> writes. Each step writes a line
+/// <c>unity-import</c> writes. <c>scenes</c> lists the player's build in build order for <c>SceneManager</c>. Each step writes a line
 /// to standard error, so the first one that fails is the last line written.
 /// </summary>
 internal static class PlayerRun
@@ -48,6 +49,7 @@ internal static class PlayerRun
             FirstTextureIdentity = request.GetProperty("first_texture").GetUInt64(),
             Assemblies = Load,
         };
+        if (request.TryGetProperty("scenes", out var scenes)) DisunityHost.SetBuildScenes(BuildScenes(scenes), options);
         var planPath = request.GetProperty("plan").GetString()!;
         Log($"loading scene {planPath}");
         var scene = DisunityHost.LoadScene(File.ReadAllText(planPath), options);
@@ -76,6 +78,16 @@ internal static class PlayerRun
             Debug.LogException(error);
         });
     }
+
+    /// <summary>The player's build scenes. A scene without a plan loads by throwing the planning error.</summary>
+    private static List<BuildScene> BuildScenes(JsonElement scenes) => scenes.EnumerateArray().Select(scene =>
+    {
+        var name = scene.GetProperty("name").GetString()!;
+        var plan = scene.GetProperty("plan").GetString();
+        var error = scene.TryGetProperty("error", out var why) ? why.GetString() : null;
+        return new BuildScene(name, scene.GetProperty("path").GetString()!,
+            plan is null ? null : () => File.ReadAllText(plan), plan is null ? error ?? "it was not planned" : null);
+    }).ToList();
 
     private static byte[] NoFont(string name) =>
         throw new FileNotFoundException($"player plans name no package fonts, but the scene asked for {name}");

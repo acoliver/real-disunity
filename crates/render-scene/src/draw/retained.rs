@@ -191,6 +191,11 @@ impl SceneGpu {
         Ok(writes)
     }
 
+    /// Keeps previous-frame instance transforms while the pass draws velocity pipelines.
+    pub(crate) fn track_previous_transforms(&mut self, track: bool) {
+        self.instances.track_previous = track;
+    }
+
     /// Commits sparse edits using the restricted upload context.
     /// Call only after all fallible frame preparation succeeds, then finish the context.
     pub fn prepare_instances(
@@ -198,8 +203,9 @@ impl SceneGpu {
         context: &mut worldrunner_render_post::PrepareContext<'_>,
     ) -> Vec<InstanceWrite> {
         let mut writes = Vec::new();
+        let track = self.instances.track_previous;
         for (&(_, mesh, material), batch) in &mut self.instances.batches {
-            for instances in crate::instances::batch::flush_prepared(batch, context) {
+            for instances in crate::instances::batch::flush_prepared(batch, context, track) {
                 writes.push(InstanceWrite {
                     mesh,
                     material,

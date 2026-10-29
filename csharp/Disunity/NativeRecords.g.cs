@@ -77,6 +77,41 @@ namespace Disunity.Native
         public float match_height;
     }
 
+    /// <summary>
+    ///  A light's settings. `kind` uses the managed `LightType` values (0 Spot, 1 Directional,
+    ///  2 Point, 3 Rectangle, 4 Disc, 5 Pyramid, 6 Box, 7 Tube), `shadows` is 0 None, 1 Hard or 2 Soft,
+    ///  and `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime. The masks have one bit per layer,
+    ///  `cookie_texture` is a managed texture's instance id (0 for none) and booleans are 0 or 1.
+    ///  A write brings the spot angles and shadow strength into range, as world-simulation defines.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityLight
+    {
+        public ulong cookie_texture;
+        public uint enabled;
+        public uint kind;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public float intensity;
+        public float range;
+        public float spot_angle;
+        public float inner_spot_angle;
+        public uint shadows;
+        public float shadow_strength;
+        public float shadow_bias;
+        public float shadow_normal_bias;
+        public float shadow_near_plane;
+        public uint culling_mask;
+        public uint rendering_layer_mask;
+        public float bounce_intensity;
+        public float color_temperature;
+        public uint use_color_temperature;
+        public float cookie_size;
+        public uint lightmap_bake_type;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunitySprite
     {

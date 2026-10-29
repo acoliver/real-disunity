@@ -215,6 +215,7 @@ impl World {
             ComponentDesc::Sprite(_)
             | ComponentDesc::Tilemap(_)
             | ComponentDesc::Camera(_)
+            | ComponentDesc::Light(_)
             | ComponentDesc::GlobalLight2d(_)
             | ComponentDesc::UniversalAdditionalCameraData(_)
             | ComponentDesc::AudioListener { .. }

@@ -117,10 +117,7 @@ pub(super) fn configure_effects(
         }
         Resident::Plain(_) => {}
     }
-    presentation
-        .scheduler
-        .reconfigure(context, settings)
-        .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+    presentation.scheduler.reconfigure(context, settings)?;
     presentation.refresh_targets();
     Ok(())
 }

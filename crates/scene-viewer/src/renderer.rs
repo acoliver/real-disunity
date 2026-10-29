@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod budget_tests;
+
 use std::sync::{Arc, mpsc};
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
@@ -72,13 +75,16 @@ impl Renderer {
         let extents = Extents::for_device([size.width, size.height], context.device())?;
         let initial = extents.unwrap_or_else(Extents::placeholder);
         let viewport = extents.map(|extents| extents.surface);
-        let presentation = Presentation::with_profile(
+        let presentation = Presentation::with_settings(
             &context,
             policy.format,
-            initial.render,
-            initial.surface,
+            [initial.render, initial.surface],
             profile,
             scene.effects(),
+            crate::presentation::PresentationPolicy {
+                budget: startup.presentation_budget,
+                recipes: startup.recipes,
+            },
         )?;
         let resident = Resident::new(&context, scene, shadows, profile)?;
         #[cfg(all(test, target_os = "linux"))]
@@ -180,12 +186,6 @@ impl Renderer {
         } else {
             view
         };
-        if host
-            .as_ref()
-            .is_some_and(|host| !host.captures.recipes.is_empty())
-        {
-            self.presentation.reserve_recipe_storage(&self.context)?;
-        }
         self.prepare_frame(view, ready.admission.slot())?;
         let output = ready
             .frame
@@ -539,6 +539,8 @@ mod sdsm_tests;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Startup {
+    pub(crate) presentation_budget: crate::PresentationBudget,
+    pub(crate) recipes: bool,
     frames_in_flight: usize,
     gpu_timing: bool,
     present_mode: wgpu::PresentMode,
@@ -548,6 +550,8 @@ pub(crate) struct Startup {
 impl From<&crate::ViewerOptions> for Startup {
     fn from(options: &crate::ViewerOptions) -> Self {
         Self {
+            presentation_budget: options.presentation_budget,
+            recipes: false,
             frames_in_flight: options.frames_in_flight,
             gpu_timing: options.gpu_timing,
             present_mode: options.present_mode,
@@ -559,6 +563,8 @@ impl From<&crate::ViewerOptions> for Startup {
 impl From<usize> for Startup {
     fn from(frames_in_flight: usize) -> Self {
         Self {
+            presentation_budget: crate::PresentationBudget::default(),
+            recipes: false,
             frames_in_flight,
             gpu_timing: false,
             present_mode: wgpu::PresentMode::Fifo,

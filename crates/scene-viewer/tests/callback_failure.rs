@@ -62,6 +62,7 @@ fn main() {
 
 fn options() -> ViewerOptions {
     ViewerOptions {
+        presentation_budget: worldrunner_scene_viewer::PresentationBudget::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         frame_profile: worldrunner_scene_viewer::FrameProfile::Legacy,
         frames_in_flight: 2,

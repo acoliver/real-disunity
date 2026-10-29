@@ -22,4 +22,14 @@ The stock wrapper exposes explicit frame operations and a restricted `FrameEncod
 
 Custom compositions can use `Configuration<T>` with a builder that includes their feature objects and allocation inventory.
 
-The viewer uses this transaction for attachment resize and reports replacement errors. Surface configuration remains a separate native operation requiring idle submission exclusion.
+The viewer uses this transaction for attachment resize and retained settings changes,
+with the positive `ViewerOptions::presentation_budget` byte limit (1 GiB by default).
+Budget errors retain `required` and `budget` through `ViewerError::Configuration`.
+Retained desktop and windowless hosts include their 256 MiB capture-recipe pool
+in the initial inventory, declared with `AllocationSet::shared_cpu` so the single
+host-wide reservation is counted once across replacements. Recipe admission does
+not reconfigure targets. Actual
+attachment replacement still counts the old and new generations because the
+allocator constructs new targets before publishing and retiring the old ones.
+Surface configuration remains a separate native operation requiring idle
+submission exclusion.

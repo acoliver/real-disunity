@@ -160,6 +160,35 @@ pub struct PostChain<F> {
     timing: std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>,
 }
 
+impl std::fmt::Debug for TimingState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TimingState")
+            .field(
+                "support",
+                &self.0.borrow().as_ref().map(crate::PassTimer::support),
+            )
+            .finish()
+    }
+}
+impl TimingState {
+    /// Attach a provider compute pass to the active frame, if timing is enabled.
+    pub fn begin_compute_pass<'a>(
+        &self,
+        encoder: &'a mut wgpu::CommandEncoder,
+        id: crate::StageId,
+    ) -> wgpu::ComputePass<'a> {
+        let stamp = self
+            .0
+            .borrow_mut()
+            .as_mut()
+            .and_then(|timer| timer.stamp(crate::PassId::Stage(id)));
+        encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some(id.name),
+            timestamp_writes: stamp.as_ref().map(crate::timing::Stamp::compute),
+        })
+    }
+}
+
 impl<F: StageFactory> PostChain<F> {
     pub fn new(
         device: &wgpu::Device,

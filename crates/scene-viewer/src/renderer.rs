@@ -9,6 +9,7 @@ mod live;
 mod readiness;
 mod retained;
 mod target;
+pub(crate) mod timing;
 mod windowless;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
@@ -247,6 +248,10 @@ impl Renderer {
             .submission()
             .prepare(self.context.device(), |encoder, _| {
                 if !fitted {
+                    self.presentation
+                        .scheduler
+                        .begin_timing(self.streaming.captures.next_frame())
+                        .map_err(|error| ViewerError::Gpu(error.to_string()))?;
                     self.resident.render(
                         &self.context,
                         view,
@@ -535,6 +540,7 @@ mod sdsm_tests;
 #[derive(Clone, Debug)]
 pub(crate) struct Startup {
     frames_in_flight: usize,
+    gpu_timing: bool,
     present_mode: wgpu::PresentMode,
     desired_maximum_frame_latency: u32,
     adapter_callback: Option<crate::AdapterCallback>,
@@ -543,6 +549,7 @@ impl From<&crate::ViewerOptions> for Startup {
     fn from(options: &crate::ViewerOptions) -> Self {
         Self {
             frames_in_flight: options.frames_in_flight,
+            gpu_timing: options.gpu_timing,
             present_mode: options.present_mode,
             desired_maximum_frame_latency: options.desired_maximum_frame_latency,
             adapter_callback: options.adapter_callback.clone(),
@@ -553,6 +560,7 @@ impl From<usize> for Startup {
     fn from(frames_in_flight: usize) -> Self {
         Self {
             frames_in_flight,
+            gpu_timing: false,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
             adapter_callback: None,
@@ -590,7 +598,7 @@ async fn surface_context(
     if let Some(callback) = &startup.adapter_callback {
         callback.notify(&adapter)?;
     }
-    let context = GpuContext::from_adapter_with_features(adapter, required_features(scene)).await?;
+    let context = timing::context(adapter, required_features(scene), startup.gpu_timing).await?;
     let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
         .map_err(surface_error)?;
     Ok((instance, presenter, context, policy))

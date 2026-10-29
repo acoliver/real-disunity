@@ -17,11 +17,14 @@ impl RetainedHost {
         let renderer = pollster::block_on(Renderer::windowless(&self));
         let mut session = Session::new(self, driver);
         match renderer {
-            Ok(renderer) => Ok(WindowlessRetained {
-                session,
-                renderer,
-                closed: false,
-            }),
+            Ok(mut renderer) => {
+                renderer.collect_retained(&mut session.host)?;
+                Ok(WindowlessRetained {
+                    session,
+                    renderer,
+                    closed: false,
+                })
+            }
             Err(error) => {
                 let _ = session.shutdown();
                 Err(error)

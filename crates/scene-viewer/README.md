@@ -59,6 +59,42 @@ bytes are reported once per resident scene generation, including initial
 residency; an unchanged subsequent frame reports zero uploaded bytes.
 
 Terrain geometry/material page statistics, water and sky draws, all-pass draw
-counts and retained GPU pass timing are not yet exposed. These omissions are
+counts are not yet exposed. These omissions are
 not represented by zero-valued category fields. The host still requests no GPU
 timestamp capability and allocates no timing queries by default.
+
+## GPU pass timing
+
+Set `gpu_timing: true` to request GPU timestamps. The default is `false`, which
+requests no timestamp features, allocates no query sets or readback buffers, and
+leaves rendering commands and pixels unchanged. The host uses the existing
+`PassTimer` and the stock compositor's pass-level timestamp writes. Only
+`TIMESTAMP_QUERY` is required; inside-encoder and inside-pass writes are not used.
+
+`RetainedHost::gpu_timing()` and `RetainedEventHost::gpu_timing()` expose
+`Disabled`, `Pending`, `Unavailable(GpuTimingUnavailable)`, or `Complete(FrameTiming)`.
+Startup continues when timing is unavailable so an optional observation cannot
+prevent a game from rendering. Missing features produce `Unavailable(MissingFeatures(...))`,
+with no zero-valued measurements substituted. A backend that advertises timestamps but
+returns all-zero or reversed counters reports `Unavailable(InvalidTimestampPair { frame_id, pass_id })`.
+A map or callback failure returns `ViewerError::Timing` instead of hiding the error.
+
+A completed sample identifies its source `frame_id`, independent of the latest
+submission statistics. Capture recipe timings identify each rendered subframe; later
+subframes have distinct IDs, while the capture result retains its initial source ID.
+Each pass retains its existing `PassId`: geometry uses `PassSlot` (shadows,
+metadata/prepass, AO, opaque, SSR and water), output stages use `StageId`, and
+multisample resolve uses `Resolve`. Only executed passes appear. Legacy presentation
+is the `post copy output` stage. HDR output retains its authored post stage names.
+Depth fitting adds `sdsm receiver initialize` and `sdsm receiver reduce` stages at
+level zero to the same geometry/output sample, including same-frame captures.
+Durations are nanoseconds using the queue timestamp period. All-zero or reversed
+pairs yield `None`; wgpu does not expose the counter modulus. Equal nonzero counters
+yield zero nanoseconds because a pass can be shorter than timer resolution. The host reports that sample as typed unavailable
+instead of presenting it as a completed measurement.
+
+The ring holds three unread frames, at most 1024 pass pairs per frame. When full,
+a new measurement is dropped while rendering continues. Mapping is asynchronous;
+normal nonblocking device polls deliver completions. Reading retains only the
+newest completed sample and never waits or consumes it. Resize and settings
+changes preserve the timing ring and its unread samples.

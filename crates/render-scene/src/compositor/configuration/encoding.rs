@@ -14,6 +14,9 @@ use worldrunner_render_post::{AttachmentView, FrameError, PostError};
 /// ```
 pub struct FrameEncoding<'a>(&'a mut FrameRenderer);
 impl FrameRenderer {
+    pub(crate) fn timing_state(&self) -> worldrunner_render_post::TimingState {
+        self.chain.timing_state()
+    }
     pub fn encoding(&mut self) -> FrameEncoding<'_> {
         FrameEncoding(self)
     }

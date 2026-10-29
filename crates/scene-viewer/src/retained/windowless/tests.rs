@@ -3,6 +3,7 @@ mod errors;
 mod lifecycle;
 pub(crate) mod pages;
 mod terrain;
+mod timing;
 #[test]
 fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
     let mut driver = Driver::default();

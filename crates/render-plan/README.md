@@ -73,8 +73,7 @@ Bloom defines linear threshold, fractional soft knee, intensity and one to eight
 pyramid levels. Existing runtime `ScenePostStage::Bloom` selects knee 0.5 and five
 levels. Only one bloom is accepted; duplicate controls and vignette fail
 with typed errors. FXAA or TAA may be requested through the recipe or runtime AA choice,
-but only one resolve. `render-scene` maps authored TAA to a history weight (at most 0.99)
-but refuses it at renderer construction until the TAA resolve pass exists (issue 256). Bloom and exposure precede the selected tone curve (Reinhard or
+but only one resolve. `render-scene` maps authored TAA to `PostResolve::Taa` with that history weight (at most 0.99). Bloom and exposure precede the selected tone curve (Reinhard or
 fitted ACES), followed by FXAA. MSAA and FXAA are allowed together: MSAA resolves
 HDR coverage before metering and FXAA filters the display-linear result.
 Contrast and saturation remain unsupported.

@@ -213,26 +213,27 @@ capped at ten seconds after long pauses;
 `set_frame_delta` supplies an explicit simulation step. Fixed capture policies
 override wall-clock timing. `reset_exposure` resets the ordered history once at the next output.
 The shared temporal carry and slot-local published results survive resize. Nonneutral grading remains
-rejected, including requests with zero weights. TAA is accepted by the settings mapping and refused at
-renderer construction with `UnsupportedProfile("TAA resolve not yet available")` until its pass exists. MSAA and FXAA may run together.
+rejected, including requests with zero weights. An authored TAA maps to `PostResolve::Taa`. MSAA and FXAA may run together.
 
 `FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
 
-## Temporal antialiasing (in progress)
+## Temporal antialiasing
 
-The temporal resolve arrives in a later change (issue 256). This change adds projection
-jitter and previous-frame view data, off by default and byte-identical when off.
+The TAA resolve (`PostResolve::Taa`, issue 256) accumulates jittered frames; see the
+[rendering guide](../../docs/rendering.md#temporal-antialiasing). Projection jitter and
+previous-frame view data are off unless requested or implied by TAA, and byte-identical when off.
 
 Select jitter with `AntiAliasing::with_jitter` on `FrameRenderer::hdr_antialiased`, or
 `FrameRenderer::set_projection_jitter` on an existing renderer. `prepare_uniform` then adds
 the sub-pixel offset of the next frame to `FrameUniform::view_projection`, the matrix the GPU
 rasterizes with, and fills `FrameUniform::temporal` with a `TemporalView`: the unjittered
 matrix, the previous submitted frame's unjittered matrix, both jitter offsets in pixels and
-whether the history is valid. `TemporalView::to_bytes` is a separate 160-byte block for the
-resolve. The 320-byte scene block keeps its layout, so with jitter on only its first sixty-four
+whether the history is valid. `TemporalView::to_bytes` is a separate 160-byte block.
+`encode_frame` turns it into the 80-byte `TaaUniform` (reprojection in f64) that `encode_output`
+uploads for the frame slot. Draw into `targets().depth()` while TAA is resident. The 320-byte scene block keeps its layout, so with jitter on only its first sixty-four
 bytes change.
 
 `PostResolve::Taa` selects the default jitter sequence when none was requested

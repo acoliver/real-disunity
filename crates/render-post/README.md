@@ -122,13 +122,14 @@ Sharpening is a separate, optional field, `AntiAliasing::sharpen: Option<CasSett
 composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive-sharpening)).
 `AntiAliasing::new` leaves it `None`; `with_sharpen` sets it.
 
-`AntiAliasing::jitter: Option<ProjectionJitter>` is the first part of temporal antialiasing
-(issue 256, in progress). `ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64
-frames (`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
+`AntiAliasing::jitter: Option<ProjectionJitter>` shifts the projection by a sub-pixel offset.
+`ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64 frames
+(`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
 offset in output pixels, strictly inside (-0.5, 0.5) with +y down, and
-`clip_offset(frame_index, size)` the matching clip-space translation. `AntiAliasing::new` leaves
-jitter off, and then nothing changes. The temporal resolve that uses it, a later
-`PostResolve` variant, is not part of this release; jitter alone shimmers and is meant for tests.
+`clip_offset(frame_index, size)` the matching clip-space translation. The projection shift moves
+the scene by +offset, so the pixel at `q` holds the scene at `q + 0.5 - offset`. `AntiAliasing::new`
+leaves jitter off. `PostResolve::Taa` turns it on with the default sequence
+(`PostResolve::effective_jitter`); see [Temporal antialiasing](#temporal-antialiasing).
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -625,3 +626,34 @@ level, and a caller-owned exposure-copy and composite schedule. Each RGB channel
 allows `0.006 * abs(reference) + 0.0002` for accumulated half-float stores and
 bilinear interpolation. The existing default-policy comparisons retain their
 original tighter tolerance.
+
+## Temporal antialiasing
+
+`PostResolve::Taa(TaaSettings)` (`history_weight` 0.0 to 0.99, default 0.9; `clip_scale` 0.5 to 2.0,
+default 1.0) adds two stages, `taa resolve` and `taa history`, ahead of the luminance histogram, so
+exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` follows Karis 2014 and
+Salvi 2016; `taa_reference.rs` is the f64 reference the GPU tests compare against.
+
+`taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or
+`texture_depth_multisampled_2d` with a per-sample minimum when MSAA is on), the history texture and
+the per-slot uniform block, and writes the TAA image. `taa history` copies that image into the
+history texture. One `Rgba16Float` history texture per render size is shared by the three frame-slot
+stage sets, because each slot sees every third frame. A resize replaces it, and settings without TAA
+release it. The shader ignores the history while the block says it is invalid, so no clear is needed.
+
+`TaaUniform` is the per-frame block, `TAA_UNIFORM_BYTES` = 80 bytes, little-endian, one uniform
+buffer per frame slot uploaded by `ToneMapOutput::prepare_taa`:
+
+| Bytes | Content |
+| --- | --- |
+| 0..64 | `reprojection`, column-major `mat4x4<f32>`: previous unjittered view-projection times the inverse current one, computed in f64 by the host |
+| 64..72 | `jitter_pixels` x, y (+y down) |
+| 72..76 | `history_valid`: 1.0 when the history texture holds the previous frame, else 0.0 |
+| 76..80 | zero |
+
+An all-zero block means no history: the stage returns the reconstructed current color. The block is
+built by `FrameRenderer` from the camera data, so this crate needs no matrix library.
+
+History lifecycle: the first frame, `reset_temporal_history`, a resize, a jitter change and a
+cancelled or failed transaction give `history_valid` = 0. The host must draw into
+`FrameTargets::depth()`.

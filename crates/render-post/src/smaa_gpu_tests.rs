@@ -254,6 +254,38 @@ const PROBE_SCENES: [(&str, &str); 2] = [
     ),
 ];
 
+/// Mean GPU time per frame of 24 frames in one submission, without timestamp queries. Copies
+/// have no timing slot, so this is how a copy shows up in the probe.
+fn untimed_frame_ms(rig: &Rig, settings: &HdrPostSettings, scene: &str) -> f64 {
+    const FRAMES: u32 = 24;
+    let size = [1920, 1080];
+    let chain = chain(&rig.device, settings, size);
+    let target = output(&rig.device, size);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let authority = crate::test_authority(&rig.queue);
+    let mut runs: Vec<f64> = (0..5)
+        .map(|_| {
+            let mut encoder = authority.begin(&rig.device).unwrap();
+            for _ in 0..FRAMES {
+                paint(&rig.device, &mut encoder, chain.targets().resolved(), scene);
+                chain.encode(&mut encoder, &view);
+            }
+            let finished = encoder.finish();
+            let started = std::time::Instant::now();
+            let submission = finished.submit().unwrap();
+            rig.device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(submission),
+                    timeout: Some(std::time::Duration::from_mins(2)),
+                })
+                .unwrap();
+            started.elapsed().as_secs_f64() * 1e3 / f64::from(FRAMES)
+        })
+        .collect();
+    runs.sort_by(f64::total_cmp);
+    runs[runs.len() / 2]
+}
+
 /// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame.
 fn timed_medians(
     rig: &Rig,
@@ -262,15 +294,16 @@ fn timed_medians(
     scene: &str,
 ) -> Vec<(String, f64)> {
     let size = [1920, 1080];
-    let chain = chain(
-        &rig.device,
-        &HdrPostSettings {
-            resolve,
-            sharpen,
-            ..HdrPostSettings::default()
-        },
-        size,
+    let settings = HdrPostSettings {
+        resolve,
+        sharpen,
+        ..HdrPostSettings::default()
+    };
+    eprintln!(
+        "  untimed chain: {:.3} ms per frame (paint, chain and untimed copies)",
+        untimed_frame_ms(rig, &settings, scene)
     );
+    let chain = chain(&rig.device, &settings, size);
     chain
         .configure_timing(&rig.device, &rig.queue, crate::TimingMode::Required)
         .unwrap();

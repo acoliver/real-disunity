@@ -103,9 +103,10 @@ cargo xtask ci-gpu       # Rendering or presentation changes; requires an adapte
 ```
 
 Report commands, results and unavailable prerequisites. Local Linux checks cannot
-establish Windows or macOS compatibility. Protected `main` requires all seven
-hosted checks: CPU and managed on Linux, macOS and Windows, plus software-Vulkan
-GPU on Linux. Relevant local checks complement those required hosted results.
+establish Windows or macOS compatibility. Protected `main` requires the `PR gate`
+check, which runs on Linux. Windows and macOS run after merge and nightly; see
+[quality gates](dev-docs/quality-gates.md#continuous-integration). Documentation-only
+PRs skip the engine builds. Relevant local checks complement those hosted results.
 Never weaken the gates to accommodate a contribution. Workflow runs from a new
 fork may wait for maintainer approval; contributors do not need to provide secrets.
 

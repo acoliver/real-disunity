@@ -27,7 +27,7 @@ Use this checklist to identify remaining work before review:
 - [ ] Tests and quality limits remain intact; fork CI needs no secrets or private checkout.
 - [ ] Third-party additions have an MIT-compatible license and required notices, if applicable.
 - [ ] Affected README pages, user documentation and subsystem contracts are current.
-- [ ] The PR is ready for review or its blocker is documented. All seven hosted checks are required for protected main.
+- [ ] The PR is ready for review or its blocker is documented. `PR gate` is required for protected main.
 
 Andrew intends human review daily; maintainer agents also review daily. This does
 not guarantee a same-day merge. Only Andrew manually merges all PRs. Agents never

@@ -1,36 +1,35 @@
 //! Saving and restoring a game's Lua data.
 //!
 //! A game saves the values at some global paths (its roots) and restores them into a fresh
-//! state that has run the same scripts. Tables shared by reference stay shared, cycles survive,
-//! and integers stay distinct from floats. Functions and the tables that hold a game's code, such
-//! as class tables, are not copied: they are permanents, saved by name and looked up by that name
-//! when restoring, so a restored save runs the current code. Natives are permanents named by their
-//! path. The game names further permanents by global path; every function and table reachable
-//! from one through string keys is a permanent named by its path.
+//! state that has run the same scripts. The roots and every scheduler thread are saved by
+//! `lua-resume` as one graph (see [`crate::resume`]): tables, closures and upvalue cells that
+//! several roots or threads share stay shared, cycles survive, and integers stay distinct from
+//! floats. Functions and the tables that hold a game's code, such as class tables, are not
+//! copied: they are permanents, saved by name and looked up by that name when restoring, so a
+//! restored save runs the current code. Natives are permanents named by their path. The game
+//! names further permanents by global path; every function and table reachable from one
+//! through string keys is a permanent named by its path.
 //!
-//! A scheduler thread that has run is saved where it stopped, by `lua-resume`: its frames,
-//! locals and closures, so it continues in the middle of its function after a restore (see
-//! [`crate::resume`]). A thread that has not run yet is saved as the permanent function it was
-//! spawned with and its arguments. Tables that the saved data also holds stay shared with the
-//! threads' locals. Finished coroutines are saved as finished.
+//! A scheduler thread that has run is saved where it stopped: its frames, locals and closures,
+//! so it continues in the middle of its function after a restore. A thread that has not run yet
+//! is saved as the function it was spawned with, which may be a closure, and its arguments.
+//! Finished coroutines are saved as finished, and a suspended coroutine that a thread or the
+//! data holds is saved where it stopped.
 //!
-//! A function that is not a permanent, such as a closure created at run time, cannot be saved
-//! yet, nor can a suspended coroutine the scheduler does not own; saving one fails and names
-//! where it was found.
-//!
-//! Snapshots are deterministic for a given state: string, number and boolean keys are written in
-//! sorted order. Keys that are tables keep Lua's iteration order.
+//! Snapshots written before all state was one graph still restore (see [`crate::legacy`]).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use lua_resume::capture::Snapshot;
-use mlua::{Function, Lua, MultiValue, Table, Thread, ThreadStatus, Value};
+use mlua::{Function, Lua, MultiValue, Thread, Value};
 
 use crate::error::ScriptError;
+use crate::legacy::{argument_root, current, function_root};
 use crate::original::{GameScripts, lookup, segments};
 use crate::threads::{Restored, ThreadRecord, Wake};
 
-/// One saved Lua value.
+/// One saved Lua value in the format that predates the graph. Snapshots are read in this format
+/// and never written in it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub enum Saved {
     Nil,
@@ -56,42 +55,53 @@ pub enum SavedWake {
     NextAdvance,
     At(u64),
     UntilWoken,
-    /// A coroutine that had finished; it restores as finished.
+    /// A coroutine that had finished, in snapshots that predate the graph; it restores as
+    /// finished.
     Finished,
 }
 
-/// A thread saved with its wake time, either where it stopped or, when it had not run yet, as
-/// the function it was spawned with and its arguments.
+/// A scheduler thread and when it runs next. Its frames are in [`LuaSnapshot::graph`].
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct SavedThread {
-    /// For a thread that had not run, a native or permanent; `Nil` otherwise.
-    pub function: Saved,
-    pub args: Vec<Saved>,
     pub wake: SavedWake,
-    /// The suspended coroutine of a thread that had run. A thread saved without one starts its
-    /// function again, as saves made before threads resumed mid-function do.
+    /// For a thread that had not run, how many arguments it starts with. Its function and
+    /// arguments are roots of the graph. A thread that had run has `None`; its coroutines are
+    /// the graph's captured threads, in the order of the threads that have run.
     #[serde(default)]
-    pub resume: Option<Snapshot>,
+    pub start: Option<usize>,
+    /// The function of a thread that had not run, in the format that predates the graph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<Saved>,
+    /// Its arguments, in the same format.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<Saved>,
 }
 
-/// One saved table: its entries and metatable.
+/// One saved table in the format that predates the graph.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct SavedTable {
     pub entries: Vec<(Saved, Saved)>,
     pub metatable: Option<Saved>,
 }
 
-/// Saved roots and every table they reach.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+/// Saved roots, scheduler threads and everything they reach.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct LuaSnapshot {
-    pub roots: Vec<(String, Saved)>,
-    pub tables: Vec<SavedTable>,
-    /// Scheduler threads in the order they would run, then finished coroutines.
+    /// The roots, the start of every thread that had not run, and all values they reach.
+    #[serde(default)]
+    pub graph: Snapshot,
+    /// Scheduler threads in the order they would run.
     #[serde(default)]
     pub threads: Vec<SavedThread>,
     /// The scheduler clock, in milliseconds.
     #[serde(default)]
     pub clock: u64,
+    /// Roots in the format that predates the graph.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<(String, Saved)>,
+    /// Tables in the format that predates the graph.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tables: Vec<SavedTable>,
 }
 
 impl GameScripts {
@@ -105,24 +115,32 @@ impl GameScripts {
             }
             (scheduler.records(), scheduler.now())
         };
-        let mut saver = Saver::new(names);
-        saver.scheduler_threads(&records)?;
-        let mut saved = Vec::new();
+        let unstarted: Vec<(usize, Thread)> = records
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| record.start.is_some())
+            .map(|(index, record)| (index, record.thread.clone()))
+            .collect();
+        let known = self.permanents_for(&names, &unstarted);
+        let mut values = Vec::new();
         for &root in roots {
             let value = lookup(self.lua(), &segments(root)?)?;
-            let slot = saver.slot(&value, root)?;
-            if matches!(slot, Saved::Native(_) | Saved::Permanent(_)) {
+            if known.name_of(&value).is_some() && !matches!(value, Value::Thread(_)) {
                 return Err(refused(format!("root {root} is a permanent, not data")));
             }
-            saved.push((root.to_owned(), slot));
+            values.push((root.to_owned(), value));
         }
-        saver.fill_pending()?;
-        saver.capture_started(self, &records)?;
+        let (threads, running) = thread_starts(&records, &mut values);
+        let named: Vec<(&str, Value)> = values
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.clone()))
+            .collect();
+        let graph = self.capture_graph(&named, &running, &known)?;
         Ok(LuaSnapshot {
-            roots: saved,
-            tables: saver.tables,
-            threads: saver.threads,
+            graph,
+            threads,
             clock,
+            ..LuaSnapshot::default()
         })
     }
 
@@ -133,10 +151,9 @@ impl GameScripts {
         snapshot: &LuaSnapshot,
         permanents: &[&str],
     ) -> Result<(), ScriptError> {
+        let snapshot = current(snapshot)?;
         let lua = self.lua().clone();
-        let by_name: HashMap<Saved, Value> = permanent_names(&lua, self.natives(), permanents)?
-            .into_values()
-            .collect();
+        let names = permanent_names(&lua, self.natives(), permanents)?;
         let live = snapshot
             .threads
             .iter()
@@ -146,40 +163,43 @@ impl GameScripts {
                 "cannot restore threads into a scheduler that already has threads".into(),
             ));
         }
-        let tables = (0..snapshot.tables.len())
-            .map(|_| lua.create_table())
-            .collect::<mlua::Result<Vec<_>>>()?;
-        let known = self.thread_permanents(by_name.iter(), &tables)?;
-        let threads = new_threads(self, &by_name, &known, &snapshot.threads)?;
-        let restorer = Restorer {
-            by_name,
-            tables: &tables,
-            threads: &threads,
-        };
-        for (table, saved) in tables.iter().zip(&snapshot.tables) {
-            for (key, value) in &saved.entries {
-                table.raw_set(restorer.value(&lua, key)?, restorer.value(&lua, value)?)?;
-            }
-        }
-        for (table, saved) in tables.iter().zip(&snapshot.tables) {
-            if let Some(metatable) = &saved.metatable {
-                match restorer.value(&lua, metatable)? {
-                    Value::Table(metatable) => table.set_metatable(Some(metatable)),
-                    _ => return Err(refused("a metatable must be a table".into())),
-                }
-            }
-        }
-        for (root, slot) in &snapshot.roots {
-            let path = segments(root)?;
-            let (leaf, parent) = path.split_last().expect("paths have a segment");
-            let Value::Table(parent) = lookup(&lua, parent)? else {
-                return Err(refused(format!(
-                    "cannot restore {root}: its parent is not a table"
-                )));
+        let standins = standin_threads(&lua, &snapshot.threads)?;
+        let listed: Vec<(usize, Thread)> = standins
+            .iter()
+            .enumerate()
+            .filter_map(|(index, thread)| thread.clone().map(|thread| (index, thread)))
+            .collect();
+        let known = self.permanents_for(&names, &listed);
+        let restored = self.restore_graph(&snapshot.graph, &known)?;
+        let mut scheduled = Vec::new();
+        let mut running = restored.threads.iter();
+        for (index, saved) in snapshot.threads.iter().enumerate() {
+            let Some(wake) = wake_of(saved.wake) else {
+                continue;
             };
-            parent.raw_set(leaf.as_str(), restorer.value(&lua, slot)?)?;
+            let (thread, start) = match saved.start {
+                Some(count) => {
+                    let standin = standins[index].clone().expect("a stand-in");
+                    let start = start_of(&restored.roots, index, count)?;
+                    standin.reset(start.0.clone())?;
+                    (standin, Some(start))
+                }
+                None => match running.next() {
+                    Some(thread) => (thread.clone(), None),
+                    None => return Err(refused(format!("thread {index} is not in the snapshot"))),
+                },
+            };
+            scheduled.push(Restored {
+                thread,
+                start,
+                wake,
+            });
         }
-        let scheduled = scheduled_threads(&lua, &restorer, &threads, &snapshot.threads)?;
+        for (root, value) in &restored.roots {
+            if !is_start_root(root) {
+                set_root(&lua, root, value.clone())?;
+            }
+        }
         if live {
             let mut scheduler = self.scheduler().lock().expect("scheduler");
             scheduler.restore(snapshot.clock, scheduled);
@@ -188,84 +208,113 @@ impl GameScripts {
     }
 }
 
-/// The live restored threads with their wake time, and for those that had not run, their
-/// function and arguments, for the scheduler.
-fn scheduled_threads(
-    lua: &Lua,
-    restorer: &Restorer,
-    threads: &[(Thread, Option<Function>)],
-    saved: &[SavedThread],
-) -> Result<Vec<Restored>, ScriptError> {
-    let mut scheduled = Vec::new();
-    for ((thread, function), saved) in threads.iter().zip(saved) {
-        let wake = match saved.wake {
-            SavedWake::NextAdvance => Wake::NextAdvance,
-            SavedWake::At(at) => Wake::At(at),
-            SavedWake::UntilWoken => Wake::UntilWoken,
-            SavedWake::Finished => continue,
-        };
-        let start = match function {
-            Some(function) => {
-                let args = saved
-                    .args
-                    .iter()
-                    .map(|arg| restorer.value(lua, arg))
-                    .collect::<Result<MultiValue, _>>()?;
-                Some((function.clone(), args))
+/// The saved threads, and the roots that hold the function and arguments of those that had not
+/// run, added to `values`. Also the coroutines of the threads that had run, in order.
+fn thread_starts(
+    records: &[ThreadRecord],
+    values: &mut Vec<(String, Value)>,
+) -> (Vec<SavedThread>, Vec<Thread>) {
+    let mut threads = Vec::new();
+    let mut running = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        let start = record.start.as_ref().map(|(function, args)| {
+            values.push((function_root(index), Value::Function(function.clone())));
+            for (n, arg) in args.iter().enumerate() {
+                values.push((argument_root(index, n + 1), arg.clone()));
             }
-            None => None,
-        };
-        scheduled.push(Restored {
-            thread: thread.clone(),
+            args.len()
+        });
+        if start.is_none() {
+            running.push(record.thread.clone());
+        }
+        threads.push(SavedThread {
+            wake: match record.wake {
+                Wake::NextAdvance => SavedWake::NextAdvance,
+                Wake::At(at) => SavedWake::At(at),
+                Wake::UntilWoken => SavedWake::UntilWoken,
+            },
             start,
-            wake,
+            function: None,
+            args: Vec::new(),
         });
     }
-    Ok(scheduled)
+    (threads, running)
 }
 
-/// A coroutine for each saved thread. One that had run is rebuilt where it stopped. One that
-/// had not run starts its permanent function. A finished one is run to completion.
-fn new_threads(
-    scripts: &GameScripts,
-    by_name: &HashMap<Saved, Value>,
-    known: &lua_resume::capture::Permanents,
-    saved: &[SavedThread],
-) -> Result<Vec<(Thread, Option<Function>)>, ScriptError> {
-    let lua = scripts.lua();
+fn wake_of(wake: SavedWake) -> Option<Wake> {
+    match wake {
+        SavedWake::NextAdvance => Some(Wake::NextAdvance),
+        SavedWake::At(at) => Some(Wake::At(at)),
+        SavedWake::UntilWoken => Some(Wake::UntilWoken),
+        SavedWake::Finished => None,
+    }
+}
+
+/// A coroutine for each saved thread that has no frames in the graph: one that had not run gets
+/// a thread to be given its function once the graph is restored, and a finished one is run to
+/// completion. Threads that had run are `None`.
+fn standin_threads(lua: &Lua, saved: &[SavedThread]) -> Result<Vec<Option<Thread>>, ScriptError> {
+    let nothing = lua.create_function(|_, ()| Ok(()))?;
     let mut threads = Vec::new();
-    for (index, thread) in saved.iter().enumerate() {
-        if thread.wake == SavedWake::Finished {
-            let done = lua.create_thread(lua.create_function(|_, ()| Ok(()))?)?;
+    for thread in saved {
+        threads.push(if thread.wake == SavedWake::Finished {
+            let done = lua.create_thread(nothing.clone())?;
             done.resume::<()>(())?;
-            threads.push((done, None));
-        } else if let Some(snapshot) = &thread.resume {
-            let resumed = scripts.restore_thread(snapshot, known, index)?;
-            threads.push((resumed, None));
+            Some(done)
+        } else if thread.start.is_some() {
+            Some(lua.create_thread(nothing.clone())?)
         } else {
-            let Some(Value::Function(function)) = by_name.get(&thread.function).cloned() else {
-                return Err(refused(format!(
-                    "thread {index}'s function {:?} is not a permanent in this state",
-                    thread.function
-                )));
-            };
-            threads.push((lua.create_thread(function.clone())?, Some(function)));
-        }
+            None
+        });
     }
     Ok(threads)
 }
 
-/// Every permanent by identity, with its name: natives by path, then every function and table
-/// reachable through string keys from each permanent root, named by its shortest path.
+fn is_start_root(name: &str) -> bool {
+    name.starts_with("scheduler thread ")
+}
+
+/// The function and arguments thread `index` starts with, from the restored roots.
+fn start_of(
+    roots: &[(String, Value)],
+    index: usize,
+    count: usize,
+) -> Result<(Function, MultiValue), ScriptError> {
+    let find = |name: String| roots.iter().find(|(root, _)| *root == name).map(|r| &r.1);
+    let Some(Value::Function(function)) = find(function_root(index)) else {
+        return Err(refused(format!(
+            "thread {index}'s function is not a function in this state"
+        )));
+    };
+    let args = (1..=count)
+        .map(|n| find(argument_root(index, n)).cloned().unwrap_or(Value::Nil))
+        .collect();
+    Ok((function.clone(), args))
+}
+
+fn set_root(lua: &Lua, root: &str, value: Value) -> Result<(), ScriptError> {
+    let path = segments(root)?;
+    let (leaf, parent) = path.split_last().expect("paths have a segment");
+    let Value::Table(parent) = lookup(lua, parent)? else {
+        return Err(refused(format!(
+            "cannot restore {root}: its parent is not a table"
+        )));
+    };
+    parent.raw_set(leaf.as_str(), value)?;
+    Ok(())
+}
+
+/// Every permanent with its name: natives by path, then every function and table reachable
+/// through string keys from each permanent root, named by its shortest path.
 fn permanent_names(
     lua: &Lua,
     natives: &BTreeMap<String, mlua::Function>,
     roots: &[&str],
-) -> Result<HashMap<usize, (Saved, Value)>, ScriptError> {
+) -> Result<Vec<(String, Value)>, ScriptError> {
     let mut names = HashMap::new();
     for (path, native) in natives {
         let value = Value::Function(native.clone());
-        names.insert(identity(&value), (Saved::Native(path.clone()), value));
+        names.insert(identity(&value), (format!("native {path}"), value));
     }
     let mut queue = VecDeque::new();
     for &root in roots {
@@ -296,262 +345,17 @@ fn permanent_names(
             children.sort_by(|a, b| a.0.cmp(&b.0));
             queue.extend(children);
         }
-        names.insert(identity(&value), (Saved::Permanent(path), value));
+        names.insert(identity(&value), (format!("permanent {path}"), value));
     }
-    Ok(names)
+    let mut named: Vec<_> = names.into_values().collect();
+    named.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(named)
 }
 
 fn identity(value: &Value) -> usize {
     value.to_pointer() as usize
 }
 
-struct Saver {
-    names: HashMap<usize, (Saved, Value)>,
-    ids: HashMap<usize, usize>,
-    tables: Vec<SavedTable>,
-    pending: VecDeque<(usize, Table, String)>,
-    threads: Vec<SavedThread>,
-    thread_ids: HashMap<usize, usize>,
-    /// The tables saved so far, by id, so a thread that holds one keeps sharing it.
-    live: Vec<Table>,
-}
-
-impl Saver {
-    fn new(names: HashMap<usize, (Saved, Value)>) -> Self {
-        Self {
-            names,
-            ids: HashMap::new(),
-            tables: Vec::new(),
-            pending: VecDeque::new(),
-            threads: Vec::new(),
-            thread_ids: HashMap::new(),
-            live: Vec::new(),
-        }
-    }
-
-    fn fill_pending(&mut self) -> Result<(), ScriptError> {
-        while let Some((id, table, location)) = self.pending.pop_front() {
-            self.tables[id] = self.fill(&table, &location)?;
-        }
-        Ok(())
-    }
-
-    /// Captures the threads that have run. Tables the saved data holds stay shared with them.
-    fn capture_started(
-        &mut self,
-        scripts: &GameScripts,
-        records: &[ThreadRecord],
-    ) -> Result<(), ScriptError> {
-        let named = self.names.values().map(|(saved, value)| (saved, value));
-        let known = scripts.thread_permanents(named, &self.live)?;
-        for (index, record) in records.iter().enumerate() {
-            if record.start.is_none() {
-                let snapshot = scripts.capture_thread(&record.thread, &known, index)?;
-                self.threads[index].resume = Some(snapshot);
-            }
-        }
-        Ok(())
-    }
-
-    /// Numbers the scheduler's threads first, so data that holds them refers to these entries,
-    /// then saves each one's function and arguments.
-    fn scheduler_threads(&mut self, records: &[ThreadRecord]) -> Result<(), ScriptError> {
-        for (index, record) in records.iter().enumerate() {
-            self.thread_ids
-                .insert(record.thread.to_pointer() as usize, index);
-        }
-        for (index, record) in records.iter().enumerate() {
-            let (function, args) = match &record.start {
-                Some((function, args)) => (Value::Function(function.clone()), args.clone()),
-                None => (Value::Nil, MultiValue::new()),
-            };
-            let function = self.slot(
-                &function,
-                &format!("the function scheduler thread {index} was spawned with"),
-            )?;
-            let args = args
-                .iter()
-                .enumerate()
-                .map(|(n, arg)| {
-                    self.slot(
-                        arg,
-                        &format!("argument {} of scheduler thread {index}", n + 1),
-                    )
-                })
-                .collect::<Result<_, _>>()?;
-            let wake = match record.wake {
-                Wake::NextAdvance => SavedWake::NextAdvance,
-                Wake::At(at) => SavedWake::At(at),
-                Wake::UntilWoken => SavedWake::UntilWoken,
-            };
-            self.threads.push(SavedThread {
-                function,
-                args,
-                wake,
-                resume: None,
-            });
-        }
-        Ok(())
-    }
-
-    /// A thread value: a scheduler thread by index, or a finished coroutine.
-    fn thread(&mut self, thread: &Thread, location: &str) -> Result<Saved, ScriptError> {
-        let key = thread.to_pointer() as usize;
-        if let Some(&index) = self.thread_ids.get(&key) {
-            return Ok(Saved::Thread(index));
-        }
-        if !matches!(
-            thread.status(),
-            ThreadStatus::Finished | ThreadStatus::Error
-        ) {
-            return Err(refused(format!(
-                "{location} is a suspended coroutine the scheduler does not own; only scheduler threads can be saved"
-            )));
-        }
-        let index = self.threads.len();
-        self.thread_ids.insert(key, index);
-        self.threads.push(SavedThread {
-            function: Saved::Nil,
-            args: Vec::new(),
-            wake: SavedWake::Finished,
-            resume: None,
-        });
-        Ok(Saved::Thread(index))
-    }
-
-    fn slot(&mut self, value: &Value, location: &str) -> Result<Saved, ScriptError> {
-        Ok(match value {
-            Value::Nil => Saved::Nil,
-            Value::Boolean(b) => Saved::Boolean(*b),
-            Value::Integer(i) => Saved::Integer(*i),
-            Value::Number(n) => Saved::Float(n.to_bits()),
-            Value::String(s) => Saved::String(s.as_bytes().to_vec()),
-            Value::Table(_) | Value::Function(_) => {
-                if let Some((name, _)) = self.names.get(&identity(value)) {
-                    return Ok(name.clone());
-                }
-                let Value::Table(table) = value else {
-                    return Err(refused(format!(
-                        "{location} is a function that is not a permanent; saving closures is not supported yet"
-                    )));
-                };
-                self.table(table, location)
-            }
-            Value::Thread(thread) => self.thread(thread, location)?,
-            other => {
-                return Err(refused(format!(
-                    "{location} is a {}, which cannot be saved",
-                    other.type_name()
-                )));
-            }
-        })
-    }
-
-    fn table(&mut self, table: &Table, location: &str) -> Saved {
-        let key = table.to_pointer() as usize;
-        if let Some(&id) = self.ids.get(&key) {
-            return Saved::Table(id);
-        }
-        let id = self.tables.len();
-        self.ids.insert(key, id);
-        self.tables.push(SavedTable {
-            entries: Vec::new(),
-            metatable: None,
-        });
-        self.live.push(table.clone());
-        self.pending
-            .push_back((id, table.clone(), location.to_owned()));
-        Saved::Table(id)
-    }
-
-    fn fill(&mut self, table: &Table, location: &str) -> Result<SavedTable, ScriptError> {
-        let pairs: Vec<(Value, Value)> =
-            table.pairs::<Value, Value>().collect::<mlua::Result<_>>()?;
-        let (mut plain, keyed): (Vec<_>, Vec<_>) = pairs
-            .into_iter()
-            .partition(|(key, _)| !matches!(key, Value::Table(_) | Value::Function(_)));
-        plain.sort_by_key(|(key, _)| key_order(key));
-        let mut entries = Vec::new();
-        for (key, value) in plain.into_iter().chain(keyed) {
-            let at = format!("{location}[{}]", describe(&key));
-            let key = self.slot(&key, &format!("a key in {location}"))?;
-            entries.push((key, self.slot(&value, &at)?));
-        }
-        let metatable = match table.metatable() {
-            Some(metatable) => Some(self.slot(
-                &Value::Table(metatable),
-                &format!("the metatable of {location}"),
-            )?),
-            None => None,
-        };
-        Ok(SavedTable { entries, metatable })
-    }
-}
-
-/// Sorts booleans, then numbers by value, then strings by bytes.
-fn key_order(key: &Value) -> (u8, i128, u64, Vec<u8>) {
-    let total = |n: f64| {
-        let bits = n.to_bits();
-        if bits >> 63 == 1 {
-            !bits
-        } else {
-            bits | (1 << 63)
-        }
-    };
-    match key {
-        Value::Boolean(b) => (0, i128::from(*b), 0, Vec::new()),
-        Value::Integer(i) => (1, i128::from(*i), 0, Vec::new()),
-        Value::Number(n) => (2, 0, total(*n), Vec::new()),
-        Value::String(s) => (3, 0, 0, s.as_bytes().to_vec()),
-        _ => (4, 0, 0, Vec::new()),
-    }
-}
-
-fn describe(key: &Value) -> String {
-    match key {
-        Value::String(s) => format!("{:?}", s.to_string_lossy()),
-        Value::Integer(i) => i.to_string(),
-        Value::Number(n) => n.to_string(),
-        other => other.type_name().to_owned(),
-    }
-}
-
-struct Restorer<'a> {
-    by_name: HashMap<Saved, Value>,
-    tables: &'a [Table],
-    threads: &'a [(Thread, Option<Function>)],
-}
-
-impl Restorer<'_> {
-    fn value(&self, lua: &Lua, slot: &Saved) -> Result<Value, ScriptError> {
-        Ok(match slot {
-            Saved::Nil => Value::Nil,
-            Saved::Boolean(b) => Value::Boolean(*b),
-            Saved::Integer(i) => Value::Integer(*i),
-            Saved::Float(bits) => Value::Number(f64::from_bits(*bits)),
-            Saved::String(bytes) => Value::String(lua.create_string(bytes)?),
-            Saved::Table(id) => Value::Table(
-                self.tables
-                    .get(*id)
-                    .ok_or_else(|| refused(format!("table {id} is not in the snapshot")))?
-                    .clone(),
-            ),
-            Saved::Thread(index) => Value::Thread(
-                self.threads
-                    .get(*index)
-                    .ok_or_else(|| refused(format!("thread {index} is not in the snapshot")))?
-                    .0
-                    .clone(),
-            ),
-            Saved::Native(name) | Saved::Permanent(name) => {
-                self.by_name.get(slot).cloned().ok_or_else(|| {
-                    refused(format!("permanent {name} does not exist in this state"))
-                })?
-            }
-        })
-    }
-}
-
-fn refused(message: String) -> ScriptError {
+pub(crate) fn refused(message: String) -> ScriptError {
     ScriptError::Sandbox { message }
 }

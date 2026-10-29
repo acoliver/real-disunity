@@ -109,7 +109,7 @@ The Linux jobs run in parallel:
 
 A change limited to `csharp/` leaves every Rust source unchanged, so only tests that build or read the C# projects can observe it. `ci-cpu` and `ci-managed` cover the CPU and managed packages; `ci-gpu-csharp` covers the rest. `cargo xtask policy` fails when a workspace package's Rust sources refer to `csharp/` and neither profile nor the consumer list in `crates/xtask/src/csharp.rs` covers it, so a new consumer is added to the list in the same change.
 
-The eight test shards replace the serial test run of `ci-gpu`, which took about 50 minutes, almost all of it in the `worldrunner-render-scene` tests. Run `cargo xtask ci-gpu-plan 8` to see the current split. Raise the shard count in `pr.yml` (both the matrix and the argument) when a shard approaches its 20 minute timeout.
+The eight test shards replace the serial test run of `ci-gpu`, which took about 50 minutes, almost all of it in the `worldrunner-render-scene` tests. Run `cargo xtask ci-gpu-plan 8` to see the current split. Shards are dealt round robin by test name, so their durations differ; on lavapipe they currently take 6 to 20 minutes. Raise the shard count in `pr.yml` (both the matrix and the argument) when a shard approaches its 30 minute timeout.
 
 A newer push cancels the earlier run of the same pull request, and a newer merge cancels the earlier `PR` and `Platforms` runs on `main`, so a burst of merges checks only the newest commit. Runs on `main` and manual dispatches always use the `full` scope. Only `main` saves the Rust caches.
 

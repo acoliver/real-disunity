@@ -141,7 +141,8 @@ jobs:
     needs: classify
     if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Shards are dealt by test name, not duration, so one can draw several slow tests.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

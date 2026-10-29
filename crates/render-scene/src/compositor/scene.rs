@@ -87,6 +87,7 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    renderer.validate_taa_depth(attachments.1)?;
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
     renderer.bind_water_inputs(&gpu.water_inputs);

@@ -1,0 +1,703 @@
+//! Scalar f64 reference of one TAA resolve output pixel.
+//!
+//! The resolve follows Karis 2014, "High Quality Temporal Supersampling" (SIGGRAPH Advances in
+//! Real-Time Rendering): luminance-compressed color, a neighborhood color box that history is
+//! clipped to. The box is the min/max of the 3x3 neighborhood scaled by `clip_scale` about its
+//! centre, and history is clipped toward the box centre along the ray, not per channel. The
+//! blend is linear in the compressed-luma-free color.
+//!
+//! Conventions: pixel `(x, y)` has its centre at `(x + 0.5, y + 0.5)`, y down. The current
+//! image holds samples rendered with a projection shifted by `jitter` pixels, so the sample
+//! stored at pixel `q` lies at `q + 0.5 - jitter` (the projection shift moves the scene by
+//! `+jitter`). The history image is on the unjittered
+//! grid. Depth is single-sample device depth in 0..1 (not reversed, 1 is far) rendered with
+//! the same jitter. NDC y is up, so `uv.y = 0.5 - 0.5 * ndc.y`.
+//!
+//! History is fetched with a Catmull-Rom filter at the reprojected position, clamped at the
+//! edges and at zero; the GPU builds it from nine bilinear taps.
+use crate::TaaSettings;
+use crate::cas_reference::Image;
+
+/// A 4x4 matrix as columns: `m[column][row]`, applied to column vectors.
+pub(crate) type Mat4 = [[f64; 4]; 4];
+
+/// Standard deviation, in pixels, of the Gaussian that reconstructs the current color at the
+/// pixel centre from the 3x3 jittered samples around it. It is so narrow that only the sample
+/// nearest the centre counts, so the jittered frames accumulate to the box-filtered pixel
+/// instead of a blurred one (sigma 0.47 measured 0.0030 against 0.0020 here at 1x).
+pub(crate) const KERNEL_SIGMA: f64 = 0.05;
+
+/// Motion-adaptive history weight slope for single-sample (jittered) frames: the weight is scaled
+/// by `clamp(1 - k * offset, 0, 1)` with `offset` the reprojection displacement in pixels. A
+/// static pixel keeps the full weight, a moving one leans on the current frame and is resampled
+/// from history fewer times. Measured at 64x64: 1x translation 0.00257 to 0.00225.
+pub(crate) const MOTION_K: f64 = 1.5;
+
+/// The same slope for multisampled frames, which are already antialiased and unjittered, so
+/// history only stabilises them. History is dropped above `1 / 16` pixel of motion (4x
+/// translation 0.00254 to 0.00038, plain MSAA 0.00040).
+pub(crate) const MSAA_MOTION_K: f64 = 16.0;
+
+/// Smallest half-extent of the clip box per `YCoCg` axis. It keeps the clip ray finite when the
+/// neighborhood is flat; history that is off by more than this is pulled to the box centre.
+pub(crate) const MIN_BOX_EXTENT: f64 = 1e-4;
+
+/// Largest luma of a compressed color. Compression maps luma `l` to `l / (1 + l)`, below 1.
+pub(crate) const MAX_COMPRESSED_LUMA: f64 = 1.0 - 1e-5;
+
+/// Single-sample device depth, row-major.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Depth {
+    pub size: [i32; 2],
+    pub values: Vec<f32>,
+}
+impl Depth {
+    pub fn from_fn(size: [i32; 2], mut depth: impl FnMut(i32, i32) -> f32) -> Self {
+        let values = (0..size[1])
+            .flat_map(|y| (0..size[0]).map(move |x| (x, y)))
+            .map(|(x, y)| depth(x, y))
+            .collect();
+        Self { size, values }
+    }
+
+    /// The per-pixel minimum over equally sized sample planes, the depth a multisampled
+    /// frame resolves to: the closest sample is the one that occludes.
+    pub fn minimum(planes: &[Self]) -> Self {
+        let first = &planes[0];
+        let values = (0..first.values.len())
+            .map(|i| {
+                planes
+                    .iter()
+                    .map(|p| p.values[i])
+                    .fold(f32::INFINITY, f32::min)
+            })
+            .collect();
+        Self {
+            size: first.size,
+            values,
+        }
+    }
+
+    pub fn load(&self, x: i32, y: i32) -> f64 {
+        let x = x.clamp(0, self.size[0] - 1);
+        let y = y.clamp(0, self.size[1] - 1);
+        f64::from(self.values[usize::try_from(y * self.size[0] + x).unwrap()])
+    }
+}
+
+/// Column-major identity.
+pub(crate) const IDENTITY: Mat4 = [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
+];
+
+/// Everything one resolve reads.
+pub(crate) struct Frame<'a> {
+    pub color: &'a Image,
+    pub depth: &'a Depth,
+    pub history: &'a Image,
+    /// Previous unjittered view-projection times the inverse of the current one.
+    pub reprojection: Mat4,
+    /// Current projection jitter in pixels, +x right and +y down.
+    pub jitter: [f64; 2],
+    pub history_valid: bool,
+    pub settings: TaaSettings,
+    /// Samples per pixel of the frame's render target; selects the motion slope.
+    pub samples: u32,
+}
+
+/// Luma of linear Rec. 709 color.
+pub(crate) fn luma(c: [f64; 3]) -> f64 {
+    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+/// Karis luminance compression `c / (1 + luma)`, which bounds HDR values below 1.
+pub(crate) fn compress(c: [f64; 3]) -> [f64; 3] {
+    let k = 1.0 / (1.0 + luma(c));
+    c.map(|v| v * k)
+}
+
+/// The inverse of [`compress`]; luma is held below [`MAX_COMPRESSED_LUMA`] so a clipped value
+/// cannot divide by zero.
+pub(crate) fn decompress(c: [f64; 3]) -> [f64; 3] {
+    let k = 1.0 / (1.0 - luma(c).clamp(0.0, MAX_COMPRESSED_LUMA));
+    c.map(|v| v * k)
+}
+
+pub(crate) fn to_ycocg([r, g, b]: [f64; 3]) -> [f64; 3] {
+    [
+        0.25 * r + 0.5 * g + 0.25 * b,
+        0.5 * r - 0.5 * b,
+        -0.25 * r + 0.5 * g - 0.25 * b,
+    ]
+}
+
+pub(crate) fn from_ycocg([y, co, cg]: [f64; 3]) -> [f64; 3] {
+    [y + co - cg, y + cg, y - co - cg]
+}
+
+/// Clips `history` onto the box `centre +- scale * half_extent` along the line to `centre`. A point
+/// inside is unchanged; one outside is scaled toward the centre by the largest per-axis
+/// ratio of its offset to the half-extent, so hue is kept, unlike a per-channel clamp.
+pub(crate) fn clip_toward_centre(
+    history: [f64; 3],
+    mean: [f64; 3],
+    half_extent: [f64; 3],
+    scale: f64,
+) -> [f64; 3] {
+    let offset: [f64; 3] = std::array::from_fn(|i| history[i] - mean[i]);
+    let ratio = (0..3)
+        .map(|i| offset[i].abs() / (scale * half_extent[i]).max(MIN_BOX_EXTENT))
+        .fold(0.0, f64::max);
+    if ratio <= 1.0 {
+        history
+    } else {
+        std::array::from_fn(|i| mean[i] + offset[i] / ratio)
+    }
+}
+
+/// Non-finite values become 0 and negative values become 0.
+fn sanitize(v: f64) -> f64 {
+    if v.is_finite() { v.max(0.0) } else { 0.0 }
+}
+
+/// Catmull-Rom weights of the four texels around a sample at fraction `f` between the middle two.
+fn catmull_rom_weights(f: f64) -> [f64; 4] {
+    [
+        f * (-0.5 + f * (1.0 - 0.5 * f)),
+        1.0 + f * f * (-2.5 + 1.5 * f),
+        f * (0.5 + f * (2.0 - 1.5 * f)),
+        f * f * (-0.5 + 0.5 * f),
+    ]
+}
+
+/// Weight of the jittered sample at neighbour offset `d` for the pixel centre. The sample at
+/// `p + d` lies at `d - jitter` from the centre of `p`: shifting the projection by `jitter` moves the
+/// scene by `+jitter`, so each pixel sees the scene that was `jitter` behind its centre.
+fn kernel_weight(d: [i32; 2], jitter: [f64; 2]) -> f64 {
+    let x = f64::from(d[0]) - jitter[0];
+    let y = f64::from(d[1]) - jitter[1];
+    (-(x * x + y * y) / (2.0 * KERNEL_SIGMA * KERNEL_SIGMA)).exp()
+}
+
+const OFFSETS: [[i32; 2]; 9] = [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [0, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
+];
+
+impl Frame<'_> {
+    /// The current sample at a texel, edge-clamped and sanitised.
+    fn sample(&self, x: i32, y: i32) -> [f64; 4] {
+        self.color.load(x, y).map(sanitize)
+    }
+
+    /// The current color at the pixel centre: the 3x3 jittered samples under the normalised
+    /// Gaussian [`KERNEL_SIGMA`]. This undoes the jitter and filters the frame's own aliasing.
+    pub fn reconstruct(&self, at: [i32; 2]) -> [f64; 4] {
+        let mut sum = [0.0; 4];
+        let mut total = 0.0;
+        for d in OFFSETS {
+            let w = kernel_weight(d, self.jitter);
+            let s = self.sample(at[0] + d[0], at[1] + d[1]);
+            total += w;
+            for (acc, v) in sum.iter_mut().zip(s) {
+                *acc += w * v;
+            }
+        }
+        sum.map(|v| v / total)
+    }
+
+    /// Centre and half-extent of the min/max box of the 3x3 jittered samples in `YCoCg` of
+    /// luminance-compressed color. The standard-deviation box of Salvi 2016 rejected partially
+    /// covered edge history of aliased input (static 1x error 0.0027 against 0.0022).
+    pub fn statistics(&self, at: [i32; 2]) -> ([f64; 3], [f64; 3]) {
+        let samples = OFFSETS.map(|d| {
+            let s = self.sample(at[0] + d[0], at[1] + d[1]);
+            to_ycocg(compress([s[0], s[1], s[2]]))
+        });
+        let lo: [f64; 3] =
+            std::array::from_fn(|i| samples.iter().map(|s| s[i]).fold(f64::INFINITY, f64::min));
+        let hi: [f64; 3] = std::array::from_fn(|i| {
+            samples
+                .iter()
+                .map(|s| s[i])
+                .fold(f64::NEG_INFINITY, f64::max)
+        });
+        (
+            std::array::from_fn(|i| 0.5 * (lo[i] + hi[i])),
+            std::array::from_fn(|i| 0.5 * (hi[i] - lo[i])),
+        )
+    }
+
+    /// The texel of the 3x3 neighborhood with the smallest depth; the first in row-major order
+    /// wins a tie. Edge neighbors clamp to the image.
+    fn closest(&self, at: [i32; 2]) -> [i32; 2] {
+        let clamp = |p: [i32; 2]| {
+            [
+                p[0].clamp(0, self.depth.size[0] - 1),
+                p[1].clamp(0, self.depth.size[1] - 1),
+            ]
+        };
+        let mut best = clamp(at);
+        for d in OFFSETS {
+            let q = clamp([at[0] + d[0], at[1] + d[1]]);
+            if self.depth.load(q[0], q[1]) < self.depth.load(best[0], best[1]) {
+                best = q;
+            }
+        }
+        best
+    }
+
+    /// UV in the history image for the pixel, or `None` when the point cannot be reprojected
+    /// or lands outside the image. The motion is that of the closest-depth neighbor: its
+    /// unjittered NDC (the depth texel was rasterised `jitter` pixels off its centre) and its
+    /// depth go through the reprojection matrix, and the uv displacement is applied at the
+    /// pixel centre.
+    fn history_uv(&self, at: [i32; 2]) -> Option<[f64; 2]> {
+        let q = self.closest(at);
+        let size = self.depth.size.map(f64::from);
+        let uv = |p: [i32; 2]| {
+            [
+                (f64::from(p[0]) + 0.5) / size[0],
+                (f64::from(p[1]) + 0.5) / size[1],
+            ]
+        };
+        let texel = uv(q);
+        let ndc = [
+            2.0 * texel[0] - 1.0 - 2.0 * self.jitter[0] / size[0],
+            1.0 - 2.0 * texel[1] + 2.0 * self.jitter[1] / size[1],
+        ];
+        let m = &self.reprojection;
+        let v = [ndc[0], ndc[1], self.depth.load(q[0], q[1]), 1.0];
+        let row = |r: usize| (0..4).map(|c| m[c][r] * v[c]).sum::<f64>();
+        let w = row(3);
+        if !(w.is_finite() && w > 0.0) {
+            return None;
+        }
+        let previous = [0.5 + 0.5 * row(0) / w, 0.5 - 0.5 * row(1) / w];
+        let unjittered = [0.5 + 0.5 * ndc[0], 0.5 - 0.5 * ndc[1]];
+        let centre = uv(at);
+        let out = [
+            centre[0] + previous[0] - unjittered[0],
+            centre[1] + previous[1] - unjittered[1],
+        ];
+        out.iter().all(|v| (0.0..=1.0).contains(v)).then_some(out)
+    }
+
+    /// Length in pixels of the displacement from the pixel centre to its history position.
+    fn motion_pixels(&self, at: [i32; 2], uv: [f64; 2]) -> f64 {
+        let size = self.depth.size.map(f64::from);
+        let dx = uv[0] * size[0] - (f64::from(at[0]) + 0.5);
+        let dy = uv[1] * size[1] - (f64::from(at[1]) + 0.5);
+        dx.hypot(dy)
+    }
+
+    /// Catmull-Rom (bicubic) history color at `uv` over the 4x4 texels around it, edge-clamped.
+    /// The GPU builds the same filter from nine bilinear taps. `None` when any contributing
+    /// texel is not finite; negative lobes that undershoot are clamped to zero.
+    fn fetch_history(&self, uv: [f64; 2]) -> Option<[f64; 3]> {
+        let size = self.history.size.map(f64::from);
+        let pos = [uv[0] * size[0] - 0.5, uv[1] * size[1] - 0.5];
+        let base = pos.map(f64::floor);
+        let frac = [pos[0] - base[0], pos[1] - base[1]];
+        let (wx, wy) = (catmull_rom_weights(frac[0]), catmull_rom_weights(frac[1]));
+        let mut sum = [0.0; 3];
+        for (dy, wy) in (-1_i32..).zip(wy) {
+            for (dx, wx) in (-1_i32..).zip(wx) {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "bounded by the image extent"
+                )]
+                let (x, y) = (base[0] as i32 + dx, base[1] as i32 + dy);
+                let t = self.history.load(x, y);
+                for (acc, v) in sum.iter_mut().zip(t) {
+                    *acc += wx * wy * v;
+                }
+            }
+        }
+        sum.iter()
+            .all(|v| v.is_finite())
+            .then(|| sum.map(|v| v.max(0.0)))
+    }
+
+    /// Blends clipped history into the reconstructed color linearly. Karis `1 / (1 + luma)` weights
+    /// bias an edge toward its darker side on every frame (static 1x error 0.0027 against 0.0022
+    /// without them), and the clip already bounds fireflies.
+    fn blend(
+        &self,
+        current: [f64; 3],
+        history: [f64; 3],
+        box_: ([f64; 3], [f64; 3]),
+        motion_pixels: f64,
+    ) -> [f64; 3] {
+        let scale = f64::from(self.settings.clip_scale);
+        let clipped = clip_toward_centre(to_ycocg(compress(history)), box_.0, box_.1, scale);
+        let history = decompress(from_ycocg(clipped));
+        let slope = if self.samples > 1 {
+            MSAA_MOTION_K
+        } else {
+            MOTION_K
+        };
+        let weight = f64::from(self.settings.history_weight)
+            * slope.mul_add(-motion_pixels, 1.0).clamp(0.0, 1.0);
+        std::array::from_fn(|i| current[i] * (1.0 - weight) + history[i] * weight)
+    }
+
+    /// One output pixel; alpha is the reconstructed alpha. The output is finite and not negative.
+    pub fn resolve_pixel(&self, at: [i32; 2]) -> [f64; 4] {
+        let current = self.reconstruct(at);
+        let rgb = [current[0], current[1], current[2]];
+        let lookup = self.history_valid.then(|| self.history_uv(at)).flatten();
+        let out = lookup
+            .and_then(|uv| Some((uv, self.fetch_history(uv)?)))
+            .map_or(rgb, |(uv, h)| {
+                self.blend(rgb, h, self.statistics(at), self.motion_pixels(at, uv))
+            });
+        [
+            sanitize(out[0]),
+            sanitize(out[1]),
+            sanitize(out[2]),
+            sanitize(current[3]),
+        ]
+    }
+
+    /// The whole image, row-major.
+    pub fn resolve(&self) -> Vec<[f64; 4]> {
+        (0..self.color.size[1])
+            .flat_map(|y| (0..self.color.size[0]).map(move |x| [x, y]))
+            .map(|at| self.resolve_pixel(at))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f64 = 1e-9;
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the test stores f32 pixels"
+    )]
+    fn narrow(v: f64) -> f32 {
+        v as f32
+    }
+
+    fn gray(v: f32) -> [f32; 4] {
+        [v, v, v, 1.0]
+    }
+
+    fn flat(size: [i32; 2], v: f32) -> Image {
+        Image::from_fn(size, |_, _| gray(v))
+    }
+
+    fn near(a: &[f64], b: &[f64]) -> bool {
+        a.iter().zip(b).all(|(a, b)| (a - b).abs() < EPS)
+    }
+
+    fn settings(history_weight: f32) -> TaaSettings {
+        TaaSettings::new(history_weight)
+    }
+
+    struct Scene {
+        color: Image,
+        depth: Depth,
+        history: Image,
+        reprojection: Mat4,
+        jitter: [f64; 2],
+        valid: bool,
+        settings: TaaSettings,
+    }
+    impl Scene {
+        fn new(color: Image, history: Image) -> Self {
+            let depth = Depth::from_fn(color.size, |_, _| 0.5);
+            Self {
+                color,
+                depth,
+                history,
+                reprojection: IDENTITY,
+                jitter: [0.0; 2],
+                valid: true,
+                settings: settings(0.9),
+            }
+        }
+
+        fn resolve(&self, at: [i32; 2]) -> [f64; 4] {
+            Frame {
+                color: &self.color,
+                depth: &self.depth,
+                history: &self.history,
+                reprojection: self.reprojection,
+                jitter: self.jitter,
+                history_valid: self.valid,
+                settings: self.settings,
+                samples: 1,
+            }
+            .resolve_pixel(at)
+        }
+    }
+
+    /// Gaussian weight of a 3x3 tap at integer offset distance squared `r2`, zero jitter.
+    fn weight(r2: f64) -> f64 {
+        (-r2 / (2.0 * KERNEL_SIGMA * KERNEL_SIGMA)).exp()
+    }
+
+    /// Value 1 along the row above the centre pixel and 0 elsewhere.
+    fn top_row(size: [i32; 2]) -> Image {
+        Image::from_fn(size, |_, y| gray(if y == 1 { 1.0 } else { 0.0 }))
+    }
+
+    /// The zero-jitter reconstruction of `top_row` at pixel (2, 2), by hand: the two upper
+    /// corners and the upper edge tap carry the 1s.
+    fn top_row_centre() -> f64 {
+        let (edge, corner) = (weight(1.0), weight(2.0));
+        (2.0 * corner + edge) / (1.0 + 4.0 * edge + 4.0 * corner)
+    }
+
+    fn ramp(size: [i32; 2], along_y: bool) -> Image {
+        Image::from_fn(size, |x, y| {
+            let t = f32::from(u8::try_from(if along_y { y } else { x }).unwrap());
+            gray(0.2 + 0.1 * t)
+        })
+    }
+
+    /// History shifted so that a lookup moved by `+shift` pixels along the axis lands on the
+    /// current value.
+    fn shifted_ramp(size: [i32; 2], along_y: bool, shift: i32) -> Image {
+        Image::from_fn(size, |x, y| {
+            let t = if along_y { y } else { x } - shift;
+            gray(0.2 + 0.1 * f32::from(i16::try_from(t).unwrap()))
+        })
+    }
+
+    fn translation(ndc: [f64; 2]) -> Mat4 {
+        let mut m = IDENTITY;
+        m[3] = [ndc[0], ndc[1], 0.0, 1.0];
+        m
+    }
+
+    #[test]
+    fn constant_image_with_valid_identity_history_is_unchanged() {
+        let colour = [0.5, 0.25, 0.125, 0.75];
+        let image = Image::from_fn([5, 5], |_, _| colour);
+        let mut scene = Scene::new(image.clone(), image);
+        for jitter in [[0.0, 0.0], [0.3, -0.2], [-0.5, 0.5]] {
+            scene.jitter = jitter;
+            let out = scene.resolve([2, 2]);
+            assert!(near(&out, &colour.map(f64::from)), "{jitter:?}: {out:?}");
+        }
+    }
+
+    #[test]
+    fn invalid_history_returns_the_reconstructed_current() {
+        let mut scene = Scene::new(top_row([5, 5]), flat([5, 5], 40.0));
+        scene.valid = false;
+        let out = scene.resolve([2, 2]);
+        let expected = top_row_centre();
+        assert!(near(&out[..3], &[expected; 3]), "{out:?} vs {expected}");
+        assert!((out[3] - 1.0).abs() < EPS);
+    }
+
+    #[test]
+    fn jitter_weights_each_sample_by_its_distance_from_the_pixel_centre() {
+        let mut scene = Scene::new(top_row([5, 5]), flat([5, 5], 0.0));
+        scene.valid = false;
+        let at_rest = scene.resolve([2, 2])[0];
+        scene.jitter = [0.0, 0.5];
+        let moved = scene.resolve([2, 2])[0];
+        // The projection moved the scene 0.5 pixel down, so each pixel holds the scene 0.5 pixel
+        // higher and the row above is 1.5 pixels from the centre, not 1.
+        assert!(moved < at_rest, "{moved} {at_rest}");
+        let by_hand = {
+            let w = |dx: f64, dy: f64| weight(dx * dx + dy * dy);
+            let mut top = 0.0;
+            let mut all = 0.0;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let weight = w(f64::from(dx), f64::from(dy) - 0.5);
+                    all += weight;
+                    if dy == -1 {
+                        top += weight;
+                    }
+                }
+            }
+            top / all
+        };
+        assert!((moved - by_hand).abs() < EPS);
+    }
+
+    #[test]
+    fn neighbourhood_statistics_are_the_centre_and_half_extent_of_the_compressed_ycocg_range() {
+        // Three samples of 1 (compressed luma 0.5) and six of 0 in the 3x3 block.
+        let scene = Scene::new(top_row([5, 5]), flat([5, 5], 0.0));
+        let frame = Frame {
+            color: &scene.color,
+            depth: &scene.depth,
+            history: &scene.history,
+            reprojection: IDENTITY,
+            jitter: [0.0; 2],
+            history_valid: true,
+            settings: scene.settings,
+            samples: 1,
+        };
+        let (mean, sigma) = frame.statistics([2, 2]);
+        assert!(near(&mean, &[0.25, 0.0, 0.0]), "{mean:?}");
+        assert!(near(&sigma, &[0.25, 0.0, 0.0]), "{sigma:?}");
+    }
+
+    #[test]
+    fn clipping_moves_history_toward_the_centre_along_the_ray_not_per_channel() {
+        let mean = [0.5, 0.0, 0.0];
+        let sigma = [0.1, 0.05, 0.0];
+        // Offsets (0.2, 0.2): 2 and 4 box half-extents, so the ray scale is 4 and the point
+        // lands on the Co face. A per-channel clamp would give Y = 0.6.
+        let clipped = clip_toward_centre([0.7, 0.2, 0.0], mean, sigma, 1.0);
+        assert!(near(&clipped, &[0.55, 0.05, 0.0]), "{clipped:?}");
+        let clipped = clip_toward_centre([0.9, 0.0, 0.0], mean, sigma, 1.0);
+        assert!(near(&clipped, &[0.6, 0.0, 0.0]), "{clipped:?}");
+        let clipped = clip_toward_centre([0.9, 0.0, 0.0], mean, sigma, 2.0);
+        assert!(near(&clipped, &[0.7, 0.0, 0.0]), "{clipped:?}");
+        let inside = clip_toward_centre([0.55, 0.02, 0.0], mean, sigma, 1.0);
+        assert!(near(&inside, &[0.55, 0.02, 0.0]), "{inside:?}");
+    }
+
+    #[test]
+    fn history_outside_the_box_is_clipped_onto_it_before_the_blend() {
+        let mut scene = Scene::new(top_row([5, 5]), flat([5, 5], 100.0));
+        scene.settings = settings(0.5);
+        let out = scene.resolve([2, 2]);
+        // Gray: the clipped history has the box's upper compressed luma 0.5, which decompresses to 1.
+        let history = 1.0;
+        let current = top_row_centre();
+        let expected = 0.5 * current + 0.5 * history;
+        assert!(near(&out[..3], &[expected; 3]), "{out:?} vs {expected}");
+        assert!(out[0] < 5.0, "unclipped history would dominate: {out:?}");
+    }
+
+    #[test]
+    fn identity_reprojection_without_jitter_keeps_history_equal_to_the_reconstruction() {
+        let size = [7, 7];
+        let ramp = ramp(size, false);
+        let mut scene = Scene::new(ramp.clone(), ramp.clone());
+        scene.valid = false;
+        let history = Image::from_fn(size, |x, y| {
+            let g = scene.resolve([x, y]);
+            [narrow(g[0]), narrow(g[1]), narrow(g[2]), 1.0]
+        });
+        scene.history = history;
+        scene.valid = true;
+        for x in 1..6 {
+            let out = scene.resolve([x, 3]);
+            let expected = f64::from(scene.history.pixels[3 * 7 + usize::try_from(x).unwrap()][0]);
+            assert!(
+                (out[0] - expected).abs() < 1e-6,
+                "{x}: {out:?} vs {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_translation_matrix_moves_the_history_lookup_by_the_expected_pixels() {
+        let size = [9, 9];
+        for (along_y, shift, ndc) in [
+            (false, 2, [4.0 / 9.0, 0.0]),
+            (false, -1, [-2.0 / 9.0, 0.0]),
+            (true, 2, [0.0, -4.0 / 9.0]),
+            (true, -2, [0.0, 4.0 / 9.0]),
+        ] {
+            let mut scene = Scene::new(ramp(size, along_y), shifted_ramp(size, along_y, shift));
+            scene.reprojection = translation(ndc);
+            let exact = scene.resolve([4, 4]);
+            assert!(
+                (exact[0] - 0.6).abs() < 1e-6,
+                "axis y {along_y} shift {shift}: {exact:?}"
+            );
+            scene.reprojection = IDENTITY;
+            let unmoved = scene.resolve([4, 4]);
+            assert!(
+                (unmoved[0] - 0.6).abs() > 1e-3,
+                "history is off by {shift} pixels without the translation: {unmoved:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lookup_outside_the_image_ignores_history() {
+        let size = [5, 5];
+        let mut scene = Scene::new(top_row(size), flat(size, 100.0));
+        // 0.6 pixel to the right: pixel x = 4 looks up past the edge, x = 2 does not, and the
+        // motion still leaves part of the history weight.
+        scene.reprojection = translation([1.2 / 5.0, 0.0]);
+        let outside = scene.resolve([4, 1]);
+        scene.valid = false;
+        let current = scene.resolve([4, 1]);
+        assert!(near(&outside, &current), "{outside:?} vs {current:?}");
+        scene.valid = true;
+        let inside = scene.resolve([2, 2]);
+        scene.valid = false;
+        assert!(!near(&inside, &scene.resolve([2, 2])));
+    }
+
+    #[test]
+    fn a_point_behind_the_previous_camera_ignores_history() {
+        let size = [5, 5];
+        let mut scene = Scene::new(top_row(size), flat(size, 100.0));
+        scene.reprojection[2][3] = 0.0;
+        scene.reprojection[3][3] = -1.0;
+        let behind = scene.resolve([2, 2]);
+        scene.valid = false;
+        assert!(near(&behind, &scene.resolve([2, 2])), "{behind:?}");
+    }
+
+    #[test]
+    fn non_finite_history_never_reaches_the_output() {
+        let size = [5, 5];
+        for poison in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut history = flat(size, 0.5);
+            history.pixels[2 * 5 + 2] = [poison, 0.5, 0.5, 1.0];
+            let mut scene = Scene::new(top_row(size), history);
+            let out = scene.resolve([2, 2]);
+            assert!(out.iter().all(|v| v.is_finite() && *v >= 0.0), "{out:?}");
+            scene.valid = false;
+            assert!(near(&out, &scene.resolve([2, 2])), "{poison}: {out:?}");
+        }
+    }
+
+    #[test]
+    fn non_finite_and_negative_current_samples_are_sanitised() {
+        let size = [5, 5];
+        let mut color = top_row(size);
+        color.pixels[2 * 5 + 2] = [f32::NAN, -3.0, f32::INFINITY, f32::NAN];
+        let scene = Scene::new(color, flat(size, 0.25));
+        let out = scene.resolve([2, 2]);
+        assert!(out.iter().all(|v| v.is_finite() && *v >= 0.0), "{out:?}");
+    }
+
+    #[test]
+    fn the_closest_neighbour_supplies_the_motion() {
+        let size = [9, 9];
+        let history = Image::from_fn(size, |x, _| {
+            gray(0.2 + 0.1 * (f32::from(i16::try_from(x).unwrap()) - 0.2))
+        });
+        let mut scene = Scene::new(ramp(size, false), history);
+        // Parallax: the previous NDC x moves by 1.6/9 times depth, i.e. 0.8/9 uv per unit depth.
+        // Depth 0.25 gives a 0.2 pixel lookup shift, the pixel's own depth 0.5 gives 0.4; both
+        // stay inside the range where the motion-adaptive weight keeps some history.
+        scene.reprojection[2] = [1.6 / 9.0, 0.0, 1.0, 0.0];
+        scene.depth = Depth::from_fn(size, |x, y| if (x, y) == (3, 3) { 0.25 } else { 0.5 });
+        let out = scene.resolve([4, 4]);
+        assert!((out[0] - 0.6).abs() < 1e-6, "{out:?}");
+        scene.depth = Depth::from_fn(size, |_, _| 0.5);
+        assert!((scene.resolve([4, 4])[0] - 0.6).abs() > 1e-3);
+    }
+}

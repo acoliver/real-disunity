@@ -2,8 +2,8 @@
 //! is off, resize and the 8-bit sRGB result of a tone-mapped frame.
 use super::{chain, pixels, step};
 use crate::{
-    CasSettings, ColorGrading, FrameConfig, HdrPostSettings, PostChain, PostResolve, Resources, SmaaPreset,
-    StageId, ToneMap, ToneMapOutput, UpscaleMode, UpscaleSettings,
+    CasSettings, ColorGrading, FrameConfig, HdrPostSettings, PostChain, PostResolve, Resources,
+    SmaaPreset, StageId, ToneMap, ToneMapOutput, UpscaleMode, UpscaleSettings,
 };
 
 /// Radiance ramps from 0.5 to 2.5 over six pixels. Reinhard maps that to display 0.33..0.71,
@@ -225,8 +225,8 @@ fn resize_rebuilds_the_pass_for_the_new_extent() {
     }
 }
 
-fn post_bytes(config: FrameConfig, settings: HdrPostSettings) -> u64 {
-    crate::allocation::post_allocations(config, settings)
+fn post_bytes(config: FrameConfig, settings: &HdrPostSettings) -> u64 {
+    crate::allocation::post_allocations(config, *settings)
         .validate(&wgpu::Limits::default())
         .unwrap()
 }
@@ -265,7 +265,7 @@ fn the_allocation_budget_counts_the_intermediates_sharpening_adds() {
         };
         let on = HdrPostSettings { sharpen, ..off };
         assert_eq!(
-            post_bytes(config, on) - post_bytes(config, off),
+            post_bytes(config, &on) - post_bytes(config, &off),
             expected,
             "{resolve:?}"
         );

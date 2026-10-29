@@ -319,7 +319,11 @@ fn smaa_and_fxaa_stage_timestamps() {
         ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra), None),
         ("cas", PostResolve::None, cas),
         ("fxaa + cas", PostResolve::fxaa(1.0), cas),
-        ("smaa medium + cas", PostResolve::smaa(SmaaPreset::Medium), cas),
+        (
+            "smaa medium + cas",
+            PostResolve::smaa(SmaaPreset::Medium),
+            cas,
+        ),
     ] {
         let passes = timed_medians(&rig, resolve, sharpen);
         let total: f64 = passes.iter().map(|(_, ns)| ns).sum();

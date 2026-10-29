@@ -6,12 +6,15 @@
 use super::*;
 use worldrunner_render_plan::SceneTransform;
 
-fn at(metres: f32) -> SceneTransform {
+fn at(millimetres: i16) -> SceneTransform {
     SceneTransform {
-        // The cast cannot overflow: test offsets are a few metres.
-        position_millimeters: [(f64::from(metres) * 1000.0).round() as i64, 0, 0],
+        position_millimeters: [i64::from(millimetres), 0, 0],
         ..identity()
     }
+}
+
+fn metres(millimetres: i16) -> f32 {
+    f32::from(millimetres) / 1000.0
 }
 
 /// How to treat the previous transform of the instance.
@@ -33,7 +36,7 @@ struct Moving {
     color: AttachmentView,
     depth: AttachmentView,
     handle: crate::draw::InstanceHandle,
-    frame: usize,
+    frame: u8,
 }
 
 impl Moving {
@@ -86,10 +89,10 @@ impl Moving {
     }
 
     /// Moves the instance to `metres` and draws one frame, to `view` when given.
-    fn draw(&mut self, metres: f32, forced: bool, view: Option<&wgpu::TextureView>) {
+    fn draw(&mut self, millimetres: i16, forced: bool, view: Option<&wgpu::TextureView>) {
         let device = self.context.device();
         self.gpu
-            .set_instance_transform(self.handle, at(metres))
+            .set_instance_transform(self.handle, at(millimetres))
             .unwrap();
         if forced {
             // Two flushes publish the edit and then converge previous to current.
@@ -99,9 +102,9 @@ impl Moving {
                     .unwrap();
             }
         }
-        self.renderer.select_frame_slot(self.frame % 3);
+        self.renderer.select_frame_slot((self.frame % 3).into());
         self.renderer
-            .set_frame_time(self.frame as f32 * 0.03125)
+            .set_frame_time(f32::from(self.frame) * 0.03125)
             .unwrap();
         let mut encoder = self.context.submission().begin(device).unwrap();
         crate::compositor::encode_scene(
@@ -154,7 +157,7 @@ fn expected_shift(x: u32, y: u32, (centre, shift): (f32, f32), vp: Mat4) -> ([f3
     )
 }
 
-fn residuals_after(offsets: &[f32]) -> Vec<[f32; 2]> {
+fn residuals_after(offsets: &[i16]) -> Vec<[f32; 2]> {
     let mut moving = Moving::new(Previous::Tracked, MsaaSamples::X1);
     for &offset in offsets {
         moving.draw(offset, false, None);
@@ -164,8 +167,8 @@ fn residuals_after(offsets: &[f32]) -> Vec<[f32; 2]> {
 
 #[test]
 fn a_translated_instance_writes_the_analytic_residual() {
-    let shift = 0.25;
-    let velocity = residuals_after(&[0.0, 0.0, shift]);
+    let shift = metres(250);
+    let velocity = residuals_after(&[0, 0, 250]);
     let vp = frame_from(pose()).view_projection;
     let (mut compared, mut largest) = (0, 0.0_f32);
     for y in 0..TARGET {
@@ -193,25 +196,25 @@ fn a_translated_instance_writes_the_analytic_residual() {
 #[test]
 fn a_static_instance_and_a_settled_instance_write_exactly_zero() {
     assert!(
-        residuals_after(&[0.0, 0.0, 0.0])
+        residuals_after(&[0, 0, 0])
             .iter()
             .all(|texel| *texel == [0.0, 0.0])
     );
     // Moved once, then untouched: previous converges to current and the residual vanishes.
     assert!(
-        residuals_after(&[0.0, 0.25, 0.25, 0.25])
+        residuals_after(&[0, 250, 250, 250])
             .iter()
             .all(|texel| *texel == [0.0, 0.0])
     );
 }
 
-const FRAMES: usize = 12;
+const FRAMES: u8 = 12;
 /// About 1.8 px a frame at this camera (the sway tests move about 15 px per metre).
-const STEP_M: f32 = 0.12;
-const START_M: f32 = -0.7;
+const STEP_MM: i16 = 120;
+const START_MM: i16 = -700;
 
-fn position(frame: usize) -> f32 {
-    START_M + STEP_M * frame as f32
+fn position(frame: u8) -> i16 {
+    START_MM + STEP_MM * i16::from(frame)
 }
 
 fn output(previous: Previous, samples: MsaaSamples) -> Vec<u8> {
@@ -237,19 +240,24 @@ fn output(previous: Previous, samples: MsaaSamples) -> Vec<u8> {
     .unwrap()
 }
 
-/// Mean error over the columns swept by the quad during its last four frames: the band behind
-/// and including the leading edge where a resolve that ignores the motion leaves its ghost.
+/// Mean error over the columns from four frames of travel behind the quad's trailing edge to
+/// its leading edge at the last frame: the band where a resolve that ignores the motion leaves
+/// its ghost.
 fn band_error(image: &[u8], reference: &[u8]) -> f64 {
     let vp = frame_from(pose()).view_projection;
-    let column = |metres: f32| uv(vp, Vec3::new(metres, 0.0, 0.0))[0] * TARGET as f32;
+    let size = f32::from(u16::try_from(TARGET).unwrap());
+    let column = |millimetres: i16| uv(vp, Vec3::new(metres(millimetres), 0.0, 0.0))[0] * size;
     let last = position(FRAMES - 1);
-    let first = (column(last - 1.0 - 4.0 * STEP_M).floor().max(0.0)) as usize;
-    let end = (column(last + 1.0).ceil().min(TARGET as f32)) as usize;
+    let (first, end) = (column(last - 1000 - 4 * STEP_MM), column(last + 1000));
     let (mut sum, mut count) = (0_u32, 0_u32);
-    for row in 0..TARGET as usize {
-        for pixel in first..end {
+    for row in 0..TARGET {
+        for pixel in 0..TARGET {
+            let centre = f32::from(u16::try_from(pixel).unwrap());
+            if centre < first || centre >= end {
+                continue;
+            }
             for lane in 0..4 {
-                let index = (row * TARGET as usize + pixel) * 4 + lane;
+                let index = usize::try_from((row * TARGET + pixel) * 4 + lane).unwrap();
                 sum += u32::from(image[index].abs_diff(reference[index]));
                 count += 1;
             }

@@ -288,3 +288,19 @@ all maps fresh. The desktop viewer and same-frame depth-fitting capture do this
 automatically. One-shot `capture_scene_shadowed` starts with fresh resources.
 The procedural viewer accepts `--shadows --staggered-shadows` for the example
 policy above. `ViewerOptions::shadows` also accepts an explicit refresh policy.
+
+## Submitted geometry statistics
+
+`SceneGpu::statistics()` reads the last submitted main-camera mesh/impostor draw
+selection and decal counts without allocating or polling. The transactional
+compositor publishes both at submission; cancelled encoders do not publish them.
+The immediate `set_frame` API updates decal counts with its CPU frame state.
+Counts include each material slot and
+LOD transition complement, with instance counts summed across those draws.
+Shadow, metadata, dynamic quad, terrain, water and sky draws are excluded.
+
+Resource counters describe logical authored texture payloads and mesh vertex,
+index and transition bytes. They exclude internal resources, terrain, instances,
+driver overhead and staging alignment. `take_statistics()` acknowledges initial
+resource uploads for this resident generation; later calls retain residency and
+draw counts but report zero new resource uploads. Both APIs return owned values.

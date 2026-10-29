@@ -98,6 +98,45 @@ class ClassifyRecords(unittest.TestCase):
         self.assertFalse(cc.classify("a", "b", fail)[0])
 
 
+def scope_raw(raw):
+    return cc.classify_scope("base", "head", lambda *_: raw)[0]
+
+
+class Scopes(unittest.TestCase):
+    def test_markdown_only_is_docs(self):
+        self.assertEqual(scope_raw(modified("README.md") + added("docs/new.md")), "docs")
+
+    def test_csharp_changes_with_or_without_markdown_are_csharp(self):
+        self.assertEqual(scope_raw(modified("csharp/Disunity/Material.cs")), "csharp")
+        raw = added("csharp/Disunity/Graphics/Texture.cs") + deleted("csharp/Disunity.Tests/Old.cs")
+        self.assertEqual(scope_raw(raw + modified("docs/unity-api.md")), "csharp")
+        self.assertEqual(scope_raw(modified("csharp/Disunity/Disunity.Engine.csproj")), "csharp")
+
+    def test_csharp_with_rust_or_other_files_is_full(self):
+        self.assertEqual(scope_raw(modified("csharp/Disunity/Material.cs") + modified("crates/play/src/keys.rs")), "full")
+        self.assertEqual(scope_raw(modified("csharp/Disunity/Material.cs") + modified("Cargo.lock")), "full")
+        self.assertEqual(scope_raw(modified("csharp/Disunity/Material.cs") + modified(".github/workflows/pr.yml")), "full")
+
+    def test_csharp_prefix_must_be_the_top_level_directory(self):
+        self.assertEqual(scope_raw(modified("crates/csharp/src/lib.rs")), "full")
+        self.assertEqual(scope_raw(modified("csharpx/File.cs")), "full")
+
+    def test_special_modes_under_csharp_are_full(self):
+        self.assertEqual(scope_raw(record("120000", "120000", "M", "csharp/link")), "full")
+        self.assertEqual(scope_raw(record("100644", "100755", "M", "csharp/run.sh")), "full")
+        self.assertEqual(scope_raw(record("160000", "160000", "M", "csharp/sub")), "full")
+        self.assertEqual(scope_raw(record("100644", "100644", "T", "csharp/Disunity/A.cs")), "full")
+
+    def test_empty_malformed_and_failed_diffs_are_full(self):
+        self.assertEqual(scope_raw(""), "full")
+        self.assertEqual(scope_raw("garbage"), "full")
+
+        def fail(*_):
+            raise subprocess.CalledProcessError(128, "git")
+
+        self.assertEqual(cc.classify_scope("base", "head", fail)[0], "full")
+
+
 class GitRepository(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -382,8 +421,8 @@ class Outputs(unittest.TestCase):
                         os.environ.pop(key, None)
                     else:
                         os.environ[key] = value
-            self.assertEqual(output.read_text(), "docs_only=false\n")
-            self.assertIn("docs_only: False", summary.read_text())
+            self.assertEqual(output.read_text(), "docs_only=false\nscope=full\n")
+            self.assertIn("scope: full", summary.read_text())
 
 
 if __name__ == "__main__":

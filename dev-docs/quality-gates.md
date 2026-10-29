@@ -4,13 +4,14 @@ All checks operate on the current checkout, with no baseline of accepted excepti
 
 ## Commands and runners
 
-`cargo xtask` accepts `fmt`, `lint`, `complexity`, `check`, `build`, `test`, `policy`, `source-size`, `ci`, the three CI profiles below, and the GPU splitting commands `ci-gpu-static`, `ci-gpu-shard K/N` and `ci-gpu-plan N`. Standalone compilation commands and `ci` select the entire workspace with all features; they require the prerequisites of every selected package, including graphics and the managed host. Tests and doctests are separate invocations.
+`cargo xtask` accepts `fmt`, `lint`, `complexity`, `check`, `build`, `test`, `policy`, `source-size`, `ci`, the three CI profiles below, the GPU splitting commands `ci-gpu-static`, `ci-gpu-shard K/N` and `ci-gpu-plan N`, and `ci-gpu-csharp`. Standalone compilation commands and `ci` select the entire workspace with all features; they require the prerequisites of every selected package, including graphics and the managed host. Tests and doctests are separate invocations.
 
 - `ci-cpu`: strict lint, complexity, check, build, tests, and doctests for explicitly classified CPU packages, the content tool, and xtask. Also performs each check separately for `worldrunner --no-default-features`. It neither selects GPU packages nor the CLR host for compilation. All-package metadata resolution and repository-wide formatting/source-size checks still apply.
 - `ci-gpu`: the same checks for all workspace packages except the managed host, with all features and targets. This includes the renderer, desktop host, facade examples, and any workspace games. Required GPU mode runs **all** tests and doctests, including ignored tests, serially, without test-name filters. Current renderer tests fail when device acquisition fails; the task runner does not turn unavailable adapters into success. Linux CI selects the lavapipe Vulkan ICD explicitly and verifies the reported device before testing.
 - `ci-gpu-static`: policy, source-size and formatting checks, then lint, complexity, check, build and doctests for the same package selection as `ci-gpu`, with the same GPU-required doctest arguments. It runs no other test.
-- `ci-gpu-shard K/N`: runs shard K of N (1-based, `1 <= K <= N`) of the tests that `ci-gpu` runs, with the same `--include-ignored --test-threads=1` arguments. It uses one cargo invocation shape with the `ci-gpu` package selection and `--all-features`, so feature unification matches `ci-gpu`. It lists every test of the lib, bin, test, bench and example targets with `--list`, removes duplicate names (a name that exists in several binaries runs in all of them, in one shard), sorts the names and deals them to shards round robin. Targets that declare `harness = false` in their manifest (`play_window`, `callback_failure` and `live_window` today) own their `main` and cannot be listed, so each runs whole in one shard, dealt round robin by sorted name. The command fails if a `harness = false` target shares its kind and name with a libtest target, because a single cargo invocation selects targets by name. It fails when listing finds no test. Doctests belong to `ci-gpu-static`.
-- `ci-gpu-plan N`: lists the tests as `ci-gpu-shard` does, verifies that the N shards cover each test and each whole-binary target exactly once, and prints the per-shard counts. It runs no test.
+- `ci-gpu-shard K/N`: runs shard K of N (1-based, `1 <= K <= N`) of the tests that `ci-gpu` runs, with the same `--include-ignored --test-threads=1` arguments. It uses one cargo invocation shape with the `ci-gpu` package selection and `--all-features`, so feature unification matches `ci-gpu`. It lists every test of the lib, bin, test, bench and example targets with `--list`, removes duplicate names (a name that exists in several binaries runs in all of them, in one shard), and deals the names to shards by estimated run time, as described under [Pull request gate](#pull-request-gate). Targets that declare `harness = false` in their manifest (`play_window`, `callback_failure` and `live_window` today) own their `main` and cannot be listed, so each runs whole in one shard, dealt by its weight with the test names. The command fails if a `harness = false` target shares its kind and name with a libtest target, because a single cargo invocation selects targets by name. It fails when listing finds no test. Doctests belong to `ci-gpu-static`.
+- `ci-gpu-plan N`: lists the tests as `ci-gpu-shard` does, verifies that the N shards cover each test and each whole-binary target exactly once, and prints each shard's counts and estimated seconds. It runs no test.
+- `ci-gpu-csharp`: the GPU-required tests, including ignored tests, of the GPU-layer packages whose Rust sources build or read `csharp/` (`worldrunner` and `worldrunner-play`). It first checks that every package referring to `csharp/` is covered by `ci-cpu`, `ci-managed` or this list.
 - `ci-managed`: requires `dotnet --info` and a warning-as-error build of the .NET 8 portable fixture, then checks/builds/tests the native FFI and managed-host packages. The lifecycle integration test must execute; there is no missing-SDK or missing-runtime skip. CI provisions .NET 8 on Linux, Windows, and macOS.
 
 Every profile first runs policy, source-size, and workspace formatting checks. Failure stops the profile and is reported, not suppressed. Native host dependency downloads/builds can fail independently of an installed SDK; those failures remain failures. Cross-platform workflows are verification requirements, not evidence that cross-platform builds have already passed.
@@ -72,6 +73,7 @@ cargo xtask source-size
 cargo xtask ci-cpu
 cargo xtask ci-gpu       # requires a real or software adapter
 cargo xtask ci-gpu-plan 8 # lists and verifies the GPU test shards; runs no test
+cargo xtask ci-gpu-csharp # GPU tests of the packages that consume csharp/
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 cargo xtask ci-managed   # requires .NET 8 plus native hosting dependencies
 ```
@@ -84,33 +86,38 @@ Two workflows run the profiles. `.github/workflows/pr.yml` (name `PR`) validates
 
 ### Pull request gate
 
-A pull request is merged on one required check, `PR gate`. It reads the results of its needed jobs and passes only when they match the classification of the change:
+A pull request is merged on one required check, `PR gate`. `classify` assigns the change one of three scopes, and each scope selects the build jobs that must run:
 
-- `classify` and `docs` must have succeeded.
-- `classify` must report `docs_only` as exactly `true` or `false`.
-- For `docs_only=true`, the four build jobs (`cpu`, `managed`, `gpu-static`, `gpu-tests`) must all be `skipped`.
-- For `docs_only=false`, all four must be `success`. A skipped, cancelled or failed build job fails the gate.
+| Scope | Change | Build jobs that must succeed |
+| --- | --- | --- |
+| `docs` | Only Markdown files | None |
+| `csharp` | Only files under `csharp/`, optionally with Markdown | `cpu`, `gpu-csharp` |
+| `full` | Anything else | `cpu`, `gpu-static`, `gpu-tests` |
+
+`.github/scripts/ci_gate.py` decides the gate. `classify` and `docs` must succeed, the scope must be one of the three, every build job of the scope must be `success`, and every other build job must be `skipped`. A skipped, cancelled or failed required job fails the gate.
 
 The Linux jobs run in parallel:
 
 | Job | Runs |
 | --- | --- |
-| `classify changes` | The documentation-only classification and the unit tests of `.github/scripts`. |
+| `classify changes` | The scope classification and the unit tests of `.github/scripts`. |
 | `documentation checks` | `git diff --check`, and a check that relative links and anchors in added or modified Markdown files resolve. It runs for every change. |
-| `cpu (ubuntu-latest)` | `cargo xtask ci-cpu`. |
-| `managed (ubuntu-latest)` | `cargo xtask ci-managed`. |
+| `cpu and managed (ubuntu-latest)` | `cargo xtask ci-cpu`, then `cargo xtask ci-managed`. |
 | `gpu static checks` | `cargo xtask ci-gpu-static` on lavapipe under Xvfb. |
 | `gpu tests (K/8)` | `cargo xtask ci-gpu-shard K/8` for K from 1 to 8, each on its own lavapipe runner. |
+| `gpu tests of C# consumers` | `cargo xtask ci-gpu-csharp`: the GPU-required tests of `worldrunner` and `worldrunner-play`, the GPU-layer packages that build or read `csharp/`. |
 
-The eight test shards replace the serial test run of `ci-gpu`, which took about 50 minutes, almost all of it in the `worldrunner-render-scene` tests. Run `cargo xtask ci-gpu-plan 8` to see the current split. Raise the shard count in `pr.yml` (both the matrix and the argument) when a shard approaches its 20 minute timeout.
+A change limited to `csharp/` leaves every Rust source unchanged, so only tests that build or read the C# projects can observe it. `ci-cpu` and `ci-managed` cover the CPU and managed packages; `ci-gpu-csharp` covers the rest. `cargo xtask policy` fails when a workspace package's Rust sources refer to `csharp/` and neither profile nor the consumer list in `crates/xtask/src/csharp.rs` covers it, so a new consumer is added to the list in the same change.
 
-New pushes to a pull request cancel its earlier run. Pushes to `main` are never cancelled, and only they save the Rust caches.
+The eight test shards replace the serial test run of `ci-gpu`, which took about 50 minutes, almost all of it in the `worldrunner-render-scene` tests. Run `cargo xtask ci-gpu-plan 8` to see the current split. Shards are balanced by estimated run time. `crates/xtask/gpu-test-weights.toml` lists the measured seconds of the slowest tests and of the harness-free binaries on the hosted lavapipe runner; every other test weighs `default_test`. `ci-gpu-shard` deals the heaviest items first, each to the shard with the least estimated work, so two slow tests no longer share a shard. A stale weight only unbalances the shards, because `verify` still proves each test runs exactly once. `cargo xtask ci-gpu-plan 8` prints each shard's estimated seconds and any weight entries that no longer match a test. When a shard log shows a new test of 15 seconds or more, add it to the file. Raise the shard count in `pr.yml` (both the matrix and the argument) when a shard approaches its 30 minute timeout.
 
-### Documentation-only changes
+A newer push cancels the earlier run of the same pull request, and a newer merge cancels the earlier `PR` and `Platforms` runs on `main`, so a burst of merges checks only the newest commit. Runs on `main` and manual dispatches always use the `full` scope. Only `main` saves the Rust caches.
 
-`classify` runs `git diff --raw -z --no-renames --no-abbrev` between the first parent and the merge or head commit. The change is documentation-only only when the diff is not empty and every record is an added, modified or deleted regular file (mode `100644`) whose path ends in `.md` (lowercase). Renames appear as a delete plus an add, so code renamed to `x.md` counts as code. Symbolic links, submodules, executable files, type changes, other extensions, an empty diff, unparseable output and any git error select the full build. Manual dispatches always build.
+### Scope classification
 
-The classifier runs from the base commit, never from the pull request, so a pull request cannot change the rule that decides whether its own code is built. A base commit without the script selects the full build.
+`classify` runs `git diff --raw -z --no-renames --no-abbrev` between the first parent and the merge commit of the pull request. The scope is `docs` only when the diff is not empty and every record is an added, modified or deleted regular file (mode `100644`) whose path ends in `.md` (lowercase). It is `csharp` when every record is such an edit of a Markdown file or of a path under the top-level `csharp/` directory. Renames appear as a delete plus an add, so code renamed to `x.md` counts as code. Symbolic links, submodules, executable files, type changes, other paths, an empty diff, unparseable output and any git error select `full`.
+
+The classifier runs from the base commit, never from the pull request, so a pull request cannot change the rule that decides whether its own code is built. A base commit without the script selects `full`, and a base classifier that reports only `docs_only` maps to `docs` or `full`.
 
 Skipping the build is sound only while no Markdown file is an input to a build or test. `ci_changes.py markdown-inputs` enforces this on every code run. After the Linux build jobs finish, it fails when a cargo dep-info file under `target/validation` lists a Markdown path inside the repository (including `include_str!` and `#[doc = include_str!(...)]`), when a build script's `output` file watches a Markdown path, or when a `.csproj`, `.props` or `.targets` file under `csharp/` mentions `.md`. A change that makes Markdown a build input therefore fails its own pull request, and the same pull request has to change the classification rule.
 
@@ -120,7 +127,7 @@ Skipping the build is sound only while no Markdown file is an input to a build o
 
 | Trigger | Jobs |
 | --- | --- |
-| push to `main` | `cpu` and `managed` on Windows and macOS. |
+| push to `main` | `cpu` and `managed` on Windows and macOS. A newer merge cancels the earlier push run. |
 | nightly schedule, manual dispatch | `cpu` and `managed` on Ubuntu, Windows and macOS, and `lavapipe`, the full serial `cargo xtask ci-gpu` with a 90 minute timeout. |
 
 Pull requests do not run Windows or macOS, so a regression that affects only those platforms is found after merge, through the failure issue described below. Running those jobs on every pull request would add runner queue time to the 15 minute budget, and the project accepts later detection in exchange. Code must still build on all three platforms.
@@ -133,7 +140,7 @@ gh workflow run platforms.yml --ref <branch>
 
 ### Failure issues
 
-A failed run on `main` (`PR` after a push, `Platforms (push)` after a push, `Platforms (nightly)` on the schedule) opens an issue titled `CI failure on main: <workflow>` with the `ci-failure` label, the commit, the run link and a table of failed jobs. Each job is labelled `infrastructure` (a setup, cache, toolchain or install step failed, or no step ran), `cancelled`, or `build or test`. A further failure of the same workflow comments on the open issue. A fully green run comments and closes it. A documentation-only run proves nothing about earlier failures, so it never closes an issue. `ci_report.py` only touches open issues that carry the `ci-failure` label, were created by `github-actions[bot]` and contain the workflow's marker comment.
+A failed run on `main` (`PR` after a push, `Platforms (push)` after a push, `Platforms (nightly)` on the schedule) opens an issue titled `CI failure on main: <workflow>` with the `ci-failure` label, the commit, the run link and a table of failed jobs. Each job is labelled `infrastructure` (a setup, cache, toolchain or install step failed, or no step ran), `cancelled`, or `build or test`. A further failure of the same workflow comments on the open issue. A fully green run comments and closes it. A run whose only non-passing jobs were cancelled, usually because a newer commit superseded it, reports nothing. A run that skipped part of the suite proves nothing about earlier failures, so it never closes an issue. `ci_report.py` only touches open issues that carry the `ci-failure` label, were created by `github-actions[bot]` and contain the workflow's marker comment.
 
 ## Running the CI profiles locally
 

@@ -10,7 +10,7 @@ pub(super) fn retained_depth_fitting(event_loop: &EventLoop<()>, window: &Arc<Wi
         &scene,
         shadows,
         crate::FrameProfile::Legacy,
-        2,
+        2.into(),
     ))
     .unwrap();
     let size = renderer.viewport.unwrap();

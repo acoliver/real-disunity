@@ -370,3 +370,5 @@ fn temporal_subframes_never_emit_presented_and_shutdown_cancels_accumulation() {
     run.shutdown().unwrap();
     assert!(events.borrow().iter().any(|event| matches!(event, RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::Cancelled, .. } if *actual == id)));
 }
+
+mod statistics;

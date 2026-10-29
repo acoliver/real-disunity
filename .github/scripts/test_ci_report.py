@@ -176,5 +176,24 @@ class Reporting(unittest.TestCase):
             cr.context_from_environment(environment)
 
 
+class Cancelled(unittest.TestCase):
+    def test_a_run_with_only_cancelled_jobs_reports_nothing(self):
+        calls = []
+
+        def gh(args, stdin=None):
+            calls.append(args)
+            return "[]"
+
+        needs = {"cpu": {"result": "cancelled"}, "gpu-tests": {"result": "cancelled"},
+                 "docs": {"result": "success"}}
+        self.assertIn("cancelled", cr.report(gh, CONTEXT, needs, False))
+        self.assertEqual(calls, [])
+
+    def test_a_failure_alongside_cancellations_is_still_reported(self):
+        needs = {"cpu": {"result": "failure"}, "gpu-tests": {"result": "cancelled"}}
+        self.assertEqual(cr.failed_needs(needs), ["cpu", "gpu-tests"])
+        self.assertFalse(all(needs[name]["result"] == "cancelled" for name in cr.failed_needs(needs)))
+
+
 if __name__ == "__main__":
     unittest.main()

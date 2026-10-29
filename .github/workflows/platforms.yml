@@ -14,9 +14,10 @@ on:
 permissions:
   contents: read
 
+# A newer merge supersedes the older post-merge run; nightly and manual runs always finish.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   CARGO_BUILD_JOBS: 2

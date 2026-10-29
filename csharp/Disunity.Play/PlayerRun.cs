@@ -24,6 +24,10 @@ internal static class PlayerRun
         var manifest = PlayerManifest.Read(data);
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
         new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies).Attach(context);
+        // Unity's Mono runtime loads a player into one domain, so a lookup by name, such as
+        // BinaryFormatter's or Type.GetType's from class-library code, finds the game's assemblies.
+        // Entering the player's context makes those lookups resolve there for the rest of the run.
+        context.EnterContextualReflection();
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
         DisunityHost.ConfigurePlayer(Environment(data, request));
         ApplyQuality(request);

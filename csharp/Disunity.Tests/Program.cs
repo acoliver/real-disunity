@@ -233,6 +233,7 @@ PhysicsMaterialTests.Run();
 
 UiTests.Run();
 PoolTests.Run();
+RectTransformMemberTests.Run();
 SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();

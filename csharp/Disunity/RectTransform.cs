@@ -3,7 +3,7 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-public sealed class RectTransform : Transform
+public sealed partial class RectTransform : Transform
 {
     public RectTransform() { }
     private unsafe DisunityRect Read()

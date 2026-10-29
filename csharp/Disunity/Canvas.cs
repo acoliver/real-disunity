@@ -64,3 +64,10 @@ public sealed class Font
     internal readonly ulong World;
     internal Font(ulong handle, ulong world) { Handle = handle; World = world; }
 }
+
+/// <summary>A UI element that decides whether a screen point inside its rectangle counts as a hit. The engine sends
+/// no UI pointer events yet, so nothing calls it.</summary>
+public interface ICanvasRaycastFilter
+{
+    bool IsRaycastLocationValid(Vector2 sp, Camera eventCamera);
+}

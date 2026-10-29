@@ -4,10 +4,11 @@ using UnityEngine.Events;
 namespace UnityEngine.SceneManagement;
 
 /// <summary>
-/// The scenes of the world. The engine holds one loaded scene, so there is at most one. A script loads another scene
-/// of the build by name, path or build index in <see cref="LoadSceneMode.Single"/> mode: the old scene is unloaded
-/// and the new one loads in the delayed-tasks phase of the frame that is running or next runs (the engine's choice).
-/// <see cref="LoadSceneMode.Additive"/> loads and unloading a scene are not supported. <see cref="sceneLoaded"/>,
+/// The scenes of the world. A script loads a scene of the build by name, path or build index. A
+/// <see cref="LoadSceneMode.Single"/> load unloads every loaded scene and makes the new one active; an
+/// <see cref="LoadSceneMode.Additive"/> load adds it beside them and the active scene stays. Loads happen in the
+/// delayed-tasks phase of the frame that is running or next runs (the engine's choice). Unloading one scene is not
+/// supported. <see cref="sceneLoaded"/>,
 /// <see cref="sceneUnloaded"/> and <see cref="activeSceneChanged"/> handlers last as long as the world.
 /// </summary>
 public static class SceneManager
@@ -21,21 +22,23 @@ public static class SceneManager
     /// <summary>The number of scenes in the build: a player's list, or one for a project run.</summary>
     public static int sceneCountInBuildSettings => DisunityHost.BuildScenes.Count;
 
-    public static int sceneCount => DisunityHost.ActiveScene.IsValid() ? 1 : 0;
+    public static int sceneCount => DisunityHost.LoadedScenes.Count;
 
     /// <summary>The loaded scene; an invalid scene when none is loaded.</summary>
     public static Scene GetActiveScene() => DisunityHost.ActiveScene;
 
+    /// <summary>The loaded scene at <paramref name="index"/>, in load order.</summary>
     public static Scene GetSceneAt(int index) =>
-        index == 0 && DisunityHost.ActiveScene.IsValid()
-            ? DisunityHost.ActiveScene
-            : throw new ArgumentException($"scene index {index} is out of range; the engine holds {sceneCount} scenes", nameof(index));
+        index >= 0 && index < sceneCount
+            ? new Scene { Handle = DisunityHost.LoadedScenes[index].Handle }
+            : throw new ArgumentException($"scene index {index} is out of range; {sceneCount} scenes are loaded", nameof(index));
 
-    /// <summary>True for the loaded scene, false for a valid scene that is not loaded.</summary>
+    /// <summary>Makes a loaded scene the active one and raises <see cref="activeSceneChanged"/> when it changes. False for
+    /// a valid scene that is not loaded.</summary>
     public static bool SetActiveScene(Scene scene)
     {
         if (!scene.IsValid()) throw new ArgumentException("the scene is not valid", nameof(scene));
-        return scene == DisunityHost.ActiveScene;
+        return DisunityHost.ActivateScene(scene.handle);
     }
 
     public static void LoadScene(string sceneName) => LoadScene(sceneName, LoadSceneMode.Single);
@@ -56,7 +59,7 @@ public static class SceneManager
     public static AsyncOperation LoadSceneAsync(int sceneBuildIndex, LoadSceneMode mode) =>
         DisunityHost.QueueSceneLoad(DisunityHost.ResolveBuildScene(sceneBuildIndex), mode);
 
-    internal static void RaiseLoaded(Scene scene) => Raise(sceneLoaded, handler => handler(scene, LoadSceneMode.Single));
+    internal static void RaiseLoaded(Scene scene, LoadSceneMode mode) => Raise(sceneLoaded, handler => handler(scene, mode));
 
     internal static void RaiseUnloaded(Scene scene) => Raise(sceneUnloaded, handler => handler(scene));
 

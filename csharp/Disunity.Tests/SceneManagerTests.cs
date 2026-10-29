@@ -146,10 +146,6 @@ internal static class SceneManagerTests
             Load(Plan());
             var missing = Expect.Catch<ArgumentException>(() => SceneManager.LoadScene("X"), "LoadScene of a scene outside the build");
             Expect.That(missing.Message.Contains("\"X\""), missing.Message);
-            var additive = Expect.Catch<NotSupportedException>(() => SceneManager.LoadScene("level7", LoadSceneMode.Additive), "LoadScene(name, Additive)");
-            Expect.That(additive.Message.Contains("SceneManager.LoadScene(\"level7\", Additive) is not supported yet"), additive.Message);
-            var async = Expect.Catch<NotSupportedException>(() => SceneManager.LoadSceneAsync("level7", LoadSceneMode.Additive), "LoadSceneAsync");
-            Expect.That(async.Message.Contains("level7") && async.Message.Contains("Additive"), async.Message);
         }
         finally { DisunityHost.UnloadWorld(); }
     }

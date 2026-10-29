@@ -18,6 +18,11 @@ internal static class SceneSwitchTests
         private void OnDestroy() => Log.Add($"OnDestroy:{name}");
     }
 
+    private sealed class Unloadable : MonoBehaviour
+    {
+        public Unloadable() => throw new TypeLoadException("Could not load type 'Missing' from assembly 'Engine'.");
+    }
+
     private sealed class Keeper : MonoBehaviour
     {
         private void Awake() => DontDestroyOnLoad(gameObject);
@@ -79,12 +84,18 @@ internal static class SceneSwitchTests
         ASingleLoadKeepsDontDestroyOnLoadRoots();
         EventsComeInOrder();
         ScenesAreFoundByNamePathAndIndex();
-        UnknownAndUnsupportedLoadsThrow();
+        UnknownAndBrokenLoadsThrow();
         AsyncLoadReportsProgressAndCompletion();
         AHeldAsyncLoadWaitsForActivation();
         ACoroutineResumesAfterTheLoad();
         AProjectRunHoldsOneScene();
         Console.WriteLine("PASS: loading build scenes at run time by name, path and index, Single load, DontDestroyOnLoad, events and LoadSceneAsync");
+        AnAdditiveLoadAddsAScene();
+        SetActiveSceneMovesNewObjects();
+        ASingleLoadUnloadsEveryScene();
+        Console.WriteLine("PASS: Additive loads add a scene beside the active one; SetActiveScene and a later Single load");
+        AnUnloadableScriptIsLeftOff();
+        Console.WriteLine("PASS: a script whose class cannot load is left off its object and the scene still loads");
     }
 
     private static void TheBuildListNamesTheScenes() => InWorld(() =>
@@ -159,7 +170,7 @@ internal static class SceneSwitchTests
         });
     }
 
-    private static void UnknownAndUnsupportedLoadsThrow() => InWorld(() =>
+    private static void UnknownAndBrokenLoadsThrow() => InWorld(() =>
     {
         var unknown = Expect.Catch<ArgumentException>(() => SceneManager.LoadScene("Nowhere"), "an unknown name");
         Expect.That(unknown.Message.Contains("Nowhere"), unknown.Message);
@@ -167,9 +178,7 @@ internal static class SceneSwitchTests
         Expect.Throws<ArgumentException>(() => SceneManager.LoadSceneAsync("Nowhere", LoadSceneMode.Single), "an unknown async name");
         var broken = Expect.Catch<InvalidOperationException>(() => SceneManager.LoadScene("Broken"), "a scene that did not plan");
         Expect.That(broken.Message.Contains("Broken") && broken.Message.Contains("object 3 does not decode"), broken.Message);
-        var additive = Expect.Catch<NotSupportedException>(() => SceneManager.LoadScene("Second", LoadSceneMode.Additive), "Additive");
-        Expect.That(additive.Message.Contains("Second") && additive.Message.Contains("Additive"), additive.Message);
-        Expect.Throws<NotSupportedException>(() => SceneManager.LoadSceneAsync("Second", LoadSceneMode.Additive), "Additive async");
+        Expect.Throws<ArgumentOutOfRangeException>(() => SceneManager.LoadScene("Second", (LoadSceneMode)5), "an undefined load mode");
         Expect.Equal("First", SceneManager.GetActiveScene().name, "a failed request changes nothing");
     });
 
@@ -220,6 +229,78 @@ internal static class SceneSwitchTests
             var other = Expect.Catch<ArgumentException>(() => SceneManager.LoadScene("Other"), "another scene in a project");
             Expect.That(other.Message.Contains("Other"), other.Message);
             Expect.Equal("Main", SceneManager.GetActiveScene().name, "the project scene keeps its plan name");
+        }
+        finally { DisunityHost.UnloadWorld(); }
+    }
+
+    private static List<string> Events()
+    {
+        var events = new List<string>();
+        SceneManager.sceneLoaded += (scene, mode) => events.Add($"loaded:{scene.name}:{mode}");
+        SceneManager.sceneUnloaded += scene => events.Add($"unloaded:{scene.name}");
+        SceneManager.activeSceneChanged += (from, to) => events.Add($"changed:{from.name}>{to.name}");
+        return events;
+    }
+
+    private static void AnAdditiveLoadAddsAScene() => InWorld(() =>
+    {
+        var events = Events();
+        var operation = SceneManager.LoadSceneAsync("Second", LoadSceneMode.Additive)!;
+        Expect.Equal(1, SceneManager.sceneCount, "nothing loads before the frame");
+        DisunityHost.Step(0.01f);
+        Expect.That(operation.isDone, "the additive load is done after the frame");
+        Expect.Equal(2, SceneManager.sceneCount, "two scenes are loaded");
+        Expect.Equal("First", SceneManager.GetActiveScene().name, "the active scene stays");
+        var second = SceneManager.GetSceneAt(1);
+        Expect.That(second.name == "Second" && second.isLoaded, "the second loaded scene is the additive one");
+        Expect.Sequence(new[] { "NewB" }, second.GetRootGameObjects().Select(root => root.name), "it owns the roots its load created");
+        Expect.Sequence(new[] { "OldA" }, SceneManager.GetActiveScene().GetRootGameObjects().Select(root => root.name), "the active scene keeps its own");
+        Expect.Equal(second, GameObject.Find("NewB")!.scene, "an object of the additive scene is in it");
+        Expect.Equal("First", new GameObject("Made").scene.name, "an object made at run time joins the active scene");
+        Expect.Sequence(new[] { "loaded:Second:Additive" }, events, "only sceneLoaded, with the additive mode");
+        Expect.That(Log.Contains("Awake:NewB") && !Log.Contains("OnDestroy:OldA"), "the new scene woke and the old one stayed");
+    });
+
+    private static void SetActiveSceneMovesNewObjects() => InWorld(() =>
+    {
+        SceneManager.LoadScene("Second", LoadSceneMode.Additive);
+        DisunityHost.Step(0.01f);
+        var events = Events();
+        var (first, second) = (SceneManager.GetSceneAt(0), SceneManager.GetSceneAt(1));
+        Expect.That(SceneManager.SetActiveScene(second), "a loaded scene can become active");
+        Expect.Equal(second, SceneManager.GetActiveScene(), "it is active");
+        Expect.Sequence(new[] { "changed:First>Second" }, events, "activeSceneChanged");
+        Expect.That(SceneManager.SetActiveScene(second) && events.Count == 1, "activating the active scene raises nothing");
+        Expect.Equal(second, new GameObject("Made").scene, "new objects join the new active scene");
+        Expect.Equal(first, GameObject.Find("OldA")!.scene, "the old scene keeps its roots");
+        Expect.Sequence(new[] { "OldA" }, first.GetRootGameObjects().Select(root => root.name), "and lists them");
+    });
+
+    private static void ASingleLoadUnloadsEveryScene() => InWorld(() =>
+    {
+        SceneManager.LoadScene("Second", LoadSceneMode.Additive);
+        DisunityHost.Step(0.01f);
+        var events = Events();
+        Log.Clear();
+        SceneManager.LoadScene("Second");
+        DisunityHost.Step(0.01f);
+        Expect.Equal(1, SceneManager.sceneCount, "a single load leaves one scene");
+        Expect.That(Log.Contains("OnDestroy:OldA") && Log.Contains("OnDestroy:NewB"), "both scenes' roots were destroyed");
+        Expect.That(GameObject.Find("Keeper") != null, "a DontDestroyOnLoad root survives");
+        Expect.Sequence(new[] { "unloaded:First", "unloaded:Second", "loaded:Second:Single", "changed:First>Second" }, events, "every scene unloads, then the new one loads");
+    });
+
+    private static void AnUnloadableScriptIsLeftOff()
+    {
+        Log.Clear();
+        DisunityHost.LoadWorld();
+        try
+        {
+            using var loaded = DisunityHost.LoadScene(Plan("Main", ("Broken", "Unloadable"), ("Fine", "Probe")), Options);
+            Expect.That(GameObject.Find("Broken") is { } broken && broken.GetComponent<MonoBehaviour>() == null, "the object loads without the script");
+            Expect.That(Log.Contains("Awake:Fine"), "the rest of the scene wakes");
+            var difference = loaded.Differences.Single();
+            Expect.That(difference.Contains("Unloadable") && difference.Contains("is not built") && difference.Contains("'Missing'"), difference);
         }
         finally { DisunityHost.UnloadWorld(); }
     }

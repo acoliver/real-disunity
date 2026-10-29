@@ -68,6 +68,6 @@ public static partial class DisunityHost
         PendingLoads.Clear();
         _pumpPosted = false;
         _sceneHandles = 0;
-        _unloadingScene = null;
+        UnloadingScenes.Clear();
     }
 }

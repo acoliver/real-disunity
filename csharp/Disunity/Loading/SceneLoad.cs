@@ -65,28 +65,35 @@ public static partial class DisunityHost
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(options);
         _sceneOptions = options;
-        return LoadPlan(plan, options, null);
+        return LoadPlan(plan, options, null, LoadSceneMode.Single);
     }
 
-    /// <summary>Loads a plan and makes it the loaded scene. <paramref name="buildIndex"/> names the build scene it is;
-    /// without one, a plan named <c>level{i}</c> is build scene <c>i</c> of the player's list, and any other plan is a
-    /// scene of its own. Raises <c>sceneLoaded</c> and then <c>activeSceneChanged</c>.</summary>
-    private static LoadedScene LoadPlan(string plan, SceneLoadOptions options, int? buildIndex)
+    /// <summary>Loads a plan as a scene. <paramref name="buildIndex"/> names the build scene it is; without one, a plan
+    /// named <c>level{i}</c> is build scene <c>i</c> of the player's list, and any other plan is a scene of its own. A
+    /// single load, or the first scene, becomes the active scene and raises <c>sceneLoaded</c> then
+    /// <c>activeSceneChanged</c> from <paramref name="replaced"/>, the scene a single load unloaded, or the active one; an additive load owns the roots its load created and raises only <c>sceneLoaded</c>.</summary>
+    private static LoadedScene LoadPlan(string plan, SceneLoadOptions options, int? buildIndex, LoadSceneMode mode, Scene? replaced = null)
     {
         EnsureWorld();
         using var document = JsonDocument.Parse(plan);
+        var before = ChildrenOf(0).ToHashSet();
         var loaded = new SceneLoader(document.RootElement, options).Load();
         var name = document.RootElement.Str("scene");
-        var previous = ActiveScene;
         var listed = buildIndex ?? ListedLevel(name);
         var entry = listed is { } index ? BuildScenes[index] : new BuildScene(name, "", () => plan);
-        CurrentScene = new LoadedSceneInfo(entry.Name, loaded.TemplateObjects, entry)
+        var info = new LoadedSceneInfo(entry.Name, loaded.TemplateObjects, entry) { Handle = ++_sceneHandles, ListIndex = listed, Loaded = loaded };
+        var additive = mode == LoadSceneMode.Additive && CurrentScene is not null;
+        if (additive) info.Roots = ChildrenOf(0).Where(root => !before.Contains(root) && !loaded.TemplateObjects.Contains(root)).ToHashSet();
+        LoadedScenes.Add(info);
+        var scene = new Scene { Handle = info.Handle };
+        if (additive)
         {
-            Handle = ++_sceneHandles,
-            ListIndex = listed,
-            Loaded = loaded,
-        };
-        SceneManager.RaiseLoaded(ActiveScene);
+            SceneManager.RaiseLoaded(scene, LoadSceneMode.Additive);
+            return loaded;
+        }
+        var previous = replaced ?? ActiveScene;
+        CurrentScene = info;
+        SceneManager.RaiseLoaded(scene, LoadSceneMode.Single);
         SceneManager.RaiseActiveSceneChanged(previous, ActiveScene);
         return loaded;
     }

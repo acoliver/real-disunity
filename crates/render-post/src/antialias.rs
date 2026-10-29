@@ -1,7 +1,7 @@
 //! One typed antialiasing choice: a multisample count plus a post resolve.
 use crate::{
-    CasSettings, Cmaa2Preset, Cmaa2Settings, FrameConfig, FxaaQuality, PostError, SmaaPreset,
-    SmaaSettings,
+    CasSettings, Cmaa2Preset, Cmaa2Settings, FrameConfig, FxaaQuality, PostError, ProjectionJitter,
+    SmaaPreset, SmaaSettings,
 };
 
 /// Multisample count of the scene attachments.
@@ -165,11 +165,17 @@ impl PostResolve {
 ///
 /// `sharpen` is independent of the resolve: it runs after FXAA, SMAA or, with `PostResolve::None`,
 /// directly after tone mapping. `None` schedules no pass and leaves the output unchanged.
+///
+/// `jitter` selects sub-pixel projection jitter for the scene passes. It is off by default, and
+/// then every output is byte-identical to a renderer without the field. Jitter alone shimmers:
+/// it exists for the temporal resolve that accumulates the jittered frames, which arrives in a
+/// later release, and for tests of the frame data that resolve will read.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AntiAliasing {
     pub msaa: MsaaSamples,
     pub resolve: PostResolve,
     pub sharpen: Option<CasSettings>,
+    pub jitter: Option<ProjectionJitter>,
 }
 impl AntiAliasing {
     /// A choice without sharpening.
@@ -178,6 +184,17 @@ impl AntiAliasing {
             msaa,
             resolve,
             sharpen: None,
+            jitter: None,
+        }
+    }
+
+    /// This choice with sub-pixel projection jitter. See the type documentation: without a
+    /// temporal resolve the jittered image shimmers.
+    #[must_use]
+    pub const fn with_jitter(self, jitter: ProjectionJitter) -> Self {
+        Self {
+            jitter: Some(jitter),
+            ..self
         }
     }
 

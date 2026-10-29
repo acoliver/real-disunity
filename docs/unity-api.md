@@ -71,6 +71,12 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 | `UnityEngine.Rendering.Universal.Light2D` | Global lights: `color`, `intensity`, `affectedSortingLayers`, blend style 0. Other light types throw `UnsupportedLight2DException`. |
 | `UnityEngine.Rendering.Universal.UniversalAdditionalCameraData` | Base camera without post-processing, antialiasing or shadows. Enabling an unsupported option throws `UnsupportedCameraSettingException`. |
 
+## Graphics buffers
+
+| Type | Supported |
+| --- | --- |
+| `GraphicsBuffer` | `GraphicsBuffer(Target.Raw, count, stride)`, `count`, `stride`, `bufferHandle` (unique for each live buffer, never 0), `SetData(array, managedStart, bufferStart, count)`, `Release`, `Dispose`. The engine has no GPU buffers yet, so it keeps the contents in managed memory and does not draw from them. `SetData` takes arrays of unmanaged elements whose size is a multiple of the stride, and the buffer index counts elements of the array's own type. Other targets throw `ArgumentException`. |
+
 ## UI
 
 | Type | Supported |

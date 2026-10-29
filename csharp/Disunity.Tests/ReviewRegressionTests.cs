@@ -293,18 +293,18 @@ internal static class ReviewRegressionTests
     }
     private sealed class CleanupAsset : ScriptableObject
     {
-        public static int Destroyed;
+        public static int DestroyedCount;
         public static bool FailEnable;
         private void OnEnable() { if (FailEnable) throw EngineFault.Make("B4 enable failure"); }
         private void OnDisable() => throw EngineFault.Make("B4 cleanup failure");
-        private void OnDestroy() => Destroyed++;
+        private void OnDestroy() => DestroyedCount++;
     }
     private static void AssetCleanupFailure()
     {
         foreach (var failEnable in new[] { false, true })
         {
             DisunityHost.LoadWorld();
-            CleanupAsset.Destroyed = 0;
+            CleanupAsset.DestroyedCount = 0;
             CleanupAsset.FailEnable = failEnable;
             try
             {
@@ -314,9 +314,9 @@ internal static class ReviewRegressionTests
                 throw new Exception("B4 cleanup failure lost");
             }
             catch (DisunityException error) when (error.Reason == DisunityErrorReason.CallbackFailed && error.Message.Contains(failEnable ? "B4 enable failure" : "B4 cleanup failure")) { }
-            Require(CleanupAsset.Destroyed == 1, "B4 cleanup failure retains OnDestroy exactly once");
+            Require(CleanupAsset.DestroyedCount == 1, "B4 cleanup failure retains OnDestroy exactly once");
             DisunityHost.UnloadWorld();
-            Require(CleanupAsset.Destroyed == 1, "B4 repeated unload does not repeat cleanup");
+            Require(CleanupAsset.DestroyedCount == 1, "B4 repeated unload does not repeat cleanup");
         }
         Console.WriteLine("PASS: B4 enable and cleanup faults preserve required teardown");
     }

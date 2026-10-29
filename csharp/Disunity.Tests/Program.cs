@@ -248,6 +248,7 @@ EnvironmentTests.Run();
 
 NativeArrayTests.Run();
 NativeMemoryTests.Run();
+GraphicsBufferTests.Run();
 JobTests.Run();
 CustomYieldTests.Run();
 RenderingLayerMaskTests.Run();

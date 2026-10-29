@@ -159,7 +159,7 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        let post = crate::post::settings_with_resolve(effects, antialiasing.resolve)?;
+        let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
         post.validate_frame(config)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;

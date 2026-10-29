@@ -241,13 +241,18 @@ fn resize_rebuilds_the_passes_for_the_new_extent() {
     }
 }
 
-/// Per-pass medians for one resolve on a synthetic 1920x1080 frame of diagonal edges.
-fn timed_medians(rig: &Rig, resolve: PostResolve) -> Vec<(String, f64)> {
+/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame of diagonal edges.
+fn timed_medians(
+    rig: &Rig,
+    resolve: PostResolve,
+    sharpen: Option<crate::CasSettings>,
+) -> Vec<(String, f64)> {
     let size = [1920, 1080];
     let chain = chain(
         &rig.device,
         &HdrPostSettings {
             resolve,
+            sharpen,
             ..HdrPostSettings::default()
         },
         size,
@@ -304,15 +309,23 @@ fn smaa_and_fxaa_stage_timestamps() {
     let (device, queue) =
         crate::gpu_tests::gpu_with_optional_features(wgpu::Features::TIMESTAMP_QUERY);
     let rig = Rig { device, queue };
-    for (name, resolve) in [
-        ("none", PostResolve::None),
-        ("fxaa", PostResolve::fxaa(1.0)),
-        ("smaa low", PostResolve::smaa(SmaaPreset::Low)),
-        ("smaa medium", PostResolve::smaa(SmaaPreset::Medium)),
-        ("smaa high", PostResolve::smaa(SmaaPreset::High)),
-        ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra)),
+    let cas = Some(crate::CasSettings::new(0.5));
+    for (name, resolve, sharpen) in [
+        ("none", PostResolve::None, None),
+        ("fxaa", PostResolve::fxaa(1.0), None),
+        ("smaa low", PostResolve::smaa(SmaaPreset::Low), None),
+        ("smaa medium", PostResolve::smaa(SmaaPreset::Medium), None),
+        ("smaa high", PostResolve::smaa(SmaaPreset::High), None),
+        ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra), None),
+        ("cas", PostResolve::None, cas),
+        ("fxaa + cas", PostResolve::fxaa(1.0), cas),
+        (
+            "smaa medium + cas",
+            PostResolve::smaa(SmaaPreset::Medium),
+            cas,
+        ),
     ] {
-        let passes = timed_medians(&rig, resolve);
+        let passes = timed_medians(&rig, resolve, sharpen);
         let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
         eprintln!("{name}: total {:.3} ms (median of 5)", total / 1e6);
         for (pass, ns) in passes {

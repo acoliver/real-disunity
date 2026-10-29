@@ -2,7 +2,7 @@
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use worldrunner_render_post::{
-    AntiAliasing, FrameConfig, MsaaSamples, PostError, PostResolve, Readback, ToneMap,
+    AntiAliasing, CasSettings, FrameConfig, MsaaSamples, PostError, PostResolve, Readback, ToneMap,
 };
 
 const SIZE: u32 = 16;
@@ -378,6 +378,36 @@ fn fxaa_resolve_runs_at_every_supported_sample_count_and_conflicts_with_authored
     assert_eq!(
         result.err(),
         Some(PostError::UnsupportedProfile("duplicate FXAA"))
+    );
+}
+
+#[test]
+fn sharpening_follows_any_resolve_and_an_invalid_sharpness_is_rejected() {
+    let context = context();
+    let build = |aa: AntiAliasing, effects| {
+        FrameRenderer::hdr_antialiased(
+            &context,
+            [SIZE, SIZE],
+            OUTPUT,
+            aa,
+            ToneMap::Reinhard,
+            effects,
+        )
+    };
+    let sharpen = CasSettings::new(0.5);
+    for resolve in [PostResolve::None, PostResolve::fxaa(0.75)] {
+        let aa = AntiAliasing::new(MsaaSamples::X4, resolve).with_sharpen(sharpen);
+        assert!(build(aa, None).is_ok(), "{resolve:?}");
+    }
+    // Scene effects may author FXAA while the descriptor only sharpens.
+    let authored = crate::post_fxaa_tests::effects(None);
+    let aa = AntiAliasing::new(MsaaSamples::X4, PostResolve::None).with_sharpen(sharpen);
+    assert!(build(aa, Some(&authored)).is_ok());
+    let aa =
+        AntiAliasing::new(MsaaSamples::X4, PostResolve::None).with_sharpen(CasSettings::new(1.5));
+    assert_eq!(
+        build(aa, None).err(),
+        Some(PostError::UnsupportedProfile("CAS settings"))
     );
 }
 

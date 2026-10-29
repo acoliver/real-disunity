@@ -1,7 +1,7 @@
 //! Translation of authored post controls into the HDR executor's unitful settings.
 use worldrunner_render_plan::{SceneAntiAlias, SceneEffects, ScenePostStage};
 use worldrunner_render_post::{
-    AdaptiveExposure, Bloom, FxaaQuality, HdrPostSettings, PostError, PostResolve,
+    AdaptiveExposure, AntiAliasing, Bloom, FxaaQuality, HdrPostSettings, PostError, PostResolve,
 };
 
 pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
@@ -62,11 +62,13 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
         });
     Ok(out)
 }
-/// Authored post settings with the descriptor's resolve; both may not choose one.
-pub(crate) fn settings_with_resolve(
+/// Authored post settings with the descriptor's resolve and sharpening; the scene effects and
+/// the descriptor may not both choose a resolve.
+pub(crate) fn settings_with_antialiasing(
     effects: Option<&worldrunner_render_plan::SceneEffects>,
-    resolve: PostResolve,
+    antialiasing: AntiAliasing,
 ) -> Result<HdrPostSettings, PostError> {
+    let resolve = antialiasing.resolve;
     let mut post = effects
         .map(crate::post::settings)
         .transpose()?
@@ -77,6 +79,7 @@ pub(crate) fn settings_with_resolve(
         }
         post.resolve = resolve;
     }
+    post.sharpen = antialiasing.sharpen;
     Ok(post)
 }
 pub(crate) fn requested(effects: &SceneEffects) -> bool {

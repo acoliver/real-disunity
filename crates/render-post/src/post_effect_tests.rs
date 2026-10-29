@@ -447,3 +447,9 @@ mod display_policy_gpu_tests;
 
 #[path = "exposure_policy_tests.rs"]
 mod exposure_policy_tests;
+
+#[path = "cas_gpu_tests.rs"]
+mod cas_gpu_tests;
+
+#[path = "cas_chain_tests.rs"]
+mod cas_chain_tests;

@@ -68,7 +68,10 @@ fn an_identity_camera_reprojects_every_pixel_onto_itself() {
         assert_close(previous_uv(&block, camera, world), own);
     }
     assert!(block.history_valid);
-    assert_eq!(block.jitter_pixels, [0.25, -0.5]);
+    assert_eq!(
+        block.jitter_pixels.map(f32::to_bits),
+        [0.25_f32, -0.5].map(f32::to_bits)
+    );
 }
 
 #[test]
@@ -178,7 +181,7 @@ fn valid(renderer: &FrameRenderer) -> bool {
         .taa_block()
         .expect("the frame carries temporal data");
     let lane: [u8; 4] = block[72..76].try_into().unwrap();
-    f32::from_le_bytes(lane) == 1.0
+    f32::from_le_bytes(lane).to_bits() == 1.0_f32.to_bits()
 }
 
 #[test]

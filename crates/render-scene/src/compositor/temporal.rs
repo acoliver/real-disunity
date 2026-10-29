@@ -149,3 +149,7 @@ impl FrameRenderer {
 #[cfg(test)]
 #[path = "temporal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "taa_end_to_end_tests.rs"]
+mod taa_end_to_end_tests;

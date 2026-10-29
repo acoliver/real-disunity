@@ -228,6 +228,8 @@ PhysicsMaterialTests.Run();
 
 UiTests.Run();
 SpriteTests.Run();
+SpriteAtlasTests.Run();
+PlayerSpriteTests.Run();
 
 EnabledTests.Run();
 
@@ -249,6 +251,8 @@ UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();
+TextCoreTests.Run();
+FieldBinderTests.Run();
 EnvironmentTests.Run();
 
 NativeArrayTests.Run();
@@ -281,3 +285,9 @@ CameraSceneTests.Run();
 PlayerCameraPlanTests.Run();
 LightTests.Run();
 ScreenTests.Run();
+QualitySettingsTests.Run();
+CursorTests.Run();
+ColorUtilityTests.Run();
+EndOfFrameTests.Run();
+RenderPipelineAssetTests.Run();
+SceneManagerTests.Run();

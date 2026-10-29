@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Disunity.Hosting;
 
@@ -67,6 +68,7 @@ public static partial class DisunityHost
         using var document = JsonDocument.Parse(plan);
         var loaded = new SceneLoader(document.RootElement, options).Load();
         CurrentScene = new LoadedSceneInfo(document.RootElement.Str("scene"), loaded.TemplateObjects);
+        SceneManager.RaiseLoaded(ActiveScene);
         return loaded;
     }
 }

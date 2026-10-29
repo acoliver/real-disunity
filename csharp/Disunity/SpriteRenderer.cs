@@ -3,18 +3,6 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-/// <summary>Immutable sprite content descriptor. Renderer state lives in the native world.</summary>
-public sealed class Sprite
-{
-    internal readonly DisunitySprite Description;
-    internal Sprite(DisunitySprite value) { Description = value; }
-    public Rect rect => new(Description.x, Description.y, Description.w, Description.h);
-    public float pixelsPerUnit => Description.pixels_per_unit;
-    public Vector2 pivot => new(Description.pivot_x * Description.w, Description.pivot_y * Description.h);
-    public Bounds bounds => new(new((0.5f - Description.pivot_x) * Description.w / pixelsPerUnit,
-        (0.5f - Description.pivot_y) * Description.h / pixelsPerUnit, 0),
-        new(Description.w / pixelsPerUnit, Description.h / pixelsPerUnit, 0));
-}
 public sealed class SpriteRenderer : NativeComponent
 {
     private unsafe DisunitySprite Read()

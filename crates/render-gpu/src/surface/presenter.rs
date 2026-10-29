@@ -2,10 +2,32 @@ use super::{
     AcquiredFrame, SurfaceError, SurfacePolicy, classify, configuration, configure, validate_extent,
 };
 
+fn validate_reconfiguration(
+    capabilities: &wgpu::SurfaceCapabilities,
+    config: &wgpu::SurfaceConfiguration,
+) -> Result<(), SurfaceError> {
+    configuration(
+        capabilities,
+        SurfacePolicy {
+            format: config.format,
+            usage: config.usage,
+            size: [config.width, config.height],
+            present_mode: config.present_mode,
+            desired_maximum_frame_latency: config.desired_maximum_frame_latency,
+            alpha_mode: config.alpha_mode,
+        },
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;
+
 /// Owns the surface and its configuration/recovery lifecycle. Window integration only supplies
 /// a replacement surface when `acquire` reports `Recreate`; no window-system dependency leaks in.
 pub struct Presenter<'window> {
     surface: wgpu::Surface<'window>,
+    adapter: wgpu::Adapter,
     config: wgpu::SurfaceConfiguration,
     state: PresenterState,
     generation: u64,
@@ -21,15 +43,17 @@ enum PresenterState {
 }
 
 impl<'window> Presenter<'window> {
+    /// Retains the rendering device's adapter to recheck capabilities on every configuration.
     pub fn new(
         surface: wgpu::Surface<'window>,
-        capabilities: &wgpu::SurfaceCapabilities,
+        adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         policy: SurfacePolicy,
     ) -> Result<Self, SurfaceError> {
-        let config = configuration(capabilities, policy)?;
+        let config = configuration(&surface.get_capabilities(adapter), policy)?;
         let mut presenter = Self {
             surface,
+            adapter: adapter.clone(),
             config,
             state: PresenterState::Unconfigured,
             generation: 0,
@@ -85,6 +109,7 @@ impl<'window> Presenter<'window> {
 
     fn reconfigure(&mut self, device: &wgpu::Device) -> Result<bool, SurfaceError> {
         self.state = PresenterState::Unconfigured;
+        validate_reconfiguration(&self.surface.get_capabilities(&self.adapter), &self.config)?;
         if !configure(&self.surface, device, &self.config)? {
             self.state = PresenterState::Suspended;
             return Ok(false);
@@ -102,18 +127,7 @@ impl<'window> Presenter<'window> {
         capabilities: &wgpu::SurfaceCapabilities,
         device: &wgpu::Device,
     ) -> Result<bool, SurfaceError> {
-        let c = &self.config;
-        configuration(
-            capabilities,
-            SurfacePolicy {
-                format: c.format,
-                usage: c.usage,
-                size: [c.width, c.height],
-                present_mode: c.present_mode,
-                desired_maximum_frame_latency: c.desired_maximum_frame_latency,
-                alpha_mode: c.alpha_mode,
-            },
-        )?;
+        validate_reconfiguration(capabilities, &self.config)?;
         self.surface = surface;
         self.state = PresenterState::Unconfigured;
         self.reconfigure(device)

@@ -11,7 +11,7 @@ pub(crate) enum SceneSource<'a> {
         scene: &'a RenderScene,
         shadows: Option<DirectionalShadowSettings>,
         profile: crate::FrameProfile,
-        frames_in_flight: usize,
+        startup: super::Startup,
     },
     Live,
 }
@@ -49,8 +49,8 @@ impl Renderer {
                 scene,
                 shadows,
                 profile,
-                frames_in_flight,
-            } => Self::new(display, window, scene, shadows, profile, frames_in_flight).await,
+                startup,
+            } => Self::new(display, window, scene, shadows, profile, startup).await,
             SceneSource::Live => {
                 let scene = empty_scene();
                 Self::new(
@@ -59,7 +59,7 @@ impl Renderer {
                     &scene,
                     None,
                     crate::FrameProfile::Legacy,
-                    2,
+                    2.into(),
                 )
                 .await
             }

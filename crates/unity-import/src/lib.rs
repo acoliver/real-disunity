@@ -20,6 +20,7 @@ pub mod player_resources;
 pub mod player_scene;
 pub mod player_scripts;
 pub mod player_shaders;
+pub mod player_sprites;
 mod player_values;
 pub mod project;
 pub mod scene;

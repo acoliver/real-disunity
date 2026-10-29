@@ -4,6 +4,12 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod timing;
+pub use timing::{
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+};
+mod statistics;
+pub use statistics::{DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics};
 mod decals;
 pub use decals::DecalUpdate;
 mod event_host;
@@ -142,6 +148,8 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    pub(crate) gpu_timing: GpuTiming,
+    pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
     pub(crate) scene: RenderScene,
     pub(crate) initial_scene: RenderScene,
@@ -170,6 +178,12 @@ impl RetainedHost {
             .collect();
         let size = options.size;
         Ok(Self {
+            statistics: None,
+            gpu_timing: if options.gpu_timing {
+                GpuTiming::Pending
+            } else {
+                GpuTiming::Disabled
+            },
             captures: capture::Captures::default(),
             initial_scene: scene.clone(),
             readiness: readiness::Readiness {

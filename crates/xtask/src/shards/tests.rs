@@ -186,7 +186,7 @@ fn every_shard_count_covers_the_input_exactly_once() {
     let all_names = names(53);
     let all_units = units();
     for count in 1..=20 {
-        let shards = partition(&all_units, &all_names, count).unwrap();
+        let shards = partition(&all_units, &all_names, &Weights::uniform(), count).unwrap();
         assert_eq!(shards.len(), count);
         let mut union_names = BTreeSet::new();
         let mut union_units = BTreeSet::new();
@@ -204,49 +204,114 @@ fn every_shard_count_covers_the_input_exactly_once() {
 }
 
 #[test]
-fn round_robin_balances_names_and_units_within_one() {
-    let shards = partition(&units(), &names(53), 8).unwrap();
-    let sizes = |select: fn(&Assignment) -> usize| {
-        let counts: Vec<_> = shards.iter().map(select).collect();
-        counts.iter().max().unwrap() - counts.iter().min().unwrap()
-    };
-    assert!(sizes(|shard| shard.names.len()) <= 1);
-    assert!(sizes(|shard| shard.units.len()) <= 1);
-    assert_eq!(shards[0].names[0], "module::test_0000");
-    assert_eq!(shards[1].names[0], "module::test_0001");
+fn equal_weights_deal_round_robin_with_units_first() {
+    let shards = partition(&units(), &names(53), &Weights::uniform(), 8).unwrap();
+    let sizes: Vec<_> = shards
+        .iter()
+        .map(|shard| shard.names.len() + shard.units.len())
+        .collect();
+    assert!(sizes.iter().max().unwrap() - sizes.iter().min().unwrap() <= 1);
     assert_eq!(shards[0].units, [unit(Kind::Test, "callback_failure")]);
     assert_eq!(shards[1].units, [unit(Kind::Test, "live_window")]);
+    assert_eq!(shards[2].units, [unit(Kind::Test, "play_window")]);
+    assert_eq!(shards[3].names[0], "module::test_0000");
+    assert!(shards.iter().all(|shard| shard.names.is_sorted()));
+}
+
+const WEIGHTS: &str = r#"
+default_test = 1
+default_unit = 60
+
+[units]
+"test play_window" = 120
+
+[tests]
+"module::test_0000" = 360
+"module::test_0008" = 130
+"gone::test" = 9
+"#;
+
+#[test]
+fn heavy_tests_go_to_separate_shards_and_loads_balance() {
+    let weights = Weights::parse(WEIGHTS).unwrap();
+    let all_names = names(200);
+    let shards = partition(&units(), &all_names, &weights, 8).unwrap();
+    verify(&shards, &units(), &all_names).unwrap();
+    let holder = |name: &str| {
+        shards
+            .iter()
+            .position(|shard| shard.names.iter().any(|n| n == name))
+    };
+    assert_ne!(holder("module::test_0000"), holder("module::test_0008"));
+    let play = shards
+        .iter()
+        .position(|shard| shard.units.contains(&unit(Kind::Test, "play_window")));
+    assert_ne!(play, holder("module::test_0000"));
+    let loads: Vec<_> = shards.iter().map(|shard| load(shard, &weights)).collect();
+    assert_eq!(loads.iter().sum::<u64>(), 360 + 130 + 198 + 120 + 60 + 60);
+    assert_eq!(*loads.iter().max().unwrap(), 360);
+}
+
+#[test]
+fn weights_default_unlisted_items_and_report_stale_entries() {
+    let weights = Weights::parse(WEIGHTS).unwrap();
+    assert_eq!(weights.test("module::test_0000"), 360);
+    assert_eq!(weights.test("module::test_0001"), 1);
+    assert_eq!(weights.unit(&unit(Kind::Test, "play_window")), 120);
+    assert_eq!(weights.unit(&unit(Kind::Test, "live_window")), 60);
+    assert_eq!(weights.unmatched(&units(), &names(10)), ["gone::test"]);
+}
+
+#[test]
+fn malformed_weights_are_rejected() {
+    for bad in [
+        "default_unit = 60",
+        "default_test = 0\ndefault_unit = 60",
+        "default_test = 1\ndefault_unit = -5",
+        "default_test = 1\ndefault_unit = 60\n[tests]\n\"a\" = 1.5",
+        "default_test = 1\ndefault_unit = 60\ntest = 3",
+        "default_test = 1\ndefault_unit = 60\ntests = 3",
+        "not toml =",
+    ] {
+        assert!(Weights::parse(bad).is_err(), "{bad:?} must be rejected");
+    }
+}
+
+#[test]
+fn the_committed_weight_file_parses() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    Weights::read(&root).unwrap();
 }
 
 #[test]
 fn partition_is_deterministic_and_tolerates_more_shards_than_items() {
-    let first = partition(&units(), &names(3), 8).unwrap();
-    let second = partition(&units(), &names(3), 8).unwrap();
+    let first = partition(&units(), &names(3), &Weights::uniform(), 8).unwrap();
+    let second = partition(&units(), &names(3), &Weights::uniform(), 8).unwrap();
     assert_eq!(first, second);
     assert_eq!(
         first.iter().filter(|shard| shard.names.is_empty()).count(),
         5
     );
-    assert!(partition(&units(), &names(3), 0).is_err());
+    assert!(partition(&units(), &names(3), &Weights::uniform(), 0).is_err());
 }
 
 #[test]
 fn verification_detects_duplicates_and_omissions() {
     let all_names = names(5);
     let all_units = units();
-    let good = partition(&all_units, &all_names, 3).unwrap();
+    let good = partition(&all_units, &all_names, &Weights::uniform(), 3).unwrap();
     verify(&good, &all_units, &all_names).unwrap();
 
-    let mut duplicated = partition(&all_units, &all_names, 3).unwrap();
+    let mut duplicated = partition(&all_units, &all_names, &Weights::uniform(), 3).unwrap();
     let copy = duplicated[0].names[0].clone();
     duplicated[1].names.push(copy);
     assert!(verify(&duplicated, &all_units, &all_names).is_err());
 
-    let mut missing = partition(&all_units, &all_names, 3).unwrap();
+    let mut missing = partition(&all_units, &all_names, &Weights::uniform(), 3).unwrap();
     missing[2].names.pop();
     assert!(verify(&missing, &all_units, &all_names).is_err());
 
-    let mut unit_twice = partition(&all_units, &all_names, 3).unwrap();
+    let mut unit_twice = partition(&all_units, &all_names, &Weights::uniform(), 3).unwrap();
     let copy = unit_twice[0].units[0].clone();
     unit_twice[2].units.push(copy);
     assert!(verify(&unit_twice, &all_units, &all_names).is_err());

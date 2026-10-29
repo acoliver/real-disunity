@@ -7,7 +7,9 @@ use worldrunner_render_post::ProjectionJitter;
 fn shadow_caster_frames_carry_the_light_matrix_without_viewer_jitter() {
     let context = context();
     let mut renderer = FrameRenderer::new(context.device());
-    renderer.set_projection_jitter(Some(ProjectionJitter::default()));
+    renderer
+        .set_projection_jitter(Some(ProjectionJitter::default()))
+        .unwrap();
     let camera = renderer
         .prepare_uniform(FrameUniform::unlit(&view()))
         .unwrap();

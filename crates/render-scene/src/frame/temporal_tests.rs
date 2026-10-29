@@ -1,5 +1,5 @@
 use super::{TEMPORAL_UNIFORM_BYTES, TemporalView};
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 
 fn lane(bytes: &[u8; TEMPORAL_UNIFORM_BYTES], index: usize) -> f32 {
     f32::from_le_bytes(bytes[index * 4..index * 4 + 4].try_into().unwrap())
@@ -25,6 +25,8 @@ fn view(history_valid: bool) -> TemporalView {
         jitter_pixels: [0.25, -0.125],
         previous_jitter_pixels: [-0.375, 0.0625],
         history_valid,
+        previous_animation_time_ms: 0xDEAD_BEEF,
+        previous_camera_position: Vec3::new(1.5, -2.5, 3.25),
     }
 }
 
@@ -40,12 +42,21 @@ fn the_block_holds_current_matrix_previous_matrix_jitters_and_validity_in_order(
 }
 
 #[test]
+fn the_previous_camera_and_clock_fill_the_last_sixteen_bytes() {
+    let bytes = view(true).to_bytes();
+    let tail: Vec<f32> = (40..43).map(|index| lane(&bytes, index)).collect();
+    assert_eq!(tail, [1.5, -2.5, 3.25]);
+    assert_eq!(lane(&bytes, 43).to_bits(), 0xDEAD_BEEF);
+    assert_eq!(&bytes[172..176], &0xDEAD_BEEF_u32.to_le_bytes());
+}
+
+#[test]
 fn a_frame_without_history_encodes_zero_validity() {
     assert!(lane(&view(false).to_bytes(), 36).abs() < f32::EPSILON);
 }
 
 #[test]
-fn the_block_is_one_hundred_sixty_bytes_of_sixteen_byte_aligned_lanes() {
-    assert_eq!(TEMPORAL_UNIFORM_BYTES, 160);
+fn the_block_is_one_hundred_seventy_six_bytes_of_sixteen_byte_aligned_lanes() {
+    assert_eq!(TEMPORAL_UNIFORM_BYTES, 176);
     assert_eq!(TEMPORAL_UNIFORM_BYTES % 16, 0);
 }

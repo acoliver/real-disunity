@@ -8,7 +8,7 @@ namespace UnityEngine;
 /// <summary>
 /// What the machine and the graphics device provide. Processor, memory, operating system and device identity
 /// come from the host (see <c>HostMachine</c>). The engine has no audio output, sensors or battery reporting,
-/// so those are absent: batteryLevel -1 and BatteryStatus.Unknown as Unity documents for a device without a
+/// so those are absent: batteryLevel -1 and BatteryStatus.Unknown, the values for a device without a
 /// battery, and supportsAudio, supportsAccelerometer, supportsGyroscope, supportsLocationService and
 /// supportsVibration false. deviceType is Desktop.
 /// Graphics values come from the device a host registered with DisunityHost.SetGraphicsDevice. With none the

@@ -4,8 +4,14 @@
 //! package selection. A shard reproduces the same set of tests in the same single cargo
 //! invocation shape (feature unification stays identical) and runs one slice of it. The slices
 //! are computed from the listed test names, so the union over all shards is exactly the test set
-//! that the serial run executes.
+//! that the serial run executes. Slices are balanced by the estimated run times in
+//! `crates/xtask/gpu-test-weights.toml`.
 
+mod weights;
+
+pub use weights::Weights;
+
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -237,24 +243,61 @@ pub fn parse_shard(text: &str) -> Result<(usize, usize), String> {
     Ok((index, count))
 }
 
-/// Deals the sorted whole units and the sorted test names round robin: item `i` goes to shard
-/// `i % count`. The result has one entry per shard.
+enum Item<'a> {
+    Unit(&'a Unit),
+    Name(&'a String),
+}
+
+/// Deals the heaviest items first, each to the shard with the least estimated work, the lowest
+/// index winning ties. Equal weights reduce to round robin. Units precede names of equal weight,
+/// and each shard's names end up sorted. The result has one entry per shard.
 pub fn partition(
     units: &BTreeSet<Unit>,
     names: &BTreeSet<String>,
+    weights: &Weights,
     count: usize,
 ) -> Result<Vec<Assignment>, String> {
     if count == 0 {
         return Err("shard count must be at least 1".into());
     }
+    let mut items: Vec<(u64, Item)> = units
+        .iter()
+        .map(|unit| (weights.unit(unit), Item::Unit(unit)))
+        .chain(
+            names
+                .iter()
+                .map(|name| (weights.test(name), Item::Name(name))),
+        )
+        .collect();
+    items.sort_by_key(|(weight, _)| Reverse(*weight));
     let mut shards: Vec<Assignment> = (0..count).map(|_| Assignment::default()).collect();
-    for (position, unit) in units.iter().enumerate() {
-        shards[position % count].units.push(unit.clone());
+    let mut loads = vec![0_u64; count];
+    for (weight, item) in items {
+        let lightest = (0..count)
+            .min_by_key(|&index| (loads[index], index))
+            .unwrap_or(0);
+        loads[lightest] += weight;
+        match item {
+            Item::Unit(unit) => shards[lightest].units.push(unit.clone()),
+            Item::Name(name) => shards[lightest].names.push(name.clone()),
+        }
     }
-    for (position, name) in names.iter().enumerate() {
-        shards[position % count].names.push(name.clone());
+    for shard in &mut shards {
+        shard.units.sort();
+        shard.names.sort();
     }
     Ok(shards)
+}
+
+/// Estimated seconds of one shard's tests under `weights`.
+pub fn load(shard: &Assignment, weights: &Weights) -> u64 {
+    let units: u64 = shard.units.iter().map(|unit| weights.unit(unit)).sum();
+    units
+        + shard
+            .names
+            .iter()
+            .map(|name| weights.test(name))
+            .sum::<u64>()
 }
 
 /// Proves that the shards cover the input exactly once.
@@ -332,6 +375,7 @@ struct Inventory {
     selection: Vec<String>,
     targets: Targets,
     names: BTreeSet<String>,
+    weights: Weights,
 }
 
 fn inventory(root: &Path) -> Result<Inventory, String> {
@@ -348,6 +392,7 @@ fn inventory(root: &Path) -> Result<Inventory, String> {
         selection,
         targets,
         names,
+        weights: Weights::read(root)?,
     })
 }
 
@@ -356,7 +401,12 @@ fn refs(args: &[String]) -> Vec<&str> {
 }
 
 fn plan_for(inventory: &Inventory, count: usize) -> Result<Vec<Assignment>, String> {
-    let shards = partition(inventory.targets.whole(), &inventory.names, count)?;
+    let shards = partition(
+        inventory.targets.whole(),
+        &inventory.names,
+        &inventory.weights,
+        count,
+    )?;
     verify(&shards, inventory.targets.whole(), &inventory.names)?;
     Ok(shards)
 }
@@ -375,12 +425,24 @@ fn describe(inventory: &Inventory, shards: &[Assignment]) {
             .map(|unit| format!("{} {}", unit.kind.flag(), unit.name))
             .collect();
         println!(
-            "shard {}/{}: {} tests, {} units {}",
+            "shard {}/{}: about {} s, {} tests, {} units {}",
             position + 1,
             shards.len(),
+            load(shard, &inventory.weights),
             shard.names.len(),
             shard.units.len(),
             units.join(", ")
+        );
+    }
+    let stale = inventory
+        .weights
+        .unmatched(inventory.targets.whole(), &inventory.names);
+    if !stale.is_empty() {
+        println!(
+            "{} entries of {} match no current test and can be removed: {}",
+            stale.len(),
+            weights::FILE,
+            stale.join(", ")
         );
     }
 }

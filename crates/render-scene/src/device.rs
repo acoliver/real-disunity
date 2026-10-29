@@ -3,6 +3,9 @@ use wgpu::{Adapter, Device, Features, Instance, PowerPreference, Queue, RequestA
 
 use thiserror::Error;
 
+mod adapter;
+pub use adapter::{AdapterClass, AdapterIdentity};
+
 pub const REQUIRED_FEATURES: Features = Features::TEXTURE_COMPRESSION_BC;
 
 /// A GPU device could not be acquired with the requested requirements.
@@ -174,6 +177,11 @@ impl GpuContext {
 
     pub const fn submission(&self) -> &worldrunner_render_gpu::submission::SubmissionAuthority {
         &self.submission
+    }
+
+    /// Identity of the adapter used by this device.
+    pub fn adapter_identity(&self) -> AdapterIdentity {
+        self.adapter.get_info().into()
     }
 
     /// Returns the adapter, the only source of truth about format support.

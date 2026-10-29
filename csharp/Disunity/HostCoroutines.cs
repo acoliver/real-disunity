@@ -97,6 +97,7 @@ public static partial class DisunityHost
     {
         null or AsyncOperation => (0, 0, 1),
         WaitForFixedUpdate => (1, 0, 1),
+        WaitForEndOfFrame => (4, 0, 1),
         WaitForSeconds wait => (2, checked((ulong)Math.Round((double)wait.Seconds * 1_000_000_000)), 1_000_000_000),
         WaitForSecondsRealtime wait => (3, checked((ulong)Math.Round((double)wait.Seconds * 1_000_000_000)), 1_000_000_000),
         _ => throw new NotSupportedException($"unsupported coroutine yield {yielded.GetType().FullName}"),

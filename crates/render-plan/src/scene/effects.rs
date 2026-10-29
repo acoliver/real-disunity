@@ -16,6 +16,15 @@ use crate::scene::resource::TextureHandle;
 /// Micro-unit scale shared by every effects ratio.
 pub const EFFECTS_MICRO_SCALE: u64 = 1_000_000;
 
+/// Smallest accepted TAA clip-box scale in micro-units.
+pub const MINIMUM_TAA_CLIP_SCALE_MICRO: u32 = 500_000;
+
+/// Largest accepted TAA clip-box scale in micro-units.
+pub const MAXIMUM_TAA_CLIP_SCALE_MICRO: u32 = 2_000_000;
+
+/// Clip-box scale in micro-units that keeps the neighborhood box as measured.
+pub const DEFAULT_TAA_CLIP_SCALE_MICRO: u32 = 1_000_000;
+
 /// Irradiance is an absolute scale rather than a ratio; accept up to ten units.
 pub const MAXIMUM_SUN_IRRADIANCE_MICRO: u64 = 10 * EFFECTS_MICRO_SCALE;
 
@@ -379,10 +388,23 @@ pub enum SceneAntiAlias {
     Taa {
         /// History blend weight in micro-units within `0..=1_000_000`.
         history_micro: u32,
+        /// Scale of the neighborhood color box history is clipped to, in micro-units within
+        /// `500_000..=2_000_000`. `1_000_000` is the engine default; smaller values reject
+        /// more ghosting and larger ones admit more history.
+        clip_scale_micro: u32,
     },
 }
 
 impl SceneAntiAlias {
+    /// Temporal accumulation with the given history weight and the default clip-box scale.
+    #[must_use]
+    pub const fn taa(history_micro: u32) -> Self {
+        Self::Taa {
+            history_micro,
+            clip_scale_micro: DEFAULT_TAA_CLIP_SCALE_MICRO,
+        }
+    }
+
     /// Validates the choice's own quantity bounds.
     ///
     /// # Errors
@@ -390,17 +412,28 @@ impl SceneAntiAlias {
     /// Returns [`SceneValidationError`] when a weight leaves the unit
     /// interval.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        let weight = match self {
+        let (weight, clip_scale) = match self {
             Self::Disabled => return Ok(()),
-            Self::Fxaa { subpixel_micro } => *subpixel_micro,
-            Self::Taa { history_micro } => *history_micro,
+            Self::Fxaa { subpixel_micro } => (*subpixel_micro, None),
+            Self::Taa {
+                history_micro,
+                clip_scale_micro,
+            } => (*history_micro, Some(*clip_scale_micro)),
         };
         require_range(
             "anti-alias weight",
             u64::from(weight),
             0,
             EFFECTS_MICRO_SCALE,
-        )
+        )?;
+        clip_scale.map_or(Ok(()), |scale| {
+            require_range(
+                "TAA clip scale",
+                u64::from(scale),
+                u64::from(MINIMUM_TAA_CLIP_SCALE_MICRO),
+                u64::from(MAXIMUM_TAA_CLIP_SCALE_MICRO),
+            )
+        })
     }
 }
 

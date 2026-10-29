@@ -31,8 +31,10 @@ mod lod_material;
 mod pages;
 mod publication;
 mod retained;
+mod statistics;
 mod streaming;
 pub(crate) use publication::{DrawPublications, SelectionPublication};
+pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics};
 pub use streaming::TerrainGeometryRequest;
 mod visibility;
 use crate::instances::Instances;
@@ -196,6 +198,8 @@ struct Retained {
 /// One scene resident on the GPU, ready to draw.
 #[derive(Debug)]
 pub struct SceneGpu {
+    resource_counters: statistics::ResourceCounters,
+    decal_counts: std::rc::Rc<Cell<[usize; 2]>>,
     decals: decals::Decals,
     sky: Option<crate::sky::Sky>,
     celestial: Option<crate::sky::meshes::Meshes>,
@@ -297,6 +301,8 @@ impl SceneGpu {
             decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let mut gpu = Self {
+            resource_counters: statistics::ResourceCounters::new(&prepared),
+            decal_counts: std::rc::Rc::default(),
             decals,
             celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
@@ -336,6 +342,8 @@ impl SceneGpu {
     /// Writes the per-frame uniform the next draw will read.
     pub fn set_frame(&self, queue: &Queue, frame: FrameUniform) {
         let bytes = self.decals.prepare(&frame, &self.frame_buffer);
+        self.decal_counts
+            .set([decals::selected_count(&bytes), self.decals.count()]);
         self.frame.set(Some(frame));
         *self.committed_frame_group.borrow_mut() = self.decals.group();
         *self.drawing_frame.borrow_mut() = None;

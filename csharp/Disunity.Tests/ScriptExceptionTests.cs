@@ -191,10 +191,9 @@ internal static class ScriptExceptionTests
     }
 
     /// <summary>
-    /// Unity sends each message independently, so an Awake that throws does not stop OnEnable or
-    /// Start for that script. Unity's documentation does not state this; it is the behaviour
-    /// Unity is known for (an exception in Awake is logged and the component still enables and
-    /// starts), which the native scheduler already follows once the exception no longer fails the step.
+    /// Each message is sent independently, so an Awake that throws does not stop OnEnable or Start
+    /// for that script: the exception is logged and the component still enables and starts, which the
+    /// native scheduler already does once the exception no longer fails the step.
     /// </summary>
     private static void AwakeThrowingKeepsOnEnableAndStart()
     {

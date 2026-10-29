@@ -630,7 +630,7 @@ original tighter tolerance.
 ## Temporal antialiasing
 
 `PostResolve::Taa(TaaSettings)` (`history_weight` 0.0 to 0.99, default 0.9; `clip_scale` 0.5 to 2.0,
-default 1.0) adds one stage, `taa resolve`, ahead of the luminance histogram, so
+default 1.0) adds two stages, `taa resolve` and `taa history`, ahead of the luminance histogram, so
 exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` follows Karis 2014 (color box and
 compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled
 frame is not jittered, so the sample is the MSAA pixel and a static 4x image equals MSAA alone,
@@ -639,17 +639,10 @@ frame is not jittered, so the sample is the MSAA pixel and a static 4x image equ
 
 `taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or
 `texture_depth_multisampled_2d` with a per-sample minimum when MSAA is on), the history texture and
-the per-slot uniform block, and writes the TAA image. There is no copy pass: each of the three
-frame slots owns an `Rgba16Float` output, created once per render size and shared by the three
-slot builds, and slot k binds the output of slot (k - 1) mod 3 as its history, which is the image
-the previous frame of the rotation wrote. A resize replaces the outputs, and settings without TAA
-release them. The shader ignores the history while the block says it is invalid, so no clear is
-needed. This relies on hosts encoding and submitting slots in the order 0, 1, 2, 0, ...; the
-admission authority hands out the lowest free slot, so that order is not guaranteed, and
-`ToneMapOutput::prepare_taa` therefore clears `history_valid` in any block uploaded for a slot
-that does not follow the slot of the previous TAA upload (and for the first upload after the
-outputs were created). A host that always reuses one slot gets TAA without accumulation.
-Measured at 1920x1080 on a Radeon 780M with `smaa_and_fxaa_stage_timestamps` (median of 5): `taa resolve` 1.31 to 1.97 ms plus a 1.05 to 1.09 ms history copy before, `taa resolve` 1.81 to 1.85 ms alone after (the whole TAA path plus tone, 2.13 to 2.19 ms). Dropping the copy removed a third of the TAA cost and one full-size `Rgba16Float` texture.
+the per-slot uniform block, and writes the TAA image. `taa history` copies that image into the
+history texture. One `Rgba16Float` history texture per render size is shared by the three frame-slot
+stage sets, because each slot sees every third frame. A resize replaces it, and settings without TAA
+release it. The shader ignores the history while the block says it is invalid, so no clear is needed.
 
 `TaaUniform` is the per-frame block, `TAA_UNIFORM_BYTES` = 80 bytes, little-endian, one uniform
 buffer per frame slot uploaded by `ToneMapOutput::prepare_taa`:
@@ -658,7 +651,7 @@ buffer per frame slot uploaded by `ToneMapOutput::prepare_taa`:
 | --- | --- |
 | 0..64 | `reprojection`, column-major `mat4x4<f32>`: previous unjittered view-projection times the inverse current one, computed in f64 by the host |
 | 64..72 | `jitter_pixels` x, y (+y down) |
-| 72..76 | `history_valid`: 1.0 when the history texture (the previous slot's output) holds the previous frame, else 0.0 |
+| 72..76 | `history_valid`: 1.0 when the history texture holds the previous frame, else 0.0 |
 | 76..80 | zero |
 
 An all-zero block means no history: the stage returns the reconstructed current color. The block is

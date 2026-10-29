@@ -2,9 +2,9 @@
 use crate::{Stage, StageId, StageSet, StageTarget, TaaSettings};
 
 /// Stage names, in execution order. Identities are stable for timing.
-pub const STAGES: [&str; 1] = ["taa resolve"];
+pub const STAGES: [&str; 2] = ["taa resolve", "taa history"];
 
-/// Format of the resolve output, which is also the history of the next frame.
+/// Format of the resolve output and of the history texture.
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// The two textures a resolve needs besides its inputs.
@@ -14,26 +14,25 @@ pub struct Targets {
     pub history: wgpu::Texture,
 }
 
-/// Allocates the resolve output and a history texture, both `Rgba16Float` at `size`, with the
-/// extra usages the tests need: the history is written by the test and both are read back.
+/// Allocates the resolve output "taa output" and the history "taa history", both
+/// `Rgba16Float` at `size`. The output is rendered to, sampled and copied from. The history is
+/// also rendered to by the copy-back pass and may be written by the host (`COPY_DST`).
 #[cfg(test)]
 pub fn allocate(device: &wgpu::Device, size: [u32; 2]) -> Targets {
-    let readback = wgpu::TextureUsages::COPY_SRC;
     Targets {
-        output: texture(device, "taa output", size, readback),
-        history: texture(
-            device,
-            "taa history",
-            size,
-            readback | wgpu::TextureUsages::COPY_DST,
-        ),
+        output: output(device, size),
+        history: history(device, size),
     }
 }
 
-/// A resolve output texture "taa output". It is rendered to, then sampled as the history of
-/// the next frame's resolve. Each frame slot owns one.
+/// The resolve output texture "taa output". Frame slots each own one.
 pub fn output(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
     texture(device, "taa output", size, wgpu::TextureUsages::empty())
+}
+
+/// The history texture "taa history". One is shared by every frame slot of a size.
+pub fn history(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
+    texture(device, "taa history", size, wgpu::TextureUsages::COPY_DST)
 }
 
 fn texture(
@@ -51,6 +50,7 @@ fn texture(
         format: FORMAT,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
             | extra,
         view_formats: &[],
     })
@@ -67,12 +67,13 @@ pub struct Inputs<'a> {
     pub output: &'a wgpu::TextureView,
 }
 
-/// Appends "taa resolve", which reads `inputs` and writes `inputs.output`. The caller binds
-/// the previous frame's output as `inputs.history`; no copy pass follows.
+/// Appends "taa resolve", which reads `inputs` and writes `inputs.output`, then "taa history",
+/// which copies the output into `inputs.history`. One history texture plus a copy-back keeps
+/// the bind groups static, which stage sets that are built once per frame slot need.
 ///
 /// `color` is scene-referred color a `textureLoad` reads, `depth` the single-sample device
 /// depth of the same frame. Both are at the extent of `output` and `history`, which are
-/// [`FORMAT`] textures. The uniform block is a [`crate::TaaUniform`].
+/// [`FORMAT`] textures made by [`allocate`]. The uniform block is a [`crate::TaaUniform`].
 /// A `depth` with `depth_samples` above 1 is a multisampled depth texture; the resolve then
 /// takes the smallest depth over the samples of each texel. That case has its own shader
 /// module, pipeline and layout.
@@ -114,6 +115,18 @@ pub fn append(
         &resolve,
         &[&resolve_group],
         StageTarget::Texture(inputs.output.clone()),
+    ));
+    let copy = pipeline(device, &module, "taa_history", &[]);
+    let copy_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some(STAGES[1]),
+        layout: &copy.get_bind_group_layout(0),
+        entries: &[entry(0, wgpu::BindingResource::TextureView(inputs.output))],
+    });
+    set.stages.push(Stage::fullscreen(
+        StageId::new(STAGES[1], 0),
+        &copy,
+        &[&copy_group],
+        StageTarget::Texture(inputs.history.clone()),
     ));
 }
 

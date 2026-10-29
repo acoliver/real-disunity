@@ -1,4 +1,4 @@
-// Temporal antialiasing resolve. The algorithm is documented, with its
+// Temporal antialiasing resolve and history copy. The algorithm is documented, with its
 // conventions, in taa_reference.rs, which the GPU tests compare this shader against. It follows
 // Karis 2014, "High Quality Temporal Supersampling" (luminance-compressed color, 1 / (1 + luma)
 // blend weights) with a min/max color box of the 3x3 neighborhood in YCoCg that history is
@@ -198,4 +198,8 @@ fn fetch(uv: vec2<f32>) -> vec3<f32> {
         rgb = current.rgb * wc + history_rgb * wh;
     }
     return clean(vec4<f32>(rgb, current.a));
+}
+// Copies the resolve output, bound as `color`, into the history texture.
+@fragment fn taa_history(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(color, vec2<i32>(position.xy), 0);
 }

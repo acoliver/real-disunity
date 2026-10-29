@@ -103,15 +103,6 @@ impl TaaUniform {
     }
 }
 
-/// Byte offset of the history flag: after the 16 matrix floats and the two jitter floats.
-const HISTORY_FLAG_OFFSET: usize = 72;
-
-/// `block` with its history flag cleared, which the resolve reads as "no history".
-pub(crate) fn without_history(mut block: [u8; TAA_UNIFORM_BYTES]) -> [u8; TAA_UNIFORM_BYTES] {
-    block[HISTORY_FLAG_OFFSET..HISTORY_FLAG_OFFSET + 4].copy_from_slice(&0.0_f32.to_le_bytes());
-    block
-}
-
 #[expect(clippy::cast_possible_truncation, reason = "the GPU block is f32")]
 fn narrow(v: f64) -> f32 {
     v as f32

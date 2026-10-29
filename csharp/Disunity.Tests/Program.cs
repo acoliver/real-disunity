@@ -174,6 +174,9 @@ CheckImport("disunity_camera_write", u64, u64, AbiType("DisunityCamera").MakePoi
 CheckImport("disunity_light_create", u64, u64, u64.MakePointerType());
 CheckImport("disunity_light_read", u64, u64, AbiType("DisunityLight").MakePointerType());
 CheckImport("disunity_light_write", u64, u64, AbiType("DisunityLight").MakePointerType());
+CheckImport("disunity_canvas_group_create", u64, u64, u64.MakePointerType());
+CheckImport("disunity_canvas_group_read", u64, u64, AbiType("DisunityCanvasGroup").MakePointerType());
+CheckImport("disunity_canvas_group_write", u64, u64, AbiType("DisunityCanvasGroup").MakePointerType());
 CheckImport("disunity_camera_matrix_read", u64, u64, u32, f32.MakePointerType(), u32.MakePointerType());
 CheckImport("disunity_camera_matrix_write", u64, u64, u32, f32.MakePointerType());
 CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
@@ -296,6 +299,7 @@ CameraSceneTests.Run();
 PlayerCameraPlanTests.Run();
 LightTests.Run();
 DrivenTrackerTests.Run();
+CanvasGroupTests.Run();
 CommandBufferAttachmentTests.Run();
 BaselibTests.Run();
 ScreenTests.Run();

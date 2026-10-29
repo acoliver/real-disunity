@@ -37,6 +37,7 @@ pub(crate) mod decals;
 mod environment;
 mod fade_coverage;
 mod fade_handoff;
+mod fade_steps;
 mod fold_only;
 mod fold_translucency;
 mod foliage;
@@ -53,6 +54,7 @@ mod ssao;
 mod ssr;
 mod ssr_acceptance;
 mod streaming;
+mod temporal;
 mod terrain_blend;
 
 /// The colour format every test renders into.

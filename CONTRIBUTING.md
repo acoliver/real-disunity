@@ -124,10 +124,12 @@ agents must also review daily. Daily review attention carries no same-day merge
 guarantee. External PRs are exempt from the internal daily review-ready cadence
 and must not be closed merely because they await maintainer review or merge.
 
-Only Andrew manually merges **all** PRs. Agents must never merge any PR, including
-their own, through the web UI, API or CLI. Do not push directly to main, enable
-auto-merge, use a merge queue or run `gh pr merge`. Updating your own topic branch
-from main is allowed. A green PR waits for Andrew's review and manual merge.
+External contributors' PRs, including PRs written by their agents, wait for
+Andrew's review and are merged by him. Andrew's own maintainer agents
+(`mini-llxprt-branch-N` and `mac-llxprt-branch-N` sessions) may merge their own
+PRs after `PR gate` passes and review threads are resolved; the exact conditions
+are in [AGENTS.md](AGENTS.md#coordination-and-review-authority). No one pushes
+directly to main or bypasses its rules.
 
 For agent-authored GitHub text, identify the authenticated GitHub account and
 agent as `[github-user/agent-name]`, optionally followed by a human's name.

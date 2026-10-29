@@ -37,7 +37,7 @@ impl FrameConfig {
 
     /// Adapter capabilities are checked before any engine profile allocation.
     pub fn validate_adapter(self, adapter: &wgpu::Adapter) -> Result<(), PostError> {
-        self.validate(&adapter.limits())?;
+        self.validate_extended(&adapter.limits())?;
         for format in [self.format, wgpu::TextureFormat::Depth32Float] {
             let features = adapter.get_texture_format_features(format);
             if !features.flags.sample_count_supported(self.samples) {
@@ -61,7 +61,27 @@ impl FrameConfig {
         Ok(())
     }
 
+    /// Structural checks plus the sample counts every device guarantees (1 and 4).
     pub fn validate(self, limits: &wgpu::Limits) -> Result<(), PostError> {
+        self.validate_with(limits, false)
+    }
+
+    /// As [`Self::validate`], admitting 2 and 8 samples only when the device enabled
+    /// `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`. Whether the adapter supports the
+    /// count for this format is answered by [`Self::validate_adapter`].
+    pub fn validate_device(self, device: &wgpu::Device) -> Result<(), PostError> {
+        let extended = device
+            .features()
+            .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES);
+        self.validate_with(&device.limits(), extended)
+    }
+
+    /// Checks that defer sample-count capability to adapter queries.
+    pub(crate) fn validate_extended(self, limits: &wgpu::Limits) -> Result<(), PostError> {
+        self.validate_with(limits, true)
+    }
+
+    fn validate_with(self, limits: &wgpu::Limits, extended_samples: bool) -> Result<(), PostError> {
         let output = self.output_extent();
         if self.size.contains(&0) || output.contains(&0) {
             return Err(PostError::EmptyExtent);
@@ -82,7 +102,7 @@ impl FrameConfig {
                 limit: limits.max_texture_dimension_2d,
             });
         }
-        if !matches!(self.samples, 1 | 2 | 4 | 8 | 16) {
+        if !matches!(self.samples, 1 | 2 | 4 | 8) {
             return Err(PostError::SampleCount(self.samples));
         }
         if self.format.is_depth_stencil_format() {
@@ -95,7 +115,7 @@ impl FrameConfig {
             wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-        ) || !features.flags.sample_count_supported(self.samples)
+        ) || !(extended_samples || features.flags.sample_count_supported(self.samples))
         {
             return Err(PostError::UnsupportedFormat(self.format));
         }
@@ -106,10 +126,11 @@ impl FrameConfig {
         {
             return Err(PostError::UnsupportedResolve(self.format));
         }
-        if !wgpu::TextureFormat::Depth32Float
-            .guaranteed_format_features(wgpu::Features::empty())
-            .flags
-            .sample_count_supported(self.samples)
+        if !extended_samples
+            && !wgpu::TextureFormat::Depth32Float
+                .guaranteed_format_features(wgpu::Features::empty())
+                .flags
+                .sample_count_supported(self.samples)
         {
             return Err(PostError::SampleCount(self.samples));
         }
@@ -129,7 +150,7 @@ pub struct FrameTargets {
 
 impl FrameTargets {
     pub fn new(device: &wgpu::Device, config: FrameConfig) -> Result<Self, PostError> {
-        config.validate(&device.limits())?;
+        config.validate_device(device)?;
         let texture = color_texture(device, "post resolved scene", config.size, config.format);
         let resolved = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let multisampled = (config.samples > 1).then(|| {

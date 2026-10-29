@@ -106,9 +106,9 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
     .unwrap()
 }
 #[test]
-fn gpu_ssr_profile_nonempty_without_ssao_and_disabled_identity_at_1x_and_4x() {
+fn gpu_ssr_profile_nonempty_without_ssao_and_disabled_identity_at_every_supported_sample_count() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let baseline = capture(&context, None, samples);
         assert_eq!(baseline, capture(&context, Some(settings(false)), samples));
         let enabled = capture(&context, Some(settings(true)), samples);

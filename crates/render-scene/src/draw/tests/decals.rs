@@ -25,6 +25,9 @@ pub(crate) fn decal() -> SceneDecal {
         angle_fade_micro: 400_000,
         receivers: SceneDecalReceivers::ALL,
         mapping: worldrunner_render_plan::SceneDecalMapping::default(),
+        write_mask: worldrunner_render_plan::SceneDecalWriteMask::default(),
+        alpha_test_cutoff_micro: None,
+        color_modifier: worldrunner_render_plan::SceneDecalColorModifier::default(),
     }
 }
 pub(crate) fn source(slope: bool, terrain_receiver: bool) -> RenderScene {
@@ -108,6 +111,17 @@ fn capture_gpu(
     let mut renderer =
         crate::compositor::FrameRenderer::with_output(context.device(), config, COLOR_FORMAT)
             .unwrap();
+    capture_with_renderer(context, &mut renderer, (gpu, pipelines), unlit)
+}
+/// Draws one frame of `gpu` through `renderer`, so a test can configure the renderer first
+/// and inspect it afterwards.
+pub(super) fn capture_with_renderer(
+    context: &GpuContext,
+    renderer: &mut crate::compositor::FrameRenderer,
+    scene: (&mut SceneGpu, &ScenePipelines),
+    unlit: bool,
+) -> Vec<u8> {
+    let (gpu, pipelines) = scene;
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -122,7 +136,7 @@ fn capture_gpu(
     let mut frame = frame_from(pose());
     frame.unlit = unlit;
     crate::compositor::encode_scene(
-        &mut renderer,
+        renderer,
         context.device(),
         &mut encoder,
         (gpu, pipelines),
@@ -178,13 +192,14 @@ fn srgb(value: f32) -> f32 {
     }
 }
 #[test]
-fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_1x_and_4x() {
+fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_every_supported_sample_count()
+ {
     let context = context();
     for terrain in [false, true] {
         for slope in [false, true] {
             let base = source(slope, terrain);
             let projected = base.with_decals(vec![decal()]).unwrap();
-            for samples in [1, 4] {
+            for samples in crate::msaa_tests::supported_samples(&context) {
                 let pixels = capture(&context, &projected, samples);
                 for (x, y) in [(32, 32), (37, 32), (43, 32), (23, 32), (32, 39)] {
                     let (point, weight) = oracle(x, y, slope);
@@ -210,7 +225,7 @@ fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_1x_and
 fn masked_outside_culled_and_removed_decals_preserve_default_bytes() {
     let context = context();
     let scene = source(false, false);
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let original = capture(&context, &scene, samples);
         let mut masked = decal();
         masked.receivers = SceneDecalReceivers::TERRAIN;
@@ -252,7 +267,7 @@ fn albedo_and_scalar_material_channels_are_blended_before_lighting() {
             Some(effects()),
         )
         .unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         assert_eq!(
             capture(&context, &expected, samples),
             capture(&context, &base.with_decals(vec![d]).unwrap(), samples)
@@ -366,6 +381,7 @@ fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
         &crate::ssao::ambient_source(crate::shader::TERRAIN_WGSL),
         true,
     );
+    // A default device guarantees only 1x and 4x; the binding budget does not depend on the count.
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_screen_space(
             &device,
@@ -528,3 +544,11 @@ mod maps;
 
 #[path = "decal_mapping.rs"]
 mod mapping;
+
+#[path = "decal_write.rs"]
+mod write;
+
+#[path = "decal_color.rs"]
+mod color;
+#[path = "decal_normal_frames.rs"]
+mod normal_frames;

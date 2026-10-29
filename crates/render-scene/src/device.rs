@@ -134,11 +134,13 @@ impl GpuContext {
                         .min(32),
                     ..Default::default()
                 },
-                optional_features: if timing == worldrunner_render_post::TimingMode::Optional {
-                    timing.features()
-                } else {
-                    Features::empty()
-                },
+                // Lets frame validation use adapter-reported sample counts (2x and 8x).
+                optional_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                    | if timing == worldrunner_render_post::TimingMode::Optional {
+                        timing.features()
+                    } else {
+                        Features::empty()
+                    },
                 ..Default::default()
             },
         )

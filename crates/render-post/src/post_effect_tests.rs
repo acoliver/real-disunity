@@ -309,7 +309,7 @@ fn gpu_fxaa_smooths_diagonal_preserves_flat_and_disabled_bytes() {
     let filtered = chain(
         &device,
         &HdrPostSettings {
-            fxaa: Some(1.0),
+            resolve: crate::PostResolve::fxaa(1.0),
             ..HdrPostSettings::default()
         },
         [32, 32],
@@ -380,10 +380,8 @@ fn gpu_nonfinite_inputs_cannot_poison_histogram_or_bloom() {
                 intensity: 1.0,
                 levels: 3,
             }),
-            fxaa: None,
             upscale: None,
             bloom_kernel: crate::BloomKernel::Tent,
-            fxaa_quality: crate::FxaaQuality::default(),
             ..Default::default()
         },
         [9, 7],
@@ -449,3 +447,15 @@ mod display_policy_gpu_tests;
 
 #[path = "exposure_policy_tests.rs"]
 mod exposure_policy_tests;
+
+#[path = "cas_gpu_tests.rs"]
+mod cas_gpu_tests;
+
+#[path = "cas_chain_tests.rs"]
+mod cas_chain_tests;
+
+#[path = "post_regression_tests.rs"]
+mod post_regression_tests;
+
+#[path = "timing_identity_tests.rs"]
+mod timing_identity_tests;

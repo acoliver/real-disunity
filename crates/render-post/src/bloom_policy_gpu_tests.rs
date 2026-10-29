@@ -1,5 +1,5 @@
 use super::gaussian_gpu_tests::reference;
-use super::post_effect_tests::{paint, pixels};
+use crate::chain::post_effect_tests::{paint, pixels};
 use crate::*;
 use wgpu::util::DeviceExt;
 #[path = "bloom_policy_reference.rs"]
@@ -409,7 +409,7 @@ fn gpu_bloom_stock_hdr_uses_fixed_and_adaptive_exposure_inputs() {
             bloom_kernel: BloomKernel::SeparablePyramid(levels),
             adaptive: adaptive.then(|| AdaptiveExposure {
                 fixed_exposure: Some(2.0),
-                ..super::post_effect_tests::adaptive()
+                ..crate::chain::post_effect_tests::adaptive()
             }),
             ..HdrPostSettings::default()
         };
@@ -425,7 +425,7 @@ fn gpu_bloom_stock_hdr_uses_fixed_and_adaptive_exposure_inputs() {
             factory,
         )
         .unwrap();
-        super::post_effect_tests::step(
+        crate::chain::post_effect_tests::step(
             &device,
             &queue,
             &chain,
@@ -491,8 +491,8 @@ fn gpu_bloom_repeat_terminal_stock_matches_cpu() {
             bloom_kernel: BloomKernel::SeparablePyramid(levels),
             ..HdrPostSettings::default()
         };
-        let chain = super::post_effect_tests::chain(&device, &settings, size.map(u32::from));
-        super::post_effect_tests::step(
+        let chain = crate::chain::post_effect_tests::chain(&device, &settings, size.map(u32::from));
+        crate::chain::post_effect_tests::step(
             &device,
             &queue,
             &chain,

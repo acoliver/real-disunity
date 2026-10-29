@@ -179,9 +179,9 @@ fn absorption_error_bound(expected: f32, background: f32, scattering: f32) -> f3
 }
 
 #[test]
-fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_samples() {
+fn production_absorption_matches_cpu_with_nonzero_scattering_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let mut settings = settings();
         settings.roughness_micro = 1_000_000;
@@ -240,7 +240,7 @@ fn production_absorption_matches_cpu_with_nonzero_scattering_at_one_and_four_sam
 #[test]
 fn animation_changes_refraction_with_identical_scene_and_frame_slot() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let mut settings = settings();
         settings.absorption_micro = [0; 3];

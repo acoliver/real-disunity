@@ -63,7 +63,7 @@ impl SceneGpu {
             pages.borrow_mut().prepare_depth_prefix(
                 device,
                 encoder,
-                frame.view_projection,
+                frame.selection_view_projection(),
                 viewport,
             )?;
         }
@@ -186,9 +186,12 @@ impl SceneGpu {
             .as_ref()
             .and_then(|terrain| terrain.pages.as_ref())
         {
-            pages
-                .borrow_mut()
-                .prepare(device, encoder, frame.view_projection, viewport)?;
+            pages.borrow_mut().prepare(
+                device,
+                encoder,
+                frame.selection_view_projection(),
+                viewport,
+            )?;
         }
         Ok(())
     }
@@ -204,7 +207,7 @@ impl SceneGpu {
             .and_then(|terrain| terrain.pages.as_ref())
         {
             let mut pages = pages.borrow_mut();
-            pages.select(frame.view_projection, viewport);
+            pages.select(frame.selection_view_projection(), viewport);
         }
     }
 

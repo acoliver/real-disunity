@@ -110,10 +110,11 @@ fn assert_snapshot_sampling(snapshots: &Snapshots, samples: u32) {
 }
 
 #[test]
-fn gpu_sloped_receivers_keep_reflections_at_1x_and_4x_and_water_masks_partial_coverage() {
+fn gpu_sloped_receivers_keep_reflections_at_every_supported_sample_count_and_water_masks_partial_coverage()
+ {
     let context = context();
     let size = [9, 9];
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
         let (ssr, depth) = setup(&context, config);
         let snapshots = Snapshots::new(context.device(), config);

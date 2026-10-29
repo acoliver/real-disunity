@@ -150,7 +150,7 @@ fn grid_domain_validation_rejects_unavailable_levels_and_accepts_limits() {
 #[test]
 fn gpu_grid_output_domain_compiles_odd_extents_and_water_msaa() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let size = [33, 25];
         let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
         let ssr = Ssr::new(
@@ -601,7 +601,7 @@ fn gpu_default_trace_bytes_match_pre_grid_shader() {
 #[test]
 fn grid_policy_compiles_opaque_water_msaa() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut screen = SceneMetadata::new(context.device(), [33, 25], neutral_ao()).unwrap();
         let ssr = Ssr::new(
             context.device(),

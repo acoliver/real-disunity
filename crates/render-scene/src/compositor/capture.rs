@@ -7,6 +7,12 @@ pub enum FeatureTarget {
     Depth,
     /// View-space XYZ normals with coverage in alpha, `Rgba16Float`.
     Normals,
+    /// Post-decal pixel-centre SSR material plane: linear F0 RGB and the stored
+    /// material roughness channel in alpha, before lighting remap or lower clamp.
+    /// With `SceneRoughnessRemap::LinearAlpha`, alpha is the authored GGX alpha
+    /// channel, not perceptual roughness. Before water; single-sample `Rgba16Float`.
+    /// Available when SSR metadata is enabled.
+    Specular,
     /// Filtered visibility in red, `R32Float` or `Rg16Float` (green is filter metadata).
     AmbientOcclusion,
     /// Trace confidence in alpha of `Rgba16Float`, at trace resolution.
@@ -48,6 +54,7 @@ impl FrameRenderer {
             FeatureTarget::Depth => self.ssao.as_ref().map(|s| s.passes.depth_levels()[0]),
             FeatureTarget::Normals => self.ssao.as_ref().map(|s| &s.normals),
             FeatureTarget::AmbientOcclusion => self.ssao.as_ref().map(|s| &s.passes.filtered),
+            FeatureTarget::Specular => self.ssr.as_ref().map(crate::ssr::Ssr::material_target),
             FeatureTarget::SsrConfidence => {
                 self.ssr.as_ref().map(crate::ssr::Ssr::confidence_target)
             }

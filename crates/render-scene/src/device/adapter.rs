@@ -22,11 +22,13 @@ impl From<wgpu::DeviceType> for AdapterClass {
     }
 }
 
-/// Name and classification from one selected adapter.
+/// Name, hardware classification and graphics API from one selected adapter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdapterIdentity {
     pub name: String,
     pub class: AdapterClass,
+    /// The wgpu graphics API used by this adapter, independent of hardware class.
+    pub backend: wgpu::Backend,
 }
 
 impl From<wgpu::AdapterInfo> for AdapterIdentity {
@@ -34,6 +36,7 @@ impl From<wgpu::AdapterInfo> for AdapterIdentity {
         Self {
             name: info.name,
             class: info.device_type.into(),
+            backend: info.backend,
         }
     }
 }

@@ -4,6 +4,7 @@
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
 use crate::presentation::CoverageTexture as SceneTexture;
+use crate::presentation::extraction::{camera_admits, selected_camera};
 use crate::ui::{Canvas, CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use glam::Vec3;
@@ -44,6 +45,7 @@ pub fn extract_ui(
     let snapshot = world.snapshot();
     let mut texts = Vec::new();
     let mut budget = FrameBudget::default();
+    let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
     for component in &snapshot.components {
         let ComponentDesc::Text(run) = &component.desc else {
             continue;
@@ -55,12 +57,6 @@ pub fn extract_ui(
             validate_hidden_text(world, component.object, &snapshot.components)?;
             continue;
         };
-        let text = fonts.layout(run, rect.size)?;
-        budget.add(
-            run.text.chars().filter(|c| *c != '\r').count(),
-            text.atlas.alpha.len(),
-            fonts.limits(),
-        )?;
         let canvas = snapshot
             .components
             .iter()
@@ -69,12 +65,17 @@ pub fn extract_ui(
                 _ => None,
             })
             .unwrap_or_default();
-        let mut text = contribution(
-            rect,
-            text,
-            canvas.mode == CanvasMode::ScreenSpaceOverlay,
-            run.color,
-        );
+        let overlay = canvas.mode == CanvasMode::ScreenSpaceOverlay;
+        if !overlay && !camera_admits(world, camera, component.object)? {
+            continue;
+        }
+        let text = fonts.layout(run, rect.size)?;
+        budget.add(
+            run.text.chars().filter(|c| *c != '\r').count(),
+            text.atlas.alpha.len(),
+            fonts.limits(),
+        )?;
+        let mut text = contribution(rect, text, overlay, run.color);
         snap_to_pixels(&mut text, rect, canvas);
         texts.push(text);
     }

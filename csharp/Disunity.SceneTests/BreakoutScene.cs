@@ -17,7 +17,10 @@ internal static class BreakoutScene
             var ball = game.Scripts.GetType("Ball", true)!;
             var spawner = game.Scripts.GetType("BrickSpawner", true)!;
             Require(Find(brick).Length == 0 && Find(ball).Length == 0, "prefab templates are not in the world");
-            Require(scene.Differences.Any(d => d.Contains("tiles draw unlit")), "the lit tilemap is reported");
+            var tilemaps = scene.Objects.Select(o => o.GetComponent<UnityEngine.Tilemaps.Tilemap>()).OfType<UnityEngine.Tilemaps.Tilemap>().ToList();
+            Require(scene.Differences.All(d => !d.Contains("tiles draw unlit")) && tilemaps.Count > 0
+                && tilemaps.All(t => ReferenceEquals(DisunityHost.TilemapMaterial(t), Material.SpriteLit)),
+                "the walls draw lit with Sprite-Lit-Default as authored, not reported");
             Steps(1);
             Bricks(scene, Find(spawner).Single(), Find(brick));
             var balls = Find(ball);

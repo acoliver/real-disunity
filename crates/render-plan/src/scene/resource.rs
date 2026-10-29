@@ -6,6 +6,8 @@
 //! survives only where its format permits one.
 
 use crate::scene::error::SceneValidationError;
+#[path = "resource_tables.rs"]
+mod tables;
 
 macro_rules! dense_handle {
     ($(#[$doc:meta])* $name:ident, $table:literal) => {
@@ -581,8 +583,8 @@ fn require_unit_range(part: &'static str, observed: u64) -> Result<(), SceneVali
 /// Closed tables of owned textures and materials addressed by dense handles.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneResources {
-    textures: std::sync::Arc<[SceneTexture]>,
-    materials: std::sync::Arc<[SceneMaterial]>,
+    textures: std::sync::Arc<Vec<SceneTexture>>,
+    materials: std::sync::Arc<Vec<SceneMaterial>>,
 }
 
 impl SceneResources {
@@ -717,3 +719,7 @@ fn validate_auxiliary_textures(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "resource_table_tests.rs"]
+mod table_tests;

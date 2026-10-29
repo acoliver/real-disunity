@@ -7,7 +7,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <IsPackable>false</IsPackable>
+    <!-- Games built for Unity's Mono runtime may use BinaryFormatter, which that runtime allows and .NET 8
+         turns off by default. The bridge allows it so such games run unchanged. -->
+    <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Disunity.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Disunity/Disunity.Engine.csproj" />
   </ItemGroup>

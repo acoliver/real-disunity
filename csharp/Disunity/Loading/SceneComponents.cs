@@ -22,6 +22,7 @@ internal sealed partial class SceneLoader
         "Text" => Text(owner, value, where),
         "GraphicRaycaster" or "EventSystem" or "StandaloneInputModule" => Unbuilt(where),
         "Light2D" => Light(owner, value),
+        "Light" => Light3D(owner, value),
         "UniversalAdditionalCameraData" => CameraData(owner, value, where),
         "Script" => Script(owner, value, where),
         "Unsupported" => Unbuilt(where, $"{value.Str("class")} components are not built yet"),
@@ -51,11 +52,20 @@ internal sealed partial class SceneLoader
         var camera = owner.AddComponent<Camera>();
         camera.clearFlags = value.Variant<CameraClearFlags>("clear");
         camera.backgroundColor = value.Rgba("background");
-        camera.orthographic = true;
+        camera.orthographic = value.Bool("orthographic");
         camera.orthographicSize = value.Float("orthographic_size");
+        camera.fieldOfView = value.Float("field_of_view");
         camera.nearClipPlane = value.Float("near");
         camera.farClipPlane = value.Float("far");
         camera.depth = value.Float("depth");
+        camera.cullingMask = value.Mask("culling_mask");
+        var rect = value.Floats("rect");
+        camera.rect = new Rect(rect[0], rect[1], rect[2], rect[3]);
+        camera.targetDisplay = value.Int("target_display");
+        camera.allowHDR = value.Bool("allow_hdr");
+        camera.allowMSAA = value.Bool("allow_msaa");
+        camera.allowDynamicResolution = value.Bool("allow_dynamic_resolution");
+        camera.useOcclusionCulling = value.Bool("use_occlusion_culling");
         camera.enabled = value.Bool("enabled");
         return camera;
     }
@@ -126,10 +136,9 @@ internal sealed partial class SceneLoader
         var map = owner.AddComponent<Tilemap>();
         var renderer = value.GetProperty("renderer");
         if (!renderer.Bool("enabled")) throw new SceneLoadException($"{where}: a disabled TilemapRenderer is not supported");
-        if (renderer.Str("material") != "SpritesDefault")
-            differences.Add($"{where}: tiles draw unlit; {renderer.Str("material")} would light them with the scene's 2D lights");
         DisunityHost.ConfigureTilemap(map, new TilemapSettings(value.Vec2("cell_size"), value.Vec2("cell_gap"),
             value.Vec2("tile_anchor"), 0, renderer.Int("sorting_order")));
+        DisunityHost.SetTilemapMaterial(map, Material(renderer.Str("material")));
         map.color = value.Rgba("color");
         var palette = value.GetProperty("palette").EnumerateArray().ToList();
         for (var i = 0; i < palette.Count; i++) DisunityHost.SetTile(map, i, Tile(palette[i]));
@@ -161,6 +170,31 @@ internal sealed partial class SceneLoader
         light.intensity = value.Float("intensity");
         light.blendStyleIndex = value.Int("blend_style");
         light.affectedSortingLayers = value.GetProperty("target_sorting_layers").EnumerateArray().Select(l => l.GetInt32()).ToArray();
+        light.enabled = value.Bool("enabled");
+        return light;
+    }
+
+    private static Light Light3D(GameObject owner, JsonElement value)
+    {
+        var light = owner.AddComponent<Light>();
+        light.type = value.Variant<LightType>("kind");
+        light.color = value.Rgba("color");
+        light.intensity = value.Float("intensity");
+        light.range = value.Float("range");
+        light.spotAngle = value.Float("spot_angle");
+        light.innerSpotAngle = value.Float("inner_spot_angle");
+        light.shadows = value.Variant<LightShadows>("shadows");
+        light.shadowStrength = value.Float("shadow_strength");
+        light.shadowBias = value.Float("shadow_bias");
+        light.shadowNormalBias = value.Float("shadow_normal_bias");
+        light.shadowNearPlane = value.Float("shadow_near_plane");
+        light.cullingMask = value.Mask("culling_mask");
+        light.renderingLayerMask = value.Mask("rendering_layer_mask");
+        light.bounceIntensity = value.Float("bounce_intensity");
+        light.colorTemperature = value.Float("color_temperature");
+        light.useColorTemperature = value.Bool("use_color_temperature");
+        light.cookieSize = value.Float("cookie_size");
+        light.lightmapBakeType = (LightmapBakeType)value.Int("lightmap_bake_type");
         light.enabled = value.Bool("enabled");
         return light;
     }

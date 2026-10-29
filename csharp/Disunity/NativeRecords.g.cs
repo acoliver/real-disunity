@@ -24,7 +24,11 @@ namespace Disunity.Native
 
     /// <summary>
     ///  A camera's serialized settings. `clear_flags` uses Unity's `CameraClearFlags` values:
-    ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. Only orthographic cameras are supported.
+    ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. `orthographic` is 1 for an orthographic lens and 0
+    ///  for a perspective one with `field_of_view` degrees; both sizes are kept. `culling_mask` is one
+    ///  bit per layer, the viewport is a normalized rectangle, `depth_texture_mode` and `camera_type`
+    ///  use Unity's flag values, and `target_texture` is a managed RenderTexture's instance id (0 for
+    ///  the screen). Custom matrices have their own calls. Boolean settings are 0 or 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityCamera
@@ -40,6 +44,20 @@ namespace Disunity.Native
         public float g;
         public float b;
         public float a;
+        public float field_of_view;
+        public ulong target_texture;
+        public uint culling_mask;
+        public float viewport_x;
+        public float viewport_y;
+        public float viewport_width;
+        public float viewport_height;
+        public uint depth_texture_mode;
+        public uint allow_hdr;
+        public uint allow_msaa;
+        public uint allow_dynamic_resolution;
+        public uint use_occlusion_culling;
+        public uint target_display;
+        public uint camera_type;
     }
 
     /// <summary>
@@ -57,6 +75,41 @@ namespace Disunity.Native
         public float reference_x;
         public float reference_y;
         public float match_height;
+    }
+
+    /// <summary>
+    ///  A light's settings. `kind` uses the managed `LightType` values (0 Spot, 1 Directional,
+    ///  2 Point, 3 Rectangle, 4 Disc, 5 Pyramid, 6 Box, 7 Tube), `shadows` is 0 None, 1 Hard or 2 Soft,
+    ///  and `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime. The masks have one bit per layer,
+    ///  `cookie_texture` is a managed texture's instance id (0 for none) and booleans are 0 or 1.
+    ///  A write brings the spot angles and shadow strength into range, as world-simulation defines.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityLight
+    {
+        public ulong cookie_texture;
+        public uint enabled;
+        public uint kind;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public float intensity;
+        public float range;
+        public float spot_angle;
+        public float inner_spot_angle;
+        public uint shadows;
+        public float shadow_strength;
+        public float shadow_bias;
+        public float shadow_normal_bias;
+        public float shadow_near_plane;
+        public uint culling_mask;
+        public uint rendering_layer_mask;
+        public float bounce_intensity;
+        public float color_temperature;
+        public uint use_color_temperature;
+        public float cookie_size;
+        public uint lightmap_bake_type;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -107,6 +107,13 @@ impl PreparedScene {
         device: &wgpu::Device,
         pipelines: &super::ScenePipelines,
     ) -> Result<(), DrawError> {
+        if let Some(policy) = self
+            .scene
+            .terrain()
+            .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
+        {
+            crate::terrain::pages::residency::validate_layers(&device.limits(), policy.slots(), 3)?;
+        }
         // Six material maps, one shadow array and three screen-space inputs.
         if device.limits().max_sampled_textures_per_shader_stage < 10 {
             return Err(crate::frame::FrameError::UnsupportedEffect(
@@ -119,6 +126,11 @@ impl PreparedScene {
             .as_ref()
             .and_then(|terrain| terrain.layered.as_ref())
         {
+            source
+                .allocations()
+                .validate_array_layers::<worldrunner_render_gpu::configuration::DriverAllocationError>(
+                    &device.limits(),
+                )?;
             source.validate_device(device)?;
             if pipelines.layered.is_none() {
                 return Err(DrawError::LayeredLimit);

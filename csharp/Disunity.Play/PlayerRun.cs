@@ -11,9 +11,10 @@ namespace Disunity.Play;
 /// the bridge's load context, its startup hooks run in Unity's phase order around the first
 /// scene, and the scene loads from its plan. A player request is
 /// <c>{"player": data directory, "plan": path, "resources": path, "identity": {...},
-/// "persistent": directory, "first_texture": 1, "quality": {"names": [...], "current": 0}}</c>,
-/// with the scene and resource plans, the player identity and its quality levels (when it
-/// defines any) <c>unity-import</c> writes. Each step writes a line
+/// "persistent": directory, "arguments": [the player's command line after its executable path],
+/// "first_texture": 1, "quality": {"names": [...], "current": 0}}</c>, with the scene and
+/// resource plans, the player identity and its quality levels (when it defines any)
+/// <c>unity-import</c> writes. Each step writes a line
 /// to standard error, so the first one that fails is the last line written.
 /// </summary>
 internal static class PlayerRun
@@ -24,7 +25,16 @@ internal static class PlayerRun
         var manifest = PlayerManifest.Read(data);
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
         new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies).Attach(context);
+        // Unity's Mono runtime loads a player into one domain, so a lookup by name, such as
+        // BinaryFormatter's or Type.GetType's from class-library code, finds the game's assemblies.
+        // Entering the player's context makes those lookups resolve there for the rest of the run.
+        context.EnterContextualReflection();
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
+        // A headless run has no window, so the screen is 1920 by 1080, the engine's choice.
+        DisunityHost.SetScreen(1920, 1080, 96f, 60f);
+        var commandLine = PlayerCommandLine.Build(request);
+        PlayerCommandLine.Install(commandLine);
+        Log($"command line: {string.Join(' ', commandLine)}");
         DisunityHost.ConfigurePlayer(Environment(data, request));
         ApplyQuality(request);
         DisunityHost.LoadResources(request.GetProperty("resources").GetString()!, Load);

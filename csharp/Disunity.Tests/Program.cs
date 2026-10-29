@@ -129,6 +129,8 @@ CheckImport("disunity_tilemap_read", u64, u64, AbiType("DisunityTilemap").MakePo
 CheckImport("disunity_tilemap_set_tile", u64, u64, u32, AbiType("DisunityTile").MakePointerType(), AbiType("DisunitySprite").MakePointerType());
 CheckImport("disunity_tilemap_set_tile_shape", u64, u64, u32, f32.MakePointerType(), u32.MakePointerType(), u32);
 CheckImport("disunity_tilemap_set_cells", u64, u64, AbiType("DisunityTileCell").MakePointerType(), u32);
+CheckImport("disunity_tilemap_lighting_write", u64, u64, u32);
+CheckImport("disunity_tilemap_lighting_read", u64, u64, u32.MakePointerType());
 CheckImport("disunity_canvas_read", u64, u64, AbiType("DisunityCanvas").MakePointerType());
 CheckImport("disunity_text_write", u64, u64, f32, bytes, u32);
 CheckImport("disunity_text_read", u64, u64, bytes, u32, u32.MakePointerType(), f32.MakePointerType());
@@ -169,6 +171,11 @@ CheckImport("disunity_sprite_register", AbiType("DisunitySprite").MakePointerTyp
 CheckImport("disunity_camera_create", u64, u64, u64.MakePointerType());
 CheckImport("disunity_camera_read", u64, u64, AbiType("DisunityCamera").MakePointerType());
 CheckImport("disunity_camera_write", u64, u64, AbiType("DisunityCamera").MakePointerType());
+CheckImport("disunity_light_create", u64, u64, u64.MakePointerType());
+CheckImport("disunity_light_read", u64, u64, AbiType("DisunityLight").MakePointerType());
+CheckImport("disunity_light_write", u64, u64, AbiType("DisunityLight").MakePointerType());
+CheckImport("disunity_camera_matrix_read", u64, u64, u32, f32.MakePointerType(), u32.MakePointerType());
+CheckImport("disunity_camera_matrix_write", u64, u64, u32, f32.MakePointerType());
 CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
 CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
 CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
@@ -224,8 +231,11 @@ PhysicsMaterialTests.Run();
 UiTests.Run();
 SpriteTests.Run();
 SpriteAtlasTests.Run();
+PlayerSpriteTests.Run();
 
 EnabledTests.Run();
+PlayerServiceTests.Run();
+PlayerCommandLineTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();
@@ -251,6 +261,9 @@ EnvironmentTests.Run();
 
 NativeArrayTests.Run();
 NativeMemoryTests.Run();
+GraphicsBufferTests.Run();
+BatchRendererGroupTests.Run();
+BatchCullingTests.Run();
 JobTests.Run();
 CustomYieldTests.Run();
 RenderingLayerMaskTests.Run();
@@ -259,6 +272,10 @@ CurveEditingTests.Run();
 GradientTests.Run();
 UnityAttributeTests.Run();
 
+AssetBundleTests.Run();
+WebRequestTests.Run();
+JsonUtilityTests.Run();
+CommandBufferTests.Run();
 ObjectModelTests.Run();
 TransformMemberTests.Run();
 GameObjectMemberTests.Run();
@@ -274,6 +291,12 @@ Physics3DComponentTests.Run();
 Physics3DQueryTests.Run();
 AnimationTests.Run();
 ScriptExceptionTests.Run();
+CameraProjectionTests.Run();
+CameraSceneTests.Run();
+PlayerCameraPlanTests.Run();
+LightTests.Run();
+CommandBufferAttachmentTests.Run();
+ScreenTests.Run();
 QualitySettingsTests.Run();
 CursorTests.Run();
 ColorUtilityTests.Run();

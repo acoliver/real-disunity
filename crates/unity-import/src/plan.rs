@@ -31,7 +31,7 @@ use serde::Serialize;
 
 use crate::{
     components::{
-        Camera, CanvasScaler, ColliderShape, ComponentError, Light2D, PhysicsMaterial,
+        Camera, CanvasScaler, ColliderShape, ComponentError, Light2D, Light3D, PhysicsMaterial,
         RectTransform, RendererMaterial, Text, UrpCamera,
     },
     input::{InputAxis, input_axes},
@@ -160,6 +160,12 @@ pub enum PlanComponent {
         enabled: bool,
         #[serde(flatten)]
         camera: UrpCamera,
+    },
+    /// A 3D light of a player scene.
+    Light {
+        enabled: bool,
+        #[serde(flatten)]
+        light: Light3D,
     },
     /// A project script: `class` in the compiled game assembly, from `script`'s file. A
     /// player's script has no file; `class` is its full name in `assembly`.

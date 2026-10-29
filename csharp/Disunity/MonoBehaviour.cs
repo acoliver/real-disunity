@@ -3,7 +3,7 @@ namespace UnityEngine;
 /// <summary>Script methods are bound by name; native state owns message eligibility.</summary>
 public abstract class MonoBehaviour : Behaviour
 {
-    public override unsafe bool enabled
+    private protected override unsafe bool EnabledState
     {
         get
         {

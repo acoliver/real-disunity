@@ -23,9 +23,11 @@ have no surface.
 ## Selected adapter
 
 Set `adapter_callback: Some(AdapterCallback::new(...))` to observe an
-`AdapterIdentity` containing the selected adapter's name and `AdapterClass`.
+`AdapterIdentity` containing the selected adapter's name, `AdapterClass` and
+`backend: wgpu::Backend` (for example `Metal`, `Vulkan`, `Dx12` or `Gl`).
 Classes map directly from wgpu's device type: `Integrated`, `Discrete`, `Virtual`,
 `Software` (CPU adapters), or `Other`. No classification is inferred from a name.
+The backend reports the selected graphics API independently of hardware class.
 `GpuContext::adapter_identity()` exposes the same identity in the scene renderer.
 
 The callback runs once per renderer startup, on the calling thread, before device

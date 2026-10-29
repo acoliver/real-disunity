@@ -47,17 +47,18 @@ pub fn extract_world(
         quads: vec![],
         textures: textures.textures.clone(),
     };
-    let mut camera_depth = None;
+    let selected = selected_camera(world, &snapshot.components)?;
+    let culling = selected.map(|(_, camera)| camera);
     for component in snapshot.components {
         if !world.active_in_hierarchy(component.object)? {
             continue;
         }
-        let basis = Mat4::from_cols_array(&[
-            1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
-        ]);
+        let basis = view_basis();
         let matrix = basis * world.presented_matrix(component.object)?;
         match component.desc {
-            ComponentDesc::Sprite(mut renderer) if renderer.enabled => {
+            ComponentDesc::Sprite(mut renderer)
+                if renderer.enabled && camera_admits(world, culling, component.object)? =>
+            {
                 renderer.color = lighting.color(&renderer);
                 if let Some(mut quad) =
                     extract_sprite(&renderer, world.presented_matrix(component.object)?)
@@ -67,11 +68,13 @@ pub fn extract_world(
                 }
             }
 
-            ComponentDesc::Tilemap(map) if map.enabled => {
-                append_tiles(&mut result.quads, &map, matrix);
+            ComponentDesc::Tilemap(map)
+                if map.enabled && camera_admits(world, culling, component.object)? =>
+            {
+                append_tiles(&mut result.quads, &map, matrix, &lighting);
             }
             ComponentDesc::Camera(camera)
-                if camera.enabled && camera_depth.is_none_or(|d| camera.depth > d) =>
+                if selected.is_some_and(|(object, _)| object == component.object) =>
             {
                 let state = camera_state(world, component.object, camera, matrix, basis, viewport)?;
                 result.camera = Some(resolve(&state).map_err(|_| {
@@ -79,7 +82,6 @@ pub fn extract_world(
                 })?);
                 result.camera_state = Some(state);
                 result.clear = camera.clear_color()?;
-                camera_depth = Some(camera.depth);
             }
             _ => {}
         }
@@ -89,21 +91,65 @@ pub fn extract_world(
         .sort_by_key(|q| (q.overlay, q.sorting_layer, q.sorting_order));
     Ok(result)
 }
-fn append_tiles(quads: &mut Vec<SpriteQuad>, map: &crate::tilemap::Tilemap, matrix: Mat4) {
+/// The basis change from the native world's axes to the view's.
+fn view_basis() -> Mat4 {
+    Mat4::from_cols_array(&[
+        1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
+    ])
+}
+/// The enabled camera on an active object with the highest depth; the first one wins a tie.
+pub(crate) fn selected_camera(
+    world: &World,
+    components: &[crate::world::ComponentSnapshot],
+) -> Result<Option<(crate::ObjectHandle, crate::presentation::Camera)>, WorldError> {
+    let mut selected: Option<(crate::ObjectHandle, crate::presentation::Camera)> = None;
+    for component in components {
+        let ComponentDesc::Camera(camera) = component.desc else {
+            continue;
+        };
+        if camera.enabled
+            && selected.is_none_or(|(_, best)| camera.depth > best.depth)
+            && world.active_in_hierarchy(component.object)?
+        {
+            selected = Some((component.object, camera));
+        }
+    }
+    Ok(selected)
+}
+/// Whether the selected camera's culling mask admits the object's layer; without a camera
+/// nothing is culled.
+pub(crate) fn camera_admits(
+    world: &World,
+    camera: Option<crate::presentation::Camera>,
+    object: crate::ObjectHandle,
+) -> Result<bool, WorldError> {
+    match camera {
+        Some(camera) => Ok(camera.sees_layer(world.object(object)?.layer)),
+        None => Ok(true),
+    }
+}
+fn append_tiles(
+    quads: &mut Vec<SpriteQuad>,
+    map: &crate::tilemap::Tilemap,
+    matrix: Mat4,
+    lighting: &super::lighting::GlobalLighting,
+) {
     for &cell in &map.cells {
         let tile = map.tile(cell);
         let Some(sprite) = tile.sprite else {
             continue;
         };
         let color = std::array::from_fn(|i| map.color[i] * tile.color[i]);
-        quads.push(quad(
+        let mut tile_quad = quad(
             sprite,
             matrix * map.tile_matrix(cell),
-            color,
+            lighting.tint(color, map.lighting, map.sorting_layer),
             false,
             false,
             [map.sorting_layer, map.sorting_order],
-        ));
+        );
+        tile_quad.lighting = map.lighting;
+        quads.push(tile_quad);
     }
 }
 fn camera_state(

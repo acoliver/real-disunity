@@ -37,7 +37,7 @@ A renderer is built with one frame profile. The **legacy profile** shades straig
 - **Exposure**: fixed, or adaptive from a luminance histogram with separate rates for brightening and darkening. Capture modes can fix the exposure or the time step so output is reproducible.
 - **Bloom**: a threshold with a soft knee, up to eight pyramid levels, using either a tent-filter pyramid or a separable Gaussian pyramid.
 - **Tone mapping**: Reinhard.
-- **FXAA**, which can be combined with MSAA. See [choosing antialiasing](#choosing-antialiasing).
+- **FXAA** and **SMAA 1x**, which can be combined with MSAA. See [choosing antialiasing](#choosing-antialiasing).
 - **Upscaling**: render at 50% to 100% of the output size and reconstruct with FSR 1 EASU or bilinear filtering, with optional RCAS sharpening.
 - **SSAO**: hemisphere or spiral sampling with a depth-aware filter. It darkens ambient light only.
 - **Screen-space reflections** on opaque surfaces and water, blended with the environment reflection by confidence and roughness.
@@ -46,16 +46,19 @@ Temporal antialiasing, vignette, filmic tone curves, color grading beyond exposu
 
 ### Choosing antialiasing
 
-One `AntiAliasing` value holds the choice: an `MsaaSamples` count (`X1`, `X2`, `X4` or `X8`) and a `PostResolve` (`None` or `Fxaa`). Pass it to `FrameRenderer::hdr_antialiased`.
+One `AntiAliasing` value holds the choice: an `MsaaSamples` count (`X1`, `X2`, `X4` or `X8`) and a `PostResolve` (`None`, `Fxaa` or `Smaa`). Pass it to `FrameRenderer::hdr_antialiased`.
 
 | Choice | Cost | What it smooths |
 | --- | --- | --- |
 | MSAA | Memory and fill rate grow with the count. | Geometry edges, using coverage samples. Shader aliasing and thin alpha-tested detail stay. |
 | FXAA | One full-screen pass after tone mapping. | Edges by contrast, including shader and texture aliasing, with some softening. |
+| SMAA 1x | Three full-screen passes after tone mapping, plus two small intermediate targets. | Edges by contrast, blended by the shape of the edge. Near-horizontal, near-vertical and diagonal lines come out cleaner and thin lines stay crisper than with FXAA. |
 
 MSAA 4x with no post resolve is the usual starting point. Add FXAA when the scene has specular or alpha-tested aliasing that coverage samples do not reach. 1x and 4x work on every adapter. 2x and 8x depend on the adapter and format: a count the adapter cannot render for `Rgba16Float` color and `Depth32Float` depth fails with `PostError::SampleCount` before any target is allocated. It is never reduced to a nearby count. Mesa lavapipe supports 1x, 4x and 8x and rejects 2x.
 
-If the scene effects already author FXAA, leave `resolve` at `None`; setting both is rejected. Future resolves such as SMAA, CMAA2 and TAA will be new `PostResolve` variants.
+Prefer SMAA over FXAA when the image is dominated by long high-contrast edges (UI-like geometry, wireframe, fences, power lines, text in the world) and the extra passes fit the frame budget. SMAA reads clean stair-step shapes, so it works best on the geometry edges that remain after MSAA, or with no MSAA at all. It does not smooth texture or shader aliasing inside a surface, and it leaves a perfectly straight axis-aligned edge alone because there is no stair step to resolve. FXAA is cheaper and touches more of the image, which suits noisy specular detail. Use `PostResolve::smaa(SmaaPreset::Medium)` as a starting point. `High` adds diagonal and corner handling and `Ultra` searches further and lowers the edge threshold. `SmaaSettings` exposes the threshold, search distances, corner rounding and luma or color edge detection for custom tuning.
+
+FXAA and SMAA are alternatives, because `resolve` holds one choice. If the scene effects already author FXAA, leave `resolve` at `None`; setting both is rejected. CMAA2 and TAA will be new `PostResolve` variants.
 
 Contracts: [frame executor](../dev-docs/rendering/frame-executor.md), [post filters](../dev-docs/rendering/post-filters.md), [ambient occlusion](../dev-docs/rendering/ambient-occlusion.md), [reflections](../dev-docs/rendering/reflections.md), and the [render-post README](../crates/render-post/README.md) for exposure, bloom and upscaling settings.
 

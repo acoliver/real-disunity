@@ -113,7 +113,10 @@ antialiasing. `MsaaSamples` has the variants `X1`, `X2`, `X4` and `X8`;
 `PostError::SampleCount`. `AntiAliasing::frame_config` builds the `FrameConfig`
 for the scene attachments, and `PostResolve` goes into `HdrPostSettings::resolve`.
 `PostResolve` is `#[non_exhaustive]`: match it with a wildcard arm, because
-further resolves are added as variants.
+further resolves are added as variants. Its variants are `None`, `Fxaa` and `Smaa`
+(see [SMAA 1x](#smaa-1x)); one resolve is selected, never two. Prefer SMAA when long
+high-contrast geometry edges dominate and three passes fit the budget, and FXAA as the
+cheaper single pass for noisy specular detail.
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -122,6 +125,80 @@ checks the adapter's reported sample counts and resolve support for the color an
 depth formats. Run `validate_adapter` before creating a chain with 2 or 8 samples;
 wgpu otherwise reports an unsupported count as a device validation error. An
 unsupported count is always an error and is never reduced.
+
+### SMAA 1x
+
+`PostResolve::Smaa(SmaaSettings)` selects SMAA 1x instead of FXAA; `HdrPostSettings::resolve`
+holds one resolve, so the two cannot run together. `PostResolve::smaa(SmaaPreset::High)`
+builds a preset. `SmaaSettings::LOW`, `MEDIUM`, `HIGH` and `ULTRA` equal the reference
+`SMAA_PRESET_*` values:
+
+| Preset | `threshold` | `max_search_steps` | `max_search_steps_diag` | `corner_rounding` |
+| --- | --- | --- | --- | --- |
+| Low | 0.15 | 4 | off | off |
+| Medium | 0.1 | 8 | off | off |
+| High | 0.1 | 16 | 8 | 25 |
+| Ultra | 0.05 | 32 | 16 | 25 |
+
+Custom values are validated: `threshold` is above 0 and at most 0.5, `max_search_steps`
+is 0 through 112, `max_search_steps_diag` is `None` or 0 through 20, and `corner_rounding`
+is `None` or 0 through 100. `None` skips diagonal or corner handling, as the reference does
+for Low and Medium. `SmaaEdgeDetection::Luma` (default) compares Rec. 709 luma and
+`SmaaEdgeDetection::Color` compares the largest channel difference.
+
+The stage runs where FXAA runs, on the display-referred image at the render extent after tone
+mapping and before any upscale. It schedules `smaa_edges` (Rg8Unorm), `smaa_weights`
+(Rgba8Unorm) and `smaa_blend` as separate stage identities, each with its own timing slot.
+The two intermediate targets and the lookup buffers belong to the `StageSet`, so resize and
+reconfiguration rebuild them with the rest of the schedule. Edge decisions use sRGB-encoded
+values because the reference thresholds assume gamma-space input; the blend itself reads and
+writes linear color. All four channels are blended, so alpha follows the same weights as
+color and stays within the range of the pixels it mixes. A constant image is unchanged.
+
+The area (160x560 RG8) and search (64x16 R8) lookup tables are generated at run time by
+`src/smaa_lut.rs`, a Rust port of the reference `AreaTex.py` and `SearchTex.py`, and bound as
+storage buffers (the stage builder has no queue for texture uploads). The orthogonal half of the
+area table is cached for the process; the diagonal half is generated only when
+`max_search_steps_diag` is set. Tests compare the output with 64-bit digests of the reference
+`AreaTex.h` and `SearchTex.h`, so the bytes are identical to the published tables. The digests were computed from the published headers when the generator was ported; the headers themselves are not committed.
+
+SMAA reads clean stair-step shapes. A straight axis-aligned edge is already sharp and is left
+unchanged; blending happens at steps, diagonals, corners and line ends. A one-pixel line is
+softened at its ends and kept along its length. Compared with FXAA it preserves thin geometry
+better and does not blur texture detail, but it does not smooth shader or texture aliasing.
+Choose it when geometry edges dominate and the three passes fit the budget. Choose FXAA for a
+single cheap pass over noisy specular detail.
+
+Differences from the reference shader: area lookups use explicit bilinear arithmetic, and
+predication, reprojection and subsample indexing (SMAA S2x, T2x, 4x) are not implemented.
+Edge detection reads the color input with point loads and neighborhood blending uses one
+hardware bilinear fetch per side, as the reference does.
+
+The display-referred image between tone mapping and SMAA is `Rgba16Float`. Values in 0..1
+have an 11-bit mantissa at half precision, finer than the 8-bit output, and the format is
+filterable, which the bilinear blend fetch needs. FXAA keeps its `Rgba32Float` intermediate
+and its flat-region precision contract. `PostResolve::display_format` is the one place that
+chooses the format. A resolve followed by an upscale still writes `Rgba32Float` between the
+resolve and the upscale.
+
+Measured with the ignored probe `chain::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV, Mesa 26.0.8) at 1920x1080, median of 5 timestamp-query samples per
+stage, on a synthetic frame of diagonal edges. The first column is the `Rgba32Float`
+intermediate with two point-loaded texels in the blend, the second the `Rgba16Float`
+intermediate with bilinear blending:
+
+| Stage (ms) | SMAA high before | SMAA high after |
+| --- | --- | --- |
+| tone | 2.168 | 1.152 |
+| `smaa_edges` | 0.892 | 0.547 |
+| `smaa_weights` | 1.223 | 1.184 |
+| `smaa_blend` | 1.210 | 0.571 |
+| total | 5.493 | 3.454 |
+
+The other presets moved the same way (total, before to after): low 4.989 to 2.953, medium
+4.951 to 3.124, ultra 5.674 to 3.259. FXAA measured 3.387 before and 3.102 after with no code
+change, and no AA measured 0.366 and 0.408, which bounds the run-to-run noise at about 0.3 ms.
+The weights pass reads only `Rg8Unorm` edges and is unchanged.
 
 ## Reduced internal resolution
 
@@ -160,6 +237,14 @@ presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
 Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
 Licensed under the MIT License. The full copyright, permission and warranty
 notice is preserved in the shader file.
+
+`src/smaa.wgsl` ports SMAA 1x from
+[SMAA.hlsl](https://github.com/iryoku/smaa/blob/master/SMAA.hlsl), and `src/smaa_lut.rs` ports
+the lookup-texture generators `Scripts/AreaTex.py` and `Scripts/SearchTex.py` from the same
+repository. Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando
+Navarro and Diego Gutierrez. Licensed under the MIT License. The full copyright, permission
+and warranty notice is preserved in both files. The port was written from the reference
+source. No code was copied from Bevy's WGSL port.
 
 ### Numerical checks and informational timing
 

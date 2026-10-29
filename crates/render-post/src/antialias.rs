@@ -1,5 +1,5 @@
 //! One typed antialiasing choice: a multisample count plus a post resolve.
-use crate::{FrameConfig, FxaaQuality, PostError};
+use crate::{FrameConfig, FxaaQuality, PostError, SmaaPreset, SmaaSettings};
 
 /// Multisample count of the scene attachments.
 ///
@@ -51,6 +51,7 @@ pub struct FxaaSettings {
 
 /// Post-process antialiasing applied to the tone-mapped image.
 ///
+/// FXAA and SMAA are alternatives: one resolve runs after tone mapping.
 /// New resolves are added as variants, so match with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[non_exhaustive]
@@ -58,6 +59,8 @@ pub enum PostResolve {
     #[default]
     None,
     Fxaa(FxaaSettings),
+    /// Subpixel morphological antialiasing, three passes at the render extent.
+    Smaa(SmaaSettings),
 }
 impl PostResolve {
     /// FXAA with the default quality controls.
@@ -69,10 +72,15 @@ impl PostResolve {
         Self::Fxaa(FxaaSettings { strength, quality })
     }
 
+    /// SMAA 1x at one of the reference quality presets.
+    pub const fn smaa(preset: SmaaPreset) -> Self {
+        Self::Smaa(SmaaSettings::preset(preset))
+    }
+
     pub fn fxaa_strength(self) -> Option<f32> {
         match self {
             Self::Fxaa(fxaa) => Some(fxaa.strength),
-            Self::None => None,
+            _ => None,
         }
     }
 
@@ -87,6 +95,7 @@ impl PostResolve {
     pub fn validate(self) -> Result<(), PostError> {
         match self {
             Self::None => Ok(()),
+            Self::Smaa(smaa) => smaa.validate(),
             Self::Fxaa(fxaa) => {
                 fxaa.quality.validate()?;
                 if !fxaa.strength.is_finite() || !(0.0..=1.0).contains(&fxaa.strength) {
@@ -94,6 +103,27 @@ impl PostResolve {
                 }
                 Ok(())
             }
+        }
+    }
+
+    /// SMAA settings that schedule passes.
+    pub(crate) fn active_smaa(self) -> Option<SmaaSettings> {
+        match self {
+            Self::Smaa(smaa) => Some(smaa),
+            _ => None,
+        }
+    }
+
+    /// Format of the display-referred image between tone mapping and the resolve.
+    ///
+    /// FXAA keeps `Rgba32Float`, its flat-region precision contract. SMAA reads values in
+    /// 0..1 with an 11-bit mantissa, finer than the 8-bit output, and its filterable
+    /// `Rgba16Float` input halves the tone stage's store bandwidth and allows a hardware
+    /// bilinear fetch in neighborhood blending.
+    pub(crate) fn display_format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Smaa(_) => wgpu::TextureFormat::Rgba16Float,
+            _ => wgpu::TextureFormat::Rgba32Float,
         }
     }
 

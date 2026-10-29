@@ -2,12 +2,109 @@ use super::gpu_math_tests::evaluate_source;
 use crate::device::GpuContext;
 use glam::{Quat, Vec3};
 
+#[test]
+fn default_normal_frame_preserves_projection_float_bytes() {
+    let context = context();
+    for rotation in [
+        Quat::IDENTITY,
+        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Quat::from_rotation_y(0.4),
+    ] {
+        for geometric in [Vec3::Z, Vec3::new(-0.5, 0.0, 1.0).normalize()] {
+            let expression = frame_expression(rotation, geometric, false);
+            let current = evaluate(&context, &expression);
+            let stock = evaluate(
+                &context,
+                &expression.replace("frame_test_normal", "frame_stock_normal"),
+            );
+            assert_eq!(
+                current.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                stock.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
+#[test]
+fn normal_correction_frames_match_rotated_plane_and_slope_oracles() {
+    let context = context();
+    for rotation in [
+        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Quat::from_rotation_z(0.7) * Quat::from_rotation_y(0.4),
+    ] {
+        for geometric in [Vec3::Z, Vec3::new(-0.5, 0.0, 1.0).normalize()] {
+            for world in [false, true] {
+                let local = rotation.conjugate() * geometric;
+                let detail = Vec3::new(0.6, 0.0, 0.8);
+                let expected = if world {
+                    Quat::from_rotation_arc(Vec3::Z, geometric) * detail
+                } else {
+                    rotation * (Quat::from_rotation_arc(Vec3::Z, local) * detail)
+                };
+                let result = evaluate(&context, &frame_expression(rotation, geometric, world));
+                assert!(
+                    Vec3::from_slice(&result).abs_diff_eq(expected, 0.000_002),
+                    "world={world}, rotation={rotation:?}, geometric={geometric:?}: {result:?} != {expected:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn receiver_world_uses_reference_rotation_until_the_exact_south_pole() {
+    let context = context();
+    for z in [-0.999_998_1_f32, -0.999_999_5, -1.0] {
+        let x = ((1.0 + z) * (1.0 - z)).sqrt();
+        let geometric = Vec3::new(x, 0.0, z);
+        let angle = f64::from(x).atan2(f64::from(z));
+        let (sin, cos) = angle.sin_cos();
+        let reference = glam::DVec3::new(cos * 0.6 + sin * 0.8, 0.0, -sin * 0.6 + cos * 0.8);
+        let half_turn = glam::DVec3::new(0.6, 0.0, -0.8);
+        for world in [false, true] {
+            let expected = if z.to_bits() == (-1.0_f32).to_bits() || (!world && z < -0.999_999) {
+                half_turn
+            } else {
+                reference
+            };
+            let result = evaluate(
+                &context,
+                &frame_expression(Quat::IDENTITY, geometric, world),
+            );
+            assert!(
+                Vec3::from_slice(&result)
+                    .as_dvec3()
+                    .abs_diff_eq(expected, 0.000_002),
+                "world={world}, geometric={geometric:?}: {result:?} != {expected:?}"
+            );
+        }
+    }
+}
+
+fn frame_expression(rotation: Quat, geometric: Vec3, world: bool) -> String {
+    let inverse =
+        glam::Mat4::from_scale_rotation_translation(Vec3::new(2.0, 3.0, 4.0), rotation, Vec3::ZERO)
+            .inverse()
+            .to_cols_array();
+    let columns = inverse
+        .chunks_exact(4)
+        .map(|v| format!("vec4<f32>({},{},{},{})", v[0], v[1], v[2], v[3]))
+        .collect::<Vec<_>>()
+        .join(",");
+    let flags = if world { 524_288 } else { 0 };
+    format!(
+        "vec4<f32>(frame_test_normal(SceneDecalVolume(mat4x4<f32>({columns}),vec4<f32>(0.0),vec4<f32>(0.0),vec4<u32>(0u,0u,2u,{flags}u),vec4<f32>(0.0),vec4<f32>(0.0),vec4<f32>(1.0)),vec3<f32>({},{},{})),1.0)",
+        geometric.x, geometric.y, geometric.z,
+    )
+}
+
 fn context() -> GpuContext {
     pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap()
 }
 fn evaluate(context: &GpuContext, expression: &str) -> Vec<f32> {
     let entry = format!(
-        "@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;\n@compute @workgroup_size(1) fn evaluate_math() {{ result[0] = {expression}; }}"
+        "fn frame_test_normal(decal: SceneDecalVolume, geometric: vec3<f32>) -> vec3<f32> {{ return scene_decal_correct_normal(decal, geometric, vec2<f32>(0.5,0.8)); }}
+fn frame_stock_normal(decal: SceneDecalVolume, geometric: vec3<f32>) -> vec3<f32> {{ let basis = scene_decal_basis(decal); return basis * scene_decal_correct(transpose(basis) * geometric, scene_decal_decode(vec2<f32>(0.5,0.8))); }}\n@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;\n@compute @workgroup_size(1) fn evaluate_math() {{ result[0] = {expression}; }}"
     );
     evaluate_source(context, super::ENVIRONMENT_WGSL, &entry, None, None)
 }
@@ -53,7 +150,7 @@ fn normal_basis_follows_rotated_nonuniform_hulls_for_every_projection_axis() {
         let result = evaluate(
             &context,
             &format!(
-                "vec4<f32>(scene_decal_basis(SceneDecalVolume(mat4x4<f32>(vec4<f32>(0.0,-0.333333333,0.0,0.0),vec4<f32>(0.5,0.0,0.0,0.0),vec4<f32>(0.0,0.0,0.25,0.0),vec4<f32>(0.0,0.0,0.0,1.0)),vec4<f32>(0.0),vec4<f32>(0.0),vec4<u32>(0u,0u,{axis}u,0u),vec4<f32>(0.0),vec4<f32>(0.0))) * vec3<f32>(0.6,0.0,0.8),1.0)"
+                "vec4<f32>(scene_decal_basis(SceneDecalVolume(mat4x4<f32>(vec4<f32>(0.0,-0.333333333,0.0,0.0),vec4<f32>(0.5,0.0,0.0,0.0),vec4<f32>(0.0,0.0,0.25,0.0),vec4<f32>(0.0,0.0,0.0,1.0)),vec4<f32>(0.0),vec4<f32>(0.0),vec4<u32>(0u,0u,{axis}u,0u),vec4<f32>(0.0),vec4<f32>(0.0),vec4<f32>(1.0))) * vec3<f32>(0.6,0.0,0.8),1.0)"
             ),
         );
         for (actual, expected) in result[..3].iter().zip(expected) {
@@ -127,4 +224,59 @@ fn uv_scale_offset_and_packed_surface_blend_match_independent_values() {
     for (actual, expected) in result.iter().zip([1.45, -0.8, 0.65, 0.25]) {
         assert!((actual - expected).abs() < 0.000_001);
     }
+}
+
+#[test]
+fn decal_color_matches_scalar_oracle_including_hdr_and_opacity_edges() {
+    let context = context();
+    for opacity in [0.0_f32, 0.4, 0.98, 1.0] {
+        let lower = (1.0 - opacity).max(0.0001);
+        let upper = (1.05 - opacity).min(1.0);
+        for alpha in [
+            0.0,
+            lower - 0.00001,
+            lower,
+            (lower + upper) * 0.5,
+            upper,
+            1.0,
+        ] {
+            for edge in [false, true] {
+                let result = evaluate(
+                    &context,
+                    &format!(
+                        "scene_decal_color(vec4<f32>(0.2,0.4,0.8,{alpha}), vec4<f32>(1.77,0.0,0.5,{opacity}), {edge})"
+                    ),
+                );
+                let expected_alpha = if edge && opacity == 0.0 {
+                    0.0
+                } else if edge {
+                    let t = ((alpha - lower) / (upper - lower)).clamp(0.0, 1.0);
+                    t * t * (3.0 - 2.0 * t)
+                } else {
+                    alpha * opacity
+                };
+                for (actual, expected) in result.iter().zip([0.354, 0.0, 0.4, expected_alpha]) {
+                    assert!(
+                        (actual - expected).abs() < 0.000_01,
+                        "{result:?} expected {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn default_decal_color_preserves_sample_bits() {
+    let context = context();
+    let sample = "vec4<f32>(0.1234567,1.77,0.0,0.3333333)";
+    let original = evaluate(&context, sample);
+    let modified = evaluate(
+        &context,
+        &format!("scene_decal_color({sample}, vec4<f32>(1.0), false)"),
+    );
+    assert_eq!(
+        original.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+        modified.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+    );
 }

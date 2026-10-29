@@ -5,17 +5,25 @@ use worldrunner_render_post::{AttachmentView, ResourceRef};
 #[test]
 fn celestial_visibility_composites_corresponding_msaa_samples() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
+    for samples in crate::msaa_tests::supported_samples(&context) {
+        if samples > 1 {
+            assert_celestial_composites_samples(&context, samples);
+        }
+    }
+}
+
+fn assert_celestial_composites_samples(context: &GpuContext, samples: u32) {
     let device = context.device();
     let source = scene(0, false, false);
     let pipelines =
-        ScenePipelines::with_samples(device, wgpu::TextureFormat::Rgba16Float, 4).unwrap();
+        ScenePipelines::with_samples(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
     let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
-    let color = multisampled_target(device, wgpu::TextureFormat::Rgba16Float);
-    let depth = multisampled_target(device, wgpu::TextureFormat::Depth32Float);
+    let color = multisampled_target(device, wgpu::TextureFormat::Rgba16Float, samples);
+    let depth = multisampled_target(device, wgpu::TextureFormat::Depth32Float, samples);
     let color = AttachmentView::new(ResourceRef::new("msaa color"), &color).unwrap();
     let depth = AttachmentView::new(ResourceRef::new("msaa depth"), &depth).unwrap();
     let frame = FrameUniform::new(&view(), source.effects()).unwrap();
-    let image = capture(&context, |encoder, resolved, _| {
+    let image = capture(context, |encoder, resolved, _| {
         let mut renderer = crate::compositor::FrameRenderer::new(device);
         crate::compositor::encode_scene(
             &mut renderer,
@@ -94,21 +102,29 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
 
 #[test]
 fn allocation_plan_includes_visibility_only_when_meshes_are_present() {
-    let mut sky = atmosphere(0);
-    let required = |sky: &worldrunner_render_plan::SceneAtmosphere| {
-        super::allocations(sky, [9, 3], 4)
+    let sky = atmosphere(0);
+    let required = |sky: &worldrunner_render_plan::SceneAtmosphere, samples| {
+        super::allocations(sky, [9, 3], samples)
             .validate(&wgpu::Limits::default())
             .unwrap()
     };
-    let with_meshes = required(&sky);
-    sky.meshes.clear();
-    assert_eq!(
-        with_meshes - required(&sky),
-        9 * 3 * 4 * 12 + crate::geometry::INSTANCE_STRIDE
-    );
+    for samples in crate::msaa_tests::all_counts() {
+        let with_meshes = required(&sky, samples);
+        let mut bare = sky.clone();
+        bare.meshes.clear();
+        assert_eq!(
+            with_meshes - required(&bare, samples),
+            u64::from(9 * 3 * samples * 12) + crate::geometry::INSTANCE_STRIDE,
+            "{samples}x"
+        );
+    }
 }
 
-fn multisampled_target(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::Texture {
+fn multisampled_target(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    samples: u32,
+) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("multisampled celestial acceptance"),
         size: wgpu::Extent3d {
@@ -117,7 +133,7 @@ fn multisampled_target(device: &wgpu::Device, format: wgpu::TextureFormat) -> wg
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 4,
+        sample_count: samples,
         dimension: wgpu::TextureDimension::D2,
         format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,

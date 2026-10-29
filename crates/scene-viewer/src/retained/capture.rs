@@ -158,10 +158,10 @@ impl Captures {
     }
 }
 
-pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) -> [bool; 4] {
+pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) -> [bool; 5] {
     let ao = effects.is_some_and(|e| e.ssao().is_some());
     let ssr = effects.and_then(|e| e.ssr()).is_some_and(|s| s.enabled);
-    [ao || ssr, ao || ssr, ao || ssr, ssr]
+    [ao || ssr, ao || ssr, ao || ssr, ssr, ssr]
 }
 
 impl RetainedHost {
@@ -202,6 +202,7 @@ impl RetainedHost {
             CaptureOutput::Normals,
             CaptureOutput::AmbientOcclusion,
             CaptureOutput::SsrConfidence,
+            CaptureOutput::Specular,
         ]
         .into_iter()
         .enumerate()

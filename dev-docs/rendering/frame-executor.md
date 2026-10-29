@@ -69,6 +69,16 @@ cargo run -p worldrunner --features scene --example frame-feature
 
 Declare every pass and sampled resource before preparation. Build pipelines through `BuildContext`; use `PrepareContext::resource` for checked snapshot views. Stage uploads during `prepare` and publish resident state only in `commit`. The executor opens passes and owns attachments. Features receive no queue and cannot submit or change attachments. Snapshot consumers require the HDR profile. External features must provide matching metadata passes to participate as SSR receivers.
 
+## Temporal state
+
+`FrameRenderer` owns the previous-frame camera used for temporal antialiasing, beside the
+exposure history. `prepare_uniform` reads it; the write is staged on the frame's encoder
+by `encode_frame` and applies when the transaction is submitted, so a cancelled or failed
+preparation leaves the previous camera and the jitter sequence position unchanged. A reset
+(first frame, `reset_temporal_history`, resize, reconfigure, a changed jitter setting) bumps
+an epoch, and a publication staged before the reset is ignored. With jitter off the frame
+carries no temporal data, nothing is staged and every byte is as before.
+
 ## Asynchronous pass timings
 
 Timing defaults to disabled. Before device creation, call `GpuContext::from_adapter_with_timing` with `TimingMode::Optional` or `Required`. Generic device hosts can instead put `TIMESTAMP_QUERY` in `DeviceRequirements::optional_features` or `required_features`. Required unsupported capability fails device validation. Optional unavailable capability remains usable but `configure_timing` reports `TimingSupport::Unsupported`; it never fabricates zero durations.

@@ -5,6 +5,7 @@ struct SceneDecalVolume {
     selection: vec4<u32>,
     reserved: vec4<f32>,
     uv_transform: vec4<f32>,
+    color_modifier: vec4<f32>,
 }
 struct SceneDecalList {
     count: vec4<u32>,
@@ -19,6 +20,18 @@ struct SceneDecalSurface {
     albedo: vec3<f32>,
     properties: vec2<f32>,
     normal: vec3<f32>,
+}
+fn scene_decal_color(sample: vec4<f32>, modifier: vec4<f32>, edge_mode: bool) -> vec4<f32> {
+    var alpha = sample.a * modifier.a;
+    if edge_mode {
+        // At zero opacity both smoothstep endpoints coincide at one.
+        alpha = 0.0;
+        if modifier.a > 0.0 {
+            let lower = 1.0 - modifier.a;
+            alpha = smoothstep(max(lower, 0.0001), min(lower + 0.05, 1.0), sample.a);
+        }
+    }
+    return vec4<f32>(sample.rgb * modifier.rgb, alpha);
 }
 fn scene_decal_angle(cosine: f32, linear: vec2<f32>, power: vec3<f32>) -> f32 {
     let angle = select(max(0.0, cosine), abs(cosine), power.z != 0.0);
@@ -43,8 +56,11 @@ fn scene_decal_blend_normal(receiver: vec3<f32>, decal: vec3<f32>, weight: f32) 
     return normalize(mix(receiver, decal, weight)) * magnitude;
 }
 fn scene_decal_correct(surface: vec3<f32>, detail: vec3<f32>) -> vec3<f32> {
-    // The south pole has no unique shortest rotation; choose a fixed half turn.
+    // Projection retains its near-pole fixed half turn.
     if surface.z < -0.999999 { return vec3<f32>(detail.x, -detail.y, -detail.z); }
+    return scene_decal_correct_basis(surface, detail);
+}
+fn scene_decal_correct_basis(surface: vec3<f32>, detail: vec3<f32>) -> vec3<f32> {
     let a = 1.0 / (1.0 + surface.z);
     let b = -surface.x * surface.y * a;
     let x = vec3<f32>(1.0 - surface.x * surface.x * a, b, -surface.x);
@@ -61,6 +77,17 @@ fn scene_decal_basis(decal: SceneDecalVolume) -> mat3x3<f32> {
     if decal.selection.z == 1u { return mat3x3<f32>(z, x, y); }
     return mat3x3<f32>(x, y, z);
 }
+fn scene_decal_correct_normal(decal: SceneDecalVolume, geometric: vec3<f32>, encoded: vec2<f32>) -> vec3<f32> {
+    if (decal.selection.w & 524288u) != 0u {
+        let detail = scene_decal_decode(encoded);
+        // Only the exact south pole is singular; choose a fixed X-axis half turn.
+        if geometric.z == -1.0 { return vec3<f32>(detail.x, -detail.y, -detail.z); }
+        return scene_decal_correct_basis(geometric, detail);
+    }
+    let basis = scene_decal_basis(decal);
+    let detail = scene_decal_correct(transpose(basis) * geometric, scene_decal_decode(encoded));
+    return basis * detail;
+}
 fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32,
     albedo: vec3<f32>, properties: vec2<f32>, normal: vec3<f32>) -> SceneDecalSurface {
     var result = SceneDecalSurface(albedo, properties, normal);
@@ -72,27 +99,37 @@ fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32
         let local = (decal.local_from_world * vec4<f32>(position, 1.0)).xyz;
         let edge = 0.5 - max(max(abs(local.x), abs(local.y)), abs(local.z));
         if edge < 0.0 { continue; }
-        var weight = scene_decal_angle(dot(geometric, decal.direction_edge.xyz), decal.surface_angle.zw, decal.reserved.yzw);
-        if weight == 0.0 { continue; }
+        let angle_fade = scene_decal_angle(dot(geometric, decal.direction_edge.xyz), decal.surface_angle.zw, decal.reserved.yzw);
+        var weight = 1.0;
+        if angle_fade == 0.0 { continue; }
         if decal.direction_edge.w > 0.0 { weight *= clamp(edge / decal.direction_edge.w, 0.0, 1.0); }
         let uv = (scene_decal_uv(local, decal.selection.z) + 0.5) * decal.uv_transform.xy + decal.uv_transform.zw;
         let dx = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dx, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
         let dy = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dy, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
-        let sample = textureSampleGrad(scene_decal_albedo, scene_decal_sampler, uv, i32(decal.selection.y), dx, dy);
-        weight *= sample.a * decal.reserved.x;
-        result.albedo = mix(result.albedo, sample.rgb, weight);
+        var sample = textureSampleGrad(scene_decal_albedo, scene_decal_sampler, uv, i32(decal.selection.y), dx, dy);
+        sample.a *= angle_fade;
+        if (decal.selection.x & 4194304u) != 0u {
+            let cutoff = f32((decal.selection.x >> 2u) & 1048575u) / 1000000.0;
+            if sample.a < cutoff { continue; }
+        }
+        let colored = scene_decal_color(sample, decal.color_modifier, (decal.selection.w & 1048576u) != 0u);
+        weight *= colored.a * decal.reserved.x;
+        if (decal.selection.w & 65536u) == 0u {
+            result.albedo = mix(result.albedo, colored.rgb, weight);
+        }
         var surface = decal.surface_angle.xy;
         let surface_layer = (decal.selection.w >> 8u) & 255u;
         if surface_layer != 0u {
             surface = textureSampleGrad(scene_decal_surface, scene_decal_sampler, uv, i32(surface_layer - 1u), dx, dy).rb;
         }
-        result.properties = mix(result.properties, surface, weight);
+        if (decal.selection.w & 262144u) == 0u {
+            result.properties = mix(result.properties, surface, weight);
+        }
         let normal_layer = decal.selection.w & 255u;
-        if normal_layer != 0u && weight > 0.0 {
+        if normal_layer != 0u && weight > 0.0 && (decal.selection.w & 131072u) == 0u {
             let encoded = textureSampleGrad(scene_decal_normal, scene_decal_sampler, uv, i32(normal_layer - 1u), dx, dy).rg;
-            let basis = scene_decal_basis(decal);
-            let detail = scene_decal_correct(transpose(basis) * geometric, scene_decal_decode(encoded));
-            result.normal = scene_decal_blend_normal(result.normal, basis * detail, weight);
+            let detail = scene_decal_correct_normal(decal, geometric, encoded);
+            result.normal = scene_decal_blend_normal(result.normal, detail, weight);
         }
     }
     return result;

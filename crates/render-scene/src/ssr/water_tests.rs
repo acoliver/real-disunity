@@ -1,7 +1,7 @@
 #[test]
 fn gpu_production_water_trace_and_resolve_share_registered_metadata() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = crate::compositor::FrameRenderer::hdr(
             &context,
             [65, 65],
@@ -217,9 +217,9 @@ fn draw_water_resolve(
     );
 }
 #[test]
-fn gpu_water_selection_and_replacement_are_exact_at_one_and_four_samples() {
+fn gpu_water_selection_and_replacement_are_exact_at_every_supported_sample_count() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for (confidence, expected) in [
             (0.0, [0.5, 0.375, 0.25, 1.0]),
             (0.5, [0.625, 0.5625, 0.46875, 1.0]),

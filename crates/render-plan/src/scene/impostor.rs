@@ -236,6 +236,22 @@ impl SceneImpostor {
 mod tests {
     use super::*;
     #[test]
+    fn fade_bands_accept_steps_and_reject_reversed_endpoints() {
+        for endpoint in [0, 7_000, u32::MAX] {
+            let band = SceneFadeBand::new(endpoint, endpoint).unwrap();
+            assert_eq!(band.millimeters(), [endpoint; 2]);
+            assert!(!band.terminal());
+            assert!(band.with_terminal_fade().terminal());
+            let atlas = SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false)
+                .unwrap()
+                .with_fade(band);
+            assert_eq!(atlas.fade(), Some(band));
+        }
+        assert!(SceneFadeBand::new(1, 0).is_err());
+        assert!(SceneFadeBand::new(u32::MAX, u32::MAX - 1).is_err());
+    }
+
+    #[test]
     fn layout_rejects_invalid_cells_and_border() {
         use SceneImpostorLayout::{AzimuthElevation as A, HemisphericalOctahedral as O};
         for (layout, frames, border) in [
@@ -256,9 +272,11 @@ mod tests {
     }
 }
 
-/// Object-centre distance fade-in. Below start the object is absent; at end it
-/// is fully covered. Widths below one metre retain a one-metre denominator,
-/// followed by full coverage above end. Distances are measured before wind.
+/// Object-centre distance fade-in, measured before wind. Positive-width bands
+/// are absent below start and fully covered at end. Widths below one metre
+/// retain a one-metre denominator, followed by full coverage above end.
+/// A zero-width fade-in is absent through the endpoint and fully covered above
+/// it; its terminal mirror is fully covered through the endpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneFadeBand {
     terminal: bool,
@@ -267,7 +285,7 @@ pub struct SceneFadeBand {
 }
 impl SceneFadeBand {
     pub fn new(start_millimeters: u32, end_millimeters: u32) -> Result<Self, SceneValidationError> {
-        if end_millimeters <= start_millimeters {
+        if end_millimeters < start_millimeters {
             return Err(SceneValidationError::ExtentNotPositive { part: "fade width" });
         }
         Ok(Self {
@@ -277,6 +295,7 @@ impl SceneFadeBand {
         })
     }
     /// Terminal coverage is one through start, then falls to zero at end.
+    /// A zero-width terminal band stays fully covered at the endpoint.
     #[must_use]
     pub const fn with_terminal_fade(mut self) -> Self {
         self.terminal = true;

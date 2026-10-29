@@ -170,9 +170,11 @@ impl Water {
         config: worldrunner_render_post::FrameConfig,
         settings: Vec<SceneWaterBody>,
     ) -> Result<Self, FrameError> {
-        if config.format != wgpu::TextureFormat::Rgba16Float || !matches!(config.samples, 1 | 4) {
+        if config.format != wgpu::TextureFormat::Rgba16Float
+            || !matches!(config.samples, 1 | 2 | 4 | 8)
+        {
             return Err(FrameError::WaterSettings(
-                "water requires HDR at one or four samples",
+                "water requires HDR at 1, 2, 4 or 8 samples",
             ));
         }
         let geometry = settings

@@ -33,6 +33,27 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
 
+## Projected decal channels and opacity
+
+`SceneDecal::color_modifier` supplies nonnegative linear RGB scales and opacity
+in millionths. RGB may exceed one; opacity must lie in `0..=1_000_000`.
+The default is unit RGB, full opacity and `SceneDecalAlphaMode::Multiply`.
+Texture alpha is multiplied by angle fade before the optional alpha test.
+Values below the cutoff are rejected; equality passes. `Multiply` then scales
+that faded alpha by opacity. `OpacityEdge` instead applies smoothstep between
+`max(1 - opacity, 0.0001)` and `min(1.05 - opacity, 1)`, with zero opacity
+producing zero weight. Box edge fade and material alpha scale the resulting weight.
+
+The write mask gates albedo, normal and roughness/metalness independently.
+RGB scales affect only written albedo; all written channels share the same
+weight. Unwritten channels retain the receiver values. `ReceiverWorld` normal
+correction operates in world space independently of these controls.
+
+The uniform has a 16-byte header and 160-byte volumes. In `selection.x`, bits
+0..1 select receivers, 2..21 hold the alpha cutoff and 22 enables its test.
+In `selection.w`, bits 0..7 and 8..15 hold normal and surface layers, 16..18
+hold the inverted write mask, 19 selects `ReceiverWorld` and 20 selects `OpacityEdge`.
+
 ## Editing resident placements
 
 `SceneGpu::upload` initializes the same instance table used by later edits.
@@ -198,6 +219,34 @@ rejected, including requests with zero weights. MSAA and FXAA may run together.
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
+
+## Temporal antialiasing (in progress)
+
+The temporal resolve arrives in a later change (issue 256). This change adds projection
+jitter and previous-frame view data, off by default and byte-identical when off.
+
+Select jitter with `AntiAliasing::with_jitter` on `FrameRenderer::hdr_antialiased`, or
+`FrameRenderer::set_projection_jitter` on an existing renderer. `prepare_uniform` then adds
+the sub-pixel offset of the next frame to `FrameUniform::view_projection`, the matrix the GPU
+rasterizes with, and fills `FrameUniform::temporal` with a `TemporalView`: the unjittered
+matrix, the previous submitted frame's unjittered matrix, both jitter offsets in pixels and
+whether the history is valid. `TemporalView::to_bytes` is a separate 160-byte block for the
+resolve. The 320-byte scene block keeps its layout, so with jitter on only its first sixty-four
+bytes change.
+
+Every pass that reads the scene block (forward, terrain, instanced and clutter, foliage,
+impostors, cards, sky, depth and normal prepass, SSAO, SSR, water and decals) sees the jittered
+matrix. Shadow casters draw with their own light matrices and carry no jitter, cascades are fitted
+from the unjittered `SceneView`, and CPU selection (culling, level of detail, streaming and decal
+choice) reads `FrameUniform::selection_view_projection`, which is unjittered.
+
+The previous camera advances only when the frame's transaction is submitted, like the exposure
+history. A cancelled or failed preparation changes nothing. The first frame, `reset_temporal_history`
+(call it on a camera cut), a resize, a reconfigure, and a change of jitter settings each discard
+the previous camera and restart the sequence; a frame prepared before a reset cannot republish
+after it.
+
+Jitter alone makes the image shimmer. Enable it only with the resolve, or in tests.
 
 ## Cascade refresh scheduling
 

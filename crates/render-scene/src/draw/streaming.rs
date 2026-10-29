@@ -55,7 +55,7 @@ impl Streaming {
         else {
             return Ok(false);
         };
-        if prepared.matrix != frame.view_projection || prepared.viewport != viewport {
+        if prepared.matrix != frame.selection_view_projection() || prepared.viewport != viewport {
             return Err(FrameError::StreamingSelectionConflict);
         }
         #[cfg(test)]
@@ -104,7 +104,7 @@ impl Streaming {
         let selection = select_with_retired(
             terrain,
             &current,
-            frame.view_projection,
+            frame.selection_view_projection(),
             viewport,
             retired_count,
         );
@@ -123,7 +123,7 @@ impl Streaming {
         }
         *self.drawing.borrow_mut() = Some(Prepared {
             owner,
-            matrix: frame.view_projection,
+            matrix: frame.selection_view_projection(),
             viewport,
             residents: residents.clone(),
             #[cfg(test)]
@@ -192,7 +192,7 @@ impl Streaming {
     ) -> TerrainGeometryRequest {
         TerrainGeometryRequest {
             identity: self.identity.clone(),
-            matrix: frame.view_projection,
+            matrix: frame.selection_view_projection(),
             viewport,
         }
     }

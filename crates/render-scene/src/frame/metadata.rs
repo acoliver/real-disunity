@@ -240,11 +240,12 @@ fn validate_representation(
         | MetadataMeaning::ReflectionFactorLinear
         | MetadataMeaning::AverageDepthNormalMeters => TextureFormat::Rgba16Float,
     };
-    if !matches!(sampling.samples(), 1 | 4) || format != expected {
+    if !matches!(sampling.samples(), 1 | 2 | 4 | 8) || format != expected {
         return Err(MetadataError);
     }
     if let MetadataSampling::ConservativeResolve(source_samples) = sampling
-        && (!matches!(source_samples, 1 | 4) || meaning != MetadataMeaning::ConservativeDepthMeters)
+        && (!matches!(source_samples, 1 | 2 | 4 | 8)
+            || meaning != MetadataMeaning::ConservativeDepthMeters)
     {
         return Err(MetadataError);
     }

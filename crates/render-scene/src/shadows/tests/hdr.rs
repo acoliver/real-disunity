@@ -1,6 +1,6 @@
 use super::*;
 use crate::compositor::FrameRenderer;
-use worldrunner_render_post::{FrameConfig, Readback, ToneMap};
+use worldrunner_render_post::{FrameConfig, MsaaSamples, Readback, ToneMap};
 
 fn hdr_capture(
     context: &GpuContext,
@@ -74,9 +74,9 @@ fn exposed(source: &RenderScene, exposure: u32) -> RenderScene {
 }
 
 #[test]
-fn hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_one_and_four_samples() {
+fn hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_every_supported_sample_count() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         for terrain in [false, true] {
             let mut source = scene(&[[0, 0, 1_000]], 600_000, None);
             if terrain {
@@ -108,7 +108,13 @@ fn hdr_profile_rejects_uninstalled_settings_before_gpu_execution() {
     let scope = context
         .device()
         .push_error_scope(wgpu::ErrorFilter::Validation);
-    for samples in [0, 2, 8, 3] {
+    // Counts that are never valid, plus every selectable count this adapter lacks.
+    let supported = crate::msaa_tests::supported_samples(&context);
+    let unsupported = MsaaSamples::ALL
+        .into_iter()
+        .map(MsaaSamples::count)
+        .filter(|count| !supported.contains(count));
+    for samples in [0, 3, 5, 16].into_iter().chain(unsupported) {
         assert!(
             matches!(FrameRenderer::hdr(&context, [8, 8], OffscreenTarget::COLOR_FORMAT, samples, ToneMap::Reinhard, None), Err(worldrunner_render_post::PostError::SampleCount(value)) if value == samples)
         );
@@ -170,7 +176,7 @@ fn fixed_exposure_mismatch_is_typed_before_preparation() {
 #[test]
 fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let base =
             super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
         let mut parts = fixture::effects_parts(600_000);
@@ -198,9 +204,9 @@ fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
 }
 
 #[test]
-fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_1x_and_4x() {
+fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_every_supported_sample_count() {
     let context = context();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let base =
             super::terrain::terrain_scene(&scene(&[[0, 0, 1000]], 600_000, None), false, false);
         let effects = base
@@ -273,7 +279,7 @@ fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
         effects: Some(effects),
     })
     .unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let (plain_hdr, plain) = hdr_capture(&context, &source, samples, 0.001);
         let (filtered_hdr, image) = hdr_capture(&context, &filtered, samples, 0.001);
         assert_eq!(plain_hdr, filtered_hdr, "post never changes scene radiance");

@@ -35,7 +35,7 @@ fn sky_shader_is_valid_and_exposure_is_owned_by_the_shared_frame() {
 #[test]
 fn sky_pipeline_compiles_for_hdr_and_msaa() {
     let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let scope = context
             .device()
             .push_error_scope(wgpu::ErrorFilter::Validation);

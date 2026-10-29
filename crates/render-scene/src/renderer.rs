@@ -115,7 +115,7 @@ impl ScenePipelines {
         samples: u32,
     ) -> Result<Self, worldrunner_render_post::PostError> {
         worldrunner_render_post::FrameConfig::new([1, 1], color_format, samples)
-            .validate(&device.limits())?;
+            .validate_device(device)?;
         Ok(Self::with_environment(
             device,
             (color_format, samples),
@@ -136,7 +136,7 @@ impl ScenePipelines {
             ));
         }
         worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
-            .validate(&device.limits())?;
+            .validate_device(device)?;
         let layout = crate::ssao::ambient_layout(device);
         Ok(Self::with_screen_space(
             device,

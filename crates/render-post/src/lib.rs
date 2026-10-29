@@ -63,9 +63,34 @@ pub use gaussian::{
 mod aces;
 mod display_grading;
 pub use display_grading::{ColorGrading, Vignette};
+mod antialias;
+#[cfg(test)]
+mod antialias_tests;
+mod cas;
+#[cfg(test)]
+mod cas_reference;
+mod cmaa2;
+mod cmaa2_gpu;
+#[cfg(test)]
+mod cmaa2_tests;
 mod fxaa;
+mod jitter;
+#[cfg(test)]
+mod jitter_tests;
 mod post_filters;
+mod smaa;
+mod smaa_gpu;
+mod smaa_lut;
+#[cfg(test)]
+mod smaa_lut_tests;
+#[cfg(test)]
+mod smaa_tests;
+pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
+pub use cas::CasSettings;
+pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
+pub use jitter::ProjectionJitter;
+pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 mod tone_map;
 mod upscale;
 pub use hdr_post::{

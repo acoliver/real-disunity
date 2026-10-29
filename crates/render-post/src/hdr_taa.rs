@@ -9,30 +9,32 @@ use wgpu::util::DeviceExt;
 
 use crate::{StageSet, TAA_UNIFORM_BYTES, TaaSettings, taa_gpu};
 
-/// The history texture of one render size.
+/// The colour and linear-depth history textures of one render size. They are created, replaced
+/// and released together, and both are reset by the CPU's `history_valid`.
 #[derive(Debug)]
 struct TaaHistory {
     size: [u32; 2],
     texture: wgpu::Texture,
+    depth: wgpu::Texture,
 }
 
 /// History shared by the stage sets of every slot. Cloning shares it.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SharedHistory(Rc<RefCell<Option<TaaHistory>>>);
 impl SharedHistory {
-    /// The history for `size`, created on first use and replaced when the size changes.
-    fn acquire(&self, device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
+    /// The colour and depth histories for `size`, created on first use and replaced when the
+    /// size changes.
+    fn acquire(&self, device: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::Texture) {
         let mut slot = self.0.borrow_mut();
         if slot.as_ref().is_none_or(|history| history.size != size) {
             *slot = Some(TaaHistory {
                 size,
                 texture: taa_gpu::history(device, size),
+                depth: taa_gpu::depth_history(device, size),
             });
         }
-        slot.as_ref()
-            .expect("history was just created")
-            .texture
-            .clone()
+        let history = slot.as_ref().expect("history was just created");
+        (history.texture.clone(), history.depth.clone())
     }
 
     /// Drops the history, for settings that no longer use TAA.
@@ -62,7 +64,7 @@ pub(crate) fn uniform_buffer(device: &wgpu::Device) -> wgpu::Buffer {
     })
 }
 
-/// Schedules "taa resolve" and "taa history" at the end of `set` and returns the resolved
+/// Schedules "taa resolve", "taa history" and "taa depth history" at the end of `set` and returns the resolved
 /// color. `set` owns the output; the shared history is also kept alive by it.
 pub(crate) fn append(
     device: &wgpu::Device,
@@ -71,8 +73,9 @@ pub(crate) fn append(
     (settings, history, uniform): (TaaSettings, &SharedHistory, &wgpu::Buffer),
 ) -> wgpu::TextureView {
     let config = targets.config();
-    let history_texture = history.acquire(device, config.size);
+    let (history_texture, depth_history) = history.acquire(device, config.size);
     let output = taa_gpu::output(device, config.size);
+    let depth_output = taa_gpu::depth_output(device, config.size);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
     taa_gpu::append(
         device,
@@ -86,11 +89,15 @@ pub(crate) fn append(
             uniform,
             history: &history_texture,
             output: &output,
+            depth_history: &depth_history,
+            depth_output: &depth_output,
         },
         settings,
     );
     set.resources.textures.push(output);
     set.resources.textures.push(history_texture);
+    set.resources.textures.push(depth_output);
+    set.resources.textures.push(depth_history);
     output_view
 }
 

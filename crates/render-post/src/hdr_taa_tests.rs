@@ -88,8 +88,13 @@ fn taa_stages_run_first_in_every_slot_before_metering() {
     assert_eq!(sets.len(), 3);
     for set in &sets {
         assert_eq!(
-            names(set)[..3],
-            ["taa resolve", "taa history", "clear luminance histogram"]
+            names(set)[..4],
+            [
+                "taa resolve",
+                "taa history",
+                "taa depth history",
+                "clear luminance histogram"
+            ]
         );
     }
 }
@@ -125,8 +130,10 @@ fn one_history_is_shared_by_all_slots_and_replaced_on_resize() {
     let factory = factory(&device, &settings(true, false));
     let first = slots(&factory, &device, &targets(&device, [8, 8], 1));
     let shared = shared_textures(&first);
-    assert_eq!(shared.len(), 1);
-    assert_eq!((shared[0].width(), shared[0].height()), (8, 8));
+    assert_eq!(shared.len(), 2, "colour and depth history");
+    assert_eq!(shared[0].format(), crate::taa_gpu::FORMAT);
+    assert_eq!(shared[1].format(), crate::taa_gpu::DEPTH_FORMAT);
+    assert!(shared.iter().all(|t| (t.width(), t.height()) == (8, 8)));
     let rebuilt = slots(&factory, &device, &targets(&device, [8, 8], 1));
     assert_eq!(
         shared_textures(&rebuilt),
@@ -135,9 +142,9 @@ fn one_history_is_shared_by_all_slots_and_replaced_on_resize() {
     );
     let resized = slots(&factory, &device, &targets(&device, [16, 4], 1));
     let replaced = shared_textures(&resized);
-    assert_eq!(replaced.len(), 1);
-    assert_eq!((replaced[0].width(), replaced[0].height()), (16, 4));
-    assert_ne!(replaced, shared);
+    assert_eq!(replaced.len(), 2);
+    assert!(replaced.iter().all(|t| (t.width(), t.height()) == (16, 4)));
+    assert!(replaced.iter().all(|t| !shared.contains(t)));
     assert_eq!(factory.taa_history_size(), Some([16, 4]));
 }
 
@@ -201,5 +208,23 @@ fn tone_mapping_reads_the_taa_output_not_the_raw_scene_color() {
         "{} {}",
         red(&taa, 3),
         red(&taa, 0)
+    );
+}
+
+#[test]
+fn rebinding_settings_without_taa_releases_both_histories() {
+    let (device, _) = crate::gpu_tests::gpu();
+    let with_taa = factory(&device, &settings(true, false));
+    let _sets = slots(&with_taa, &device, &targets(&device, [8, 8], 1));
+    assert_eq!(with_taa.taa_history_size(), Some([8, 8]));
+    let without = ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)
+        .unwrap()
+        .with_retained_effects(&device, settings(false, true), Some(&with_taa))
+        .unwrap();
+    assert_eq!(without.taa_history_size(), None);
+    assert_eq!(
+        with_taa.taa_history_size(),
+        None,
+        "the shared history is gone"
     );
 }

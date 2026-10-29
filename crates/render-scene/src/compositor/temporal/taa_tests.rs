@@ -102,6 +102,29 @@ fn a_camera_rotation_moves_a_known_point_to_its_previous_uv() {
 }
 
 #[test]
+fn a_perspective_camera_supplies_the_linear_depth_terms_of_its_clip_planes() {
+    let (near, far) = (0.1_f64, 100.0_f64);
+    let rotated = Mat4::from_rotation_y(0.7) * Mat4::from_translation(Vec3::new(3.0, -2.0, -1.0));
+    for camera in [projection() * rotated, projection()] {
+        let [a, b] = uniform(&view_of(camera, camera, true)).depth_terms;
+        assert!((a - far / (far - near)).abs() < 1e-5, "{a}");
+        assert!((b + near * far / (far - near)).abs() < 1e-4, "{b}");
+        // Linear depth of the far plane's device depth 1 is the far distance.
+        assert!((b / (1.0 - a) - far).abs() < 0.1, "{}", b / (1.0 - a));
+    }
+}
+
+#[test]
+fn an_orthographic_camera_disables_the_depth_terms() {
+    let ortho = glam::camera::rh::proj::directx::orthographic(-4.0, 4.0, -3.0, 3.0, 0.1, 100.0);
+    let camera = ortho * Mat4::from_rotation_y(0.4);
+    assert_eq!(
+        uniform(&view_of(camera, camera, true)).depth_terms,
+        [0.0; 2]
+    );
+}
+
+#[test]
 fn a_frame_without_valid_history_marks_the_block_invalid() {
     let camera = projection();
     let block = uniform(&view_of(camera, camera, false));

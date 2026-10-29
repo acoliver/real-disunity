@@ -6,6 +6,8 @@ use crate::fullscreen_pass_timed;
 pub enum StageTarget {
     Output,
     Texture(wgpu::TextureView),
+    /// Two colour attachments, locations 0 and 1, both cleared and stored.
+    Pair(wgpu::TextureView, wgpu::TextureView),
 }
 
 /// A linear authored sequence, not a render graph. Bind groups carry explicit caller layouts.
@@ -124,20 +126,26 @@ impl Stage {
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
         (pipeline, groups): (&wgpu::RenderPipeline, &[wgpu::BindGroup]),
-        view: &wgpu::TextureView,
+        views: &[&wgpu::TextureView],
     ) {
+        let attachments: Vec<_> = views
+            .iter()
+            .map(|view| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })
+            })
+            .collect();
         fullscreen_pass_timed(
             encoder,
             Some(self.label),
-            wgpu::RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            },
+            &attachments,
             pipeline,
             &groups.iter().collect::<Vec<_>>(),
             stamp,
@@ -189,14 +197,23 @@ impl Stage {
                 pipeline,
                 groups,
                 target,
-            } => self.fullscreen_pass(encoder, stamp, (pipeline, groups), view_of(target, output)),
+            } => self.fullscreen_pass(
+                encoder,
+                stamp,
+                (pipeline, groups),
+                &views_of(target, output),
+            ),
         }
     }
 }
 
-fn view_of<'a>(target: &'a StageTarget, output: &'a wgpu::TextureView) -> &'a wgpu::TextureView {
+fn views_of<'a>(
+    target: &'a StageTarget,
+    output: &'a wgpu::TextureView,
+) -> Vec<&'a wgpu::TextureView> {
     match target {
-        StageTarget::Output => output,
-        StageTarget::Texture(view) => view,
+        StageTarget::Output => vec![output],
+        StageTarget::Texture(view) => vec![view],
+        StageTarget::Pair(first, second) => vec![first, second],
     }
 }

@@ -25,6 +25,8 @@ fn view_of(current: Mat4, previous: Mat4, valid: bool) -> TemporalView {
         jitter_pixels: [0.25, -0.5],
         previous_jitter_pixels: [0.0, 0.0],
         history_valid: valid,
+        previous_animation_time_ms: 0,
+        previous_camera_position: Vec3::ZERO,
     }
 }
 

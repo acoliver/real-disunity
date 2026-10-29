@@ -55,9 +55,23 @@ fn jitter() -> ProjectionJitter {
     ProjectionJitter::default()
 }
 
+fn timed_frame(eye_x: i64, milliseconds: u32) -> FrameUniform {
+    let mut frame = frame(eye_x);
+    frame.animation_time_milliseconds = milliseconds;
+    frame
+}
+
 /// Prepares a frame, stages its history and submits the transaction.
 fn submit(context: &GpuContext, renderer: &FrameRenderer, eye_x: i64) -> FrameUniform {
-    let prepared = renderer.prepare_uniform(frame(eye_x)).unwrap();
+    submit_frame(context, renderer, &frame(eye_x))
+}
+
+fn submit_frame(
+    context: &GpuContext,
+    renderer: &FrameRenderer,
+    input: &FrameUniform,
+) -> FrameUniform {
+    let prepared = renderer.prepare_uniform(*input).unwrap();
     let transaction = context
         .submission()
         .prepare(context.device(), |encoder, _| {
@@ -467,4 +481,130 @@ fn clearing_jitter_is_allowed_without_taa() {
         assert_eq!(renderer.set_projection_jitter(None), Ok(()), "{resolve:?}");
         assert_eq!(renderer.projection_jitter(), None);
     }
+}
+
+#[test]
+fn the_first_frame_reports_its_own_clock_and_camera_as_previous() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let input = timed_frame(250, 4_000);
+    let first = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert_eq!(first.previous_animation_time_ms, 4_000);
+    assert_eq!(first.previous_camera_position, input.camera_position);
+}
+
+#[test]
+fn a_submitted_frame_publishes_its_clock_and_camera_for_the_next_frame() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let published = submit_frame(&context, &renderer, &timed_frame(250, 4_000));
+    let next_input = timed_frame(-900, 4_016);
+    let next = temporal(&renderer.prepare_uniform(next_input).unwrap());
+    assert!(next.history_valid);
+    assert_eq!(next.previous_animation_time_ms, 4_000);
+    assert_eq!(next.previous_camera_position, published.camera_position);
+    assert_ne!(next.previous_camera_position, next_input.camera_position);
+}
+
+#[test]
+fn a_cancelled_frame_does_not_publish_its_clock_or_camera() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let kept = submit_frame(&context, &renderer, &timed_frame(0, 1_000));
+    let prepared = renderer.prepare_uniform(timed_frame(900, 2_000)).unwrap();
+    context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.stage_temporal_history(encoder, &prepared)
+        })
+        .unwrap()
+        .cancel();
+    let next = temporal(&renderer.prepare_uniform(timed_frame(900, 3_000)).unwrap());
+    assert_eq!(next.previous_animation_time_ms, 1_000);
+    assert_eq!(next.previous_camera_position, kept.camera_position);
+}
+
+#[test]
+fn a_reset_discards_the_previous_clock_and_camera() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 1_000));
+    renderer.reset_temporal_history();
+    let input = timed_frame(700, 2_000);
+    let next = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert!(!next.history_valid);
+    assert_eq!(next.previous_animation_time_ms, 2_000);
+    assert_eq!(next.previous_camera_position, input.camera_position);
+}
+
+#[test]
+fn a_frame_prepared_before_a_reset_does_not_republish_its_clock() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let prepared = renderer.prepare_uniform(timed_frame(0, 1_000)).unwrap();
+    let transaction = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.stage_temporal_history(encoder, &prepared)
+        })
+        .unwrap();
+    renderer.reset_temporal_history();
+    transaction.submit().unwrap();
+    context.device().poll(wgpu::PollType::Poll).unwrap();
+    let input = timed_frame(0, 2_000);
+    let next = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert!(!next.history_valid);
+    assert_eq!(next.previous_animation_time_ms, 2_000);
+}
+
+#[test]
+fn a_clock_that_moves_backwards_discards_history_and_restarts_the_sequence() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 5_000));
+    submit_frame(&context, &renderer, &timed_frame(0, 5_016));
+    let input = timed_frame(300, 4_000);
+    let rewound = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert!(!rewound.history_valid);
+    assert_eq!(rewound.previous_animation_time_ms, 4_000);
+    assert_eq!(rewound.previous_camera_position, input.camera_position);
+    assert_offset(rewound.jitter_pixels, jitter().offset_pixels(0));
+    assert!(!renderer.has_temporal_history());
+}
+
+#[test]
+fn an_equal_clock_keeps_history() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 5_000));
+    let paused = temporal(&renderer.prepare_uniform(timed_frame(100, 5_000)).unwrap());
+    assert!(paused.history_valid);
+    assert_eq!(paused.previous_animation_time_ms, 5_000);
+}
+
+#[test]
+fn a_frame_prepared_before_a_rewind_does_not_republish_after_it() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 5_000));
+    let stale = renderer.prepare_uniform(timed_frame(0, 5_016)).unwrap();
+    let transaction = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.stage_temporal_history(encoder, &stale)
+        })
+        .unwrap();
+    let rewound = renderer.prepare_uniform(timed_frame(0, 100)).unwrap();
+    assert!(!temporal(&rewound).history_valid);
+    transaction.submit().unwrap();
+    context.device().poll(wgpu::PollType::Poll).unwrap();
+    assert!(!renderer.has_temporal_history());
 }

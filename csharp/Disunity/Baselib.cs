@@ -9,11 +9,12 @@ namespace Unity.Baselib.LowLevel;
 /// The data types of Unity's Baselib platform layer, which Unity Transport uses for sockets,
 /// timers and page memory. Unity declares them internal and packages reach them through
 /// <c>InternalsVisibleTo</c>; the engine declares them public so its module facade can
-/// forward them. The functions are not implemented yet: a game fails naming the first one it
-/// calls. The invalid handles are the engine's: a socket handle of -1, since 0 is a valid
+/// forward them. Page memory, timers and registered-buffer UDP sockets are implemented
+/// (BaselibMemory.cs, BaselibTimer.cs, BaselibNetwork.cs); any other function is missing, so a
+/// game fails naming the first one it calls. The invalid handles are the engine's: a socket handle of -1, since 0 is a valid
 /// descriptor, and zero for the others.
 /// </summary>
-public static unsafe class Binding
+public static unsafe partial class Binding
 {
     public static readonly UIntPtr Baselib_Memory_MaxAlignment = 65536;
     public static readonly UIntPtr Baselib_Memory_MinGuaranteedAlignment = 16;

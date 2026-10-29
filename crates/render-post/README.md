@@ -632,7 +632,9 @@ original tighter tolerance.
 `PostResolve::Taa(TaaSettings)` (`history_weight` 0.0 to 0.99, default 0.9; `clip_scale` 0.5 to 2.0,
 default 1.0) adds two stages, `taa resolve` and `taa history`, ahead of the luminance histogram, so
 exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` follows Karis 2014 (color box and
-compressed-luma clip); the current frame uses the nearest jittered sample, the box is the
+compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled
+frame is not jittered, so the sample is the MSAA pixel and a static 4x image equals MSAA alone,
+0.00046 against 0.00161 with jitter at 64x64; resampling the shifted frame gave 0.00153), the box is the
 3x3 min/max, the blend is linear and history is read with Catmull-Rom; `taa_reference.rs` is the f64 reference the GPU tests compare against.
 
 `taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or

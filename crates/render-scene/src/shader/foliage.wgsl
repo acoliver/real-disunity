@@ -81,7 +81,12 @@ fn scene_curved_position_policy(input: SceneBendInput, radial_force: vec3<f32>, 
 }
 
 fn scene_geometry_displacement(position: vec3<f32>, vertex_seed: f32, instance: InstanceInput) -> vec3<f32> {
-    let time = bitcast<u32>(frame.grading.z);
+    return scene_geometry_displacement_at(position, vertex_seed, instance, bitcast<u32>(frame.grading.z));
+}
+
+// The deformation is a pure function of the clock, so the previous frame's shape is this same
+// evaluation at the previous frame's clock.
+fn scene_geometry_displacement_at(position: vec3<f32>, vertex_seed: f32, instance: InstanceInput, time: u32) -> vec3<f32> {
     if material.foliage_axis_curve.w == 0.0 {
         return scene_wind_offset(material.wind_direction_amplitude, material.wind_clock.xy, time);
     }
@@ -122,4 +127,30 @@ fn scene_static_modifier(position: vec3<f32>, center_height: vec4<f32>, shape: v
     var direction = vec3<f32>(1.0,0.0,0.0);
     if distance >= 0.00001 { direction = delta/distance; }
     return direction * shape.z * smoothstep(0.0,1.0,1.0-(distance-shape.x)/(shape.y-shape.x));
+}
+
+// Written by the host for every frame. Pipelines that do not name it ignore it.
+// camera_time holds the previous camera position and, as raw u32 bits, the previous clock.
+struct PreviousFrame {
+    view_projection: mat4x4<f32>,
+    camera_time: vec4<f32>,
+}
+
+@group(0) @binding(6) var<uniform> previous_frame: PreviousFrame;
+
+// The deformed world position of an undeformed one at a given clock. Current and previous
+// positions both come from this one function so that equal clocks yield identical bits.
+fn scene_deformed_position_at(position: vec3<f32>, vertex_seed: f32, instance: InstanceInput, time: u32) -> vec3<f32> {
+    if material.wind_clock.x == 0u { return position; }
+    return position + scene_geometry_displacement_at(position, vertex_seed, instance, time);
+}
+
+// World-space motion of a deforming vertex since the previous frame, `previous - current`,
+// for a vertex whose undeformed world position is `position`. The instance transform is the
+// current one; per-instance previous transforms are not tracked yet.
+fn scene_wind_world_delta(position: vec3<f32>, vertex_seed: f32, instance: InstanceInput) -> vec3<f32> {
+    let now = bitcast<u32>(frame.grading.z);
+    let before = bitcast<u32>(previous_frame.camera_time.w);
+    return scene_deformed_position_at(position, vertex_seed, instance, before)
+        - scene_deformed_position_at(position, vertex_seed, instance, now);
 }

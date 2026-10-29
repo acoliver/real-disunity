@@ -88,7 +88,7 @@ fn radius(force: DVec3, extent: f64) -> f64 {
     extent / (2.0 * (force.length() / extent).atan())
 }
 
-fn reference(point: DVec3, force: DVec3, detail: f64, curve: f64) -> DVec3 {
+pub(super) fn reference(point: DVec3, force: DVec3, detail: f64, curve: f64) -> DVec3 {
     let height = point.z.min(2.0);
     let attachment = point - DVec3::Z * height;
     let weight = (height.abs() / 2.0).clamp(0.0, 1.0).powf(curve - 1.0);
@@ -117,7 +117,7 @@ pub(super) const ROUNDING_ERROR: f64 = 2e-6;
 // 3-Lipschitz in its sample, including the straight continuation at pi/2.
 // Keep the separate tight GPU-trig arc and rotation tests: cancellation at low
 // curvature makes this end-to-end portable bound larger than a gentle bend.
-fn reference_tolerance(point: DVec3, curve: f64) -> f64 {
+pub(super) fn reference_tolerance(point: DVec3, curve: f64) -> f64 {
     let height = point.z.min(2.0);
     if height == 0.0 {
         return ROUNDING_ERROR;

@@ -29,10 +29,14 @@
 //! so that chunks, instances and decals do not change from one frame to the next because of a
 //! sub-pixel offset.
 
+use super::FrameUniform;
 use glam::{Mat4, Vec3};
 
 /// Size in bytes of the block [`TemporalView::to_bytes`] encodes.
 pub const TEMPORAL_UNIFORM_BYTES: usize = 176;
+
+/// Size in bytes of the block [`FrameUniform::previous_frame_bytes`] encodes.
+pub const PREVIOUS_FRAME_BYTES: usize = 80;
 
 /// The camera of the frame being drawn and of the last frame that was published.
 ///
@@ -81,6 +85,43 @@ impl TemporalView {
         lanes.extend(self.previous_camera_position.to_array());
         lanes.push(f32::from_bits(self.previous_animation_time_ms));
         let mut bytes = [0u8; TEMPORAL_UNIFORM_BYTES];
+        for (chunk, lane) in bytes.chunks_exact_mut(4).zip(lanes) {
+            chunk.copy_from_slice(&lane.to_le_bytes());
+        }
+        bytes
+    }
+}
+
+impl FrameUniform {
+    /// Encodes the previous-frame block that scene shaders read at `@group(0) @binding(6)`.
+    ///
+    /// Bytes `0..64` are the previous unjittered clip-from-scene matrix, column-major. Bytes
+    /// `64..80` hold `vec4(previous_camera_position, previous_animation_time_ms)`, the last lane
+    /// being the raw `u32` bits (read it with `bitcast<u32>`), as in the scene block.
+    ///
+    /// Without a [`TemporalView`] the block carries this frame's own unjittered matrix, camera
+    /// and clock, so a shader that evaluates the previous frame sees no change.
+    #[must_use]
+    pub fn previous_frame_bytes(&self) -> [u8; PREVIOUS_FRAME_BYTES] {
+        let (matrix, camera, time) = self.temporal.map_or(
+            (
+                self.view_projection,
+                self.camera_position,
+                self.animation_time_milliseconds,
+            ),
+            |view| {
+                (
+                    view.previous_view_projection,
+                    view.previous_camera_position,
+                    view.previous_animation_time_ms,
+                )
+            },
+        );
+        let mut lanes = Vec::with_capacity(PREVIOUS_FRAME_BYTES / 4);
+        lanes.extend(matrix.to_cols_array());
+        lanes.extend(camera.to_array());
+        lanes.push(f32::from_bits(time));
+        let mut bytes = [0u8; PREVIOUS_FRAME_BYTES];
         for (chunk, lane) in bytes.chunks_exact_mut(4).zip(lanes) {
             chunk.copy_from_slice(&lane.to_le_bytes());
         }

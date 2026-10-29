@@ -1,5 +1,8 @@
-use super::{TEMPORAL_UNIFORM_BYTES, TemporalView};
+use super::{PREVIOUS_FRAME_BYTES, TEMPORAL_UNIFORM_BYTES, TemporalView};
+use crate::frame::FrameUniform;
+use crate::view::{CameraPose, SceneView, Viewport};
 use glam::{Mat4, Vec3};
+use worldrunner_render_plan::SceneCamera;
 
 fn lane(bytes: &[u8; TEMPORAL_UNIFORM_BYTES], index: usize) -> f32 {
     f32::from_le_bytes(bytes[index * 4..index * 4 + 4].try_into().unwrap())
@@ -59,4 +62,69 @@ fn a_frame_without_history_encodes_zero_validity() {
 fn the_block_is_one_hundred_seventy_six_bytes_of_sixteen_byte_aligned_lanes() {
     assert_eq!(TEMPORAL_UNIFORM_BYTES, 176);
     assert_eq!(TEMPORAL_UNIFORM_BYTES % 16, 0);
+}
+
+fn unlit_frame() -> FrameUniform {
+    let view = SceneView::new(
+        CameraPose {
+            eye_millimeters: [1_000, 2_000, 3_000],
+            target_millimeters: [1_000, 12_000, 3_000],
+        },
+        SceneCamera {
+            vertical_fov_millidegrees: 60_000,
+            near_plane_millimeters: 100,
+            far_plane_millimeters: 1_000_000,
+        },
+        Viewport {
+            width: 64,
+            height: 64,
+        },
+    )
+    .expect("the fixture pose is well formed");
+    let mut frame = FrameUniform::unlit(&view);
+    frame.animation_time_milliseconds = 4_321;
+    frame
+}
+
+#[test]
+fn the_previous_frame_block_is_eighty_bytes_of_sixteen_byte_aligned_lanes() {
+    assert_eq!(PREVIOUS_FRAME_BYTES, 80);
+    assert_eq!(PREVIOUS_FRAME_BYTES % 16, 0);
+}
+
+#[test]
+fn the_previous_frame_block_carries_the_temporal_views_previous_matrix_camera_and_clock() {
+    let mut frame = unlit_frame();
+    frame.temporal = Some(view(true));
+    let bytes = frame.previous_frame_bytes();
+    let temporal = view(true).to_bytes();
+    assert_eq!(&bytes[..64], &temporal[64..128], "previous matrix");
+    assert_eq!(
+        &bytes[64..80],
+        &temporal[160..176],
+        "camera and clock lanes"
+    );
+    assert_eq!(&bytes[76..80], &0xDEAD_BEEF_u32.to_le_bytes());
+}
+
+#[test]
+fn the_previous_frame_block_is_the_current_values_without_a_temporal_view() {
+    let frame = unlit_frame();
+    assert!(frame.temporal.is_none());
+    let bytes = frame.previous_frame_bytes();
+    let matrix: Vec<u8> = frame
+        .view_projection
+        .to_cols_array()
+        .iter()
+        .flat_map(|lane| lane.to_le_bytes())
+        .collect();
+    assert_eq!(&bytes[..64], matrix.as_slice());
+    let camera: Vec<u8> = frame
+        .camera_position
+        .to_array()
+        .iter()
+        .flat_map(|lane| lane.to_le_bytes())
+        .collect();
+    assert_eq!(&bytes[64..76], camera.as_slice());
+    assert_eq!(&bytes[76..80], &4_321_u32.to_le_bytes());
 }

@@ -9,7 +9,7 @@
 use crate::compositor::FrameRenderer;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use worldrunner_render_post::{
-    AttachmentView, FrameError, TAA_UNIFORM_BYTES, TaaUniform, ToneMapOutput,
+    AttachmentView, FrameError, ResourceRef, TAA_UNIFORM_BYTES, TaaUniform, ToneMapOutput,
 };
 
 /// The TAA block for a frame's camera data.
@@ -55,6 +55,30 @@ impl FrameRenderer {
             ));
         }
         Ok(())
+    }
+
+    /// The velocity attachment the object pass writes, when `pipelines` write one.
+    ///
+    /// Velocity pipelines need a renderer with TAA resident, which owns the attachment beside
+    /// the frame depth. Plain pipelines draw without it and the resolve then reads zeros, the
+    /// camera-only reprojection.
+    pub(crate) fn velocity_attachment(
+        &self,
+        pipelines: &crate::renderer::ScenePipelines,
+    ) -> Result<Option<AttachmentView>, FrameError> {
+        let texture = self
+            .taa_resident()
+            .then(|| self.targets().velocity_texture())
+            .flatten();
+        match (texture, pipelines.writes_velocity()) {
+            (Some(texture), true) => {
+                AttachmentView::new(ResourceRef::new("scene velocity"), texture).map(Some)
+            }
+            (_, false) => Ok(None),
+            (None, true) => Err(FrameError::UnsupportedEffect(
+                "velocity pipelines require a renderer with TAA resident",
+            )),
+        }
     }
 
     /// Uploads the pending block for this frame slot. Renderers without TAA upload nothing.

@@ -81,6 +81,7 @@ pub struct ScenePipelines {
     pub(crate) color_format: TextureFormat,
     pub(crate) samples: u32,
     pub(crate) ssao: bool,
+    velocity: bool,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
@@ -123,6 +124,33 @@ impl ScenePipelines {
             TERRAIN_WGSL,
             None,
         ))
+    }
+
+    /// Pipelines whose object and terrain draws also write the object-motion residual to a
+    /// second `Rg16Float` colour target, for a frame renderer with TAA resident.
+    ///
+    /// The pass drawing with them must bind the frame renderer's velocity attachment, which
+    /// [`crate::compositor::encode_scene`] does; other passes cannot use these pipelines.
+    pub fn with_taa_velocity(
+        device: &Device,
+        color_format: TextureFormat,
+        samples: u32,
+    ) -> Result<Self, worldrunner_render_post::PostError> {
+        worldrunner_render_post::FrameConfig::new([1, 1], color_format, samples)
+            .validate_device(device)?;
+        Ok(Self::with_environment(
+            device,
+            (color_format, samples),
+            &crate::velocity::object_source(ENVIRONMENT_WGSL),
+            &crate::velocity::terrain_source(TERRAIN_WGSL),
+            None,
+        ))
+    }
+
+    /// Whether these pipelines write the velocity target.
+    #[must_use]
+    pub const fn writes_velocity(&self) -> bool {
+        self.velocity
     }
 
     pub fn with_ssao(
@@ -236,6 +264,7 @@ impl ScenePipelines {
             color_format,
             samples,
             ssao: screen_layout.is_some(),
+            velocity: source.contains(crate::velocity::MARKER),
             frame_layout,
             material_layout,
             terrain_layout,
@@ -608,7 +637,15 @@ fn scene_layout(
 }
 
 fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
-    if source.contains("struct ReflectionOutput") {
+    if source.contains(crate::velocity::MARKER) {
+        let mut targets = color_targets(format).to_vec();
+        targets.push(Some(ColorTargetState {
+            format: worldrunner_render_post::VELOCITY_FORMAT,
+            blend: None,
+            write_mask: ColorWrites::ALL,
+        }));
+        targets
+    } else if source.contains("struct ReflectionOutput") {
         vec![color_targets(format)[0].clone(); 3]
     } else {
         color_targets(format).to_vec()

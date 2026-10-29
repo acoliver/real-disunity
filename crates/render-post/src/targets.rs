@@ -146,10 +146,27 @@ pub struct FrameTargets {
     resolved: wgpu::TextureView,
     multisampled: Option<(wgpu::Texture, wgpu::TextureView)>,
     depth: wgpu::TextureView,
+    velocity: Option<(wgpu::Texture, wgpu::TextureView)>,
 }
+
+/// Format of the object-motion residual attachment, in uv units of the previous frame.
+pub const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
 impl FrameTargets {
     pub fn new(device: &wgpu::Device, config: FrameConfig) -> Result<Self, PostError> {
+        Self::with_velocity(device, config, false)
+    }
+
+    /// As [`Self::new`], also allocating the velocity attachment when `velocity` is true.
+    ///
+    /// The attachment sits beside the depth: same extent and sample count, never resolved
+    /// (averaging the residuals of two objects has no meaning), and the TAA resolve reads it
+    /// per sample. A host clears it to zero, which means "camera reprojection only".
+    pub fn with_velocity(
+        device: &wgpu::Device,
+        config: FrameConfig,
+        velocity: bool,
+    ) -> Result<Self, PostError> {
         config.validate_device(device)?;
         let texture = color_texture(device, "post resolved scene", config.size, config.format);
         let resolved = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -181,13 +198,40 @@ impl FrameTargets {
                 view_formats: &[],
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let velocity = velocity.then(|| {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("frame velocity"),
+                size: extent(config.size),
+                mip_level_count: 1,
+                sample_count: config.samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: VELOCITY_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            (texture, view)
+        });
         Ok(Self {
             config,
             texture,
             resolved,
             multisampled,
             depth,
+            velocity,
         })
+    }
+
+    /// The velocity attachment, present only for targets built for a TAA resolve.
+    pub fn velocity(&self) -> Option<&wgpu::TextureView> {
+        self.velocity.as_ref().map(|(_, view)| view)
+    }
+
+    /// The texture behind [`Self::velocity`].
+    pub fn velocity_texture(&self) -> Option<&wgpu::Texture> {
+        self.velocity.as_ref().map(|(texture, _)| texture)
     }
 
     pub const fn depth(&self) -> &wgpu::TextureView {

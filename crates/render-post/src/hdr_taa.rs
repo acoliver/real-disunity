@@ -81,7 +81,7 @@ pub(crate) fn append(
             color: targets.resolved(),
             depth: targets.depth(),
             depth_samples: config.samples,
-            velocity: None,
+            velocity: targets.velocity(),
             velocity_samples: config.samples,
             uniform,
             history: &history_texture,

@@ -204,6 +204,11 @@ impl StageFactory for ToneMapOutput {
     fn frame_slots(&self) -> usize {
         if self.post.is_some() { 3 } else { 1 }
     }
+    fn needs_velocity(&self) -> bool {
+        self.post
+            .as_ref()
+            .is_some_and(|post| post.settings.resolve.active_taa().is_some())
+    }
     fn build_for_slot(
         &self,
         device: &wgpu::Device,

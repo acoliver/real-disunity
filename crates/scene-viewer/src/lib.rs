@@ -271,3 +271,5 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
     }
     Ok(())
 }
+
+pub use retained::{DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics};

@@ -35,3 +35,30 @@ host does not select a second adapter. Returning `Err(String)` aborts startup as
 `ViewerError::Driver`. Capture shared caller state to record a quality decision
 for subsequent retained scene edits; the callback does not change the initial
 scene or presentation settings.
+
+## Retained frame statistics
+
+`RetainedHost::statistics()` and `RetainedEventHost::statistics()` return the
+latest `RetainedFrameStatistics`. It is absent before the first ordinary
+submission and replaced before each `Presented` callback. A snapshot identifies
+its frame and published scene generation. Polling, capture-only work and queued
+CPU edits do not replace it. Storage is one snapshot, with no event backlog or
+GPU readback. Submission does not imply GPU completion.
+
+`scene.meshes` and `scene.impostors` count main-camera indexed draws and their
+submitted instance counts. Material slots and transition complements each count
+as a draw; hidden and culled placements do not. Decals shade receivers inline,
+without separate draw calls. `decals_visible` is the selected volume count after
+frustum culling, priority selection and the 32-volume shader limit;
+`decals_total` includes all authored volumes in that submitted frame.
+
+`textures` covers the authored texture table and `mesh_buffers` covers vertex,
+index and transition payloads. Resident bytes exclude driver overhead, staging
+padding, instance buffers, internal textures and terrain resources. Uploaded
+bytes are reported once per resident scene generation, including initial
+residency; an unchanged subsequent frame reports zero uploaded bytes.
+
+Terrain geometry/material page statistics, water and sky draws, all-pass draw
+counts and retained GPU pass timing are not yet exposed. These omissions are
+not represented by zero-valued category fields. The host still requests no GPU
+timestamp capability and allocates no timing queries by default.

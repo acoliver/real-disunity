@@ -66,7 +66,7 @@ Physics uses continuous collision detection for all bodies. Joints, effectors, p
 | `SpriteRenderer` | `sprite`, `color`, `enabled`, `flipX`, `flipY`, `sortingLayerID`, `sortingLayerName` (only `Default`), `sortingOrder`, `bounds`, `sharedMaterial` |
 | `Sprite` | `rect`, `pivot`, `pixelsPerUnit`, `bounds`. Sprites are created by the host with `DisunityHost.CreateSprite`. |
 | `Material` | `Material.SpriteUnlit` and `Material.SpriteLit` |
-| `Camera` | `enabled`, `clearFlags` (Skybox and Solid Color; Depth and Nothing are rejected when drawn), `backgroundColor`, `orthographic` (perspective is rejected), `orthographicSize`, `nearClipPlane`, `farClipPlane`, `depth` (whole numbers) |
+| `Camera` | `enabled`, `clearFlags` (Skybox and Solid Color; Depth and Nothing are rejected when drawn), `backgroundColor`, `orthographic`, `orthographicSize`, `fieldOfView`, `nearClipPlane`, `farClipPlane`, `depth` (whole numbers), `cullingMask`, `rect`, `targetDisplay`, `allowHDR`, `allowMSAA`, `allowDynamicResolution`, `useOcclusionCulling`. A frame presents only orthographic full-screen cameras; a perspective lens or a partial `rect` is stored and fails when a frame is prepared. A player plan builds each of these settings from the serialized camera. |
 | `AudioListener`, `GUILayer`, `FlareLayer` | Exist as enable-able components. There is no audio output. |
 | `UnityEngine.Rendering.Universal.Light2D` | Global lights: `color`, `intensity`, `affectedSortingLayers`, blend style 0. Other light types throw `UnsupportedLight2DException`. |
 | `UnityEngine.Rendering.Universal.UniversalAdditionalCameraData` | Base camera without post-processing, antialiasing or shadows. Enabling an unsupported option throws `UnsupportedCameraSettingException`. |

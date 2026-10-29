@@ -51,11 +51,20 @@ internal sealed partial class SceneLoader
         var camera = owner.AddComponent<Camera>();
         camera.clearFlags = value.Variant<CameraClearFlags>("clear");
         camera.backgroundColor = value.Rgba("background");
-        camera.orthographic = true;
+        camera.orthographic = value.Bool("orthographic");
         camera.orthographicSize = value.Float("orthographic_size");
+        camera.fieldOfView = value.Float("field_of_view");
         camera.nearClipPlane = value.Float("near");
         camera.farClipPlane = value.Float("far");
         camera.depth = value.Float("depth");
+        camera.cullingMask = value.Mask("culling_mask");
+        var rect = value.Floats("rect");
+        camera.rect = new Rect(rect[0], rect[1], rect[2], rect[3]);
+        camera.targetDisplay = value.Int("target_display");
+        camera.allowHDR = value.Bool("allow_hdr");
+        camera.allowMSAA = value.Bool("allow_msaa");
+        camera.allowDynamicResolution = value.Bool("allow_dynamic_resolution");
+        camera.useOcclusionCulling = value.Bool("use_occlusion_culling");
         camera.enabled = value.Bool("enabled");
         return camera;
     }

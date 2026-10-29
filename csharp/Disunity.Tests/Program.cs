@@ -275,4 +275,5 @@ AnimationTests.Run();
 ScriptExceptionTests.Run();
 CameraProjectionTests.Run();
 CameraSceneTests.Run();
+PlayerCameraPlanTests.Run();
 ScreenTests.Run();

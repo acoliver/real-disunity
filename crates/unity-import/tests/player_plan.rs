@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use serde_json::{Value as Json, json};
-use worldrunner_unity_import::{plan::PlanComponent, player_plan::plan_player_scene};
+use worldrunner_unity_import::{
+    Camera, CameraOutput, ClearFlags, Light3D, plan::PlanComponent, player_plan::plan_player_scene,
+};
 use worldrunner_unity_serialized::{
     ClassId, External, SerializedType,
     object::PPtr,
@@ -13,13 +15,15 @@ fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
 }
 
-const TYPES: [ClassId; 6] = [
+const TYPES: [ClassId; 8] = [
     ClassId::GAME_OBJECT,
     ClassId::TRANSFORM,
     ClassId::MONO_BEHAVIOUR,
     ClassId::MONO_SCRIPT,
     ClassId::LIGHT,
     ClassId::TAG_MANAGER,
+    ClassId::CAMERA,
+    ClassId::AUDIO_LISTENER,
 ];
 
 fn class(class_id: ClassId) -> SerializedType {
@@ -153,7 +157,7 @@ fn write_scene(dir: &Path) {
                 game_object("Child", 0, &[ptr(0, 7)]),
             ),
             object(7, ClassId::TRANSFORM, transform(6, ptr(0, 3), &[])),
-            object(8, ClassId::LIGHT, Vec::new()),
+            object(8, ClassId::AUDIO_LISTENER, Vec::new()),
         ],
         scripts: Vec::new(),
         externals: vec![External {
@@ -183,9 +187,12 @@ fn plans_objects_scripts_and_references_and_lists_what_it_leaves_out() {
         [1.0, 2.0, 3.0].map(f64::to_bits)
     );
     let [PlanComponent::Unsupported { class }, script] = &root.components[..] else {
-        panic!("the root has a light and a script: {:?}", root.components)
+        panic!(
+            "the root has a listener and a script: {:?}",
+            root.components
+        )
     };
-    assert_eq!(class, "Light");
+    assert_eq!(class, "AudioListener");
     let PlanComponent::Script {
         class,
         assembly,
@@ -214,7 +221,7 @@ fn plans_objects_scripts_and_references_and_lists_what_it_leaves_out() {
     assert_eq!(
         plan.differences,
         [
-            "Root.Example.Spinner.light: references a Light component, which the engine does not build",
+            "Root.Example.Spinner.light: references a AudioListener component, which the engine does not build",
             "Root.Example.Spinner.material: references object 99 of file 1, which the plan does not hold",
         ]
     );
@@ -342,6 +349,288 @@ fn maps_user_tags_and_writes_every_value_kind_as_the_loader_reads_it() {
         [
             "Root.Example.Spinner.shape: [SerializeReference] values are not built",
             "Child: tag 20005 is not defined",
+        ]
+    );
+}
+
+/// A camera as the player serializes it: perspective, with the viewport, mask, display and
+/// flags below, a clear mode, a target texture and a projection matrix mode.
+fn camera_bytes(clear_flags: u32, target_texture: PPtr, matrix_mode: i32) -> Vec<u8> {
+    let mut w = ObjectWriter::new(false);
+    w.pptr(ptr(0, 0))
+        .u8(1)
+        .align()
+        .u32(clear_flags)
+        .floats(&[0.25, 0.5, 0.75, 1.0])
+        .i32(matrix_mode);
+    w.i32(2).i32(200).floats(&[0.005, 16.0, 10.0, 50.0]).i32(5);
+    w.floats(&[2.0, 11.0, 0.25, 0.5, 36.0, 24.0, 0.1, -0.1]);
+    w.floats(&[0.125, 0.25, 0.5, 0.75])
+        .floats(&[0.5, 500.0, 50.0])
+        .u8(0)
+        .align()
+        .f32(5.0);
+    w.f32(2.0)
+        .u32(0xffff_fffb)
+        .i32(-1)
+        .pptr(target_texture)
+        .i32(1)
+        .i32(2);
+    w.bytes(&[1, 0, 1, 0, 1]).align().f32(0.022).f32(0.064);
+    w.finish()
+}
+
+/// A light with the given kind and shadow mode; a spot of 30 and 20 degrees, cookie size
+/// 4 by 4, color temperature 5000 K, baked.
+fn light_bytes(kind: i32, shadows: i32, cookie: PPtr, flare: PPtr) -> Vec<u8> {
+    let mut w = ObjectWriter::new(false);
+    w.pptr(ptr(0, 0))
+        .u8(1)
+        .align()
+        .i32(kind)
+        .floats(&[1.0, 0.5, 0.25, 1.0]);
+    w.floats(&[2.0, 12.0, 30.0, 20.0]).floats(&[4.0, 4.0]);
+    w.i32(shadows)
+        .i32(-1)
+        .i32(512)
+        .floats(&[0.75, 0.0625, 0.5, 0.25]);
+    w.floats(&[0.0; 16]).u8(0).align();
+    w.pptr(cookie).u8(0).align();
+    w.i32(-1).i32(0).i32(2).i32(0).u8(0).align();
+    w.pptr(flare)
+        .i32(0)
+        .u32(0xff)
+        .u32(3)
+        .i32(2)
+        .i32(0)
+        .floats(&[1.0, 1.0])
+        .f32(1.5);
+    w.f32(5_000.0)
+        .u8(1)
+        .align()
+        .floats(&[0.0; 4])
+        .bytes(&[0, 0, 0])
+        .align();
+    w.i32(0).f32(1.0).u8(0).align();
+    w.finish()
+}
+
+/// One object `Rig` with a camera and a light.
+fn write_rig(dir: &Path, camera: Vec<u8>, light: Vec<u8>) {
+    write_file(
+        dir,
+        "level0",
+        vec![
+            object(
+                2,
+                ClassId::GAME_OBJECT,
+                game_object("Rig", 5, &[ptr(0, 3), ptr(0, 4), ptr(0, 5)]),
+            ),
+            object(3, ClassId::TRANSFORM, transform(2, ptr(0, 0), &[])),
+            object(4, ClassId::CAMERA, camera),
+            object(5, ClassId::LIGHT, light),
+        ],
+    );
+}
+
+fn plan_rig(
+    camera: Vec<u8>,
+    light: Vec<u8>,
+) -> Result<worldrunner_unity_import::ScenePlan, String> {
+    let dir = tempfile::tempdir().unwrap();
+    write_rig(dir.path(), camera, light);
+    plan_player_scene(dir.path(), "level0", &ScriptLayouts::new(Vec::new()))
+        .map_err(|error| error.to_string())
+}
+
+fn null() -> PPtr {
+    ptr(0, 0)
+}
+
+#[test]
+fn plans_a_perspective_camera_and_a_light_with_their_decoded_values() {
+    let plan = plan_rig(
+        camera_bytes(2, null(), 1),
+        light_bytes(0, 2, null(), null()),
+    )
+    .unwrap();
+    let [
+        PlanComponent::Camera(camera),
+        PlanComponent::Light { enabled, light },
+    ] = &plan.objects[0].components[..]
+    else {
+        panic!(
+            "the rig has a camera and a light: {:?}",
+            plan.objects[0].components
+        )
+    };
+    let expected = Camera {
+        enabled: true,
+        clear: ClearFlags::SolidColor,
+        background: [0.25, 0.5, 0.75, 1.0],
+        orthographic_size: 5.0,
+        near: 0.5,
+        far: 500.0,
+        depth: 2.0,
+        orthographic: false,
+        field_of_view: 50.0,
+        culling_mask: 0xffff_fffb,
+        rect: [0.125, 0.25, 0.5, 0.75],
+        target_display: 1,
+        output: CameraOutput {
+            allow_hdr: true,
+            allow_msaa: false,
+            allow_dynamic_resolution: true,
+        },
+        use_occlusion_culling: true,
+    };
+    assert_eq!(*camera, expected);
+    let expected = Light3D {
+        kind: "Spot".to_owned(),
+        color: [1.0, 0.5, 0.25, 1.0],
+        intensity: 2.0,
+        range: 12.0,
+        spot_angle: 30.0,
+        inner_spot_angle: 20.0,
+        shadows: "Soft".to_owned(),
+        shadow_strength: 0.75,
+        shadow_bias: 0.0625,
+        shadow_normal_bias: 0.5,
+        shadow_near_plane: 0.25,
+        culling_mask: 0xff,
+        rendering_layer_mask: 3,
+        bounce_intensity: 1.5,
+        color_temperature: 5_000.0,
+        use_color_temperature: true,
+        cookie_size: 4.0,
+        lightmap_bake_type: 2,
+    };
+    assert!(*enabled);
+    assert_eq!(*light, expected);
+    assert_eq!(plan.differences, Vec::<String>::new());
+}
+
+#[test]
+fn camera_clear_flags_map_to_the_plan_and_skybox_does_not_fail() {
+    let expected = [
+        (1, ClearFlags::Skybox),
+        (2, ClearFlags::SolidColor),
+        (3, ClearFlags::Depth),
+        (4, ClearFlags::Nothing),
+    ];
+    for (serialized, clear) in expected {
+        let plan = plan_rig(
+            camera_bytes(serialized, null(), 1),
+            light_bytes(1, 0, null(), null()),
+        )
+        .unwrap();
+        let PlanComponent::Camera(camera) = &plan.objects[0].components[0] else {
+            panic!("the first component is the camera")
+        };
+        assert_eq!(camera.clear, clear, "m_ClearFlags {serialized}");
+        assert_eq!(plan.differences, Vec::<String>::new());
+    }
+    let error = plan_rig(
+        camera_bytes(9, null(), 1),
+        light_bytes(1, 0, null(), null()),
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("Rig") && error.contains("clear flags 9"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_target_texture_is_left_out_and_listed() {
+    let plan = plan_rig(
+        camera_bytes(1, ptr(1, 77), 1),
+        light_bytes(1, 0, null(), null()),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.differences,
+        ["Rig: camera target texture is not built"]
+    );
+}
+
+#[test]
+fn a_projection_matrix_mode_other_than_1_is_listed() {
+    for mode in [0, 2, 7] {
+        let plan = plan_rig(
+            camera_bytes(1, null(), mode),
+            light_bytes(1, 0, null(), null()),
+        )
+        .unwrap();
+        assert_eq!(
+            plan.differences,
+            [format!(
+                "Rig: camera projection matrix mode {mode} is not applied"
+            )]
+        );
+    }
+    let standard = plan_rig(
+        camera_bytes(1, null(), 1),
+        light_bytes(1, 0, null(), null()),
+    )
+    .unwrap();
+    assert!(
+        standard.differences.is_empty(),
+        "{:?}",
+        standard.differences
+    );
+}
+
+#[test]
+fn light_kinds_and_shadow_modes_map_to_their_names_and_unknown_ones_fail() {
+    let kinds = ["Spot", "Directional", "Point", "Rectangle", "Disc"];
+    for (serialized, name) in (0..).zip(kinds) {
+        let plan = plan_rig(
+            camera_bytes(1, null(), 1),
+            light_bytes(serialized, serialized % 3, null(), null()),
+        )
+        .unwrap();
+        let PlanComponent::Light { light, .. } = &plan.objects[0].components[1] else {
+            panic!("the second component is the light")
+        };
+        let shadows = ["None", "Hard", "Soft"][usize::try_from(serialized % 3).unwrap()];
+        assert_eq!(
+            (light.kind.as_str(), light.shadows.as_str()),
+            (name, shadows)
+        );
+    }
+    let kind = plan_rig(
+        camera_bytes(1, null(), 1),
+        light_bytes(7, 0, null(), null()),
+    )
+    .unwrap_err();
+    assert!(
+        kind.contains("Rig") && kind.contains("light type 7"),
+        "{kind}"
+    );
+    let shadows = plan_rig(
+        camera_bytes(1, null(), 1),
+        light_bytes(0, 5, null(), null()),
+    )
+    .unwrap_err();
+    assert!(
+        shadows.contains("Rig") && shadows.contains("shadow mode 5"),
+        "{shadows}"
+    );
+}
+
+#[test]
+fn a_light_cookie_and_flare_are_left_out_and_listed() {
+    let plan = plan_rig(
+        camera_bytes(1, null(), 1),
+        light_bytes(0, 0, ptr(1, 5), ptr(1, 6)),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.differences,
+        [
+            "Rig: light cookie is not built",
+            "Rig: light flare is not built"
         ]
     );
 }

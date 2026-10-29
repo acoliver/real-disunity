@@ -11,6 +11,7 @@ pub mod package;
 pub mod plan;
 pub mod player;
 pub mod player_files;
+mod player_graphics;
 mod player_hierarchy;
 pub mod player_identity;
 pub mod player_objects;
@@ -28,12 +29,12 @@ pub mod texture;
 pub mod yaml;
 
 pub use components::{
-    Antialiasing, BodyType, Camera, CameraOverride, CameraParticipant, CameraRenderType, Canvas,
-    CanvasScale, CanvasScaler, ClearFlags, Collider, Collider2D, ColliderShape, Combine,
-    ComponentError, FontData, FontStyle, Grid, HorizontalOverflow, Interpolation, Light2D,
-    PhysicsMaterial, RectTransform, RenderMode, RendererMaterial, RendererSettings, Rigidbody2D,
-    ScreenMatch, SpriteRenderer, Text, TextAnchor, Tile, Tilemap, TilemapRenderer, UrpCamera,
-    UrpPostProcessing, VerticalOverflow,
+    Antialiasing, BodyType, Camera, CameraOutput, CameraOverride, CameraParticipant,
+    CameraRenderType, Canvas, CanvasScale, CanvasScaler, ClearFlags, Collider, Collider2D,
+    ColliderShape, Combine, ComponentError, FontData, FontStyle, Grid, HorizontalOverflow,
+    Interpolation, Light2D, Light3D, PhysicsMaterial, RectTransform, RenderMode, RendererMaterial,
+    RendererSettings, Rigidbody2D, ScreenMatch, SpriteRenderer, Text, TextAnchor, Tile, Tilemap,
+    TilemapRenderer, UrpCamera, UrpPostProcessing, VerticalOverflow,
 };
 pub use guid::{Guid, ObjectRef, ReferenceError};
 pub use input::{AxisKind, InputAxis, input_axes};

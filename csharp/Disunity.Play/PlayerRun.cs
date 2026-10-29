@@ -25,6 +25,8 @@ internal static class PlayerRun
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
         new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies).Attach(context);
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
+        // A headless run has no window; Unity's default standalone window is 1920 by 1080.
+        DisunityHost.SetScreen(1920, 1080, 96f, 60f);
         DisunityHost.ConfigurePlayer(Environment(data, request));
         ApplyQuality(request);
         DisunityHost.LoadResources(request.GetProperty("resources").GetString()!, Load);

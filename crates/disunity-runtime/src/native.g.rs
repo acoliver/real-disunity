@@ -8,7 +8,7 @@ pub struct DisunityResult {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct DisunityCamera {
     pub enabled: u32,
     pub clear_flags: u32,
@@ -21,6 +21,20 @@ pub struct DisunityCamera {
     pub g: f32,
     pub b: f32,
     pub a: f32,
+    pub field_of_view: f32,
+    pub target_texture: u64,
+    pub culling_mask: u32,
+    pub viewport_x: f32,
+    pub viewport_y: f32,
+    pub viewport_width: f32,
+    pub viewport_height: f32,
+    pub depth_texture_mode: u32,
+    pub allow_hdr: u32,
+    pub allow_msaa: u32,
+    pub allow_dynamic_resolution: u32,
+    pub use_occlusion_culling: u32,
+    pub target_display: u32,
+    pub camera_type: u32,
 }
 
 #[repr(C)]
@@ -405,7 +419,7 @@ pub struct DisunityTileCell {
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 5;
+pub const DISUNITY_ABI_VERSION: u32 = 6;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

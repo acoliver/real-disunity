@@ -346,8 +346,8 @@ struct Resolve {
     color: wgpu::TextureView,
     depth: wgpu::TextureView,
     uniform: wgpu::Buffer,
-    history: wgpu::TextureView,
-    output: wgpu::TextureView,
+    history: wgpu::Texture,
+    output: wgpu::Texture,
 }
 impl StageFactory for Resolve {
     fn build(
@@ -380,7 +380,7 @@ impl StageFactory for Resolve {
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(&self.output),
+                resource: wgpu::BindingResource::TextureView(&view(&self.output)),
             }],
         });
         set.stages.push(Stage::fullscreen(
@@ -469,8 +469,8 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
             color: view(&color),
             depth,
             uniform,
-            history: view(&targets.history),
-            output: view(&targets.output),
+            history: targets.history.clone(),
+            output: targets.output.clone(),
         },
     )
     .unwrap();

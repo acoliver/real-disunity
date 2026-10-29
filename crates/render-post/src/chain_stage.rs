@@ -17,6 +17,12 @@ pub enum Operation {
         destination: wgpu::Buffer,
         bytes: u64,
     },
+    /// Copies the whole of `source` into `destination`. Both are single-mip 2D textures of the
+    /// same format and extent, with `COPY_SRC` and `COPY_DST` usage respectively.
+    CopyTexture {
+        source: wgpu::Texture,
+        destination: wgpu::Texture,
+    },
     Compute {
         pipeline: wgpu::ComputePipeline,
         groups: Vec<wgpu::BindGroup>,
@@ -40,7 +46,10 @@ pub enum Operation {
 impl Operation {
     /// Whether the operation is a compute or render pass, which has an identity and a timing slot.
     pub(super) fn is_pass(&self) -> bool {
-        !matches!(self, Self::Clear(_) | Self::CopyBuffer { .. })
+        !matches!(
+            self,
+            Self::Clear(_) | Self::CopyBuffer { .. } | Self::CopyTexture { .. }
+        )
     }
 }
 
@@ -53,6 +62,23 @@ pub struct Stage {
 }
 
 impl Stage {
+    /// A texture-to-texture copy, encoded outside any pass and so without a timing slot.
+    pub fn copy_texture(
+        id: crate::StageId,
+        source: &wgpu::Texture,
+        destination: &wgpu::Texture,
+    ) -> Self {
+        Self {
+            id,
+            label: id.name,
+            enabled: true,
+            operation: Operation::CopyTexture {
+                source: source.clone(),
+                destination: destination.clone(),
+            },
+        }
+    }
+
     pub fn fullscreen(
         id: crate::StageId,
         pipeline: &wgpu::RenderPipeline,
@@ -109,6 +135,14 @@ impl Stage {
                 destination,
                 bytes,
             } => encoder.copy_buffer_to_buffer(source, 0, destination, 0, *bytes),
+            Operation::CopyTexture {
+                source,
+                destination,
+            } => encoder.copy_texture_to_texture(
+                source.as_image_copy(),
+                destination.as_image_copy(),
+                source.size(),
+            ),
             Operation::Compute {
                 pipeline,
                 groups,

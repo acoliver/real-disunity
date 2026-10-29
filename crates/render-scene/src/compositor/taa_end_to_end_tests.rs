@@ -284,8 +284,13 @@ impl<'a> Rig<'a> {
 
     /// Submits one frame as a host would (rotating frame slots) and reads the output back.
     fn render(&mut self, eye_x: i64) -> Image {
+        self.render_in_slot(eye_x, self.submitted % SLOTS)
+    }
+
+    /// Submits one frame in `slot`, whatever the previous frame used.
+    fn render_in_slot(&mut self, eye_x: i64, slot: usize) -> Image {
         let device = self.context.device();
-        self.renderer.select_frame_slot(self.submitted % SLOTS);
+        self.renderer.select_frame_slot(slot);
         self.submitted += 1;
         let prepared = self.renderer.prepare_uniform(frame(eye_x, SIZE)).unwrap();
         let view = self
@@ -710,4 +715,31 @@ fn history_in_motion_sharpens_the_jittered_image_without_msaa() {
 fn history_in_motion_costs_a_multisampled_image_at_most_twice_the_msaa_error() {
     moving_sharpness(MsaaSamples::X4, STEP_MM);
     moving_sharpness(MsaaSamples::X4, SECOND_STEP_MM);
+}
+
+/// A host with one frame in flight reuses slot 0 every frame, and the history must not depend on
+/// which slot ran the previous frame.
+#[test]
+fn a_renderer_reusing_one_slot_every_frame_still_accumulates_history() {
+    let context = context();
+    let reference = supersampled(&context, 0);
+    let mut rig = Rig::new(&context, MsaaSamples::X1, taa());
+    let first = rig.render_in_slot(0, 0);
+    assert!(
+        rig.renderer.has_temporal_history(),
+        "history is valid after the first frame"
+    );
+    let mut last = first.clone();
+    for _ in 1..FRAMES {
+        last = rig.render_in_slot(0, 0);
+    }
+    let (first_error, last_error) = (
+        mean_abs_error(&first, &reference),
+        mean_abs_error(&last, &reference),
+    );
+    assert!(
+        last_error < first_error * 0.5,
+        "slot 0 only: converged {last_error} vs first frame {first_error}"
+    );
+    assert!(last_error < TAA_BOUND, "slot 0 only: {last_error}");
 }

@@ -640,9 +640,20 @@ frame is not jittered, so the sample is the MSAA pixel and a static 4x image equ
 `taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or
 `texture_depth_multisampled_2d` with a per-sample minimum when MSAA is on), the history texture and
 the per-slot uniform block, and writes the TAA image. `taa history` copies that image into the
-history texture. One `Rgba16Float` history texture per render size is shared by the three frame-slot
-stage sets, because each slot sees every third frame. A resize replaces it, and settings without TAA
-release it. The shader ignores the history while the block says it is invalid, so no clear is needed.
+history texture with `Operation::CopyTexture` (`copy_texture_to_texture`, encoded outside a render
+pass, so it has no timing slot). One `Rgba16Float` history texture per render size is shared by all
+frame-slot stage sets, so the history is the previous frame whichever slot ran it and however many
+frames are in flight. A resize replaces it, and settings without TAA release it. The shader ignores
+the history while the block says it is invalid, so no clear is needed.
+
+Measured at 1920x1080 on a Radeon 780M with `smaa_and_fxaa_stage_timestamps` (median of 5, stripes
+and disc scenes). The fullscreen `taa history` pass took 0.87 to 0.97 ms of a 2.99 to 3.18 ms timed
+TAA path (`taa resolve` 1.81 to 1.89 ms, `taa history`, `tone` 0.31 to 0.33 ms). The texture copy has
+no timestamp, so the probe also times 24 frames in one submission without queries: the whole chain
+(scene paint, TAA and tone) fell from 3.95 and 3.86 ms per frame to 3.37 and 3.39 ms, so the copy
+costs about 0.4 ms against 0.9 ms for the pass, a saving of 0.5 to 0.6 ms per frame. Sampling the
+resolve output into a second history target and swapping the two needs bind groups that change per
+frame, which slot-static stage sets cannot hold, so it was not tried.
 
 `TaaUniform` is the per-frame block, `TAA_UNIFORM_BYTES` = 80 bytes, little-endian, one uniform
 buffer per frame slot uploaded by `ToneMapOutput::prepare_taa`:

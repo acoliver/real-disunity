@@ -16,7 +16,7 @@ pub struct Targets {
 
 /// Allocates the resolve output "taa output" and the history "taa history", both
 /// `Rgba16Float` at `size`. The output is rendered to, sampled and copied from. The history is
-/// also rendered to by the copy-back pass and may be written by the host (`COPY_DST`).
+/// the destination of the copy-back (`COPY_DST`) and may also be written by the host.
 #[cfg(test)]
 pub fn allocate(device: &wgpu::Device, size: [u32; 2]) -> Targets {
     Targets {
@@ -63,13 +63,14 @@ pub struct Inputs<'a> {
     /// Sample count of `depth`: 1 for a `texture_depth_2d`, more for a multisampled one.
     pub depth_samples: u32,
     pub uniform: &'a wgpu::Buffer,
-    pub history: &'a wgpu::TextureView,
-    pub output: &'a wgpu::TextureView,
+    pub history: &'a wgpu::Texture,
+    pub output: &'a wgpu::Texture,
 }
 
 /// Appends "taa resolve", which reads `inputs` and writes `inputs.output`, then "taa history",
-/// which copies the output into `inputs.history`. One history texture plus a copy-back keeps
-/// the bind groups static, which stage sets that are built once per frame slot need.
+/// a texture copy of the output into `inputs.history`. One history texture plus a copy-back
+/// keeps the bind groups static and independent of which frame slot runs, which stage sets that
+/// are built once per frame slot need. A copy is cheaper than the fullscreen pass it replaces.
 ///
 /// `color` is scene-referred color a `textureLoad` reads, `depth` the single-sample device
 /// depth of the same frame. Both are at the extent of `output` and `history`, which are
@@ -83,6 +84,12 @@ pub fn append(
     inputs: &Inputs<'_>,
     settings: TaaSettings,
 ) {
+    let history = inputs
+        .history
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let output = inputs
+        .output
+        .create_view(&wgpu::TextureViewDescriptor::default());
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("TAA resolve"),
         source: wgpu::ShaderSource::Wgsl(shader(inputs.depth_samples > 1).into()),
@@ -105,7 +112,7 @@ pub fn append(
         entries: &[
             entry(0, wgpu::BindingResource::TextureView(inputs.color)),
             entry(1, wgpu::BindingResource::TextureView(inputs.depth)),
-            entry(2, wgpu::BindingResource::TextureView(inputs.history)),
+            entry(2, wgpu::BindingResource::TextureView(&history)),
             entry(3, wgpu::BindingResource::Sampler(&sampler)),
             entry(4, inputs.uniform.as_entire_binding()),
         ],
@@ -114,19 +121,12 @@ pub fn append(
         StageId::new(STAGES[0], 0),
         &resolve,
         &[&resolve_group],
-        StageTarget::Texture(inputs.output.clone()),
+        StageTarget::Texture(output),
     ));
-    let copy = pipeline(device, &module, "taa_history", &[]);
-    let copy_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some(STAGES[1]),
-        layout: &copy.get_bind_group_layout(0),
-        entries: &[entry(0, wgpu::BindingResource::TextureView(inputs.output))],
-    });
-    set.stages.push(Stage::fullscreen(
+    set.stages.push(Stage::copy_texture(
         StageId::new(STAGES[1], 0),
-        &copy,
-        &[&copy_group],
-        StageTarget::Texture(inputs.history.clone()),
+        inputs.output,
+        inputs.history,
     ));
 }
 

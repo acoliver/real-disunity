@@ -14,7 +14,6 @@ use crate::{StageSet, TAA_UNIFORM_BYTES, TaaSettings, taa_gpu};
 struct TaaHistory {
     size: [u32; 2],
     texture: wgpu::Texture,
-    view: wgpu::TextureView,
 }
 
 /// History shared by the stage sets of every slot. Cloning shares it.
@@ -22,19 +21,18 @@ struct TaaHistory {
 pub(crate) struct SharedHistory(Rc<RefCell<Option<TaaHistory>>>);
 impl SharedHistory {
     /// The history for `size`, created on first use and replaced when the size changes.
-    fn acquire(&self, device: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::TextureView) {
+    fn acquire(&self, device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
         let mut slot = self.0.borrow_mut();
         if slot.as_ref().is_none_or(|history| history.size != size) {
-            let texture = taa_gpu::history(device, size);
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             *slot = Some(TaaHistory {
                 size,
-                texture,
-                view,
+                texture: taa_gpu::history(device, size),
             });
         }
-        let history = slot.as_ref().expect("history was just created");
-        (history.texture.clone(), history.view.clone())
+        slot.as_ref()
+            .expect("history was just created")
+            .texture
+            .clone()
     }
 
     /// Drops the history, for settings that no longer use TAA.
@@ -73,7 +71,7 @@ pub(crate) fn append(
     (settings, history, uniform): (TaaSettings, &SharedHistory, &wgpu::Buffer),
 ) -> wgpu::TextureView {
     let config = targets.config();
-    let (history_texture, history_view) = history.acquire(device, config.size);
+    let history_texture = history.acquire(device, config.size);
     let output = taa_gpu::output(device, config.size);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
     taa_gpu::append(
@@ -84,8 +82,8 @@ pub(crate) fn append(
             depth: targets.depth(),
             depth_samples: config.samples,
             uniform,
-            history: &history_view,
-            output: &output_view,
+            history: &history_texture,
+            output: &output,
         },
         settings,
     );

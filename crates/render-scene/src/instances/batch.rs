@@ -15,6 +15,13 @@ pub(crate) struct InstanceBatch {
     buffer_valid: std::rc::Rc<std::cell::Cell<bool>>,
     encoded: Option<worldrunner_render_gpu::submission::Publications>,
     pub buffer: Option<wgpu::Buffer>,
+    /// Slots added since the last published frame; their previous transform is their current one.
+    fresh: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
+    /// Slots whose previous transform differed from their current one in the last published
+    /// frame. They are copied once more so an untouched slot converges to previous == current.
+    stale: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
+    /// The previous-frame transform of every slot, same layout as `buffer`; velocity draws only.
+    pub previous: Option<wgpu::Buffer>,
 }
 
 impl InstanceBatch {
@@ -31,6 +38,7 @@ impl InstanceBatch {
             position
         });
         self.placements[position] = Some((object, visible));
+        self.fresh.borrow_mut().insert(position);
         self.pack(position);
         position
     }
@@ -43,6 +51,7 @@ impl InstanceBatch {
         self.placements[position] = None;
         self.free.insert(position);
         self.dirty.remove(&position);
+        self.stale.borrow_mut().remove(&position);
     }
 
     pub fn set_transform(&mut self, position: usize, transform: SceneTransform) {
@@ -84,10 +93,18 @@ impl InstanceBatch {
             return false;
         }
         !self.buffer_valid.get()
+            || (self.previous.is_some() && self.live_stale().next().is_some())
             || self.dirty.iter().any(|position| {
                 let range = position * STRIDE..(position + 1) * STRIDE;
                 self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
             })
+    }
+
+    fn live_stale(&self) -> impl Iterator<Item = usize> + '_ {
+        let stale: Vec<usize> = self.stale.borrow().iter().copied().collect();
+        stale
+            .into_iter()
+            .filter(|position| self.placements.get(*position).is_some_and(Option::is_some))
     }
 
     #[cfg(test)]
@@ -146,20 +163,34 @@ fn ranges(positions: impl Iterator<Item = usize>) -> Vec<Range<u32>> {
 pub(crate) fn flush_prepared(
     batch: &mut InstanceBatch,
     context: &mut worldrunner_render_post::PrepareContext<'_>,
+    track_previous: bool,
 ) -> Vec<Range<u32>> {
     let writes = batch.pending_ranges();
     let mut ranges = writes.clone();
     if batch.bytes.is_empty() {
         return ranges;
     }
-    grow(batch, context);
-    if !batch.buffer_valid.get() {
+    grow(batch, context, track_previous);
+    let full = !batch.buffer_valid.get();
+    if full {
         ranges =
             std::iter::once(0..u32::try_from(batch.bytes.len() / STRIDE).expect("instance count"))
                 .collect();
     }
-    if ranges.is_empty() {
+    let previous = if track_previous {
+        previous_uploads(batch, &ranges, full)
+    } else {
+        PreviousUploads::default()
+    };
+    if ranges.is_empty() && previous.uploads.is_empty() {
         return ranges;
+    }
+    // Previous transforms are staged first: the encoder runs copies in staging order and the
+    // previous buffer is a separate resource, so it can never observe this frame's bytes.
+    if let Some(buffer) = batch.previous.as_ref().filter(|_| track_previous) {
+        for (start, bytes) in &previous.uploads {
+            context.upload_buffer(buffer, *start, bytes);
+        }
     }
     let buffer = batch.buffer.as_ref().expect("allocated instance buffer");
     for range in &ranges {
@@ -169,22 +200,86 @@ pub(crate) fn flush_prepared(
     let uploaded = batch.uploaded.clone();
     let valid = batch.buffer_valid.clone();
     let bytes = batch.bytes.clone();
+    let (fresh, stale) = (batch.fresh.clone(), batch.stale.clone());
+    let included = batch.fresh.borrow().clone();
     crate::compositor::publication::stage(context, &uploaded.clone(), move || {
         *uploaded.borrow_mut() = bytes;
         valid.set(true);
+        fresh.borrow_mut().retain(|slot| !included.contains(slot));
+        if track_previous {
+            *stale.borrow_mut() = previous.slots;
+        }
     });
     batch.encoded = worldrunner_render_gpu::submission::Publications::current();
     writes
 }
 
-fn grow(batch: &mut InstanceBatch, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-    let device = context.device();
+#[derive(Default)]
+struct PreviousUploads {
+    /// Slots whose previous transform still differs from the current one after this frame.
+    slots: BTreeSet<usize>,
+    uploads: Vec<(u64, Vec<u8>)>,
+}
+
+/// The previous transforms to write this frame, taken from the last published bytes so that a
+/// cancelled frame leaves them untouched. Slots edited this frame or the last one are written;
+/// a full upload rewrites every slot. Added slots start with previous == current.
+fn previous_uploads(batch: &InstanceBatch, ranges: &[Range<u32>], full: bool) -> PreviousUploads {
+    let mut slots: BTreeSet<usize> = batch.live_stale().collect();
+    if full {
+        slots.extend(0..batch.bytes.len() / STRIDE);
+    } else {
+        slots.extend(
+            ranges
+                .iter()
+                .flat_map(|range| range.start as usize..range.end as usize),
+        );
+    }
+    let fresh = batch.fresh.borrow();
+    let uploaded = batch.uploaded.borrow();
+    let source = |slot: usize| {
+        let range = slot * STRIDE..(slot + 1) * STRIDE;
+        let current = &batch.bytes[range.clone()];
+        if fresh.contains(&slot) {
+            current
+        } else {
+            uploaded.get(range).unwrap_or(current)
+        }
+    };
+    let positions = slots.iter().copied();
+    let mut result = PreviousUploads::default();
+    for range in ranges_of(positions) {
+        let bytes = range
+            .clone()
+            .flat_map(|slot| source(slot).iter().copied())
+            .collect();
+        result.uploads.push(((range.start * STRIDE) as u64, bytes));
+    }
+    result.slots = slots
+        .into_iter()
+        .filter(|slot| source(*slot) != &batch.bytes[slot * STRIDE..(slot + 1) * STRIDE])
+        .collect();
+    result
+}
+
+fn ranges_of(positions: impl Iterator<Item = usize>) -> Vec<Range<usize>> {
+    ranges(positions)
+        .into_iter()
+        .map(|range| range.start as usize..range.end as usize)
+        .collect()
+}
+
+fn grow(
+    batch: &mut InstanceBatch,
+    context: &mut worldrunner_render_post::PrepareContext<'_>,
+    track_previous: bool,
+) {
+    let device = context.device().clone();
     let size = batch.bytes.len() as u64;
-    if batch
-        .buffer
-        .as_ref()
-        .is_some_and(|buffer| buffer.size() >= size)
-    {
+    let fits = |buffer: &Option<wgpu::Buffer>| buffer.as_ref().is_some_and(|b| b.size() >= size);
+    let current_fits = fits(&batch.buffer);
+    let previous_fits = !track_previous || fits(&batch.previous);
+    if current_fits && previous_fits {
         return;
     }
     let capacity = size
@@ -194,17 +289,26 @@ fn grow(batch: &mut InstanceBatch, context: &mut worldrunner_render_post::Prepar
         capacity <= device.limits().max_buffer_size,
         "instance buffer exceeds device limit"
     );
-    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("retained instances"),
-        size: capacity,
-        usage: wgpu::BufferUsages::VERTEX
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    if let Some(old) = &batch.buffer {
-        context.copy_buffer(old, &buffer, old.size());
+    let create = |label| {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: capacity,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    };
+    if !current_fits {
+        let buffer = create("retained instances");
+        if let Some(old) = &batch.buffer {
+            context.copy_buffer(old, &buffer, old.size());
+        }
+        batch.buffer = Some(buffer);
     }
-    batch.buffer = Some(buffer);
+    // A new previous buffer is rewritten in full, so it needs no copy of the old contents.
+    if !previous_fits {
+        batch.previous = Some(create("retained previous instances"));
+    }
     batch.buffer_valid.set(false);
 }

@@ -11,6 +11,7 @@ struct Objects {
     layout: wgpu::PipelineLayout,
     module: wgpu::ShaderModule,
     targets: Vec<Option<wgpu::ColorTargetState>>,
+    previous_transforms: bool,
     samples: u32,
     front_face: wgpu::FrontFace,
     constants: Vec<(String, f64)>,
@@ -24,12 +25,14 @@ impl ObjectPipelines {
         targets: &[Option<wgpu::ColorTargetState>],
         module: &wgpu::ShaderModule,
         target: (u32, &[(&str, f64)], wgpu::FrontFace),
+        previous_transforms: bool,
     ) -> Self {
         Self(Rc::new(Objects {
             device: device.clone(),
             layout: layout.clone(),
             module: module.clone(),
             targets: targets.to_vec(),
+            previous_transforms,
             samples: target.0,
             front_face: target.2,
             constants: target
@@ -51,7 +54,11 @@ impl Index<usize> for ObjectPipelines {
             let key = PipelineKey::ALL[index];
             let vertices = crate::geometry::vertex_attributes();
             let instances = crate::geometry::instance_attributes();
-            let buffers = vertex_buffers(&vertices, &instances);
+            let previous = crate::geometry::previous_instance_attributes();
+            let mut buffers = vertex_buffers(&vertices, &instances).to_vec();
+            if state.previous_transforms {
+                buffers.push(Some(crate::renderer::previous_instance_buffer(&previous)));
+            }
             let constants: Vec<_> = state
                 .constants
                 .iter()

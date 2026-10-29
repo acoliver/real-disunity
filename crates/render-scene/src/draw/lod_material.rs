@@ -17,6 +17,10 @@ impl SceneGpu {
                 .expect("flushed instance buffer")
                 .slice(..),
         );
+        // Only velocity pipelines declare this buffer; the others ignore the extra binding.
+        if let Some(previous) = &batch.previous {
+            pass.set_vertex_buffer(2, previous.slice(..));
+        }
         let lod = &self.meshes[mesh].lods[range.lod];
         pass.set_vertex_buffer(0, lod.vertices.slice(..));
         self.record_lod_slots(pass, pipelines, range, lod, range.lod);

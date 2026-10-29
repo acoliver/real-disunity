@@ -319,7 +319,7 @@ impl SceneGpu {
             materials,
             meshes,
             mesh_selection: prepared.selection,
-            instances: Instances::new(scene),
+            instances: Instances::new(scene).tracking_previous(pipelines.writes_velocity()),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
             camera_selection: std::rc::Rc::default(),

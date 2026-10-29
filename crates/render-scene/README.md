@@ -236,6 +236,8 @@ whether the history is valid. `TemporalView::to_bytes` is a separate 176-byte bl
 uploads for the frame slot. Draw into `targets().depth()` while TAA is resident. The 320-byte scene block keeps its layout, so with jitter on only its first sixty-four
 bytes change.
 
+Velocity pipelines (`ScenePipelines::with_taa_velocity`) also write the motion of moving instances. While a pass draws them, each instance batch keeps a previous-transform buffer (same layout as the instance buffer, bound as a third vertex buffer at locations 12 to 15 of velocity variants only). Editing a slot copies its last published transform there before the new one is uploaded; a slot untouched for a frame converges to previous equal to current; added or reused slots start equal to current; a cancelled frame changes neither buffer. Billboards and impostors do not yet follow their transform.
+
 `PostResolve::Taa` selects the default jitter sequence when none was requested
 (`PostResolve::effective_jitter`); an explicit sequence wins. `set_projection_jitter` returns
 `Result<(), PostError>` and refuses `None` while a TAA resolve is resident.

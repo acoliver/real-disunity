@@ -1,7 +1,8 @@
 //! Object-motion residual for the TAA resolve, written by the main pass.
 //!
 //! The residual of a fragment is `uv(P_prev * (w + delta)) - uv(P_prev * w)` where `w` is its
-//! deformed world position, `delta` the vertex stage's `previous - current` world motion and
+//! deformed world position, `delta` the vertex stage's `previous - current` world motion (the
+//! previous model matrix and previous clock against the current ones) and
 //! `P_prev` the previous unjittered view-projection. Both terms use the same matrix, so jitter
 //! and camera motion cancel and a static fragment stores exactly zero.
 //!
@@ -15,7 +16,9 @@
 //!
 //! | Draw                                  | Velocity attachment                       |
 //! | ------------------------------------- | ----------------------------------------- |
-//! | Opaque, masked and relief objects     | Residual (`@location(1)`)                 |
+//! | Opaque, masked and relief objects     | Residual (`@location(1)`): wind and the   |
+//! |                                       | instance's own previous transform         |
+//! | Billboards and impostor cards         | Wind only (no transform of their own)     |
 //! | Terrain                               | Written as zero (static in world space)   |
 //! | Dynamic quads                         | Not written (empty mask), stays at zero   |
 //! | Sky, celestial mesh composition       | Not written (empty mask), stays at zero   |
@@ -123,6 +126,33 @@ fn replace_once(source: &str, from: &str, to: &str) -> String {
     replace_times(source, from, to, 1)
 }
 
+/// Declarations behind the previous-transform vertex buffer (locations 12 to 15, the layout of
+/// the instance buffer's matrix). The model matrix is handed to the delta through a private
+/// variable so the stock vertex helpers keep their signatures. Billboards and impostors face the
+/// camera rather than follow their transform, so their previous position is the current one.
+const PREVIOUS_INSTANCE: &str = "
+struct PreviousInstance {
+    @location(12) model_column_0: vec4<f32>,
+    @location(13) model_column_1: vec4<f32>,
+    @location(14) model_column_2: vec4<f32>,
+    @location(15) model_column_3: vec4<f32>,
+}
+var<private> scene_previous_model: mat4x4<f32>;
+fn scene_object_world_delta(vertex: VertexInput, position: vec3<f32>, instance: InstanceInput) -> vec3<f32> {
+    var before = instance;
+    before.model_column_0 = vec4<f32>(scene_previous_model[0].xyz, instance.model_column_0.w);
+    before.model_column_1 = vec4<f32>(scene_previous_model[1].xyz, instance.model_column_1.w);
+    before.model_column_2 = vec4<f32>(scene_previous_model[2].xyz, instance.model_column_2.w);
+    before.model_column_3 = vec4<f32>(scene_previous_model[3].xyz, instance.model_column_3.w);
+    var before_position = position;
+    if (vertex.lod_billboard_mode & 3u) == BILLBOARD_FIXED {
+        let rotation = mat3x3<f32>(scene_previous_model[0].xyz, scene_previous_model[1].xyz, scene_previous_model[2].xyz);
+        before_position = scene_previous_model[3].xyz + rotation * vertex.position;
+    }
+    return scene_world_delta(position, before_position, vertex.ambient_occlusion, instance, before);
+}
+";
+
 /// The object source with the previous-position varying, before any fragment rewrite.
 ///
 /// Reflection and screen-space variants apply their own fragment rewrite afterwards, so the
@@ -135,11 +165,17 @@ pub(crate) fn vertex_source(source: &str) -> String {
     );
     let source = replace_times(&source, "input.ambient_occlusion", "input.ao_delta.x", 2);
     let source = replace_times(&source, "out.ambient_occlusion", "out.ao_delta.x", 5);
-    replace_once(
+    let source = replace_once(
         &source,
         "    let displacement = scene_geometry_displacement(out.world_position,",
-        "    out.ao_delta = vec4<f32>(out.ao_delta.x, scene_wind_world_delta(out.world_position, vertex.ambient_occlusion, instance));\n    let displacement = scene_geometry_displacement(out.world_position,",
-    )
+        "    out.ao_delta = vec4<f32>(out.ao_delta.x, scene_object_world_delta(vertex, out.world_position, instance));\n    let displacement = scene_geometry_displacement(out.world_position,",
+    );
+    let source = replace_once(
+        &source,
+        "@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {",
+        "@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput, previous: PreviousInstance) -> VertexOutput {\n    scene_previous_model = mat4x4<f32>(previous.model_column_0, previous.model_column_1, previous.model_column_2, previous.model_column_3);",
+    );
+    format!("{source}\n{PREVIOUS_INSTANCE}")
 }
 
 /// The object source with velocity-writing fragment entry points and the `world_delta` varying.

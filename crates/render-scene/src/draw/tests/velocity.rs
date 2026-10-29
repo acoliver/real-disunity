@@ -6,16 +6,17 @@
 //! pass wrote are compared (at least 200 of them). Residuals are read back from the frame renderer's velocity target.
 use super::foliage::foliage_scene;
 use super::*;
-use crate::compositor::FrameRenderer;
+use crate::compositor::{ConfiguredFrameRenderer, FrameRenderer, RendererConfiguration};
 use glam::{Mat4, Vec3, Vec4};
+use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{
     SceneAmbientOcclusion, SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition,
     SceneCelestialLighting, SceneCelestialMesh, SceneMaterialFeatures, SceneRotation, SceneTint,
     SceneWind,
 };
 use worldrunner_render_post::{
-    AntiAliasing, AttachmentView, FrameConfig, MsaaSamples, PostResolve, Readback, ResourceRef,
-    ToneMap,
+    AntiAliasing, AttachmentView, FrameConfig, HdrPostSettings, MsaaSamples, PostResolve, Readback,
+    ResourceRef, ToneMap,
 };
 
 const HDR: TextureFormat = TextureFormat::Rgba16Float;
@@ -370,6 +371,39 @@ fn a_renderer_without_taa_allocates_no_velocity_target_and_refuses_velocity_pipe
             .unwrap()
             .writes_velocity()
     );
+}
+
+fn taa_configuration(resolve: PostResolve) -> RendererConfiguration {
+    RendererConfiguration {
+        frame: FrameConfig::new([TARGET, TARGET], HDR, 1),
+        output_format: COLOR_FORMAT,
+        hdr: Some((1.0, ToneMap::Reinhard)),
+        post: HdrPostSettings {
+            resolve,
+            ..HdrPostSettings::default()
+        },
+        ..RendererConfiguration::legacy([TARGET, TARGET], COLOR_FORMAT)
+    }
+}
+
+#[test]
+fn enabling_taa_by_reconfiguration_allocates_the_velocity_target_and_dropping_it_releases_it() {
+    let context = context();
+    let mut renderer = ConfiguredFrameRenderer::new(
+        &context,
+        taa_configuration(PostResolve::None),
+        AllocationBudget(1 << 30),
+    )
+    .unwrap();
+    assert!(renderer.targets().velocity_texture().is_none());
+    renderer
+        .reconfigure(&context, taa_configuration(PostResolve::taa(0.9)))
+        .unwrap();
+    assert!(renderer.targets().velocity_texture().is_some());
+    renderer
+        .reconfigure(&context, taa_configuration(PostResolve::None))
+        .unwrap();
+    assert!(renderer.targets().velocity_texture().is_none());
 }
 
 fn output_texture(device: &Device) -> Texture {

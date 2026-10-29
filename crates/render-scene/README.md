@@ -252,6 +252,14 @@ history. A cancelled or failed preparation changes nothing. The first frame, `re
 the previous camera and restart the sequence; a frame prepared before a reset cannot republish
 after it.
 
+Velocity. `ScenePipelines::with_taa_velocity` builds pipelines whose object and terrain draws also
+write the wind residual to the `Rg16Float` velocity attachment that `FrameTargets` allocates only
+while TAA is resident (enabling TAA with `ConfiguredFrameRenderer::reconfigure` allocates it and
+dropping TAA releases it). Every other pipeline drawn into the opaque pass lists the attachment
+with an empty write mask (`velocity::masked_targets`), which covers the unlit dynamic quads, the sky
+and the celestial composition. The policy table is in `src/velocity.rs`. Wind on objects is produced;
+per-instance transforms, billboards, shadow receivers and SSR do not write velocity yet.
+
 Jitter alone makes the image shimmer. Enable it only with the resolve, or in tests.
 
 ## Cascade refresh scheduling

@@ -9,6 +9,7 @@ pub mod config;
 mod coroutines;
 pub mod error;
 pub mod host;
+mod legacy;
 mod load;
 pub mod modules;
 pub mod original;

@@ -101,8 +101,10 @@ three boolean fields/struct, 750 lines/file target and 1000 hard limit.
 Keep Rust incremental compilation disabled.
 
 Run `cargo xtask ci-cpu` and the relevant `ci-managed` and `ci-gpu` profiles for
-code changes. Protected `main` requires all seven hosted checks: CPU and managed
-on Linux, macOS and Windows, plus software-Vulkan GPU on Linux. Report checks
+code changes. Protected `main` requires the `PR gate` check: Linux CPU, managed,
+GPU static checks and the sharded GPU suite. Windows, macOS and the serial GPU
+suite run after merge and nightly, and failures open a `ci-failure` issue; see
+[quality gates](dev-docs/quality-gates.md#continuous-integration). Report checks
 actually run and blockers; do not infer another platform passed.
 
 Private `rd-stranded` validation and pin updates belong to its owner. External

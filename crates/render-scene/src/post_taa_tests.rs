@@ -58,7 +58,7 @@ pub(crate) fn effects(anti_alias: s::SceneAntiAlias, fxaa: Option<u32>) -> s::Sc
 }
 
 fn taa(history_micro: u32) -> s::SceneAntiAlias {
-    s::SceneAntiAlias::Taa { history_micro }
+    s::SceneAntiAlias::taa(history_micro)
 }
 
 const DUPLICATE: Result<p::HdrPostSettings, p::PostError> =
@@ -151,4 +151,56 @@ fn authored_taa_is_accepted_by_every_construction_path() {
     let settings = post::settings(&authored).unwrap();
     assert!(settings.resolve.active_taa().is_some());
     assert_eq!(crate::frame::validate_stock_effects(&authored), Ok(()));
+}
+
+fn taa_with_clip(clip_scale_micro: u32) -> s::SceneAntiAlias {
+    s::SceneAntiAlias::Taa {
+        history_micro: 900_000,
+        clip_scale_micro,
+    }
+}
+
+#[test]
+fn an_authored_clip_scale_becomes_the_clip_scale_beside_the_history_weight() {
+    for (micro, scale) in [
+        (500_000, 0.5),
+        (750_000, 0.75),
+        (1_500_000, 1.5),
+        (2_000_000, 2.0),
+    ] {
+        let settings = post::settings(&effects(taa_with_clip(micro), None)).unwrap();
+        assert_eq!(
+            settings.resolve.active_taa(),
+            Some(p::TaaSettings {
+                history_weight: 0.9,
+                clip_scale: scale,
+            }),
+            "{micro}"
+        );
+    }
+}
+
+#[test]
+fn the_default_constructor_authors_exactly_the_engine_default_clip_scale() {
+    let settings = post::settings(&effects(taa(900_000), None)).unwrap();
+    assert_eq!(
+        settings.resolve.active_taa().map(|taa| taa.clip_scale),
+        Some(p::TaaSettings::DEFAULT.clip_scale)
+    );
+    let default_micro = f64::from(s::DEFAULT_TAA_CLIP_SCALE_MICRO) / 1e6;
+    assert!((default_micro - f64::from(p::TaaSettings::DEFAULT.clip_scale)).abs() < f64::EPSILON);
+}
+
+#[test]
+fn the_authored_clip_scale_bounds_are_the_post_settings_bounds() {
+    let scale = |micro: u32| p::TaaSettings {
+        history_weight: 0.9,
+        clip_scale: f32::from(u16::try_from(micro / 1000).unwrap()) / 1000.0,
+    };
+    let minimum = s::MINIMUM_TAA_CLIP_SCALE_MICRO;
+    let maximum = s::MAXIMUM_TAA_CLIP_SCALE_MICRO;
+    assert_eq!(scale(minimum).validate(), Ok(()));
+    assert_eq!(scale(maximum).validate(), Ok(()));
+    assert!(scale(minimum - 1_000).validate().is_err());
+    assert!(scale(maximum + 1_000).validate().is_err());
 }

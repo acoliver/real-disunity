@@ -53,7 +53,7 @@ fn stock_frames_accept_authored_taa_because_the_renderer_owns_the_resolve() {
     )
     .unwrap();
     let mut parts = effect_parts();
-    parts.anti_alias = SceneAntiAlias::Taa { history_micro: 0 };
+    parts.anti_alias = SceneAntiAlias::taa(0);
     let effects = SceneEffects::new(parts).unwrap();
     assert_eq!(
         FrameUniform::new(&view, Some(&effects)).unwrap().temporal,

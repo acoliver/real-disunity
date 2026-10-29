@@ -213,7 +213,7 @@ capped at ten seconds after long pauses;
 `set_frame_delta` supplies an explicit simulation step. Fixed capture policies
 override wall-clock timing. `reset_exposure` resets the ordered history once at the next output.
 The shared temporal carry and slot-local published results survive resize. Nonneutral grading remains
-rejected, including requests with zero weights. An authored TAA maps to `PostResolve::Taa`. MSAA and FXAA may run together.
+rejected, including requests with zero weights. An authored TAA (`SceneAntiAlias::Taa { history_micro, clip_scale_micro }`) maps to `PostResolve::Taa` with `TaaSettings { history_weight, clip_scale }`. MSAA and FXAA may run together.
 
 `FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.

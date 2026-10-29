@@ -427,12 +427,8 @@ fn taa_builds_at_construction_with_jitter_enabled_automatically() {
     let explicit = ProjectionJitter::new(16).unwrap();
     let chosen = build(taa_descriptor().with_jitter(explicit), None);
     assert_eq!(chosen.projection_jitter(), Some(explicit));
-    let authored = crate::post_taa_tests::effects(
-        worldrunner_render_plan::SceneAntiAlias::Taa {
-            history_micro: 900_000,
-        },
-        None,
-    );
+    let authored =
+        crate::post_taa_tests::effects(worldrunner_render_plan::SceneAntiAlias::taa(900_000), None);
     let plain = AntiAliasing::new(MsaaSamples::X1, PostResolve::None);
     let from_effects = build(plain, Some(&authored));
     assert_eq!(from_effects.projection_jitter(), Some(jitter()));

@@ -629,7 +629,7 @@ original tighter tolerance.
 
 ## Temporal antialiasing
 
-`PostResolve::Taa(TaaSettings)` (`history_weight` 0.0 to 0.99, default 0.9; `clip_scale` 0.5 to 2.0,
+`PostResolve::Taa(TaaSettings)` (the scene recipe `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` authors both fields; `history_weight` 0.0 to 0.99, default 0.9; `clip_scale` 0.5 to 2.0,
 default 1.0) adds two stages, `taa resolve` and `taa history`, ahead of the luminance histogram, so
 exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` follows Karis 2014 (color box and
 compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled

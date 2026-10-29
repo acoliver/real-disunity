@@ -258,7 +258,16 @@ while TAA is resident (enabling TAA with `ConfiguredFrameRenderer::reconfigure` 
 dropping TAA releases it). Every other pipeline drawn into the opaque pass lists the attachment
 with an empty write mask (`velocity::masked_targets`), which covers the unlit dynamic quads, the sky
 and the celestial composition. The policy table is in `src/velocity.rs`. Wind on objects is produced;
-per-instance transforms, billboards, shadow receivers and SSR do not write velocity yet.
+per-instance transforms and billboards do not write velocity yet.
+
+Shadow receivers and SSR. `ShadowedScene::with_taa_velocity` applies the same rewrite to the shadow
+receiver object and terrain pipelines; the caster depth pipelines need none. With SSR on, the
+reflection forward pipelines (`ssr::forward`) write the residual at `@location(3)` after the three
+reflection targets, which costs 3 x 8 + 4 = 28 bytes per sample on an HDR target. `velocity::reflection_velocity`
+compares that with the device's `max_color_attachment_bytes_per_sample` (32 by default); when it
+does not fit the pipelines keep three targets and the resolve uses the camera reprojection. The SSR
+attachments are inserted ahead of the velocity attachment so the locations line up in both cases.
+SSAO-only scenes on `ScenePipelines::with_ssao` do not write velocity.
 
 Jitter alone makes the image shimmer. Enable it only with the resolve, or in tests.
 

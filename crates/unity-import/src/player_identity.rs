@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::Serialize;
 use worldrunner_unity_serialized::{
     ClassId,
-    managers::BuildSettings,
+    managers::{BuildSettings, QualitySettings},
     player_settings::{LAYOUT_RELEASE, read_player_identity},
 };
 
@@ -72,6 +72,38 @@ pub fn player_identity(data_dir: &Path) -> Result<PlayerIdentity, PlayerError> {
         unity_version,
         platform: platform(data_dir),
     })
+}
+
+/// The quality levels a player defines and the one it starts on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct QualityLevels {
+    /// Level names in level order.
+    pub names: Vec<String>,
+    /// The index of the level the player was built to start on.
+    pub current: i32,
+}
+
+/// Reads the quality levels of the player whose data directory is `data_dir`; `None` when
+/// `globalgamemanagers` has no `QualitySettings` object.
+///
+/// # Errors
+/// Fails when `globalgamemanagers` cannot be read or its quality settings do not decode.
+pub fn player_quality(data_dir: &Path) -> Result<Option<QualityLevels>, PlayerError> {
+    let mut managers = OpenFile::open(&data_dir.join("globalgamemanagers"))?;
+    let Some(path_id) = managers
+        .file
+        .objects()
+        .iter()
+        .find(|object| object.class_id == ClassId::QUALITY_SETTINGS)
+        .map(|object| object.path_id)
+    else {
+        return Ok(None);
+    };
+    let settings = managers.decode::<QualitySettings>(path_id)?;
+    Ok(Some(QualityLevels {
+        names: settings.names,
+        current: settings.current,
+    }))
 }
 
 /// The company and product names from `app.info`, which every player writes as two lines.

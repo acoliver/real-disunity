@@ -185,3 +185,38 @@ impl Layout for PreloadData {
         })
     }
 }
+
+/// Bytes of one quality level's settings, which follow its name.
+const QUALITY_LEVEL_SETTINGS_LEN: usize = 192;
+
+/// The player's quality levels: which one is current and what each is called.
+///
+/// This is the layout of Unity 6000.3 players. Each level's 192 bytes of settings are skipped
+/// and the 8 bytes after the last level (both zero in the Old World player) are not read, so
+/// the values a level stands for are not decoded yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QualitySettings {
+    /// The index of the level in use, as the player was built.
+    pub current: i32,
+    /// Level names in level order.
+    pub names: Vec<String>,
+}
+
+impl Layout for QualitySettings {
+    const CLASS: ClassId = ClassId::QUALITY_SETTINGS;
+
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        let current = r.i32()?;
+        let names = r.array(
+            "quality level",
+            LENGTH_MIN + QUALITY_LEVEL_SETTINGS_LEN,
+            |r| {
+                let name = r.string()?;
+                r.bytes::<QUALITY_LEVEL_SETTINGS_LEN>()?;
+                Ok(name)
+            },
+        )?;
+        r.bytes::<8>()?;
+        Ok(Self { current, names })
+    }
+}

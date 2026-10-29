@@ -366,3 +366,36 @@ fn the_public_descriptor_selects_jitter_and_defaults_to_off() {
         Some(jitter())
     );
 }
+
+#[test]
+fn a_capture_may_stage_the_temporal_history_it_declares() {
+    use worldrunner_render_gpu::submission::capture::CaptureWrites;
+    use worldrunner_render_post::FrameError;
+    let context = context();
+    let device = context.device();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter()));
+    let keys = renderer.capture_write_keys();
+    let writes = CaptureWrites::new(keys.clone(), keys.clone(), keys).unwrap();
+    let prepared = renderer.prepare_uniform(frame(0)).unwrap();
+    let prefix = context
+        .submission()
+        .begin_capture(device, writes, (), |encoder, _, ()| {
+            renderer.stage_temporal_history(encoder, &prepared)
+        })
+        .unwrap();
+    let continuation = prefix.submit().unwrap();
+    let suffix = continuation
+        .resume(
+            device,
+            |_, _| Ok::<_, FrameError>(()),
+            |encoder, _, (), ()| renderer.stage_temporal_history(encoder, &prepared),
+        )
+        .unwrap();
+    suffix
+        .submit()
+        .unwrap()
+        .finish(device, |_, _| Ok::<_, FrameError>(()))
+        .unwrap();
+    assert!(renderer.has_temporal_history());
+}

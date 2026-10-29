@@ -58,7 +58,8 @@ impl FrameRenderer {
         self.frame_delta = delta;
         Ok(())
     }
-    /// Reset the ordered history at the next output, for camera cuts or capture restart.
+    /// Reset the ordered exposure history at the next output, for camera cuts or capture restart.
+    /// Projection jitter history is separate: call [`Self::reset_temporal_history`] as well.
     pub fn reset_exposure(&self) {
         self.exposure_reset.set(true);
     }

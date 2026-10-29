@@ -12,6 +12,14 @@ pub enum ConfigurationError<E> {
     Budget { required: u64, budget: u64 },
     #[error("invalid allocation: {0}")]
     Invalid(&'static str),
+    /// A texture array cannot fit on the requested device, before allocation.
+    #[error("texture array requires {required} layers, device provides {available}")]
+    TextureArrayLayers {
+        /// Physical array layers required by the allocation policy.
+        required: u64,
+        /// The actual device limit, which may be below the adapter capability.
+        available: u32,
+    },
     #[error("configuration belongs to a different device")]
     ForeignDevice,
     #[error("replacement allocation failed: {0}")]
@@ -114,6 +122,23 @@ impl AllocationSet {
     }
     pub fn extend(&mut self, other: Self) {
         self.0.extend(other.0);
+    }
+    /// Checks each physical array independently of allocation multiplicity and byte budgets.
+    pub fn validate_array_layers<E>(
+        &self,
+        limits: &wgpu::Limits,
+    ) -> Result<(), ConfigurationError<E>> {
+        for entry in &self.0 {
+            if let Storage::Texture { extent, .. } = entry.storage
+                && extent[2] > limits.max_texture_array_layers
+            {
+                return Err(ConfigurationError::TextureArrayLayers {
+                    required: u64::from(extent[2]),
+                    available: limits.max_texture_array_layers,
+                });
+            }
+        }
+        Ok(())
     }
     pub fn validate(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
         total([self], limits)

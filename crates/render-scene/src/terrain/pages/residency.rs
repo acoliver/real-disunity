@@ -1,5 +1,6 @@
 //! Submitted material pages in a budgeted texture array.
 pub(super) mod allocation;
+pub(crate) use allocation::validate_layers;
 mod selection;
 mod state;
 use super::selection::PageKey;
@@ -124,6 +125,9 @@ impl ResidentPages {
         device: &wgpu::Device,
         slots: u32,
     ) -> Result<(), ConfigurationError<DriverAllocationError>> {
+        validate_layers(&device.limits(), slots, self.products)?;
+        self.source_allocations
+            .validate_array_layers(&device.limits())?;
         let allocations = allocation::allocations(
             self.settings,
             slots,

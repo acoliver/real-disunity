@@ -131,6 +131,7 @@ impl GpuContext {
                 required_features,
                 // Full SSR depth chains share the trace stage with receiver metadata.
                 required_limits: wgpu::Limits {
+                    max_texture_array_layers: adapter.limits().max_texture_array_layers,
                     max_sampled_textures_per_shader_stage: adapter
                         .limits()
                         .max_sampled_textures_per_shader_stage

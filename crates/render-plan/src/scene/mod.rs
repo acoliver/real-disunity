@@ -10,6 +10,7 @@
 mod decal;
 pub use decal::{
     SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalReceivers,
+    SceneDecalWriteMask,
 };
 mod atmosphere;
 mod specular_cube;

@@ -150,4 +150,5 @@ pub use scene::{TerrainLayerChannel, TerrainLayerChannelMap, TerrainLayerTexture
 
 pub use scene::{
     SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalReceivers,
+    SceneDecalWriteMask,
 };

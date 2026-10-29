@@ -55,6 +55,7 @@ mod ssr;
 mod ssr_acceptance;
 mod streaming;
 mod taa;
+mod taa_screen_space_tests;
 mod temporal;
 mod terrain_blend;
 mod velocity;

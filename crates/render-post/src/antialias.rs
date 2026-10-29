@@ -1,5 +1,8 @@
 //! One typed antialiasing choice: a multisample count plus a post resolve.
-use crate::{CasSettings, FrameConfig, FxaaQuality, PostError, SmaaPreset, SmaaSettings};
+use crate::{
+    CasSettings, Cmaa2Preset, Cmaa2Settings, FrameConfig, FxaaQuality, PostError, SmaaPreset,
+    SmaaSettings,
+};
 
 /// Multisample count of the scene attachments.
 ///
@@ -51,7 +54,7 @@ pub struct FxaaSettings {
 
 /// Post-process antialiasing applied to the tone-mapped image.
 ///
-/// FXAA and SMAA are alternatives: one resolve runs after tone mapping.
+/// FXAA, SMAA and CMAA2 are alternatives: one resolve runs after tone mapping.
 /// New resolves are added as variants, so match with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[non_exhaustive]
@@ -61,6 +64,8 @@ pub enum PostResolve {
     Fxaa(FxaaSettings),
     /// Subpixel morphological antialiasing, three passes at the render extent.
     Smaa(SmaaSettings),
+    /// Conservative morphological antialiasing, compute passes at the render extent.
+    Cmaa2(Cmaa2Settings),
 }
 impl PostResolve {
     /// FXAA with the default quality controls.
@@ -75,6 +80,11 @@ impl PostResolve {
     /// SMAA 1x at one of the reference quality presets.
     pub const fn smaa(preset: SmaaPreset) -> Self {
         Self::Smaa(SmaaSettings::preset(preset))
+    }
+
+    /// CMAA2 single-sample at one of the reference quality presets.
+    pub const fn cmaa2(preset: Cmaa2Preset) -> Self {
+        Self::Cmaa2(Cmaa2Settings::preset(preset))
     }
 
     pub fn fxaa_strength(self) -> Option<f32> {
@@ -96,6 +106,7 @@ impl PostResolve {
         match self {
             Self::None => Ok(()),
             Self::Smaa(smaa) => smaa.validate(),
+            Self::Cmaa2(cmaa2) => cmaa2.validate(),
             Self::Fxaa(fxaa) => {
                 fxaa.quality.validate()?;
                 if !fxaa.strength.is_finite() || !(0.0..=1.0).contains(&fxaa.strength) {
@@ -114,15 +125,32 @@ impl PostResolve {
         }
     }
 
+    /// Whether a resolve pass is scheduled, which needs the display-referred intermediate.
+    pub(crate) fn schedules_pass(self) -> bool {
+        self.active_fxaa().is_some()
+            || self.active_smaa().is_some()
+            || self.active_cmaa2().is_some()
+    }
+
+    /// CMAA2 settings that schedule passes.
+    pub(crate) fn active_cmaa2(self) -> Option<Cmaa2Settings> {
+        match self {
+            Self::Cmaa2(cmaa2) => Some(cmaa2),
+            _ => None,
+        }
+    }
+
     /// Format of the display-referred image between tone mapping and the resolve.
     ///
     /// FXAA keeps `Rgba32Float`, its flat-region precision contract. SMAA reads values in
     /// 0..1 with an 11-bit mantissa, finer than the 8-bit output, and its filterable
     /// `Rgba16Float` input halves the tone stage's store bandwidth and allows a hardware
-    /// bilinear fetch in neighborhood blending.
+    /// bilinear fetch in neighborhood blending. CMAA2 uses `Rgba16Float` for the same reason and
+    /// because it is a core write-only storage format, so its working copy needs no adapter
+    /// feature.
     pub(crate) fn display_format(self) -> wgpu::TextureFormat {
         match self {
-            Self::Smaa(_) => wgpu::TextureFormat::Rgba16Float,
+            Self::Smaa(_) | Self::Cmaa2(_) => wgpu::TextureFormat::Rgba16Float,
             _ => wgpu::TextureFormat::Rgba32Float,
         }
     }

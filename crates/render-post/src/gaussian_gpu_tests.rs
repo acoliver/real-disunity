@@ -1,5 +1,5 @@
-use super::post_effect_tests::{chain, pixels, step};
-use super::*;
+use crate::chain::post_effect_tests::{chain, pixels, step};
+use crate::chain::*;
 use crate::{Bloom, BloomKernel, GaussianLevel, HdrPostSettings};
 #[path = "gaussian_reference.rs"]
 pub(super) mod reference;
@@ -163,7 +163,7 @@ fn gpu_gaussian_cancelled_encoder_publishes_no_pixels_or_timings() {
     let authority = crate::test_authority(&queue);
     let mut encoder = authority.begin(&device).unwrap();
     c.begin_timing(42).unwrap();
-    super::post_effect_tests::paint(
+    crate::chain::post_effect_tests::paint(
         &device,
         &mut encoder,
         c.targets().resolved(),

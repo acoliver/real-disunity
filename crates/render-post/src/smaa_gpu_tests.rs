@@ -1,19 +1,19 @@
 //! SMAA 1x on synthetic images through the HDR post chain (display-referred, after
 //! tone mapping). Scene radiance 3.0 tone maps to 0.75 and 0.0 stays black, so
 //! every edge is far above all preset thresholds.
-use super::post_effect_tests::{chain, output, paint, pixels, step};
+use crate::chain::post_effect_tests::{chain, output, paint, pixels, step};
 use crate::{HdrPostSettings, PostResolve, SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 
-struct Rig {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+pub(super) struct Rig {
+    pub(super) device: wgpu::Device,
+    pub(super) queue: wgpu::Queue,
 }
 impl Rig {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let (device, queue) = crate::gpu_tests::gpu();
         Self { device, queue }
     }
-    fn render(&self, resolve: PostResolve, size: [u32; 2], body: &str) -> Vec<u8> {
+    pub(super) fn render(&self, resolve: PostResolve, size: [u32; 2], body: &str) -> Vec<u8> {
         let settings = HdrPostSettings {
             resolve,
             ..HdrPostSettings::default()
@@ -42,7 +42,7 @@ fn presets() -> impl Iterator<Item = SmaaSettings> {
 }
 
 /// Pixels whose RGBA bytes differ, as (x, y).
-fn changed(plain: &[u8], smaa: &[u8], width: u32) -> Vec<(i32, i32)> {
+pub(super) fn changed(plain: &[u8], smaa: &[u8], width: u32) -> Vec<(i32, i32)> {
     plain
         .chunks_exact(4)
         .zip(smaa.chunks_exact(4))
@@ -56,12 +56,12 @@ fn changed(plain: &[u8], smaa: &[u8], width: u32) -> Vec<(i32, i32)> {
         .collect()
 }
 
-fn red(image: &[u8], width: u32, x: u32, y: u32) -> u8 {
+pub(super) fn red(image: &[u8], width: u32, x: u32, y: u32) -> u8 {
     image[usize::try_from((y * width + x) * 4).unwrap()]
 }
 
 /// Every channel of every pixel lies between the darkest and brightest plain values.
-fn assert_within_plain_range(plain: &[u8], smaa: &[u8]) {
+pub(super) fn assert_within_plain_range(plain: &[u8], smaa: &[u8]) {
     for channel in 0..4 {
         let values = plain.iter().skip(channel).step_by(4);
         let (lo, hi) = (*values.clone().min().unwrap(), *values.max().unwrap());
@@ -241,11 +241,25 @@ fn resize_rebuilds_the_passes_for_the_new_extent() {
     }
 }
 
-/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame of diagonal edges.
+/// Frames of the timing probe. Diagonal stripes put edges in a few percent of the pixels; the
+/// disc has one closed edge, so list-driven passes find little to do.
+const PROBE_SCENES: [(&str, &str); 2] = [
+    (
+        "stripes",
+        "let v=0.25+3.0*step(0.5,fract((p.x+p.y*0.5)/37.0));return vec4<f32>(v,v*0.5,v*0.25,1.0);",
+    ),
+    (
+        "disc",
+        "let v=select(0.25,3.0,length(p.xy-vec2<f32>(960.0,540.0))<300.0);return vec4<f32>(v,v*0.5,v*0.25,1.0);",
+    ),
+];
+
+/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame.
 fn timed_medians(
     rig: &Rig,
     resolve: PostResolve,
     sharpen: Option<crate::CasSettings>,
+    scene: &str,
 ) -> Vec<(String, f64)> {
     let size = [1920, 1080];
     let chain = chain(
@@ -266,12 +280,7 @@ fn timed_medians(
         .map(|frame| {
             let mut encoder = authority.begin(&rig.device).unwrap();
             chain.begin_timing(frame).unwrap();
-            paint(
-                &rig.device,
-                &mut encoder,
-                chain.targets().resolved(),
-                "let v=0.25+3.0*step(0.5,fract((p.x+p.y*0.5)/37.0));return vec4<f32>(v,v*0.5,v*0.25,1.0);",
-            );
+            paint(&rig.device, &mut encoder, chain.targets().resolved(), scene);
             chain.encode(
                 &mut encoder,
                 &target.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -309,7 +318,16 @@ fn smaa_and_fxaa_stage_timestamps() {
     let (device, queue) =
         crate::gpu_tests::gpu_with_optional_features(wgpu::Features::TIMESTAMP_QUERY);
     let rig = Rig { device, queue };
+    if !rig
+        .device
+        .features()
+        .contains(wgpu::Features::TIMESTAMP_QUERY)
+    {
+        eprintln!("adapter has no timestamp queries; nothing to measure");
+        return;
+    }
     let cas = Some(crate::CasSettings::new(0.5));
+    let cmaa2 = PostResolve::cmaa2;
     for (name, resolve, sharpen) in [
         ("none", PostResolve::None, None),
         ("fxaa", PostResolve::fxaa(1.0), None),
@@ -317,6 +335,10 @@ fn smaa_and_fxaa_stage_timestamps() {
         ("smaa medium", PostResolve::smaa(SmaaPreset::Medium), None),
         ("smaa high", PostResolve::smaa(SmaaPreset::High), None),
         ("smaa ultra", PostResolve::smaa(SmaaPreset::Ultra), None),
+        ("cmaa2 low", cmaa2(crate::Cmaa2Preset::Low), None),
+        ("cmaa2 medium", cmaa2(crate::Cmaa2Preset::Medium), None),
+        ("cmaa2 high", cmaa2(crate::Cmaa2Preset::High), None),
+        ("cmaa2 ultra", cmaa2(crate::Cmaa2Preset::Ultra), None),
         ("cas", PostResolve::None, cas),
         ("fxaa + cas", PostResolve::fxaa(1.0), cas),
         (
@@ -324,12 +346,18 @@ fn smaa_and_fxaa_stage_timestamps() {
             PostResolve::smaa(SmaaPreset::Medium),
             cas,
         ),
+        ("cmaa2 high + cas", cmaa2(crate::Cmaa2Preset::High), cas),
     ] {
-        let passes = timed_medians(&rig, resolve, sharpen);
-        let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
-        eprintln!("{name}: total {:.3} ms (median of 5)", total / 1e6);
-        for (pass, ns) in passes {
-            eprintln!("  {pass}: {:.3} ms", ns / 1e6);
+        for (scene_name, scene) in PROBE_SCENES {
+            let passes = timed_medians(&rig, resolve, sharpen, scene);
+            let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
+            eprintln!(
+                "{name} [{scene_name}]: total {:.3} ms (median of 5)",
+                total / 1e6
+            );
+            for (pass, ns) in passes {
+                eprintln!("  {pass}: {:.3} ms", ns / 1e6);
+            }
         }
     }
 }

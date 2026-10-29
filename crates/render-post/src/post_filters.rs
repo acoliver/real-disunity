@@ -69,7 +69,7 @@ impl<'a> Filters<'a> {
         let upscale = settings
             .upscale
             .filter(|_| targets.config().size != targets.config().output_extent());
-        let resolved = resolve.active_fxaa().is_some() || resolve.active_smaa().is_some();
+        let resolved = resolve.schedules_pass();
         let display_format = settings.display_format();
         let ldr = (resolved || settings.sharpen.is_some() || upscale.is_some())
             .then(|| self.display_texture(targets.config().size, display_format));
@@ -102,8 +102,7 @@ impl<'a> Filters<'a> {
         format: wgpu::TextureFormat,
     ) {
         let size = targets.config().size;
-        let resolving =
-            later.resolve.active_fxaa().is_some() || later.resolve.active_smaa().is_some();
+        let resolving = later.resolve.schedules_pass();
         let sharpening = later.sharpen.is_some();
         // A resolve feeding only an upscale keeps its Rgba32Float intermediate. One feeding
         // sharpening writes the new, narrower Rgba16Float intermediate.
@@ -169,6 +168,8 @@ impl<'a> Filters<'a> {
             });
         } else if let Some(smaa) = resolve.active_smaa() {
             crate::smaa_gpu::append(self.device, self.set, source, size, smaa, output);
+        } else if let Some(cmaa2) = resolve.active_cmaa2() {
+            crate::cmaa2_gpu::append(self.device, self.set, source, size, cmaa2, output);
         }
     }
     fn display_texture(

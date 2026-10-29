@@ -51,6 +51,9 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
             3,
         );
     }
+    if settings.resolve.active_cmaa2().is_some() {
+        crate::cmaa2_gpu::allocations(&mut set, config.size);
+    }
     if settings.sharpen.is_some() {
         // Sharpening is one more stage between tone mapping and the output, so it adds one
         // intermediate: the stage before it can no longer write the output.

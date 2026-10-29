@@ -453,3 +453,9 @@ mod cas_gpu_tests;
 
 #[path = "cas_chain_tests.rs"]
 mod cas_chain_tests;
+
+#[path = "post_regression_tests.rs"]
+mod post_regression_tests;
+
+#[path = "timing_identity_tests.rs"]
+mod timing_identity_tests;

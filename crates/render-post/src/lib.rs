@@ -69,6 +69,10 @@ mod antialias_tests;
 mod cas;
 #[cfg(test)]
 mod cas_reference;
+mod cmaa2;
+mod cmaa2_gpu;
+#[cfg(test)]
+mod cmaa2_tests;
 mod fxaa;
 mod post_filters;
 mod smaa;
@@ -80,6 +84,7 @@ mod smaa_lut_tests;
 mod smaa_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use cas::CasSettings;
+pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 mod tone_map;

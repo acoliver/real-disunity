@@ -232,6 +232,7 @@ TilemapTests.Run();
 PhysicsMaterialTests.Run();
 
 UiTests.Run();
+PoolTests.Run();
 SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();

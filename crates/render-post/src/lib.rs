@@ -85,12 +85,16 @@ mod smaa_lut;
 mod smaa_lut_tests;
 #[cfg(test)]
 mod smaa_tests;
+mod taa;
+#[cfg(test)]
+mod taa_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use cas::CasSettings;
 pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use jitter::ProjectionJitter;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
+pub use taa::TaaSettings;
 mod tone_map;
 mod upscale;
 pub use hdr_post::{

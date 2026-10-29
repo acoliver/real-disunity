@@ -17,7 +17,7 @@ impl FrameRenderer {
             }
             frame.exposure = 1.0;
         }
-        Ok(frame)
+        Ok(self.jitter_frame(frame))
     }
 
     /// Supplies animation time for the next prepared frame, in seconds.

@@ -561,7 +561,7 @@ impl SceneGpu {
         selection.rebuild(
             &self.instances,
             &self.mesh_selection,
-            shadow_matrix.map_or(frame.view_projection, |(_, matrix)| matrix),
+            shadow_matrix.map_or(frame.selection_view_projection(), |(_, matrix)| matrix),
             frame.camera_position_millimeters,
         );
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);

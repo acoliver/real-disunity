@@ -7,6 +7,12 @@ UI into scene contributions (the `simulation` and `ui` features).
 - `RenderScene` owns validated geometry, materials, textures, optional terrain,
   and an optional environmental profile. No profile means unlit albedo plus
   emission, without lighting or grading. It does not resolve paths or load assets.
+- `SceneResources` clones share texture and material tables. `with_materials`
+  replaces materials and validates the complete result without copying textures.
+  `try_into_tables` returns both original vectors only when both tables are
+  uniquely owned, preserving table allocations and texture payload addresses.
+  Otherwise it returns the resource value unchanged. Callers can append to the
+  owned vectors and validate them again with `SceneResources::new`.
 - `SceneDirection` validates a unit vector quantized to integer micro-components.
   A scene sun points from a surface toward the light in right-handed Z-up
   coordinates: `[east, north, elevation]`. An authored document sun uses XYZ

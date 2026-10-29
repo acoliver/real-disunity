@@ -118,6 +118,10 @@ impl Decals {
         Ok((decals, slots))
     }
 
+    pub fn count(&self) -> usize {
+        self.entries.len()
+    }
+
     pub fn placements(&self) -> Vec<(u64, SceneDecal)> {
         self.entries.iter().map(|e| (e.id, e.decal)).collect()
     }
@@ -429,3 +433,7 @@ fn selected(entries: &[Entry], matrix: Mat4, camera: Vec3) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn selected_count(bytes: &[u8]) -> usize {
+    u32::from_le_bytes(bytes[..4].try_into().expect("decal header")) as usize
+}

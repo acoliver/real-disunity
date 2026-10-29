@@ -55,9 +55,23 @@ fn jitter() -> ProjectionJitter {
     ProjectionJitter::default()
 }
 
+fn timed_frame(eye_x: i64, milliseconds: u32) -> FrameUniform {
+    let mut frame = frame(eye_x);
+    frame.animation_time_milliseconds = milliseconds;
+    frame
+}
+
 /// Prepares a frame, stages its history and submits the transaction.
 fn submit(context: &GpuContext, renderer: &FrameRenderer, eye_x: i64) -> FrameUniform {
-    let prepared = renderer.prepare_uniform(frame(eye_x)).unwrap();
+    submit_frame(context, renderer, &frame(eye_x))
+}
+
+fn submit_frame(
+    context: &GpuContext,
+    renderer: &FrameRenderer,
+    input: &FrameUniform,
+) -> FrameUniform {
+    let prepared = renderer.prepare_uniform(*input).unwrap();
     let transaction = context
         .submission()
         .prepare(context.device(), |encoder, _| {
@@ -101,8 +115,8 @@ fn explicitly_off_matches_a_renderer_that_never_had_jitter() {
     let context = context();
     let absent = renderer(&context);
     let mut toggled = renderer(&context);
-    toggled.set_projection_jitter(Some(jitter()));
-    toggled.set_projection_jitter(None);
+    toggled.set_projection_jitter(Some(jitter())).unwrap();
+    toggled.set_projection_jitter(None).unwrap();
     for eye_x in [0, 250, -4_000] {
         let expected = submit(&context, &absent, eye_x);
         let actual = submit(&context, &toggled, eye_x);
@@ -116,7 +130,7 @@ fn explicitly_off_matches_a_renderer_that_never_had_jitter() {
 fn first_frame_is_jittered_and_has_no_history() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let input = frame(0);
     let prepared = renderer.prepare_uniform(input).unwrap();
     let temporal = temporal(&prepared);
@@ -145,7 +159,7 @@ fn first_frame_is_jittered_and_has_no_history() {
 fn jitter_changes_only_the_matrix_lanes_of_the_scene_block() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let input = frame(0);
     let jittered = renderer.prepare_uniform(input).unwrap().to_bytes();
     let plain = input.to_bytes();
@@ -157,7 +171,7 @@ fn jitter_changes_only_the_matrix_lanes_of_the_scene_block() {
 fn preparing_twice_does_not_jitter_twice() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let once = renderer.prepare_uniform(frame(0)).unwrap();
     let twice = renderer.prepare_uniform(once).unwrap();
     assert_eq!(twice.to_bytes(), once.to_bytes());
@@ -168,7 +182,7 @@ fn preparing_twice_does_not_jitter_twice() {
 fn a_submitted_frame_becomes_the_previous_frame() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let first = temporal(&submit(&context, &renderer, 0));
     assert!(renderer.has_temporal_history());
     let second = temporal(&renderer.prepare_uniform(frame(500)).unwrap());
@@ -190,7 +204,7 @@ fn the_jitter_sequence_advances_one_step_per_submitted_frame_and_wraps() {
     let context = context();
     let mut renderer = renderer(&context);
     let short = ProjectionJitter::new(3).unwrap();
-    renderer.set_projection_jitter(Some(short));
+    renderer.set_projection_jitter(Some(short)).unwrap();
     for index in 0..7_u64 {
         let prepared = submit(&context, &renderer, 0);
         assert_offset(
@@ -208,7 +222,7 @@ fn the_jitter_sequence_advances_one_step_per_submitted_frame_and_wraps() {
 fn a_cancelled_frame_leaves_no_history_and_does_not_advance_the_sequence() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let kept = submit(&context, &renderer, 0);
     let prepared = renderer.prepare_uniform(frame(900)).unwrap();
     context
@@ -230,7 +244,7 @@ fn a_cancelled_frame_leaves_no_history_and_does_not_advance_the_sequence() {
 fn a_cancelled_first_frame_leaves_the_next_frame_without_history() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let prepared = renderer.prepare_uniform(frame(0)).unwrap();
     context
         .submission()
@@ -247,7 +261,7 @@ fn a_cancelled_first_frame_leaves_the_next_frame_without_history() {
 fn a_failed_preparation_leaves_no_history() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let prepared = renderer.prepare_uniform(frame(0)).unwrap();
     let failed = context
         .submission()
@@ -266,7 +280,7 @@ fn a_failed_preparation_leaves_no_history() {
 fn a_camera_cut_discards_history_and_restarts_the_sequence() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     submit(&context, &renderer, 0);
     submit(&context, &renderer, 100);
     renderer.reset_temporal_history();
@@ -284,7 +298,7 @@ fn a_camera_cut_discards_history_and_restarts_the_sequence() {
 fn a_frame_prepared_before_a_cut_does_not_republish_after_it() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let prepared = renderer.prepare_uniform(frame(0)).unwrap();
     let transaction = context
         .submission()
@@ -302,7 +316,7 @@ fn a_frame_prepared_before_a_cut_does_not_republish_after_it() {
 fn a_resize_discards_history() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     submit(&context, &renderer, 0);
     assert!(renderer.resize(context.device(), [32, 32]).unwrap());
     assert!(!renderer.has_temporal_history());
@@ -315,15 +329,17 @@ fn a_resize_discards_history() {
 fn changed_jitter_settings_discard_history_and_identical_ones_keep_it() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     submit(&context, &renderer, 0);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     assert!(renderer.has_temporal_history());
-    renderer.set_projection_jitter(Some(ProjectionJitter::new(4).unwrap()));
+    renderer
+        .set_projection_jitter(Some(ProjectionJitter::new(4).unwrap()))
+        .unwrap();
     assert!(!renderer.has_temporal_history());
     submit(&context, &renderer, 0);
     assert!(renderer.has_temporal_history());
-    renderer.set_projection_jitter(None);
+    renderer.set_projection_jitter(None).unwrap();
     assert!(!renderer.has_temporal_history());
     assert_eq!(renderer.prepare_uniform(frame(0)).unwrap().temporal, None);
 }
@@ -332,7 +348,7 @@ fn changed_jitter_settings_discard_history_and_identical_ones_keep_it() {
 fn a_frame_without_jitter_data_publishes_nothing() {
     let context = context();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     context
         .submission()
         .prepare(context.device(), |encoder, _| {
@@ -374,7 +390,7 @@ fn a_capture_may_stage_the_temporal_history_it_declares() {
     let context = context();
     let device = context.device();
     let mut renderer = renderer(&context);
-    renderer.set_projection_jitter(Some(jitter()));
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
     let keys = renderer.capture_write_keys();
     let writes = CaptureWrites::new(keys.clone(), keys.clone(), keys).unwrap();
     let prepared = renderer.prepare_uniform(frame(0)).unwrap();
@@ -398,4 +414,197 @@ fn a_capture_may_stage_the_temporal_history_it_declares() {
         .finish(device, |_, _| Ok::<_, FrameError>(()))
         .unwrap();
     assert!(renderer.has_temporal_history());
+}
+
+fn taa_descriptor() -> worldrunner_render_post::AntiAliasing {
+    use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostResolve};
+    AntiAliasing::new(MsaaSamples::X1, PostResolve::taa(0.9))
+}
+
+#[test]
+fn taa_builds_at_construction_with_jitter_enabled_automatically() {
+    use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostResolve, ToneMap};
+    let context = context();
+    let build = |antialiasing: AntiAliasing, effects| {
+        FrameRenderer::hdr_antialiased(
+            &context,
+            SIZE,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            antialiasing,
+            ToneMap::Reinhard,
+            effects,
+        )
+        .unwrap()
+    };
+    let automatic = build(taa_descriptor(), None);
+    assert_eq!(automatic.projection_jitter(), Some(jitter()));
+    let explicit = ProjectionJitter::new(16).unwrap();
+    let chosen = build(taa_descriptor().with_jitter(explicit), None);
+    assert_eq!(chosen.projection_jitter(), Some(explicit));
+    let authored =
+        crate::post_taa_tests::effects(worldrunner_render_plan::SceneAntiAlias::taa(900_000), None);
+    let plain = AntiAliasing::new(MsaaSamples::X1, PostResolve::None);
+    let from_effects = build(plain, Some(&authored));
+    assert_eq!(from_effects.projection_jitter(), Some(jitter()));
+}
+
+#[test]
+fn clearing_jitter_while_taa_is_resident_is_a_typed_error_that_keeps_the_sequence() {
+    use worldrunner_render_post::{PostError, PostResolve};
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.post_requested.resolve = PostResolve::taa(0.9);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit(&context, &renderer, 0);
+    assert_eq!(
+        renderer.set_projection_jitter(None),
+        Err(PostError::UnsupportedProfile(
+            "TAA requires projection jitter"
+        ))
+    );
+    assert_eq!(renderer.projection_jitter(), Some(jitter()));
+    assert!(renderer.has_temporal_history());
+    let shorter = ProjectionJitter::new(4).unwrap();
+    assert_eq!(renderer.set_projection_jitter(Some(shorter)), Ok(()));
+    assert_eq!(renderer.projection_jitter(), Some(shorter));
+}
+
+#[test]
+fn clearing_jitter_is_allowed_without_taa() {
+    use worldrunner_render_post::PostResolve;
+    let context = context();
+    let mut renderer = renderer(&context);
+    assert_eq!(renderer.set_projection_jitter(None), Ok(()));
+    for resolve in [PostResolve::None, PostResolve::fxaa(0.5)] {
+        renderer.post_requested.resolve = resolve;
+        assert_eq!(renderer.set_projection_jitter(Some(jitter())), Ok(()));
+        assert_eq!(renderer.set_projection_jitter(None), Ok(()), "{resolve:?}");
+        assert_eq!(renderer.projection_jitter(), None);
+    }
+}
+
+#[test]
+fn the_first_frame_reports_its_own_clock_and_camera_as_previous() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let input = timed_frame(250, 4_000);
+    let first = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert_eq!(first.previous_animation_time_ms, 4_000);
+    assert_eq!(first.previous_camera_position, input.camera_position);
+}
+
+#[test]
+fn a_submitted_frame_publishes_its_clock_and_camera_for_the_next_frame() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let published = submit_frame(&context, &renderer, &timed_frame(250, 4_000));
+    let next_input = timed_frame(-900, 4_016);
+    let next = temporal(&renderer.prepare_uniform(next_input).unwrap());
+    assert!(next.history_valid);
+    assert_eq!(next.previous_animation_time_ms, 4_000);
+    assert_eq!(next.previous_camera_position, published.camera_position);
+    assert_ne!(next.previous_camera_position, next_input.camera_position);
+}
+
+#[test]
+fn a_cancelled_frame_does_not_publish_its_clock_or_camera() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let kept = submit_frame(&context, &renderer, &timed_frame(0, 1_000));
+    let prepared = renderer.prepare_uniform(timed_frame(900, 2_000)).unwrap();
+    context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.stage_temporal_history(encoder, &prepared)
+        })
+        .unwrap()
+        .cancel();
+    let next = temporal(&renderer.prepare_uniform(timed_frame(900, 3_000)).unwrap());
+    assert_eq!(next.previous_animation_time_ms, 1_000);
+    assert_eq!(next.previous_camera_position, kept.camera_position);
+}
+
+#[test]
+fn a_reset_discards_the_previous_clock_and_camera() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 1_000));
+    renderer.reset_temporal_history();
+    let input = timed_frame(700, 2_000);
+    let next = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert!(!next.history_valid);
+    assert_eq!(next.previous_animation_time_ms, 2_000);
+    assert_eq!(next.previous_camera_position, input.camera_position);
+}
+
+#[test]
+fn a_frame_prepared_before_a_reset_does_not_republish_its_clock() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    let prepared = renderer.prepare_uniform(timed_frame(0, 1_000)).unwrap();
+    let transaction = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.stage_temporal_history(encoder, &prepared)
+        })
+        .unwrap();
+    renderer.reset_temporal_history();
+    transaction.submit().unwrap();
+    context.device().poll(wgpu::PollType::Poll).unwrap();
+    let input = timed_frame(0, 2_000);
+    let next = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert!(!next.history_valid);
+    assert_eq!(next.previous_animation_time_ms, 2_000);
+}
+
+#[test]
+fn a_clock_that_moves_backwards_discards_history_and_restarts_the_sequence() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 5_000));
+    submit_frame(&context, &renderer, &timed_frame(0, 5_016));
+    let input = timed_frame(300, 4_000);
+    let rewound = temporal(&renderer.prepare_uniform(input).unwrap());
+    assert!(!rewound.history_valid);
+    assert_eq!(rewound.previous_animation_time_ms, 4_000);
+    assert_eq!(rewound.previous_camera_position, input.camera_position);
+    assert_offset(rewound.jitter_pixels, jitter().offset_pixels(0));
+    assert!(!renderer.has_temporal_history());
+}
+
+#[test]
+fn an_equal_clock_keeps_history() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 5_000));
+    let paused = temporal(&renderer.prepare_uniform(timed_frame(100, 5_000)).unwrap());
+    assert!(paused.history_valid);
+    assert_eq!(paused.previous_animation_time_ms, 5_000);
+}
+
+#[test]
+fn a_frame_prepared_before_a_rewind_does_not_republish_after_it() {
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(jitter())).unwrap();
+    submit_frame(&context, &renderer, &timed_frame(0, 5_000));
+    let stale = renderer.prepare_uniform(timed_frame(0, 5_016)).unwrap();
+    let transaction = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.stage_temporal_history(encoder, &stale)
+        })
+        .unwrap();
+    let rewound = renderer.prepare_uniform(timed_frame(0, 100)).unwrap();
+    assert!(!temporal(&rewound).history_valid);
+    transaction.submit().unwrap();
+    context.device().poll(wgpu::PollType::Poll).unwrap();
+    assert!(!renderer.has_temporal_history());
 }

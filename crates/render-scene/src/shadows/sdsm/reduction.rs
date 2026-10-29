@@ -11,8 +11,13 @@ pub struct DepthReducer {
     group: wgpu::BindGroup,
     result: wgpu::Buffer,
     size: [u32; 2],
+    timing: Option<worldrunner_render_post::TimingState>,
 }
 impl DepthReducer {
+    pub(super) fn set_timing(&mut self, timing: worldrunner_render_post::TimingState) {
+        self.timing = Some(timing);
+    }
+
     pub fn write_key(&self) -> WriteKey {
         use std::hash::{Hash, Hasher};
         let mut hash = std::collections::hash_map::DefaultHasher::new();
@@ -76,6 +81,7 @@ impl DepthReducer {
             group,
             result,
             size: depth.1.size(),
+            timing: None,
         })
     }
     /// Allocation-local buffers prevent mapped-slot reuse and copy/map races.
@@ -96,17 +102,22 @@ impl DepthReducer {
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        for (pipeline, groups) in [
-            (&self.initialize, [1, 1]),
+        for (name, pipeline, groups) in [
+            ("sdsm receiver initialize", &self.initialize, [1, 1]),
             (
+                "sdsm receiver reduce",
                 &self.reduce,
                 [self.size[0].div_ceil(8), self.size[1].div_ceil(8)],
             ),
         ] {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("receiver depth reduction"),
-                timestamp_writes: None,
-            });
+            let mut pass = match &self.timing {
+                Some(timing) => timing
+                    .begin_compute_pass(encoder, worldrunner_render_post::StageId::new(name, 0)),
+                None => encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some(name),
+                    timestamp_writes: None,
+                }),
+            };
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &self.group, &[]);
             pass.dispatch_workgroups(groups[0], groups[1], 1);

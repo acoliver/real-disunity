@@ -30,30 +30,35 @@ fn stock_frames_reject_each_requested_unimplemented_effect() {
         },
     )
     .unwrap();
-    for (ssao, post, anti_alias, effect) in [
-        (
-            None,
-            vec![ScenePostStage::Vignette { strength_micro: 0 }],
-            SceneAntiAlias::Disabled,
-            "post-processing",
-        ),
-        (
-            None,
-            vec![],
-            SceneAntiAlias::Taa { history_micro: 0 },
-            "post-processing",
-        ),
-    ] {
-        let mut parts = effect_parts();
-        parts.ssao = ssao;
-        parts.post = post;
-        parts.anti_alias = anti_alias;
-        let effects = SceneEffects::new(parts).unwrap();
-        assert_eq!(
-            FrameUniform::new(&view, Some(&effects)),
-            Err(FrameError::UnsupportedEffect(effect))
-        );
-    }
+    let mut parts = effect_parts();
+    parts.post = vec![ScenePostStage::Vignette { strength_micro: 0 }];
+    let effects = SceneEffects::new(parts).unwrap();
+    assert_eq!(
+        FrameUniform::new(&view, Some(&effects)),
+        Err(FrameError::UnsupportedEffect("post-processing"))
+    );
+}
+
+/// The stock frame uniform carries no resolve: TAA, like FXAA, belongs to the `FrameRenderer`
+/// that owns the targets and the history, which refuses a mismatched scene in `validate_post`.
+#[test]
+fn stock_frames_accept_authored_taa_because_the_renderer_owns_the_resolve() {
+    let view = SceneView::new(
+        pose(),
+        camera(),
+        Viewport {
+            width: TARGET,
+            height: TARGET,
+        },
+    )
+    .unwrap();
+    let mut parts = effect_parts();
+    parts.anti_alias = SceneAntiAlias::taa(0);
+    let effects = SceneEffects::new(parts).unwrap();
+    assert_eq!(
+        FrameUniform::new(&view, Some(&effects)).unwrap().temporal,
+        None
+    );
 }
 
 #[test]

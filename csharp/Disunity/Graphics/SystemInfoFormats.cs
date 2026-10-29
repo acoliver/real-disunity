@@ -24,7 +24,7 @@ public sealed partial class SystemInfo
     public static GraphicsFormat GetCompatibleFormat(GraphicsFormat format, FormatUsage usage) => GetCompatibleFormat(format, ToFlag(usage));
 
     /// <summary>
-    /// Unity's documented defaults: LDR is 8-bit RGBA, sRGB in a linear project, HDR is RGBA half float, DepthStencil
+    /// The default formats: LDR is 8-bit RGBA, sRGB in a linear project, HDR is RGBA half float, DepthStencil
     /// is 24-bit depth with 8-bit stencil and Shadow is 32-bit float depth. They do not depend on the device.
     /// DefaultFormat.Video has no mapping and throws NotSupportedException.
     /// </summary>

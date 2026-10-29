@@ -57,11 +57,16 @@ impl Objects {
 }
 
 impl Renderer {
+    pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
+        self.resident.scene_mut().take_statistics()
+    }
+
     pub fn take_surface_recreated(&mut self) -> bool {
         self.execution.take_recreated()
     }
 
     pub fn collect_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
+        self.collect_timing(host)?;
         self.streaming
             .collect(self.context.submission().completed_serial());
         self.streaming.captures.collect(host)?;

@@ -225,6 +225,7 @@ PhysicsMaterialTests.Run();
 
 UiTests.Run();
 SpriteTests.Run();
+SpriteAtlasTests.Run();
 
 EnabledTests.Run();
 
@@ -246,6 +247,8 @@ UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();
+TextCoreTests.Run();
+FieldBinderTests.Run();
 EnvironmentTests.Run();
 
 NativeArrayTests.Run();
@@ -276,3 +279,9 @@ ScriptExceptionTests.Run();
 CameraProjectionTests.Run();
 CameraSceneTests.Run();
 ScreenTests.Run();
+QualitySettingsTests.Run();
+CursorTests.Run();
+ColorUtilityTests.Run();
+EndOfFrameTests.Run();
+RenderPipelineAssetTests.Run();
+SceneManagerTests.Run();

@@ -1,0 +1,54 @@
+# Measured run time, in seconds, of the slowest `ci-gpu` tests on the hosted lavapipe runner.
+# `ci-gpu-shard` deals the heaviest tests first, each to the shard with the least work so far.
+# Tests not listed weigh `default_test`; harness-free binaries not listed weigh `default_unit`.
+# A wrong or stale value only unbalances the shards: every test still runs exactly once.
+# Refresh from a shard log when `cargo xtask ci-gpu-plan 8` shows one shard far above the others.
+
+default_test = 1
+default_unit = 60
+
+[units]
+"test callback_failure" = 50
+"test live_window" = 65
+"test play_window" = 120
+
+[tests]
+"chain::post_effect_tests::cas_chain_tests::constant_frames_alpha_and_odd_extents_survive_every_resolve_and_sharpness" = 15
+"draw::tests::alpha_factor::bilinear_alpha_is_scaled_after_filtering_without_byte_baking" = 25
+"draw::tests::alpha_factor::odd_alpha_cutoffs_match_rational_oracle_in_all_passes_and_impostors" = 45
+"draw::tests::decals::color::opacity_edge_thresholds_angle_faded_alpha_for_mesh_and_terrain" = 15
+"draw::tests::decals::normal_frames::correction_frame_reaches_forward_and_metadata_on_rotated_planes_and_slopes" = 45
+"draw::tests::decals::write::albedo_only_preserves_receiver_normal_and_surface_before_lighting" = 20
+"draw::tests::decals::write::alpha_rejection_preserves_forward_normal_and_material_with_active_maps" = 20
+"draw::tests::decals::write::individual_masks_and_disabled_albedo_match_baked_folded_receivers" = 55
+"draw::tests::decals::write::receiver_world_respects_disabled_normal_and_alpha_rejection" = 35
+"draw::tests::fade_handoff::local_reference_rotates_scales_and_clamps_eye_at_literal_fade_boundaries" = 50
+"draw::tests::fade_handoff::separate_objects_partition_forward_and_shadow_without_holes_or_overlap" = 115
+"draw::tests::fade_steps::inclusive_step_mirrors_keep_endpoint_ownership_in_forward_and_shadow" = 15
+"draw::tests::fade_steps::step_bands_partition_forward_prepass_metadata_and_shadow_at_the_endpoint" = 360
+"draw::tests::foliage::mesh_card_transition_has_exact_complementary_coverage_in_all_passes" = 40
+"draw::tests::foliage_fixes::screen_pixel_transition_is_exclusive_and_complete_on_overlapping_geometry" = 130
+"draw::tests::impostor_policy::lit_and_backlit_packed_translucency_pixels_apply_self_ao_once_at_threshold" = 35
+"draw::tests::lod_scale::lod_scale_preserves_explicit_world_distance_fade_endpoints" = 35
+"draw::tests::normal_frames::source_channels_y_conventions_and_normal_scale_reach_every_normal_pass" = 125
+"draw::tests::normal_frames::stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_passes" = 30
+"draw::tests::ssr_acceptance::fog_policy_tests::full_ray_water_colour_receiver_and_ssr_replacement_at_every_supported_sample_count" = 15
+"draw::tests::ssr_acceptance::geometric_water_hit_and_offscreen_miss_at_every_supported_sample_count" = 20
+"draw::tests::ssr_acceptance::narrow_sloped_water_publishes_sample_origins_on_its_geometric_plane" = 15
+"draw::tests::ssr_acceptance::specular_render_tests::selected_mesh_terrain_and_card_draws_publish_environment_separately_from_direct" = 30
+"draw::tests::ssr_acceptance::specular_render_tests::selected_subfloor_water_environment_and_ssr_preserve_direct_specular" = 20
+"renderer::capture::specular_tests::resolved_specular_capture_matches_material_decal_oracles_and_repeats" = 20
+"renderer::tests::actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation" = 15
+"retained::windowless::tests::convention::effects::retained_effects_have_visible_receivers_and_independent_landmarks" = 50
+"retained::windowless::tests::convention::retained_camera_conventions_preserve_culling_metadata_shadows_resize_and_fixed_capture" = 25
+"rust_and_csharp_worlds_produce_equivalent_sprite_contributions" = 20
+"shadows::tests::cascades::gpu_camera_splits_blend_and_reconfigure_without_reupload" = 15
+"shadows::tests::geometry::gpu_billboard_overhead_orientation_fallbacks_have_stable_receiver_coverage" = 25
+"shadows::tests::hdr::hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_every_supported_sample_count" = 15
+"shadows::tests::hdr::hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture" = 15
+"sky::body_lighting_tests::gpu_each_body_contribution_matches_an_independent_cpu_oracle" = 20
+"sky::body_lighting_tests::sun_tint_preserves_roughness_aware_ao_with_fixed_sh" = 75
+"sky::body_lighting_tests::world_anchored_body_parallax_tracks_camera_translation" = 25
+"sky::meshes::tests::mesh_pipelines_share_the_resident_material_layout" = 65
+"sky::review_tests::zero_surface_preserves_solar_and_minified_dome_background" = 20
+"ssr::tests::forward_ao_tests::gpu_forward_then_resolve_replaces_actual_lobe_and_preserves_direct_diffuse" = 15

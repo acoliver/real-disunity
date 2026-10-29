@@ -5,9 +5,8 @@ using UnityEngine;
 namespace Unity.Profiling
 {
     /// <summary>
-    /// A named profiler scope. The engine has no profiler, so Begin, End and Auto record nothing; Unity
-    /// documents a marker as having no effect while the profiler is not recording
-    /// (https://docs.unity3d.com/ScriptReference/Unity.Profiling.ProfilerMarker.html). <see cref="Handle"/> is
+    /// A named profiler scope. The engine has no profiler, so Begin, End and Auto record nothing and have
+    /// no effect. <see cref="Handle"/> is
     /// a non-zero number that is the same for every marker of one name in this process (numbers count up
     /// from 1 in the order names are first seen); a default-constructed marker has handle zero.
     /// </summary>

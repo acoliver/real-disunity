@@ -106,8 +106,7 @@ public static partial class DisunityHost
         if (!isList && (fields.Length == 0 || value is IEnumerable or Delegate))
             throw new NotSupportedException($"unsupported serialized field type {type}");
         object clone;
-        try { clone = Activator.CreateInstance(type, nonPublic: true)
-            ?? throw new NotSupportedException($"cannot clone serialized field {type}"); }
+        try { clone = SerializableInstance.Create(type); }
         catch (MissingMethodException error) { throw new NotSupportedException($"cannot clone serialized field {type}", error); }
         copied.Add(value, clone);
         if (isList)

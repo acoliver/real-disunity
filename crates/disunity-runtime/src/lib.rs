@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use libloading::Library;
 mod managed_entrypoints;
+pub mod signal_stack;
 
 use managed_entrypoints::ManagedBridge;
 
@@ -157,6 +158,7 @@ impl DisunityHost {
     /// Only one host may own the process-wide managed bridge at a time.
     pub fn boot(config: &ManagedHostConfig) -> Result<Self, HostError> {
         config.validate()?;
+        signal_stack::release_small_signal_stack();
         let claim = HostClaim::acquire()?;
         let library = load_ffi_image(config)?;
         // SAFETY: symbols resolve against the explicitly configured ABI library.

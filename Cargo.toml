@@ -23,6 +23,7 @@ serde_json = "1.0.145"
 sha2 = "0.10.9"
 tempfile = "3.27.0"
 thiserror = "2.0.17"
+libc = "0.2"
 libloading = "0.8"
 netcorehost = { version = "0.22", default-features = false, features = ["nethost", "nethost-download", "net8_0"] }
 tracing = "0.1.44"

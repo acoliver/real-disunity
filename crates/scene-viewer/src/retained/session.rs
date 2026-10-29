@@ -131,7 +131,7 @@ impl Content for Session<'_> {
             scene: &self.host.initial_scene,
             shadows: self.host.options.shadows,
             profile: self.host.options.frame_profile,
-            frames_in_flight: self.host.options.frames_in_flight,
+            startup: (&self.host.options).into(),
         }
     }
     fn exit_requested(&self) -> bool {
@@ -161,6 +161,11 @@ impl Content for Session<'_> {
             .unwrap_or(self.host.options.render_clock);
         renderer.set_clock(clock);
         if renderer.render_retained(&mut self.host)? {
+            self.host.statistics = Some(super::RetainedFrameStatistics {
+                frame: self.frame,
+                generation: self.host.readiness.published,
+                scene: renderer.take_statistics(),
+            });
             self.notify(&RetainedEvent::Presented { frame: self.frame })
                 .map_err(ViewerError::Driver)?;
             self.frame += 1;

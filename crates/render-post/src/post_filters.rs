@@ -1,3 +1,4 @@
+use crate::hdr_taa::Scene;
 use crate::{FrameTargets, HdrPostSettings, Stage, StageSet, StageTarget, color_texture};
 
 pub(crate) struct Filters<'a> {
@@ -37,12 +38,13 @@ impl<'a> Filters<'a> {
     }
     pub fn build(
         &mut self,
-        targets: &FrameTargets,
+        scene: &Scene<'_>,
         settings: &HdrPostSettings,
         exposure: &wgpu::Buffer,
         output: (wgpu::TextureFormat, f64, crate::ToneMap),
     ) {
-        let bloom = self.bloom_source(targets, settings, exposure, output.1);
+        let targets = scene.targets;
+        let bloom = self.bloom_source(scene, settings, exposure, output.1);
         let mut constants = vec![
             (
                 "GAUSSIAN",
@@ -76,7 +78,7 @@ impl<'a> Filters<'a> {
         self.pass(FilterPass {
             entry: "tone",
             level: 0,
-            source: targets.resolved(),
+            source: scene.color,
             lower: Some(&bloom),
             exposure: Some(exposure),
             constants: &constants,
@@ -184,15 +186,15 @@ impl<'a> Filters<'a> {
     }
     fn bloom_source(
         &mut self,
-        targets: &FrameTargets,
+        scene: &Scene<'_>,
         settings: &HdrPostSettings,
         exposure: &wgpu::Buffer,
         fixed: f64,
     ) -> wgpu::TextureView {
         settings.bloom.map_or_else(
-            || targets.resolved().clone(),
+            || scene.color.clone(),
             |b| match settings.bloom_kernel {
-                crate::BloomKernel::Tent => self.bloom(targets, b),
+                crate::BloomKernel::Tent => self.bloom(scene, b),
                 crate::BloomKernel::SeparablePyramid(levels) => {
                     let fixed_buffer = (settings.adaptive.is_none()
                         && matches!(b.policies.extraction, crate::BrightExtraction::ToneCurve(_)))
@@ -207,7 +209,7 @@ impl<'a> Filters<'a> {
                     });
                     let view = crate::gaussian_gpu::GaussianPyramid::new(self.device, self.set)
                         .build(
-                            targets.resolved(),
+                            scene.color,
                             b,
                             &levels,
                             Some((
@@ -223,13 +225,13 @@ impl<'a> Filters<'a> {
             },
         )
     }
-    fn bloom(&mut self, targets: &FrameTargets, b: crate::Bloom) -> wgpu::TextureView {
+    fn bloom(&mut self, scene: &Scene<'_>, b: crate::Bloom) -> wgpu::TextureView {
         let mut levels = Vec::new();
-        let mut size = targets.config().size;
+        let mut size = scene.targets.config().size;
         let first = self.texture(size);
         self.filter(
             ("prefilter", 0),
-            targets.resolved(),
+            scene.color,
             None,
             &[("THRESHOLD", b.threshold.into()), ("KNEE", b.knee.into())],
             &first,

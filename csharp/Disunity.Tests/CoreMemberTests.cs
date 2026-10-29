@@ -98,7 +98,12 @@ internal static class CoreMemberTests
             var later = start;
             for (var spins = 0; later <= start && spins < 50_000_000; spins++) later = Time.realtimeSinceStartupAsDouble;
             Ensure(start > 0 && later > start, "realtimeSinceStartupAsDouble is positive and rises");
-            Near((float)later, Time.realtimeSinceStartup, "realtimeSinceStartup is the same clock as a float");
+            // The clock moves between reads, so the float read is bracketed by two double reads.
+            var before = Time.realtimeSinceStartupAsDouble;
+            var single = Time.realtimeSinceStartup;
+            var after = Time.realtimeSinceStartupAsDouble;
+            Ensure((float)before <= single && single <= (float)after,
+                $"realtimeSinceStartup is the same clock as a float: {before} <= {single} <= {after}");
         }
         finally { DisunityHost.UnloadWorld(); }
         DisunityHost.LoadWorld();

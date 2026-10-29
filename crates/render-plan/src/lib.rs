@@ -149,6 +149,6 @@ pub use scene::{ScenePlanarWindField, SceneStaticWindModifier};
 pub use scene::{TerrainLayerChannel, TerrainLayerChannelMap, TerrainLayerTexture};
 
 pub use scene::{
-    SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalReceivers,
-    SceneDecalWriteMask,
+    SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalNormalFrame,
+    SceneDecalReceivers, SceneDecalWriteMask,
 };

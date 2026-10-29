@@ -57,6 +57,10 @@ impl Objects {
 }
 
 impl Renderer {
+    pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
+        self.resident.scene_mut().take_statistics()
+    }
+
     pub fn take_surface_recreated(&mut self) -> bool {
         self.execution.take_recreated()
     }

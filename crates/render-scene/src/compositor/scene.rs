@@ -76,7 +76,7 @@ impl PreparedFeature for SceneFeature<'_> {
 }
 
 /// Adds the velocity attachment, which the main pass clears to zero and never resolves.
-fn declare_velocity(
+pub(crate) fn declare_velocity(
     opaque: &mut PassDeclaration,
     views: &mut Vec<AttachmentView>,
     velocity: Option<&AttachmentView>,
@@ -104,7 +104,7 @@ pub fn encode_scene(
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
     renderer.validate_taa_depth(attachments.1)?;
-    let velocity = renderer.velocity_attachment(pipelines)?;
+    let velocity = renderer.velocity_attachment(renderer.draws_velocity(pipelines))?;
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
     renderer.bind_water_inputs(&gpu.water_inputs);

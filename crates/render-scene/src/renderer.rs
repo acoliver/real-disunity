@@ -638,7 +638,12 @@ fn scene_layout(
 
 fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
     if source.contains(crate::velocity::MARKER) {
-        let mut targets = color_targets(format).to_vec();
+        let reflection = source.contains("struct ReflectionOutput");
+        let mut targets = if reflection {
+            vec![color_targets(format)[0].clone(); 3]
+        } else {
+            color_targets(format).to_vec()
+        };
         targets.push(Some(ColorTargetState {
             format: worldrunner_render_post::VELOCITY_FORMAT,
             blend: None,

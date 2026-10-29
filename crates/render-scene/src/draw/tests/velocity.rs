@@ -172,23 +172,19 @@ fn read_velocity(context: &GpuContext, texture: &wgpu::Texture) -> Vec<[f32; 2]>
         .collect()
 }
 
-/// Draws one frame per `(seconds, pose)` and returns the velocity target of the last one.
-fn velocity_after(
+/// A TAA frame renderer for `effects` and its scene colour and depth attachments.
+fn taa_target(
     context: &GpuContext,
-    scene: &RenderScene,
-    frames: &[(f32, CameraPose)],
-) -> Vec<[f32; 2]> {
-    let (scene, effects) = with_taa(scene);
-    let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
-    let mut renderer = FrameRenderer::hdr_antialiased(
+    effects: &SceneEffects,
+    samples: MsaaSamples,
+) -> (FrameRenderer, AttachmentView, AttachmentView) {
+    let renderer = FrameRenderer::hdr_antialiased(
         context,
         [TARGET, TARGET],
         COLOR_FORMAT,
-        AntiAliasing::new(MsaaSamples::X1, PostResolve::None),
+        AntiAliasing::new(samples, PostResolve::None),
         ToneMap::Reinhard,
-        Some(&effects),
+        Some(effects),
     )
     .unwrap();
     let color = AttachmentView::new(
@@ -201,6 +197,20 @@ fn velocity_after(
         renderer.targets().depth().texture(),
     )
     .unwrap();
+    (renderer, color, depth)
+}
+
+/// Draws one frame per `(seconds, pose)` and returns the velocity target of the last one.
+fn velocity_after(
+    context: &GpuContext,
+    scene: &RenderScene,
+    frames: &[(f32, CameraPose)],
+) -> Vec<[f32; 2]> {
+    let (scene, effects) = with_taa(scene);
+    let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();
         let mut encoder = context.submission().begin(context.device()).unwrap();
@@ -432,7 +442,7 @@ fn output_after(
     context: &GpuContext,
     scene: &RenderScene,
     taa: Option<bool>,
-    clocks: &[f32],
+    (samples, clocks): (MsaaSamples, &[f32]),
 ) -> Vec<u8> {
     let device = context.device();
     let (scene, effects, resolve) = match taa {
@@ -443,16 +453,16 @@ fn output_after(
         None => (scene.clone(), effects(), PostResolve::None),
     };
     let pipelines = if taa == Some(true) {
-        ScenePipelines::with_taa_velocity(device, HDR, 1).unwrap()
+        ScenePipelines::with_taa_velocity(device, HDR, samples.count()).unwrap()
     } else {
-        ScenePipelines::with_samples(device, HDR, 1).unwrap()
+        ScenePipelines::with_samples(device, HDR, samples.count()).unwrap()
     };
     let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
     let mut renderer = FrameRenderer::hdr_antialiased(
         context,
         [TARGET, TARGET],
         COLOR_FORMAT,
-        AntiAliasing::new(MsaaSamples::X1, resolve),
+        AntiAliasing::new(samples, resolve),
         ToneMap::Reinhard,
         Some(&effects),
     )
@@ -504,22 +514,24 @@ fn mean_error(image: &[u8], reference: &[u8]) -> f64 {
     f64::from(sum) / f64::from(u32::try_from(image.len()).unwrap()) / 255.0
 }
 
-#[test]
-fn swaying_foliage_under_a_fixed_camera_resolves_closer_to_the_unjittered_frame_with_velocity() {
-    // 16 frames of rigid sway at 31.25 ms steps (about 1.5 px a frame at the quad), error measured
-    // as the mean absolute difference of the 8-bit output from the unjittered frame at the last clock.
-    let context = context();
+/// Mean error against the unjittered frame without and with velocity, after 16 frames of rigid
+/// sway at 31.25 ms steps (about 1.5 px a frame at the quad).
+fn sway_errors(context: &GpuContext, samples: MsaaSamples) -> (f64, f64) {
     let clocks: Vec<f32> = (1..=16_u8).map(|step| f32::from(step) * 0.03125).collect();
     let scene = windy();
-    let reference = output_after(&context, &scene, None, &clocks[15..]);
-    let without = mean_error(
-        &output_after(&context, &scene, Some(false), &clocks),
-        &reference,
-    );
-    let with = mean_error(
-        &output_after(&context, &scene, Some(true), &clocks),
-        &reference,
-    );
+    let reference = output_after(context, &scene, None, (samples, &clocks[15..]));
+    let error = |velocity| {
+        mean_error(
+            &output_after(context, &scene, Some(velocity), (samples, &clocks)),
+            &reference,
+        )
+    };
+    (error(false), error(true))
+}
+
+#[test]
+fn swaying_foliage_under_a_fixed_camera_resolves_closer_to_the_unjittered_frame_with_velocity() {
+    let (without, with) = sway_errors(&context(), MsaaSamples::X1);
     // Measured on lavapipe: 0.01417 without velocity (the previous behaviour) and 0.00856 with it,
     // a ratio of 0.60. The bound leaves margin for driver differences and still fails if the
     // resolve ignores the residual.
@@ -528,3 +540,25 @@ fn swaying_foliage_under_a_fixed_camera_resolves_closer_to_the_unjittered_frame_
         "with velocity {with}, without {without}"
     );
 }
+
+#[test]
+fn four_sample_msaa_binds_a_multisampled_velocity_target_and_does_not_resolve_worse() {
+    // MSAA is not jittered, so the object residual only helps through the resolve's per-sample
+    // read; the assertion is that the multisampled attachment draws without validation errors
+    // and the velocity frame is no worse than the frame without it.
+    let context = context();
+    if !crate::msaa_tests::supported_samples(&context).contains(&4) {
+        return;
+    }
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let (without, with) = sway_errors(&context, MsaaSamples::X4);
+    assert!(pollster::block_on(scope.pop()).is_none());
+    assert!(
+        with <= without,
+        "with velocity {with}, without {without} at 4x"
+    );
+}
+
+mod screen_space;

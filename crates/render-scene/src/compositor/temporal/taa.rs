@@ -57,20 +57,32 @@ impl FrameRenderer {
         Ok(())
     }
 
-    /// The velocity attachment the object pass writes, when `pipelines` write one.
+    /// Whether the opaque pass draws with pipelines that write the velocity target: the
+    /// reflection forward pipelines when the renderer owns them, otherwise `pipelines`.
+    pub(crate) fn draws_velocity(&self, pipelines: &crate::renderer::ScenePipelines) -> bool {
+        self.ssao
+            .as_ref()
+            .and_then(|screen| screen.geometry.forward.as_ref())
+            .map_or_else(
+                || pipelines.writes_velocity(),
+                |(forward, _)| forward.writes_velocity(),
+            )
+    }
+
+    /// The velocity attachment the object pass writes, when its pipelines (`writes`) write one.
     ///
     /// Velocity pipelines need a renderer with TAA resident, which owns the attachment beside
     /// the frame depth. Plain pipelines draw without it and the resolve then reads zeros, the
     /// camera-only reprojection.
     pub(crate) fn velocity_attachment(
         &self,
-        pipelines: &crate::renderer::ScenePipelines,
+        writes: bool,
     ) -> Result<Option<AttachmentView>, FrameError> {
         let texture = self
             .taa_resident()
             .then(|| self.targets().velocity_texture())
             .flatten();
-        match (texture, pipelines.writes_velocity()) {
+        match (texture, writes) {
             (Some(texture), true) => {
                 AttachmentView::new(ResourceRef::new("scene velocity"), texture).map(Some)
             }
@@ -88,7 +100,7 @@ impl FrameRenderer {
         }
     }
 
-    fn taa_resident(&self) -> bool {
+    pub(crate) fn taa_resident(&self) -> bool {
         self.post_requested.resolve.active_taa().is_some()
     }
 }

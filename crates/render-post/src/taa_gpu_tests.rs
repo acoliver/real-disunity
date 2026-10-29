@@ -1,4 +1,4 @@
-//! The TAA resolve and history passes on synthetic images, compared with the scalar reference.
+//! The TAA resolve pass on synthetic images, compared with the scalar reference.
 //!
 //! Bound: the GPU computes in f32 and stores `Rgba16Float`, so each channel of the result is
 //! compared with the f64 reference in luminance-compressed space (`c / (1 + luma)`, values
@@ -426,7 +426,7 @@ fn uniform_buffer(device: &wgpu::Device, case: &Case) -> wgpu::Buffer {
     })
 }
 
-/// Runs the two passes and returns the resolve output and the history afterwards.
+/// Runs the resolve and returns the resolve output and the history afterwards.
 fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
     let (device, queue) = crate::gpu_tests::gpu();
     let size = case.size();
@@ -620,11 +620,18 @@ fn odd_extents_with_jitter_depth_and_motion_match_the_reference() {
 }
 
 #[test]
-fn the_history_pass_copies_the_resolve_output_into_the_history() {
+fn the_resolve_reads_history_and_leaves_it_untouched() {
     let mut case = Case::new(noisy([13, 7], 0), noisy([13, 7], 3));
     case.settings = TaaSettings::new(0.5);
     let (output, history) = run(&case);
-    assert_eq!(output, history);
+    assert_ne!(output, history);
+    let written: Vec<[f64; 4]> = case
+        .quantised_history()
+        .pixels
+        .iter()
+        .map(|p| p.map(f64::from))
+        .collect();
+    assert_eq!(history, written);
     assert!(output.iter().any(|p| p[0] > 0.0));
 }
 

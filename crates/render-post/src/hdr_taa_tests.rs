@@ -89,7 +89,7 @@ fn taa_stages_run_first_in_every_slot_before_metering() {
     for set in &sets {
         assert_eq!(
             names(set)[..3],
-            ["taa resolve", "taa history", "clear luminance histogram"]
+            ["taa resolve", "clear luminance histogram", "histogram"]
         );
     }
 }
@@ -105,39 +105,48 @@ fn taa_with_bloom_and_adaptive_exposure_builds_at_one_and_four_samples() {
     }
 }
 
-fn shared_textures(sets: &[StageSet]) -> Vec<wgpu::Texture> {
-    sets[0]
-        .resources
-        .textures
-        .iter()
-        .filter(|texture| {
-            sets[1..]
-                .iter()
-                .all(|s| s.resources.textures.contains(texture))
-        })
-        .cloned()
-        .collect()
+/// The output texture of each slot, then the history texture each slot reads.
+fn outputs_and_histories(sets: &[StageSet]) -> (Vec<wgpu::Texture>, Vec<wgpu::Texture>) {
+    let pick = |index: usize| {
+        sets.iter()
+            .map(|set| set.resources.textures[index].clone())
+            .collect()
+    };
+    (pick(0), pick(1))
 }
 
 #[test]
-fn one_history_is_shared_by_all_slots_and_replaced_on_resize() {
+fn a_slot_reads_the_output_of_the_slot_before_it_and_writes_its_own() {
     let (device, _) = crate::gpu_tests::gpu();
     let factory = factory(&device, &settings(true, false));
-    let first = slots(&factory, &device, &targets(&device, [8, 8], 1));
-    let shared = shared_textures(&first);
-    assert_eq!(shared.len(), 1);
-    assert_eq!((shared[0].width(), shared[0].height()), (8, 8));
-    let rebuilt = slots(&factory, &device, &targets(&device, [8, 8], 1));
-    assert_eq!(
-        shared_textures(&rebuilt),
-        shared,
-        "same size reuses history"
-    );
-    let resized = slots(&factory, &device, &targets(&device, [16, 4], 1));
-    let replaced = shared_textures(&resized);
-    assert_eq!(replaced.len(), 1);
-    assert_eq!((replaced[0].width(), replaced[0].height()), (16, 4));
-    assert_ne!(replaced, shared);
+    let sets = slots(&factory, &device, &targets(&device, [8, 8], 1));
+    let (outputs, histories) = outputs_and_histories(&sets);
+    assert_eq!(outputs.len(), 3);
+    for slot in 0..3 {
+        assert_eq!(histories[slot], outputs[(slot + 2) % 3], "slot {slot}");
+        assert_eq!((outputs[slot].width(), outputs[slot].height()), (8, 8));
+        assert!(
+            !outputs[..slot].contains(&outputs[slot]),
+            "distinct outputs"
+        );
+        let usage = outputs[slot].usage();
+        assert!(!usage.contains(wgpu::TextureUsages::COPY_DST));
+    }
+}
+
+#[test]
+fn outputs_are_shared_by_slot_builds_and_replaced_on_resize() {
+    let (device, _) = crate::gpu_tests::gpu();
+    let factory = factory(&device, &settings(true, false));
+    let first = outputs_and_histories(&slots(&factory, &device, &targets(&device, [8, 8], 1)));
+    let rebuilt = outputs_and_histories(&slots(&factory, &device, &targets(&device, [8, 8], 1)));
+    assert_eq!(rebuilt, first, "same size reuses the outputs");
+    let (resized, _) =
+        outputs_and_histories(&slots(&factory, &device, &targets(&device, [16, 4], 1)));
+    for (new, old) in resized.iter().zip(&first.0) {
+        assert_ne!(new, old);
+        assert_eq!((new.width(), new.height()), (16, 4));
+    }
     assert_eq!(factory.taa_history_size(), Some([16, 4]));
 }
 

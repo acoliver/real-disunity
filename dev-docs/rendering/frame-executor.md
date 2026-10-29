@@ -114,6 +114,6 @@ Native recovery tests exercise resize, lost/outdated transitions and zero-size r
 
 With a TAA resolve, `encode_frame` also keeps the 80-byte `TaaUniform` built from the frame's
 `TemporalView`, and `encode_output` uploads it for the frame slot before the post stages run. The
-order of the post stages is then: `taa resolve`, `taa history`, exposure metering, bloom, tone
+order of the post stages is then: `taa resolve`, exposure metering, bloom, tone
 mapping, then any other resolve (none, since TAA excludes FXAA, SMAA and CMAA2), CAS and upscale.
 The scene must be drawn into `FrameTargets::depth()`; `encode_scene` refuses another depth.

@@ -1,52 +1,99 @@
 //! Wires the TAA resolve into the HDR post path.
 //!
-//! `HdrPost` builds one stage set per frame slot, but the history texture must see every
-//! frame, so one texture per render size is shared by all slots. Each slot owns its output
-//! texture and its uniform buffer.
+//! `HdrPost` builds one stage set per frame slot. Each slot's resolve writes its own output
+//! texture and reads the output of the slot encoded before it as history, so no copy pass is
+//! needed. The outputs of one render size are created once and shared by every slot build.
+//! Hosts encode slots in the order 0, 1, 2, 0, ...; [`SharedOutputs::admit`] checks that on
+//! every upload and drops the history of a frame that breaks it.
 use std::{cell::RefCell, rc::Rc};
 
 use wgpu::util::DeviceExt;
 
 use crate::{StageSet, TAA_UNIFORM_BYTES, TaaSettings, taa_gpu};
 
-/// The history texture of one render size.
+/// Frame slots of an HDR post path, and so the number of resolve outputs.
+pub(crate) const SLOTS: usize = 3;
+
+/// The resolve outputs of one render size, one per frame slot.
 #[derive(Debug)]
-struct TaaHistory {
+struct TaaOutputs {
     size: [u32; 2],
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
+    textures: [wgpu::Texture; SLOTS],
+    views: [wgpu::TextureView; SLOTS],
+    /// The slot whose resolve was uploaded last, or none since the outputs were created.
+    last_slot: Option<usize>,
 }
 
-/// History shared by the stage sets of every slot. Cloning shares it.
+/// The slot encoded before `slot` in the rotation.
+fn predecessor(slot: usize) -> usize {
+    (slot + SLOTS - 1) % SLOTS
+}
+
+/// Outputs shared by the stage sets of every slot. Cloning shares them.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct SharedHistory(Rc<RefCell<Option<TaaHistory>>>);
-impl SharedHistory {
-    /// The history for `size`, created on first use and replaced when the size changes.
-    fn acquire(&self, device: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::TextureView) {
-        let mut slot = self.0.borrow_mut();
-        if slot.as_ref().is_none_or(|history| history.size != size) {
-            let texture = taa_gpu::history(device, size);
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            *slot = Some(TaaHistory {
+pub(crate) struct SharedOutputs(Rc<RefCell<Option<TaaOutputs>>>);
+impl SharedOutputs {
+    /// The output of `slot` and the history it reads (the output of the previous slot), as
+    /// texture and view pairs. The outputs for `size` are created on first use and replaced
+    /// when the size changes.
+    fn acquire(&self, device: &wgpu::Device, size: [u32; 2], slot: usize) -> [Pair; 2] {
+        let mut state = self.0.borrow_mut();
+        if state.as_ref().is_none_or(|outputs| outputs.size != size) {
+            let textures: [wgpu::Texture; SLOTS] =
+                std::array::from_fn(|_| taa_gpu::output(device, size));
+            let views = std::array::from_fn(|index| {
+                textures[index].create_view(&wgpu::TextureViewDescriptor::default())
+            });
+            *state = Some(TaaOutputs {
                 size,
-                texture,
-                view,
+                textures,
+                views,
+                last_slot: None,
             });
         }
-        let history = slot.as_ref().expect("history was just created");
-        (history.texture.clone(), history.view.clone())
+        let outputs = state.as_ref().expect("outputs were just created");
+        [slot, predecessor(slot)].map(|index| {
+            (
+                outputs.textures[index].clone(),
+                outputs.views[index].clone(),
+            )
+        })
     }
 
-    /// Drops the history, for settings that no longer use TAA.
+    /// Records that `slot` is about to encode its resolve and returns the block to upload. A
+    /// block that claims valid history loses the claim unless the previous resolve was the
+    /// one of the preceding slot, because only then does the history view hold the previous
+    /// frame.
+    pub fn admit(
+        &self,
+        slot: usize,
+        block: Option<[u8; TAA_UNIFORM_BYTES]>,
+    ) -> Option<[u8; TAA_UNIFORM_BYTES]> {
+        let mut state = self.0.borrow_mut();
+        let outputs = state.as_mut()?;
+        let in_order = outputs.last_slot == Some(predecessor(slot));
+        outputs.last_slot = Some(slot);
+        block.map(|block| {
+            if in_order {
+                block
+            } else {
+                crate::taa::without_history(block)
+            }
+        })
+    }
+
+    /// Drops the outputs, for settings that no longer use TAA.
     pub fn release(&self) {
         *self.0.borrow_mut() = None;
     }
 
     #[cfg(test)]
     pub fn size(&self) -> Option<[u32; 2]> {
-        self.0.borrow().as_ref().map(|history| history.size)
+        self.0.borrow().as_ref().map(|outputs| outputs.size)
     }
 }
+
+type Pair = (wgpu::Texture, wgpu::TextureView);
 
 /// The scene color the HDR path reads, and the frame it belongs to.
 pub(crate) struct Scene<'a> {
@@ -64,18 +111,18 @@ pub(crate) fn uniform_buffer(device: &wgpu::Device) -> wgpu::Buffer {
     })
 }
 
-/// Schedules "taa resolve" and "taa history" at the end of `set` and returns the resolved
-/// color. `set` owns the output; the shared history is also kept alive by it.
+/// Schedules "taa resolve" at the end of `set` and returns the resolved color. The resolve
+/// writes the output of `slot` and reads the output of the previous slot as history. `set`
+/// keeps both textures alive.
 pub(crate) fn append(
     device: &wgpu::Device,
     set: &mut StageSet,
     targets: &crate::FrameTargets,
-    (settings, history, uniform): (TaaSettings, &SharedHistory, &wgpu::Buffer),
+    (settings, outputs, uniform, slot): (TaaSettings, &SharedOutputs, &wgpu::Buffer, usize),
 ) -> wgpu::TextureView {
     let config = targets.config();
-    let (history_texture, history_view) = history.acquire(device, config.size);
-    let output = taa_gpu::output(device, config.size);
-    let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+    let [(output, output_view), (history, history_view)] =
+        outputs.acquire(device, config.size, slot);
     taa_gpu::append(
         device,
         set,
@@ -90,7 +137,7 @@ pub(crate) fn append(
         settings,
     );
     set.resources.textures.push(output);
-    set.resources.textures.push(history_texture);
+    set.resources.textures.push(history);
     output_view
 }
 
@@ -112,3 +159,7 @@ pub(crate) fn upload(
 fn block_size() -> wgpu::BufferAddress {
     wgpu::BufferAddress::try_from(TAA_UNIFORM_BYTES).expect("the block size fits a buffer address")
 }
+
+#[cfg(test)]
+#[path = "hdr_taa_order_tests.rs"]
+mod order_tests;

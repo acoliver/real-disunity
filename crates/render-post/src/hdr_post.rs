@@ -153,7 +153,7 @@ pub(crate) struct HdrPost {
     carry: wgpu::Buffer,
     frame: [wgpu::Buffer; 3],
     taa: [wgpu::Buffer; 3],
-    taa_history: crate::hdr_taa::SharedHistory,
+    taa_outputs: crate::hdr_taa::SharedOutputs,
 }
 impl HdrPost {
     pub fn new(device: &wgpu::Device, settings: &HdrPostSettings) -> Result<Self, PostError> {
@@ -186,13 +186,13 @@ impl HdrPost {
                 })
             }),
             taa: std::array::from_fn(|_| crate::hdr_taa::uniform_buffer(device)),
-            taa_history: crate::hdr_taa::SharedHistory::default(),
+            taa_outputs: crate::hdr_taa::SharedOutputs::default(),
         })
     }
     /// Rebind settings, keeping buffers. A history that no longer applies is dropped.
     pub fn set_settings(&mut self, settings: &HdrPostSettings) {
         if settings.resolve.active_taa().is_none() {
-            self.taa_history.release();
+            self.taa_outputs.release();
         }
         self.settings = *settings;
     }
@@ -203,11 +203,12 @@ impl HdrPost {
         slot: usize,
         block: Option<&[u8; crate::TAA_UNIFORM_BYTES]>,
     ) {
-        crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block);
+        let admitted = self.taa_outputs.admit(slot, block.copied());
+        crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], admitted.as_ref());
     }
     #[cfg(test)]
     pub fn taa_history_size(&self) -> Option<[u32; 2]> {
-        self.taa_history.size()
+        self.taa_outputs.size()
     }
     pub fn prepare(
         &self,
@@ -254,7 +255,7 @@ impl HdrPost {
                     device,
                     &mut set,
                     targets,
-                    (taa, &self.taa_history, &self.taa[slot]),
+                    (taa, &self.taa_outputs, &self.taa[slot], slot),
                 )
             },
         );

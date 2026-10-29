@@ -17,6 +17,16 @@ fn windowless_ignores_surface_support_and_reports_the_device_it_uses_once() {
     let observed = observed.lock().unwrap();
     assert_eq!(observed.as_slice(), &[renderer.context.adapter_identity()]);
     assert!(!observed[0].name.is_empty());
+    assert_eq!(
+        observed[0].backend,
+        renderer.context.adapter().get_info().backend
+    );
+    #[cfg(target_os = "macos")]
+    assert_eq!(observed[0].backend, wgpu::Backend::Metal);
+    assert_eq!(
+        renderer.context.device().limits().max_texture_array_layers,
+        renderer.context.adapter().limits().max_texture_array_layers
+    );
     eprintln!("windowless adapter: {:?}", observed[0]);
 }
 

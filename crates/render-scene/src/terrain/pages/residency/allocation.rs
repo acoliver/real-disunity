@@ -6,6 +6,22 @@ use worldrunner_render_gpu::{
 };
 use worldrunner_render_plan::TerrainPageSettings;
 
+pub(crate) fn validate_layers(
+    limits: &wgpu::Limits,
+    slots: u32,
+    products: u32,
+) -> Result<(), ConfigurationError<DriverAllocationError>> {
+    let required = u64::from(slots) * u64::from(products);
+    let available = limits.max_texture_array_layers;
+    if required > u64::from(available) {
+        return Err(ConfigurationError::TextureArrayLayers {
+            required,
+            available,
+        });
+    }
+    Ok(())
+}
+
 pub(in crate::terrain::pages) fn allocations(
     settings: TerrainPageSettings,
     slots: u32,

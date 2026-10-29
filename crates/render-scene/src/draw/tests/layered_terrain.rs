@@ -1,5 +1,7 @@
 mod admission;
+mod array_layers;
 mod capture;
+mod shared_source_arrays;
 use super::*;
 use crate::draw::PreparedScene;
 use crate::terrain::pages::{layered::LayeredReference, scene::TerrainPageSource};

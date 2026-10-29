@@ -1,4 +1,19 @@
 #[test]
+fn scene_device_requests_adapter_array_capacity_and_preserves_other_limits() {
+    let context = context();
+    let available = context.adapter().limits();
+    let mut actual = context.device().limits();
+    assert_eq!(
+        actual.max_texture_array_layers,
+        available.max_texture_array_layers
+    );
+    actual.max_texture_array_layers = wgpu::Limits::default().max_texture_array_layers;
+    actual.max_sampled_textures_per_shader_stage =
+        wgpu::Limits::default().max_sampled_textures_per_shader_stage;
+    assert_eq!(actual, wgpu::Limits::default());
+}
+
+#[test]
 fn adapter_classification_covers_every_device_type() {
     use super::AdapterClass;
     for (kind, expected) in [
@@ -18,6 +33,7 @@ fn selected_adapter_identity_matches_actual_device() {
     let info = context.adapter().get_info();
     let identity = context.adapter_identity();
     assert_eq!(identity.name, info.name);
+    assert_eq!(identity.backend, info.backend);
     assert_eq!(identity.class, super::AdapterClass::from(info.device_type));
     if info.device_type == wgpu::DeviceType::Cpu {
         assert_eq!(identity.class, super::AdapterClass::Software);

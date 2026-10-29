@@ -450,6 +450,13 @@ impl ConfiguredFrameRenderer {
                 ConfigurationError::Budget { required, budget }
             }
             ConfigurationError::Invalid(message) => ConfigurationError::Invalid(message),
+            ConfigurationError::TextureArrayLayers {
+                required,
+                available,
+            } => ConfigurationError::TextureArrayLayers {
+                required,
+                available,
+            },
             ConfigurationError::ForeignDevice => ConfigurationError::ForeignDevice,
             ConfigurationError::Submission(error) => ConfigurationError::Submission(error),
             ConfigurationError::Allocation(never) => match never {},

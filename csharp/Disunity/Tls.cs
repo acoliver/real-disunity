@@ -57,4 +57,9 @@ public static unsafe class Binding
         public unitytls_client_config* config;
         public IntPtr internalCtx;
     }
+
+    public delegate int unitytls_client_data_send_callback(IntPtr userData, byte* data, UIntPtr dataLen);
+    public delegate int unitytls_client_data_receive_callback(IntPtr userData, byte* data, UIntPtr dataLen);
+    public delegate int unitytls_client_data_receive_timeout_callback(IntPtr userData, byte* data, UIntPtr dataLen, uint timeoutMS);
+    public delegate void unitytls_client_log_callback(int level, byte* file, UIntPtr line, byte* function, byte* message, UIntPtr messageLen);
 }

@@ -6,7 +6,7 @@ pub(super) fn retained_page_capture_present(event_loop: &EventLoop<()>, window: 
         &scene,
         None,
         crate::FrameProfile::Legacy,
-        2,
+        2.into(),
     ))
     .unwrap();
     let size = renderer.viewport.unwrap();
@@ -128,7 +128,7 @@ pub(super) fn retained_capture_present(event_loop: &EventLoop<()>, window: &Arc<
         &scene,
         None,
         crate::FrameProfile::Legacy,
-        2,
+        2.into(),
     ))
     .unwrap();
     let size = renderer.viewport.unwrap();

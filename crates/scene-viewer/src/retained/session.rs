@@ -131,7 +131,7 @@ impl Content for Session<'_> {
             scene: &self.host.initial_scene,
             shadows: self.host.options.shadows,
             profile: self.host.options.frame_profile,
-            frames_in_flight: self.host.options.frames_in_flight,
+            startup: (&self.host.options).into(),
         }
     }
     fn exit_requested(&self) -> bool {

@@ -116,7 +116,10 @@ for the scene attachments, and `PostResolve` goes into `HdrPostSettings::resolve
 further resolves are added as variants. Its variants are `None`, `Fxaa` and `Smaa`
 (see [SMAA 1x](#smaa-1x)); one resolve is selected, never two. Prefer SMAA when long
 high-contrast geometry edges dominate and three passes fit the budget, and FXAA as the
-cheaper single pass for noisy specular detail.
+cheaper single pass for noisy specular detail. Sharpening is a separate, optional field,
+`AntiAliasing::sharpen: Option<CasSettings>`, that composes with any resolve (see
+[Contrast adaptive sharpening](#contrast-adaptive-sharpening)). `AntiAliasing::new` leaves it
+`None`; `with_sharpen` sets it.
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -200,6 +203,67 @@ The other presets moved the same way (total, before to after): low 4.989 to 2.95
 change, and no AA measured 0.366 and 0.408, which bounds the run-to-run noise at about 0.3 ms.
 The weights pass reads only `Rg8Unorm` edges and is unchanged.
 
+### Contrast adaptive sharpening
+
+`CasSettings { sharpness }` selects AMD FidelityFX CAS in its sharpen-only form. It is not a
+`PostResolve` variant: it does not remove aliasing, it restores local contrast that a resolve or
+a soft texture filter took away, so it follows whichever resolve is selected. Set it with
+`AntiAliasing::with_sharpen(CasSettings::new(0.5))` or `HdrPostSettings::sharpen`.
+`sharpness` must be finite and within 0 through 1, or `PostError::UnsupportedProfile("CAS settings")`
+is returned. Sharpness 0 is the reference default with the least ringing and still sharpens;
+1 is the strongest setting. `None` schedules nothing: the stage list, intermediates and output
+bytes are those of a build without the field.
+
+The stage runs after the resolve (FXAA, SMAA, or tone mapping when the resolve is `None`) and
+before any upscale, at the render extent, as one fullscreen pass with the stage identity `cas`
+and its own timing slot. Its input is the display-referred image between tone mapping and the
+output, so the same intermediate rules apply: a resolve that feeds CAS writes an `Rgba16Float`
+texture, and so does tone mapping when the resolve is `None`. The FXAA and SMAA intermediates
+are unchanged when CAS is off. With an upscale, CAS writes an `Rgba16Float` texture that the
+upscale reads. The allocation budget counts that one extra intermediate.
+
+For each pixel the filter reads itself and its four neighbours. The green channel gives the local
+minimum and maximum; the headroom to black or white divided by the maximum, square-rooted, is the
+amount of sharpening. Where contrast already reaches 0 or 1 the amount is 0, so flat areas and
+saturated edges are untouched. The amount scales a negative lobe between -1/8 (sharpness 0) and
+-1/5 (sharpness 1) on the four neighbours, and the result is normalized by `1 + 4w` and saturated.
+Every output channel stays within the 3x3 neighbourhood range on a soft edge, a constant image is
+unchanged at every sharpness, and alpha is copied.
+
+How it differs from RCAS: RCAS is the optional second pass of the FSR 1 upscale. It runs at the
+output extent after EASU, takes its strength in stops from 0 (strongest) through 2, and limits
+ringing from the minimum and maximum of each color channel. It exists only with an upscale. CAS
+runs without scaling, at the render extent, with a 0 through 1 sharpness and a contrast
+adaptive amount driven by headroom, so it works with MSAA, FXAA or SMAA at native resolution. With
+an upscale configured, CAS sharpens before reconstruction and RCAS after it; use both only if the
+combined result is not over-sharpened. Prefer RCAS to restore detail after upscaling and CAS to
+offset the softness of FXAA, SMAA or a soft texture filter at native resolution.
+
+Differences from the reference header: only the `noScaling` path of `CasFilter` is ported, as a
+fragment pass. Taps outside the image clamp to the edge texel. The default quality path is used
+(green-channel weights, no `CAS_BETTER_DIAGONALS`) with exact reciprocals and square roots in
+place of the `APrx` approximations, and the 16-bit packed form is not ported. The shader file
+keeps the AMD notice.
+
+`src/cas_reference.rs` is a scalar f64 reference of the same kernel. The pass alone, writing an
+`Rgba32Float` target from f32 input images with odd extents, is compared with it at an absolute
+per-channel bound of 0.00001, a few f32 ulps. Chain tests then check each resolve, resize, the
+upscale ordering and the 8-bit sRGB result.
+
+Measured with the ignored probe `chain::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
+AMD Radeon 780M (RADV, Mesa 26.0.8) at 1920x1080, median of 5 timestamp-query samples, on a
+synthetic frame of diagonal edges, sharpness 0.5:
+
+| Configuration | `cas` stage (ms) | Total (ms) |
+| --- | --- | --- |
+| tone mapping, then CAS | 0.417 | 1.678 |
+| FXAA, then CAS | 0.492 | 4.618 |
+| SMAA medium, then CAS | 0.490 | 4.644 |
+
+The CAS pass costs about 0.4 to 0.5 ms. The run-to-run noise on this adapter is about 0.3 ms
+(the FXAA and SMAA blend passes moved by more than the CAS pass between runs), so read the
+stage figure as a bound rather than a precise cost.
+
 ## Reduced internal resolution
 
 `FrameConfig::size` is the internal scene extent. Construct a configuration with
@@ -245,6 +309,12 @@ repository. Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, F
 Navarro and Diego Gutierrez. Licensed under the MIT License. The full copyright, permission
 and warranty notice is preserved in both files. The port was written from the reference
 source. No code was copied from Bevy's WGSL port.
+
+`src/cas.wgsl` ports the sharpen-only path of
+[AMD FidelityFX CAS, ffx_cas.h](https://github.com/GPUOpen-Effects/FidelityFX-CAS) (ffx-cas/ffx_cas.h).
+Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License. The full copyright, permission and warranty
+notice is preserved in the shader file.
 
 ### Numerical checks and informational timing
 

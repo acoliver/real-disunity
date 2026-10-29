@@ -1,5 +1,5 @@
 //! CMAA2 followed by CAS in the HDR post chain: CAS is scheduled after the resolve exactly as
-//! it is after FXAA and SMAA, and with CAS off the CMAA2 stages are the five of CMAA2 alone.
+//! it is after FXAA and SMAA, and with CAS off the CMAA2 stages are those of CMAA2 alone.
 use crate::chain::post_effect_tests::{chain, pixels, step};
 use crate::{CasSettings, Cmaa2Preset, HdrPostSettings, PostResolve};
 
@@ -11,10 +11,12 @@ const SOFT_EDGE: &str =
     "let v=0.5+2.0*clamp((p.x-8.0)/6.0,0.0,1.0);return vec4<f32>(v,v*0.8,v*0.6,0.75);";
 const STEPPED: &str =
     "let edge=select(8.0,9.0,p.y>8.0);let v=select(0.0,3.0,p.x>edge);return vec4<f32>(v,v,v,1.0);";
-const CMAA2_STAGES: [&str; 5] = [
+const CMAA2_STAGES: [&str; 7] = [
     "cmaa2_clear",
     "cmaa2_edges",
+    "cmaa2_candidate_args",
     "cmaa2_candidates",
+    "cmaa2_apply_args",
     "cmaa2_apply",
     "cmaa2_present",
 ];

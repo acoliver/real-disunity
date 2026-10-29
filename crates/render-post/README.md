@@ -227,17 +227,20 @@ reference does for linear input.
 The stage runs where FXAA and SMAA run: on the display-referred image at the render extent
 after tone mapping and before any upscale. The image is `Rgba16Float` with storage binding. It
 schedules `cmaa2_clear` (a buffer clear of the counters), the compute passes `cmaa2_edges`,
-`cmaa2_candidates` and `cmaa2_apply`, and the full-screen `cmaa2_present` as separate stage
-identities, each with its own timing slot. It needs compute shaders and storage buffers in the
+`cmaa2_candidate_args`, `cmaa2_candidates`, `cmaa2_apply_args` and `cmaa2_apply`, and the
+full-screen `cmaa2_present` as separate stage identities, each with its own timing slot. It needs compute shaders and storage buffers in the
 compute stage.
 
 Deviations from the reference `CMAA2.hlsl` (the list is also at the top of `src/cmaa2.wgsl`):
 
 - Only the single-sample path is ported. The MSAA path (`CMAA2_SUPPORT_MSAA`) is not.
-- The process and apply passes are dispatched with a fixed size derived from the list
-  capacities and read the counters themselves, ending threads past the counts. The reference
-  builds indirect dispatch arguments in `ComputeDispatchArgsCS`; that pass is not ported, and
-  a buffer clear zeroes the counters instead.
+- `ComputeDispatchArgsCS` is split into two one-thread passes, `cmaa2_candidate_args` and
+  `cmaa2_apply_args`, because the candidate count is final only after the edge pass and the
+  location count only after the candidate pass. Each writes indirect dispatch arguments from its
+  counter into a 24-byte `INDIRECT` buffer, and `cmaa2_candidates` and `cmaa2_apply` use
+  `dispatch_workgroups_indirect` (`Operation::ComputeIndirect`). Lists longer than 4096
+  workgroups wrap to further rows. A buffer clear zeroes the counters instead of the reference
+  pass.
 - WGSL has no `R8Uint` storage texture and storage textures have no `InterlockedExchange`.
   Edges are one `u32` per 2x2 quad in a storage buffer, and the candidate, location and
   blend-item lists and the atomic list heads are storage buffers. Positions are not packed into

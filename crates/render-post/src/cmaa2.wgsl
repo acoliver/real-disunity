@@ -30,10 +30,11 @@
 //   buffers addressed by linear pixel or quad index, and the quad list heads are an atomic
 //   buffer, because storage textures have no InterlockedExchange. Positions are not packed
 //   into 14 bits, so extents are not limited to 16384.
-// * ComputeDispatchArgsCS is not ported: the process and apply passes are dispatched with a
-//   fixed size derived from the list capacities and read the counters themselves, ending
-//   threads past the counts. The control counters are cleared by a buffer clear before the
-//   edge pass instead of by ComputeDispatchArgsCS.
+// * ComputeDispatchArgsCS is split into two one-thread entry points, one per list, because the
+//   candidate count is only final after the edge pass and the location count after the
+//   candidate pass. Each writes indirect dispatch arguments from its counter. Long lists wrap
+//   to further rows of 4096 workgroups. The control counters are cleared by a buffer clear
+//   before the edge pass instead of by ComputeDispatchArgsCS.
 // * The reference writes blended colors into the input image with a UAV. Here the edge pass
 //   copies the image to a working texture, the apply pass writes blended colors into it with
 //   the alpha of the original pixel, and a final pass presents it.
@@ -58,6 +59,8 @@ override EXTRA_SHARPNESS: bool = false;
 @group(0) @binding(6) var<storage, read_write> heads: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> items: array<vec2<u32>>;
 @group(0) @binding(8) var<storage, read_write> locations: array<u32>;
+// Indirect dispatch arguments: x, y, z of the candidate pass, then of the apply pass.
+@group(0) @binding(9) var<storage, read_write> dispatch_args: array<u32>;
 
 const NO_ITEM: u32 = 0xFFFFFFFFu;
 const COUNT_CANDIDATES: u32 = 0u;
@@ -69,6 +72,9 @@ const EDGE_KERNEL: u32 = 16u;
 const CANDIDATE_THREADS: u32 = 128u;
 const APPLY_CANDIDATES_PER_GROUP: u32 = 32u;
 const BLEND_ITEM_SLOTS: u32 = 768u;
+// Workgroups per row of an indirect dispatch; longer lists wrap to further rows, which keeps
+// every dimension within the device limit at any extent.
+const DISPATCH_ROW: u32 = 4096u;
 
 fn local_contrast_amount() -> f32 { return select(0.10, 0.15, EXTRA_SHARPNESS); }
 fn simple_shape_blur() -> f32 { return select(0.10, 0.07, EXTRA_SHARPNESS); }
@@ -306,6 +312,29 @@ fn cmaa2_edges(
     if in_kernel {
         process_quad(pixel, center);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch arguments (ComputeDispatchArgsCS)
+
+fn write_dispatch_args(first: u32, count: u32, per_group: u32) {
+    let groups = (count + per_group - 1u) / per_group;
+    let x = min(groups, DISPATCH_ROW);
+    dispatch_args[first] = x;
+    dispatch_args[first + 1u] = select(1u, (groups + x - 1u) / max(x, 1u), groups > 0u);
+    dispatch_args[first + 2u] = 1u;
+}
+
+@compute @workgroup_size(1, 1, 1)
+fn cmaa2_candidate_args() {
+    let count = min(atomicLoad(&control[COUNT_CANDIDATES]), arrayLength(&candidates));
+    write_dispatch_args(0u, count, CANDIDATE_THREADS);
+}
+
+@compute @workgroup_size(1, 1, 1)
+fn cmaa2_apply_args() {
+    let count = min(atomicLoad(&control[COUNT_LOCATIONS]), arrayLength(&locations));
+    write_dispatch_args(3u, count, APPLY_CANDIDATES_PER_GROUP);
 }
 
 // ---------------------------------------------------------------------------

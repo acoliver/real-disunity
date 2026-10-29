@@ -3,7 +3,7 @@ mod geometry_prefix;
 
 use wgpu::util::DeviceExt;
 
-use crate::{FrameConfig, FrameTargets, PostError, fullscreen_pass_timed};
+use crate::{FrameConfig, FrameTargets, PostError};
 
 /// Opaque caller-authored ABI. The chain allocates these once; resize never resets history.
 #[derive(Clone, Debug)]
@@ -58,125 +58,9 @@ impl Resources {
     }
 }
 
-/// Output is supplied per encode, allowing the same chain to target a surface or capture.
-#[derive(Clone, Debug)]
-pub enum StageTarget {
-    Output,
-    Texture(wgpu::TextureView),
-}
-
-/// A linear authored sequence, not a render graph. Bind groups carry explicit caller layouts.
-#[derive(Debug)]
-pub enum Operation {
-    Clear(wgpu::Buffer),
-    CopyBuffer {
-        source: wgpu::Buffer,
-        destination: wgpu::Buffer,
-        bytes: u64,
-    },
-    Compute {
-        pipeline: wgpu::ComputePipeline,
-        groups: Vec<wgpu::BindGroup>,
-        dispatch: [u32; 3],
-    },
-    Fullscreen {
-        pipeline: wgpu::RenderPipeline,
-        groups: Vec<wgpu::BindGroup>,
-        target: StageTarget,
-    },
-}
-
-#[derive(Debug)]
-pub struct Stage {
-    pub id: crate::StageId,
-    pub label: &'static str,
-    pub enabled: bool,
-    pub operation: Operation,
-}
-
-impl Stage {
-    pub fn fullscreen(
-        id: crate::StageId,
-        pipeline: &wgpu::RenderPipeline,
-        groups: &[&wgpu::BindGroup],
-        target: StageTarget,
-    ) -> Self {
-        Self {
-            id,
-            label: id.name,
-            enabled: true,
-            operation: Operation::Fullscreen {
-                pipeline: pipeline.clone(),
-                groups: groups.iter().map(|group| (*group).clone()).collect(),
-                target,
-            },
-        }
-    }
-
-    fn encode(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        output: &wgpu::TextureView,
-        stamp: Option<&crate::timing::Stamp>,
-    ) {
-        if !self.enabled {
-            return;
-        }
-        match &self.operation {
-            Operation::Clear(buffer) => encoder.clear_buffer(buffer, 0, None),
-            Operation::CopyBuffer {
-                source,
-                destination,
-                bytes,
-            } => encoder.copy_buffer_to_buffer(source, 0, destination, 0, *bytes),
-            Operation::Compute {
-                pipeline,
-                groups,
-                dispatch,
-            } => {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some(self.label),
-                    timestamp_writes: stamp.map(crate::timing::Stamp::compute),
-                });
-                pass.set_pipeline(pipeline);
-                for (index, group) in groups.iter().enumerate() {
-                    pass.set_bind_group(
-                        u32::try_from(index).expect("validated GPU group index"),
-                        group,
-                        &[],
-                    );
-                }
-                pass.dispatch_workgroups(dispatch[0], dispatch[1], dispatch[2]);
-            }
-            Operation::Fullscreen {
-                pipeline,
-                groups,
-                target,
-            } => {
-                let view = match target {
-                    StageTarget::Output => output,
-                    StageTarget::Texture(view) => view,
-                };
-                fullscreen_pass_timed(
-                    encoder,
-                    Some(self.label),
-                    wgpu::RenderPassColorAttachment {
-                        view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    },
-                    pipeline,
-                    &groups.iter().collect::<Vec<_>>(),
-                    stamp,
-                );
-            }
-        }
-    }
-}
+#[path = "chain_stage.rs"]
+mod stage;
+pub use stage::{Operation, Stage, StageTarget};
 
 #[derive(Default, Debug)]
 pub struct StageSet {
@@ -193,10 +77,7 @@ impl StageSet {
             if output_seen {
                 return Err(PostError::OutputStage);
             }
-            if matches!(
-                stage.operation,
-                Operation::Compute { .. } | Operation::Fullscreen { .. }
-            ) {
+            if stage.operation.is_pass() {
                 if identities.contains(&stage.id) {
                     return Err(PostError::UnsupportedProfile(
                         "duplicate post stage identity",
@@ -391,11 +272,7 @@ impl<F: StageFactory> PostChain<F> {
 
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         for stage in &self.configured[self.frame_slot % self.configured.len()].stages {
-            let stamp = if stage.enabled
-                && matches!(
-                    stage.operation,
-                    Operation::Compute { .. } | Operation::Fullscreen { .. }
-                ) {
+            let stamp = if stage.enabled && stage.operation.is_pass() {
                 self.stamp(crate::PassId::Stage(stage.id))
             } else {
                 None
@@ -728,17 +605,9 @@ fn build_slots<F: StageFactory>(
 mod post_effect_tests;
 
 #[cfg(test)]
-#[path = "gaussian_gpu_tests.rs"]
-mod gaussian_gpu_tests;
-
-#[cfg(test)]
-#[path = "gaussian_benchmark.rs"]
-mod gaussian_benchmark;
-
-#[cfg(test)]
-#[path = "bloom_policy_gpu_tests.rs"]
-mod bloom_policy_gpu_tests;
-
-#[cfg(test)]
 #[path = "chain_aa_tests.rs"]
 mod aa_tests;
+
+#[cfg(test)]
+#[path = "chain_bloom_tests.rs"]
+mod bloom_tests;

@@ -204,6 +204,28 @@ fn edges_spanning_several_workgroups_are_blended_everywhere() {
     assert_within_plain_range(&plain, &filtered);
 }
 
+/// Diagonal stripes queue thousands of shape candidates and touched quads, many times the 128
+/// candidates and 32 quads that one workgroup covers, but fewer than the lists hold, so the
+/// counter-sized dispatches must reach every list entry: every row is blended, down to the
+/// last one.
+#[test]
+fn dense_stripes_are_blended_in_every_row() {
+    let rig = Rig::new();
+    let size = [300, 200];
+    let stripes = "let v=select(0.0,3.0,fract((p.x+p.y)/32.0)<0.5);return vec4<f32>(v,v,v,1.0);";
+    let (plain, filtered) = render_pair(&rig, Cmaa2Settings::HIGH, size, stripes);
+    let changes = changed(&plain, &filtered, size[0]);
+    assert!(changes.len() > 2000, "{} pixels blended", changes.len());
+    for y in 2..size[1] - 2 {
+        let y = i32::try_from(y).unwrap();
+        assert!(
+            changes.iter().any(|&(_, cy)| cy == y),
+            "row {y} was not blended"
+        );
+    }
+    assert_within_plain_range(&plain, &filtered);
+}
+
 /// Opaque input stays opaque. Alpha is never blended: each pixel keeps the alpha it had, even
 /// where its color is blended.
 #[test]

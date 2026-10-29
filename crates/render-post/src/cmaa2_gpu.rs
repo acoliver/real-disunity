@@ -1,29 +1,32 @@
 //! Schedules the CMAA2 passes. The shader is `cmaa2.wgsl`.
 //!
-//! Frame order: clear the counters, detect edges (compute), process shape candidates (compute),
-//! apply the queued blends (compute), present the working image (fullscreen).
+//! Frame order: clear the counters, detect edges (compute), write the candidate dispatch
+//! arguments (one thread), process shape candidates (compute, indirect), write the apply
+//! dispatch arguments (one thread), apply the queued blends (compute, indirect), present the
+//! working image (fullscreen).
 use worldrunner_render_gpu::configuration::AllocationSet;
 
 use crate::{Cmaa2Settings, Operation, Stage, StageId, StageSet, StageTarget};
 
 /// Stage names, in execution order. Identities are stable for timing.
-pub(crate) const STAGES: [&str; 5] = [
+pub(crate) const STAGES: [&str; 7] = [
     "cmaa2_clear",
     "cmaa2_edges",
+    "cmaa2_candidate_args",
     "cmaa2_candidates",
+    "cmaa2_apply_args",
     "cmaa2_apply",
     "cmaa2_present",
 ];
 
 /// Pixels of one edge workgroup's output: 14 quads of 2x2 pixels in each direction.
 const EDGE_GROUP_PIXELS: u32 = 28;
-const CANDIDATES_PER_GROUP: u64 = 128;
-const LOCATIONS_PER_GROUP: u64 = 32;
-/// Workgroups per row of a list dispatch. Longer lists wrap to further rows, which keeps
-/// every dimension within `max_compute_workgroups_per_dimension` at any extent.
-const DISPATCH_ROW: u64 = 4096;
 /// Counters: shape candidates, deferred blend locations, deferred blend items, padding.
 const CONTROL_BYTES: u64 = 16;
+/// Indirect dispatch arguments: three `u32` for the candidate pass, then three for the apply
+/// pass. The apply pass starts at byte `APPLY_ARGUMENTS`.
+const ARGUMENT_BYTES: u64 = 24;
+const APPLY_ARGUMENTS: u64 = 12;
 
 /// Element counts of the work lists. Like the reference they hold a fraction of the pixel count
 /// and drop work items when a pathological image fills them.
@@ -58,21 +61,11 @@ pub(crate) fn allocations(set: &mut AllocationSet, size: [u32; 2]) {
     set.texture("CMAA2 working image", extent, format, [1, 1], 3);
     set.buffer("CMAA2 edges", capacity.quads * 4, 3);
     set.buffer("CMAA2 counters", CONTROL_BYTES, 3);
+    set.buffer("CMAA2 dispatch arguments", ARGUMENT_BYTES, 3);
     set.buffer("CMAA2 shape candidates", capacity.candidates * 4, 3);
     set.buffer("CMAA2 blend list heads", capacity.quads * 4, 3);
     set.buffer("CMAA2 blend items", capacity.items * 8, 3);
     set.buffer("CMAA2 blend locations", capacity.locations * 4, 3);
-}
-
-/// `[x, y, 1]` workgroup counts covering `groups` groups in rows of `DISPATCH_ROW`.
-fn list_dispatch(groups: u64) -> [u32; 3] {
-    let x = groups.clamp(1, DISPATCH_ROW);
-    let y = groups.div_ceil(x).max(1);
-    [
-        u32::try_from(x).expect("row width fits u32"),
-        u32::try_from(y).unwrap_or(u32::MAX),
-        1,
-    ]
 }
 
 /// Working image and lists owned by one schedule.
@@ -80,6 +73,7 @@ struct Inputs {
     work: wgpu::TextureView,
     edges: wgpu::Buffer,
     control: wgpu::Buffer,
+    arguments: wgpu::Buffer,
     candidates: wgpu::Buffer,
     heads: wgpu::Buffer,
     items: wgpu::Buffer,
@@ -124,6 +118,12 @@ fn allocate(device: &wgpu::Device, set: &mut StageSet, size: [u32; 2]) -> Inputs
             CONTROL_BYTES,
             wgpu::BufferUsages::COPY_DST,
         ),
+        arguments: storage(
+            device,
+            "CMAA2 dispatch arguments",
+            ARGUMENT_BYTES,
+            wgpu::BufferUsages::INDIRECT,
+        ),
         candidates: storage(
             device,
             "CMAA2 shape candidates",
@@ -162,12 +162,11 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
-    fn compute(
+    fn pipeline_and_group(
         &self,
         name: &'static str,
         entries: &[wgpu::BindGroupEntry<'_>],
-        dispatch: [u32; 3],
-    ) -> Stage {
+    ) -> (wgpu::ComputePipeline, wgpu::BindGroup) {
         let pipeline = self
             .device
             .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -186,6 +185,16 @@ impl Builder<'_> {
             layout: &pipeline.get_bind_group_layout(0),
             entries,
         });
+        (pipeline, group)
+    }
+
+    fn compute(
+        &self,
+        name: &'static str,
+        entries: &[wgpu::BindGroupEntry<'_>],
+        dispatch: [u32; 3],
+    ) -> Stage {
+        let (pipeline, group) = self.pipeline_and_group(name, entries);
         Stage {
             id: StageId::new(name, 0),
             label: name,
@@ -198,12 +207,33 @@ impl Builder<'_> {
         }
     }
 
+    /// A compute stage whose workgroup counts the argument stage wrote at `offset`.
+    fn indirect(
+        &self,
+        name: &'static str,
+        entries: &[wgpu::BindGroupEntry<'_>],
+        (arguments, offset): (&wgpu::Buffer, u64),
+    ) -> Stage {
+        let (pipeline, group) = self.pipeline_and_group(name, entries);
+        Stage {
+            id: StageId::new(name, 0),
+            label: name,
+            enabled: true,
+            operation: Operation::ComputeIndirect {
+                pipeline,
+                groups: vec![group],
+                arguments: arguments.clone(),
+                offset,
+            },
+        }
+    }
+
     fn present(
         &self,
         entries: &[wgpu::BindGroupEntry<'_>],
         output: (wgpu::TextureFormat, StageTarget),
     ) -> Stage {
-        let name = STAGES[4];
+        let name = STAGES[6];
         let pipeline = self
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -245,7 +275,6 @@ struct Schedule<'a> {
     source: &'a wgpu::TextureView,
     inputs: Inputs,
     size: [u32; 2],
-    capacity: Capacity,
 }
 
 impl Schedule<'_> {
@@ -279,10 +308,24 @@ impl Schedule<'_> {
         )
     }
 
-    fn candidates(&self) -> Stage {
+    /// One thread turns a list counter into the dispatch arguments of the pass after it.
+    fn arguments(&self, name: &'static str, list: (u32, &wgpu::Buffer)) -> Stage {
         let inputs = &self.inputs;
         self.builder.compute(
-            STAGES[2],
+            name,
+            &[
+                buffer_entry(4, &inputs.control),
+                buffer_entry(list.0, list.1),
+                buffer_entry(9, &inputs.arguments),
+            ],
+            [1, 1, 1],
+        )
+    }
+
+    fn candidates(&self) -> Stage {
+        let inputs = &self.inputs;
+        self.builder.indirect(
+            STAGES[3],
             &[
                 view_entry(0, self.source),
                 buffer_entry(3, &inputs.edges),
@@ -292,14 +335,14 @@ impl Schedule<'_> {
                 buffer_entry(7, &inputs.items),
                 buffer_entry(8, &inputs.locations),
             ],
-            list_dispatch(self.capacity.candidates.div_ceil(CANDIDATES_PER_GROUP)),
+            (&inputs.arguments, 0),
         )
     }
 
     fn apply(&self) -> Stage {
         let inputs = &self.inputs;
-        self.builder.compute(
-            STAGES[3],
+        self.builder.indirect(
+            STAGES[5],
             &[
                 view_entry(0, self.source),
                 view_entry(1, &inputs.work),
@@ -308,7 +351,7 @@ impl Schedule<'_> {
                 buffer_entry(7, &inputs.items),
                 buffer_entry(8, &inputs.locations),
             ],
-            list_dispatch(self.capacity.locations.div_ceil(LOCATIONS_PER_GROUP)),
+            (&inputs.arguments, APPLY_ARGUMENTS),
         )
     }
 }
@@ -338,12 +381,13 @@ pub(crate) fn append(
         source,
         inputs: allocate(device, set, size),
         size,
-        capacity: Capacity::new(device.limits().max_storage_buffer_binding_size, size),
     };
     set.stages.extend([
         schedule.clear(),
         schedule.edges(),
+        schedule.arguments(STAGES[2], (5, &schedule.inputs.candidates)),
         schedule.candidates(),
+        schedule.arguments(STAGES[4], (8, &schedule.inputs.locations)),
         schedule.apply(),
         schedule
             .builder
@@ -353,6 +397,7 @@ pub(crate) fn append(
     set.resources.buffers.extend([
         inputs.edges,
         inputs.control,
+        inputs.arguments,
         inputs.candidates,
         inputs.heads,
         inputs.items,

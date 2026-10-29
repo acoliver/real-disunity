@@ -102,6 +102,7 @@ impl Case {
             jitter: self.jitter.map(f64::from),
             history_valid: self.valid,
             settings: self.settings,
+            samples: u32::try_from(self.depth_samples.len().max(1)).unwrap(),
         }
         .resolve()
     }
@@ -650,12 +651,61 @@ fn a_multisampled_depth_uses_the_minimum_over_samples() {
 fn a_multisampled_depth_differs_from_its_first_sample() {
     let size = [17, 9];
     let planes = sample_planes(size);
+    // Parallax small enough that the multisampled path still keeps some history weight.
+    let parallax = [0.003, 0.0, 1.0, 0.0];
     let mut minimum = Case::new(noisy(size, 0), noisy(size, 5)).with_depth_samples(planes.clone());
-    minimum.reprojection = translation([2.0 / 17.0, 0.0]);
-    minimum.reprojection[2] = [0.25, 0.0, 1.0, 0.0];
-    let mut first = Case::new(noisy(size, 0), noisy(size, 5));
-    first.depth = planes[0].clone();
-    first.reprojection = minimum.reprojection;
+    minimum.reprojection[2] = parallax;
+    let mut first =
+        Case::new(noisy(size, 0), noisy(size, 5))
+            .with_depth_samples(vec![planes[0].clone(); planes.len()]);
+    first.reprojection[2] = parallax;
     let (a, b) = (minimum.expected(), first.expected());
     assert!(a.iter().zip(&b).any(|(x, y)| (x[0] - y[0]).abs() > 1e-3));
+}
+
+#[test]
+fn sub_pixel_motion_lowers_the_history_weight_like_the_reference() {
+    let size = [17, 9];
+    for shift in [0.05, 0.3, 0.9] {
+        let mut case = Case::new(noisy(size, 0), noisy(size, 5));
+        case.settings = TaaSettings::new(0.5);
+        case.jitter = [0.25, -0.125];
+        case.reprojection = translation([2.0 * shift / f64::from(size[0]), 0.0]);
+        assert_matches_reference(&case, &format!("1x shift {shift}"));
+        let planes = sample_planes(size);
+        let mut msaa = Case::new(noisy(size, 0), noisy(size, 5)).with_depth_samples(planes);
+        msaa.settings = TaaSettings::new(0.5);
+        msaa.reprojection = case.reprojection;
+        assert_matches_reference(&msaa, &format!("4x shift {shift}"));
+    }
+}
+
+#[test]
+fn motion_changes_the_output_by_the_weight_scale_on_each_path() {
+    let size = [17, 9];
+    let moving = |depth_samples: Option<Vec<Depth>>, shift: f64| {
+        let mut case = Case::new(noisy(size, 0), noisy(size, 5));
+        if let Some(planes) = depth_samples {
+            case = case.with_depth_samples(planes);
+        }
+        case.reprojection = translation([2.0 * shift / f64::from(size[0]), 0.0]);
+        case.expected()
+    };
+    let (still, slow, fast) = (moving(None, 0.0), moving(None, 0.3), moving(None, 0.9));
+    let msaa_still = moving(Some(sample_planes(size)), 0.0);
+    let msaa_slow = moving(Some(sample_planes(size)), 0.3);
+    let spread = |a: &[[f64; 4]], b: &[[f64; 4]]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x[0] - y[0]).abs())
+            .sum::<f64>()
+    };
+    assert!(spread(&still, &slow) > 0.0 && spread(&still, &fast) > 0.0);
+    // Above 1 / 16 pixel the multisampled path uses the current frame alone.
+    let current = Case::new(noisy(size, 0), noisy(size, 5));
+    let mut invalid = current;
+    invalid.valid = false;
+    let expected = invalid.with_depth_samples(sample_planes(size)).expected();
+    assert!(spread(&msaa_slow, &expected) < 1e-9);
+    assert!(spread(&msaa_still, &expected) > 1e-3);
 }

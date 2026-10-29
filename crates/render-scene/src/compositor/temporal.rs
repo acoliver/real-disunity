@@ -68,7 +68,8 @@ impl FrameRenderer {
         Ok(())
     }
 
-    /// The selected projection jitter, if any.
+    /// The selected projection jitter, if any. Multisampled targets apply no offset even when a
+    /// sequence is selected ([`ProjectionJitter::offset_pixels_for`]).
     pub fn projection_jitter(&self) -> Option<ProjectionJitter> {
         self.temporal.borrow().jitter
     }

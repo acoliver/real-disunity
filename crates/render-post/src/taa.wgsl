@@ -28,6 +28,14 @@ override SAMPLES: i32 = 1;
 // sample nearest the pixel centre counts, so the frames accumulate to the box-filtered pixel.
 // Wider kernels blur every frame and the accumulation converges to a blurred image.
 const KERNEL_SIGMA: f32 = 0.05;
+// Motion-adaptive history weight: the weight is scaled by clamp(1 - k * offset, 0, 1), where
+// offset is the reprojection displacement in pixels. A static pixel keeps the full weight; a
+// moving one leans on the current frame, so it is resampled from history fewer times. Jittered
+// 1x frames need history to supersample, so their k is small; a multisampled frame is already
+// antialiased, so history only stabilises it and its k is large (history is dropped above
+// 1 / MSAA_MOTION_K pixels). Measured values are in docs/rendering.md.
+const MOTION_K: f32 = 1.5;
+const MSAA_MOTION_K: f32 = 16.0;
 const MIN_BOX_EXTENT: f32 = 1e-4;
 const MAX_COMPRESSED_LUMA: f32 = 0.99999;
 const LUMA: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
@@ -182,9 +190,12 @@ fn fetch(uv: vec2<f32>) -> vec3<f32> {
         let h = to_ycocg(compress(max(fetched, vec3<f32>(0.0))));
         let clipped = clip_toward_centre(h, centre, CLIP_SCALE * half);
         let history_rgb = decompress(from_ycocg(clipped));
-        let wc = (1.0 - HISTORY_WEIGHT);
-        let wh = HISTORY_WEIGHT;
-        rgb = (current.rgb * wc + history_rgb * wh) / (wc + wh);
+        let size_f = vec2<f32>(size);
+        let motion = length((target_uv.xy - (vec2<f32>(p) + 0.5) / size_f) * size_f);
+        let k = select(MOTION_K, MSAA_MOTION_K, SAMPLES > 1);
+        let wh = HISTORY_WEIGHT * clamp(1.0 - k * motion, 0.0, 1.0);
+        let wc = 1.0 - wh;
+        rgb = current.rgb * wc + history_rgb * wh;
     }
     return clean(vec4<f32>(rgb, current.a));
 }

@@ -610,3 +610,104 @@ fn renderers_without_taa_do_not_jitter_or_accumulate() {
         }
     }
 }
+
+/// Per-frame error to the supersampled reference of the same camera along `path`, for the run
+/// the closure renders.
+fn curve(
+    context: &GpuContext,
+    samples: MsaaSamples,
+    resolve: PostResolve,
+    reset_each_frame: bool,
+    path: &[(i64, Image)],
+) -> Vec<f64> {
+    let mut rig = Rig::new(context, samples, resolve);
+    path.iter()
+        .map(|(eye_x, reference)| {
+            if reset_each_frame {
+                rig.renderer.reset_temporal_history();
+            }
+            mean_abs_error(&rig.render(*eye_x), reference)
+        })
+        .collect()
+}
+
+fn mean(values: &[f64]) -> f64 {
+    values.iter().sum::<f64>() / count(values.len())
+}
+
+/// Error curves of TAA, TAA reset every frame and the same target without TAA along a path.
+fn motion_curves(samples: MsaaSamples, step_mm: i64) -> Option<[Vec<f64>; 3]> {
+    let context = context();
+    if !supported(&context, samples) {
+        return None;
+    }
+    let path: Vec<(i64, Image)> = cameras(16, step_mm)
+        .into_iter()
+        .map(|eye_x| (eye_x, supersampled(&context, eye_x)))
+        .collect();
+    Some([
+        curve(&context, samples, taa(), false, &path),
+        curve(&context, samples, taa(), true, &path),
+        curve(&context, samples, PostResolve::None, false, &path),
+    ])
+}
+
+/// Frames before this one are the history warming up; the mean covers the rest.
+const WARM_FRAMES: usize = 4;
+
+/// A multisampled frame in motion: TAA may cost at most this multiple of the MSAA-alone error
+/// (measured 1.0 on both paths; the motion-adaptive weight drops history above 1/16 pixel).
+const MOVING_MSAA_FACTOR: f64 = 2.0;
+/// Jittered 1x frames in motion: the mean TAA error over the warm frames against the same run
+/// with history reset every frame (measured 0.88 at +41 mm and 0.73 at -29 mm).
+const MOVING_1X_FACTOR: f64 = 0.95;
+/// Largest ratio of the late-frame mean to the early-frame mean: error must not grow with the
+/// number of resampled frames.
+const GROWTH_FACTOR: f64 = 1.5;
+
+fn moving_sharpness(samples: MsaaSamples, step_mm: i64) {
+    let Some([taa_run, reset, plain]) = motion_curves(samples, step_mm) else {
+        return;
+    };
+    let (taa_mean, reset_mean, plain_mean) = (
+        mean(&taa_run[WARM_FRAMES..]),
+        mean(&reset[WARM_FRAMES..]),
+        mean(&plain[WARM_FRAMES..]),
+    );
+    let (early, late) = (mean(&taa_run[1..8]), mean(&taa_run[8..]));
+    // The multisampled path is bounded against the plain run below, which has the same
+    // frame-to-frame outliers; the growth check is for the history-dominated 1x path.
+    assert!(
+        samples != MsaaSamples::X1 || late < early * GROWTH_FACTOR,
+        "{samples:?} {step_mm}: error grows with resampled frames, {early} then {late}"
+    );
+    assert!(
+        taa_run[15] < reset[15] * 1.05,
+        "{samples:?} {step_mm}: last frame {} vs reset {}",
+        taa_run[15],
+        reset[15]
+    );
+    if samples == MsaaSamples::X1 {
+        assert!(
+            taa_mean <= reset_mean * MOVING_1X_FACTOR,
+            "1x {step_mm}: TAA {taa_mean} vs reset {reset_mean}"
+        );
+    } else {
+        assert!(
+            taa_mean <= plain_mean * MOVING_MSAA_FACTOR,
+            "{samples:?} {step_mm}: TAA {taa_mean} vs MSAA alone {plain_mean}"
+        );
+    }
+}
+
+#[test]
+fn history_in_motion_sharpens_the_jittered_image_without_msaa() {
+    moving_sharpness(MsaaSamples::X1, STEP_MM);
+    moving_sharpness(MsaaSamples::X1, SECOND_STEP_MM);
+}
+
+#[test]
+fn history_in_motion_costs_a_multisampled_image_at_most_twice_the_msaa_error() {
+    moving_sharpness(MsaaSamples::X4, STEP_MM);
+    moving_sharpness(MsaaSamples::X4, SECOND_STEP_MM);
+}

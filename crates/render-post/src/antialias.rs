@@ -223,7 +223,9 @@ impl AntiAliasing {
     }
 
     /// This choice with sub-pixel projection jitter. See the type documentation: without a
-    /// temporal resolve the jittered image shimmers.
+    /// temporal resolve the jittered image shimmers. A multisampled target is never jittered,
+    /// so the sequence has no effect there ([`ProjectionJitter::offset_pixels_for`] returns zero
+    /// for more than one sample), although [`Self::effective_jitter`] still returns it.
     #[must_use]
     pub const fn with_jitter(self, jitter: ProjectionJitter) -> Self {
         Self {

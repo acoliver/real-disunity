@@ -635,7 +635,7 @@ exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` foll
 compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled
 frame is not jittered, so the sample is the MSAA pixel and a static 4x image equals MSAA alone,
 0.00046 against 0.00161 with jitter at 64x64; resampling the shifted frame gave 0.00153), the box is the
-3x3 min/max, the blend is linear and history is read with Catmull-Rom; `taa_reference.rs` is the f64 reference the GPU tests compare against.
+3x3 min/max, the blend is linear and history is read with Catmull-Rom; the history weight is scaled by `clamp(1 - k * offset_px, 0, 1)` (a motion-adaptive blend factor, as in Karis 2014 and later TAA talks), k = 1.5 at 1x and 16 on multisampled frames, so static pixels keep the full weight (static 1x 0.00201 against 0.00436 aliased, static 4x equal to MSAA alone) and in motion 4x TAA equals MSAA alone (0.00036 and 0.00043 against 0.00036 and 0.00043) while 1x TAA is 0.88x and 0.73x the history-reset error (mean over frames, +41 and -29 mm per frame); the cost is less supersampling of moving pixels. An explicit `with_jitter` sequence on a multisampled target is ignored; `taa_reference.rs` is the f64 reference the GPU tests compare against.
 
 `taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or
 `texture_depth_multisampled_2d` with a per-sample minimum when MSAA is on), the history texture and

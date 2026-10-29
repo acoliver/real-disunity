@@ -27,6 +27,17 @@ pub(crate) type Mat4 = [[f64; 4]; 4];
 /// instead of a blurred one (sigma 0.47 measured 0.0030 against 0.0020 here at 1x).
 pub(crate) const KERNEL_SIGMA: f64 = 0.05;
 
+/// Motion-adaptive history weight slope for single-sample (jittered) frames: the weight is scaled
+/// by `clamp(1 - k * offset, 0, 1)` with `offset` the reprojection displacement in pixels. A
+/// static pixel keeps the full weight, a moving one leans on the current frame and is resampled
+/// from history fewer times. Measured at 64x64: 1x translation 0.00257 to 0.00225.
+pub(crate) const MOTION_K: f64 = 1.5;
+
+/// The same slope for multisampled frames, which are already antialiased and unjittered, so
+/// history only stabilises them. History is dropped above `1 / 16` pixel of motion (4x
+/// translation 0.00254 to 0.00038, plain MSAA 0.00040).
+pub(crate) const MSAA_MOTION_K: f64 = 16.0;
+
 /// Smallest half-extent of the clip box per `YCoCg` axis. It keeps the clip ray finite when the
 /// neighborhood is flat; history that is off by more than this is pulled to the box centre.
 pub(crate) const MIN_BOX_EXTENT: f64 = 1e-4;
@@ -93,6 +104,8 @@ pub(crate) struct Frame<'a> {
     pub jitter: [f64; 2],
     pub history_valid: bool,
     pub settings: TaaSettings,
+    /// Samples per pixel of the frame's render target; selects the motion slope.
+    pub samples: u32,
 }
 
 /// Luma of linear Rec. 709 color.
@@ -280,6 +293,14 @@ impl Frame<'_> {
         out.iter().all(|v| (0.0..=1.0).contains(v)).then_some(out)
     }
 
+    /// Length in pixels of the displacement from the pixel centre to its history position.
+    fn motion_pixels(&self, at: [i32; 2], uv: [f64; 2]) -> f64 {
+        let size = self.depth.size.map(f64::from);
+        let dx = uv[0] * size[0] - (f64::from(at[0]) + 0.5);
+        let dy = uv[1] * size[1] - (f64::from(at[1]) + 0.5);
+        dx.hypot(dy)
+    }
+
     /// Catmull-Rom (bicubic) history color at `uv` over the 4x4 texels around it, edge-clamped.
     /// The GPU builds the same filter from nine bilinear taps. `None` when any contributing
     /// texel is not finite; negative lobes that undershoot are clamped to zero.
@@ -311,11 +332,23 @@ impl Frame<'_> {
     /// Blends clipped history into the reconstructed color linearly. Karis `1 / (1 + luma)` weights
     /// bias an edge toward its darker side on every frame (static 1x error 0.0027 against 0.0022
     /// without them), and the clip already bounds fireflies.
-    fn blend(&self, current: [f64; 3], history: [f64; 3], box_: ([f64; 3], [f64; 3])) -> [f64; 3] {
+    fn blend(
+        &self,
+        current: [f64; 3],
+        history: [f64; 3],
+        box_: ([f64; 3], [f64; 3]),
+        motion_pixels: f64,
+    ) -> [f64; 3] {
         let scale = f64::from(self.settings.clip_scale);
         let clipped = clip_toward_centre(to_ycocg(compress(history)), box_.0, box_.1, scale);
         let history = decompress(from_ycocg(clipped));
-        let weight = f64::from(self.settings.history_weight);
+        let slope = if self.samples > 1 {
+            MSAA_MOTION_K
+        } else {
+            MOTION_K
+        };
+        let weight = f64::from(self.settings.history_weight)
+            * slope.mul_add(-motion_pixels, 1.0).clamp(0.0, 1.0);
         std::array::from_fn(|i| current[i] * (1.0 - weight) + history[i] * weight)
     }
 
@@ -323,12 +356,12 @@ impl Frame<'_> {
     pub fn resolve_pixel(&self, at: [i32; 2]) -> [f64; 4] {
         let current = self.reconstruct(at);
         let rgb = [current[0], current[1], current[2]];
-        let history = self
-            .history_valid
-            .then(|| self.history_uv(at))
-            .flatten()
-            .and_then(|uv| self.fetch_history(uv));
-        let out = history.map_or(rgb, |h| self.blend(rgb, h, self.statistics(at)));
+        let lookup = self.history_valid.then(|| self.history_uv(at)).flatten();
+        let out = lookup
+            .and_then(|uv| Some((uv, self.fetch_history(uv)?)))
+            .map_or(rgb, |(uv, h)| {
+                self.blend(rgb, h, self.statistics(at), self.motion_pixels(at, uv))
+            });
         [
             sanitize(out[0]),
             sanitize(out[1]),
@@ -408,6 +441,7 @@ mod tests {
                 jitter: self.jitter,
                 history_valid: self.valid,
                 settings: self.settings,
+                samples: 1,
             }
             .resolve_pixel(at)
         }
@@ -514,6 +548,7 @@ mod tests {
             jitter: [0.0; 2],
             history_valid: true,
             settings: scene.settings,
+            samples: 1,
         };
         let (mean, sigma) = frame.statistics([2, 2]);
         assert!(near(&mean, &[0.25, 0.0, 0.0]), "{mean:?}");
@@ -600,8 +635,9 @@ mod tests {
     fn a_lookup_outside_the_image_ignores_history() {
         let size = [5, 5];
         let mut scene = Scene::new(top_row(size), flat(size, 100.0));
-        // One pixel to the right: pixel x = 4 looks up past the edge, x = 2 does not.
-        scene.reprojection = translation([2.0 / 5.0, 0.0]);
+        // 0.6 pixel to the right: pixel x = 4 looks up past the edge, x = 2 does not, and the
+        // motion still leaves part of the history weight.
+        scene.reprojection = translation([1.2 / 5.0, 0.0]);
         let outside = scene.resolve([4, 1]);
         scene.valid = false;
         let current = scene.resolve([4, 1]);
@@ -650,10 +686,14 @@ mod tests {
     #[test]
     fn the_closest_neighbour_supplies_the_motion() {
         let size = [9, 9];
-        let mut scene = Scene::new(ramp(size, false), shifted_ramp(size, false, 2));
-        // Parallax: the previous NDC x moves by 16/9 times depth, i.e. 8/9 uv per unit depth.
-        // Depth 0.25 gives a 2 pixel lookup shift, the pixel's own depth 0.5 gives 4.
-        scene.reprojection[2] = [16.0 / 9.0, 0.0, 1.0, 0.0];
+        let history = Image::from_fn(size, |x, _| {
+            gray(0.2 + 0.1 * (f32::from(i16::try_from(x).unwrap()) - 0.2))
+        });
+        let mut scene = Scene::new(ramp(size, false), history);
+        // Parallax: the previous NDC x moves by 1.6/9 times depth, i.e. 0.8/9 uv per unit depth.
+        // Depth 0.25 gives a 0.2 pixel lookup shift, the pixel's own depth 0.5 gives 0.4; both
+        // stay inside the range where the motion-adaptive weight keeps some history.
+        scene.reprojection[2] = [1.6 / 9.0, 0.0, 1.0, 0.0];
         scene.depth = Depth::from_fn(size, |x, y| if (x, y) == (3, 3) { 0.25 } else { 0.5 });
         let out = scene.resolve([4, 4]);
         assert!((out[0] - 0.6).abs() < 1e-6, "{out:?}");

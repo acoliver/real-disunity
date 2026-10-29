@@ -29,6 +29,8 @@ internal static class PlayerRun
         // Entering the player's context makes those lookups resolve there for the rest of the run.
         context.EnterContextualReflection();
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
+        // A headless run has no window; Unity's default standalone window is 1920 by 1080.
+        DisunityHost.SetScreen(1920, 1080, 96f, 60f);
         DisunityHost.ConfigurePlayer(Environment(data, request));
         ApplyQuality(request);
         DisunityHost.LoadResources(request.GetProperty("resources").GetString()!, Load);

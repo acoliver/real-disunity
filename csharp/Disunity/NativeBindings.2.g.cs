@@ -12,6 +12,17 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `retained` is writable for one native callback-retention flag.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_script_retained", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_script_retained(ulong world, ulong identity, uint* retained);
+        /// <summary>
+        ///  Schedules destruction using scaled world seconds, without running cleanup inline.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_gameobject_destroy_after", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_gameobject_destroy_after(ulong world, ulong @object, ulong numerator, ulong denominator);
+        /// <summary>
+        ///  # Safety
         ///  Output is writable for one text style record.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_text_style_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

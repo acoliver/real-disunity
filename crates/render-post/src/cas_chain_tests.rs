@@ -2,7 +2,7 @@
 //! is off, resize and the 8-bit sRGB result of a tone-mapped frame.
 use super::{chain, pixels, step};
 use crate::{
-    CasSettings, FrameConfig, HdrPostSettings, PostChain, PostResolve, Resources, SmaaPreset,
+    CasSettings, ColorGrading, FrameConfig, HdrPostSettings, PostChain, PostResolve, Resources, SmaaPreset,
     StageId, ToneMap, ToneMapOutput, UpscaleMode, UpscaleSettings,
 };
 
@@ -252,7 +252,13 @@ fn the_allocation_budget_counts_the_intermediates_sharpening_adds() {
         (reduced, PostResolve::None, upscale, 32 * 16 * 8 * 3),
     ];
     for (config, resolve, upscale, expected) in cases {
+        // A grading change enables the post path without allocating textures, so the
+        // difference is only what sharpening adds.
         let off = HdrPostSettings {
+            grading: ColorGrading {
+                linear_scale: 1.5,
+                ..ColorGrading::default()
+            },
             resolve,
             upscale,
             ..HdrPostSettings::default()

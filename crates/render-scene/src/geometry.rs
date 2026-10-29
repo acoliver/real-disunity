@@ -252,9 +252,13 @@ pub(crate) fn pack_object(object: worldrunner_render_plan::SceneObject) -> Vec<u
 }
 
 pub(crate) fn fade_band_meters(band: worldrunner_render_plan::SceneFadeBand) -> [f32; 2] {
-    let [start, end] = band
-        .millimeters()
-        .map(|value| millimeter_to_meter(i64::from(value)));
+    let endpoints = band.millimeters();
+    let [start, end] = endpoints.map(|value| millimeter_to_meter(i64::from(value)));
+    // Mark authored steps before float conversion can collapse a positive width.
+    // Nonzero markers preserve origin-step ownership on every shader backend.
+    if endpoints[0] == endpoints[1] {
+        return [if band.terminal() { -2.0 } else { -1.0 }, end];
+    }
     [start, if band.terminal() { -end } else { end }]
 }
 

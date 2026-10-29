@@ -239,6 +239,7 @@ impl ScenePipelines {
             &targets,
             &module,
             (samples, &constants, options.1),
+            source.contains(crate::velocity::MARKER),
         );
         groups[1] = Some(&terrain_layout);
         let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
@@ -329,6 +330,18 @@ pub(crate) fn vertex_buffers<'a>(
             attributes: instances,
         }),
     ]
+}
+
+/// The third vertex buffer of velocity pipelines: each instance's previous-frame transform, laid
+/// out like the instance buffer so one stride and one set of offsets serve both.
+pub(crate) fn previous_instance_buffer(
+    attributes: &[wgpu::VertexAttribute],
+) -> VertexBufferLayout<'_> {
+    VertexBufferLayout {
+        array_stride: INSTANCE_STRIDE,
+        step_mode: VertexStepMode::Instance,
+        attributes,
+    }
 }
 
 /// Builds the one pipeline a single material state requires.

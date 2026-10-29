@@ -145,12 +145,19 @@ fn scene_deformed_position_at(position: vec3<f32>, vertex_seed: f32, instance: I
     return position + scene_geometry_displacement_at(position, vertex_seed, instance, time);
 }
 
-// World-space motion of a deforming vertex since the previous frame, `previous - current`,
-// for a vertex whose undeformed world position is `position`. The instance transform is the
-// current one; per-instance previous transforms are not tracked yet.
-fn scene_wind_world_delta(position: vec3<f32>, vertex_seed: f32, instance: InstanceInput) -> vec3<f32> {
+// World-space motion of a vertex since the previous frame, `previous - current`. `position` is
+// the undeformed current world position and `before_position` the undeformed world position
+// under `before_instance`, the instance with the previous frame's transform. Both terms come
+// from `scene_deformed_position_at`, so equal transforms and clocks yield exactly zero.
+fn scene_world_delta(position: vec3<f32>, before_position: vec3<f32>, vertex_seed: f32, instance: InstanceInput, before_instance: InstanceInput) -> vec3<f32> {
     let now = bitcast<u32>(frame.grading.z);
     let before = bitcast<u32>(previous_frame.camera_time.w);
-    return scene_deformed_position_at(position, vertex_seed, instance, before)
+    return scene_deformed_position_at(before_position, vertex_seed, before_instance, before)
         - scene_deformed_position_at(position, vertex_seed, instance, now);
+}
+
+// The same for an instance that did not move, which is every instance without a tracked
+// previous transform.
+fn scene_wind_world_delta(position: vec3<f32>, vertex_seed: f32, instance: InstanceInput) -> vec3<f32> {
+    return scene_world_delta(position, position, vertex_seed, instance, instance);
 }

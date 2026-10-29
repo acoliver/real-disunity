@@ -353,6 +353,22 @@ pub const fn instance_attributes() -> [wgpu::VertexAttribute; 5] {
     ]
 }
 
+/// Describes the previous-frame model matrix of velocity pipelines, at the free locations 12..15.
+///
+/// The buffer has the instance layout, so the w lanes of the first three columns hold the current
+/// fade band and LOD scale; the shader reads only the xyz lanes of the previous transform.
+#[must_use]
+pub const fn previous_instance_attributes() -> [wgpu::VertexAttribute; 4] {
+    const fn column(index: u32) -> wgpu::VertexAttribute {
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: index as u64 * 16,
+            shader_location: 12 + index,
+        }
+    }
+    [column(0), column(1), column(2), column(3)]
+}
+
 /// Appends a vector as three little-endian `f32`s.
 pub(crate) fn push_vec3(bytes: &mut Vec<u8>, value: Vec3) {
     push_f32(bytes, value.x);

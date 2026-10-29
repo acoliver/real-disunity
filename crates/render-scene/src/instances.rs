@@ -71,6 +71,8 @@ pub(crate) struct Instances {
     free: BTreeSet<usize>,
     mesh_count: usize,
     pub(crate) pipelines: Vec<usize>,
+    /// Whether velocity pipelines draw, so batches keep previous-frame transforms.
+    pub track_previous: bool,
     pub wind_extents: Vec<glam::Vec3>,
     pub curved_wind: Vec<Option<glam::Vec3>>,
     pub impostor_extents: Vec<[f32; 3]>,
@@ -97,6 +99,7 @@ impl Instances {
                 .iter()
                 .map(|material| PipelineKey::from_material(material).index())
                 .collect(),
+            track_previous: false,
             wind_extents,
             curved_wind,
             impostor_extents: scene
@@ -135,6 +138,12 @@ impl Instances {
                 .expect("validated scene object");
         }
         instances
+    }
+
+    /// Keeps previous-frame transforms for velocity pipelines.
+    pub fn tracking_previous(mut self, track: bool) -> Self {
+        self.track_previous = track;
+        self
     }
 
     pub fn add(

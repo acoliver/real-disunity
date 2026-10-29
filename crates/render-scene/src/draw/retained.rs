@@ -198,8 +198,9 @@ impl SceneGpu {
         context: &mut worldrunner_render_post::PrepareContext<'_>,
     ) -> Vec<InstanceWrite> {
         let mut writes = Vec::new();
+        let track = self.instances.track_previous;
         for (&(_, mesh, material), batch) in &mut self.instances.batches {
-            for instances in crate::instances::batch::flush_prepared(batch, context) {
+            for instances in crate::instances::batch::flush_prepared(batch, context, track) {
                 writes.push(InstanceWrite {
                     mesh,
                     material,

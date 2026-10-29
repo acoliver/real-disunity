@@ -295,6 +295,7 @@ CameraProjectionTests.Run();
 CameraSceneTests.Run();
 PlayerCameraPlanTests.Run();
 LightTests.Run();
+CommandBufferAttachmentTests.Run();
 ScreenTests.Run();
 QualitySettingsTests.Run();
 CursorTests.Run();

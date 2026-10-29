@@ -8,8 +8,8 @@
 //! scene cannot exist.
 mod decal;
 pub use decal::{
-    SceneDecal, SceneDecalAngle, SceneDecalAxis, SceneDecalMapping, SceneDecalNormalFrame,
-    SceneDecalReceivers, SceneDecalWriteMask,
+    SceneDecal, SceneDecalAlphaMode, SceneDecalAngle, SceneDecalAxis, SceneDecalColorModifier,
+    SceneDecalMapping, SceneDecalNormalFrame, SceneDecalReceivers, SceneDecalWriteMask,
 };
 mod atmosphere;
 mod specular_cube;
@@ -143,7 +143,6 @@ pub use sampler::{TextureFilter, TextureSampler, TextureWrap};
 pub use terrain::{
     SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, TerrainLodPolicy,
 };
-
 /// Authored parts adopted by [`RenderScene::new`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneParts {

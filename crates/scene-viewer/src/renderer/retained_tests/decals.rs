@@ -85,6 +85,7 @@ fn decal(material: u32) -> SceneDecal {
         mapping: worldrunner_render_plan::SceneDecalMapping::default(),
         write_mask: worldrunner_render_plan::SceneDecalWriteMask::default(),
         alpha_test_cutoff_micro: None,
+        color_modifier: worldrunner_render_plan::SceneDecalColorModifier::default(),
     }
 }
 fn material(
@@ -218,4 +219,27 @@ fn retained_decal_add_transform_and_remove_publish_without_preparing_the_scene()
     publish(&context, &mut streaming, &mut resident, &mut host);
     assert_eq!(frame(&mut resident, &context, &mut target), initial);
     assert_eq!(host.ready_generation(), 4);
+}
+
+#[test]
+fn retained_modifier_only_replace_publishes_without_scene_preparation() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let scene = source_with_materials().with_decals(vec![decal(4)]).unwrap();
+    let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
+    let mut resident = Resident::new(&context, &scene, None, crate::FrameProfile::Legacy).unwrap();
+    let mut streaming = super::super::readiness::Streaming::new(None, crate::FrameProfile::Legacy);
+    let mut changed = decal(4);
+    changed.color_modifier.rgb_scale_micro = [1_770_000, 0, 500_000];
+    changed.color_modifier.opacity_micro = 500_000;
+    changed.color_modifier.alpha_mode = worldrunner_render_plan::SceneDecalAlphaMode::OpacityEdge;
+    host.apply(RetainedUpdate::Decal(DecalUpdate::Replace {
+        id: 0,
+        decal: changed,
+    }))
+    .unwrap();
+    assert!(host.readiness.queue.front().unwrap().scene.is_none());
+    publish(&context, &mut streaming, &mut resident, &mut host);
+    assert_eq!(host.ready_generation(), 1);
+    assert_eq!(resident.scene_mut().decal_placements(), vec![(0, changed)]);
 }

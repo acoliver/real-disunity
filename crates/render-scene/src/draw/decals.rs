@@ -10,7 +10,7 @@ mod channels;
 use channels::Channel;
 
 const LIMIT: usize = 32;
-pub(crate) const BYTES: usize = 16 + LIMIT * 144;
+pub(crate) const BYTES: usize = 16 + LIMIT * 160;
 
 #[derive(Debug)]
 struct Entry {
@@ -217,10 +217,16 @@ impl Decals {
                         | (Channel::Surface.layer(&self.scene, materials, decal.material.raw())
                             << 8)
                         | ((SceneDecalWriteMask::ALL.bits() ^ decal.write_mask.bits()) << 16)
-                        | normal_frame_bits(decal.mapping.normal_frame),
+                        | normal_frame_bits(decal.mapping.normal_frame)
+                        | (u32::from(
+                            decal.color_modifier.alpha_mode
+                                == worldrunner_render_plan::SceneDecalAlphaMode::OpacityEdge,
+                        ) << 20),
                 ),
             ]);
             mapping_values(&mut values, decal, surface[2]);
+            values.extend(decal.color_modifier.rgb_scale_micro.map(unit));
+            values.push(unit(decal.color_modifier.opacity_micro));
         }
         let mut bytes: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
         assert!(bytes.len() <= BYTES);
@@ -229,7 +235,10 @@ impl Decals {
     }
 }
 
-// Unused selection bits preserve the default uniform layout and bytes.
+// Each volume is 160 bytes, following the 16-byte list header.
+// selection.x: receivers 0..1, alpha cutoff millionths 2..21, alpha-test enable 22.
+// selection.w: normal layer 0..7, surface layer 8..15, inverted write mask 16..18,
+// ReceiverWorld 19, OpacityEdge 20. Remaining bits are zero.
 fn receiver_and_alpha_test(decal: &SceneDecal) -> u32 {
     decal.receivers.bits()
         | decal

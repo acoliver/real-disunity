@@ -153,6 +153,7 @@ fn tone_row(device: &wgpu::Device, queue: &wgpu::Queue, settings: &HdrPostSettin
         ],
         jitter_pixels: [0.5, 0.0],
         history_valid: false,
+        depth_terms: [0.0; 2],
     }
     .to_bytes();
     let chain = PostChain::new(

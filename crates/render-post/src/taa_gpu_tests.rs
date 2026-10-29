@@ -59,6 +59,9 @@ struct Case {
     depth_samples: Vec<Depth>,
     /// Object-motion residual; `None` binds no velocity texture.
     velocity: Option<Velocity>,
+    /// Linear view depth the previous resolve stored; `None` writes zeros and disables the test.
+    depth_history: Option<Depth>,
+    depth_terms: [f64; 2],
 }
 impl Case {
     fn new(color: Image, history: Image) -> Self {
@@ -73,6 +76,8 @@ impl Case {
             settings: TaaSettings::DEFAULT,
             depth_samples: Vec::new(),
             velocity: None,
+            depth_history: None,
+            depth_terms: [0.0; 2],
         }
     }
 
@@ -110,6 +115,8 @@ impl Case {
             settings: self.settings,
             samples: u32::try_from(self.depth_samples.len().max(1)).unwrap(),
             velocity: self.velocity.as_ref(),
+            depth_history: self.depth_history.as_ref(),
+            depth_terms: self.depth_terms,
         }
         .resolve()
     }
@@ -430,6 +437,7 @@ fn uniform_buffer(device: &wgpu::Device, case: &Case) -> wgpu::Buffer {
             reprojection: case.reprojection,
             jitter_pixels: case.jitter,
             history_valid: case.valid,
+            depth_terms: case.depth_terms,
         }
         .to_bytes(),
         usage: wgpu::BufferUsages::UNIFORM,

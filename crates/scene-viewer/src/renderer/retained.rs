@@ -66,6 +66,7 @@ impl Renderer {
     }
 
     pub fn collect_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
+        self.collect_timing(host)?;
         self.streaming
             .collect(self.context.submission().completed_serial());
         self.streaming.captures.collect(host)?;

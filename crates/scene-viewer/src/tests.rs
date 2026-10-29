@@ -177,6 +177,7 @@ pub(crate) fn options() -> ViewerOptions {
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,
+        gpu_timing: false,
         adapter_callback: None,
         cadence: crate::PresentationCadence::default(),
         ssr: None,

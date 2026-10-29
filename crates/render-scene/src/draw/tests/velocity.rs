@@ -532,9 +532,9 @@ fn sway_errors(context: &GpuContext, samples: MsaaSamples) -> (f64, f64) {
 #[test]
 fn swaying_foliage_under_a_fixed_camera_resolves_closer_to_the_unjittered_frame_with_velocity() {
     let (without, with) = sway_errors(&context(), MsaaSamples::X1);
-    // Measured on lavapipe: 0.01417 without velocity (the previous behaviour) and 0.00856 with it,
-    // a ratio of 0.60. The bound leaves margin for driver differences and still fails if the
-    // resolve ignores the residual.
+    // Measured on lavapipe: 0.01251 without velocity (the previous behaviour, with the depth
+    // history) and 0.00856 with it, a ratio of 0.68. The bound leaves margin for driver differences and still fails if
+    // the resolve ignores the residual.
     assert!(
         with < 0.75 * without,
         "with velocity {with}, without {without}"

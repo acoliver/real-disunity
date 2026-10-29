@@ -1,6 +1,6 @@
 //! The depth-history disocclusion test and the linear-depth history on the GPU.
 use super::*;
-use crate::taa_reference::depth_tests::{device as device_depth, terms};
+use crate::taa_reference::depth_tests::{Sweep, checker, device as device_depth, terms};
 
 const SIZE: [i32; 2] = [17, 9];
 
@@ -76,4 +76,38 @@ fn without_depth_terms_the_resolve_ignores_the_depth_history() {
     let (a, ..) = run(&with_zero_history);
     let (b, ..) = run(&case_without_test());
     assert_eq!(a, b);
+}
+
+/// The bar of the reference sweep test on the GPU: history is the previous frame with the bar
+/// at x 4..8, the bar is now at x 7..11 on a similar checkerboard, so the colour clip accepts the
+/// stale bar colour in the uncovered strip x 4..6.
+fn sweep_strip_error(with_depth: bool) -> f64 {
+    let sweep = Sweep::new();
+    let mut case = Case::new(sweep.color, sweep.history);
+    case.depth = sweep.depth;
+    case.velocity = Some(sweep.velocity);
+    if with_depth {
+        case.depth_history = Some(sweep.stored);
+        case.depth_terms = terms();
+    }
+    let (out, _) = run(&case);
+    let width = usize::try_from(case.size()[0]).unwrap();
+    let mut sum = 0.0;
+    for y in 1..7 {
+        for x in [4, 5] {
+            let truth = f64::from(checker(x, i32::try_from(y).unwrap()));
+            sum += (out[y * width + usize::try_from(x).unwrap()][0] - truth).abs();
+        }
+    }
+    sum / 12.0
+}
+
+#[test]
+fn a_bar_sweeping_over_a_similar_background_leaves_less_error_in_the_uncovered_strip_on_the_gpu() {
+    let (with, without) = (sweep_strip_error(true), sweep_strip_error(false));
+    // Measured on lavapipe: 0.00024 with the test (half-precision output rounding) against
+    // 0.180 without it, a factor of about 740; the bound asks for 100.
+    assert!(with < 0.01, "{with}");
+    assert!(without > 0.1, "{without}");
+    assert!(with < without / 100.0);
 }

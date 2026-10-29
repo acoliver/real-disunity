@@ -27,7 +27,7 @@ fn gray(v: f32) -> [f32; 4] {
 }
 
 /// A checkerboard whose range 0.3..0.7 contains the bar colour, so the colour box accepts it.
-fn checker(x: i32, y: i32) -> f32 {
+pub(crate) fn checker(x: i32, y: i32) -> f32 {
     if (x + y) % 2 == 0 { 0.3 } else { 0.7 }
 }
 
@@ -64,15 +64,15 @@ fn stored(bar: std::ops::Range<i32>) -> Depth {
 }
 
 /// The bar moves from x 4..8 to x 7..11 on a static camera; its pixels carry the residual.
-struct Sweep {
-    color: Image,
-    depth: Depth,
-    history: Image,
-    stored: Depth,
-    velocity: Velocity,
+pub(crate) struct Sweep {
+    pub(crate) color: Image,
+    pub(crate) depth: Depth,
+    pub(crate) history: Image,
+    pub(crate) stored: Depth,
+    pub(crate) velocity: Velocity,
 }
 impl Sweep {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             color: colour(7..11),
             depth: depth(7..11),

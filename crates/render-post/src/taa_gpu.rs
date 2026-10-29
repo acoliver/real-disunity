@@ -8,6 +8,7 @@ pub const STAGES: [&str; 2] = ["taa resolve", "taa history"];
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// The two textures a resolve needs besides its inputs.
+#[cfg(test)]
 pub struct Targets {
     pub output: wgpu::Texture,
     pub history: wgpu::Texture,
@@ -16,26 +17,43 @@ pub struct Targets {
 /// Allocates the resolve output "taa output" and the history "taa history", both
 /// `Rgba16Float` at `size`. The output is rendered to, sampled and copied from. The history is
 /// also rendered to by the copy-back pass and may be written by the host (`COPY_DST`).
+#[cfg(test)]
 pub fn allocate(device: &wgpu::Device, size: [u32; 2]) -> Targets {
-    let texture = |label, extra| {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: crate::targets::extent(size),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC
-                | extra,
-            view_formats: &[],
-        })
-    };
     Targets {
-        output: texture("taa output", wgpu::TextureUsages::empty()),
-        history: texture("taa history", wgpu::TextureUsages::COPY_DST),
+        output: output(device, size),
+        history: history(device, size),
     }
+}
+
+/// The resolve output texture "taa output". Frame slots each own one.
+pub fn output(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
+    texture(device, "taa output", size, wgpu::TextureUsages::empty())
+}
+
+/// The history texture "taa history". One is shared by every frame slot of a size.
+pub fn history(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
+    texture(device, "taa history", size, wgpu::TextureUsages::COPY_DST)
+}
+
+fn texture(
+    device: &wgpu::Device,
+    label: &str,
+    size: [u32; 2],
+    extra: wgpu::TextureUsages,
+) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: crate::targets::extent(size),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | extra,
+        view_formats: &[],
+    })
 }
 
 /// Views and buffers one resolve reads and writes.

@@ -611,3 +611,7 @@ mod aa_tests;
 #[cfg(test)]
 #[path = "chain_bloom_tests.rs"]
 mod bloom_tests;
+
+#[cfg(test)]
+#[path = "hdr_taa_tests.rs"]
+mod taa_wiring_tests;

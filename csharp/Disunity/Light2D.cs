@@ -5,7 +5,7 @@ namespace UnityEngine.Rendering.Universal;
 
 public sealed class Light2D : MonoBehaviour
 {
-    public override bool enabled { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
+    private protected override bool EnabledState { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
     public enum LightType { Parametric = 0, Freeform = 1, Sprite = 2, Point = 3, Global = 4, Spot = 5 }
     public LightType lightType
     {

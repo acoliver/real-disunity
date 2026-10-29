@@ -14,16 +14,16 @@ internal static class NativeBehaviourState
 }
 public sealed class AudioListener : Behaviour
 {
-    public override bool enabled { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
+    private protected override bool EnabledState { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
     private static float _volume = 1;
     public static float volume { get => _volume; set => _volume = Math.Clamp(value, 0, 1); }
     public static bool pause { get; set; }
 }
 public sealed class GUILayer : Behaviour
 {
-    public override bool enabled { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
+    private protected override bool EnabledState { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
 }
 public sealed class FlareLayer : Behaviour
 {
-    public override bool enabled { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
+    private protected override bool EnabledState { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
 }

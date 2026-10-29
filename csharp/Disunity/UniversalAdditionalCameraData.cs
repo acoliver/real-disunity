@@ -9,7 +9,7 @@ public sealed class UnsupportedCameraSettingException(string field) : NotSupport
 { public string Field { get; } = field; }
 public sealed class UniversalAdditionalCameraData : MonoBehaviour
 {
-    public override bool enabled { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
+    private protected override bool EnabledState { get => NativeBehaviourState.Read(Handle); set => NativeBehaviourState.Write(Handle, value); }
     private unsafe uint Read(uint property)
     {
         uint value;

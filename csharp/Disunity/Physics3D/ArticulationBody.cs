@@ -6,5 +6,5 @@ namespace UnityEngine;
 /// </summary>
 public class ArticulationBody : Behaviour
 {
-    public override bool enabled { get; set; } = true;
+    private protected override bool EnabledState { get; set; } = true;
 }

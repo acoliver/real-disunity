@@ -83,7 +83,11 @@ fn alpha_is_clamped_and_nan_is_rejected() {
             ..DisunityCanvasGroup::default()
         };
         assert_eq!(write(world, group, value).code, 0);
-        assert_eq!(read(world, group).alpha, expected, "alpha {given}");
+        assert_eq!(
+            read(world, group).alpha.to_bits(),
+            f32::to_bits(expected),
+            "alpha {given}"
+        );
     }
     assert_eq!(write(world, group, distinct()).code, 0);
     let nan = DisunityCanvasGroup {

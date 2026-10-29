@@ -56,7 +56,7 @@ fn distinct() -> CanvasGroup {
 fn a_new_group_is_enabled_opaque_interactable_and_blocks_raycasts() {
     let group = CanvasGroup::default();
     assert!(group.enabled);
-    assert_eq!(group.alpha, 1.);
+    assert_eq!(group.alpha.to_bits(), 1f32.to_bits());
     assert!(group.flags.interactable);
     assert!(group.flags.blocks_raycasts);
     assert!(!group.flags.ignore_parent_groups);
@@ -77,7 +77,11 @@ fn normalizing_clamps_alpha_and_rejects_nan() {
             alpha: given,
             ..CanvasGroup::default()
         };
-        assert_eq!(group.normalized().unwrap().alpha, expected, "alpha {given}");
+        assert_eq!(
+            group.normalized().unwrap().alpha.to_bits(),
+            f32::to_bits(expected),
+            "alpha {given}"
+        );
     }
     let nan = CanvasGroup {
         alpha: f32::NAN,
@@ -115,7 +119,10 @@ fn the_world_stores_only_alpha_in_range() {
         world
             .set_component(handle, ComponentDesc::CanvasGroup(edge))
             .unwrap();
-        assert_eq!(group_of(&world, object).alpha, alpha);
+        assert_eq!(
+            group_of(&world, object).alpha.to_bits(),
+            f32::to_bits(alpha)
+        );
     }
 }
 
@@ -219,7 +226,7 @@ fn drawn_alpha(chain: &[Option<CanvasGroup>]) -> f32 {
 
 #[test]
 fn text_without_a_group_keeps_its_own_alpha() {
-    assert_eq!(drawn_alpha(&[None, None]), 0.8);
+    assert_eq!(drawn_alpha(&[None, None]).to_bits(), 0.8f32.to_bits());
 }
 
 #[test]
@@ -244,7 +251,8 @@ fn a_disabled_group_does_not_change_alpha() {
         enabled: false,
         ..alpha_group(0.)
     };
-    assert_eq!(drawn_alpha(&[Some(alpha_group(0.5)), Some(disabled)]), 0.4);
+    let alpha = drawn_alpha(&[Some(alpha_group(0.5)), Some(disabled)]);
+    assert!((alpha - 0.4).abs() < 1e-6, "alpha {alpha}");
 }
 
 #[test]

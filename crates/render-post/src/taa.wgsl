@@ -20,6 +20,9 @@ struct Taa {
 @group(0) @binding(4) var<uniform> taa: Taa;
 override HISTORY_WEIGHT: f32 = 0.9;
 override CLIP_SCALE: f32 = 1.0;
+// Samples per depth texel. The multisampled build of this module, which declares `depth` as
+// texture_depth_multisampled_2d, sets it to the frame's sample count.
+override SAMPLES: i32 = 1;
 // Gaussian sigma, in pixels, of the unjitter reconstruction.
 const KERNEL_SIGMA: f32 = 0.47;
 const MIN_BOX_EXTENT: f32 = 1e-4;
@@ -70,13 +73,21 @@ fn clip_toward_centre(h: vec3<f32>, m: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
 fn load_color(p: vec2<i32>, size: vec2<i32>) -> vec4<f32> {
     return clean(textureLoad(color, clamp(p, vec2<i32>(0), size - 1), 0));
 }
+// The depth of a texel: the smallest over its samples, the one that occludes the others.
+fn depth_at(q: vec2<i32>) -> f32 {
+    var d = textureLoad(depth, q, 0);
+    for (var s = 1; s < SAMPLES; s++) {
+        d = min(d, textureLoad(depth, q, s));
+    }
+    return d;
+}
 // The texel of the 3x3 neighborhood with the smallest depth; the first wins a tie.
 fn closest(p: vec2<i32>, size: vec2<i32>) -> vec2<i32> {
     var best = clamp(p, vec2<i32>(0), size - 1);
-    var best_depth = textureLoad(depth, best, 0);
+    var best_depth = depth_at(best);
     for (var i = 0; i < 9; i++) {
         let q = clamp(p + vec2<i32>(i % 3 - 1, i / 3 - 1), vec2<i32>(0), size - 1);
-        let d = textureLoad(depth, q, 0);
+        let d = depth_at(q);
         if d < best_depth {
             best = q;
             best_depth = d;
@@ -96,7 +107,7 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
         2.0 * texel.x - 1.0 - 2.0 * jitter.x / size_f.x,
         1.0 - 2.0 * texel.y + 2.0 * jitter.y / size_f.y,
     );
-    let clip = taa.reprojection * vec4<f32>(ndc, textureLoad(depth, q, 0), 1.0);
+    let clip = taa.reprojection * vec4<f32>(ndc, depth_at(q), 1.0);
     let previous = vec2<f32>(0.5 + 0.5 * clip.x / clip.w, 0.5 - 0.5 * clip.y / clip.w);
     let unjittered = vec2<f32>(0.5 + 0.5 * ndc.x, 0.5 - 0.5 * ndc.y);
     let uv = (vec2<f32>(p) + 0.5) / size_f + previous - unjittered;

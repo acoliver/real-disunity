@@ -30,6 +30,14 @@ struct Depth { @builtin(frag_depth) value: f32 }
 @fragment fn upload_depth(@builtin(position) p: vec4<f32>) -> Depth {
     return Depth(textureLoad(source, vec2<i32>(p.xy), 0).r);
 }
+struct SampleDepth { @builtin(frag_depth) value: f32 }
+// Runs once per sample. Plane `s` of the source is laid out in columns x * count + s.
+@fragment fn upload_sample_depth(
+    @builtin(position) p: vec4<f32>,
+    @builtin(sample_index) s: u32,
+) -> SampleDepth {
+    return SampleDepth(textureLoad(source, vec2<i32>(i32(p.x) * 4 + i32(s), i32(p.y)), 0).r);
+}
 @fragment fn identity(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
     return textureLoad(source, vec2<i32>(p.xy), 0);
 }
@@ -43,6 +51,9 @@ struct Case {
     jitter: [f32; 2],
     valid: bool,
     settings: TaaSettings,
+    /// Per-sample depth planes of a multisampled depth texture. `depth` is then their
+    /// per-pixel minimum, which is what the resolve must see.
+    depth_samples: Vec<Depth>,
 }
 impl Case {
     fn new(color: Image, history: Image) -> Self {
@@ -55,7 +66,14 @@ impl Case {
             jitter: [0.0; 2],
             valid: true,
             settings: TaaSettings::DEFAULT,
+            depth_samples: Vec::new(),
         }
+    }
+
+    fn with_depth_samples(mut self, samples: Vec<Depth>) -> Self {
+        self.depth = Depth::minimum(&samples);
+        self.depth_samples = samples;
+        self
     }
 
     fn size(&self) -> [u32; 2] {
@@ -155,6 +173,16 @@ fn passthrough_pipeline(
     fragment: &str,
     format: Option<wgpu::TextureFormat>,
 ) -> wgpu::RenderPipeline {
+    passthrough_pipeline_with(device, module, fragment, format, 1)
+}
+
+fn passthrough_pipeline_with(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    fragment: &str,
+    format: Option<wgpu::TextureFormat>,
+    samples: u32,
+) -> wgpu::RenderPipeline {
     let depth = format.is_none();
     let targets: Vec<_> = format.map(|f| Some(f.into())).into_iter().collect();
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -180,7 +208,10 @@ fn passthrough_pipeline(
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
-        multisample: wgpu::MultisampleState::default(),
+        multisample: wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         multiview_mask: None,
         cache: None,
     })
@@ -223,9 +254,20 @@ fn upload_depth(
             resource: wgpu::BindingResource::TextureView(&view(&source)),
         }],
     });
+    draw_depth((device, queue), &target, &pipeline, &group)
+}
+
+/// Draws one fullscreen triangle into `target`, clearing its depth to 1 first, and returns the
+/// depth-only view.
+fn draw_depth(
+    (device, queue): (&wgpu::Device, &wgpu::Queue),
+    target: &wgpu::Texture,
+    pipeline: &wgpu::RenderPipeline,
+    group: &wgpu::BindGroup,
+) -> wgpu::TextureView {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     {
-        let depth_view = view(&target);
+        let depth_view = view(target);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("TAA test depth upload"),
             color_attachments: &[],
@@ -241,8 +283,8 @@ fn upload_depth(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, group, &[]);
         pass.draw(0..3, 0..1);
     }
     queue.submit([encoder.finish()]);
@@ -252,8 +294,54 @@ fn upload_depth(
     })
 }
 
+/// Renders each plane of `planes` (four) into one sample of a 4x `Depth32Float` texture
+/// through a per-sample fragment depth write.
+fn upload_multisampled_depth(
+    (device, queue): (&wgpu::Device, &wgpu::Queue),
+    planes: &[Depth],
+) -> wgpu::TextureView {
+    assert_eq!(planes.len(), 4);
+    let size = planes[0].size.map(|v| u32::try_from(v).unwrap());
+    let source = sampled(
+        device,
+        "TAA test sample depth source",
+        [size[0] * 4, size[1]],
+        wgpu::TextureFormat::R32Float,
+    );
+    let bytes: Vec<u8> = (0..planes[0].values.len())
+        .flat_map(|i| planes.iter().map(move |plane| plane.values[i]))
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    write_texture(queue, &source, &bytes, 4);
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("TAA test multisampled depth"),
+        size: crate::targets::extent(size),
+        mip_level_count: 1,
+        sample_count: 4,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("TAA test passes"),
+        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+    });
+    let pipeline = passthrough_pipeline_with(device, &module, "upload_sample_depth", None, 4);
+    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&view(&source)),
+        }],
+    });
+    draw_depth((device, queue), &target, &pipeline, &group)
+}
+
 struct Resolve {
     settings: TaaSettings,
+    depth_samples: u32,
     color: wgpu::TextureView,
     depth: wgpu::TextureView,
     uniform: wgpu::Buffer,
@@ -274,6 +362,7 @@ impl StageFactory for Resolve {
             &Inputs {
                 color: &self.color,
                 depth: &self.depth,
+                depth_samples: self.depth_samples,
                 uniform: &self.uniform,
                 history: &self.history,
                 output: &self.output,
@@ -323,6 +412,19 @@ fn read((device, queue): (&wgpu::Device, &wgpu::Queue), texture: &wgpu::Texture)
         .collect()
 }
 
+fn uniform_buffer(device: &wgpu::Device, case: &Case) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("TAA test uniform"),
+        contents: &TaaUniform {
+            reprojection: case.reprojection,
+            jitter_pixels: case.jitter,
+            history_valid: case.valid,
+        }
+        .to_bytes(),
+        usage: wgpu::BufferUsages::UNIFORM,
+    })
+}
+
 /// Runs the two passes and returns the resolve output and the history afterwards.
 fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
     let (device, queue) = crate::gpu_tests::gpu();
@@ -350,23 +452,19 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
         .flat_map(|v| f16_bits(*v).to_le_bytes())
         .collect();
     write_texture(&queue, &targets.history, &bytes, 8);
-    let depth = upload_depth((&device, &queue), &case.depth);
-    let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("TAA test uniform"),
-        contents: &TaaUniform {
-            reprojection: case.reprojection,
-            jitter_pixels: case.jitter,
-            history_valid: case.valid,
-        }
-        .to_bytes(),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
+    let depth = if case.depth_samples.is_empty() {
+        upload_depth((&device, &queue), &case.depth)
+    } else {
+        upload_multisampled_depth((&device, &queue), &case.depth_samples)
+    };
+    let uniform = uniform_buffer(&device, case);
     let chain = PostChain::new(
         &device,
         FrameConfig::new(size, taa_gpu::FORMAT, 1),
         Resources::default(),
         Resolve {
             settings: case.settings,
+            depth_samples: u32::try_from(case.depth_samples.len().max(1)).unwrap(),
             color: view(&color),
             depth,
             uniform,
@@ -527,4 +625,37 @@ fn the_history_pass_copies_the_resolve_output_into_the_history() {
     let (output, history) = run(&case);
     assert_eq!(output, history);
     assert!(output.iter().any(|p| p[0] > 0.0));
+}
+
+/// Four sample planes whose minimum differs from every single plane at most pixels.
+fn sample_planes(size: [i32; 2]) -> Vec<Depth> {
+    (0..4)
+        .map(|plane| Depth::from_fn(size, |x, y| 0.1 + 0.8 * noise(x, y, 20 + plane) / 4.0))
+        .collect()
+}
+
+#[test]
+fn a_multisampled_depth_uses_the_minimum_over_samples() {
+    for size in [[1, 1], [3, 3], [17, 9], [31, 13]] {
+        let mut case =
+            Case::new(noisy(size, 0), noisy(size, 5)).with_depth_samples(sample_planes(size));
+        case.jitter = [-0.25, 0.375];
+        case.reprojection = translation([2.0 / f64::from(size[0]), -2.0 / f64::from(size[1])]);
+        case.reprojection[2] = [0.25, 0.0, 1.0, 0.0];
+        assert_matches_reference(&case, &format!("4x depth {size:?}"));
+    }
+}
+
+#[test]
+fn a_multisampled_depth_differs_from_its_first_sample() {
+    let size = [17, 9];
+    let planes = sample_planes(size);
+    let mut minimum = Case::new(noisy(size, 0), noisy(size, 5)).with_depth_samples(planes.clone());
+    minimum.reprojection = translation([2.0 / 17.0, 0.0]);
+    minimum.reprojection[2] = [0.25, 0.0, 1.0, 0.0];
+    let mut first = Case::new(noisy(size, 0), noisy(size, 5));
+    first.depth = planes[0].clone();
+    first.reprojection = minimum.reprojection;
+    let (a, b) = (minimum.expected(), first.expected());
+    assert!(a.iter().zip(&b).any(|(x, y)| (x[0] - y[0]).abs() > 1e-3));
 }

@@ -1,6 +1,4 @@
 //! Schedules the TAA resolve and history passes. The shader is `taa.wgsl`.
-//!
-//! Exported until `HdrPost` schedules these passes itself.
 use crate::{Stage, StageId, StageSet, StageTarget, TaaSettings};
 
 /// Stage names, in execution order. Identities are stable for timing.
@@ -44,6 +42,8 @@ pub fn allocate(device: &wgpu::Device, size: [u32; 2]) -> Targets {
 pub struct Inputs<'a> {
     pub color: &'a wgpu::TextureView,
     pub depth: &'a wgpu::TextureView,
+    /// Sample count of `depth`: 1 for a `texture_depth_2d`, more for a multisampled one.
+    pub depth_samples: u32,
     pub uniform: &'a wgpu::Buffer,
     pub history: &'a wgpu::TextureView,
     pub output: &'a wgpu::TextureView,
@@ -56,7 +56,9 @@ pub struct Inputs<'a> {
 /// `color` is scene-referred color a `textureLoad` reads, `depth` the single-sample device
 /// depth of the same frame. Both are at the extent of `output` and `history`, which are
 /// [`FORMAT`] textures made by [`allocate`]. The uniform block is a [`crate::TaaUniform`].
-/// Multisampled depth is not supported yet.
+/// A `depth` with `depth_samples` above 1 is a multisampled depth texture; the resolve then
+/// takes the smallest depth over the samples of each texel. That case has its own shader
+/// module, pipeline and layout.
 pub fn append(
     device: &wgpu::Device,
     set: &mut StageSet,
@@ -65,11 +67,12 @@ pub fn append(
 ) {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("TAA resolve"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("taa.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(shader(inputs.depth_samples > 1).into()),
     });
     let constants = [
         ("HISTORY_WEIGHT", f64::from(settings.history_weight)),
         ("CLIP_SCALE", f64::from(settings.clip_scale)),
+        ("SAMPLES", f64::from(inputs.depth_samples.max(1))),
     ];
     let resolve = pipeline(device, &module, "taa_resolve", &constants);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -108,6 +111,19 @@ pub fn append(
         StageTarget::Texture(inputs.history.clone()),
     ));
 }
+
+/// The shader source. The multisampled build differs only in the type of the `depth` binding.
+fn shader(multisampled: bool) -> String {
+    let source = include_str!("taa.wgsl");
+    if multisampled {
+        source.replace(DEPTH_BINDING, MULTISAMPLED_DEPTH_BINDING)
+    } else {
+        source.to_owned()
+    }
+}
+
+const DEPTH_BINDING: &str = "var depth: texture_depth_2d;";
+const MULTISAMPLED_DEPTH_BINDING: &str = "var depth: texture_depth_multisampled_2d;";
 
 fn entry(binding: u32, resource: wgpu::BindingResource<'_>) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry { binding, resource }

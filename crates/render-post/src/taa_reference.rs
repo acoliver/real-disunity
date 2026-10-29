@@ -48,6 +48,24 @@ impl Depth {
         Self { size, values }
     }
 
+    /// The per-pixel minimum over equally sized sample planes, the depth a multisampled
+    /// frame resolves to: the closest sample is the one that occludes.
+    pub fn minimum(planes: &[Self]) -> Self {
+        let first = &planes[0];
+        let values = (0..first.values.len())
+            .map(|i| {
+                planes
+                    .iter()
+                    .map(|p| p.values[i])
+                    .fold(f32::INFINITY, f32::min)
+            })
+            .collect();
+        Self {
+            size: first.size,
+            values,
+        }
+    }
+
     pub fn load(&self, x: i32, y: i32) -> f64 {
         let x = x.clamp(0, self.size[0] - 1);
         let y = y.clamp(0, self.size[1] - 1);

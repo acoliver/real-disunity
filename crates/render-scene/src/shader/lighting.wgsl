@@ -29,6 +29,10 @@ struct Frame {
 // the albedo instead, which is what the metalness parameter interpolates.
 const DIELECTRIC_F0: vec3<f32> = vec3<f32>(0.04, 0.04, 0.04);
 
+fn scene_material_f0(albedo: vec3<f32>, metalness: f32, dielectric_f0: vec3<f32>) -> vec3<f32> {
+    return mix(dielectric_f0, albedo, metalness);
+}
+
 const PI: f32 = 3.14159265;
 
 // A perfectly smooth surface concentrates the highlight into a point the
@@ -97,7 +101,7 @@ fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: 
     let normal_dot_half = clamp(dot(normal, half_vector), 0.0, 1.0);
     let view_dot_half = clamp(dot(view, half_vector), 0.0, 1.0);
 
-    let f0 = mix(dielectric_f0, albedo, metalness);
+    let f0 = scene_material_f0(albedo, metalness, dielectric_f0);
     let fresnel = fresnel_schlick(view_dot_half, f0);
     let specular = scene_specular_brdf(vec4<f32>(normal_dot_view, normal_dot_light, normal_dot_half, view_dot_half), roughness, fresnel);
 

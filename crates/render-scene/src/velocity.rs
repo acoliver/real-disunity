@@ -1,7 +1,8 @@
 //! Object-motion residual for the TAA resolve, written by the main pass.
 //!
 //! The residual of a fragment is `uv(P_prev * (w + delta)) - uv(P_prev * w)` where `w` is its
-//! deformed world position, `delta` the vertex stage's `previous - current` world motion and
+//! deformed world position, `delta` the vertex stage's `previous - current` world motion (the
+//! previous model matrix and previous clock against the current ones) and
 //! `P_prev` the previous unjittered view-projection. Both terms use the same matrix, so jitter
 //! and camera motion cancel and a static fragment stores exactly zero.
 //!
@@ -15,7 +16,9 @@
 //!
 //! | Draw                                  | Velocity attachment                       |
 //! | ------------------------------------- | ----------------------------------------- |
-//! | Opaque, masked and relief objects     | Residual (`@location(1)`)                 |
+//! | Opaque, masked and relief objects     | Residual (`@location(1)`): wind and the   |
+//! |                                       | instance's own previous transform         |
+//! | Billboards and impostor cards         | Wind only (no transform of their own)     |
 //! | Terrain                               | Written as zero (static in world space)   |
 //! | Dynamic quads                         | Not written (empty mask), stays at zero   |
 //! | Sky, celestial mesh composition       | Not written (empty mask), stays at zero   |

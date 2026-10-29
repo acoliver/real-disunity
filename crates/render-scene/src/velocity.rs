@@ -18,10 +18,32 @@
 //! | Opaque, masked and relief objects     | Residual (`@location(1)`)                 |
 //! | Terrain                               | Written as zero (static in world space)   |
 //! | Dynamic quads                         | Not written (empty mask), stays at zero   |
-//! | Water, sky, celestial meshes, decals  | Not written, stays at the cleared zero    |
+//! | Sky, celestial mesh composition       | Not written (empty mask), stays at zero   |
+//! | Celestial mesh geometry, water        | Own passes, no velocity attachment        |
+//! | Decals                                | Part of the receiving object's draw       |
 //!
 //! Pipelines that write velocity carry [`MARKER`] in their source; it is how the target list
 //! learns about the second colour target.
+
+/// The colour targets of a pipeline that is not an object or terrain draw, beside `colour`.
+///
+/// With velocity pipelines active the opaque pass has a second attachment, and every pipeline
+/// drawn into the pass must list it. Pipelines that carry no object motion list it with an empty
+/// write mask, so the cleared zero stays.
+pub(crate) fn masked_targets(
+    colour: wgpu::ColorTargetState,
+    velocity: bool,
+) -> Vec<Option<wgpu::ColorTargetState>> {
+    let mut targets = vec![Some(colour)];
+    if velocity {
+        targets.push(Some(wgpu::ColorTargetState {
+            format: worldrunner_render_post::VELOCITY_FORMAT,
+            blend: None,
+            write_mask: wgpu::ColorWrites::empty(),
+        }));
+    }
+    targets
+}
 
 /// Present in the source of every pipeline set that writes the velocity target.
 pub(crate) const MARKER: &str = "struct SceneVelocityOutput";

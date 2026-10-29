@@ -8,7 +8,11 @@ use super::foliage::foliage_scene;
 use super::*;
 use crate::compositor::FrameRenderer;
 use glam::{Mat4, Vec3, Vec4};
-use worldrunner_render_plan::{SceneAmbientOcclusion, SceneMaterialFeatures, SceneTint, SceneWind};
+use worldrunner_render_plan::{
+    SceneAmbientOcclusion, SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition,
+    SceneCelestialLighting, SceneCelestialMesh, SceneMaterialFeatures, SceneRotation, SceneTint,
+    SceneWind,
+};
 use worldrunner_render_post::{
     AntiAliasing, AttachmentView, FrameConfig, MsaaSamples, PostResolve, Readback, ResourceRef,
     ToneMap,
@@ -45,11 +49,14 @@ fn windy() -> RenderScene {
 
 /// The scene with temporal antialiasing authored, so its resident post settings match a TAA renderer.
 fn with_taa(scene: &RenderScene) -> (RenderScene, SceneEffects) {
-    let effects = SceneEffects::new(SceneEffectsParts {
+    let mut effects = SceneEffects::new(SceneEffectsParts {
         anti_alias: SceneAntiAlias::taa(900_000),
         ..effect_parts()
     })
     .unwrap();
+    if let Some(atmosphere) = scene.effects().and_then(SceneEffects::atmosphere) {
+        effects = effects.with_atmosphere(atmosphere.clone()).unwrap();
+    }
     let scene = RenderScene::new(SceneParts {
         resources: scene.resources().clone(),
         geometry: scene.geometry().clone(),
@@ -58,6 +65,58 @@ fn with_taa(scene: &RenderScene) -> (RenderScene, SceneEffects) {
     })
     .unwrap();
     (scene, effects)
+}
+
+/// An atmosphere that draws the sky into the opaque pass, plus one celestial mesh when asked.
+fn atmosphere(celestial: bool) -> SceneAtmosphere {
+    let meshes = if celestial {
+        vec![SceneCelestialMesh {
+            lighting: SceneCelestialLighting::NEUTRAL,
+            tint: SceneTint::WHITE,
+            anchor_millimeters: None,
+            direction: SceneDirection::new([0, 1_000_000, 0]).unwrap(),
+            angular_radius_millidegrees: 30_000,
+            distance_millimeters: 10_000,
+            model_radius_millimeters: 1000,
+            rotation: SceneRotation::IDENTITY,
+            mesh: MeshHandle::from_raw(0),
+            material: MaterialHandle::from_raw(0),
+        }]
+    } else {
+        Vec::new()
+    };
+    SceneAtmosphere {
+        celestial_composition: SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy: SceneBackgroundDepthPolicy::ConstantDistance,
+        scattering: None,
+        horizon_radiance_micro: [0, 0, 2_000_000],
+        zenith_radiance_micro: [0, 0, 2_000_000],
+        gradient_exponent_micro: 1_000_000,
+        sun_angular_radius_millidegrees: 0,
+        fog: None,
+        discs: Vec::new(),
+        meshes,
+        background_distance_millimeters: 20_000,
+    }
+}
+
+/// The wind-swept scene under a sky, so the opaque pass also draws atmosphere pipelines.
+fn windy_under_sky(celestial: bool) -> RenderScene {
+    let scene = windy();
+    let effects = scene
+        .effects()
+        .unwrap()
+        .clone()
+        .with_atmosphere(atmosphere(celestial))
+        .unwrap();
+    RenderScene::new(SceneParts {
+        resources: scene.resources().clone(),
+        geometry: scene.geometry().clone(),
+        terrain: None,
+        effects: Some(effects),
+    })
+    .unwrap()
 }
 
 fn still() -> RenderScene {
@@ -235,6 +294,40 @@ fn rigid_wind_writes_the_analytic_residual_at_two_clocks() {
         let velocity = velocity_after(&context, &windy(), &[(first, pose()), (second, pose())]);
         assert_matches_cpu_residual(&velocity, (first * 1000.0, second * 1000.0));
     }
+}
+
+/// Texels outside the quad's footprint belong to the sky, which has no object motion.
+fn assert_sky_texels_are_zero_and_quad_moves(velocity: &[[f32; 2]]) {
+    let view_projection = frame_from(pose()).view_projection;
+    let mut moving = 0;
+    for y in 0..TARGET {
+        for x in 0..TARGET {
+            let (_, local) = expected(x, y, (125.0, 250.0), view_projection);
+            let got = velocity[(y * TARGET + x) as usize];
+            if local.x.abs() > 1.5 || local.y.abs() > 1.5 {
+                assert!(got == [0.0, 0.0], "sky pixel {x},{y}: {got:?}");
+            } else if got != [0.0, 0.0] {
+                moving += 1;
+            }
+        }
+    }
+    assert!(moving > 200, "only {moving} swaying pixels");
+}
+
+#[test]
+fn a_sky_in_the_opaque_pass_leaves_zero_velocity_beside_swaying_foliage() {
+    let context = context();
+    let frames = [(0.125, pose()), (0.25, pose())];
+    let velocity = velocity_after(&context, &windy_under_sky(false), &frames);
+    assert_sky_texels_are_zero_and_quad_moves(&velocity);
+}
+
+#[test]
+fn celestial_meshes_in_the_opaque_pass_leave_zero_velocity_beside_swaying_foliage() {
+    let context = context();
+    let frames = [(0.125, pose()), (0.25, pose())];
+    let velocity = velocity_after(&context, &windy_under_sky(true), &frames);
+    assert_sky_texels_are_zero_and_quad_moves(&velocity);
 }
 
 #[test]

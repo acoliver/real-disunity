@@ -5,7 +5,8 @@
 // multiple of the standard deviation as the color box). Written from those descriptions.
 //
 // Pixel (x, y) has its centre at (x + 0.5, y + 0.5), y down. The current color holds samples
-// rendered `jitter` pixels off the pixel centres; history is on the unjittered grid. Depth is
+// rendered with the projection shifted by `jitter` pixels, so pixel q holds the scene at
+// q + 0.5 - jitter; history is on the unjittered grid. Depth is
 // single-sample device depth 0..1, 1 is far. NDC y is up: uv.y = 0.5 - 0.5 * ndc.y.
 struct Taa {
     // Previous unjittered view-projection times the inverse current one, column-major.
@@ -126,7 +127,7 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
     for (var i = 0; i < 9; i++) {
         let d = vec2<i32>(i % 3 - 1, i / 3 - 1);
         let s = load_color(p + d, size);
-        let offset = vec2<f32>(d) + jitter;
+        let offset = vec2<f32>(d) - jitter;
         let w = exp(-dot(offset, offset) / (2.0 * KERNEL_SIGMA * KERNEL_SIGMA));
         sum += w * s;
         total += w;

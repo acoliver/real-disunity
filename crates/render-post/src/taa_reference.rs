@@ -9,7 +9,8 @@
 //!
 //! Conventions: pixel `(x, y)` has its centre at `(x + 0.5, y + 0.5)`, y down. The current
 //! image holds samples rendered with a projection shifted by `jitter` pixels, so the sample
-//! stored at pixel `q` lies at `q + 0.5 + jitter`. The history image is on the unjittered
+//! stored at pixel `q` lies at `q + 0.5 - jitter` (the projection shift moves the scene by
+//! `+jitter`). The history image is on the unjittered
 //! grid. Depth is single-sample device depth in 0..1 (not reversed, 1 is far) rendered with
 //! the same jitter. NDC y is up, so `uv.y = 0.5 - 0.5 * ndc.y`.
 //!
@@ -150,10 +151,11 @@ fn sanitize(v: f64) -> f64 {
 }
 
 /// Weight of the jittered sample at neighbour offset `d` for the pixel centre. The sample at
-/// `p + d` lies at `p + d + jitter` from the centre of `p`.
+/// `p + d` lies at `d - jitter` from the centre of `p`: shifting the projection by `jitter` moves the
+/// scene by `+jitter`, so each pixel sees the scene that was `jitter` behind its centre.
 fn kernel_weight(d: [i32; 2], jitter: [f64; 2]) -> f64 {
-    let x = f64::from(d[0]) + jitter[0];
-    let y = f64::from(d[1]) + jitter[1];
+    let x = f64::from(d[0]) - jitter[0];
+    let y = f64::from(d[1]) - jitter[1];
     (-(x * x + y * y) / (2.0 * KERNEL_SIGMA * KERNEL_SIGMA)).exp()
 }
 
@@ -464,15 +466,16 @@ mod tests {
         let at_rest = scene.resolve([2, 2])[0];
         scene.jitter = [0.0, 0.5];
         let moved = scene.resolve([2, 2])[0];
-        // Samples sit 0.5 pixel lower, so the row above is 0.5 pixel from the centre, not 1.
-        assert!(moved > at_rest, "{moved} {at_rest}");
+        // The projection moved the scene 0.5 pixel down, so each pixel holds the scene 0.5 pixel
+        // higher and the row above is 1.5 pixels from the centre, not 1.
+        assert!(moved < at_rest, "{moved} {at_rest}");
         let by_hand = {
             let w = |dx: f64, dy: f64| weight(dx * dx + dy * dy);
             let mut top = 0.0;
             let mut all = 0.0;
             for dy in -1..=1 {
                 for dx in -1..=1 {
-                    let weight = w(f64::from(dx), f64::from(dy) + 0.5);
+                    let weight = w(f64::from(dx), f64::from(dy) - 0.5);
                     all += weight;
                     if dy == -1 {
                         top += weight;

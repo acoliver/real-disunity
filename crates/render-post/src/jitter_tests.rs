@@ -1,0 +1,133 @@
+use crate::{PostError, ProjectionJitter};
+
+fn bits(offset: [f32; 2]) -> [u32; 2] {
+    offset.map(f32::to_bits)
+}
+
+fn halton(index: u32, base: u32) -> f64 {
+    let (mut result, mut fraction, mut index) = (0.0, 1.0, index);
+    while index > 0 {
+        fraction /= f64::from(base);
+        result += fraction * f64::from(index % base);
+        index /= base;
+    }
+    result
+}
+
+#[test]
+fn default_sequence_has_eight_samples() {
+    assert_eq!(ProjectionJitter::default().length(), 8);
+    assert_eq!(
+        ProjectionJitter::default(),
+        ProjectionJitter::new(8).unwrap()
+    );
+}
+
+#[test]
+fn first_eight_offsets_are_the_halton_two_three_points_centred_on_the_pixel() {
+    let expected: [(f64, f64); 8] = [
+        (1.0 / 2.0, 1.0 / 3.0),
+        (1.0 / 4.0, 2.0 / 3.0),
+        (3.0 / 4.0, 1.0 / 9.0),
+        (1.0 / 8.0, 4.0 / 9.0),
+        (5.0 / 8.0, 7.0 / 9.0),
+        (3.0 / 8.0, 2.0 / 9.0),
+        (7.0 / 8.0, 5.0 / 9.0),
+        (1.0 / 16.0, 8.0 / 9.0),
+    ];
+    let jitter = ProjectionJitter::default();
+    for (index, (x, y)) in expected.into_iter().enumerate() {
+        let [got_x, got_y] = jitter.offset_pixels(index as u64);
+        assert!((f64::from(got_x) - (x - 0.5)).abs() < 1e-7, "x at {index}");
+        assert!((f64::from(got_y) - (y - 0.5)).abs() < 1e-7, "y at {index}");
+    }
+}
+
+#[test]
+fn offsets_wrap_after_the_sequence_length() {
+    let jitter = ProjectionJitter::new(5).unwrap();
+    for index in 0..5_u64 {
+        assert_eq!(
+            bits(jitter.offset_pixels(index)),
+            bits(jitter.offset_pixels(index + 5))
+        );
+        assert_eq!(
+            bits(jitter.offset_pixels(index)),
+            bits(jitter.offset_pixels(index + 5 * 1_000_000_007))
+        );
+    }
+    assert_ne!(bits(jitter.offset_pixels(0)), bits(jitter.offset_pixels(1)));
+}
+
+#[test]
+fn every_offset_lies_strictly_inside_the_pixel_for_every_length() {
+    for length in 1..=ProjectionJitter::MAX_LENGTH {
+        let jitter = ProjectionJitter::new(length).unwrap();
+        for index in 0..u64::from(length) {
+            for value in jitter.offset_pixels(index) {
+                assert!(value > -0.5 && value < 0.5, "{value} at {index}/{length}");
+            }
+        }
+    }
+}
+
+#[test]
+fn offsets_follow_the_halton_sequence_beyond_the_first_eight() {
+    let jitter = ProjectionJitter::new(64).unwrap();
+    for index in 0..64_u32 {
+        let [x, y] = jitter.offset_pixels(u64::from(index));
+        assert!((f64::from(x) - (halton(index + 1, 2) - 0.5)).abs() < 1e-6);
+        assert!((f64::from(y) - (halton(index + 1, 3) - 0.5)).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn a_sequence_of_one_is_a_fixed_offset() {
+    let jitter = ProjectionJitter::new(1).unwrap();
+    assert_eq!(
+        bits(jitter.offset_pixels(0)),
+        bits(jitter.offset_pixels(41))
+    );
+}
+
+#[test]
+fn clip_offset_maps_pixels_to_ndc_with_screen_y_down() {
+    let jitter = ProjectionJitter::default();
+    let size = [1920, 1080];
+    for index in 0..8_u64 {
+        let [px, py] = jitter.offset_pixels(index);
+        let [cx, cy] = jitter.clip_offset(index, size);
+        assert!((cx - px * 2.0 / 1920.0).abs() < 1e-9);
+        assert!((cy + py * 2.0 / 1080.0).abs() < 1e-9);
+    }
+}
+
+#[test]
+fn clip_offset_inverts_back_to_the_pixel_offset() {
+    let jitter = ProjectionJitter::default();
+    for size in [[1, 1], [640, 360], [1921, 1081], [7680, 4320]] {
+        for index in 0..8_u64 {
+            let [px, py] = jitter.offset_pixels(index);
+            let [cx, cy] = jitter.clip_offset(index, size);
+            let [width, height] = size.map(|extent| f32::from(u16::try_from(extent).unwrap()));
+            let back = [cx * width / 2.0, -cy * height / 2.0];
+            assert!((back[0] - px).abs() < 1e-5, "x {size:?} {index}");
+            assert!((back[1] - py).abs() < 1e-5, "y {size:?} {index}");
+        }
+    }
+}
+
+#[test]
+fn lengths_outside_one_to_sixty_four_are_rejected() {
+    for length in [0, 65, 128, u32::MAX] {
+        assert!(
+            matches!(
+                ProjectionJitter::new(length),
+                Err(PostError::UnsupportedProfile(_))
+            ),
+            "{length}"
+        );
+    }
+    assert!(ProjectionJitter::new(1).is_ok());
+    assert!(ProjectionJitter::new(64).is_ok());
+}

@@ -161,3 +161,45 @@ fn resource_versions_and_ambiguous_writes_are_not_inferred() {
         Err(FrameError::MissingProducer(_))
     ));
 }
+
+#[test]
+fn every_selectable_sample_count_validates_and_other_counts_are_rejected() {
+    let declare = |samples: u32| {
+        let mut pass = PassDeclaration::new(PassSlot::Opaque);
+        for (format, load) in [
+            (
+                wgpu::TextureFormat::Rgba16Float,
+                AttachmentLoad::ClearColor(wgpu::Color::BLACK),
+            ),
+            (
+                wgpu::TextureFormat::Depth32Float,
+                AttachmentLoad::ClearDepth(1.0),
+            ),
+        ] {
+            let mut declaration = attachment(load, wgpu::StoreOp::Store);
+            declaration.format = format;
+            declaration.samples = samples;
+            if format.is_depth_stencil_format() {
+                declaration.resource = ResourceRef::new("depth");
+                pass.depth = Some(declaration);
+            } else {
+                pass.color = Some(declaration);
+            }
+        }
+        pass
+    };
+    for samples in [1, 2, 4, 8] {
+        assert_eq!(
+            validate_frame(&[declare(samples)], &[], &[]),
+            Ok(()),
+            "{samples}x"
+        );
+    }
+    for samples in [0, 3, 16] {
+        assert_eq!(
+            validate_frame(&[declare(samples)], &[], &[]),
+            Err(FrameError::AttachmentContract(PassSlot::Opaque)),
+            "{samples}x"
+        );
+    }
+}

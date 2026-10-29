@@ -4,7 +4,7 @@ use worldrunner_render_scene::wgpu::TextureFormat;
 
 #[test]
 fn metadata_rejects_incompatible_sample_and_format_combinations() {
-    for samples in [1, 4] {
+    for samples in [1, 2, 4, 8] {
         assert!(
             FrameProduct::new(
                 ResourceRef::new("test depth"),
@@ -24,7 +24,7 @@ fn metadata_rejects_incompatible_sample_and_format_combinations() {
             .is_ok()
         );
     }
-    for samples in [0, 2, 8] {
+    for samples in [0, 3, 16] {
         assert!(
             FrameProduct::new(
                 ResourceRef::new("test"),
@@ -90,7 +90,7 @@ fn shared_products_keep_executor_identity_and_numerical_meaning() {
 
 #[test]
 fn conservative_forward_resolution_requires_legal_sources_and_depth_meaning() {
-    for source_samples in [1, 4] {
+    for source_samples in [1, 2, 4, 8] {
         let sampling = MetadataSampling::ConservativeResolve(source_samples);
         assert_eq!(sampling.samples(), 1);
         assert!(
@@ -132,7 +132,7 @@ fn conservative_forward_resolution_requires_legal_sources_and_depth_meaning() {
             );
         }
     }
-    for source_samples in [0, 2, 8] {
+    for source_samples in [0, 3, 16] {
         assert!(
             FrameProduct::new(
                 ResourceRef::new("invalid source count"),

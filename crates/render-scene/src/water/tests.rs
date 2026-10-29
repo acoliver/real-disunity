@@ -80,11 +80,11 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
     .unwrap()
 }
 #[test]
-fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_1x_and_4x() {
+fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let view = fixture_view();
     let frame = FrameUniform::new(&view, None).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = crate::compositor::FrameRenderer::hdr(
             &context,
             [32, 32],

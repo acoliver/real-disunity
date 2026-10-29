@@ -2,7 +2,7 @@
 
 This directory is for people and coding agents who change Real Disunity itself. It describes how the engine is put together, the exact contracts each subsystem keeps, and the checks every change must pass. Documentation for people who only use the engine to make games is in [docs](../docs/README.md).
 
-Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for contributor policy. Coding agents must read [AGENTS.md](../AGENTS.md) and the [agent procedure](contribution-agent.md), then [architecture](architecture.md) and [quality gates](quality-gates.md). The workflow, code standards, coordination and play-verification skills linked from the agent procedure are binding. Only Andrew manually merges all PRs; agents never merge or enable automatic merging. Andrew intends human review daily, and maintainer agents also review daily.
+Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for contributor policy. Coding agents must read [AGENTS.md](../AGENTS.md) and the [agent procedure](contribution-agent.md), then [architecture](architecture.md) and [quality gates](quality-gates.md). The workflow, code standards, coordination and play-verification skills linked from the agent procedure are binding. Andrew merges external contributors' PRs; his maintainer sessions merge only their own PRs once `PR gate` passes, as set out in [AGENTS.md](../AGENTS.md#coordination-and-review-authority). Andrew intends human review daily, and maintainer agents also review daily.
 
 ## Where things live
 

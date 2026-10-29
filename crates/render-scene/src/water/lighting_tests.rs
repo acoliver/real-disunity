@@ -33,9 +33,9 @@ pub(super) mod environment_tests;
 use super::*;
 
 #[test]
-fn water_fog_composes_only_the_camera_segment_at_one_and_four_samples() {
+fn water_fog_composes_only_the_camera_segment_at_every_supported_sample_count() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let mut body = settings();
         body.absorption_micro = [10_000_000; 3];
@@ -97,12 +97,16 @@ fn water_shader_uses_shared_lighting_and_sample_receiver_outputs() {
 }
 
 #[test]
-fn sh9_diffuse_reaches_water_scattering_at_one_and_four_samples() {
+fn sh9_diffuse_reaches_water_scattering_at_every_supported_sample_count() {
     use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let mut coefficients = [[0; 3]; 9];
     coefficients[0] = [250_000, 500_000, -250_000];
-    for (samples, selected) in [(1, false), (4, false), (1, true), (4, true)] {
+    let counts = crate::msaa_tests::supported_samples(&context);
+    for (samples, selected) in [false, true]
+        .into_iter()
+        .flat_map(|selected| counts.iter().map(move |&samples| (samples, selected)))
+    {
         let mut renderer = regressions::renderer(&context, samples);
         let mut body = settings();
         body.color_micro = [500_000; 3];

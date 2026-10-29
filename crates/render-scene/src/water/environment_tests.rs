@@ -4,7 +4,7 @@ use super::*;
 fn prepared_environment_matches_replaceable_lobe_and_sample_receivers() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let maps = prepare_environment(&context);
-    for samples in [1, 4] {
+    for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let body = reflective_body();
         renderer.install_water(context.device(), body).unwrap();
@@ -52,7 +52,7 @@ fn prepared_environment_matches_replaceable_lobe_and_sample_receivers() {
             let f0 = numerical::positive_half(&m[offset + 4..offset + 6]);
             assert!((f0 - 0.02037).abs() < 0.00002);
         }
-        if samples == 4 {
+        if samples > 1 {
             assert!(
                 normals.windows(2).any(|pair| pair[0] != pair[1]),
                 "sample-position normals must not be pixel-centre copies"

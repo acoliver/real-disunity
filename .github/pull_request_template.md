@@ -30,6 +30,7 @@ Use this checklist to identify remaining work before review:
 - [ ] The PR is ready for review or its blocker is documented. `PR gate` is required for protected main.
 
 Andrew intends human review daily; maintainer agents also review daily. This does
-not guarantee a same-day merge. Only Andrew manually merges all PRs. Agents never
-merge, enable auto-merge or use a merge queue. Agent-authored PRs identify the
+not guarantee a same-day merge. Andrew merges external contributors' PRs.
+Maintainer sessions merge only their own PRs after `PR gate` passes and threads
+are resolved. Agent-authored PRs identify the
 session as described in [AGENTS.md](https://github.com/acoliver/real-disunity/blob/main/AGENTS.md#coordination-and-review-authority).

@@ -22,10 +22,11 @@ without duplicating subsystem contracts.
    report exactly what was observed. Rendering alone supports a rendering milestone.
 6. Review the diff, source-use summary and [PR checklist](../.github/pull_request_template.md).
    When authorized, post the review-ready PR, monitor checks and answer reviews.
-   Otherwise document the delivery blocker. Never merge or enable automatic merging.
+   Otherwise document the delivery blocker. Maintainer sessions merge their own PR
+   once `PR gate` passes and threads are resolved; external PRs wait for Andrew.
 7. Maintainer agents review incoming PRs daily and report actionable findings on
-   the PR. Offer permission-based integration help. Andrew performs every final
-   merge manually; waiting for his review does not require closing the PR.
+   the PR. Offer permission-based integration help. Andrew merges external PRs
+   after his review; waiting for it does not require closing the PR.
 
 Keep the verification record in the PR. Use a short reference and permission
 summary; do not create manifests or session receipts. Clean disposable files and

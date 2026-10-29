@@ -9,7 +9,7 @@ mod linear;
 mod scalar;
 pub use scalar::ScalarImage;
 mod pages;
-pub use linear::LinearRgbaImage;
+pub use linear::{LinearRgbaImage, Rgba16FloatImage};
 use thiserror::Error;
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_post::{FrameConfig, Readback, ReadbackError, color_texture};

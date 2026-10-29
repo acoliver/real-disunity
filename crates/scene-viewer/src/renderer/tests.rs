@@ -57,9 +57,9 @@ fn edit_retained_settings(
     replacement: &worldrunner_render_plan::SceneEffects,
     profile: crate::FrameProfile,
 ) {
-    let expected_quality = worldrunner_render_scene::post_settings(replacement)
+    let expected_resolve = worldrunner_render_scene::post_settings(replacement)
         .unwrap()
-        .fxaa_quality;
+        .resolve;
     present_retained(renderer, host);
     let handles: Vec<_> = renderer.resident.scene_mut().instance_handles().collect();
     let original = renderer.presentation.scheduler.configuration().clone();
@@ -85,8 +85,8 @@ fn edit_retained_settings(
         handles
     );
     let settings = renderer.presentation.scheduler.configuration();
-    assert_eq!(settings.post.fxaa, Some(0.5));
-    assert_eq!(settings.post.fxaa_quality, expected_quality);
+    assert_eq!(settings.post.resolve.fxaa_strength(), Some(0.5));
+    assert_eq!(settings.post.resolve, expected_resolve);
     assert_eq!(settings.post.upscale, original.post.upscale);
     assert_eq!(settings.frame, original.frame);
     resize_retained_settings(renderer, host, replacement, profile, &original);
@@ -99,15 +99,15 @@ fn resize_retained_settings(
     profile: crate::FrameProfile,
     original: &worldrunner_render_scene::compositor::RendererConfiguration,
 ) {
-    let expected_quality = worldrunner_render_scene::post_settings(replacement)
+    let expected_resolve = worldrunner_render_scene::post_settings(replacement)
         .unwrap()
-        .fxaa_quality;
+        .resolve;
     renderer.resize([320, 240]).unwrap();
     host.input(crate::RetainedInput::Resized([320, 240]));
     present_retained(renderer, host);
     let settings = renderer.presentation.scheduler.configuration();
-    assert_eq!(settings.post.fxaa, Some(0.5));
-    assert_eq!(settings.post.fxaa_quality, expected_quality);
+    assert_eq!(settings.post.resolve.fxaa_strength(), Some(0.5));
+    assert_eq!(settings.post.resolve, expected_resolve);
     assert_eq!(settings.post.upscale, original.post.upscale);
     assert_eq!(settings.frame.output_extent(), [320, 240]);
     let expected = if let crate::FrameProfile::HdrUpscaled { scale, .. } = profile {

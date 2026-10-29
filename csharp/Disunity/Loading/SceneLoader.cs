@@ -34,6 +34,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             CreateComponents();
             BindFields();
             var unregistered = InputAxes.Register(plan.GetProperty("axes"));
+            ApplyLayerNames();
             scene.Activate();
             return new LoadedScene(templates, objects, textures, unregistered, differences, templateObjects);
         }
@@ -44,6 +45,14 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             if (failure is SceneLoadException) throw;
             throw new SceneLoadException($"{plan.Str("scene")}: {failure.Message}", failure);
         }
+    }
+
+    /// <summary>A plan that carries layer names replaces every layer name with them, so scripts that look a
+    /// layer up in Awake find it. A plan without them (a project plan) leaves what the host set.</summary>
+    private void ApplyLayerNames()
+    {
+        if (!plan.TryGetProperty("layers", out var layers)) return;
+        DisunityHost.SetLayerNames(layers.EnumerateArray().Select(name => name.GetString() ?? "").ToList());
     }
 
     private List<SceneTexture> Textures() => plan.GetProperty("textures").EnumerateArray()

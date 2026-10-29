@@ -19,14 +19,27 @@ public struct LayerMask
         return names;
     }
 
-    /// <summary>Names a user layer (8 to 31). The player plan does not carry the project's layer names yet, so a host or test sets them here.</summary>
+    /// <summary>Names a user layer (8 to 31) for a host or test that has no plan names.</summary>
     internal static void SetUserLayerName(int layer, string name)
     {
         if (layer is < 8 or > 31) throw new ArgumentOutOfRangeException(nameof(layer), "user layers are 8 to 31");
         Names[layer] = name;
     }
 
-    internal static void ClearUserLayerNames() => Array.Clear(Names, 8, 24);
+    /// <summary>
+    /// Replaces the names of all 32 layers with a project's, by layer index. A project can name the layers
+    /// below 8 that the built-in names leave empty, so every slot is replaced; layers past the end of the
+    /// list are unnamed.
+    /// </summary>
+    internal static void SetLayerNames(IReadOnlyList<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        if (names.Count > 32) throw new ArgumentException($"there are 32 layers, not {names.Count}", nameof(names));
+        for (var layer = 0; layer < 32; layer++) Names[layer] = layer < names.Count ? names[layer] ?? "" : "";
+    }
+
+    /// <summary>Restores the built-in names and forgets every other layer name.</summary>
+    internal static void ClearUserLayerNames() => BuiltInNames().CopyTo(Names, 0);
 
     /// <summary>The layer with the name (matched exactly), or -1.</summary>
     public static int NameToLayer(string layerName)

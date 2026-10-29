@@ -53,10 +53,11 @@ pub fn plan_player_scene(
     scene: &str,
     layouts: &ScriptLayouts,
 ) -> Result<ScenePlan, PlayerError> {
+    let (tags, layers) = tag_manager_names(data_dir)?;
     let mut planner = PlayerPlanner {
         files: PlayerFiles::new(data_dir),
         path: data_dir.join(scene),
-        tags: tag_names(data_dir)?,
+        tags,
         objects: Vec::new(),
         index: BTreeMap::new(),
         differences: Vec::new(),
@@ -77,20 +78,25 @@ pub fn plan_player_scene(
         textures: Vec::new(),
         fonts: Vec::new(),
         axes: Vec::new(),
+        layers,
         differences: planner.differences,
     })
 }
 
-/// The tag names by tag index: Unity's built-in tags and the user tags of the player's tag
-/// manager, when it has `globalgamemanagers`.
-fn tag_names(data_dir: &Path) -> Result<BTreeMap<u16, String>, PlayerError> {
+/// Layers a plan names: Unity has 32, the first eight built in.
+const LAYER_COUNT: usize = 32;
+
+/// The tag names by tag index (Unity's built-in tags and the user tags of the player's tag
+/// manager) and the manager's layer names by layer index. Both come from one decode of
+/// `globalgamemanagers`; without that file, or a tag manager in it, the layers are empty.
+fn tag_manager_names(data_dir: &Path) -> Result<(BTreeMap<u16, String>, Vec<String>), PlayerError> {
     let mut names: BTreeMap<u16, String> = BUILTIN_TAGS
         .iter()
         .map(|&(index, name)| (index, name.to_owned()))
         .collect();
     let path = data_dir.join("globalgamemanagers");
     if !path.exists() {
-        return Ok(names);
+        return Ok((names, Vec::new()));
     }
     let mut managers = crate::player_objects::OpenFile::open(&path)?;
     let tag_manager = managers
@@ -99,13 +105,16 @@ fn tag_names(data_dir: &Path) -> Result<BTreeMap<u16, String>, PlayerError> {
         .iter()
         .find(|object| object.class_id == ClassId::TAG_MANAGER)
         .map(|object| object.path_id);
-    if let Some(path_id) = tag_manager {
-        let manager: TagManager = managers.decode(path_id)?;
-        for (offset, tag) in (FIRST_USER_TAG..).zip(manager.tags) {
-            names.insert(offset, tag);
-        }
+    let Some(path_id) = tag_manager else {
+        return Ok((names, Vec::new()));
+    };
+    let manager: TagManager = managers.decode(path_id)?;
+    for (offset, tag) in (FIRST_USER_TAG..).zip(manager.tags) {
+        names.insert(offset, tag);
     }
-    Ok(names)
+    let mut layers = manager.layers;
+    layers.resize(LAYER_COUNT, String::new());
+    Ok((names, layers))
 }
 
 /// A scene object found while walking the hierarchy.

@@ -663,17 +663,26 @@ fn a_multisampled_depth_differs_from_its_first_sample() {
     assert!(a.iter().zip(&b).any(|(x, y)| (x[0] - y[0]).abs() > 1e-3));
 }
 
+/// History of one colour. Hardware filtering may compute bilinear weights with as few as
+/// four sub-texel bits, so a varying history fetched at an arbitrary sub-pixel offset differs
+/// from the exact f64 reference by more than the comparison bound on some GPUs. A uniform
+/// history filters exactly at any offset, so this test checks the motion-dependent history
+/// weight alone; the integer and half-pixel lookups are covered by the other tests.
+fn uniform_history(size: [i32; 2]) -> Image {
+    Image::from_fn(size, |_, _| [0.75, 1.5, 0.375, 1.0])
+}
+
 #[test]
 fn sub_pixel_motion_lowers_the_history_weight_like_the_reference() {
     let size = [17, 9];
     for shift in [0.05, 0.3, 0.9] {
-        let mut case = Case::new(noisy(size, 0), noisy(size, 5));
+        let mut case = Case::new(noisy(size, 0), uniform_history(size));
         case.settings = TaaSettings::new(0.5);
         case.jitter = [0.25, -0.125];
         case.reprojection = translation([2.0 * shift / f64::from(size[0]), 0.0]);
         assert_matches_reference(&case, &format!("1x shift {shift}"));
         let planes = sample_planes(size);
-        let mut msaa = Case::new(noisy(size, 0), noisy(size, 5)).with_depth_samples(planes);
+        let mut msaa = Case::new(noisy(size, 0), uniform_history(size)).with_depth_samples(planes);
         msaa.settings = TaaSettings::new(0.5);
         msaa.reprojection = case.reprojection;
         assert_matches_reference(&msaa, &format!("4x shift {shift}"));

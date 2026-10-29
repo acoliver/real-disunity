@@ -347,6 +347,7 @@ fn smaa_and_fxaa_stage_timestamps() {
             cas,
         ),
         ("cmaa2 high + cas", cmaa2(crate::Cmaa2Preset::High), cas),
+        ("taa", PostResolve::taa(0.9), None),
     ] {
         for (scene_name, scene) in PROBE_SCENES {
             let passes = timed_medians(&rig, resolve, sharpen, scene);

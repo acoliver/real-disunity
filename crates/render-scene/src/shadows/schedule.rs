@@ -27,13 +27,26 @@ impl ShadowSchedule {
         );
     }
 
-    pub fn screen_space(&mut self, scheduler: &crate::compositor::FrameRenderer) {
+    /// Adds the velocity attachment, when the receivers write one, and the screen-space passes.
+    pub fn screen_space(
+        &mut self,
+        scheduler: &crate::compositor::FrameRenderer,
+        writes_velocity: bool,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        let velocity = scheduler.velocity_attachment(writes_velocity)?;
+        let opaque = self
+            .passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .expect("the schedule always has an opaque pass");
+        crate::compositor::declare_velocity(opaque, &mut self.views, velocity.as_ref())?;
         if scheduler.ssao.is_some() {
             crate::ssao::passes::geometry_declaration(&mut self.declaration);
             if scheduler.ssr.is_some() {
                 crate::ssr::geometry_declaration(&mut self.declaration);
             }
         }
+        Ok(())
     }
     pub fn new(
         map: &DepthMap,

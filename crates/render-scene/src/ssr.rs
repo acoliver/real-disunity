@@ -81,6 +81,7 @@ pub(crate) struct Ssr {
     forward_products: [wgpu::Texture; 2],
     pub environment: [wgpu::TextureView; 2],
     pub composition: worldrunner_render_lighting::reflections::Composition,
+    velocity: bool,
     material: wgpu::Texture,
     application_ao: wgpu::Texture,
     material_depth: wgpu::Texture,
@@ -98,6 +99,18 @@ pub(crate) struct Ssr {
     resolve: wgpu::RenderPipeline,
     water_trace: wgpu::RenderPipeline,
     water_resolve: wgpu::RenderPipeline,
+}
+fn composition(
+    selected: worldrunner_render_plan::SceneSsrComposition,
+) -> worldrunner_render_lighting::reflections::Composition {
+    match selected {
+        worldrunner_render_plan::SceneSsrComposition::Additive => {
+            worldrunner_render_lighting::reflections::Composition::Additive
+        }
+        worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment => {
+            worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment
+        }
+    }
 }
 impl Ssr {
     pub(crate) fn material_target(&self) -> &wgpu::Texture {
@@ -168,15 +181,34 @@ impl Ssr {
                 .create_view(&wgpu::TextureViewDescriptor::default());
         }
     }
+    #[cfg(test)]
     pub fn new(
         device: &wgpu::Device,
         config: FrameConfig,
         settings: SceneSsr,
         screen: &mut SceneMetadata,
     ) -> Result<Self, FrameError> {
+        Self::with_velocity(device, config, settings, screen, false)
+    }
+
+    /// Like [`Self::new`], with forward draws that also write the TAA residual when `velocity`
+    /// is set and the device colour budget allows it (see [`crate::velocity::reflection_velocity`]).
+    pub fn with_velocity(
+        device: &wgpu::Device,
+        config: FrameConfig,
+        settings: SceneSsr,
+        screen: &mut SceneMetadata,
+        velocity: bool,
+    ) -> Result<Self, FrameError> {
         validate_settings(&settings)?;
         validate_extent(config, &settings, &device.limits())?;
-        let environment = forward::install(device, config, screen, settings.depth_relative_ao);
+        let velocity = crate::velocity::reflection_writes_velocity(device, config.format, velocity);
+        let environment = forward::install(
+            device,
+            config,
+            screen,
+            (settings.depth_relative_ao, velocity),
+        );
         screen.geometry.reflection =
             Some(crate::scene_metadata::pipelines(device, &screen.uniform, true).0);
         // All geometry pipelines use the same explicit group layout as the normal prepass.
@@ -205,14 +237,8 @@ impl Ssr {
             settings,
             environment,
             forward_products: forward::products(device, config),
-            composition: match settings.composition {
-                worldrunner_render_plan::SceneSsrComposition::Additive => {
-                    worldrunner_render_lighting::reflections::Composition::Additive
-                }
-                worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment => {
-                    worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment
-                }
-            },
+            velocity,
+            composition: composition(settings.composition),
             water_trace,
             water_resolve,
             material_depth: crate::ssao::passes::texture(
@@ -242,7 +268,8 @@ impl Ssr {
         config: FrameConfig,
         screen: &mut SceneMetadata,
     ) -> Result<Self, FrameError> {
-        let mut replacement = Self::new(device, config, self.settings, screen)?;
+        let mut replacement =
+            Self::with_velocity(device, config, self.settings, screen, self.velocity)?;
         replacement.environment.clone_from(&self.environment);
         replacement.composition = self.composition;
         let group = forward::group(device, screen, &replacement.environment);

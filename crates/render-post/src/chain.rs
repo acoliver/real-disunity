@@ -124,6 +124,10 @@ pub trait StageFactory {
     fn frame_slots(&self) -> usize {
         1
     }
+    /// Whether the frame targets carry a velocity attachment for a TAA resolve.
+    fn needs_velocity(&self) -> bool {
+        false
+    }
     fn build_for_slot(
         &self,
         device: &wgpu::Device,
@@ -197,7 +201,7 @@ impl<F: StageFactory> PostChain<F> {
         factory: F,
     ) -> Result<Self, PostError> {
         factory.validate_config(device, config)?;
-        let targets = FrameTargets::new(device, config)?;
+        let targets = FrameTargets::with_velocity(device, config, factory.needs_velocity())?;
         let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
@@ -281,7 +285,7 @@ impl<F: StageFactory> PostChain<F> {
     ) -> Result<(), PostError> {
         config.validate_device(device)?;
         self.factory.validate_config(device, config)?;
-        let targets = FrameTargets::new(device, config)?;
+        let targets = FrameTargets::with_velocity(device, config, self.factory.needs_velocity())?;
         let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
         for feature in &mut self.features {
             feature.prepared = None;

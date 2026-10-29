@@ -113,27 +113,48 @@ pub(crate) fn group(
         entries: &entries,
     })
 }
+/// The forward object and terrain sources over `base` shaders, writing the residual when asked.
+pub(crate) fn velocity_sources(
+    stock: (&str, &str),
+    velocity: bool,
+    application_ao: bool,
+) -> (String, String) {
+    let (object, terrain) = stock;
+    let object = if velocity {
+        crate::velocity::vertex_source(object)
+    } else {
+        object.to_owned()
+    };
+    let object = application_source(&crate::ssao::ambient_source(&object), false, application_ao);
+    let terrain = application_source(&crate::ssao::ambient_source(terrain), true, application_ao);
+    if velocity {
+        (
+            crate::velocity::reflection_object_source(&object),
+            crate::velocity::reflection_terrain_source(&terrain),
+        )
+    } else {
+        (object, terrain)
+    }
+}
 pub(super) fn install(
     device: &wgpu::Device,
     config: FrameConfig,
     screen: &mut SceneMetadata,
-    application_ao: bool,
+    options: (bool, bool),
 ) -> [wgpu::TextureView; 2] {
+    let (application_ao, velocity) = options;
     let maps = crate::water::receivers::empty_environment(device);
     let group = group(device, screen, &maps);
+    let (object, terrain) = velocity_sources(
+        (crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL),
+        velocity,
+        application_ao,
+    );
     let pipelines = crate::renderer::ScenePipelines::with_screen_space(
         device,
         (config.format, config.samples),
-        &application_source(
-            &crate::ssao::ambient_source(crate::shader::ENVIRONMENT_WGSL),
-            false,
-            application_ao,
-        ),
-        &application_source(
-            &crate::ssao::ambient_source(crate::shader::TERRAIN_WGSL),
-            true,
-            application_ao,
-        ),
+        &object,
+        &terrain,
         None,
         Some(&layout(device)),
     );
@@ -170,7 +191,8 @@ pub(super) fn schedule(
     views: &mut Vec<AttachmentView>,
 ) -> Result<(), FrameError> {
     if let Some(opaque) = passes.iter_mut().find(|pass| pass.slot == PassSlot::Opaque) {
-        for (resource, texture) in resources().into_iter().zip(products) {
+        // The residual, when declared, stays last so it lands at `@location(3)`.
+        for (index, (resource, texture)) in resources().into_iter().zip(products).enumerate() {
             let product = if resource.name == "forward environment specular" {
                 crate::frame::metadata::FrameProduct::forward_specular(texture.sample_count())
             } else {
@@ -179,7 +201,7 @@ pub(super) fn schedule(
             let view = product.attachment(texture)?;
             opaque
                 .additional_colors
-                .push(crate::compositor::attachment(resource, &view, false));
+                .insert(index, crate::compositor::attachment(resource, &view, false));
             views.push(view);
         }
     }

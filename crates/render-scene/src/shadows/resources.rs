@@ -331,10 +331,10 @@ pub(super) fn depth_frames(
 pub(super) fn receiver_pipelines(
     context: &crate::device::GpuContext,
     scene: &worldrunner_render_plan::RenderScene,
-    target: (wgpu::TextureFormat, u32),
+    target: (wgpu::TextureFormat, u32, bool),
     shadow_layout: &wgpu::BindGroupLayout,
 ) -> Result<ScenePipelines, super::ShadowError> {
-    let (format, samples) = target;
+    let (format, samples, velocity) = target;
     let screen_layout = scene
         .effects()
         .and_then(|effects| effects.ssao())
@@ -342,28 +342,15 @@ pub(super) fn receiver_pipelines(
     if screen_layout.is_some() && format != wgpu::TextureFormat::Rgba16Float {
         return Err(crate::frame::FrameError::UnsupportedEffect("SSAO").into());
     }
-    let source = screen_layout.as_ref().map_or_else(
-        || SHADOWED_WGSL.to_owned(),
-        |_| crate::ssao::ambient_source(SHADOWED_WGSL),
-    );
-    let terrain_source = screen_layout.as_ref().map_or_else(
-        || SHADOWED_TERRAIN_WGSL.to_owned(),
-        |_| crate::ssao::ambient_source(SHADOWED_TERRAIN_WGSL),
-    );
     let reflection = scene
         .effects()
         .and_then(|effects| effects.ssr())
         .is_some_and(|ssr| ssr.enabled);
-    let source = if reflection {
-        crate::ssr::forward::source(&crate::ssao::ambient_source(SHADOWED_WGSL), false)
-    } else {
-        source
-    };
-    let terrain_source = if reflection {
-        crate::ssr::forward::source(&crate::ssao::ambient_source(SHADOWED_TERRAIN_WGSL), true)
-    } else {
-        terrain_source
-    };
+    // Reflection receivers keep camera reprojection when the colour budget has no room for it.
+    let velocity = velocity
+        && (!reflection
+            || crate::velocity::reflection_writes_velocity(context.device(), format, true));
+    let (source, terrain_source) = receiver_sources(screen_layout.is_some(), reflection, velocity);
     let reflection_layout = reflection.then(|| crate::ssr::forward::layout(context.device()));
     let mut pipelines = ScenePipelines::with_screen_space(
         context.device(),
@@ -376,6 +363,35 @@ pub(super) fn receiver_pipelines(
 
     pipelines.ssao = screen_layout.is_some();
     Ok(pipelines)
+}
+
+/// The shadow receiver object and terrain sources for the enabled screen-space features.
+fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> (String, String) {
+    if reflection {
+        return crate::ssr::forward::velocity_sources(
+            (SHADOWED_WGSL, SHADOWED_TERRAIN_WGSL),
+            velocity,
+            false,
+        );
+    }
+    let object = if velocity {
+        crate::velocity::object_source(SHADOWED_WGSL)
+    } else {
+        SHADOWED_WGSL.to_owned()
+    };
+    let terrain = if velocity {
+        crate::velocity::terrain_source(SHADOWED_TERRAIN_WGSL)
+    } else {
+        SHADOWED_TERRAIN_WGSL.to_owned()
+    };
+    if ssao {
+        (
+            crate::ssao::ambient_source(&object),
+            crate::ssao::ambient_source(&terrain),
+        )
+    } else {
+        (object, terrain)
+    }
 }
 
 fn micro_unit(value: u32) -> f32 {

@@ -27,6 +27,7 @@ pub mod terrain;
 pub mod terrain_uniform;
 pub mod texture;
 pub mod upload;
+mod velocity;
 pub mod view;
 pub mod water;
 

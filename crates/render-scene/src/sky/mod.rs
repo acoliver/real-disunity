@@ -94,7 +94,7 @@ fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 pub(crate) fn pipeline(
     device: &wgpu::Device,
     frame: &wgpu::BindGroupLayout,
-    target: (wgpu::TextureFormat, u32),
+    target: (wgpu::TextureFormat, u32, bool),
 ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
     let group = layout(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -125,11 +125,14 @@ pub(crate) fn pipeline(
             module: &module,
             entry_point: Some("fragment"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: target.0,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &crate::velocity::masked_targets(
+                wgpu::ColorTargetState {
+                    format: target.0,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                },
+                target.2,
+            ),
         }),
         multiview_mask: None,
         cache: None,
@@ -164,7 +167,11 @@ impl Sky {
                 Ok(Self::new(
                     device,
                     pipelines.frame_layout(),
-                    (pipelines.color_format, pipelines.samples),
+                    (
+                        pipelines.color_format,
+                        pipelines.samples,
+                        pipelines.writes_velocity(),
+                    ),
                     settings,
                     match scene.effects().expect("atmosphere has effects").sky() {
                         worldrunner_render_plan::SceneSky::DomeTexture { texture } => {
@@ -181,7 +188,7 @@ impl Sky {
     pub fn new(
         device: &wgpu::Device,
         frame: &wgpu::BindGroupLayout,
-        target: (wgpu::TextureFormat, u32),
+        target: (wgpu::TextureFormat, u32, bool),
         settings: &SceneAtmosphere,
         dome: Option<worldrunner_render_plan::TextureHandle>,
         textures: (&[wgpu::TextureView], &wgpu::TextureView),

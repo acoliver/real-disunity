@@ -75,6 +75,22 @@ impl PreparedFeature for SceneFeature<'_> {
     }
 }
 
+/// Adds the velocity attachment, which the main pass clears to zero and never resolves.
+pub(crate) fn declare_velocity(
+    opaque: &mut PassDeclaration,
+    views: &mut Vec<AttachmentView>,
+    velocity: Option<&AttachmentView>,
+) -> Result<(), FrameError> {
+    if let Some(velocity) = velocity {
+        let id = attachment_resource("scene velocity", velocity);
+        opaque
+            .additional_colors
+            .push(attachment(id, velocity, false));
+        views.push(velocity.with_resource(id)?);
+    }
+    Ok(())
+}
+
 /// Encodes a resident unshadowed scene through the feature boundary.
 /// Checked attachments retain their selected mip, array layer and view format.
 /// The submission and abandonment rules of [`FrameRenderer`] apply.
@@ -88,6 +104,7 @@ pub fn encode_scene(
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
     renderer.validate_taa_depth(attachments.1)?;
+    let velocity = renderer.velocity_attachment(renderer.draws_velocity(pipelines))?;
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
     renderer.bind_water_inputs(&gpu.water_inputs);
@@ -110,11 +127,12 @@ pub fn encode_scene(
             crate::ssr::geometry_declaration(&mut declaration);
         }
     }
-    let mut passes = vec![opaque];
     let mut views = vec![
         color.with_resource(color_id)?,
         depth.with_resource(depth_id)?,
     ];
+    declare_velocity(&mut opaque, &mut views, velocity.as_ref())?;
+    let mut passes = vec![opaque];
     gpu.plan_celestial(
         device,
         color.size(),

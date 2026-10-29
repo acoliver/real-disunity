@@ -192,7 +192,7 @@ pub(super) fn render_frame(
     let sky = Sky::new(
         device,
         &frame_layout,
-        (wgpu::TextureFormat::Rgba16Float, 1),
+        (wgpu::TextureFormat::Rgba16Float, 1, false),
         settings,
         None,
         (

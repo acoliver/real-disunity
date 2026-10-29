@@ -137,7 +137,7 @@ pub use chain::{
 };
 pub use copy::CopyOutput;
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
-pub use targets::{FrameConfig, FrameTargets, color_texture};
+pub use targets::{FrameConfig, FrameTargets, VELOCITY_FORMAT, color_texture};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PostError {

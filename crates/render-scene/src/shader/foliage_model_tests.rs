@@ -1,5 +1,5 @@
 use super::ENVIRONMENT_WGSL;
-use super::foliage_reference_tests::{ROUNDING_ERROR, TRIG_ERROR};
+use super::foliage_reference_tests::{ROUNDING_ERROR, TRIG_ERROR, reference, reference_tolerance};
 use super::gpu_math_tests::evaluate_source;
 use crate::device::GpuContext;
 use glam::DVec3;
@@ -17,6 +17,10 @@ fn evaluate(context: &GpuContext, body: &str) -> Vec<f32> {
         .replace(
             "@group(0) @binding(0) var<uniform> frame: Frame;",
             "var<private> frame: Frame;",
+        )
+        .replace(
+            "@group(0) @binding(6) var<uniform> previous_frame: PreviousFrame;",
+            "var<private> previous_frame: PreviousFrame;",
         );
     let entry = format!(
         "@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;\n@compute @workgroup_size(1) fn evaluate_math() {{ {body} }}"
@@ -382,4 +386,137 @@ fn capture_center_curved_vertex_matches_additive_parallel_arc_integral() {
         "{actual:?} vs {expected}"
     );
     assert_eq!(&actual[..2], &[0.0; 2]);
+}
+
+/// Sets the current and previous animation clocks the way the frame and previous-frame blocks do.
+fn clocks(now: u32, previous: u32) -> String {
+    format!(
+        "frame.grading.z = bitcast<f32>({now}u); previous_frame.camera_time = vec4(0.0, 0.0, 0.0, bitcast<f32>({previous}u));"
+    )
+}
+
+const IDENTITY_INSTANCE: &str = r"
+    var instance: InstanceInput;
+    instance.model_column_0 = vec4(1.0,0.0,0.0,0.0);
+    instance.model_column_1 = vec4(0.0,1.0,0.0,0.0);
+    instance.model_column_2 = vec4(0.0,0.0,1.0,0.0);
+    instance.model_column_3 = vec4(0.0,0.0,0.0,1.0);
+";
+
+fn bend_material(curve: f64) -> String {
+    format!(
+        r"
+    material.wind_clock = vec4<u32>(1000u, 0u, 0u, 0u);
+    material.wind_direction_amplitude = vec4(1.0, 0.0, 0.0, 0.5);
+    material.foliage_axis_curve = vec4(0.0, 0.0, 1.0, {curve:?});
+    material.foliage_extent_strength_phase = vec4(2.0, 1.0, 1.0, 0.0);
+    material.foliage_primary = vec4(0u, bitcast<u32>(0.1), bitcast<u32>(0.15), bitcast<u32>(1.0));
+    material.foliage_radial = vec4(0u, bitcast<u32>(0.2), bitcast<u32>(1.0), bitcast<u32>(3.0));
+    {IDENTITY_INSTANCE}"
+    )
+}
+
+fn bend_world(point: DVec3, time: u32, curve: f64) -> DVec3 {
+    let sum = point.element_sum();
+    let primary = 1.0 + (f64::from(time % 6283) / 1000.0 + sum * 0.15).sin() * 0.1;
+    let detail = 1.0 + (f64::from(time % 2094) / 1000.0 * 3.0 + sum).sin() * 0.2;
+    reference(point, DVec3::X * 0.5 * primary, detail, curve)
+}
+
+#[test]
+fn the_current_time_entry_point_is_the_displacement_at_the_frame_clock() {
+    let context = context();
+    for setup in [
+        bend_material(2.0),
+        format!(
+            "{MATERIAL_ENTRY} material.foliage_axis_curve.w = 0.0; material.wind_clock = vec4<u32>(1000u, 125000u, 0u, 0u);"
+        ),
+    ] {
+        let body = format!(
+            "{setup} {} let p = vec3(0.3, 0.4, 1.5); result[0] = vec4(scene_geometry_displacement(p, 0.5, instance) - scene_geometry_displacement_at(p, 0.5, instance, 1500u), 0.0);",
+            clocks(1500, 0)
+        );
+        assert_eq!(evaluate(&context, &body), vec![0.0; 4]);
+    }
+}
+
+#[test]
+fn rigid_wind_world_delta_is_previous_minus_current_position() {
+    let context = context();
+    // Tolerance: each sine carries the shader trigonometry bound TRIG_ERROR, scaled by the
+    // 0.5 m amplitude, for two evaluations; plus one rounding step for the position sums.
+    let tolerance = 2.0 * 0.5 * TRIG_ERROR + ROUNDING_ERROR;
+    let cycles = |time: u32| f64::from(time % 1000) / 1000.0 + 0.125;
+    for (previous, now) in [(0_u32, 250_u32), (250, 1000), (123_456, 123_999)] {
+        let body = format!(
+            "{MATERIAL_ENTRY} material.foliage_axis_curve.w = 0.0; material.wind_clock = vec4<u32>(1000u, 125000u, 0u, 0u); {} result[0] = vec4(scene_wind_world_delta(vec3(0.2, 0.1, 1.0), 0.0, instance), 0.0);",
+            clocks(now, previous)
+        );
+        let actual = evaluate(&context, &body);
+        let sine = |time: u32| (cycles(time) * std::f64::consts::TAU).sin();
+        let expected = [0.0, 0.5 * (sine(previous) - sine(now)), 0.0];
+        for (a, e) in actual.iter().zip(expected) {
+            assert!(
+                (f64::from(*a) - e).abs() < tolerance,
+                "previous={previous}, now={now}: actual={actual:?}, expected={expected:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bend_model_world_delta_matches_the_cpu_reference_at_two_clocks() {
+    let context = context();
+    for point in [DVec3::new(0.3, 0.4, 0.5), DVec3::new(-0.6, 0.2, 2.0)] {
+        for (previous, now) in [(0_u32, 1500_u32), (100_000, 0)] {
+            for curve in [1.0_f64, 2.0] {
+                let body = format!(
+                    "{} {} result[0] = vec4(scene_wind_world_delta(vec3<f32>({},{},{}), 0.0, instance), 0.0);",
+                    bend_material(curve),
+                    clocks(now, previous),
+                    point.x,
+                    point.y,
+                    point.z
+                );
+                let actual = evaluate(&context, &body);
+                let expected = bend_world(point, previous, curve) - bend_world(point, now, curve);
+                // Two evaluations, each within the reference bound, plus the final subtraction.
+                let tolerance = 2.0 * reference_tolerance(point, curve) + ROUNDING_ERROR;
+                for (a, e) in actual.iter().zip(expected.to_array()) {
+                    assert!(
+                        (f64::from(*a) - e).abs() < tolerance,
+                        "point={point:?}, previous={previous}, now={now}, curve={curve}: actual={actual:?}, expected={expected:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_paused_clock_gives_exactly_zero_world_delta() {
+    let context = context();
+    let rigid = format!(
+        "{MATERIAL_ENTRY} material.foliage_axis_curve.w = 0.0; material.wind_clock = vec4<u32>(1000u, 125000u, 0u, 0u);"
+    );
+    for setup in [rigid, bend_material(2.0), bend_material(1.0)] {
+        for time in [0_u32, 777, 123_456, u32::MAX] {
+            let body = format!(
+                "{setup} {} result[0] = vec4(scene_wind_world_delta(vec3(0.3, 0.4, 1.7), 0.5, instance), 0.0);",
+                clocks(time, time)
+            );
+            assert_eq!(evaluate(&context, &body), vec![0.0; 4], "time={time}");
+        }
+    }
+}
+
+#[test]
+fn a_material_without_wind_has_no_world_delta_between_clocks() {
+    let context = context();
+    let body = format!(
+        "{} material.wind_clock = vec4<u32>(0u, 0u, 0u, 0u); {} result[0] = vec4(scene_wind_world_delta(vec3(0.3, 0.4, 1.7), 0.5, instance), 0.0);",
+        bend_material(2.0),
+        clocks(1500, 0)
+    );
+    assert_eq!(evaluate(&context, &body), vec![0.0; 4]);
 }

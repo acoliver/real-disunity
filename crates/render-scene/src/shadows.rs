@@ -142,6 +142,24 @@ impl ShadowedScene {
         Self::with_target(context, scene, settings, OffscreenTarget::COLOR_FORMAT, 1)
     }
 
+    /// Builds receiver pipelines that also write the object-motion residual for a frame renderer
+    /// with TAA resident, like [`ScenePipelines::with_taa_velocity`].
+    pub fn with_taa_velocity(
+        context: &GpuContext,
+        scene: &RenderScene,
+        settings: DirectionalShadowSettings,
+        format: wgpu::TextureFormat,
+        samples: u32,
+    ) -> Result<Self, ShadowError> {
+        Self::build(
+            context,
+            crate::draw::PreparedScene::new(scene)?,
+            settings,
+            (format, samples, true),
+            None,
+        )
+    }
+
     /// Builds receiver pipelines for a validated frame attachment profile.
     pub fn with_target(
         context: &GpuContext,
@@ -179,6 +197,23 @@ impl ShadowedScene {
         samples: u32,
         previous: Option<&SceneGpu>,
     ) -> Result<Self, ShadowError> {
+        Self::build(
+            context,
+            prepared,
+            settings,
+            (format, samples, false),
+            previous,
+        )
+    }
+
+    fn build(
+        context: &GpuContext,
+        prepared: crate::draw::PreparedScene,
+        settings: DirectionalShadowSettings,
+        target: (wgpu::TextureFormat, u32, bool),
+        previous: Option<&SceneGpu>,
+    ) -> Result<Self, ShadowError> {
+        let (format, samples, velocity) = target;
         let scene = prepared.scene().clone();
         let scene = &scene;
         worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
@@ -191,8 +226,12 @@ impl ShadowedScene {
         let effects = scene.effects().expect("validated effects");
         let sampling = effects.shadows().sampling();
         let shadow_layout = resources::layout(context.device());
-        let pipelines =
-            resources::receiver_pipelines(context, scene, (format, samples), &shadow_layout)?;
+        let pipelines = resources::receiver_pipelines(
+            context,
+            scene,
+            (format, samples, velocity),
+            &shadow_layout,
+        )?;
         let (depth_pipelines, terrain_depth_pipeline) =
             resources::depth_pipelines(context.device(), &pipelines, settings, sampling);
         let gpu = SceneGpu::upload_prepared_reusing(
@@ -479,7 +518,7 @@ impl ShadowedScene {
         map.select_frame_slot(self.frame_slot);
         let mut schedule =
             schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines, refresh)?;
-        schedule.screen_space(scheduler);
+        schedule.screen_space(scheduler, self.pipelines.writes_velocity())?;
         schedule.celestial(&self.gpu, context.device(), color.size());
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),

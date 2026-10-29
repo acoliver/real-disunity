@@ -227,8 +227,11 @@ impl FrameRenderer {
                 )?);
             }
             let config = self.targets().config();
+            let velocity = self.taa_resident();
             let screen = self.ssao.as_mut().expect("reflection prepass");
-            self.ssr = Some(crate::ssr::Ssr::new(device, config, settings, screen)?);
+            self.ssr = Some(crate::ssr::Ssr::with_velocity(
+                device, config, settings, screen, velocity,
+            )?);
         }
         Ok(())
     }
@@ -697,8 +700,8 @@ pub(crate) fn attachment(
     }
 }
 
-pub(crate) use scene::SceneFeature;
 pub use scene::encode_scene;
+pub(crate) use scene::{SceneFeature, declare_velocity};
 mod scene;
 
 #[cfg(test)]

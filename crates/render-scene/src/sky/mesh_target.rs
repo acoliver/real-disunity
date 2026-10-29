@@ -139,11 +139,14 @@ pub(super) fn pipeline(
             module: &module,
             entry_point: Some("fragment"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: scene.color_format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &crate::velocity::masked_targets(
+                wgpu::ColorTargetState {
+                    format: scene.color_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                },
+                scene.writes_velocity(),
+            ),
         }),
         multiview_mask: None,
         cache: None,

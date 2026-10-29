@@ -21,6 +21,12 @@ impl StageFactory for FrameOutput {
             Self::Hdr(f) => f.frame_slots(),
         }
     }
+    fn needs_velocity(&self) -> bool {
+        match self {
+            Self::Copy(_) => false,
+            Self::Hdr(f) => f.needs_velocity(),
+        }
+    }
     fn build_for_slot(
         &self,
         device: &wgpu::Device,

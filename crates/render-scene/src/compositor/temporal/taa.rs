@@ -9,7 +9,7 @@
 use crate::compositor::FrameRenderer;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use worldrunner_render_post::{
-    AttachmentView, FrameError, TAA_UNIFORM_BYTES, TaaUniform, ToneMapOutput,
+    AttachmentView, FrameError, ResourceRef, TAA_UNIFORM_BYTES, TaaUniform, ToneMapOutput,
 };
 
 /// The TAA block for a frame's camera data.
@@ -57,6 +57,42 @@ impl FrameRenderer {
         Ok(())
     }
 
+    /// Whether the opaque pass draws with pipelines that write the velocity target: the
+    /// reflection forward pipelines when the renderer owns them, otherwise `pipelines`.
+    pub(crate) fn draws_velocity(&self, pipelines: &crate::renderer::ScenePipelines) -> bool {
+        self.ssao
+            .as_ref()
+            .and_then(|screen| screen.geometry.forward.as_ref())
+            .map_or_else(
+                || pipelines.writes_velocity(),
+                |(forward, _)| forward.writes_velocity(),
+            )
+    }
+
+    /// The velocity attachment the object pass writes, when its pipelines (`writes`) write one.
+    ///
+    /// Velocity pipelines need a renderer with TAA resident, which owns the attachment beside
+    /// the frame depth. Plain pipelines draw without it and the resolve then reads zeros, the
+    /// camera-only reprojection.
+    pub(crate) fn velocity_attachment(
+        &self,
+        writes: bool,
+    ) -> Result<Option<AttachmentView>, FrameError> {
+        let texture = self
+            .taa_resident()
+            .then(|| self.targets().velocity_texture())
+            .flatten();
+        match (texture, writes) {
+            (Some(texture), true) => {
+                AttachmentView::new(ResourceRef::new("scene velocity"), texture).map(Some)
+            }
+            (_, false) => Ok(None),
+            (None, true) => Err(FrameError::UnsupportedEffect(
+                "velocity pipelines require a renderer with TAA resident",
+            )),
+        }
+    }
+
     /// Uploads the pending block for this frame slot. Renderers without TAA upload nothing.
     pub(crate) fn prepare_taa(&self, factory: &ToneMapOutput, encoder: &mut wgpu::CommandEncoder) {
         if self.taa_resident() {
@@ -64,7 +100,7 @@ impl FrameRenderer {
         }
     }
 
-    fn taa_resident(&self) -> bool {
+    pub(crate) fn taa_resident(&self) -> bool {
         self.post_requested.resolve.active_taa().is_some()
     }
 }

@@ -57,6 +57,7 @@ mod streaming;
 mod taa;
 mod temporal;
 mod terrain_blend;
+mod velocity;
 
 /// The colour format every test renders into.
 const COLOR_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;

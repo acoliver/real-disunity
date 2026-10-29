@@ -106,6 +106,26 @@ pub fn player_quality(data_dir: &Path) -> Result<Option<QualityLevels>, PlayerEr
     }))
 }
 
+/// The scene paths in the build of the player whose data directory is `data_dir`, in build
+/// order: scene `i` is stored in the file `level{i}`. Empty when `globalgamemanagers` has no
+/// `BuildSettings` object.
+///
+/// # Errors
+/// Fails when `globalgamemanagers` cannot be read or its build settings do not decode.
+pub fn player_scene_paths(data_dir: &Path) -> Result<Vec<String>, PlayerError> {
+    let mut managers = OpenFile::open(&data_dir.join("globalgamemanagers"))?;
+    let Some(path_id) = managers
+        .file
+        .objects()
+        .iter()
+        .find(|object| object.class_id == ClassId::BUILD_SETTINGS)
+        .map(|object| object.path_id)
+    else {
+        return Ok(Vec::new());
+    };
+    Ok(managers.decode::<BuildSettings>(path_id)?.scenes)
+}
+
 /// The company and product names from `app.info`, which every player writes as two lines.
 fn app_info(data_dir: &Path) -> (String, String) {
     let text = std::fs::read_to_string(data_dir.join("app.info")).unwrap_or_default();

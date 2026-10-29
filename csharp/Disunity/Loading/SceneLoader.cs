@@ -164,22 +164,45 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
                 try { components[i][j] = Component(objects[i], list[j], where); }
                 catch (Exception error) when (error is not SceneLoadException)
                 {
-                    throw new SceneLoadException($"{where}: {error.Message}", error);
+                    var cause = error is System.Reflection.TargetInvocationException { InnerException: { } inner } ? inner : error;
+                    throw new SceneLoadException($"{where}: {cause.GetType().Name}: {cause.Message}", cause);
                 }
             }
         }
     }
 
-    private MonoBehaviour Script(GameObject owner, JsonElement value, string where)
+    /// <summary>Builds a scene script. A script whose class cannot load, because it uses an engine type the engine
+    /// does not define, is left off its object like a missing script: the rest of the scene loads, the plan's
+    /// differences and the log name it, and references to it bind null.</summary>
+    private object Script(GameObject owner, JsonElement value, string where)
     {
-        var type = ScriptType(value, typeof(MonoBehaviour), where);
-        var script = (MonoBehaviour)(Activator.CreateInstance(type, nonPublic: true)
-            ?? throw new SceneLoadException($"{where}: cannot construct {type}"));
+        MonoBehaviour script;
+        Type type;
+        try
+        {
+            type = ScriptType(value, typeof(MonoBehaviour), where);
+            script = (MonoBehaviour)(Activator.CreateInstance(type, nonPublic: true)
+                ?? throw new SceneLoadException($"{where}: cannot construct {type}"));
+        }
+        catch (Exception error) when (Unloadable(error) is { } cause)
+        {
+            var name = value.Str("class");
+            differences.Add($"{where}: script {name} is not built: {cause.Message}");
+            Debug.LogWarning($"The script {name} on {owner.name} cannot load and is left off: {cause.Message}");
+            return new UnbuiltComponent(name);
+        }
         DisunityHost.AttachComponent<Component>(owner, script);
         if (!value.Bool("enabled")) script.enabled = false;
         scripts.Add((script, value.GetProperty("fields"), $"{owner.name}.{type.Name}"));
         return script;
     }
+
+    private static TypeLoadException? Unloadable(Exception error) => error switch
+    {
+        TypeLoadException load => load,
+        System.Reflection.TargetInvocationException { InnerException: TypeLoadException load } => load,
+        _ => null,
+    };
 
     private void BindFields()
     {

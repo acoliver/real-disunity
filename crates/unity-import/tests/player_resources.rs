@@ -3,7 +3,7 @@ use std::path::Path;
 use serde_json::json;
 use worldrunner_unity_import::{
     PlayerError,
-    player_identity::{QualityLevels, player_identity, player_quality},
+    player_identity::{QualityLevels, player_identity, player_quality, player_scene_paths},
     player_resources::{ResourceAsset, ResourcesPlan, plan_player_resources},
 };
 use worldrunner_unity_serialized::{
@@ -417,4 +417,50 @@ fn a_player_without_quality_settings_has_no_quality_levels() {
     let dir = tempfile::tempdir().unwrap();
     write_managers(dir.path());
     assert_eq!(player_quality(dir.path()).unwrap(), None);
+}
+
+fn build_settings_with_scenes(scenes: &[&str]) -> Vec<u8> {
+    let mut w = ObjectWriter::new(false);
+    w.i32(i32::try_from(scenes.len()).unwrap());
+    for scene in scenes {
+        w.string(scene).unwrap();
+    }
+    for _ in 0..3 {
+        w.i32(0);
+    }
+    w.bytes(&[0; 14]).align();
+    w.string("6000.3.15f1").unwrap().string("").unwrap().i32(0);
+    w.finish()
+}
+
+#[test]
+fn reads_the_scene_paths_of_a_players_build_in_build_order() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![object(
+            1,
+            ClassId::BUILD_SETTINGS,
+            build_settings_with_scenes(&[
+                "Assets/GameAssets/Scenes/StartScreen.unity",
+                "Assets/GameAssets/Scenes/MainGame.unity",
+            ]),
+        )],
+        &[],
+    );
+    assert_eq!(
+        player_scene_paths(dir.path()).unwrap(),
+        vec![
+            "Assets/GameAssets/Scenes/StartScreen.unity".to_owned(),
+            "Assets/GameAssets/Scenes/MainGame.unity".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn a_player_without_build_settings_lists_no_scenes() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(dir.path(), "globalgamemanagers", vec![], &[]);
+    assert!(player_scene_paths(dir.path()).unwrap().is_empty());
 }

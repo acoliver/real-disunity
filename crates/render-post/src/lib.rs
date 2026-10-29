@@ -94,6 +94,8 @@ mod taa_gpu_tests;
 mod taa_reference;
 #[cfg(test)]
 mod taa_tests;
+#[cfg(test)]
+mod taa_velocity;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use cas::CasSettings;
 pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};

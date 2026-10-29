@@ -646,6 +646,19 @@ frame-slot stage sets, so the history is the previous frame whichever slot ran i
 frames are in flight. A resize replaces it, and settings without TAA release it. The shader ignores
 the history while the block says it is invalid, so no clear is needed.
 
+`taa resolve` also binds an object-motion residual at `@binding(5) velocity` (`taa_gpu::Inputs::velocity`
+with `velocity_samples`). The format is `Rg16Float`; the value is the object-only residual in
+previous-frame uv units, `uv(P_prev * world_prev) - uv(P_prev * world_now)`, where `world_prev` is the
+same surface with the previous transform and animation time. `history_uv` adds the residual of the
+closest-depth texel to the camera reprojection (Karis dilation: depth and velocity come from the same
+texel, and from the minimum-depth sample when the target is multisampled, where the binding is
+`texture_multisampled_2d` and its sample count must equal the depth's). Zero means camera
+reprojection alone, so a cleared target needs no special case. With `velocity: None` the resolve binds
+a 1x1 zero texture of the same sample count, which is the default of `HdrPost` today: scene passes do
+not write a residual yet, and output is unchanged from a build without the binding. The motion-adaptive
+weight reads the total displacement including the residual. The reference and GPU tests for this are in
+`taa_gpu_tests/velocity.rs`.
+
 Measured at 1920x1080 on a Radeon 780M with `smaa_and_fxaa_stage_timestamps` (median of 5, stripes
 and disc scenes). The fullscreen `taa history` pass took 0.87 to 0.97 ms of a 2.99 to 3.18 ms timed
 TAA path (`taa resolve` 1.81 to 1.89 ms, `taa history`, `tone` 0.31 to 0.33 ms). The texture copy has

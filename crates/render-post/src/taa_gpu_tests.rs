@@ -12,10 +12,13 @@ use wgpu::util::DeviceExt;
 use crate::cas_reference::Image;
 use crate::taa_gpu::{self, Inputs};
 use crate::taa_reference::{Depth, Frame, IDENTITY, Mat4, compress};
+use crate::taa_velocity::Velocity;
 use crate::{
     FrameConfig, FrameTargets, PostChain, PostError, Readback, Resources, Stage, StageFactory,
     StageId, StageSet, StageTarget, TaaSettings, TaaUniform, color_texture,
 };
+
+mod velocity;
 
 const BOUND: f64 = 1e-3;
 
@@ -54,6 +57,8 @@ struct Case {
     /// Per-sample depth planes of a multisampled depth texture. `depth` is then their
     /// per-pixel minimum, which is what the resolve must see.
     depth_samples: Vec<Depth>,
+    /// Object-motion residual; `None` binds no velocity texture.
+    velocity: Option<Velocity>,
 }
 impl Case {
     fn new(color: Image, history: Image) -> Self {
@@ -67,6 +72,7 @@ impl Case {
             valid: true,
             settings: TaaSettings::DEFAULT,
             depth_samples: Vec::new(),
+            velocity: None,
         }
     }
 
@@ -103,6 +109,7 @@ impl Case {
             history_valid: self.valid,
             settings: self.settings,
             samples: u32::try_from(self.depth_samples.len().max(1)).unwrap(),
+            velocity: self.velocity.as_ref(),
         }
         .resolve()
     }
@@ -348,6 +355,7 @@ struct Resolve {
     uniform: wgpu::Buffer,
     history: wgpu::Texture,
     output: wgpu::Texture,
+    velocity: Option<wgpu::TextureView>,
 }
 impl StageFactory for Resolve {
     fn build(
@@ -364,6 +372,8 @@ impl StageFactory for Resolve {
                 color: &self.color,
                 depth: &self.depth,
                 depth_samples: self.depth_samples,
+                velocity: self.velocity.as_ref(),
+                velocity_samples: self.depth_samples,
                 uniform: &self.uniform,
                 history: &self.history,
                 output: &self.output,
@@ -459,6 +469,10 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
         upload_multisampled_depth((&device, &queue), &case.depth_samples)
     };
     let uniform = uniform_buffer(&device, case);
+    let velocity = case
+        .velocity
+        .as_ref()
+        .map(|v| velocity::upload((&device, &queue), v));
     let chain = PostChain::new(
         &device,
         FrameConfig::new(size, taa_gpu::FORMAT, 1),
@@ -471,6 +485,7 @@ fn run(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
             uniform,
             history: targets.history.clone(),
             output: targets.output.clone(),
+            velocity,
         },
     )
     .unwrap();

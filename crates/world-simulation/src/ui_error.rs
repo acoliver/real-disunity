@@ -8,6 +8,8 @@ pub enum UiError {
     InvalidRect,
     #[error("invalid Canvas or scaler")]
     InvalidCanvas,
+    #[error("invalid CanvasGroup alpha")]
+    InvalidCanvasGroup,
     #[error("invalid viewport")]
     InvalidViewport,
     #[error("screen Canvas must be an object root")]

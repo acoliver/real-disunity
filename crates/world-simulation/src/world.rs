@@ -228,13 +228,14 @@ impl World {
                 })
             }
             #[cfg(feature = "ui")]
-            ComponentDesc::RectTransform(_) | ComponentDesc::Canvas(_) | ComponentDesc::Text(_) => {
-                self.components.iter(self.identity).any(|(_, c)| {
-                    c.object == object
-                        && !self.lifetime.components.contains(&c.handle)
-                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
-                })
-            }
+            ComponentDesc::RectTransform(_)
+            | ComponentDesc::Canvas(_)
+            | ComponentDesc::CanvasGroup(_)
+            | ComponentDesc::Text(_) => self.components.iter(self.identity).any(|(_, c)| {
+                c.object == object
+                    && !self.lifetime.components.contains(&c.handle)
+                    && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
+            }),
             ComponentDesc::Renderer { .. } => owner.renderer.is_some(),
             ComponentDesc::ShadowCaster2d
             | ComponentDesc::Script { .. }

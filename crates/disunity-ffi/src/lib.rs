@@ -12,6 +12,7 @@ pub mod camera;
 pub mod camera_data;
 pub mod camera_layers;
 pub mod canvas;
+pub mod canvas_group;
 pub mod cloning;
 #[cfg(test)]
 mod cloning_tests;

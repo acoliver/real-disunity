@@ -108,7 +108,7 @@ internal static class TextureTests
         var alpha = new Texture2D(1, 1, TextureFormat.Alpha8, false);
         alpha.SetPixel(0, 0, new Color(0.2f, 0.4f, 0.6f, 0.5f));
         Ensure(alpha.GetRawTextureData().SequenceEqual(new byte[] { 128 }), "Alpha8 stores only alpha");
-        Near(new Color(1f, 1f, 1f, 128 / 255f), alpha.GetPixel(0, 0), 1e-6f, "Alpha8 reads as white with its alpha (the Unity documentation does not say what the color channels are)");
+        Near(new Color(1f, 1f, 1f, 128 / 255f), alpha.GetPixel(0, 0), 1e-6f, "Alpha8 reads as white with its alpha");
     }
 
     private static void WideChannelOrder()

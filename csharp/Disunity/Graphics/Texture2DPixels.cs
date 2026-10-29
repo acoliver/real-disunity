@@ -2,7 +2,7 @@ namespace UnityEngine;
 
 /// <summary>
 /// Pixel access. Coordinates start at the bottom left. A read outside the level wraps by the texture's
-/// wrap modes, and so does a write, as Unity documents for GetPixel and SetPixel. Colors are stored as given, with no sRGB conversion.
+/// wrap modes, and so does a write. Colors are stored as given, with no sRGB conversion.
 /// </summary>
 public sealed partial class Texture2D
 {

@@ -16,7 +16,7 @@ internal static class Physics3DQueryTests
         PenetrationAndClosestPoint();
         PhysicsScenes();
         RaycastHits();
-        Console.WriteLine("PASS: 3D physics queries answer for an empty world, settings, layer rules, scenes and RaycastHit behave as Unity documents");
+        Console.WriteLine("PASS: 3D physics queries answer for an empty world, settings, layer rules, scenes and RaycastHit behave as specified");
     }
 
     private static object? Argument(Type type)

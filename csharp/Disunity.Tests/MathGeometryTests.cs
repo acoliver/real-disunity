@@ -235,8 +235,8 @@ internal static class MathGeometryTests
         Require(MathTests.Near(orthoPlanes.left, -2f) && MathTests.Near(orthoPlanes.right, 2f) && MathTests.Near(orthoPlanes.zNear, 0.1f, 1e-3f)
             && MathTests.Near(orthoPlanes.zFar, 100f, 1e-2f), "decomposeProjection of an orthographic matrix");
         Require(NearMatrix(Matrix4x4.Frustum(planes), perspective, 1e-4f), "Frustum from FrustumPlanes");
-        // Unity documents LookAt as TRS(from, LookRotation(to - from, up), one): the viewer's
-        // transform, which maps its local forward onto the line toward the target.
+        // LookAt is TRS(from, LookRotation(to - from, up), one): the viewer's transform, which
+        // maps its local forward onto the line toward the target.
         var look = Matrix4x4.LookAt(new Vector3(1f, 2f, 3f), new Vector3(1f, 2f, 13f), Vector3.up);
         RequireNear(look.MultiplyPoint3x4(Vector3.zero), new Vector3(1f, 2f, 3f), "LookAt places the viewer at from");
         RequireNear(look.MultiplyPoint3x4(new Vector3(0f, 0f, 10f)), new Vector3(1f, 2f, 13f), "LookAt maps local forward to the target");
@@ -383,7 +383,7 @@ internal static class MathGeometryTests
         RequireNear(linear.gamma.r, 0.5f, "Color.gamma undoes Color.linear", 1e-5f);
         Require(Color.yellow.r == 1f && Color.yellow.g == 0.92156863f && Color.yellow.b == 0.015686275f && Color.yellow.a == 1f, "Color.yellow");
         Require(Color.clear.Equals(new Color(0f, 0f, 0f, 0f)) && Color.gray.Equals(new Color(0.5f, 0.5f, 0.5f, 1f)) && Color.grey.Equals(Color.gray), "named colors");
-        Require(Color.cornflowerBlue.Equals(new Color(0.3921569f, 0.5843138f, 0.9294118f, 1f)) && Color.gray1.r == 0.1f && Color.gray9.g == 0.9f, "documented Unity 6 color values");
+        Require(Color.cornflowerBlue.Equals(new Color(0.3921569f, 0.5843138f, 0.9294118f, 1f)) && Color.gray1.r == 0.1f && Color.gray9.g == 0.9f, "Unity 6 color values");
         var indexed = new Color(0.1f, 0.2f, 0.3f, 0.4f);
         indexed[2] = 0.9f;
         Require(indexed.b == 0.9f && indexed[3] == 0.4f, "Color indexer");

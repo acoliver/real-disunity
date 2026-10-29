@@ -744,6 +744,10 @@ mod gaussian_gpu_tests;
 mod gaussian_benchmark;
 
 #[cfg(test)]
+#[path = "cmaa2_gpu_tests.rs"]
+mod cmaa2_gpu_tests;
+
+#[cfg(test)]
 #[path = "bloom_policy_gpu_tests.rs"]
 mod bloom_policy_gpu_tests;
 

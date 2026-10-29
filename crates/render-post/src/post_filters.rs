@@ -62,7 +62,7 @@ impl<'a> Filters<'a> {
         let upscale = settings
             .upscale
             .filter(|_| targets.config().size != targets.config().output_extent());
-        let resolved = resolve.active_fxaa().is_some() || resolve.active_smaa().is_some();
+        let resolved = resolve.schedules_pass();
         let display_format = resolve.display_format();
         let ldr = (resolved || upscale.is_some())
             .then(|| self.display_texture(targets.config().size, display_format));
@@ -88,7 +88,7 @@ impl<'a> Filters<'a> {
         ldr: Option<&wgpu::TextureView>,
         format: wgpu::TextureFormat,
     ) {
-        let resolving = resolve.active_fxaa().is_some() || resolve.active_smaa().is_some();
+        let resolving = resolve.schedules_pass();
         let filtered = (resolving && upscale.is_some())
             .then(|| self.display_texture(targets.config().size, wgpu::TextureFormat::Rgba32Float));
         let (resolve_format, resolve_target) = filtered.as_ref().map_or_else(
@@ -118,6 +118,15 @@ impl<'a> Filters<'a> {
                 ldr.unwrap(),
                 targets.config().size,
                 smaa,
+                (resolve_format, resolve_target),
+            );
+        } else if let Some(cmaa2) = resolve.active_cmaa2() {
+            crate::cmaa2_gpu::append(
+                self.device,
+                self.set,
+                ldr.unwrap(),
+                targets.config().size,
+                cmaa2,
                 (resolve_format, resolve_target),
             );
         }

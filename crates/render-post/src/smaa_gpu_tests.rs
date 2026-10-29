@@ -4,16 +4,16 @@
 use super::post_effect_tests::{chain, output, paint, pixels, step};
 use crate::{HdrPostSettings, PostResolve, SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 
-struct Rig {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+pub(super) struct Rig {
+    pub(super) device: wgpu::Device,
+    pub(super) queue: wgpu::Queue,
 }
 impl Rig {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let (device, queue) = crate::gpu_tests::gpu();
         Self { device, queue }
     }
-    fn render(&self, resolve: PostResolve, size: [u32; 2], body: &str) -> Vec<u8> {
+    pub(super) fn render(&self, resolve: PostResolve, size: [u32; 2], body: &str) -> Vec<u8> {
         let settings = HdrPostSettings {
             resolve,
             ..HdrPostSettings::default()
@@ -42,7 +42,7 @@ fn presets() -> impl Iterator<Item = SmaaSettings> {
 }
 
 /// Pixels whose RGBA bytes differ, as (x, y).
-fn changed(plain: &[u8], smaa: &[u8], width: u32) -> Vec<(i32, i32)> {
+pub(super) fn changed(plain: &[u8], smaa: &[u8], width: u32) -> Vec<(i32, i32)> {
     plain
         .chunks_exact(4)
         .zip(smaa.chunks_exact(4))
@@ -56,12 +56,12 @@ fn changed(plain: &[u8], smaa: &[u8], width: u32) -> Vec<(i32, i32)> {
         .collect()
 }
 
-fn red(image: &[u8], width: u32, x: u32, y: u32) -> u8 {
+pub(super) fn red(image: &[u8], width: u32, x: u32, y: u32) -> u8 {
     image[usize::try_from((y * width + x) * 4).unwrap()]
 }
 
 /// Every channel of every pixel lies between the darkest and brightest plain values.
-fn assert_within_plain_range(plain: &[u8], smaa: &[u8]) {
+pub(super) fn assert_within_plain_range(plain: &[u8], smaa: &[u8]) {
     for channel in 0..4 {
         let values = plain.iter().skip(channel).step_by(4);
         let (lo, hi) = (*values.clone().min().unwrap(), *values.max().unwrap());
@@ -242,7 +242,7 @@ fn resize_rebuilds_the_passes_for_the_new_extent() {
 }
 
 /// Per-pass medians for one resolve on a synthetic 1920x1080 frame of diagonal edges.
-fn timed_medians(rig: &Rig, resolve: PostResolve) -> Vec<(String, f64)> {
+pub(super) fn timed_medians(rig: &Rig, resolve: PostResolve) -> Vec<(String, f64)> {
     let size = [1920, 1080];
     let chain = chain(
         &rig.device,

@@ -11,7 +11,8 @@ namespace Disunity.Play;
 /// the bridge's load context, its startup hooks run in Unity's phase order around the first
 /// scene, and the scene loads from its plan. A player request is
 /// <c>{"player": data directory, "plan": path, "resources": path, "identity": {...},
-/// "persistent": directory, "first_texture": 1}</c>, with the scene and resource plans and the
+/// "persistent": directory, "arguments": [the player's command line after its executable path],
+/// "first_texture": 1}</c>, with the scene and resource plans and the
 /// player identity <c>unity-import</c> writes. Each step writes a line
 /// to standard error, so the first one that fails is the last line written.
 /// </summary>
@@ -24,6 +25,9 @@ internal static class PlayerRun
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
         new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies).Attach(context);
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
+        var commandLine = PlayerCommandLine.Build(request);
+        PlayerCommandLine.Install(commandLine);
+        Log($"command line: {string.Join(' ', commandLine)}");
         DisunityHost.ConfigurePlayer(Environment(data, request));
         DisunityHost.LoadResources(request.GetProperty("resources").GetString()!, Load);
         var hooks = RuntimeHooks.Resolve(manifest.Hooks, Load);

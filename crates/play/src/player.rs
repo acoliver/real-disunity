@@ -6,7 +6,7 @@ use std::time::Duration;
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_original_games::workspace_root;
 use worldrunner_unity_import::{
-    player_identity::player_identity,
+    player_identity::{PlayerIdentity, player_identity},
     player_plan::plan_player_scene,
     player_resources::plan_player_resources,
     script_layouts::{ScriptLayouts, parse_script_layouts},
@@ -23,8 +23,13 @@ pub struct PreparedPlayer {
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
 /// scene file `scene` and the player's resources with them, and builds the managed bridge,
-/// all into `<target>/play/player`.
-pub fn prepare_player(data: &Path, scene: &str) -> Result<PreparedPlayer, PlayError> {
+/// all into `<target>/play/player`. `arguments` become the player's command line after its
+/// executable path.
+pub fn prepare_player(
+    data: &Path,
+    scene: &str,
+    arguments: &[String],
+) -> Result<PreparedPlayer, PlayError> {
     let root = workspace_root()?;
     let output = target(&root).join("play").join("player");
     std::fs::create_dir_all(&output).map_err(|error| PlayError::Io(output.clone(), error))?;
@@ -51,7 +56,7 @@ pub fn prepare_player(data: &Path, scene: &str) -> Result<PreparedPlayer, PlayEr
         &resources_path,
         &serde_json::to_vec(&resources).expect("plans serialize"),
     )?;
-    let request = write_request(&output, data, &plan_path, &resources_path)?;
+    let request = write_request(&output, data, &plan_path, &resources_path, arguments)?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
         request,
@@ -78,13 +83,15 @@ fn script_layouts(root: &Path, output: &Path, data: &Path) -> Result<ScriptLayou
     Ok(parse_script_layouts(&json)?)
 }
 
-/// Writes the bridge's request: the player's paths, plans and identity. Each game keeps its
-/// preferences in its own `persistent/<company>/<product>` directory under `output`.
+/// Writes the bridge's request: the player's paths, plans, identity and command line
+/// arguments. Each game keeps its preferences in its own `persistent/<company>/<product>`
+/// directory under `output`.
 fn write_request(
     output: &Path,
     data: &Path,
     plan: &Path,
     resources: &Path,
+    arguments: &[String],
 ) -> Result<PathBuf, PlayError> {
     let identity = player_identity(data)?;
     eprintln!(
@@ -100,16 +107,30 @@ fn write_request(
         .join(path_component(&identity.company_name))
         .join(path_component(&identity.product_name));
     let request = output.join("request.json");
-    let body = serde_json::json!({
+    let body = request_body(data, [plan, resources, &persistent], &identity, arguments);
+    write(&request, body.to_string().as_bytes())?;
+    Ok(request)
+}
+
+/// The bridge's request. `paths` are the scene plan, the resource plan and the persistent data
+/// directory. The managed side derives the player's executable path from `player` and the
+/// platform in `identity`, and puts `arguments` after it in `Environment.GetCommandLineArgs()`.
+fn request_body(
+    data: &Path,
+    paths: [&Path; 3],
+    identity: &PlayerIdentity,
+    arguments: &[String],
+) -> serde_json::Value {
+    let [plan, resources, persistent] = paths;
+    serde_json::json!({
         "player": data,
         "plan": plan,
         "resources": resources,
         "identity": identity,
         "persistent": persistent,
+        "arguments": arguments,
         "first_texture": FIRST_TEXTURE,
-    });
-    write(&request, body.to_string().as_bytes())?;
-    Ok(request)
+    })
 }
 
 /// A name as one path component: characters that separate or escape paths become `_`, and an
@@ -152,4 +173,53 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn identity() -> PlayerIdentity {
+        PlayerIdentity {
+            company_name: "Company".into(),
+            product_name: "Product".into(),
+            version: "1.0".into(),
+            unity_version: "6000.3.15f1".into(),
+            platform: "WindowsPlayer",
+        }
+    }
+
+    fn body(arguments: &[String]) -> serde_json::Value {
+        let (plan, resources, persistent) = (
+            Path::new("plan.json"),
+            Path::new("resources.json"),
+            Path::new("persistent"),
+        );
+        request_body(
+            Path::new("/games/Game/Game_Data"),
+            [plan, resources, persistent],
+            &identity(),
+            arguments,
+        )
+    }
+
+    #[test]
+    fn the_request_carries_the_arguments_in_order_one_value_each() {
+        let arguments: Vec<String> = ["-userdata", "/tmp/my saves", "-headless", "-userdata", "x"]
+            .map(String::from)
+            .to_vec();
+        let request = body(&arguments);
+        assert_eq!(
+            request["arguments"],
+            serde_json::json!(["-userdata", "/tmp/my saves", "-headless", "-userdata", "x"])
+        );
+    }
+
+    #[test]
+    fn the_request_names_the_data_directory_and_platform_the_executable_path_comes_from() {
+        let request = body(&[]);
+        assert_eq!(request["arguments"], serde_json::json!([]));
+        assert_eq!(request["player"], "/games/Game/Game_Data");
+        assert_eq!(request["identity"]["platform"], "WindowsPlayer");
+    }
 }

@@ -9,7 +9,8 @@ use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_
 
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
-       play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]";
+       play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
+            [--arg VALUE]...";
 
 #[derive(Default)]
 struct Arguments {
@@ -23,6 +24,8 @@ struct Arguments {
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
+    /// The player's command line after its executable path, in the order given.
+    command_line: Vec<String>,
 }
 
 fn number<T: std::str::FromStr>(text: &str, what: &str) -> Result<T, String> {
@@ -84,6 +87,7 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
         "--player" => arguments.player = Some(value.into()),
         "--scene" => arguments.scene = Some(value.to_owned()),
+        "--arg" => arguments.command_line.push(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
     }
     Ok(())
@@ -105,7 +109,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 }
 
 /// Starts a player's scene, `level0` unless `--scene` names another, and runs it headless
-/// for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
+/// for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default). Each `--arg`
+/// is one argument of the player's command line, after its executable path.
 fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let windowed = arguments.game.is_some()
         || arguments.size.is_some()
@@ -115,11 +120,13 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         || arguments.seed.is_some();
     if windowed {
         return Err(
-            "--player runs without a window and takes only --scene, --frames and --fixed-dt".into(),
+            "--player runs without a window and takes only --scene, --frames, --fixed-dt and --arg"
+                .into(),
         );
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
-    let prepared = prepare_player(data, scene).map_err(|error| error.to_string())?;
+    let prepared =
+        prepare_player(data, scene, &arguments.command_line).map_err(|error| error.to_string())?;
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
@@ -166,5 +173,43 @@ fn main() -> ExitCode {
             eprintln!("{error}\n{USAGE}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+
+    fn parsed(args: &[&str]) -> Result<super::Arguments, String> {
+        parse(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn repeated_arg_options_keep_their_order_and_take_dashed_values() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--arg",
+            "-userdata",
+            "--arg",
+            "/saves",
+            "--arg",
+            "-headless",
+            "--arg",
+            "--flag",
+            "--frames",
+            "3",
+        ])
+        .expect("parses");
+        assert_eq!(
+            arguments.command_line,
+            ["-userdata", "/saves", "-headless", "--flag"]
+        );
+        assert_eq!(arguments.frames, Some(3));
+    }
+
+    #[test]
+    fn arg_needs_a_value() {
+        assert!(parsed(&["--player", "Game_Data", "--arg"]).is_err());
     }
 }

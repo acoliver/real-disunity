@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Disunity/Disunity.Engine.csproj" />
+    <ProjectReference Include="../Disunity.Play/Disunity.Play.csproj" />
     <ProjectReference Include="../PortableFixture/PortableFixture.csproj" />
   </ItemGroup>
   <ItemGroup>

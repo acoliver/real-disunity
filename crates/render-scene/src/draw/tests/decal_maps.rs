@@ -63,7 +63,7 @@ fn material(
     })
     .unwrap()
 }
-fn mapped_scene(slope: bool) -> RenderScene {
+pub(super) fn mapped_scene(slope: bool) -> RenderScene {
     let base = source(slope, false);
     let mut textures = base.resources().textures().to_vec();
     textures[1] = texel([204, 51, 26, 255]);

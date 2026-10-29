@@ -216,7 +216,8 @@ impl Decals {
                     Channel::Normal.layer(&self.scene, materials, decal.material.raw())
                         | (Channel::Surface.layer(&self.scene, materials, decal.material.raw())
                             << 8)
-                        | ((SceneDecalWriteMask::ALL.bits() ^ decal.write_mask.bits()) << 16),
+                        | ((SceneDecalWriteMask::ALL.bits() ^ decal.write_mask.bits()) << 16)
+                        | normal_frame_bits(decal.mapping.normal_frame),
                 ),
             ]);
             mapping_values(&mut values, decal, surface[2]);
@@ -256,6 +257,13 @@ fn mapping_values(values: &mut Vec<f32>, decal: &SceneDecal, alpha: f32) {
     values.extend(decal.mapping.uv_offset_micro.map(|x| {
         crate::view::meters_scalar(x.unsigned_abs()) / 1000.0 * if x < 0 { -1.0 } else { 1.0 }
     }));
+}
+
+fn normal_frame_bits(frame: worldrunner_render_plan::SceneDecalNormalFrame) -> u32 {
+    match frame {
+        worldrunner_render_plan::SceneDecalNormalFrame::Projection => 0,
+        worldrunner_render_plan::SceneDecalNormalFrame::ReceiverWorld => 1 << 19,
+    }
 }
 
 fn entry(scene: &RenderScene, id: u64, decal: SceneDecal) -> Entry {

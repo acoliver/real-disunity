@@ -245,6 +245,7 @@ ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();
 TextCoreTests.Run();
+FieldBinderTests.Run();
 EnvironmentTests.Run();
 
 NativeArrayTests.Run();

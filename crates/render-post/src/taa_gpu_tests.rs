@@ -471,6 +471,34 @@ fn read_depth(gpu: (&wgpu::Device, &wgpu::Queue), texture: &wgpu::Texture) -> Ve
     .collect()
 }
 
+/// Uploads the colour, history and depth history of `case`.
+fn write_inputs(
+    (_, queue): (&wgpu::Device, &wgpu::Queue),
+    case: &Case,
+    (color, targets): (&wgpu::Texture, &taa_gpu::Targets),
+) {
+    let bytes: Vec<u8> = case
+        .color
+        .pixels
+        .iter()
+        .flatten()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    write_texture(queue, color, &bytes, 16);
+    let bytes: Vec<u8> = case
+        .history
+        .pixels
+        .iter()
+        .flatten()
+        .flat_map(|v| f16_bits(*v).to_le_bytes())
+        .collect();
+    write_texture(queue, &targets.history, &bytes, 8);
+    if let Some(stored) = &case.depth_history {
+        let bytes: Vec<u8> = stored.values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        write_texture(queue, &targets.depth_history, &bytes, 4);
+    }
+}
+
 /// Like [`run`], also returning the linear-depth history afterwards. The depth history starts
 /// as `case.depth_history`, or zeros.
 fn run_with_depth(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>, Vec<f32>) {
@@ -482,27 +510,8 @@ fn run_with_depth(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>, Vec<f32>) {
         size,
         wgpu::TextureFormat::Rgba32Float,
     );
-    let bytes: Vec<u8> = case
-        .color
-        .pixels
-        .iter()
-        .flatten()
-        .flat_map(|v| v.to_le_bytes())
-        .collect();
-    write_texture(&queue, &color, &bytes, 16);
     let targets = taa_gpu::allocate(&device, size);
-    let bytes: Vec<u8> = case
-        .history
-        .pixels
-        .iter()
-        .flatten()
-        .flat_map(|v| f16_bits(*v).to_le_bytes())
-        .collect();
-    write_texture(&queue, &targets.history, &bytes, 8);
-    if let Some(stored) = &case.depth_history {
-        let bytes: Vec<u8> = stored.values.iter().flat_map(|v| v.to_le_bytes()).collect();
-        write_texture(&queue, &targets.depth_history, &bytes, 4);
-    }
+    write_inputs((&device, &queue), case, (&color, &targets));
     let depth = if case.depth_samples.is_empty() {
         upload_depth((&device, &queue), &case.depth)
     } else {

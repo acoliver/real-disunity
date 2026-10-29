@@ -118,10 +118,8 @@ fn a_perspective_camera_supplies_the_linear_depth_terms_of_its_clip_planes() {
 fn an_orthographic_camera_disables_the_depth_terms() {
     let ortho = glam::camera::rh::proj::directx::orthographic(-4.0, 4.0, -3.0, 3.0, 0.1, 100.0);
     let camera = ortho * Mat4::from_rotation_y(0.4);
-    assert_eq!(
-        uniform(&view_of(camera, camera, true)).depth_terms,
-        [0.0; 2]
-    );
+    let terms = uniform(&view_of(camera, camera, true)).depth_terms;
+    assert!(terms.iter().all(|term| *term == 0.0), "{terms:?}");
 }
 
 #[test]

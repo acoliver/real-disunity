@@ -159,21 +159,8 @@ pub fn append(
         ("SAMPLES", f64::from(inputs.depth_samples.max(1))),
     ];
     let resolve = pipeline(device, &module, "taa_resolve", &constants);
-    let zero = zero_velocity(device, inputs.depth_samples.max(1));
-    let velocity = inputs.velocity.map_or(zero, |view| {
-        assert_eq!(
-            inputs.velocity_samples,
-            inputs.depth_samples.max(1),
-            "velocity and depth must have the same sample count"
-        );
-        view.clone()
-    });
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("TAA history"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        ..Default::default()
-    });
+    let velocity = velocity_view(device, inputs);
+    let sampler = history_sampler(device);
     let resolve_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some(STAGES[0]),
         layout: &resolve.get_bind_group_layout(0),
@@ -203,6 +190,28 @@ pub fn append(
         inputs.depth_output,
         inputs.depth_history,
     ));
+}
+
+/// The residual view of `inputs`, or a zero texture when the host has none.
+fn velocity_view(device: &wgpu::Device, inputs: &Inputs<'_>) -> wgpu::TextureView {
+    let zero = zero_velocity(device, inputs.depth_samples.max(1));
+    inputs.velocity.map_or(zero, |view| {
+        assert_eq!(
+            inputs.velocity_samples,
+            inputs.depth_samples.max(1),
+            "velocity and depth must have the same sample count"
+        );
+        view.clone()
+    })
+}
+
+fn history_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("TAA history"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    })
 }
 
 /// The residual a resolve reads when the host has none: one `Rg16Float` texel, zero from

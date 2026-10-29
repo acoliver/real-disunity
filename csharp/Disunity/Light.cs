@@ -31,7 +31,7 @@ public sealed class Light : Behaviour
         DisunityHost.ThrowIfError(NativeBindings.disunity_light_write(DisunityHost.WorldHandle, Handle, &value));
     private void Update(Func<DisunityLight, DisunityLight> change) => Write(change(Read()));
 
-    public override bool enabled { get => Read().enabled == 1; set => Update(l => { l.enabled = value ? 1u : 0u; return l; }); }
+    private protected override bool EnabledState { get => Read().enabled == 1; set => Update(l => { l.enabled = value ? 1u : 0u; return l; }); }
     public LightType type { get => (LightType)Read().kind; set => Update(l => { l.kind = (uint)value; return l; }); }
     public Color color
     {

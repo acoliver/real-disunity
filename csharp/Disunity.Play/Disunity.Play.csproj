@@ -12,6 +12,9 @@
     <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Disunity.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Disunity/Disunity.Engine.csproj" />
   </ItemGroup>
 </Project>

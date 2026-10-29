@@ -234,6 +234,8 @@ SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();
 
 EnabledTests.Run();
+PlayerServiceTests.Run();
+PlayerCommandLineTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();

@@ -15,7 +15,7 @@ public partial class Animator : Behaviour
 {
     public Animator() { }
 
-    public override bool enabled { get; set; } = true;
+    private protected override bool EnabledState { get; set; } = true;
     public RuntimeAnimatorController? runtimeAnimatorController { get; set; }
     public Avatar? avatar { get; set; }
     public float speed { get; set; } = 1f;

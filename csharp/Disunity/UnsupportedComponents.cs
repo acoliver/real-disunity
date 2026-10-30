@@ -12,6 +12,8 @@ internal static class UnsupportedComponents
     {
         if (component is Collider or Rigidbody or ArticulationBody)
             throw new NotSupportedException($"3D physics components are not supported yet: {component.GetType().Name}");
+        if (component is LightProbeProxyVolume)
+            throw new NotSupportedException("LightProbeProxyVolume components are not supported yet: the engine has no probe lighting");
         if (component is Animator)
             throw new NotSupportedException("Animator components are not supported yet");
         if (component is AudioSource)

@@ -2,8 +2,8 @@ namespace UnityEngine.Rendering;
 
 /// <summary>
 /// Two registries. The global settings assets are kept per render pipeline type, as a host or a player's
-/// loading registers them. The graphics settings groups (<see cref="IRenderPipelineGraphicsSettings"/>) are
-/// added by the loader from the player's global settings asset. With nothing registered, TryGet returns false
+/// loading registers them. The graphics settings groups (<see cref="IRenderPipelineGraphicsSettings"/>) are those
+/// the host registered, then those in the current pipeline's global settings asset. With nothing registered, TryGet returns false
 /// and GetRenderPipelineSettings returns null, so scripts that test for a group before using it keep working;
 /// Unity's page does not say whether the unregistered case throws, and a null return is the safe reading.
 /// </summary>
@@ -28,6 +28,8 @@ public sealed partial class GraphicsSettings
     public static bool TryGetRenderPipelineSettings<T>(out T? settings) where T : class, IRenderPipelineGraphicsSettings
     {
         lock (Gate) settings = SettingsGroups.OfType<T>().FirstOrDefault();
+        if (settings is null && TryGetCurrentRenderPipelineGlobalSettings(out var global))
+            settings = global!.GraphicsSettingsGroups().OfType<T>().FirstOrDefault();
         return settings is not null;
     }
 
@@ -68,10 +70,24 @@ public sealed partial class GraphicsSettings
         else RegisterRenderPipelineSettings(renderPipelineType, newSettings);
     }
 
-    public static bool TrySetCurrentRenderPipelineGlobalSettings(RenderPipelineGlobalSettings asset) => throw CurrentPipelineType(nameof(TrySetCurrentRenderPipelineGlobalSettings));
+    /// <summary>The global settings asset of the current render pipeline, or null when there is no current
+    /// pipeline, its asset names no pipeline type, or no asset is registered for that type.</summary>
+    public static RenderPipelineGlobalSettings? currentRenderPipelineGlobalSettings =>
+        TryGetCurrentRenderPipelineGlobalSettings(out var asset) ? asset : null;
 
-    public static bool TryGetCurrentRenderPipelineGlobalSettings(out RenderPipelineGlobalSettings? asset) => throw CurrentPipelineType(nameof(TryGetCurrentRenderPipelineGlobalSettings));
+    /// <summary>Registers the asset for the current pipeline's type, replacing the earlier one. False when there
+    /// is no current pipeline or its asset names no pipeline type.</summary>
+    public static bool TrySetCurrentRenderPipelineGlobalSettings(RenderPipelineGlobalSettings asset)
+    {
+        ArgumentNullException.ThrowIfNull(asset);
+        if (currentRenderPipeline?.PipelineType is not { } type) return false;
+        RegisterRenderPipelineSettings(type, asset);
+        return true;
+    }
 
-    private static NotSupportedException CurrentPipelineType(string member) =>
-        new($"GraphicsSettings.{member} is not supported yet: it needs the current asset's pipeline type, which comes with the slice that loads the player's render pipeline. Use the overloads that take the pipeline type.");
+    public static bool TryGetCurrentRenderPipelineGlobalSettings(out RenderPipelineGlobalSettings? asset)
+    {
+        asset = currentRenderPipeline?.PipelineType is { } type ? GetSettingsForRenderPipeline(type) : null;
+        return asset is not null;
+    }
 }

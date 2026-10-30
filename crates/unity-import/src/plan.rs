@@ -174,12 +174,12 @@ pub enum PlanComponent {
     },
     /// A mesh filter of a player scene. A Mesh asset cannot be planned yet, so it has no mesh.
     MeshFilter {},
-    /// A mesh renderer of a player scene. Its material slots are empty.
+    /// A mesh renderer of a player scene.
     MeshRenderer {
         #[serde(flatten)]
         renderer: crate::renderers::PlanRenderer,
     },
-    /// A skinned mesh renderer of a player scene. Its mesh and material slots are empty.
+    /// A skinned mesh renderer of a player scene. It has no mesh.
     SkinnedMeshRenderer {
         #[serde(flatten)]
         renderer: crate::renderers::PlanRenderer,
@@ -229,6 +229,12 @@ pub enum PlanAsset {
         render_queue: i32,
         pass_count: usize,
         subshader_count: usize,
+    },
+    /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. Its
+    /// texture slots are empty: scene plans hold no textures.
+    Material {
+        #[serde(flatten)]
+        material: crate::player_materials::PlanMaterial,
     },
 }
 

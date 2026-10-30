@@ -14,6 +14,7 @@ pub mod player_files;
 mod player_graphics;
 mod player_hierarchy;
 pub mod player_identity;
+mod player_materials;
 pub mod player_objects;
 pub mod player_pipeline;
 pub mod player_plan;

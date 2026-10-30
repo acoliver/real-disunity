@@ -93,6 +93,8 @@ mod smaa_tests;
 mod taa;
 mod taa_gpu;
 #[cfg(test)]
+mod taa_gpu_test_support;
+#[cfg(test)]
 mod taa_gpu_tests;
 #[cfg(test)]
 mod taa_history_reference;

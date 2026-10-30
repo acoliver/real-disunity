@@ -24,7 +24,7 @@
 //!   weights. 1D weights have degree 3, coefficients up to 2.5, so at most `6u * 5 = 3e-7`
 //!   error each, 2D at most 1e-6, giving `(gamma_16 * 1.5625 + 16 * 1e-6) * max|history|`
 //!   (the absolute 1D weights sum to at most 1.25), below 3.5e-5 * max|history|. The
-//!   blend then compresses, clips in YCoCg and decompresses: about 100 f32 operations with the
+//!   blend then compresses, clips in `YCoCg` and decompresses: about 100 f32 operations with the
 //!   final `1 / (1 - luma)` at most 5 for the test colors (compressed luma below 0.8), so 512u
 //!   relative to the largest magnitude involved, and an absolute floor of 64u.
 //!
@@ -34,7 +34,7 @@
 use wgpu::util::DeviceExt;
 
 use crate::cas_reference::Image;
-use crate::taa_gpu_tests::{
+use crate::taa_gpu_test_support::{
     SHADER, f16_bits, f16_to_f32, noisy, passthrough_pipeline, read, sampled, view, write_texture,
 };
 use crate::taa_upscale_gpu::{self, Inputs};
@@ -63,10 +63,10 @@ struct Case {
     weight: f32,
 }
 impl Case {
-    fn new(color: Image, history: Image) -> Self {
+    fn new(color: &Image, history: &Image) -> Self {
         Self {
-            color: quantise(&color),
-            history: quantise(&history),
+            color: quantise(color),
+            history: quantise(history),
             jitter: [0.3125, -0.4375],
             motion: [0.0; 2],
             valid: true,
@@ -271,7 +271,7 @@ fn bound(case: &Case, at: [i32; 2], expected: [f64; 4]) -> [f64; 4] {
     let hpos = 4.0 * U * f64::from(case.history.size[0].max(case.history.size[1]) + 1);
     std::array::from_fn(|k| {
         let abs_sum: f64 = taps.iter().map(|(w, c)| (w * c[k]).abs()).sum();
-        let deviation: f64 = taps.iter().map(|(w, c)| (c[k] - spatial[k]).abs()).sum();
+        let deviation: f64 = taps.iter().map(|(_, c)| (c[k] - spatial[k]).abs()).sum();
         let (lo, hi) = taps.iter().fold((f64::MAX, f64::MIN), |(lo, hi), (_, c)| {
             (lo.min(c[k]), hi.max(c[k]))
         });
@@ -327,19 +327,19 @@ const O: [i32; 2] = [20, 11];
 
 #[test]
 fn a_constant_field_is_reproduced_at_the_output_extent() {
-    let mut case = Case::new(flat(R, 0.5), flat(O, 0.25));
+    let mut case = Case::new(&flat(R, 0.5), &flat(O, 0.25));
     case.weight = 0.0;
     let out = assert_matches_reference(&case, "constant");
     assert_eq!(out.len(), 220);
     for pixel in out {
-        assert!((pixel[0] - 0.5).abs() <= HALF_REL * 0.5 + 1e-6 && pixel[3] == 0.5);
+        assert!((pixel[0] - 0.5).abs() <= HALF_REL * 0.5 + 1e-6 && (pixel[3] - 0.5).abs() <= 1e-6);
     }
 }
 
 #[test]
 fn a_ramp_matches_the_reference_including_the_lanczos_shift() {
     for jitter in [[0.3125, -0.4375], [-0.1875, 0.0625], [0.0, 0.0]] {
-        let mut case = Case::new(ramp(R), flat(O, 0.25));
+        let mut case = Case::new(&ramp(R), &flat(O, 0.25));
         case.weight = 0.0;
         case.jitter = jitter;
         assert_matches_reference(&case, &format!("ramp {jitter:?}"));
@@ -348,7 +348,7 @@ fn a_ramp_matches_the_reference_including_the_lanczos_shift() {
 
 #[test]
 fn the_jitter_sign_moves_the_sample_toward_later_texels() {
-    let mut case = Case::new(ramp(R), flat(O, 0.25));
+    let mut case = Case::new(&ramp(R), &flat(O, 0.25));
     case.weight = 0.0;
     case.jitter = [0.0, 0.0];
     let base = run(&case);
@@ -365,7 +365,7 @@ fn the_jitter_sign_moves_the_sample_toward_later_texels() {
 
 #[test]
 fn history_weight_zero_and_invalid_history_both_equal_the_spatial_reconstruction() {
-    let mut zero = Case::new(noisy(R, 0), noisy(O, 9));
+    let mut zero = Case::new(&noisy(R, 0), &noisy(O, 9));
     zero.weight = 0.0;
     let spatial = assert_matches_reference(&zero, "weight 0");
     let mut invalid = zero.clone();
@@ -379,14 +379,14 @@ fn history_weight_zero_and_invalid_history_both_equal_the_spatial_reconstruction
 
 #[test]
 fn odd_extents_with_valid_history_match_the_reference() {
-    let case = Case::new(noisy(R, 0), noisy(O, 9));
+    let case = Case::new(&noisy(R, 0), &noisy(O, 9));
     assert_matches_reference(&case, "13x7 to 20x11 with history");
 }
 
 #[test]
 fn motion_moves_the_history_lookup_and_fast_motion_or_leaving_the_image_drops_it() {
-    let mut case = Case::new(noisy(R, 0), ramp(O));
-    case.motion = [0.015625, -0.0078125];
+    let mut case = Case::new(&noisy(R, 0), &ramp(O));
+    case.motion = [0.015_625, -0.007_812_5];
     assert_matches_reference(&case, "small motion");
     let mut spatial = case.clone();
     spatial.weight = 0.0;

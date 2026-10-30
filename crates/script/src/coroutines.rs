@@ -5,53 +5,81 @@
 //! to it; when the coroutine yields or ends, the hook returns to the code that resumed it. The
 //! scheduler does this for its threads, and `coroutine.resume` and `coroutine.wrap` are replaced
 //! with versions that do it for the coroutines scripts create. All of them count into the same
-//! budget, which each entry from the engine resets.
+//! budget, which each entry from the engine resets. A resume of a scheduler thread can run under
+//! its own limits instead, see [`Budget::resume_scheduled`].
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use mlua::{ChunkMode, Function, HookTriggers, Lua, MultiValue, Table, Thread, Value, VmState};
 
+use crate::config::ResumeBudget;
 use crate::error::ScriptError;
+use crate::overrun::{Active, Limits};
 
 /// The budget hook and the stack of coroutines it has been moved to.
 #[derive(Clone)]
 pub(crate) struct Budget {
-    budget: u32,
+    entry: Limits,
+    resume: Option<Limits>,
     counter: Arc<AtomicU64>,
+    active: Arc<Mutex<Active>>,
     /// The resumed coroutines, innermost last; empty while the main state runs.
     stack: Arc<Mutex<Vec<Thread>>>,
 }
 
 impl Budget {
-    pub(crate) fn new(budget: u32, counter: Arc<AtomicU64>) -> Self {
+    pub(crate) fn new(budget: u32, resume: Option<&ResumeBudget>, counter: Arc<AtomicU64>) -> Self {
+        let entry = Limits::entry(budget);
         Self {
-            budget,
+            entry,
+            resume: resume.map(Limits::resume),
             counter,
+            active: Arc::new(Mutex::new(Active::new(entry))),
             stack: Arc::default(),
         }
     }
 
-    fn triggers() -> HookTriggers {
-        HookTriggers::new().every_nth_instruction(1024)
+    fn active(&self) -> MutexGuard<'_, Active> {
+        self.active.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn triggers(&self) -> HookTriggers {
+        HookTriggers::new().every_nth_instruction(self.active().step())
     }
 
     fn hook(&self) -> impl Fn(&Lua, mlua::Debug) -> mlua::Result<VmState> + Send + 'static {
-        let (budget, counter) = (self.budget, Arc::clone(&self.counter));
-        move |_, _| {
-            let spent = counter.fetch_add(1024, Ordering::Relaxed) + 1024;
-            if spent > u64::from(budget) {
-                return Err(mlua::Error::RuntimeError(format!(
-                    "instruction budget of {budget} exceeded"
-                )));
-            }
-            Ok(VmState::Continue)
+        let (counter, active) = (Arc::clone(&self.counter), Arc::clone(&self.active));
+        move |lua, debug| {
+            let mut active = active.lock().unwrap_or_else(PoisonError::into_inner);
+            let step = u64::from(active.step());
+            let spent = counter.fetch_add(step, Ordering::Relaxed) + step;
+            active.check(lua, &debug, spent)
         }
     }
 
     /// Hooks the main state; called once, and again whenever the hook returns to it.
     pub(crate) fn hook_main(&self, lua: &Lua) {
-        lua.set_hook(Self::triggers(), self.hook());
+        lua.set_hook(self.triggers(), self.hook());
+    }
+
+    /// Resumes a scheduler thread under the resume budget, if the configuration has one. The
+    /// report is set when the thread ran past the budget and was suspended by the hook; the
+    /// thread has to be ended then.
+    pub(crate) fn resume_scheduled(
+        &self,
+        lua: &Lua,
+        thread: &Thread,
+        args: MultiValue,
+    ) -> (mlua::Result<MultiValue>, Option<String>) {
+        let Some(limits) = self.resume else {
+            return (self.resume(lua, thread, args), None);
+        };
+        self.active().begin(limits);
+        let result = self.resume(lua, thread, args);
+        let report = self.active().finish(self.entry);
+        self.hook_main(lua);
+        (result, report)
     }
 
     /// Resumes `thread` with the hook on it, then hands the hook back to the resumer.
@@ -62,7 +90,7 @@ impl Budget {
         args: MultiValue,
     ) -> mlua::Result<MultiValue> {
         self.stack.lock().expect("hook stack").push(thread.clone());
-        thread.set_hook(Self::triggers(), self.hook());
+        thread.set_hook(self.triggers(), self.hook());
         let result = thread.resume::<MultiValue>(args);
         let outer = {
             let mut stack = self.stack.lock().expect("hook stack");
@@ -70,7 +98,7 @@ impl Budget {
             stack.last().cloned()
         };
         match outer {
-            Some(outer) => outer.set_hook(Self::triggers(), self.hook()),
+            Some(outer) => outer.set_hook(self.triggers(), self.hook()),
             None => self.hook_main(lua),
         }
         result

@@ -125,12 +125,22 @@ impl GameScripts {
             .expect("scheduler")
             .begin_run(&waiting);
         self.instructions().store(0, Ordering::Relaxed);
-        let result = args.and_then(|args| self.budget().resume(self.lua(), &thread, args));
+        let (result, overrun) = match args {
+            Ok(args) => self.budget().resume_scheduled(self.lua(), &thread, args),
+            Err(error) => (Err(error), None),
+        };
         let mut scheduler = self.scheduler().lock().expect("scheduler");
         scheduler.end_run();
         let killed = scheduler.killed_running;
-        if result.is_err() || thread.status() != ThreadStatus::Resumable || killed {
+        let ended = result.is_err()
+            || overrun.is_some()
+            || thread.status() != ThreadStatus::Resumable
+            || killed;
+        if ended {
             scheduler.origins.remove(&id(&thread));
+        }
+        if let Some(message) = overrun {
+            return Ok(Some(ThreadFailure { message }));
         }
         let yielded = match result {
             Err(error) => {

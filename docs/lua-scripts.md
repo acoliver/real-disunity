@@ -108,6 +108,15 @@ scripts.restore(&snapshot, &["Classes"])?;
 - `LuaSnapshot` implements serde, so the game chooses the encoding. Snapshots of the same state are identical: string, number and boolean keys are written in sorted order. Only tables used as keys keep Lua's iteration order.
 - `restore` assigns each root to its global path; the parent of a dotted path must already exist.
 
+## Restoring a heap saved by another engine
+
+A host that reads the saved Lua heap of an original engine decodes it into `lua_resume::import` types (re-exported as `worldrunner_script::lua_resume`) and imports it to one `Snapshot`. `GameScripts` restores that snapshot against the chunks its scripts loaded. These methods are for the host and scripts cannot reach them:
+
+- `permanents(&PermanentSpec)` names what a save may refer to: the standard library, the natives (`native <path>`), every function and table reachable by string keys from `PermanentSpec::paths` (`permanent <path>`), and the host-supplied `extra` name to value entries, such as the labels an original game gathers from its own Lua. An extra name for a value that is already named becomes a second name, and a name used twice is an error.
+- `check_imported(&Snapshot, &Permanents)` lists every refusal without restoring anything.
+- `restore_imported(&Snapshot, &Permanents)` returns the roots by name and the restored threads as suspended coroutines for the host to adopt into a scheduler. A restored thread runs the scripts loaded now.
+- `lua()`, `debug()` and `restore_sources()` give the host the Lua state, the private debug capability and the loaded chunks. Using `lua()` to set globals or call functions bypasses the instruction budget and the sandbox.
+
 ## Patching a game's original scripts
 
 The existing Lua API supports load-time patches, for example for security fixes or Lua 5.4 updates, without rewriting source files. This describes tool functionality. The [contribution policy](../CONTRIBUTING.md#start-with-a-fork-and-a-scoped-change) requires unchanged original scripts, assets and behavior apart from API binding and harness configuration; it does not authorize per-game overlays for compatibility contributions. Source inspection and redistribution still require the particular game's permissions.

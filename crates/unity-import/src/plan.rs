@@ -168,6 +168,10 @@ pub enum PlanComponent {
         #[serde(flatten)]
         input: CanvasGroupInput,
     },
+    /// A canvas renderer of a player scene.
+    CanvasRenderer {
+        cull_transparent_mesh: bool,
+    },
     /// A 3D light of a player scene.
     Light {
         enabled: bool,

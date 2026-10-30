@@ -1,6 +1,6 @@
 {
   "abi_version": 7,
-  "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does.",
+  "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, and a native CanvasRenderer component with its own record and material calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -175,6 +175,36 @@
     {
       "name": "disunity_canvas_pixel_perfect_write",
       "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_create",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_inherited_alpha",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_material_read",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_material_write",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_read",
+      "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_write",
+      "since": "6.0.0",
       "rets": "DisunityResult"
     },
     {

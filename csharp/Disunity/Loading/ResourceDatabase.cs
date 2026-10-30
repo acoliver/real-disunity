@@ -24,6 +24,7 @@ internal sealed partial class ResourceDatabase
     private readonly record struct Entry(string Path, string Class, int? Asset);
 
     private readonly List<Entry> _entries = new();
+    private readonly List<string> _differences = new();
     private readonly List<JsonElement> _assets = new();
     private readonly string _directory;
     // The plan's graphics section, absent from plans of projects without player settings.
@@ -46,6 +47,16 @@ internal sealed partial class ResourceDatabase
         }
         foreach (var asset in plan.RootElement.GetProperty("assets").EnumerateArray()) _assets.Add(asset.Clone());
         if (plan.RootElement.TryGetProperty("graphics", out var graphics)) _graphics = graphics.Clone();
+    }
+
+    /// <summary>What the engine left out of the resources it built, one line each. Each is also logged as a
+    /// warning when it is recorded, so a player run reports it.</summary>
+    public IReadOnlyList<string> Differences => _differences;
+
+    private void Difference(string line)
+    {
+        _differences.Add(line);
+        Debug.LogWarning($"not reproduced: {line}");
     }
 
     /// <summary>Forgets the built assets, which belong to the world being unloaded.</summary>
@@ -105,6 +116,7 @@ internal sealed partial class ResourceDatabase
         "SpriteAtlas" => typeof(UnityEngine.U2D.SpriteAtlas),
         "Script" => ScriptType(asset),
         "Prefab" or "UnplannedPrefab" => typeof(GameObject),
+        "Shader" or "UnplannedShader" => typeof(Shader),
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
 
@@ -159,6 +171,8 @@ internal sealed partial class ResourceDatabase
             "SpriteAtlas" => _built[index] = Atlas(asset),
             "Prefab" => _built[index] = Prefab(index, asset),
             "UnplannedPrefab" => throw new InvalidOperationException($"Resources: prefab {asset.Str("name")} did not plan: {asset.Str("error")}"),
+            "Shader" => _built[index] = PlayerShaders.Build(asset, Difference),
+            "UnplannedShader" => throw new InvalidOperationException($"Resources: {asset.Str("error")}"),
             _ => Script(index, asset),
         };
     }

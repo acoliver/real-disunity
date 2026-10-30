@@ -102,6 +102,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             {
                 "PhysicsMaterial2D" => Material(asset),
                 "Script" => Asset(asset),
+                "Shader" => PlayerShaders.Build(asset, differences.Add),
                 var other => throw new SceneLoadException($"asset type {other} is not supported"),
             });
     }

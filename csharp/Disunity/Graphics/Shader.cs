@@ -31,6 +31,11 @@ public sealed partial class Shader : Object
         return this;
     }
 
+    /// <summary>Whether a declaration can stand beside what is declared: true when nothing is declared yet, or the queue
+    /// matches and each count that is known matches.</summary>
+    internal bool Agrees(int renderQueue, int passCount, int subshaderCount) =>
+        _renderQueue is null || (_renderQueue == renderQueue && (_passCount ?? passCount) == passCount && (_subshaderCount ?? subshaderCount) == subshaderCount);
+
     private int Declared(int? value, string member) =>
         value ?? throw new NotSupportedException($"Shader.{member} is not supported yet: the engine has no declaration for shader '{name}'");
 

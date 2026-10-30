@@ -31,6 +31,7 @@ fn gpu_native_rcas_follows_resolve_and_cas() {
         .unwrap();
         paint(&device, &queue, chain.targets().texture(), 1);
         let image = capture(&device, &queue, &chain);
+        assert_edge(&image);
         assert!(image.chunks_exact(4).all(|pixel| pixel[3] == 191));
         let schedule = chain
             .factory()
@@ -87,6 +88,7 @@ fn gpu_native_rcas_setting_does_not_change_upscaled_bytes() {
             ["tone", "easu", "rcas"]
         );
     }
+    assert_edge(&results[0]);
     assert_eq!(results[0], results[1]);
 }
 
@@ -260,6 +262,10 @@ fn srgb(v: f64) -> f64 {
 #[test]
 fn gpu_native_rcas_domains_match_independent_reference() {
     let (device, queue) = crate::gpu_tests::gpu();
+    let baseline = chain(&device, None);
+    paint(&device, &queue, baseline.targets().texture(), 1);
+    let baseline = capture(&device, &queue, &baseline);
+    assert_edge(&baseline);
     let mut results = Vec::new();
     for domain in [RcasDomain::DisplayLinear, RcasDomain::EncodedOutput] {
         let chain = chain(
@@ -281,6 +287,8 @@ fn gpu_native_rcas_domains_match_independent_reference() {
         }
         expected = expected.sharpen(0.75);
         let actual = capture(&device, &queue, &chain);
+        assert!(actual[9 * 4] < baseline[9 * 4]);
+        assert!(actual[10 * 4] > baseline[10 * 4]);
         for (a, e) in actual.chunks_exact(4).zip(expected.pixels) {
             for c in 0..4 {
                 let value = if c == 3 || domain == RcasDomain::EncodedOutput {
@@ -326,9 +334,18 @@ fn gpu_native_rcas_default_is_byte_identical() {
     for chain in [&candidate, &control] {
         paint(&device, &queue, chain.targets().texture(), 1);
     }
-    assert_eq!(
-        capture(&device, &queue, &candidate),
-        capture(&device, &queue, &control)
-    );
+    let actual = capture(&device, &queue, &candidate);
+    assert_edge(&actual);
+    assert_eq!(actual, capture(&device, &queue, &control));
     assert_eq!(HdrPostSettings::default().native_rcas, None);
+}
+
+fn assert_edge(image: &[u8]) {
+    assert_eq!(image.len(), 7 * 3 * 4);
+    for y in 0..3 {
+        let dark = image[(y * 7 + 2) * 4];
+        let light = image[(y * 7 + 3) * 4];
+        assert!(dark > 20 && light < 235);
+        assert!(i16::from(light) - i16::from(dark) > 40);
+    }
 }

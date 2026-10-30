@@ -1,10 +1,49 @@
+using Disunity.Native;
 using Disunity.Hosting;
 
 namespace UnityEngine;
 
 public sealed partial class Canvas
 {
+    private const float DefaultPlaneDistance = 100f;
+
     private Camera? _eventCamera;
+    private bool _cameraModePending;
+
+    /// <summary>
+    /// How the canvas is drawn. A canvas set to ScreenSpaceCamera with no camera yet draws as an overlay and
+    /// reports ScreenSpaceCamera; it renders through the camera as soon as <see cref="worldCamera"/> is set.
+    /// </summary>
+    public RenderMode renderMode
+    {
+        get
+        {
+            var mode = (RenderMode)Read().mode;
+            return _cameraModePending && mode == RenderMode.ScreenSpaceOverlay ? RenderMode.ScreenSpaceCamera : mode;
+        }
+        set
+        {
+            var c = Read();
+            var inCameraMode = c.mode == (uint)RenderMode.ScreenSpaceCamera;
+            _cameraModePending = false;
+            if (value == RenderMode.ScreenSpaceCamera && inCameraMode) return;
+            if (value == RenderMode.ScreenSpaceCamera) { EnterCameraMode(c); return; }
+            c.mode = (uint)value;
+            Write(c);
+        }
+    }
+
+    private void EnterCameraMode(DisunityCanvas c)
+    {
+        if (_eventCamera != null)
+        {
+            DisunityHost.RenderThroughCamera(this, _eventCamera, c.plane_distance > 0 ? c.plane_distance : DefaultPlaneDistance);
+            return;
+        }
+        c.mode = (uint)RenderMode.ScreenSpaceOverlay;
+        Write(c);
+        _cameraModePending = true;
+    }
 
     /// <summary>Sorts this canvas by its own layer and order instead of its parent's. Stored; sorting does not read it yet.</summary>
     public bool overrideSorting { get => Read().override_sorting == 1; set { var c = Read(); c.override_sorting = value ? 1u : 0u; Write(c); } }
@@ -54,6 +93,11 @@ public sealed partial class Canvas
                 return;
             }
             _eventCamera = value;
+            if (_cameraModePending && value != null)
+            {
+                _cameraModePending = false;
+                DisunityHost.RenderThroughCamera(this, value, c.plane_distance > 0 ? c.plane_distance : DefaultPlaneDistance);
+            }
         }
     }
 

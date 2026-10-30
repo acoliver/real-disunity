@@ -247,6 +247,7 @@ UiTests.Run();
 PoolTests.Run();
 RectTransformMemberTests.Run();
 CanvasMemberTests.Run();
+CanvasCameraModeTests.Run();
 SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();

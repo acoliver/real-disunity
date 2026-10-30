@@ -548,7 +548,7 @@ pub(crate) mod sdsm_tests;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Startup {
-    pub(crate) presentation_budget: crate::PresentationBudget,
+    pub(crate) presentation_budget: crate::PresentationBudgetPolicy,
     pub(crate) recipes: bool,
     frames_in_flight: usize,
     gpu_timing: bool,
@@ -572,7 +572,7 @@ impl From<&crate::ViewerOptions> for Startup {
 impl From<usize> for Startup {
     fn from(frames_in_flight: usize) -> Self {
         Self {
-            presentation_budget: crate::PresentationBudget::default(),
+            presentation_budget: crate::PresentationBudget::default().into(),
             recipes: false,
             frames_in_flight,
             gpu_timing: false,

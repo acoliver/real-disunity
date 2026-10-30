@@ -1,12 +1,23 @@
 #[cfg(test)]
+mod history_planning_tests;
+
+#[cfg(test)]
+mod recipe_planning_tests;
+
+#[cfg(test)]
+mod planning_tests;
+
+#[cfg(test)]
 mod budget_tests;
 
 #[cfg(test)]
 mod capture_budget_tests;
 
 use crate::ViewerError;
+pub(crate) mod planning;
 mod setup;
 
+#[cfg(test)]
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::FrameConfig;
 use worldrunner_render_scene::Viewport;
@@ -14,7 +25,7 @@ use worldrunner_render_scene::compositor::{ConfiguredFrameRenderer, RendererConf
 
 #[derive(Clone, Copy)]
 pub(crate) struct PresentationPolicy {
-    pub budget: crate::PresentationBudget,
+    pub budget: crate::PresentationBudgetPolicy,
     pub recipes: bool,
 }
 
@@ -25,16 +36,14 @@ impl PresentationPolicy {
         capture_size: Viewport,
         limits: &wgpu::Limits,
     ) -> Result<RendererConfiguration, ViewerError> {
-        settings.additional = capture_allocations(capture_size);
-        if self.recipes {
-            settings.additional.extend(recipe_allocations());
-        }
-        settings
+        settings.additional = planning::additional(capture_size, self.recipes);
+        let required = settings
             .allocations()
-            .validate_budget::<worldrunner_render_post::PostError>(
-                limits,
-                AllocationBudget(self.budget.0),
-            )?;
+            .validate(limits)
+            .map_err(worldrunner_render_gpu::configuration::ConfigurationError::Invalid)?;
+        self.budget
+            .allocation_policy()
+            .resolve::<worldrunner_render_post::PostError>(required)?;
         Ok(settings)
     }
 }
@@ -90,7 +99,7 @@ impl Presentation {
             profile,
             effects,
             PresentationPolicy {
-                budget: crate::PresentationBudget::default(),
+                budget: crate::PresentationBudget::default().into(),
                 recipes: true,
             },
         )
@@ -109,8 +118,11 @@ impl Presentation {
         let settings = policy.inventory(settings, capture_size, &context.device().limits())?;
         let recipe_capacity = policy.recipes;
         let native_rcas = settings.post.native_rcas;
-        let scheduler =
-            ConfiguredFrameRenderer::new(context, settings, AllocationBudget(policy.budget.0))?;
+        let scheduler = ConfiguredFrameRenderer::new_with_policy(
+            context,
+            settings,
+            policy.budget.allocation_policy(),
+        )?;
         let targets = Targets::new(context.device(), &scheduler, size);
         Ok(Self {
             scheduler,
@@ -165,10 +177,7 @@ impl Presentation {
                     .frame
                     .with_render_extent(scale.extent([size.width, size.height])?);
             }
-            settings.additional = capture_allocations(capture_size);
-            if self.recipe_capacity {
-                settings.additional.extend(recipe_allocations());
-            }
+            settings.additional = planning::additional(capture_size, self.recipe_capacity);
             self.scheduler.reconfigure(context, settings)?;
             self.targets = Targets::new(context.device(), &self.scheduler, size);
             self.capture_size = capture_size;

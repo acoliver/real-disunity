@@ -249,7 +249,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     run(
         scene(terrain),
         ViewerOptions {
-            presentation_budget: worldrunner_scene_viewer::PresentationBudget::default(),
+            presentation_budget: worldrunner_scene_viewer::PresentationBudget::default().into(),
+            window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
             camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
             frames_in_flight: 2,
             present_mode: PresentMode::Fifo,

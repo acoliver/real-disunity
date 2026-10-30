@@ -19,7 +19,7 @@ internal sealed record UnbuiltComponent(string Class, bool Script = false)
         if (field.Name == Class || field == typeof(UnityEngine.Object) || field == typeof(Component)) return true;
         // A script left off because its class cannot load has no readable hierarchy, so any field that holds
         // scripts may hold it (the engine's choice).
-        if (Script && typeof(Behaviour).IsAssignableFrom(field)) return true;
+        if (Script && (field == typeof(Behaviour) || typeof(MonoBehaviour).IsAssignableFrom(field))) return true;
         var known = Engine.GetOrAdd(Class, name => typeof(Component).Assembly.GetExportedTypes()
             .Where(t => t.Name == name && typeof(Component).IsAssignableFrom(t)).ToArray());
         return known.Any(field.IsAssignableFrom);

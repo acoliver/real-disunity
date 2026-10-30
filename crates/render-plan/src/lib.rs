@@ -58,6 +58,7 @@ pub use plan::{
     RenderContribution, RenderWorldPlan, build_discovered_render_world_plan,
     build_render_world_plan,
 };
+pub use scene::TextureAnisotropy;
 pub use scene::{
     BillboardPolicy, DEFAULT_TAA_CLIP_SCALE_MICRO, DIRECTION_MICRO_SCALE, DocumentSceneInput,
     EFFECTS_MICRO_SCALE, MATERIAL_MICRO_SCALE, MAXIMUM_TAA_CLIP_SCALE_MICRO,

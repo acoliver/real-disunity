@@ -32,6 +32,20 @@ Vulkan run on Linux, pass the driver selection explicitly to Cargo, for example:
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
+
+## Material sampling
+
+Resident mesh and impostor materials share one sampler across all channels.
+`SceneMaterial::with_anisotropy` selects 1, 2, 4, 8 or 16, defaulting to 1;
+all levels use linear texel/mip filtering and repeat wrapping. Texture-level
+filter/wrap settings affect dynamic quads and sprites only, whose anisotropic
+sampling is outside this implementation's scope. Samplers are cached by material
+anisotropy, independently of texture handles. wgpu clamps the effective level to
+the adapter's supported capability. Terrain anisotropy is not implemented for
+sources or cached pages and is tracked by
+[#347](https://github.com/acoliver/real-disunity/issues/347). See the
+[sampling contract](../../dev-docs/rendering/2d.md#texture-sampling).
+
 ## Masked alpha-to-coverage
 
 `SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA

@@ -311,6 +311,7 @@ PlayerCameraPlanTests.Run();
 LightTests.Run();
 DrivenTrackerTests.Run();
 CanvasGroupTests.Run();
+BehaviourTypeTests.Run();
 CanvasRendererTests.Run();
 CanvasRendererStreamTests.Run();
 CommandBufferAttachmentTests.Run();

@@ -145,7 +145,7 @@ pub use resource::{
     MATERIAL_MICRO_SCALE, MaterialHandle, SceneAlphaMode, SceneMaterial, SceneMaterialParts,
     SceneResources, SceneTexture, TexelFormat, TextureColorSpace, TextureEncoding, TextureHandle,
 };
-pub use sampler::{TextureFilter, TextureSampler, TextureWrap};
+pub use sampler::{TextureAnisotropy, TextureFilter, TextureSampler, TextureWrap};
 pub use terrain::{
     SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, TerrainLodPolicy,
 };

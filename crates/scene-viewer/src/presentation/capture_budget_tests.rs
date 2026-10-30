@@ -20,7 +20,7 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
         },
         None,
         PresentationPolicy {
-            budget: crate::PresentationBudget::default(),
+            budget: crate::PresentationBudget::default().into(),
             recipes: false,
         },
     )
@@ -110,7 +110,7 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
         crate::FrameProfile::Legacy,
         None,
         PresentationPolicy {
-            budget: crate::PresentationBudget::default(),
+            budget: crate::PresentationBudget::default().into(),
             recipes: false,
         },
     )

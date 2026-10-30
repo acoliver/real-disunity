@@ -6,7 +6,7 @@ namespace UnityEngine.Tilemaps;
 /// <summary>A native tilemap. Hosts set its layout, palette and cells with
 /// <see cref="DisunityHost.ConfigureTilemap"/>, <see cref="DisunityHost.SetTile"/> and
 /// <see cref="DisunityHost.SetCells"/>.</summary>
-public sealed class Tilemap : NativeComponent
+public sealed class Tilemap : Behaviour
 {
     internal unsafe DisunityTilemap Read()
     {
@@ -16,7 +16,7 @@ public sealed class Tilemap : NativeComponent
     }
     internal unsafe void Write(DisunityTilemap value) =>
         DisunityHost.ThrowIfError(NativeBindings.disunity_tilemap_write(DisunityHost.WorldHandle, Handle, &value));
-    public bool enabled { get => Read().enabled == 1; set { var v = Read(); v.enabled = value ? 1u : 0u; Write(v); } }
+    private protected override bool EnabledState { get => Read().enabled == 1; set { var v = Read(); v.enabled = value ? 1u : 0u; Write(v); } }
     public Color color
     {
         get { var v = Read(); return new Color(v.r, v.g, v.b, v.a); }

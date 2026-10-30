@@ -11,7 +11,7 @@ public static partial class DisunityHost
     {
         UnsupportedComponents.Reject(value);
         if (value is MonoBehaviour script && !NativeBehaviourState.IsNative(value)) return (T)(Component)Attach(owner, script);
-        if (value is not NativeComponent && value is not Light && value is not CanvasGroup && value is not RectTransform && !NativeBehaviourState.IsNative(value)) throw new NotSupportedException($"component {typeof(T)}");
+        if (value is not (NativeComponent or Light or CanvasGroup or RectTransform or Camera or Canvas or Collider2D or UnityEngine.Tilemaps.Tilemap) && !NativeBehaviourState.IsNative(value)) throw new NotSupportedException($"component {typeof(T)}");
         ulong handle;
         if (NativeBehaviourState.IsNative(value))
         {

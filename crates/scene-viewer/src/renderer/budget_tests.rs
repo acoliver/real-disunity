@@ -6,7 +6,7 @@ fn host(budget: u64) -> crate::RetainedHost {
         crate::tests::scene(false),
         crate::ViewerOptions {
             size: [8, 8],
-            presentation_budget: crate::PresentationBudget(budget),
+            presentation_budget: crate::PresentationBudget(budget).into(),
             ..crate::tests::options()
         },
     )

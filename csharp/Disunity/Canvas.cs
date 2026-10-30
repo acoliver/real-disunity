@@ -45,7 +45,6 @@ public sealed partial class Canvas : Behaviour
             DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_scale_write(DisunityHost.WorldHandle, Handle, &scale));
         }
     }
-    public float planeDistance { get => Read().plane_distance; set { var c = Read(); c.plane_distance = value; Write(c); } }
 }
 public sealed class Font
 {

@@ -49,6 +49,11 @@ internal static class CanvasCameraModeTests
         canvas.renderMode = RenderMode.ScreenSpaceCamera;
         Expect.That(ReferenceEquals(canvas.worldCamera, camera), "the stored camera now renders the canvas");
         Expect.Equal(RenderMode.ScreenSpaceCamera, canvas.renderMode, "camera mode");
+        var placed = NewCanvas();
+        placed.planeDistance = 40f;
+        placed.worldCamera = NewCamera();
+        placed.renderMode = RenderMode.ScreenSpaceCamera;
+        Expect.Near(40f, placed.planeDistance, "a canvas keeps its own plane distance when it enters camera mode");
     }
 
     private static void LeavingTheMode()
@@ -72,5 +77,10 @@ internal static class CanvasCameraModeTests
         canvas.renderMode = RenderMode.ScreenSpaceCamera;
         Expect.That(ReferenceEquals(canvas.worldCamera, camera), "setting the same mode keeps the camera");
         Expect.Near(25f, canvas.planeDistance, "and its plane distance");
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        Expect.Near(25f, canvas.planeDistance, "leaving camera mode keeps the plane distance");
+        canvas.planeDistance = 60f;
+        canvas.renderMode = RenderMode.ScreenSpaceCamera;
+        Expect.Near(60f, canvas.planeDistance, "a distance set outside camera mode is used when it returns");
     }
 }

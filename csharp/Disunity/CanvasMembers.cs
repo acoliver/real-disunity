@@ -10,6 +10,29 @@ public sealed partial class Canvas
     private Camera? _eventCamera;
     private bool _cameraModePending;
 
+    // The native record holds a plane distance only in ScreenSpaceCamera mode; in the other modes the canvas keeps it
+    // here and takes it into camera mode.
+    private float _planeDistance = DefaultPlaneDistance;
+
+    /// <summary>How far in front of its camera a ScreenSpaceCamera canvas is drawn. It can be set in any mode and is
+    /// used once the canvas renders through a camera; it starts at 100.</summary>
+    public float planeDistance
+    {
+        get
+        {
+            var c = Read();
+            return c.mode == (uint)RenderMode.ScreenSpaceCamera ? c.plane_distance : _planeDistance;
+        }
+        set
+        {
+            _planeDistance = value;
+            var c = Read();
+            if (c.mode != (uint)RenderMode.ScreenSpaceCamera) return;
+            c.plane_distance = value;
+            Write(c);
+        }
+    }
+
     /// <summary>
     /// How the canvas is drawn. A canvas set to ScreenSpaceCamera with no camera yet draws as an overlay and
     /// reports ScreenSpaceCamera; it renders through the camera as soon as <see cref="worldCamera"/> is set.
@@ -27,6 +50,7 @@ public sealed partial class Canvas
             var inCameraMode = c.mode == (uint)RenderMode.ScreenSpaceCamera;
             _cameraModePending = false;
             if (value == RenderMode.ScreenSpaceCamera && inCameraMode) return;
+            if (inCameraMode) _planeDistance = c.plane_distance;
             if (value == RenderMode.ScreenSpaceCamera) { EnterCameraMode(c); return; }
             c.mode = (uint)value;
             Write(c);
@@ -37,7 +61,7 @@ public sealed partial class Canvas
     {
         if (_eventCamera != null)
         {
-            DisunityHost.RenderThroughCamera(this, _eventCamera, c.plane_distance > 0 ? c.plane_distance : DefaultPlaneDistance);
+            DisunityHost.RenderThroughCamera(this, _eventCamera, _planeDistance);
             return;
         }
         c.mode = (uint)RenderMode.ScreenSpaceOverlay;
@@ -96,7 +120,7 @@ public sealed partial class Canvas
             if (_cameraModePending && value != null)
             {
                 _cameraModePending = false;
-                DisunityHost.RenderThroughCamera(this, value, c.plane_distance > 0 ? c.plane_distance : DefaultPlaneDistance);
+                DisunityHost.RenderThroughCamera(this, value, _planeDistance);
             }
         }
     }

@@ -40,6 +40,17 @@ fn render(
     (pixels(device, queue, &target), ids)
 }
 
+/// Filmic output code against the unquantised CPU reference, in output steps. The painted
+/// radiance is a dyadic half value, stored exactly. The shader evaluates
+/// `x (2.51 x + 0.03) / (x (2.43 x + 0.59) + 0.14)`: every coefficient is positive, so the
+/// relative error of numerator and denominator is a few operations of `2^-24` (under 6 each, 10
+/// with a contracted multiply-add), plus the division at 2.5 ulp. That is under 64 operations
+/// of a display value at most 1, which is the arithmetic term already inside `OUTPUT_STEPS`
+/// (nearest rounding 0.5, sRGB transfer 0.1, arithmetic 0.025). The clamp is exact.
+fn assert_filmic_code(code: u8, reference: f64, context: &str) {
+    crate::fxaa_tolerance_tests::assert_code_within(code, reference, 0.0, context);
+}
+
 #[test]
 fn filmic_post_resolve_hdr_ramp_transfer_alpha_and_feature_off_ids() {
     let (device, queue) = crate::gpu_tests::gpu();
@@ -69,9 +80,8 @@ fn filmic_post_resolve_hdr_ramp_transfer_alpha_and_feature_off_ids() {
         assert_eq!(post, fixed, "disabled FXAA must retain exact fixed output");
         for (i, pixel) in fixed.chunks_exact(4).enumerate() {
             let expected = encoded(ToneMap::Filmic.evaluate(values[i % 7], 1.0));
-            assert!((expected - (expected.floor() + 0.5)).abs() > 0.1);
             for &channel in &pixel[..3] {
-                assert!((f64::from(channel) - expected.round()).abs() < f64::EPSILON);
+                assert_filmic_code(channel, expected, "ramp");
             }
             assert_eq!(pixel[3], 64);
         }
@@ -210,10 +220,9 @@ fn filmic_uses_published_adaptive_exposure() {
         body,
     );
     let expected = encoded(ToneMap::Filmic.evaluate(1.0, 0.5));
-    assert!((expected - (expected.floor() + 0.5)).abs() > 0.1);
     for pixel in actual.chunks_exact(4) {
         for &channel in &pixel[..3] {
-            assert!((f64::from(channel) - expected.round()).abs() < f64::EPSILON);
+            assert_filmic_code(channel, expected, "adaptive exposure");
         }
         assert_eq!(pixel[3], 64);
     }

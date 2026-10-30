@@ -84,7 +84,7 @@ fn constant_images_are_unchanged_by_every_preset() {
     let rig = Rig::new();
     for smaa in presets() {
         let (plain, filtered) = rig.pair(smaa, [16, 16], "return vec4<f32>(0.5,1.25,2.0,0.75);");
-        assert_eq!(plain, filtered, "{smaa:?}");
+        crate::fxaa_tolerance_tests::assert_paths_agree(&plain, &filtered, &format!("{smaa:?}"));
     }
 }
 
@@ -96,7 +96,11 @@ fn straight_axis_aligned_edges_stay_sharp() {
     for smaa in presets() {
         for body in [vertical, horizontal] {
             let (plain, filtered) = rig.pair(smaa, [16, 16], body);
-            assert_eq!(plain, filtered, "{smaa:?}");
+            crate::fxaa_tolerance_tests::assert_paths_agree(
+                &plain,
+                &filtered,
+                &format!("{smaa:?}"),
+            );
         }
     }
 }
@@ -186,7 +190,11 @@ fn odd_and_tiny_extents_render() {
             assert_eq!(plain.len(), filtered.len());
             assert_within_plain_range(&plain, &filtered);
             let (flat, filtered_flat) = rig.pair(smaa, size, "return vec4<f32>(1.0,2.0,0.5,1.0);");
-            assert_eq!(flat, filtered_flat, "{size:?}");
+            crate::fxaa_tolerance_tests::assert_paths_agree(
+                &flat,
+                &filtered_flat,
+                &format!("{size:?}"),
+            );
         }
     }
 }

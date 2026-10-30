@@ -33,9 +33,9 @@ fn a_new_canvas_reports_the_default_settings() {
             record.override_sorting,
             record.target_display,
             record.additional_shader_channels,
-            record.reference_pixels_per_unit
+            record.reference_pixels_per_unit.to_bits()
         ),
-        (0, 0, 0, 0, 100.)
+        (0, 0, 0, 0, 100_f32.to_bits())
     );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
@@ -57,9 +57,9 @@ fn settings_round_trip_and_survive_other_canvas_writes() {
             stored.override_sorting,
             stored.target_display,
             stored.additional_shader_channels,
-            stored.reference_pixels_per_unit
+            stored.reference_pixels_per_unit.to_bits()
         ),
-        (-3, 1, 2, 0b10_101, 32.)
+        (-3, 1, 2, 0b10_101, 32_f32.to_bits())
     );
     let scale = DisunityCanvasScale {
         factor: 2.,
@@ -104,8 +104,11 @@ fn unusable_settings_are_rejected_and_leave_the_canvas_unchanged() {
     }
     let after = read(world, canvas);
     assert_eq!(
-        (after.override_sorting, after.reference_pixels_per_unit),
-        (0, 100.)
+        (
+            after.override_sorting,
+            after.reference_pixels_per_unit.to_bits()
+        ),
+        (0, 100_f32.to_bits())
     );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

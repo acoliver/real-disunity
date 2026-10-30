@@ -125,8 +125,8 @@ pub struct Canvas {
     pub override_sorting: bool,
     /// Unity's `Canvas.targetDisplay`, stored and not used: the engine has one display.
     pub target_display: u32,
-    /// Unity's `AdditionalCanvasShaderChannels` flags (TexCoord1 = 1, TexCoord2 = 2,
-    /// TexCoord3 = 4, Normal = 8, Tangent = 16), stored and not used.
+    /// The flags of Unity's `AdditionalCanvasShaderChannels` (`TexCoord1` = 1, `TexCoord2` = 2,
+    /// `TexCoord3` = 4, `Normal` = 8, `Tangent` = 16), stored and not used.
     pub additional_shader_channels: u32,
     /// Unity's `Canvas.referencePixelsPerUnit`, stored and not used by layout.
     pub reference_pixels_per_unit: f32,

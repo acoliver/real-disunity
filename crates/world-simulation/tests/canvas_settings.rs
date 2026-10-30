@@ -24,7 +24,10 @@ fn a_new_canvas_does_not_override_sorting_and_has_100_reference_pixels() {
     assert!(!canvas.override_sorting);
     assert_eq!(canvas.target_display, 0);
     assert_eq!(canvas.additional_shader_channels, 0);
-    assert_eq!(canvas.reference_pixels_per_unit, 100.);
+    assert_eq!(
+        canvas.reference_pixels_per_unit.to_bits(),
+        100_f32.to_bits()
+    );
 }
 
 #[test]

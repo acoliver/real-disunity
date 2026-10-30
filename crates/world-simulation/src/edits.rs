@@ -25,7 +25,7 @@ pub(crate) struct Staging {
 }
 
 enum Undo {
-    Replaced(ComponentHandle, ComponentDesc),
+    Replaced(ComponentHandle, Box<ComponentDesc>),
     Added(ComponentHandle),
 }
 
@@ -79,7 +79,7 @@ impl World {
             match undo {
                 Undo::Replaced(handle, desc) => {
                     if let Some(slot) = self.components.get_mut(handle.0) {
-                        slot.desc = desc;
+                        slot.desc = *desc;
                     }
                 }
                 Undo::Added(handle) => self.unwind_added_component(handle),
@@ -120,7 +120,9 @@ impl World {
             });
         }
         if let Some(staging) = &mut self.staging {
-            staging.undo.push(Undo::Replaced(handle, previous));
+            staging
+                .undo
+                .push(Undo::Replaced(handle, Box::new(previous)));
         }
     }
 

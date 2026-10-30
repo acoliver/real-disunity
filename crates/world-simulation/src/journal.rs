@@ -156,9 +156,8 @@ fn merge(old: Option<ComponentChange>, new: ComponentChange) -> Option<Component
         (None, new) => Some(new),
         (Some(Added), Removed) => None,
         (Some(Added), _) => Some(Added),
-        (Some(Changed), Removed) => Some(Removed),
         (Some(Changed | Removed), Added) | (Some(Changed), Changed) => Some(Changed),
-        (Some(Removed), _) => Some(Removed),
+        (Some(Changed | Removed), _) => Some(Removed),
     }
 }
 

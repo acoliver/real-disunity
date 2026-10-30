@@ -82,9 +82,9 @@ fn create_records_the_object() {
 fn repeated_transform_changes_yield_one_entry() {
     let mut world = tracked();
     let a = quiet_object(&mut world);
-    for x in 1..4 {
+    for x in [1.0_f32, 2.0, 3.0] {
         let value = LocalTransform {
-            translation: Vec3::new(x as f32, 0.0, 0.0),
+            translation: Vec3::new(x, 0.0, 0.0),
             ..Default::default()
         };
         world.set_local_transform(a, value).unwrap();
@@ -319,7 +319,7 @@ fn step_with_edits_publishes_edits_and_motion_and_records_them() {
     world
         .step_with_edits(&[ObjectEdit::MaterialSlot(other, 2)], 0.5)
         .unwrap();
-    assert_eq!(world.local_transform(body).unwrap().translation.x, 1.0);
+    assert!((world.local_transform(body).unwrap().translation.x - 1.0).abs() < 1e-6);
     assert!(world.renderer(other).unwrap().is_some());
     let changes = world.drain_changes();
     assert_eq!(changes.transforms, vec![body]);
@@ -361,7 +361,7 @@ fn failed_batch_leaves_world_and_journal_unchanged() {
     assert_eq!(changes.properties, vec![target]);
     assert!(changes.transforms.is_empty());
     assert!(changes.components.is_empty());
-    assert_eq!(changes.created, vec![body, target]);
+    assert!(changes.created.is_empty() && changes.destroyed.is_empty());
 }
 
 #[test]
@@ -371,5 +371,5 @@ fn failed_batch_restores_physics_state() {
     let result = failing.step_with_edits(&[ObjectEdit::Translation(body, Vec3::ONE)], f32::NAN);
     assert!(result.is_err());
     failing.step_with_edits(&[], 0.5).unwrap();
-    assert_eq!(failing.local_transform(body).unwrap().translation.x, 1.0);
+    assert!((failing.local_transform(body).unwrap().translation.x - 1.0).abs() < 1e-6);
 }

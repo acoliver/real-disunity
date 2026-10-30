@@ -1,3 +1,4 @@
+mod celestial;
 mod convention;
 mod errors;
 mod lifecycle;

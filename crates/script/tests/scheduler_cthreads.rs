@@ -86,6 +86,7 @@ fn original_policy() -> SchedulerPolicy {
         read_clock: vec![on("GameTime", "game"), on("RealTime", "real")],
         waits: vec![wait("WaitWakeup"), wait("WaitMsgRaw")],
         wake: Some("WakeRaw".into()),
+        ..SchedulerPolicy::default()
     }
 }
 

@@ -28,6 +28,12 @@ internal static class SceneSwitchTests
         public Failing() => throw new InvalidOperationException("outer", new ArgumentException("inner"));
     }
 
+    private sealed class Holder : MonoBehaviour
+    {
+        public MonoBehaviour? Held = null;
+        public Transform? Place = null;
+    }
+
     private sealed class Keeper : MonoBehaviour
     {
         private void Awake() => DontDestroyOnLoad(gameObject);
@@ -100,6 +106,7 @@ internal static class SceneSwitchTests
         ASingleLoadUnloadsEveryScene();
         Console.WriteLine("PASS: Additive loads add a scene beside the active one; SetActiveScene and a later Single load");
         AnUnloadableScriptIsLeftOff();
+        AFieldOfABaseScriptTypeHoldsALeftOffScriptAsNull();
         Console.WriteLine("PASS: a script whose class cannot load is left off its object and the scene still loads");
         AFailedScriptNamesItsCause();
         Console.WriteLine("PASS: a scene load error names the script's exception and each inner exception");
@@ -308,6 +315,26 @@ internal static class SceneSwitchTests
             Expect.That(Log.Contains("Awake:Fine"), "the rest of the scene wakes");
             var difference = loaded.Differences.Single();
             Expect.That(difference.Contains("Unloadable") && difference.Contains("is not built") && difference.Contains("'Missing'"), difference);
+        }
+        finally { DisunityHost.UnloadWorld(); }
+    }
+
+    private static void AFieldOfABaseScriptTypeHoldsALeftOffScriptAsNull()
+    {
+        DisunityHost.LoadWorld();
+        try
+        {
+            var plan = Plan("Main", ("Broken", "Unloadable"), ("Holder", "Holder"));
+            var reference = "{\"$component\":[0,0]}";
+            plan = plan.Replace("\"fields\":{}}]}]}", "\"fields\":{\"Held\":" + reference + ",\"Place\":null}}]}]}");
+            Expect.That(plan.Contains("\"Held\""), "the plan holds the reference");
+            using var loaded = DisunityHost.LoadScene(plan, Options);
+            var holder = GameObject.Find("Holder")!.GetComponent<Holder>();
+            Expect.That(holder != null && holder.Held == null, "the field binds null");
+            Expect.That(loaded.Differences.Any(d => d.Contains("Held") && d.Contains("not built yet")), string.Join(" | ", loaded.Differences));
+            var strict = plan.Replace("\"Held\":" + reference + ",\"Place\":null", "\"Held\":null,\"Place\":" + reference);
+            var failure = Expect.Catch<SceneLoadException>(() => DisunityHost.LoadScene(strict, Options).Dispose(), "a field that holds no scripts");
+            Expect.That(failure.Message.Contains("a Transform field references a SceneSwitchTests/Unloadable"), failure.Message);
         }
         finally { DisunityHost.UnloadWorld(); }
     }

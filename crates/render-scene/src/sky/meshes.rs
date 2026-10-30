@@ -142,6 +142,14 @@ impl Meshes {
         views: &mut Vec<worldrunner_render_post::AttachmentView>,
         declaration: &mut worldrunner_render_post::FeatureDeclaration,
     ) {
+        self.prepare_target(device, size);
+        self.target
+            .borrow()
+            .as_ref()
+            .expect("allocated visibility")
+            .schedule(passes, views, declaration);
+    }
+    fn prepare_target(&self, device: &wgpu::Device, size: [u32; 2]) {
         let mut target = self.target.borrow_mut();
         if target.as_ref().is_none_or(|t| t.color.size() != size) {
             *target = Some(super::mesh_target::Target::new(
@@ -151,10 +159,15 @@ impl Meshes {
                 &self.layout,
             ));
         }
-        target
-            .as_ref()
-            .expect("allocated visibility")
-            .schedule(passes, views, declaration);
+    }
+    pub fn capture_textures(&self, device: &wgpu::Device, size: [u32; 2]) -> [wgpu::Texture; 2] {
+        self.prepare_target(device, size);
+        let target = self.target.borrow();
+        let target = target.as_ref().expect("allocated visibility");
+        [
+            target.color.texture().clone(),
+            target.depth.texture().clone(),
+        ]
     }
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, key: (bool, bool)) {
         let target = self.target.borrow();

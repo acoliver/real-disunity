@@ -13,6 +13,11 @@ internal static class GameObjectMemberTests
 
     private sealed class Other : MonoBehaviour { }
 
+    private sealed class Guarded : MonoBehaviour
+    {
+        private Guarded() { }
+    }
+
     private sealed class Receiver : MonoBehaviour
     {
         public readonly List<string> Calls = new();
@@ -66,6 +71,7 @@ internal static class GameObjectMemberTests
         Ensure(GameObject.Find("Hero") == named, "constructed objects are findable");
         Throws<ArgumentException>(() => full.AddComponent(typeof(string)), "a non-component type");
         Ensure(full.AddComponent(typeof(Derived)) is Derived, "AddComponent(Type) returns the new component");
+        Ensure(full.AddComponent<Guarded>() is { } guarded && full.GetComponent<Guarded>() == guarded, "AddComponent<T> builds a class whose constructor is private");
         Ensure(!named.isStatic, "isStatic starts false");
         named.isStatic = true;
         Ensure(named.isStatic, "isStatic is stored");

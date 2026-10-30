@@ -7,8 +7,10 @@
 //! plan, with references to other planned resources as `{"$asset": i}`, since a few hold
 //! tables of many megabytes. Textures, sprites and sprite atlases are planned too, along
 //! with the ones such an object references even when the container does not list them (see
-//! [`crate::player_sprites`]). Entries of other classes keep only their class, so loading one
-//! names the class the engine does not build yet.
+//! [`crate::player_sprites`]). A `GameObject` is a prefab: a scene plan of the object and its
+//! descendants in a file beside the plan (see [`crate::player_prefabs`]); a prefab that does not
+//! plan keeps its error and the rest of the plan is unaffected. Entries of other classes keep
+//! only their class, so loading one names the class the engine does not build yet.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -25,6 +27,8 @@ use worldrunner_unity_serialized::{
 use crate::{
     PlayerError,
     player_files::PlayerFiles,
+    player_plan::{PlanSource, tag_manager_names},
+    player_prefabs::{is_root, plan_prefab, prefab_name},
     player_scripts::script_fields,
     player_sprites::{self, AssetRef, TextureData},
     player_values::{FieldWriter, not_held},
@@ -66,6 +70,11 @@ pub enum ResourceAsset {
         name: String,
         fields: String,
     },
+    /// A prefab: the scene plan in the JSON file `plan`, relative to the plan's directory,
+    /// holds the root game object and its descendants as template objects.
+    Prefab { name: String, plan: String },
+    /// A prefab the planner could not plan, with the reason loading it reports.
+    UnplannedPrefab { name: String, error: String },
     /// A 2D texture. `format` is the `TextureFormat` value and `color_space` the decoded
     /// value; `filter_mode` and the wrap modes are the sampler's values.
     Texture2D {
@@ -131,8 +140,10 @@ pub fn plan_player_resources(
     let mut planner = ResourcePlanner {
         registry: Registry::new(files),
         output: output.to_owned(),
+        tags: tag_manager_names(data_dir)?.0,
         assets: Vec::new(),
         differences: Vec::new(),
+        unplanned_prefabs: 0,
     };
     let mut entries = Vec::with_capacity(container.len());
     for (path, pptr) in container {
@@ -160,6 +171,12 @@ pub fn plan_player_resources(
         next += 1;
     }
     planner.differences.append(&mut planner.registry.notes);
+    if planner.unplanned_prefabs > 0 {
+        planner.differences.push(format!(
+            "{} prefabs did not plan",
+            planner.unplanned_prefabs
+        ));
+    }
     Ok(ResourcesPlan {
         entries,
         assets: planner.assets,
@@ -169,12 +186,18 @@ pub fn plan_player_resources(
 
 /// Whether the plan holds objects of `class` as assets.
 fn buildable(class: ClassId) -> bool {
-    class == ClassId::TEXT_ASSET || class == ClassId::MONO_BEHAVIOUR || referenced_on_demand(class)
+    class == ClassId::TEXT_ASSET
+        || class == ClassId::MONO_BEHAVIOUR
+        || class == ClassId::GAME_OBJECT
+        || referenced_on_demand(class)
 }
 
 /// Classes a reference plans even when the container does not list the object.
 fn referenced_on_demand(class: ClassId) -> bool {
-    class == ClassId::TEXTURE_2D || class == ClassId::SPRITE || class == ClassId::SPRITE_ATLAS
+    class == ClassId::TEXTURE_2D
+        || class == ClassId::SPRITE
+        || class == ClassId::SPRITE_ATLAS
+        || class == ClassId::GAME_OBJECT
 }
 
 fn resource_container(
@@ -258,17 +281,24 @@ impl Registry {
     }
 
     /// The asset index of the object a reference from `owner` names. A texture, sprite or
-    /// atlas is planned by being referenced; objects of other classes must be planned already.
+    /// atlas or prefab root is planned by being referenced; objects of other classes must be
+    /// planned already. A game object that is not a root has no asset.
     pub(crate) fn asset_index(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
         let file = self
             .files
             .referenced_file(owner, pptr)
             .map_err(|_| not_held(pptr))?;
         let key = (file, pptr.path_id);
+        let class = self.class(&key.0, key.1).map_err(|_| not_held(pptr))?;
+        if class == ClassId::GAME_OBJECT && !is_root(&mut self.files, &key) {
+            return Err(format!(
+                "references object {} of file {}, which is not a prefab root",
+                pptr.path_id, pptr.file_id
+            ));
+        }
         if let Some(&index) = self.planned.get(&key) {
             return Ok(index);
         }
-        let class = self.class(&key.0, key.1).map_err(|_| not_held(pptr))?;
         if !referenced_on_demand(class) {
             return Err(not_held(pptr));
         }
@@ -280,11 +310,25 @@ impl Registry {
     }
 }
 
+/// References from a prefab to anything outside it are resource assets.
+impl PlanSource for Registry {
+    fn files(&mut self) -> &mut PlayerFiles {
+        &mut self.files
+    }
+
+    fn outside(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
+        self.reference(owner, pptr)
+    }
+}
+
 struct ResourcePlanner {
     registry: Registry,
     output: PathBuf,
+    /// Tag names by tag index, for the objects of prefabs.
+    tags: BTreeMap<u16, String>,
     assets: Vec<ResourceAsset>,
     differences: Vec<String>,
+    unplanned_prefabs: usize,
 }
 
 impl ResourcePlanner {
@@ -303,8 +347,45 @@ impl ResourcePlanner {
             }
             ClassId::SPRITE => player_sprites::plan_sprite(&mut self.registry, key),
             ClassId::SPRITE_ATLAS => player_sprites::plan_atlas(&mut self.registry, key),
+            ClassId::GAME_OBJECT => self.prefab(key, layouts),
             _ => self.script_asset(key, layouts),
         }
+    }
+
+    /// The prefab whose root is `key`, or the reason it does not plan.
+    fn prefab(
+        &mut self,
+        key: &ObjectKey,
+        layouts: &ScriptLayouts,
+    ) -> Result<ResourceAsset, PlayerError> {
+        let planned = plan_prefab(&mut self.registry, key, &self.tags, layouts);
+        let mut scene = match planned {
+            Ok(scene) => scene,
+            Err(error) => {
+                let name = prefab_name(&mut self.registry.files, key);
+                self.unplanned_prefabs += 1;
+                self.differences
+                    .push(format!("prefab {name} did not plan: {error}"));
+                return Ok(ResourceAsset::UnplannedPrefab {
+                    name,
+                    error: error.to_string(),
+                });
+            }
+        };
+        let name = scene.scene.clone();
+        self.differences.extend(
+            scene
+                .differences
+                .drain(..)
+                .map(|line| format!("prefab {name}: {line}")),
+        );
+        let relative = format!("prefabs/{}.json", self.assets.len());
+        let bytes = serde_json::to_vec(&scene).expect("plans serialize");
+        player_sprites::write_resource(&self.output, &relative, &bytes)?;
+        Ok(ResourceAsset::Prefab {
+            name,
+            plan: relative,
+        })
     }
 
     fn script_asset(

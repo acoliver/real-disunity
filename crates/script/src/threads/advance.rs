@@ -68,7 +68,8 @@ impl GameScripts {
     }
 
     /// Advances the clocks by `ms` and runs every thread due by then. Returns the threads that
-    /// failed; the others keep running.
+    /// failed; the others keep running. A thread that interrupts the advance ends it there:
+    /// the clocks stay at the time of that thread and the rest stay due.
     pub fn advance(&self, ms: u64) -> Result<Vec<ThreadFailure>, ScriptError> {
         let start = {
             let mut scheduler = self.scheduler().lock().expect("scheduler");
@@ -88,6 +89,9 @@ impl GameScripts {
             elapsed = at;
             if let Some(failure) = self.resume(waiting)? {
                 failures.push(failure);
+            }
+            if self.scheduler().lock().expect("scheduler").interrupted {
+                return Ok(failures);
             }
         }
         self.scheduler()

@@ -231,6 +231,7 @@ impl World {
             ComponentDesc::RectTransform(_)
             | ComponentDesc::Canvas(_)
             | ComponentDesc::CanvasGroup(_)
+            | ComponentDesc::CanvasRenderer(_)
             | ComponentDesc::Text(_) => self.components.iter(self.identity).any(|(_, c)| {
                 c.object == object
                     && !self.lifetime.components.contains(&c.handle)

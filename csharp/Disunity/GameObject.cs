@@ -49,7 +49,8 @@ public sealed class GameObject : Object, IDisposable
     public Transform Transform { get; internal set; }
     public Transform transform => Transform;
     public T? GetComponent<T>() where T : class => DisunityHost.Components(this).OfType<T>().FirstOrDefault();
-    public T AddComponent<T>() where T : Component, new() => DisunityHost.AttachComponent(this, new T());
+    /// <summary>Adds a <typeparamref name="T"/>, which may have a non-public constructor as UI components do.</summary>
+    public T AddComponent<T>() where T : Component => (T)AddComponent(typeof(T));
 
     public string tag { get => DisunityHost.ObjectText(this, 1); set => DisunityHost.ObjectText(this, 1, value); }
     public unsafe int layer

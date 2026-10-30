@@ -24,6 +24,8 @@ enum Previous {
     Tracked,
     /// Velocity pipelines whose previous transform is forced equal to the current one.
     Forced,
+    /// SSAO pipelines with velocity and the tracked previous transform.
+    Occluded,
     /// No TAA: the unjittered reference.
     Reference,
 }
@@ -49,6 +51,11 @@ impl Moving {
                 effects(),
                 ScenePipelines::with_samples(device, HDR, samples.count()).unwrap(),
             )
+        } else if previous == Previous::Occluded {
+            let (scene, effects) = super::screen_space::with_occlusion(&still());
+            let pipelines =
+                ScenePipelines::with_ssao_taa_velocity(device, HDR, samples.count()).unwrap();
+            (scene, effects, pipelines)
         } else {
             let (scene, effects) = with_taa(&still());
             let pipelines =
@@ -157,18 +164,16 @@ fn expected_shift(x: u32, y: u32, (centre, shift): (f32, f32), vp: Mat4) -> ([f3
     )
 }
 
-fn residuals_after(offsets: &[i16]) -> Vec<[f32; 2]> {
-    let mut moving = Moving::new(Previous::Tracked, MsaaSamples::X1);
+fn residuals_after(previous: Previous, offsets: &[i16]) -> Vec<[f32; 2]> {
+    let mut moving = Moving::new(previous, MsaaSamples::X1);
     for &offset in offsets {
         moving.draw(offset, false, None);
     }
     moving.velocity()
 }
 
-#[test]
-fn a_translated_instance_writes_the_analytic_residual() {
+fn assert_translation_residual(velocity: &[[f32; 2]]) {
     let shift = metres(250);
-    let velocity = residuals_after(&[0, 0, 250]);
     let vp = frame_from(pose()).view_projection;
     let (mut compared, mut largest) = (0, 0.0_f32);
     for y in 0..TARGET {
@@ -194,15 +199,25 @@ fn a_translated_instance_writes_the_analytic_residual() {
 }
 
 #[test]
+fn a_translated_instance_writes_the_analytic_residual() {
+    assert_translation_residual(&residuals_after(Previous::Tracked, &[0, 0, 250]));
+}
+
+#[test]
+fn a_translated_instance_in_an_ssao_scene_writes_the_analytic_residual() {
+    assert_translation_residual(&residuals_after(Previous::Occluded, &[0, 0, 250]));
+}
+
+#[test]
 fn a_static_instance_and_a_settled_instance_write_exactly_zero() {
     assert!(
-        residuals_after(&[0, 0, 0])
+        residuals_after(Previous::Tracked, &[0, 0, 0])
             .iter()
             .all(|texel| *texel == [0.0, 0.0])
     );
     // Moved once, then untouched: previous converges to current and the residual vanishes.
     assert!(
-        residuals_after(&[0, 250, 250, 250])
+        residuals_after(Previous::Tracked, &[0, 250, 250, 250])
             .iter()
             .all(|texel| *texel == [0.0, 0.0])
     );

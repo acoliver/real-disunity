@@ -1,5 +1,6 @@
 mod gaps;
 mod history;
+mod velocity;
 use super::*;
 use crate::shadows::cascades::CascadeViews;
 use worldrunner_render_shadow::{DepthRange, RangeFit};

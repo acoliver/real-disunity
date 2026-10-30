@@ -60,6 +60,31 @@ pub struct DisunityCanvasGroup {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct DisunityCanvasRenderer {
+    pub mesh: u64,
+    pub texture: u64,
+    pub alpha_texture: u64,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub alpha: f32,
+    pub cull: u32,
+    pub cull_transparent_mesh: u32,
+    pub has_pop_instruction: u32,
+    pub has_rect_clipping: u32,
+    pub clip_x: f32,
+    pub clip_y: f32,
+    pub clip_width: f32,
+    pub clip_height: f32,
+    pub softness_x: f32,
+    pub softness_y: f32,
+    pub material_count: u32,
+    pub pop_material_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct DisunityLight {
     pub cookie_texture: u64,
     pub enabled: u32,

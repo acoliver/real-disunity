@@ -30,8 +30,8 @@ mod state;
 pub use adopt::{AdoptWait, Adoption, PersistedThread};
 pub(crate) use natives::Shared;
 pub use policy::{
-    ClockNative, Fraction, NegativeSleep, NewThread, Order, ResumeValue, SchedulerPolicy, WaitKind,
-    ZeroSleep,
+    ClockNative, FlagNatives, FlaggedSpawn, Fraction, NegativeSleep, NewThread, Order, ResumeValue,
+    SchedulerPolicy, WaitKind, ZeroSleep,
 };
 pub(crate) use state::{Restored, ThreadRecord, Wake};
 

@@ -17,6 +17,18 @@
 /// smaller stack is Rust's default.
 pub const MIN_SIGNAL_STACK: usize = 16 * 1024;
 
+/// A request that disables the current thread's alternate signal stack. macOS rejects a
+/// disabling request whose size is below `MINSIGSTKSZ`, so the size is a valid one even though
+/// a disabled stack is never used.
+#[cfg(unix)]
+fn disabling() -> libc::stack_t {
+    libc::stack_t {
+        ss_sp: std::ptr::null_mut(),
+        ss_flags: libc::SS_DISABLE,
+        ss_size: libc::SIGSTKSZ,
+    }
+}
+
 /// Removes the current thread's alternate signal stack if it is smaller than
 /// [`MIN_SIGNAL_STACK`]. Returns whether a stack was removed.
 #[cfg(unix)]
@@ -31,11 +43,7 @@ pub fn release_small_signal_stack() -> bool {
         if current.ss_flags & libc::SS_DISABLE != 0 || current.ss_size >= MIN_SIGNAL_STACK {
             return false;
         }
-        let disabled = libc::stack_t {
-            ss_sp: std::ptr::null_mut(),
-            ss_flags: libc::SS_DISABLE,
-            ss_size: 0,
-        };
+        let disabled = disabling();
         libc::sigaltstack(&raw const disabled, std::ptr::null_mut()) == 0
     }
 }
@@ -48,13 +56,21 @@ pub fn release_small_signal_stack() -> bool {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{MIN_SIGNAL_STACK, release_small_signal_stack};
+    use super::{MIN_SIGNAL_STACK, disabling, release_small_signal_stack};
+
+    /// Fails with the OS error when `sigaltstack` does.
+    fn require_ok(result: libc::c_int, what: &str) {
+        assert_eq!(result, 0, "{what}: {}", std::io::Error::last_os_error());
+    }
 
     fn installed() -> Option<usize> {
         // SAFETY: the query only writes the stack_t passed to it.
         unsafe {
             let mut current: libc::stack_t = std::mem::zeroed();
-            assert_eq!(libc::sigaltstack(std::ptr::null(), &raw mut current), 0);
+            require_ok(
+                libc::sigaltstack(std::ptr::null(), &raw mut current),
+                "query the alternate stack",
+            );
             (current.ss_flags & libc::SS_DISABLE == 0).then_some(current.ss_size)
         }
     }
@@ -103,22 +119,22 @@ mod tests {
             };
             // SAFETY: the stack stays allocated until it is disabled below.
             unsafe {
-                assert_eq!(libc::sigaltstack(&raw const large, std::ptr::null_mut()), 0);
+                require_ok(
+                    libc::sigaltstack(&raw const large, std::ptr::null_mut()),
+                    "install a large stack",
+                );
             }
             assert!(!release_small_signal_stack());
             assert_eq!(installed(), Some(LARGE));
-            let disabled = libc::stack_t {
-                ss_sp: std::ptr::null_mut(),
-                ss_flags: libc::SS_DISABLE,
-                ss_size: 0,
-            };
+            let disabled = disabling();
             // SAFETY: disabling the stack before its memory is freed.
             unsafe {
-                assert_eq!(
+                require_ok(
                     libc::sigaltstack(&raw const disabled, std::ptr::null_mut()),
-                    0
+                    "disable the large stack",
                 );
             }
+            assert_eq!(installed(), None, "the stack is disabled");
             drop(memory);
         })
         .join()

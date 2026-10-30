@@ -5,6 +5,7 @@
 
 use crate::presentation::CoverageTexture as SceneTexture;
 use crate::presentation::extraction::{camera_admits, selected_camera};
+use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::ui::{Canvas, CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use glam::Vec3;
@@ -45,6 +46,7 @@ pub fn extract_ui(
     let snapshot = world.snapshot();
     let mut texts = Vec::new();
     let mut budget = FrameBudget::default();
+    let groups = groups_by_object(&snapshot.components);
     let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
     for component in &snapshot.components {
         let ComponentDesc::Text(run) = &component.desc else {
@@ -75,7 +77,9 @@ pub fn extract_ui(
             text.atlas.alpha.len(),
             fonts.limits(),
         )?;
-        let mut text = contribution(rect, text, overlay, run.color);
+        let mut color = run.color;
+        color[3] *= effective_alpha(world, &groups, component.object)?;
+        let mut text = contribution(rect, text, overlay, color);
         snap_to_pixels(&mut text, rect, canvas);
         texts.push(text);
     }

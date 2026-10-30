@@ -262,6 +262,12 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCanvasScale>("reference_y").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvasScale.reference_y offset");
         if (Marshal.OffsetOf<DisunityCanvasScale>("match_height").ToInt32() != 20) throw new InvalidOperationException("DisunityCanvasScale.match_height offset");
         if (Marshal.SizeOf<DisunityCanvasScale>() != 24 || typeof(DisunityCanvasScale).GetFields().Length != 6) throw new InvalidOperationException("DisunityCanvasScale layout");
+        if (Marshal.OffsetOf<DisunityCanvasGroup>("enabled").ToInt32() != 0) throw new InvalidOperationException("DisunityCanvasGroup.enabled offset");
+        if (Marshal.OffsetOf<DisunityCanvasGroup>("alpha").ToInt32() != 4) throw new InvalidOperationException("DisunityCanvasGroup.alpha offset");
+        if (Marshal.OffsetOf<DisunityCanvasGroup>("interactable").ToInt32() != 8) throw new InvalidOperationException("DisunityCanvasGroup.interactable offset");
+        if (Marshal.OffsetOf<DisunityCanvasGroup>("blocks_raycasts").ToInt32() != 12) throw new InvalidOperationException("DisunityCanvasGroup.blocks_raycasts offset");
+        if (Marshal.OffsetOf<DisunityCanvasGroup>("ignore_parent_groups").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvasGroup.ignore_parent_groups offset");
+        if (Marshal.SizeOf<DisunityCanvasGroup>() != 20 || typeof(DisunityCanvasGroup).GetFields().Length != 5) throw new InvalidOperationException("DisunityCanvasGroup layout");
         if (Marshal.OffsetOf<DisunityLight>("cookie_texture").ToInt32() != 0) throw new InvalidOperationException("DisunityLight.cookie_texture offset");
         if (Marshal.OffsetOf<DisunityLight>("enabled").ToInt32() != 8) throw new InvalidOperationException("DisunityLight.enabled offset");
         if (Marshal.OffsetOf<DisunityLight>("kind").ToInt32() != 12) throw new InvalidOperationException("DisunityLight.kind offset");

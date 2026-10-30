@@ -32,6 +32,17 @@ internal sealed partial class SceneLoader
         return canvas;
     }
 
+    private static CanvasGroup CanvasGroup(GameObject owner, JsonElement value)
+    {
+        var group = owner.AddComponent<CanvasGroup>();
+        group.alpha = value.Float("alpha");
+        group.interactable = value.Bool("interactable");
+        group.blocksRaycasts = value.Bool("blocks_raycasts");
+        group.ignoreParentGroups = value.Bool("ignore_parent_groups");
+        group.enabled = value.Bool("enabled");
+        return group;
+    }
+
     /// <summary>Applies a CanvasScaler to the canvas on its object. The scaler has no engine
     /// object of its own.</summary>
     private object? Scale(GameObject owner, JsonElement value, string where)

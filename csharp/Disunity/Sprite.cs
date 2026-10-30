@@ -89,6 +89,18 @@ public sealed class Sprite : Object
         float.IsFinite(rect.x) && float.IsFinite(rect.y) && float.IsFinite(rect.width) && float.IsFinite(rect.height)
         && rect.width > 0 && rect.height > 0 && rect.x >= 0 && rect.y >= 0
         && (double)rect.x + rect.width <= texture.width && (double)rect.y + rect.height <= texture.height;
+
+    /// <summary>The number of secondary textures, such as normal maps, that go with the sprite. Sprites the engine
+    /// builds carry none.</summary>
+    public int GetSecondaryTextureCount() => 0;
+
+    /// <summary>Copies the sprite's secondary textures into <paramref name="secondaryTexture"/> and returns how many
+    /// were copied; none, since sprites the engine builds carry none.</summary>
+    public int GetSecondaryTextures(SecondarySpriteTexture[] secondaryTexture)
+    {
+        ArgumentNullException.ThrowIfNull(secondaryTexture);
+        return 0;
+    }
 }
 
 /// <summary>What a sprite made over a managed texture has beyond the native content: the rectangle it

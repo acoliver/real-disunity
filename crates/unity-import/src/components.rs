@@ -5,6 +5,7 @@
 
 mod body;
 mod camera;
+mod group;
 mod light;
 mod material;
 mod physics;
@@ -20,6 +21,7 @@ use crate::{
 
 pub use body::{BodyType, Collider, Collider2D, ColliderShape, Interpolation, Rigidbody2D};
 pub use camera::{Camera, CameraOutput, CameraParticipant, ClearFlags};
+pub use group::CanvasGroupInput;
 pub use light::Light3D;
 pub use material::RendererMaterial;
 pub use physics::{Combine, PhysicsMaterial};

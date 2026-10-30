@@ -93,7 +93,7 @@ fn oracle_nearest(
         if d > max_radius * max_radius || !keep(handle) {
             continue;
         }
-        if best.is_none_or(|(bd, bh)| d < bd || (d == bd && handle < bh)) {
+        if best.is_none_or(|(bd, bh)| d.total_cmp(&bd).then(handle.cmp(&bh)).is_lt()) {
             best = Some((d, handle));
         }
     }

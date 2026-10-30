@@ -2,7 +2,8 @@ use std::path::Path;
 
 use serde_json::{Value as Json, json};
 use worldrunner_unity_import::{
-    Camera, CameraOutput, ClearFlags, Light3D, plan::PlanComponent, player_plan::plan_player_scene,
+    Camera, CameraOutput, CanvasGroupInput, ClearFlags, Light3D, plan::PlanComponent,
+    player_plan::plan_player_scene,
 };
 use worldrunner_unity_serialized::{
     ClassId, External, SerializedType,
@@ -15,7 +16,7 @@ fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
 }
 
-const TYPES: [ClassId; 8] = [
+const TYPES: [ClassId; 9] = [
     ClassId::GAME_OBJECT,
     ClassId::TRANSFORM,
     ClassId::MONO_BEHAVIOUR,
@@ -24,6 +25,7 @@ const TYPES: [ClassId; 8] = [
     ClassId::TAG_MANAGER,
     ClassId::CAMERA,
     ClassId::AUDIO_LISTENER,
+    ClassId::CANVAS_GROUP,
 ];
 
 fn class(class_id: ClassId) -> SerializedType {
@@ -671,4 +673,72 @@ fn leaves_the_layers_out_of_the_plan_without_a_tag_manager() {
     let plan = plan_player_scene(dir.path(), "level0", &layouts()).unwrap();
     assert!(plan.layers.is_empty());
     assert!(serde_json::to_value(&plan).unwrap().get("layers").is_none());
+}
+
+/// A canvas group with the given alpha and flags.
+fn group_bytes(enabled: bool, alpha: f32, flags: [bool; 3]) -> Vec<u8> {
+    let mut w = ObjectWriter::new(false);
+    w.pptr(ptr(0, 2)).u8(u8::from(enabled)).align().f32(alpha);
+    w.bytes(&flags.map(u8::from)).align();
+    w.finish()
+}
+
+fn plan_group(bytes: Vec<u8>, other: Vec<u8>) -> Vec<PlanComponent> {
+    let dir = tempfile::tempdir().unwrap();
+    let panel = game_object("Panel", 5, &[ptr(0, 3), ptr(0, 4), ptr(0, 5)]);
+    let objects = vec![
+        object(2, ClassId::GAME_OBJECT, panel),
+        object(3, ClassId::TRANSFORM, transform(2, ptr(0, 0), &[])),
+        object(4, ClassId::CANVAS_GROUP, bytes),
+        object(5, ClassId::LIGHT, other),
+    ];
+    write_file(dir.path(), "level0", objects);
+    let layouts = ScriptLayouts::new(Vec::new());
+    let mut plan = plan_player_scene(dir.path(), "level0", &layouts).unwrap();
+    assert_eq!(plan.differences, Vec::<String>::new());
+    plan.objects.remove(0).components
+}
+
+#[test]
+fn plans_a_canvas_group_with_its_decoded_values() {
+    let light = light_bytes(0, 0, null(), null());
+    for (enabled, alpha, flags) in [
+        (false, 0.25, [false, true, true]),
+        (true, 0.75, [true, false, true]),
+        (true, 1.0, [true, true, false]),
+    ] {
+        let components = plan_group(group_bytes(enabled, alpha, flags), light.clone());
+        let [
+            PlanComponent::CanvasGroup {
+                enabled: planned,
+                alpha: planned_alpha,
+                input,
+            },
+            PlanComponent::Light { .. },
+        ] = &components[..]
+        else {
+            panic!("the panel has a group and a light: {components:?}")
+        };
+        assert_eq!((*planned, *planned_alpha), (enabled, f64::from(alpha)));
+        let [interactable, blocks_raycasts, ignore_parent_groups] = flags;
+        let expected = CanvasGroupInput {
+            interactable,
+            blocks_raycasts,
+            ignore_parent_groups,
+        };
+        assert_eq!(*input, expected, "flags {flags:?}");
+    }
+}
+
+#[test]
+fn a_planned_canvas_group_serializes_flat() {
+    let light = light_bytes(0, 0, null(), null());
+    let components = plan_group(group_bytes(false, 0.5, [true, false, true]), light);
+    assert_eq!(
+        serde_json::to_value(&components[0]).unwrap(),
+        json!({
+            "type": "CanvasGroup", "enabled": false, "alpha": 0.5,
+            "interactable": true, "blocks_raycasts": false, "ignore_parent_groups": true
+        })
+    );
 }

@@ -50,6 +50,16 @@ pub struct DisunityCanvasScale {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct DisunityCanvasGroup {
+    pub enabled: u32,
+    pub alpha: f32,
+    pub interactable: u32,
+    pub blocks_raycasts: u32,
+    pub ignore_parent_groups: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct DisunityLight {
     pub cookie_texture: u64,
     pub enabled: u32,

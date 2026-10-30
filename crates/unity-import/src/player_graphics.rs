@@ -1,11 +1,14 @@
-//! Cameras and 3D lights of a player scene as plan components.
+//! Cameras, 3D lights and canvas groups of a player scene as plan components.
 //!
 //! Colors keep the numbers the player stored, as the project planner keeps its YAML colors.
 
-use worldrunner_unity_serialized::{camera::Camera as Serialized, light::Light as SerializedLight};
+use worldrunner_unity_serialized::{
+    camera::Camera as Serialized, light::Light as SerializedLight,
+    ui::CanvasGroup as SerializedGroup,
+};
 
 use crate::{
-    components::{Camera, CameraOutput, ClearFlags, Light3D},
+    components::{Camera, CameraOutput, CanvasGroupInput, ClearFlags, Light3D},
     plan::PlanComponent,
 };
 
@@ -123,4 +126,17 @@ pub(crate) fn plan_light(
             lightmap_bake_type: light.lightmapping.into(),
         },
     })
+}
+
+/// The plan canvas group for a decoded one.
+pub(crate) fn plan_canvas_group(group: &SerializedGroup) -> PlanComponent {
+    PlanComponent::CanvasGroup {
+        enabled: group.enabled,
+        alpha: group.alpha.into(),
+        input: CanvasGroupInput {
+            interactable: group.input.interactable,
+            blocks_raycasts: group.input.blocks_raycasts,
+            ignore_parent_groups: group.input.ignore_parent_groups,
+        },
+    }
 }

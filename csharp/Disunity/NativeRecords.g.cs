@@ -78,6 +78,20 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  A canvas group's settings; booleans are 0 or 1. A write brings `alpha` into 0 through 1 and
+    ///  rejects a NaN alpha or a boolean above 1, leaving the group unchanged.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityCanvasGroup
+    {
+        public uint enabled;
+        public float alpha;
+        public uint interactable;
+        public uint blocks_raycasts;
+        public uint ignore_parent_groups;
+    }
+
+    /// <summary>
     ///  A light's settings. `kind` uses the managed `LightType` values (0 Spot, 1 Directional,
     ///  2 Point, 3 Rectangle, 4 Disc, 5 Pyramid, 6 Box, 7 Tube), `shadows` is 0 None, 1 Hard or 2 Soft,
     ///  and `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime. The masks have one bit per layer,

@@ -12,6 +12,29 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `bytes` spans `capacity` writable bytes and `written` is writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_object_text_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_text_read(ulong world, ulong @object, uint field, byte* bytes, uint capacity, uint* written);
+        /// <summary>
+        ///  Moves the object to `layer`, 0 to 31.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_object_layer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_layer_write(ulong world, ulong @object, uint layer);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one layer.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_object_layer_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_layer_read(ulong world, ulong @object, uint* output);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one bit mask: active self, active hierarchy.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_object_flags", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_object_flags(ulong world, ulong @object, uint* output);
+        /// <summary>
+        ///  # Safety
         ///  `output` is writable for one fixed-step duration in seconds.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_world_fixed_delta", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

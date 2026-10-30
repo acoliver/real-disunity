@@ -31,7 +31,7 @@ internal static class SceneSwitchTests
     private sealed class Holder : MonoBehaviour
     {
         public MonoBehaviour? Held = null;
-        public Transform? Place = null;
+        public Camera? Place = null;
     }
 
     private sealed class Keeper : MonoBehaviour
@@ -334,7 +334,7 @@ internal static class SceneSwitchTests
             Expect.That(loaded.Differences.Any(d => d.Contains("Held") && d.Contains("not built yet")), string.Join(" | ", loaded.Differences));
             var strict = plan.Replace("\"Held\":" + reference + ",\"Place\":null", "\"Held\":null,\"Place\":" + reference);
             var failure = Expect.Catch<SceneLoadException>(() => DisunityHost.LoadScene(strict, Options).Dispose(), "a field that holds no scripts");
-            Expect.That(failure.Message.Contains("a Transform field references a SceneSwitchTests/Unloadable"), failure.Message);
+            Expect.That(failure.Message.Contains("a Camera field references a SceneSwitchTests/Unloadable"), failure.Message);
         }
         finally { DisunityHost.UnloadWorld(); }
     }

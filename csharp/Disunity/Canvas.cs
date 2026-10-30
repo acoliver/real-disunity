@@ -4,7 +4,7 @@ using Disunity.Native;
 namespace UnityEngine;
 
 public enum RenderMode { ScreenSpaceOverlay, ScreenSpaceCamera, WorldSpace }
-public sealed partial class Canvas : NativeComponent
+public sealed partial class Canvas : Behaviour
 {
     internal unsafe DisunityCanvas Read()
     {
@@ -14,7 +14,7 @@ public sealed partial class Canvas : NativeComponent
     }
     internal unsafe void Write(DisunityCanvas value) => DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_write(DisunityHost.WorldHandle, Handle, &value));
     public RenderMode renderMode { get => (RenderMode)Read().mode; set { var c = Read(); c.mode = (uint)value; Write(c); } }
-    public bool enabled { get => Read().enabled == 1; set { var c = Read(); c.enabled = value ? 1u : 0u; Write(c); } }
+    private protected override bool EnabledState { get => Read().enabled == 1; set { var c = Read(); c.enabled = value ? 1u : 0u; Write(c); } }
     public int sortingOrder { get => Read().sorting_order; set { var c = Read(); c.sorting_order = value; Write(c); } }
     /// <summary>On a screen-space canvas, moves each text so its first glyph starts on a whole
     /// screen pixel, as Unity's Text does. World-space canvases ignore it.</summary>

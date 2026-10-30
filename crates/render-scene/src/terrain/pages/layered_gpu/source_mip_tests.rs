@@ -325,6 +325,16 @@ pub(super) fn execute_footprint(
     positions: &[[f32; 2]],
     footprint: [f32; 2],
 ) -> Vec<u8> {
+    execute_shader(context, source, positions, footprint, None)
+}
+
+pub(super) fn execute_shader(
+    context: &crate::device::GpuContext,
+    source: &LayeredGpuSource,
+    positions: &[[f32; 2]],
+    footprint: [f32; 2],
+    shader: Option<&str>,
+) -> Vec<u8> {
     let device = context.device();
     let mut registry = ResourceRegistry::default();
     let (output, mut operations) = source
@@ -335,6 +345,9 @@ pub(super) fn execute_footprint(
             (positions, footprint),
         )
         .unwrap();
+    if let Some(shader) = shader {
+        super::anisotropy_tests::replace_pipeline(device, &mut operations, shader);
+    }
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: positions.len() as u64 * 16,

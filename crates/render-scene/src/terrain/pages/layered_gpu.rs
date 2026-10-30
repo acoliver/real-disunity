@@ -5,6 +5,8 @@ mod admission_tests;
 #[cfg(test)]
 mod anisotropy_diagnostics;
 #[cfg(test)]
+mod anisotropy_reference;
+#[cfg(test)]
 mod anisotropy_tests;
 #[cfg(test)]
 mod channel_tests;
@@ -48,7 +50,6 @@ pub const LAYERED_WGSL: &str = concat!(
 /// Images retain independent extents and their declared transfer function.
 #[derive(Debug)]
 pub struct LayeredGpuSource {
-    anisotropy: worldrunner_render_plan::TextureAnisotropy,
     parameters: Vec<u8>,
     grid: Vec<u8>,
     arrays: Vec<Vec<crate::texture::OwnedPreparedTexture>>,

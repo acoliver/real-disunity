@@ -34,11 +34,15 @@ All levels preserve the base padded domain in normalized UV space. `maximum_samp
 
 GPU cache admission limits padded page area to `u32::MAX / 256` texels, in addition to device texture limits. This bounds integer area-weighted color/roughness sums and their rounding additions without overflow. Geometry interval counts are independent of this material-resolution limit.
 
-## Anisotropy limitations
+## Portable source anisotropy
 
-`TerrainLayeredSource::anisotropy` accepts the validated levels 1, 2, 4, 8 and 16. Source samplers use linear texel/mip filtering with repeat or clamp addressing. At 1, the shader preserves the largest-axis isotropic footprint. Above 1, it passes the actual UV gradients. This source path passes its grazing-angle regression on Metal; lavapipe behavior remains under investigation in [#347](https://github.com/acoliver/real-disunity/issues/347). The row and quad regressions report adapter capabilities, created samplers, raw samples, gradients, GPU source mip readbacks and small-footprint baselines when they fail. Separate baseline tests check source detail independently of anisotropy. Material-level `SceneMaterial::with_anisotropy` does not affect terrain, and cached pages remain isotropic.
+`TerrainLayeredSource::anisotropy` accepts the validated levels 1, 2, 4, 8 and 16. Level 1 preserves the largest-axis isotropic gradient path byte for byte. Above 1, the shader measures both UV footprint basis vectors in source texels, choosing the longer as the major axis. For lengths `rho_max` and `rho_min`, it takes `N = max(1, min(ceil(rho_max / rho_min), level))` equally weighted taps centred along the major UV vector. The LOD is `log2(max(rho_max / N, rho_min))`, clamped to the image's mip range. A zero minor footprint uses the authored tap limit; a zero footprint uses one base-level tap. This bounded line integral approximates the footprint, rather than integrating an ellipse.
 
-Cached pages use `Rgba8Uint` storage, which cannot use a filtering sampler. An anisotropic page reader needs bounded major-axis footprint integration over the existing integer trilinear reader, minor-axis mip selection, and gutter-safe ancestor selection for every tap. That extension must preserve the 1x lookup and filtering bytes and test page boundaries, rectangular pages and grazing-angle detail.
+Each tap uses explicit-level trilinear filtering. Both hardware samplers keep `anisotropy_clamp = 1` at every authored level, avoiding backend-specific explicit-gradient anisotropy and double filtering. Repeat addressing applies to source layers; colorization remains clamped at mip zero. Material-level `SceneMaterial::with_anisotropy` does not affect terrain.
+
+An independent f64 reference filters the authored byte mip chain and checks tiny rectangular fixtures within three byte values. That bound covers three 8-bit filter-weight roundings over the fixture's 180-value range plus final byte packing. Row and quad grazing regressions retain sampled values, adapter capabilities and gradients in failure messages. Separate baseline tests require non-flat isotropic detail, ratio-one tests require the same output as 1x, and a main-branch byte fixture pins the default path.
+
+Cached-page reads are the next slice in [#347](https://github.com/acoliver/real-disunity/issues/347); they remain isotropic. Their `Rgba8Uint` storage requires applying the same bounded major-axis taps to the existing integer trilinear reader, with gutter-safe ancestor selection for every tap. That extension must preserve the 1x lookup and filtering bytes and test page boundaries, rectangular pages and grazing-angle detail.
 
 ## GPU execution
 

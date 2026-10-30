@@ -26,13 +26,45 @@ struct Source {
 @group(0) @binding(11) var layered_array_6: texture_2d_array<f32>;
 @group(0) @binding(15) var layered_repeat: sampler;
 @group(0) @binding(16) var layered_clamp: sampler;
+fn layered_level(image: Image, uv: vec2<f32>, lod: f32) -> vec4<f32> {
+    switch image.shape.x {
+        case 0u: { return textureSampleLevel(layered_array_0, layered_repeat, uv, i32(image.shape.y), clamp(lod, 0.0, f32(textureNumLevels(layered_array_0) - 1u))); }
+        case 1u: { return textureSampleLevel(layered_array_1, layered_repeat, uv, i32(image.shape.y), clamp(lod, 0.0, f32(textureNumLevels(layered_array_1) - 1u))); }
+        case 2u: { return textureSampleLevel(layered_array_2, layered_repeat, uv, i32(image.shape.y), clamp(lod, 0.0, f32(textureNumLevels(layered_array_2) - 1u))); }
+        case 3u: { return textureSampleLevel(layered_array_3, layered_repeat, uv, i32(image.shape.y), clamp(lod, 0.0, f32(textureNumLevels(layered_array_3) - 1u))); }
+        case 4u: { return textureSampleLevel(layered_array_4, layered_repeat, uv, i32(image.shape.y), clamp(lod, 0.0, f32(textureNumLevels(layered_array_4) - 1u))); }
+        case 5u: { return textureSampleLevel(layered_array_5, layered_repeat, uv, i32(image.shape.y), clamp(lod, 0.0, f32(textureNumLevels(layered_array_5) - 1u))); }
+        case 6u: { return textureSampleLevel(layered_array_6, layered_repeat, uv, i32(image.shape.y), clamp(lod, 0.0, f32(textureNumLevels(layered_array_6) - 1u))); }
+        default: { return vec4<f32>(0.0); }
+    }
+}
+fn layered_anisotropic(image: Image, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+    let size = vec2<f32>(image.shape.zw);
+    let lengths = vec2<f32>(length(dx * size), length(dy * size));
+    let major = max(lengths.x, lengths.y);
+    let minor = min(lengths.x, lengths.y);
+    let direction = select(dy, dx, lengths.x >= lengths.y);
+    let limit = layered_source.mapping.w + 1.0;
+    let count = u32(clamp(ceil(major / max(minor, 1e-20)), 1.0, limit));
+    let lod = log2(max(max(major / f32(count), minor), 1e-20));
+    var sum = vec4<f32>(0.0);
+    for (var tap = 0u; tap < count; tap++) {
+        let offset = (f32(tap) + 0.5) / f32(count) - 0.5;
+        sum += layered_level(image, uv + direction * offset, lod);
+    }
+    return sum / f32(count);
+}
 fn layered_sample(image: Image, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, repeat: bool) -> vec4<f32> {
-    // Preserve the isotropic reference footprint at 1x. Authored anisotropy
-    // passes the actual UV Jacobian to hardware filtering.
+    if layered_source.mapping.w > 0.0 && repeat {
+        return layered_anisotropic(image, uv, dx, dy);
+    }
+    // Isotropic filtering uses the longest footprint basis vector. Supplying
+    // equivalent axis-aligned gradients avoids backend-dependent rotated-ellipse
+    // approximations while preserving the reference mip footprint.
     let size = vec2<f32>(image.shape.zw);
     let footprint = max(length(dx * size), length(dy * size));
-    let horizontal = select(vec2<f32>(footprint / size.x, 0.0), dx, layered_source.mapping.w > 0.0);
-    let vertical = select(vec2<f32>(0.0, footprint / size.y), dy, layered_source.mapping.w > 0.0);
+    let horizontal = vec2<f32>(footprint / size.x, 0.0);
+    let vertical = vec2<f32>(0.0, footprint / size.y);
     switch image.shape.x {
         case 0u: {
             if repeat { return textureSampleGrad(layered_array_0, layered_repeat, uv, i32(image.shape.y), horizontal, vertical); }

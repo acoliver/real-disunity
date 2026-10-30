@@ -14,7 +14,6 @@ pub(super) fn encode(
 ) -> Result<LayeredGpuSource, LayeredError> {
     let source = terrain.layered_source().ok_or(LayeredError::Source)?;
     let mut result = LayeredGpuSource {
-        anisotropy: source.anisotropy,
         parameters: Vec::new(),
         grid: Vec::new(),
         arrays: Vec::new(),

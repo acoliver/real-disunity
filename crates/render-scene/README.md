@@ -42,10 +42,13 @@ filter/wrap settings affect dynamic quads and sprites only, whose anisotropic
 sampling is outside this implementation's scope. Samplers are cached by material
 anisotropy, independently of texture handles. wgpu clamps the effective level to
 the adapter's supported capability. Layered terrain sources use their own validated
-`TerrainLayeredSource::anisotropy` level with explicit UV gradients above 1.
-The 1x path preserves its isotropic footprint. Source behavior on lavapipe is under
-investigation in [#347](https://github.com/acoliver/real-disunity/issues/347);
-cached pages remain isotropic. See the
+`TerrainLayeredSource::anisotropy` level. Above 1, portable explicit-level taps
+average the major-axis footprint at `log2(max(major / taps, minor))`, with the tap
+count bounded by the footprint ratio and authored level. Hardware sampler
+anisotropy stays 1, preventing backend-dependent double filtering. The 1x path
+preserves its isotropic bytes. Cached-page reads remain isotropic and are the
+next slice in [#347](https://github.com/acoliver/real-disunity/issues/347). See the
+[terrain source contract](../../dev-docs/rendering/terrain-pages.md#portable-source-anisotropy) and the
 [sampling contract](../../dev-docs/rendering/2d.md#texture-sampling).
 
 ## Masked alpha-to-coverage

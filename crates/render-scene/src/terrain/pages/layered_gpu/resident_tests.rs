@@ -121,7 +121,6 @@ pub(super) fn compressed(format: u32, size: u32, mips: u32, block: &[u8]) -> Sce
 #[test]
 fn large_bc_palette_admission_counts_source_once_for_eight_uploads() {
     let mut source = LayeredGpuSource {
-        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         parameters: vec![0; 64 + 12 * 64],
         grid: vec![0; 16],
         images: vec![],
@@ -184,7 +183,6 @@ fn bc1_bc3_bc4_bc5_sources_remain_compressed_and_sampled() {
 #[test]
 fn heterogeneous_arrays_exceeding_the_stage_budget_fail_before_allocation() {
     let mut source = LayeredGpuSource {
-        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         parameters: vec![],
         grid: vec![],
         images: vec![],

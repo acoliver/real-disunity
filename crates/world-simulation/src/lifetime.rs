@@ -39,6 +39,7 @@ impl World {
             ComponentDesc::RectTransform(_)
             | ComponentDesc::Canvas(_)
             | ComponentDesc::CanvasGroup(_)
+            | ComponentDesc::CanvasRenderer(_)
             | ComponentDesc::Text(_) => {}
             ComponentDesc::Script { .. }
             | ComponentDesc::Body2d(_)

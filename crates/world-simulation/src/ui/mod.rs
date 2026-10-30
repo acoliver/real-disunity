@@ -8,6 +8,7 @@ mod font_data;
 mod fonts;
 mod group;
 mod layout;
+mod renderer;
 mod text;
 mod wrap;
 use crate::{ObjectHandle, WorldError};
@@ -16,6 +17,7 @@ pub use fonts::{FontBook, UiLimits};
 use glam::{UVec2, Vec2};
 pub use group::{CanvasGroup, CanvasGroupFlags};
 pub use layout::{RectLayout, UiLayout};
+pub use renderer::{CanvasRenderer, CanvasRendererFlags, MAX_CANVAS_MATERIALS, inherited_alpha};
 pub use text::{
     GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun,
     VerticalAlign, VerticalOverflow,

@@ -67,6 +67,8 @@ pub enum ComponentDesc {
     #[cfg(feature = "ui")]
     CanvasGroup(crate::ui::CanvasGroup),
     #[cfg(feature = "ui")]
+    CanvasRenderer(crate::ui::CanvasRenderer),
+    #[cfg(feature = "ui")]
     Text(crate::ui::TextRun),
     Body2d(crate::physics2d::Body2d),
     Collider2d(crate::physics2d::Collider2d),
@@ -99,6 +101,8 @@ impl ComponentDesc {
             Self::Canvas(value) => value.validate().map_err(WorldError::from),
             #[cfg(feature = "ui")]
             Self::CanvasGroup(value) => value.validate().map_err(WorldError::from),
+            #[cfg(feature = "ui")]
+            Self::CanvasRenderer(value) => value.validate().map_err(WorldError::from),
             #[cfg(feature = "ui")]
             Self::Text(value) => value.validate().map_err(WorldError::from),
             Self::Body2d(value) => value.validate().map_err(WorldError::from),

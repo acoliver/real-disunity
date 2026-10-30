@@ -341,3 +341,4 @@ XRDisplayTests.Run();
 XRSettingsTests.Run();
 GraphicsTypeTests.Run();
 GraphicsTests.Run();
+GraphicsFormatUtilityTests.Run();

@@ -112,8 +112,8 @@ pub use scene::{
 };
 
 pub use scene::{
-    SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterOptics, SceneWaterSettings,
-    SceneWaterShoreline, SceneWaterSunDisk, SceneWaterTint, SceneWaterWind,
+    SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterOptics, SceneWaterSeedCoordinates,
+    SceneWaterSettings, SceneWaterShoreline, SceneWaterSunDisk, SceneWaterTint, SceneWaterWind,
     SceneWaterZeroFrequency,
 };
 

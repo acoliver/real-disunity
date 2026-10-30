@@ -2,6 +2,61 @@ use crate::{CaptureJitter, CaptureOutput, PresentationCapture, RetainedCaptureRe
 use worldrunner_render_gpu::configuration::AllocationBudgetPolicy;
 
 #[test]
+fn endpoint_seed_storage_reaches_presentation_plan_and_derived_budget() {
+    use worldrunner_render_plan::{
+        SceneWaterFlowCoordinates, SceneWaterSeedCoordinates, TextureHandle,
+    };
+    let scene = crate::tests::scene(true);
+    let effects = scene.effects().unwrap();
+    let mut body = effects.water().unwrap().clone();
+    body.material.flow = Some(TextureHandle::from_raw(0));
+    let limits = wgpu::Limits::default();
+    let options = crate::ViewerOptions {
+        frame_profile: crate::FrameProfile::Hdr {
+            samples: 1,
+            tone_map: crate::ToneMap::Reinhard,
+        },
+        ..crate::tests::options()
+    };
+    let policy = AllocationBudgetPolicy::Derived {
+        headroom_bytes: 0,
+        granularity_bytes: 1,
+        cap_bytes: None,
+    };
+    let mut totals = Vec::new();
+    for mode in [
+        SceneWaterSeedCoordinates::Repeat,
+        SceneWaterSeedCoordinates::EndpointClamped,
+    ] {
+        body.material.flow_coordinates = Some(SceneWaterFlowCoordinates {
+            origin_millimeters: [0; 2],
+            tile_millimeters: [1000; 2],
+            mode,
+        });
+        let effects = effects
+            .clone()
+            .with_water_bodies(vec![body.clone()])
+            .unwrap();
+        let plan = crate::plan_presentation(
+            [32, 24],
+            &options,
+            Some(&effects),
+            &limits,
+            wgpu::Features::empty(),
+            crate::PresentationPlanning {
+                capture: PresentationCapture::Ordinary,
+                retained_effect_history: false,
+            },
+        )
+        .unwrap();
+        let required = plan.validate(&limits).unwrap();
+        assert_eq!(policy.resolve::<()>(required).unwrap().0, required);
+        totals.push(required);
+    }
+    assert_eq!(totals[1], totals[0] + 48);
+}
+
+#[test]
 fn water_recipe_plans_match_host_descriptors_at_both_backing_scales() {
     let limits = wgpu::Limits::default();
     let scene = crate::tests::scene(true);

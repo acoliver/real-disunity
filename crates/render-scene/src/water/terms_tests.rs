@@ -204,6 +204,7 @@ fn term_descriptors_validate_ranges_and_disabled_uniform_bytes() {
     body.material.flow_coordinates = Some(SceneWaterFlowCoordinates {
         origin_millimeters: [0; 2],
         tile_millimeters: [0; 2],
+        mode: worldrunner_render_plan::SceneWaterSeedCoordinates::Repeat,
     });
     assert!(body.validate().is_err());
 }

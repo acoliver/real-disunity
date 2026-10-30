@@ -1,0 +1,11 @@
+{
+  "version": "hn.pipeline/0",
+  "steps": [
+    {
+      "name": "GitHub Platforms result",
+      "command": "rd-platforms-proxy",
+      "args": [],
+      "timeoutSeconds": 3600
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: disunity-workflow
-description: Use for changes and verification in real-disunity. Covers review-ready PR delivery, worktree and scratch limits, public verification, unchanged games and private-consumer ownership.
+description: Use for changes and verification in real-disunity. Covers proposal delivery on the Hubnot hub, worktree and scratch limits, public verification, unchanged games and private-consumer ownership.
 ---
 
 # Real Disunity workflow
@@ -9,44 +9,51 @@ Follow [AGENTS.md](../../../AGENTS.md), [CONTRIBUTING.md](../../../CONTRIBUTING.
 and the [agent procedure](../../../dev-docs/contribution-agent.md). Extend the
 existing engine owners, preserve original games and keep delivery reviewable.
 
-## Branch and PR flow
+## Branch and proposal flow
 
 1. Check the working tree and assigned branch. External contributors work in a
-   fork. For new authorized work, branch from current `origin/main`; stay on an
+   fork. For new authorized work, run `hn sync hub` and branch from current
+   `hub/main`; stay on an
    existing assigned branch when the task specifies one. Claim the feature using
    the [coordination skill](../disunity-coordination/SKILL.md).
 2. Prefer one checkout. Internal agents keep at most two own worktrees and stacks
    no more than one deep. Never change another contributor's checkout or build
    output. Push to their branch only with its owner's explicit permission recorded
-   on the PR; force pushes require permission for that operation. Prepare agreed
+   on the proposal; force pushes require permission for that operation. Prepare agreed
    integration work in your own checkout. Do not create frozen source copies.
-3. Make one coherent, reviewable PR. A game rendering before it is playable is a
+3. Make one coherent proposal. A game rendering before it is playable is a
    useful milestone. Other contribution types are welcome. External PRs are exempt
    from the internal daily review-ready cadence; do not close them merely because
    they await maintainer review or merge.
-4. When authorized, commit, push and open the PR; watch checks and address failures.
+4. When authorized, commit, push the branch to `hub`, open a proposal
+   (`hn proposal open --base hub/main --head <branch> "<title>"`) and request
+   the gate (`hn run request <proposal> gate`). Read the gate log and fix
+   failures.
    A task that forbids these operations must report the delivery blocker instead.
-5. Internal sessions target daily review-ready delivery. End with a posted,
-   review-ready PR or a blocker documented on the issue or PR. A PR waiting for
-   Andrew's review or merge may remain open. Do not demand a same-day merge.
-6. A maintainer session (`mini-llxprt-branch-N`, `mac-llxprt-branch-N`) merges
-   its own PR once `PR gate` passes on the current head and review threads are
-   resolved, using a normal merge. Never merge another session's or an external
-   contributor's PR; Andrew merges external PRs. Never bypass branch rules, push
-   to main, or enable auto-merge. Maintainer agents also review incoming PRs
-   daily; Andrew intends human review daily.
+5. Internal sessions target daily delivery: a merged proposal, a proposal
+   waiting on the gate or on Andrew, or a blocker documented on the issue.
+6. Once the gate passes on the current head, merge your own proposal with
+   `hn automerge <proposal> --rule ordinary --execute --remote hub`. No
+   approval from another session is needed. Protected paths need Andrew.
+   Never merge another session's proposal or push to the hub's `main`.
 
 ## Verification
 
-Use the public commands in [quality gates](../../../dev-docs/quality-gates.md):
+The hub's gate is the quality line. For every proposal it runs, on Linux,
+the documentation checks, `cargo xtask ci-cpu`, `ci-managed`, `ci-gpu-static`
+and, for C# changes, `ci-gpu-csharp`; see
+[quality gates](../../../dev-docs/quality-gates.md). Decide yourself what to
+run first: whatever shows that your change works, for example the affected
+crate's tests or a GPU test or game you touched. Running a full profile
+locally is optional.
 
 - `cargo xtask ci-cpu` for code changes.
 - `cargo xtask ci-managed` for relevant managed changes (.NET 8 SDK).
 - `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-gpu`
   for relevant GPU work on Linux with lavapipe.
 
-Protected `main` requires the `PR gate` check on Linux. Windows, macOS and the
-serial GPU suite run after merge and nightly. Report local results and
+GPU tests run only in the nightly `Platforms` run on GitHub, together with
+Windows and macOS; a failure opens a Hubnot issue to fix first. Report local results and
 missing prerequisites accurately. Never weaken tests or quality gates. Keep Rust
 incremental compilation disabled.
 

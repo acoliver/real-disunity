@@ -82,11 +82,41 @@ The tooling tests exercise real Cargo metadata over disposable workspaces and re
 
 ## Continuous integration
 
+### Hub gate
+
+Changes from Andrew's sessions land through the Hubnot hub on Andrew's Linux
+box. `.hn/pipelines/gate.json` defines the gate that every proposal must pass
+before it merges. The runner executes its steps from a clean extraction of
+the candidate commit, in the same order as the Linux jobs below:
+
+| Step | Runs | Scope |
+| --- | --- | --- |
+| Documentation | the `.github/scripts` unit tests, `git diff --check` and `ci_changes.py check-docs` | every change |
+| CPU | `cargo xtask ci-cpu` | `csharp` and `full` |
+| Managed | `cargo xtask ci-managed`, then `ci_changes.py markdown-inputs` | `csharp` and `full` |
+| GPU static checks | `cargo xtask ci-gpu-static` on lavapipe under Xvfb, then `markdown-inputs` | `full` |
+| GPU tests of C# consumers | `cargo xtask ci-gpu-csharp` | `csharp` |
+
+The scope comes from the base commit's `ci_changes.py classify`, as described
+under [Scope classification](#scope-classification). The hub gate does not run
+the eight GPU test shards; GPU behavior is tested every night by `Platforms`.
+A proposal merges on a passing gate under the `ordinary` automerge rule in
+`.hn/policy.json`, without a required review. Changes to the protected paths
+listed in `AGENTS.md`, and to any path outside the rule, need Andrew's
+acceptance.
+
+Every night the hub publishes `main` to GitHub, which starts the workflows
+below. Their result for that commit is recorded on the hub as an audit, and a
+failure opens a Hubnot issue.
+
+### GitHub workflows
+
 Two workflows run the profiles. `.github/workflows/pr.yml` (name `PR`) validates pull requests and every push to `main` on Linux. `.github/workflows/platforms.yml` (name `Platforms`) runs the Windows and macOS jobs and the exhaustive serial GPU suite after merge and every night. The target for required pull request validation is 15 minutes of wall time.
 
 ### Pull request gate
 
-A pull request is merged on one required check, `PR gate`. `classify` assigns the change one of three scopes, and each scope selects the build jobs that must run:
+External contributors' pull requests are checked on GitHub by one required
+check, `PR gate`. `classify` assigns the change one of three scopes, and each scope selects the build jobs that must run:
 
 | Scope | Change | Build jobs that must succeed |
 | --- | --- | --- |

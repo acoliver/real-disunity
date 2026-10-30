@@ -1,0 +1,45 @@
+{
+  "version": "hn.pipeline/0",
+  "steps": [
+    {
+      "name": "Whitespace, links and anchors (docs job)",
+      "command": "rd-gate",
+      "args": [
+        "checks"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "name": "CPU profile (cpu job, ci-cpu)",
+      "command": "rd-gate",
+      "args": [
+        "cpu"
+      ],
+      "timeoutSeconds": 3600
+    },
+    {
+      "name": "Managed profile (cpu job, ci-managed)",
+      "command": "rd-gate",
+      "args": [
+        "managed"
+      ],
+      "timeoutSeconds": 3600
+    },
+    {
+      "name": "GPU static checks (gpu-static job)",
+      "command": "rd-gate",
+      "args": [
+        "gpu-static"
+      ],
+      "timeoutSeconds": 3600
+    },
+    {
+      "name": "GPU tests of C# consumers (gpu-csharp job)",
+      "command": "rd-gate",
+      "args": [
+        "gpu-csharp"
+      ],
+      "timeoutSeconds": 3600
+    }
+  ]
+}

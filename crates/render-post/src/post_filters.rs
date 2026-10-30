@@ -48,9 +48,10 @@ impl<'a> Filters<'a> {
         let bloom = self.bloom_source(scene, settings, exposure, output.1);
         let constants = tone_constants(settings, output.1, output.2);
         let resolve = settings.resolve;
-        let upscale = settings
-            .upscale
-            .filter(|_| targets.config().size != targets.config().output_extent());
+        let upscale = settings.upscale.filter(|_| {
+            targets.config().size != targets.config().output_extent()
+                && !settings.reconstructs_temporally(targets.config())
+        });
         let native_rcas = settings.native_rcas.filter(|_| upscale.is_none());
         let resolved = resolve.schedules_pass();
         let display_format = if native_rcas.is_some() && !resolved && settings.sharpen.is_none() {

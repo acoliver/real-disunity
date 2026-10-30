@@ -79,6 +79,8 @@ mod cmaa2_gpu;
 mod cmaa2_tests;
 mod fxaa;
 mod hdr_taa;
+#[cfg(test)]
+mod hdr_temporal_build_tests;
 mod history_key;
 #[cfg(test)]
 mod history_key_tests;
@@ -107,7 +109,6 @@ mod taa_history_reference;
 mod taa_reference;
 #[cfg(test)]
 mod taa_tests;
-#[cfg(test)]
 mod taa_upscale_gpu;
 #[cfg(test)]
 mod taa_upscale_gpu_tests;

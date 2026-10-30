@@ -5,6 +5,15 @@
 use crate::{FrameConfig, HdrPostSettings, PostError, ProjectionJitter, UpscaleMode};
 
 impl HdrPostSettings {
+    /// Whether TAA reconstructs the output grid itself: `UpscaleMode::Temporal` at a render
+    /// extent that differs from the output. Every other configuration, including Temporal at
+    /// equal extents (the native TAA), keeps the render grid for the whole post chain.
+    pub(crate) fn reconstructs_temporally(self, config: FrameConfig) -> bool {
+        self.upscale
+            .is_some_and(|upscale| upscale.mode == UpscaleMode::Temporal)
+            && config.size != config.output_extent()
+    }
+
     /// The Temporal rows of the configuration table for `config`.
     ///
     /// Settings without `UpscaleMode::Temporal` always pass. Equal extents with TAA are the

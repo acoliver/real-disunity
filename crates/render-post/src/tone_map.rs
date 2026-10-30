@@ -155,6 +155,22 @@ impl ToneMapOutput {
             post.prepare_taa(encoder, slot, block);
         }
     }
+    /// Uploads the temporal block of `slot`; `None` uploads zeros, so the reconstruction ignores
+    /// history. Without effects there is nothing to upload to.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::UnsupportedProfile`] for an invalid block.
+    pub fn prepare_temporal(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        block: Option<&crate::TemporalBlock>,
+    ) -> Result<(), PostError> {
+        self.post
+            .as_ref()
+            .map_or(Ok(()), |post| post.prepare_temporal(encoder, slot, block))
+    }
     #[cfg(test)]
     pub(crate) fn taa_history_size(&self) -> Option<[u32; 2]> {
         self.post

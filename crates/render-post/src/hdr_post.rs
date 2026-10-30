@@ -233,6 +233,19 @@ impl HdrPost {
     ) {
         crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block);
     }
+    /// Uploads the temporal block of `slot`; `None` uploads zeros, which reads as no history.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::UnsupportedProfile`] for an invalid block.
+    pub fn prepare_temporal(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        block: Option<&crate::TemporalBlock>,
+    ) -> Result<(), PostError> {
+        crate::hdr_taa::upload_temporal(&self.device, encoder, &self.taa[slot], block)
+    }
     #[cfg(test)]
     pub fn taa_history_size(&self) -> Option<[u32; 2]> {
         self.taa_history.size()
@@ -283,6 +296,7 @@ impl HdrPost {
                     &mut set,
                     targets,
                     (taa, &self.taa_history, &self.taa[slot]),
+                    self.settings.reconstructs_temporally(targets.config()),
                 )
             },
         );

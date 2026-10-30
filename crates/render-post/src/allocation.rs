@@ -76,10 +76,7 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     if settings.resolve.active_taa().is_none() {
         return;
     }
-    let temporal = settings
-        .upscale
-        .is_some_and(|upscale| upscale.mode == crate::UpscaleMode::Temporal)
-        && config.size != config.output_extent();
+    let temporal = settings.reconstructs_temporally(config);
     let [w, h] = if temporal {
         config.output_extent()
     } else {

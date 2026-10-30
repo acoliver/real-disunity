@@ -32,6 +32,17 @@ impl HistoryKey {
         }
     }
 
+    /// The extent the history lives on: the output for temporal reconstruction, else the render
+    /// extent.
+    pub const fn history_extent(&self) -> [u32; 2] {
+        self.output
+    }
+
+    /// Whether the history belongs to temporal reconstruction.
+    pub const fn temporal(&self) -> bool {
+        self.temporal
+    }
+
     /// The render extent, which sizes the native history.
     pub const fn render(&self) -> [u32; 2] {
         self.render

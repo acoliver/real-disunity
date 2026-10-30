@@ -33,6 +33,7 @@ use worldrunner_render_plan::{
 };
 mod alpha_coverage;
 mod alpha_factor;
+mod anisotropy;
 mod curved_wind;
 pub(crate) mod decals;
 mod environment;
@@ -50,6 +51,7 @@ mod lod_material;
 mod lod_scale;
 mod material_factors;
 mod normal_frames;
+mod resident_sampling;
 mod retained;
 mod ssao;
 mod ssr;

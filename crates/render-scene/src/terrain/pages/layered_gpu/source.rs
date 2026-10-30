@@ -14,6 +14,7 @@ pub(super) fn encode(
 ) -> Result<LayeredGpuSource, LayeredError> {
     let source = terrain.layered_source().ok_or(LayeredError::Source)?;
     let mut result = LayeredGpuSource {
+        anisotropy: source.anisotropy,
         parameters: Vec::new(),
         grid: Vec::new(),
         arrays: Vec::new(),
@@ -82,7 +83,7 @@ fn grid(
             source.type_grid.origin_millimeters()[0] as f32 * 0.001,
             source.type_grid.origin_millimeters()[1] as f32 * 0.001,
             source.type_grid.spacing_millimeters() as f32 * 0.001,
-            0.0,
+            f32::from(source.anisotropy.level() - 1),
         ],
     );
     Ok(())

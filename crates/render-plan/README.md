@@ -44,6 +44,21 @@ There is no built-in content adapter registry, inventory interpreter, source
 terrain/clutter table, format-specific decoder, or bundled content. Producers must
 supply engine artifacts or construct scenes through the validated public API.
 
+## Material anisotropy
+
+`SceneMaterial::with_anisotropy` accepts a validated `TextureAnisotropy` and applies
+it to all resident material channels, including impostor auxiliary maps. The
+default is 1. Construction accepts only 1, 2, 4, 8 and 16. Resident material
+samplers use linear minification, magnification and mip filtering with repeat
+wrapping regardless of per-texture `TextureSampler` settings. Materials with
+equal levels share a sampler; shared textures do not force equal material levels.
+Dynamic quads and sprites continue to use their texture filter/wrap settings
+without anisotropy. Layered terrain sources own an independent anisotropy level.
+See [texture sampling](../../dev-docs/rendering/2d.md#texture-sampling) for device
+clamping and [terrain pages](../../dev-docs/rendering/terrain-pages.md) for the
+isotropic cached-page limitation.
+
+
 ## Independent shadow light
 
 `SceneEffects::with_shadow_direction(Some(direction))` selects a validated

@@ -283,7 +283,16 @@ fn texture_layer<'a>(prepared: &'a PreparedTexture<'a>) -> TextureLayer<'a> {
 }
 
 pub fn material_sampler(device: &Device) -> Sampler {
-    device.create_sampler(&SamplerDescriptor {
+    device.create_sampler(&material_sampler_descriptor(
+        worldrunner_render_plan::TextureAnisotropy::default(),
+    ))
+}
+
+pub(crate) fn material_sampler_descriptor(
+    anisotropy: worldrunner_render_plan::TextureAnisotropy,
+) -> SamplerDescriptor<'static> {
+    SamplerDescriptor {
+        anisotropy_clamp: anisotropy.level(),
         label: Some("material"),
         address_mode_u: wgpu::AddressMode::Repeat,
         address_mode_v: wgpu::AddressMode::Repeat,
@@ -292,7 +301,7 @@ pub fn material_sampler(device: &Device) -> Sampler {
         min_filter: FilterMode::Linear,
         mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..SamplerDescriptor::default()
-    })
+    }
 }
 
 /// Uploads all validated mip levels through the common resource implementation.

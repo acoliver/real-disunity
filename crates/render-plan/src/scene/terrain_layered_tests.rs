@@ -29,6 +29,7 @@ fn terrain(appearance: SceneTerrainAppearance, surfaces: usize) -> SceneTerrain 
 
 fn source() -> TerrainLayeredSource {
     TerrainLayeredSource {
+        anisotropy: crate::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0; 4]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
@@ -72,6 +73,7 @@ fn layered_resources_reject_unreferenced_half_float_slots() {
             channel: 0,
         };
         let source = TerrainLayeredSource {
+            anisotropy: crate::TextureAnisotropy::default(),
             channel_map: Some(TerrainLayerChannelMap {
                 albedo: [channel; 3],
                 albedo_color_space: TextureColorSpace::Linear,
@@ -147,6 +149,7 @@ fn layered_inputs_reject_encoded_layouts_in_every_slot() {
         TerrainColorizationChannels::BgrRoughness,
     ] {
         let source = TerrainLayeredSource {
+            anisotropy: crate::TextureAnisotropy::default(),
             channel_map: None,
             colorization: Some(TerrainColorization {
                 texture: TextureHandle::from_raw(3),
@@ -233,6 +236,7 @@ fn texture_closure_includes_all_layer_and_tint_handles() {
     assert!(source().validate_handles(&terrain, 2).is_err());
     assert!(source().validate_handles(&terrain, 3).is_ok());
     let tinted = TerrainLayeredSource {
+        anisotropy: crate::TextureAnisotropy::default(),
         channel_map: None,
         colorization: Some(TerrainColorization {
             texture: TextureHandle::from_raw(3),
@@ -317,6 +321,7 @@ fn independent_type_grid_validates_dimensions_payload_and_palette() {
     };
     let terrain = terrain(appearance, 1);
     let source = TerrainLayeredSource {
+        anisotropy: crate::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([1, 1], [0; 2], 1, vec![1]).unwrap(),
         ..source()

@@ -111,13 +111,17 @@ pub(super) fn payload_bytes(arrays: &[Vec<OwnedPreparedTexture>]) -> u64 {
         .sum()
 }
 
-fn sampler(repeat: bool) -> wgpu::SamplerDescriptor<'static> {
+fn sampler(
+    repeat: bool,
+    anisotropy: worldrunner_render_plan::TextureAnisotropy,
+) -> wgpu::SamplerDescriptor<'static> {
     let address = if repeat {
         wgpu::AddressMode::Repeat
     } else {
         wgpu::AddressMode::ClampToEdge
     };
     wgpu::SamplerDescriptor {
+        anisotropy_clamp: anisotropy.level(),
         address_mode_u: address,
         address_mode_v: address,
         mag_filter: wgpu::FilterMode::Linear,
@@ -219,7 +223,10 @@ impl LayeredGpuSource {
                 })
             })
             .collect();
-        let descriptors = [sampler(true), sampler(false)];
+        let descriptors = [
+            sampler(true, self.anisotropy),
+            sampler(false, self.anisotropy),
+        ];
         Ok(ResidentSource {
             buffers,
             textures,

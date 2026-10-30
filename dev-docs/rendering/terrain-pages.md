@@ -34,6 +34,12 @@ All levels preserve the base padded domain in normalized UV space. `maximum_samp
 
 GPU cache admission limits padded page area to `u32::MAX / 256` texels, in addition to device texture limits. This bounds integer area-weighted color/roughness sums and their rounding additions without overflow. Geometry interval counts are independent of this material-resolution limit.
 
+## Authored source anisotropy
+
+`TerrainLayeredSource::anisotropy` accepts the same validated `TextureAnisotropy` levels as scene materials. The immutable source owns its repeat/clamp sampler pair and device-keyed residency, so a source replacement carries the filtering state with its texture arrays. Above 1, repeat sampling passes the actual rotated UV derivatives to `textureSampleGrad`, allowing hardware anisotropic filtering on the filterable source arrays. At 1 it preserves the axis-aligned isotropic footprint and encoded parameter bytes. Explicit level-zero colorization reads remain level-zero reads. Sampler creation uses the wgpu device-clamping rule described in [texture sampling](2d.md#texture-sampling).
+
+Cached page reads remain isotropic. Their `Rgba8Uint` storage cannot use a filtering sampler. Source anisotropy improves direct layered evaluation and page baking with rectangular footprints, but does not preserve grazing-angle detail after a cached page has been baked. An anisotropic page reader still needs a bounded major-axis footprint integration over the existing integer trilinear reader, minor-axis mip selection, and gutter-safe ancestor selection for every tap. That extension must preserve the 1x lookup and filtering bytes and test page boundaries, rectangular pages and grazing-angle detail. No alternate page storage or sampling system is introduced.
+
 ## GPU execution
 
 `CompositionBatch` validates and packs variable layer spans. Its `TypedOperation::Compute` uses checked buffer bindings and explicit read/write declarations. Source ranges and samples must be produced by uploads of that batch's byte slices. Output is write-only scratch from the executor's perspective, despite WGSL's read-write storage binding syntax.

@@ -331,6 +331,7 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    anisotropy: super::TextureAnisotropy,
     alpha_to_coverage: bool,
     fade_direction: super::SceneFadeDirection,
     fade_reference: Option<super::SceneFadeReference>,
@@ -356,6 +357,17 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    /// Selects the maximum anisotropic footprint ratio for all resident material maps.
+    /// Defaults to one. Filters remain linear with repeat wrapping at every level.
+    #[must_use]
+    pub const fn with_anisotropy(mut self, value: super::TextureAnisotropy) -> Self {
+        self.anisotropy = value;
+        self
+    }
+    pub const fn anisotropy(&self) -> super::TextureAnisotropy {
+        self.anisotropy
+    }
+
     /// Enables sample coverage for masked materials. Ignored by single-sample
     /// passes and shadow casters, which keep the hard cutoff. Defaults to false.
     pub fn with_alpha_to_coverage(mut self, enabled: bool) -> Result<Self, SceneValidationError> {
@@ -511,6 +523,7 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            anisotropy: super::TextureAnisotropy::default(),
             alpha_to_coverage: false,
             fade_direction: super::SceneFadeDirection::Inclusive,
             fade_reference: None,

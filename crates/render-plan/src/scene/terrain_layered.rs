@@ -72,6 +72,8 @@ pub struct TerrainColorization {
 /// Independent material-cell grid and the terrain's ordered surface palette.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerrainLayeredSource {
+    /// Shared filtering ratio for source images. Cached page reads remain isotropic.
+    pub anisotropy: super::TextureAnisotropy,
     /// None preserves the original per-layer packing and declared color space.
     pub channel_map: Option<super::TerrainLayerChannelMap>,
     pub type_grid: TerrainTypeGrid,

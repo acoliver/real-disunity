@@ -15,7 +15,8 @@ const BASE_Y: u32 = 3;
 
 /// A Halton(2,3) sub-pixel jitter sequence that repeats after `length` frames.
 ///
-/// Offsets are in output pixels, strictly inside `(-0.5, 0.5)` on both axes, with +x to the
+/// Offsets are in raster pixels of the internal render target (the output pixels when no
+/// upscaling happens), strictly inside `(-0.5, 0.5)` on both axes, with +x to the
 /// right and +y down the image, the convention of screen coordinates. The sequence starts at
 /// Halton index 1: index 0 is the pixel corner, which is not strictly inside the open interval.
 ///
@@ -47,12 +48,52 @@ impl ProjectionJitter {
         Ok(Self { length })
     }
 
+    /// The sequence for a scene rasterised at `render` extent and reconstructed to `output`.
+    ///
+    /// The length is `ceil(8 * max(Ow / Rw, Oh / Rh)^2)`: eight phases at equal extents, and
+    /// more as the output holds more pixels per raster pixel, so each output pixel still sees
+    /// about eight distinct sample positions. It is computed per axis as
+    /// `ceil(8 * O^2 / R^2)` in integers, so a ratio that lands exactly on an integer is never
+    /// pushed up by float rounding. Equal extents give exactly [`Self::default`]. Offsets stay
+    /// in raster pixels of the `render` extent, as [`Self::offset_pixels`] documents.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::EmptyExtent`] when either extent has a zero side,
+    /// [`PostError::RenderExtent`] when `render` exceeds `output` on an axis, and
+    /// [`PostError::UnsupportedProfile`] when `render` is below half of `output` on an axis
+    /// (the limit of `RenderScale`) or the length would exceed [`Self::MAX_LENGTH`].
+    pub fn for_extents(render: [u32; 2], output: [u32; 2]) -> Result<Self, PostError> {
+        if render.contains(&0) || output.contains(&0) {
+            return Err(PostError::EmptyExtent);
+        }
+        if render.iter().zip(output).any(|(&r, o)| r > o) {
+            return Err(PostError::RenderExtent);
+        }
+        if render
+            .iter()
+            .zip(output)
+            .any(|(&r, o)| u64::from(r) * 2 < u64::from(o))
+        {
+            return Err(PostError::UnsupportedProfile(
+                "render extent must be at least half of the output extent",
+            ));
+        }
+        let phases = render
+            .into_iter()
+            .zip(output)
+            .map(|(r, o)| phases_for_axis(r, o))
+            .max()
+            .expect("two axes");
+        Self::new(u32::try_from(phases).unwrap_or(u32::MAX))
+    }
+
     /// Number of frames before the offsets repeat.
     pub const fn length(self) -> u32 {
         self.length
     }
 
-    /// Sub-pixel offset of the projection for `frame_index`, in output pixels.
+    /// Sub-pixel offset of the projection for `frame_index`, in internal raster pixels.
     pub fn offset_pixels(self, frame_index: u64) -> [f32; 2] {
         let point = u32::try_from(frame_index % u64::from(self.length))
             .expect("the remainder is below a u32 length")
@@ -112,6 +153,13 @@ impl Default for ProjectionJitter {
             length: Self::DEFAULT_LENGTH,
         }
     }
+}
+
+/// `ceil(8 * output^2 / render^2)` for one axis, exact for every `u32` extent.
+fn phases_for_axis(render: u32, output: u32) -> u128 {
+    let (render, output) = (u128::from(render), u128::from(output));
+    let square = render * render;
+    (u128::from(ProjectionJitter::DEFAULT_LENGTH) * output * output).div_ceil(square)
 }
 
 /// The radical inverse of `index` in `base`, in `[0, 1)`.

@@ -128,11 +128,16 @@ composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive
 `AntiAliasing::jitter: Option<ProjectionJitter>` shifts the projection by a sub-pixel offset.
 `ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64 frames
 (`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
-offset in output pixels, strictly inside (-0.5, 0.5) with +y down, and
+offset in internal raster pixels, strictly inside (-0.5, 0.5) with +y down, and
 `clip_offset(frame_index, size)` the matching clip-space translation. The projection shift moves
 the scene by +offset, so the pixel at `q` holds the scene at `q + 0.5 - offset`. `AntiAliasing::new`
 leaves jitter off. `PostResolve::Taa` turns it on with the default sequence
 (`PostResolve::effective_jitter`); see [Temporal antialiasing](#temporal-antialiasing).
+`ProjectionJitter::for_extents(render, output)` returns the sequence for a scene rasterised below
+its output extent. Its length is `ceil(8 * max(Ow / Rw, Oh / Rh)^2)`, computed per axis with integers
+from the rounded extents: 8 at equal extents, 32 at 0.5, 18 at 0.67 and 14 at 0.77 of 1920x1080.
+It rejects empty extents, a render extent above the output or below half of it, and a length above
+64. Pass it through `AntiAliasing::with_jitter`; no default uses it yet.
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled

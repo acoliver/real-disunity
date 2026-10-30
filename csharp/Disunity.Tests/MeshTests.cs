@@ -12,6 +12,15 @@ internal static partial class MeshTests
         ChannelLengthValidation();
         NullClearsChannels();
         Console.WriteLine("PASS: Mesh channels, colors, uv dimensions and channel validation");
+        SubMeshCounts();
+        SubMeshQueries();
+        TrianglesRules();
+        BaseVertexRange();
+        IndexFormatLimit();
+        TopologiesAndSetIndices();
+        VertexCountChanges();
+        BoundsRules();
+        Console.WriteLine("PASS: Mesh sub-meshes, indices, topologies, index format limit, vertex count changes and bounds");
     }
 
     private static Vector3[] QuadPositions() => [new(0, 0, 0), new(0, 1, 0), new(1, 1, 0), new(1, 0, 0)];

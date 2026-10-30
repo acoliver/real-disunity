@@ -86,7 +86,11 @@ public partial class Mesh
     {
         RequireReadable();
         var positions = Map(values, value => value);
-        if (positions.Length != vertexCount) DropMismatchedChannels(positions.Length);
+        if (positions.Length != vertexCount)
+        {
+            CheckIndicesFit(positions.Length);
+            DropMismatchedChannels(positions.Length);
+        }
         _positions = positions;
     }
 

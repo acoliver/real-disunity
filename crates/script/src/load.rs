@@ -9,33 +9,97 @@
 //!
 //! A chunk the rewrite refuses fails to load with an error naming the chunk and the reason.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use lua_resume::compiled::Compiled;
+use lua_resume::import::{ImportChunk, ImportSources};
 use lua_resume::restore::Sources;
 use lua_resume::rewrite::normalize;
 use lua_resume::strip::strip_debug_calls;
-use lua_resume::syntax::{parse, print};
+use lua_resume::syntax::ast::Block;
+use lua_resume::syntax::{OperatorHooks, parse, print, print_with};
 use mlua::{ChunkMode, Function, Lua, MultiValue, Value};
+use sha2::{Digest, Sha256};
 
+use crate::config::{NameCollisions, RefusedChunks};
 use crate::error::ScriptError;
+
+type Digest256 = [u8; 32];
 
 /// The rewritten chunks by name, and how chunks are prepared.
 #[derive(Default)]
 pub(crate) struct Loader {
+    /// The normalized trees a restore generates continuations from.
     sources: Sources,
+    /// The same chunks as an import of another build's save reads them.
+    chunks: BTreeMap<String, ImportChunk>,
+    /// The text each name was first loaded with, to see a name used for another text.
+    digests: BTreeMap<String, Digest256>,
+    /// Chunks that loaded as plain text, by name, with the reason.
+    plain: BTreeMap<String, String>,
+    hooks: OperatorHooks,
     strip: bool,
+    refused: RefusedChunks,
+    collisions: NameCollisions,
 }
 
 pub(crate) type SharedLoader = Arc<Mutex<Loader>>;
 
 impl Loader {
+    /// The trees a restore regenerates code from, printed with the operator hooks the chunks
+    /// were loaded with.
     pub(crate) fn sources(&self) -> Sources {
-        self.sources.clone()
+        self.sources.clone().with_hooks(self.hooks.clone())
+    }
+
+    /// The rewritten chunks as an import reads them, by the name saved prototypes carry:
+    /// `@path` for the chunk loaded as `=path`.
+    pub(crate) fn import_sources(&self) -> ImportSources {
+        let mut sources = ImportSources::new();
+        for (name, chunk) in &self.chunks {
+            let saved = name.strip_prefix('=').map_or_else(
+                || name.clone().into_bytes(),
+                |path| format!("@{path}").into_bytes(),
+            );
+            sources.insert(&saved, chunk.clone());
+        }
+        sources
+    }
+
+    /// The chunks that loaded as plain text, with the reason each could not be resumable.
+    pub(crate) fn plain(&self) -> BTreeMap<String, String> {
+        self.plain.clone()
+    }
+
+    /// `text` printed with the operator hooks, for code that is run once and never saved. With
+    /// no hooks it is returned as it is.
+    pub(crate) fn hooked(&self, text: &str) -> Result<String, ScriptError> {
+        if self.hooks == OperatorHooks::none() {
+            return Ok(text.to_owned());
+        }
+        let tree = parse(text.as_bytes()).map_err(|error| refused("<eval>", &error.to_string()))?;
+        Ok(print_with(&tree, &self.hooks))
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.digests.is_empty()
     }
 
     pub(crate) fn set_strip(&mut self, strip: bool) {
         self.strip = strip;
+    }
+
+    pub(crate) fn set_hooks(&mut self, hooks: OperatorHooks) {
+        self.hooks = hooks;
+    }
+
+    pub(crate) fn set_refused(&mut self, policy: RefusedChunks) {
+        self.refused = policy;
+    }
+
+    pub(crate) fn set_collisions(&mut self, policy: NameCollisions) {
+        self.collisions = policy;
     }
 
     /// The text to load for `text` under the chunk name `name`, and the chunk's tree is kept
@@ -53,20 +117,78 @@ impl Loader {
                 .into_function()
         };
         let original = compile(text)?;
+        // Source stock Lua accepts and `lua-resume` cannot parse would run without the
+        // operator hooks, so it is never loaded plain.
         let mut tree = parse(text).map_err(|error| refused(name, &error.to_string()))?;
-        let dump = if self.strip && strip_debug_calls(&mut tree) > 0 {
+        let stripped = self.strip && strip_debug_calls(&mut tree) > 0;
+        let digest: Digest256 = Sha256::digest(text).into();
+        if self.digests.get(name).is_some_and(|known| *known != digest) {
+            return self.collided(name, &tree);
+        }
+        let dump = if stripped {
             compile(print(&tree).as_bytes())?.dump(true)
         } else {
             original.dump(true)
         };
-        let compiled =
-            Compiled::from_dump(&dump).map_err(|error| refused(name, &error.to_string()))?;
-        let normalized =
-            normalize(&tree, &compiled).map_err(|error| refused(name, &error.to_string()))?;
-        let printed = print(&normalized);
-        self.sources.insert(name, normalized);
-        Ok(printed)
+        match rewrite(name, &tree, &dump) {
+            Ok((normalized, chunk)) => Ok(self.keep(name, digest, normalized, chunk)),
+            Err(reason) => self.not_resumable(name, digest, &tree, &reason),
+        }
     }
+
+    fn keep(
+        &mut self,
+        name: &str,
+        digest: Digest256,
+        normalized: Block,
+        chunk: ImportChunk,
+    ) -> String {
+        let printed = print_with(&normalized, &self.hooks);
+        self.digests.insert(name.to_owned(), digest);
+        self.sources.insert(name, normalized);
+        self.chunks.insert(name.to_owned(), chunk);
+        printed
+    }
+
+    fn not_resumable(
+        &mut self,
+        name: &str,
+        digest: Digest256,
+        tree: &Block,
+        reason: &str,
+    ) -> Result<String, ScriptError> {
+        if self.refused == RefusedChunks::Fail {
+            return Err(refused(name, reason));
+        }
+        self.digests.entry(name.to_owned()).or_insert(digest);
+        Ok(self.load_plain(name, tree, reason))
+    }
+
+    /// A name used for a second text. The first chunk's tree stays in place either way.
+    fn collided(&mut self, name: &str, tree: &Block) -> Result<String, ScriptError> {
+        let reason = "another chunk was loaded under this name";
+        match self.collisions {
+            NameCollisions::Reject => Err(ScriptError::Sandbox {
+                message: format!("{name} cannot be loaded: {reason}"),
+            }),
+            NameCollisions::LoadPlain => Ok(self.load_plain(name, tree, reason)),
+        }
+    }
+
+    fn load_plain(&mut self, name: &str, tree: &Block, reason: &str) -> String {
+        self.plain.insert(name.to_owned(), reason.to_owned());
+        print_with(tree, &self.hooks)
+    }
+}
+
+/// The normalized tree of a chunk and its import record, or why the chunk cannot be resumed.
+/// `dump` is the compilation of the original text, whose analysis guides the rewrite.
+fn rewrite(name: &str, tree: &Block, dump: &[u8]) -> Result<(Block, ImportChunk), String> {
+    let compiled = Compiled::from_dump(dump).map_err(|error| error.to_string())?;
+    let normalized = normalize(tree, &compiled).map_err(|error| error.to_string())?;
+    let chunk =
+        ImportChunk::new(name, tree, normalized.clone()).map_err(|error| error.to_string())?;
+    Ok((normalized, chunk))
 }
 
 fn refused(chunk: &str, reason: &str) -> ScriptError {

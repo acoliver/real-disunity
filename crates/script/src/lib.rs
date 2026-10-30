@@ -7,11 +7,13 @@
 pub mod api;
 pub mod config;
 mod coroutines;
+mod division;
 pub mod error;
 pub mod host;
 mod legacy;
 mod load;
 pub mod modules;
+mod options;
 pub mod original;
 pub mod patches;
 pub mod persist;
@@ -21,7 +23,7 @@ pub mod threads;
 pub mod world;
 
 pub use api::ScriptApi;
-pub use config::ScriptConfig;
+pub use config::{DivisionSemantics, NameCollisions, RefusedChunks, ScriptConfig};
 pub use error::ScriptError;
 pub use host::{API_VERSION, DEFAULT_MEMORY_LIMIT, HookContext, HookResult, Record, ScriptHost};
 pub use lua_resume;

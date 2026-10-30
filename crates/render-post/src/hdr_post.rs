@@ -220,6 +220,10 @@ impl HdrPost {
         }
         self.settings = *settings;
     }
+    /// Ends a build of every slot: promotes or drops the history bank the build asked for.
+    pub fn settle_build(&self, accepted: bool) {
+        self.taa_history.settle(accepted);
+    }
     /// Uploads the TAA block of `slot`; `None` uploads zeros, which reads as no history.
     pub fn prepare_taa(
         &self,

@@ -209,6 +209,11 @@ impl StageFactory for ToneMapOutput {
             .as_ref()
             .is_some_and(|post| post.settings.resolve.active_taa().is_some())
     }
+    fn settle_build(&self, accepted: bool) {
+        if let Some(post) = &self.post {
+            post.settle_build(accepted);
+        }
+    }
     fn build_for_slot(
         &self,
         device: &wgpu::Device,

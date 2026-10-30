@@ -128,6 +128,10 @@ pub trait StageFactory {
     fn needs_velocity(&self) -> bool {
         false
     }
+    /// Called once after every slot of a build was attempted, with whether all of them built and
+    /// validated. A factory that keeps state shared by the slots promotes or drops what this
+    /// build created, so a rejected replacement leaves the live chain's state untouched.
+    fn settle_build(&self, _accepted: bool) {}
     fn build_for_slot(
         &self,
         device: &wgpu::Device,
@@ -624,13 +628,15 @@ fn build_slots<F: StageFactory>(
     if !matches!(factory.frame_slots(), 1 | 3) {
         return Err(PostError::UnsupportedProfile("post frame slot count"));
     }
-    (0..factory.frame_slots())
+    let built = (0..factory.frame_slots())
         .map(|slot| {
             let set = factory.build_for_slot(device, targets, persistent, slot)?;
             set.validate(device)?;
             Ok(set)
         })
-        .collect()
+        .collect::<Result<Vec<_>, PostError>>();
+    factory.settle_build(built.is_ok());
+    built
 }
 
 #[cfg(test)]

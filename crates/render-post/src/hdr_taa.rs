@@ -17,35 +17,66 @@ struct TaaHistory {
     texture: wgpu::Texture,
     depth: wgpu::Texture,
 }
+impl TaaHistory {
+    fn new(device: &wgpu::Device, key: HistoryKey) -> Self {
+        let size = key.render();
+        Self {
+            key,
+            texture: taa_gpu::history(device, size),
+            depth: taa_gpu::depth_history(device, size),
+        }
+    }
+}
+
+/// The committed bank, which the live stage sets use, and the candidate bank a replacement under
+/// construction has asked for. A candidate becomes the bank only when the owner of the replacement
+/// has validated every slot's schedule.
+#[derive(Debug, Default)]
+struct Banks {
+    committed: Option<TaaHistory>,
+    candidate: Option<TaaHistory>,
+}
 
 /// History shared by the stage sets of every slot. Cloning shares it.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct SharedHistory(Rc<RefCell<Option<TaaHistory>>>);
+pub(crate) struct SharedHistory(Rc<RefCell<Banks>>);
 impl SharedHistory {
-    /// The colour and depth histories for `size`, created on first use and replaced when the
-    /// size changes.
+    /// The colour and depth histories for `key`: the committed bank when it matches, otherwise a
+    /// candidate shared by every slot of the same build. The committed bank is not touched.
     fn acquire(&self, device: &wgpu::Device, key: HistoryKey) -> (wgpu::Texture, wgpu::Texture) {
-        let size = key.render();
-        let mut slot = self.0.borrow_mut();
-        if slot.as_ref().is_none_or(|history| history.key != key) {
-            *slot = Some(TaaHistory {
-                key,
-                texture: taa_gpu::history(device, size),
-                depth: taa_gpu::depth_history(device, size),
-            });
+        let mut banks = self.0.borrow_mut();
+        let Banks {
+            committed,
+            candidate,
+        } = &mut *banks;
+        let bank = match committed {
+            Some(history) if history.key == key => history,
+            _ => candidate.get_or_insert_with(|| TaaHistory::new(device, key)),
+        };
+        if bank.key != key {
+            *bank = TaaHistory::new(device, key);
         }
-        let history = slot.as_ref().expect("history was just created");
-        (history.texture.clone(), history.depth.clone())
+        (bank.texture.clone(), bank.depth.clone())
+    }
+
+    /// Ends a build: an accepted build promotes its candidate, a rejected one drops it.
+    pub fn settle(&self, accepted: bool) {
+        let mut banks = self.0.borrow_mut();
+        let candidate = banks.candidate.take();
+        if accepted && candidate.is_some() {
+            banks.committed = candidate;
+        }
     }
 
     /// Drops the history, for settings that no longer use TAA.
     pub fn release(&self) {
-        *self.0.borrow_mut() = None;
+        *self.0.borrow_mut() = Banks::default();
     }
 
     #[cfg(test)]
     pub fn size(&self) -> Option<[u32; 2]> {
-        self.0.borrow().as_ref().map(|history| history.key.render())
+        let banks = self.0.borrow();
+        banks.committed.as_ref().map(|history| history.key.render())
     }
 }
 

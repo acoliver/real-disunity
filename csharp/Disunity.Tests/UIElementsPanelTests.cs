@@ -1,3 +1,4 @@
+using Disunity.Hosting;
 using UnityEngine.UIElements;
 
 /// <summary>The UI Toolkit panel registry: a player has no panels, and a new panel is not disposed.</summary>
@@ -8,6 +9,9 @@ internal static class UIElementsPanelTests
         NoPanelsExist();
         SubscriptionsAreAccepted();
         APanelStartsLive();
+        DisunityHost.LoadWorld();
+        try { EventSystemsRegister(); }
+        finally { DisunityHost.UnloadWorld(); }
         Console.WriteLine("PASS: UIElementsRuntimeUtility reports no panels, accepts subscriptions and a panel starts live");
     }
 
@@ -28,7 +32,21 @@ internal static class UIElementsPanelTests
         Expect.Equal(0, created, "no panel is created");
     }
 
-    private static void APanelStartsLive() => Expect.That(!new TestPanel().disposed, "a new panel is not disposed");
+    private static void APanelStartsLive()
+    {
+        var panel = new TestPanel();
+        Expect.That(!panel.disposed, "a new panel is not disposed");
+        Expect.That(panel.isFlat, "a new panel is flat");
+    }
+
+    private static void EventSystemsRegister()
+    {
+        var eventSystem = new UnityEngine.GameObject("EventSystem");
+        UIElementsRuntimeUtility.RegisterEventSystem(eventSystem);
+        UIElementsRuntimeUtility.UnregisterEventSystem(eventSystem);
+        Expect.Throws<ArgumentNullException>(() => UIElementsRuntimeUtility.RegisterEventSystem(null!), "register null");
+        Expect.Throws<ArgumentNullException>(() => UIElementsRuntimeUtility.UnregisterEventSystem(null!), "unregister null");
+    }
 
     private sealed class TestPanel : BaseRuntimePanel
     {

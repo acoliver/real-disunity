@@ -33,6 +33,7 @@ Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for contributor policy. Coding 
 | Page | Covers |
 | --- | --- |
 | [contribution-agent.md](contribution-agent.md) | Agent steps, scoped claims, review-ready delivery and links to authoritative rules. |
+| [built-players.md](built-players.md) | How a built player is read, planned, loaded and run, stage by stage, with each stage's owner and contract. |
 | [architecture.md](architecture.md) | Ownership, crate layers, how a frame flows, invariants, coordinate systems. |
 | [quality-gates.md](quality-gates.md) | `cargo xtask` commands, CI profiles, the layer and policy checks, size and complexity limits. |
 | [simulation/advancement.md](simulation/advancement.md) | `advance`/`resume`, callback order, nested lifecycle scopes, time, input and coroutines. |

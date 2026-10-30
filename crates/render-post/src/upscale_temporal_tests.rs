@@ -152,3 +152,31 @@ fn temporal_is_not_a_standalone_spatial_upscale() {
         unsupported("temporal upscaling requires the HDR scene profile")
     );
 }
+
+#[test]
+fn reduced_temporal_derives_its_jitter_from_both_extents() {
+    let derived = ProjectionJitter::for_extents(REDUCED, OUTPUT).unwrap();
+    let reduced = temporal(PostResolve::taa(0.9));
+    assert_eq!(
+        reduced.effective_jitter(config(REDUCED, 1), None),
+        Ok(Some(derived))
+    );
+    assert!(derived.length() > ProjectionJitter::default().length());
+}
+
+#[test]
+fn an_explicit_jitter_and_the_other_modes_keep_the_resolve_default() {
+    let long = ProjectionJitter::new(64).unwrap();
+    let reduced = temporal(PostResolve::taa(0.9));
+    assert_eq!(
+        reduced.effective_jitter(config(REDUCED, 1), Some(long)),
+        Ok(Some(long))
+    );
+    // Equal extents are the native TAA: the 8 phase default.
+    assert_eq!(
+        reduced.effective_jitter(config(OUTPUT, 1), None),
+        Ok(Some(ProjectionJitter::default()))
+    );
+    let plain = HdrPostSettings::default();
+    assert_eq!(plain.effective_jitter(config(OUTPUT, 1), None), Ok(None));
+}

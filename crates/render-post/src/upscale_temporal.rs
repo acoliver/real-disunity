@@ -36,6 +36,26 @@ impl HdrPostSettings {
             && config.size != config.output_extent()
     }
 
+    /// The projection jitter a renderer with these settings uses at `config`, given the explicitly
+    /// requested one.
+    ///
+    /// # Errors
+    ///
+    /// The error of [`ProjectionJitter::for_extents`] when the extents cannot be reconstructed.
+    pub fn effective_jitter(
+        self,
+        config: FrameConfig,
+        explicit: Option<ProjectionJitter>,
+    ) -> Result<Option<ProjectionJitter>, PostError> {
+        if explicit.is_none()
+            && self.resolve.active_taa().is_some()
+            && self.reconstructs_temporally(config)
+        {
+            return ProjectionJitter::for_extents(config.size, config.output_extent()).map(Some);
+        }
+        Ok(self.resolve.effective_jitter(explicit))
+    }
+
     /// The Temporal rows of the configuration table for `config`.
     ///
     /// Settings without `UpscaleMode::Temporal` always pass. Equal extents with TAA are the

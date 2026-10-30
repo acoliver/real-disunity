@@ -116,7 +116,12 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityCanvas>("orthographic_size").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvas.orthographic_size offset");
         if (Marshal.OffsetOf<DisunityCanvas>("plane_distance").ToInt32() != 20) throw new InvalidOperationException("DisunityCanvas.plane_distance offset");
         if (Marshal.OffsetOf<DisunityCanvas>("sorting_order").ToInt32() != 24) throw new InvalidOperationException("DisunityCanvas.sorting_order offset");
-        if (Marshal.SizeOf<DisunityCanvas>() != 32 || typeof(DisunityCanvas).GetFields().Length != 6) throw new InvalidOperationException("DisunityCanvas layout");
+        if (Marshal.OffsetOf<DisunityCanvas>("sorting_layer").ToInt32() != 28) throw new InvalidOperationException("DisunityCanvas.sorting_layer offset");
+        if (Marshal.OffsetOf<DisunityCanvas>("override_sorting").ToInt32() != 32) throw new InvalidOperationException("DisunityCanvas.override_sorting offset");
+        if (Marshal.OffsetOf<DisunityCanvas>("target_display").ToInt32() != 36) throw new InvalidOperationException("DisunityCanvas.target_display offset");
+        if (Marshal.OffsetOf<DisunityCanvas>("additional_shader_channels").ToInt32() != 40) throw new InvalidOperationException("DisunityCanvas.additional_shader_channels offset");
+        if (Marshal.OffsetOf<DisunityCanvas>("reference_pixels_per_unit").ToInt32() != 44) throw new InvalidOperationException("DisunityCanvas.reference_pixels_per_unit offset");
+        if (Marshal.SizeOf<DisunityCanvas>() != 48 || typeof(DisunityCanvas).GetFields().Length != 11) throw new InvalidOperationException("DisunityCanvas layout");
         if (Marshal.OffsetOf<DisunitySprite>("identity").ToInt32() != 0) throw new InvalidOperationException("DisunitySprite.identity offset");
         if (Marshal.OffsetOf<DisunitySprite>("texture").ToInt32() != 8) throw new InvalidOperationException("DisunitySprite.texture offset");
         if (Marshal.OffsetOf<DisunitySprite>("present").ToInt32() != 16) throw new InvalidOperationException("DisunitySprite.present offset");
@@ -340,5 +345,5 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 6;
+    internal const uint Version = 7;
 }

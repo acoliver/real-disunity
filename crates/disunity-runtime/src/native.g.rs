@@ -380,6 +380,11 @@ pub struct DisunityCanvas {
     pub orthographic_size: f32,
     pub plane_distance: f32,
     pub sorting_order: i32,
+    pub sorting_layer: i32,
+    pub override_sorting: u32,
+    pub target_display: u32,
+    pub additional_shader_channels: u32,
+    pub reference_pixels_per_unit: f32,
 }
 
 #[repr(C)]
@@ -457,7 +462,7 @@ pub struct DisunityTileCell {
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 6;
+pub const DISUNITY_ABI_VERSION: u32 = 7;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

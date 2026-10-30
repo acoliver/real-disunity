@@ -404,3 +404,29 @@ fn typed_font_shaping_and_resource_errors() {
         Err(UiError::AtlasLimit)
     );
 }
+
+#[test]
+fn a_child_larger_than_its_parent_allows_keeps_a_negative_size() {
+    let mut w = world();
+    let root = rect(&mut w, None, RectTransform::default());
+    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .unwrap();
+    let parent = rect(
+        &mut w,
+        Some(root),
+        RectTransform {
+            size_delta: Vec2::new(10., 10.),
+            ..Default::default()
+        },
+    );
+    let stretched = RectTransform {
+        anchor_min: Vec2::ZERO,
+        anchor_max: Vec2::ONE,
+        size_delta: Vec2::new(-30., -14.),
+        ..Default::default()
+    };
+    let child = rect(&mut w, Some(parent), stretched);
+    let out = w.ui_layout(viewport()).unwrap();
+    let size = out.rect(child).unwrap().size;
+    assert!(size.abs_diff_eq(Vec2::new(-20., -4.), 0.001), "{size}");
+}

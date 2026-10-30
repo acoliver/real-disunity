@@ -44,6 +44,16 @@ There is no built-in content adapter registry, inventory interpreter, source
 terrain/clutter table, format-specific decoder, or bundled content. Producers must
 supply engine artifacts or construct scenes through the validated public API.
 
+## Independent shadow light
+
+`SceneEffects::with_shadow_direction(Some(direction))` selects a validated
+`SceneDirection` toward the shadow light in scene Z-up coordinates. The default
+is `None`, which follows `SceneSun::direction`. Passing `None` restores that
+behavior. Direct irradiance, sky lighting and the celestial sun keep the direct
+sun direction. Zero or non-unit integer directions return
+`SceneValidationError::DirectionNotNormalized`; non-finite components cannot be
+represented. Both hemispheres are supported, matching the lighting service.
+
 ## Screen-space reflections
 
 The optional `ssr` effects recipe carries `enabled`, `max_steps`,

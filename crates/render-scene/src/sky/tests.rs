@@ -44,6 +44,7 @@ fn sky_pipeline_compiles_for_hdr_and_msaa() {
             context.device(),
             &frame,
             (wgpu::TextureFormat::Rgba16Float, samples, false),
+            false,
         );
         assert!(pollster::block_on(scope.pop()).is_none());
     }

@@ -4,7 +4,7 @@ using Disunity.Native;
 namespace UnityEngine;
 
 public enum RenderMode { ScreenSpaceOverlay, ScreenSpaceCamera, WorldSpace }
-public sealed class Canvas : NativeComponent
+public sealed partial class Canvas : NativeComponent
 {
     internal unsafe DisunityCanvas Read()
     {
@@ -47,16 +47,6 @@ public sealed class Canvas : NativeComponent
         }
     }
     public float planeDistance { get => Read().plane_distance; set { var c = Read(); c.plane_distance = value; Write(c); } }
-    /// <summary>The camera a ScreenSpaceCamera canvas renders through; set it with
-    /// <see cref="DisunityHost.RenderThroughCamera"/>.</summary>
-    public Camera? worldCamera
-    {
-        get
-        {
-            var c = Read();
-            return c.mode == (uint)RenderMode.ScreenSpaceCamera ? DisunityHost.ResolveObject(c.camera).GetComponent<Camera>() : null;
-        }
-    }
 }
 public sealed class Font
 {

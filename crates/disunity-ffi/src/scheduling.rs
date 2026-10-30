@@ -109,6 +109,8 @@ fn encode(
                 ScriptMessage::OnEnable => 11,
                 // Only the delayed-tasks identity receives Update.
                 ScriptMessage::Update => 14,
+                // Only the delayed-tasks identity receives LateUpdate: the canvas events.
+                ScriptMessage::LateUpdate => 15,
                 ScriptMessage::OnDisable => 16,
                 ScriptMessage::OnDestroy => 17,
                 _ => return Err("invalid asset callback".into()),

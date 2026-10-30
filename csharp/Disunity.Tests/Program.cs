@@ -232,6 +232,9 @@ TilemapTests.Run();
 PhysicsMaterialTests.Run();
 
 UiTests.Run();
+PoolTests.Run();
+RectTransformMemberTests.Run();
+CanvasMemberTests.Run();
 SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();
@@ -284,6 +287,7 @@ TransformMemberTests.Run();
 GameObjectMemberTests.Run();
 CoreMemberTests.Run();
 TextureTests.Run();
+MeshTests.Run();
 RenderTextureTests.Run();
 ShaderMaterialTests.Run();
 ProfilingTests.Run();

@@ -148,7 +148,7 @@ internal sealed class DebugLogHandler : ILogHandler
     public void LogException(Exception exception, Object? context)
     {
         var message = Describe(exception);
-        var stack = StackOf(exception);
+        var stack = StackOf(exception) + InnerOf(exception);
         Write(stack.Length == 0 ? message : message + System.Environment.NewLine + stack);
         Application.Deliver(message, stack, LogType.Exception);
     }
@@ -160,6 +160,20 @@ internal sealed class DebugLogHandler : ILogHandler
 
     /// <summary>An exception's stack trace, or a note when formatting it fails, as it can when
     /// a method in it carries an attribute the engine lacks.</summary>
+    /// <summary>Each inner exception after the stack, described and with its own stack, so a failed type
+    /// initializer or a wrapped failure names its cause.</summary>
+    private static string InnerOf(Exception exception)
+    {
+        var text = new System.Text.StringBuilder();
+        for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            text.Append(System.Environment.NewLine).Append("Inner exception: ").Append(Describe(inner));
+            var stack = StackOf(inner);
+            if (stack.Length > 0) text.Append(System.Environment.NewLine).Append(stack);
+        }
+        return text.ToString();
+    }
+
     private static string StackOf(Exception exception)
     {
         try { return exception.StackTrace ?? ""; }

@@ -275,3 +275,83 @@ fn retained_settings_enable_fitting_without_resetting_host_frame_identity() {
     let fit = render_frame(&context, &mut resident, &mut presentation, (Some(43), true)).unwrap();
     assert_eq!((fit.source_frame, fit.adopted_frame), (43, 43));
 }
+
+fn sky_ssr_source(velocity: bool) -> worldrunner_render_plan::RenderScene {
+    use worldrunner_render_plan::*;
+    let base = fitted_scene();
+    let old = base.effects().unwrap();
+    let effects = SceneEffects::new(SceneEffectsParts {
+        water: None,
+        sky: *old.sky(),
+        sun: *old.sun(),
+        ambient: *old.ambient(),
+        shadows: old.shadows().clone(),
+        ssao: None,
+        camera: *old.camera(),
+        grading: *old.grading(),
+        post: vec![],
+        anti_alias: if velocity {
+            SceneAntiAlias::taa(900_000)
+        } else {
+            SceneAntiAlias::Disabled
+        },
+    })
+    .unwrap()
+    .with_depth_fitting(*old.depth_fitting().unwrap())
+    .unwrap()
+    .with_ssr(SceneSsr {
+        enabled: true,
+        ..Default::default()
+    })
+    .unwrap()
+    .with_atmosphere(SceneAtmosphere {
+        celestial_composition: SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy: SceneBackgroundDepthPolicy::FarPlane,
+        scattering: None,
+        horizon_radiance_micro: [2_000_000; 3],
+        zenith_radiance_micro: [2_000_000; 3],
+        gradient_exponent_micro: 1_000_000,
+        sun_angular_radius_millidegrees: 0,
+        fog: None,
+        discs: vec![],
+        meshes: vec![],
+        background_distance_millimeters: 1_000_000,
+    })
+    .unwrap();
+    base.with_objects_and_effects(base.geometry().objects().to_vec(), Some(effects))
+        .unwrap()
+}
+
+#[test]
+fn sky_ssr_interactive_and_same_frame_capture() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    for velocity in [false, true] {
+        let scene = sky_ssr_source(velocity);
+        let profile = crate::FrameProfile::Hdr {
+            samples: 1,
+            tone_map: crate::ToneMap::Reinhard,
+        };
+        let mut resident =
+            Resident::new(&context, &scene, Some(shadow_settings()), profile).unwrap();
+        let size = Viewport {
+            width: 8,
+            height: 8,
+        };
+        let mut presentation = Presentation::with_profile(
+            &context,
+            crate::presentation::COLOR,
+            size,
+            size,
+            profile,
+            scene.effects(),
+        )
+        .unwrap();
+        assert_eq!(
+            render(&context, &mut resident, &mut presentation, false),
+            None
+        );
+        let fit = render(&context, &mut resident, &mut presentation, true).unwrap();
+        assert_eq!(fit.source_frame, fit.adopted_frame);
+    }
+}

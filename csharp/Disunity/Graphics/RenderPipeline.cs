@@ -4,6 +4,8 @@ namespace UnityEngine.Rendering;
 /// members a pipeline overrides come with the slice that loads the player's pipeline.</summary>
 public abstract class RenderPipelineAsset : ScriptableObject
 {
+    /// <summary>Called when the asset is disabled; a pipeline asset overrides it and calls this base.</summary>
+    protected virtual void OnDisable() { }
 }
 
 /// <summary>The asset of a render pipeline type; a render pipeline package derives its asset from this. It adds

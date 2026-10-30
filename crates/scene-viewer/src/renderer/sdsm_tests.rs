@@ -276,7 +276,7 @@ fn retained_settings_enable_fitting_without_resetting_host_frame_identity() {
     assert_eq!((fit.source_frame, fit.adopted_frame), (43, 43));
 }
 
-fn sky_ssr_source(velocity: bool) -> worldrunner_render_plan::RenderScene {
+pub(crate) fn sky_ssr_source(velocity: bool) -> worldrunner_render_plan::RenderScene {
     use worldrunner_render_plan::*;
     let base = fitted_scene();
     let old = base.effects().unwrap();

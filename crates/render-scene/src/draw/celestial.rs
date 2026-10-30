@@ -51,6 +51,17 @@ pub(super) fn upload(
 }
 
 impl super::SceneGpu {
+    pub(crate) fn capture_celestial_textures(
+        &self,
+        device: &wgpu::Device,
+        size: [u32; 2],
+    ) -> Vec<wgpu::Texture> {
+        self.celestial
+            .as_ref()
+            .map(|meshes| meshes.capture_textures(device, size).to_vec())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn plan_celestial(
         &self,
         device: &wgpu::Device,

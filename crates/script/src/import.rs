@@ -11,7 +11,7 @@
 
 use std::sync::atomic::Ordering;
 
-use lua_resume::capture::{PermanentError, Permanents, Snapshot};
+use lua_resume::capture::{Callee, PermanentError, Permanents, Snapshot, ThreadData};
 use lua_resume::restore::{Refusal, Restored, Sources, check_restore};
 use mlua::Value;
 
@@ -69,12 +69,35 @@ impl GameScripts {
     /// state. The result holds the snapshot's roots by name and its threads, in the order the
     /// import gave them, as suspended coroutines the host can adopt into a scheduler. Code is
     /// never in the snapshot, so a restored thread runs the scripts loaded now.
+    ///
+    /// A thread whose top frame waits in a native with a park kind (see
+    /// [`register_park_native`](Self::register_park_native)) is noted as parked in that kind, which
+    /// [`parked_kind`](Self::parked_kind) reads and [`adopt`](Self::adopt) consumes.
     pub fn restore_imported(
         &self,
         snapshot: &Snapshot,
         permanents: &Permanents,
     ) -> Result<Restored, ScriptError> {
-        self.restore_graph(snapshot, permanents)
+        let restored = self.restore_graph(snapshot, permanents)?;
+        for (index, thread) in snapshot.captured.iter().zip(&restored.threads) {
+            if let Some(kind) = self.park_kind_of(snapshot, *index) {
+                self.note_parked(thread, &kind);
+            }
+        }
+        Ok(restored)
+    }
+
+    /// The park kind of the native the top frame of thread `index` waits in.
+    fn park_kind_of(&self, snapshot: &Snapshot, index: usize) -> Option<String> {
+        let Some(ThreadData::Suspended { frames }) = snapshot.threads.get(index) else {
+            return None;
+        };
+        let Callee::Native(name) = &frames.last()?.pending else {
+            return None;
+        };
+        let path = name.strip_prefix("native ")?;
+        let scheduler = self.scheduler().lock().expect("scheduler");
+        scheduler.parks.get(path).cloned()
     }
 }
 

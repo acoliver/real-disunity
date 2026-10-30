@@ -14,7 +14,12 @@
 //! fractions, negative sleeps that wait forever, zero sleeps and new threads that run within
 //! the advance, run order by clock and registration, several clocks that can be paused and set,
 //! and waits with timeouts that a wake or a timeout resumes with values.
+//!
+//! A thread restored from an original engine's save continues in the scheduler once the host
+//! adopts it with the wait it was suspended in (see [`Adoption`]). Threads carry the game's
+//! flags, and a save can keep only the threads whose flags match a mask.
 
+mod adopt;
 mod advance;
 mod lua;
 mod natives;
@@ -22,6 +27,7 @@ mod policy;
 mod register;
 mod state;
 
+pub use adopt::{AdoptWait, Adoption, PersistedThread};
 pub(crate) use natives::Shared;
 pub use policy::{
     ClockNative, Fraction, NegativeSleep, NewThread, Order, ResumeValue, SchedulerPolicy, WaitKind,

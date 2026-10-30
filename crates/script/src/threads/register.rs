@@ -39,6 +39,7 @@ impl GameScripts {
                 return Err(refused("the scheduler already has threads"));
             }
             *scheduler = Scheduler::new(policy, waits);
+            scheduler.sleep_native.clone_from(&names.sleep);
         }
         let sleep = self.yielding(&sleep_text(policy), SLEEP_CHUNK, &[])?;
         let mut natives = vec![
@@ -104,6 +105,7 @@ impl GameScripts {
                     })?),
                 };
                 Ok(WaitSpec {
+                    native: wait.native.clone(),
                     timeout: wait.timeout_value.clone(),
                     on_resume,
                 })

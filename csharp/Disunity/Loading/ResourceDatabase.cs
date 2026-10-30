@@ -117,6 +117,7 @@ internal sealed partial class ResourceDatabase
         "Script" => ScriptType(asset),
         "Prefab" or "UnplannedPrefab" => typeof(GameObject),
         "Shader" or "UnplannedShader" => typeof(Shader),
+        "Material" or "UnplannedMaterial" => typeof(Material),
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
 
@@ -172,7 +173,8 @@ internal sealed partial class ResourceDatabase
             "Prefab" => _built[index] = Prefab(index, asset),
             "UnplannedPrefab" => throw new InvalidOperationException($"Resources: prefab {asset.Str("name")} did not plan: {asset.Str("error")}"),
             "Shader" => _built[index] = PlayerShaders.Build(asset, Difference),
-            "UnplannedShader" => throw new InvalidOperationException($"Resources: {asset.Str("error")}"),
+            "UnplannedShader" or "UnplannedMaterial" => throw new InvalidOperationException($"Resources: {asset.Str("error")}"),
+            "Material" => _built[index] = PlayerMaterials.Build(asset, Asset),
             _ => Script(index, asset),
         };
     }

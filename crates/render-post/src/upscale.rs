@@ -93,12 +93,8 @@ pub(crate) fn append(
     factory: &SpatialUpscale,
 ) {
     let sharpness = factory.settings.sharpness;
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("FSR 1 spatial reconstruction"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("upscale.wgsl").into()),
-    });
-    // Display-referred input needs no more than half precision between the two passes, and
-    // the narrower intermediate halves this stage's memory traffic.
+    let module = module(device, "FSR 1 spatial reconstruction");
+    // Half precision between display-referred passes halves their memory traffic.
     let intermediate = sharpness.map(|_| {
         let texture = crate::color_texture(
             device,
@@ -129,6 +125,7 @@ pub(crate) fn append(
                 .as_ref()
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
             sharpness: 0.0,
+            encoded_srgb: false,
         },
     );
     if let (Some(stops), Some(view)) = (sharpness, intermediate.as_ref()) {
@@ -143,16 +140,49 @@ pub(crate) fn append(
                 format: factory.output_format,
                 target: StageTarget::Output,
                 sharpness: stops,
+                encoded_srgb: false,
             },
         );
     }
 }
+pub(crate) fn append_native(
+    device: &wgpu::Device,
+    set: &mut StageSet,
+    source: &wgpu::TextureView,
+    settings: crate::NativeRcasSettings,
+    format: wgpu::TextureFormat,
+) {
+    let module = module(device, "native RCAS");
+    pass(
+        device,
+        &module,
+        set,
+        source,
+        Pass {
+            entry: "rcas",
+            output: [source.texture().width(), source.texture().height()],
+            format,
+            target: StageTarget::Output,
+            sharpness: settings.stops,
+            encoded_srgb: settings.domain == crate::RcasDomain::EncodedOutput && format.is_srgb(),
+        },
+    );
+}
+
+fn module(device: &wgpu::Device, label: &str) -> wgpu::ShaderModule {
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(include_str!("upscale.wgsl").into()),
+    })
+}
+
 struct Pass {
     entry: &'static str,
     output: [u32; 2],
     format: wgpu::TextureFormat,
     target: StageTarget,
     sharpness: f32,
+    encoded_srgb: bool,
 }
 fn pass(
     device: &wgpu::Device,
@@ -180,6 +210,7 @@ fn pass(
                 ("OUTPUT_WIDTH", f64::from(p.output[0])),
                 ("OUTPUT_HEIGHT", f64::from(p.output[1])),
                 ("SHARPNESS", p.sharpness.into()),
+                ("ENCODED_SRGB", f64::from(u8::from(p.encoded_srgb))),
             ],
         },
     );

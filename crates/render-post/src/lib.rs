@@ -19,6 +19,8 @@ mod fxaa_kernel_tests;
 #[cfg(test)]
 mod fxaa_quality_gpu_tests;
 #[cfg(test)]
+mod native_rcas_tests;
+#[cfg(test)]
 mod operations_buffer_scope_tests;
 #[cfg(test)]
 mod operations_compute_tests;
@@ -103,7 +105,9 @@ pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use jitter::ProjectionJitter;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 pub use taa::{TAA_UNIFORM_BYTES, TaaSettings, TaaUniform};
+mod native_rcas;
 mod tone_map;
+pub use native_rcas::{NativeRcasSettings, RcasDomain};
 mod upscale;
 pub use hdr_post::{
     AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,

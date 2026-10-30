@@ -33,6 +33,8 @@ pub struct HdrPostSettings {
     /// Contrast adaptive sharpening after the resolve and before any upscale.
     pub sharpen: Option<crate::CasSettings>,
     pub upscale: Option<crate::UpscaleSettings>,
+    /// Opt-in RCAS at equal render/output extents; ignored when upscaling.
+    pub native_rcas: Option<crate::NativeRcasSettings>,
 }
 impl HdrPostSettings {
     /// Validate the HDR display path before allocating frame targets.
@@ -58,6 +60,8 @@ impl HdrPostSettings {
 
     pub fn validate(self) -> Result<(), PostError> {
         self.grading.validate()?;
+        self.native_rcas
+            .map_or(Ok(()), crate::NativeRcasSettings::validate)?;
         if let Some(upscale) = self.upscale {
             upscale.validate()?;
         }
@@ -142,6 +146,7 @@ impl HdrPostSettings {
             || self.resolve.requested()
             || self.sharpen.is_some()
             || self.upscale.is_some()
+            || self.native_rcas.is_some()
     }
 }
 

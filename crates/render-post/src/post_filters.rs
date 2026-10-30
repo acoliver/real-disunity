@@ -12,6 +12,7 @@ struct LaterStages {
     resolve: crate::PostResolve,
     sharpen: Option<crate::CasSettings>,
     upscale: Option<crate::UpscaleSettings>,
+    native_rcas: Option<crate::NativeRcasSettings>,
 }
 struct FilterPass<'a> {
     entry: &'static str,
@@ -45,36 +46,21 @@ impl<'a> Filters<'a> {
     ) {
         let targets = scene.targets;
         let bloom = self.bloom_source(scene, settings, exposure, output.1);
-        let mut constants = vec![
-            (
-                "GAUSSIAN",
-                f64::from(u8::from(matches!(
-                    settings.bloom_kernel,
-                    crate::BloomKernel::SeparablePyramid(_)
-                ))),
-            ),
-            ("FIXED", output.1),
-            ("CURVE", output.2.constant()),
-            ("ADAPTIVE", f64::from(u8::from(settings.adaptive.is_some()))),
-            (
-                "INTENSITY",
-                settings.bloom.map_or(0.0, |b| f64::from(b.intensity)),
-            ),
-        ];
-        constants.extend(crate::exposure_policy::output_constants(settings.adaptive));
-        constants.extend(settings.grading.constants());
-        constants.push((
-            "GRADE_COMPOSITION",
-            f64::from(u8::from(settings.grading != crate::ColorGrading::default())),
-        ));
+        let constants = tone_constants(settings, output.1, output.2);
         let resolve = settings.resolve;
         let upscale = settings
             .upscale
             .filter(|_| targets.config().size != targets.config().output_extent());
+        let native_rcas = settings.native_rcas.filter(|_| upscale.is_none());
         let resolved = resolve.schedules_pass();
-        let display_format = settings.display_format();
-        let ldr = (resolved || settings.sharpen.is_some() || upscale.is_some())
-            .then(|| self.display_texture(targets.config().size, display_format));
+        let display_format = if native_rcas.is_some() && !resolved && settings.sharpen.is_none() {
+            wgpu::TextureFormat::Rgba32Float
+        } else {
+            settings.display_format()
+        };
+        let ldr =
+            (resolved || settings.sharpen.is_some() || upscale.is_some() || native_rcas.is_some())
+                .then(|| self.display_texture(targets.config().size, display_format));
         self.pass(FilterPass {
             entry: "tone",
             level: 0,
@@ -91,6 +77,7 @@ impl<'a> Filters<'a> {
             resolve,
             sharpen: settings.sharpen,
             upscale,
+            native_rcas,
         };
         self.finish(targets, later, ldr.as_ref(), output.0);
     }
@@ -106,6 +93,7 @@ impl<'a> Filters<'a> {
         let size = targets.config().size;
         let resolving = later.resolve.schedules_pass();
         let sharpening = later.sharpen.is_some();
+        let final_filter = later.upscale.is_some() || later.native_rcas.is_some();
         // A resolve feeding only an upscale keeps its Rgba32Float intermediate. One feeding
         // sharpening writes the new, narrower Rgba16Float intermediate.
         let resolve_format = if sharpening {
@@ -113,10 +101,15 @@ impl<'a> Filters<'a> {
         } else {
             wgpu::TextureFormat::Rgba32Float
         };
-        let resolved = (resolving && (sharpening || later.upscale.is_some()))
+        let resolved = (resolving && (sharpening || final_filter))
             .then(|| self.display_texture(size, resolve_format));
-        let sharpened = (sharpening && later.upscale.is_some())
-            .then(|| self.display_texture(size, wgpu::TextureFormat::Rgba16Float));
+        let sharpen_format = if later.native_rcas.is_some() {
+            wgpu::TextureFormat::Rgba32Float
+        } else {
+            wgpu::TextureFormat::Rgba16Float
+        };
+        let sharpened =
+            (sharpening && final_filter).then(|| self.display_texture(size, sharpen_format));
         if resolving {
             let output = resolved.as_ref().map_or_else(
                 || (format, StageTarget::Output),
@@ -127,21 +120,35 @@ impl<'a> Filters<'a> {
         if let Some(cas) = later.sharpen {
             let output = sharpened.as_ref().map_or_else(
                 || (format, StageTarget::Output),
-                |v| {
-                    (
-                        wgpu::TextureFormat::Rgba16Float,
-                        StageTarget::Texture(v.clone()),
-                    )
-                },
+                |v| (sharpen_format, StageTarget::Texture(v.clone())),
             );
             let source = resolved.as_ref().or(ldr).unwrap();
             crate::cas::append(self.device, self.set, source, cas, output);
+        }
+        if final_filter {
+            self.final_filter(
+                targets,
+                later,
+                sharpened.as_ref().or(resolved.as_ref()).or(ldr).unwrap(),
+                format,
+            );
+        }
+    }
+    fn final_filter(
+        &mut self,
+        targets: &FrameTargets,
+        later: LaterStages,
+        source: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) {
+        if let Some(settings) = later.native_rcas {
+            crate::upscale::append_native(self.device, self.set, source, settings, format);
         }
         if let Some(settings) = later.upscale {
             crate::upscale::append(
                 self.device,
                 self.set,
-                sharpened.as_ref().or(resolved.as_ref()).or(ldr).unwrap(),
+                source,
                 targets.config().output_extent(),
                 &crate::SpatialUpscale {
                     settings,
@@ -351,4 +358,34 @@ impl<'a> Filters<'a> {
             p.target,
         ));
     }
+}
+
+fn tone_constants(
+    settings: &HdrPostSettings,
+    exposure: f64,
+    tone_map: crate::ToneMap,
+) -> Vec<(&'static str, f64)> {
+    let mut constants = vec![
+        (
+            "GAUSSIAN",
+            f64::from(u8::from(matches!(
+                settings.bloom_kernel,
+                crate::BloomKernel::SeparablePyramid(_)
+            ))),
+        ),
+        ("FIXED", exposure),
+        ("CURVE", tone_map.constant()),
+        ("ADAPTIVE", f64::from(u8::from(settings.adaptive.is_some()))),
+        (
+            "INTENSITY",
+            settings.bloom.map_or(0.0, |b| f64::from(b.intensity)),
+        ),
+    ];
+    constants.extend(crate::exposure_policy::output_constants(settings.adaptive));
+    constants.extend(settings.grading.constants());
+    constants.push((
+        "GRADE_COMPOSITION",
+        f64::from(u8::from(settings.grading != crate::ColorGrading::default())),
+    ));
+    constants
 }

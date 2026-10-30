@@ -36,7 +36,9 @@ pub use retained::{
 pub use camera::{OrbitCamera, OrbitLimits};
 pub use wgpu::PresentMode;
 use worldrunner_render_plan::{RenderScene, SceneCamera};
-pub use worldrunner_render_post::{RenderScale, ToneMap, UpscaleMode, UpscaleSettings};
+pub use worldrunner_render_post::{
+    NativeRcasSettings, RcasDomain, RenderScale, ToneMap, UpscaleMode, UpscaleSettings,
+};
 pub use worldrunner_render_scene::compositor::FrameProfile;
 use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 

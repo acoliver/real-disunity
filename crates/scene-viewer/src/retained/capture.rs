@@ -228,6 +228,7 @@ impl RetainedHost {
         recipe.frame_samples = match self.options.frame_profile {
             crate::FrameProfile::Legacy => 1,
             crate::FrameProfile::Hdr { samples, .. }
+            | crate::FrameProfile::HdrNativeRcas { samples, .. }
             | crate::FrameProfile::HdrUpscaled { samples, .. } => samples,
         };
         let required = recipe.storage_bytes(self.size)?;
@@ -240,7 +241,7 @@ impl RetainedHost {
             });
         }
         self.validate_capture_features(generation, &recipe)?;
-        if recipe.outputs.contains(&CaptureOutput::LinearHdr)
+        if (recipe.outputs.contains(&CaptureOutput::LinearHdr) || recipe.native_rcas().is_some())
             && matches!(self.options.frame_profile, crate::FrameProfile::Legacy)
         {
             return Err(CaptureRequestError::HdrRequired);

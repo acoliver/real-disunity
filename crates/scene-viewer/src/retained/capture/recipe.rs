@@ -23,7 +23,7 @@ pub enum CaptureOutput {
 }
 
 /// Validated capture intent. Unsupported execution modes are rejected at admission.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RetainedCaptureRecipe {
     pub(crate) supersample: u32,
     pub(crate) temporal_samples: u32,
@@ -34,6 +34,7 @@ pub struct RetainedCaptureRecipe {
     pub(crate) require_pages: bool,
     pub(crate) require_geometry: bool,
     pub(crate) frame_samples: u32,
+    native_rcas: Option<crate::NativeRcasSettings>,
 }
 impl RetainedCaptureRecipe {
     pub fn new(
@@ -67,6 +68,7 @@ impl RetainedCaptureRecipe {
             require_pages: false,
             require_geometry: false,
             frame_samples: 1,
+            native_rcas: None,
         })
     }
     /// Wait for current-view material pages using retained page-residency readiness.
@@ -80,6 +82,20 @@ impl RetainedCaptureRecipe {
     pub fn with_geometry_dependency(mut self) -> Self {
         self.require_geometry = true;
         self
+    }
+    /// Select native RCAS for each full-resolution capture sample. Requires an HDR frame.
+    pub fn with_native_rcas(
+        mut self,
+        settings: crate::NativeRcasSettings,
+    ) -> Result<Self, CaptureRequestError> {
+        settings
+            .validate()
+            .map_err(|_| CaptureRequestError::InvalidRecipe)?;
+        self.native_rcas = Some(settings);
+        Ok(self)
+    }
+    pub fn native_rcas(&self) -> Option<crate::NativeRcasSettings> {
+        self.native_rcas
     }
     pub fn supersample(&self) -> u32 {
         self.supersample
@@ -117,7 +133,8 @@ impl RetainedCaptureRecipe {
         }
     }
     pub(crate) fn accumulated(&self) -> bool {
-        self.supersample != 1
+        self.native_rcas.is_some()
+            || self.supersample != 1
             || self.temporal_samples != 1
             || self.jitter != CaptureJitter::None
             || self.advance_clock
@@ -277,5 +294,42 @@ mod tests {
             Err(CaptureRequestError::RecipeBudget { .. })
         ));
         assert!(recipe.storage_bytes([u32::MAX, u32::MAX]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod native_rcas_tests {
+    use super::*;
+    #[test]
+    fn native_rcas_recipe_strength_is_validated_and_off_is_default() {
+        let recipe = RetainedCaptureRecipe::new(
+            1,
+            1,
+            CaptureJitter::None,
+            false,
+            vec![CaptureOutput::Srgb8],
+            4096,
+        )
+        .unwrap();
+        assert_eq!(recipe.native_rcas(), None);
+        assert!(!recipe.accumulated());
+        for stops in [-0.01, 2.01, f32::NAN, f32::NEG_INFINITY] {
+            assert_eq!(
+                recipe.clone().with_native_rcas(crate::NativeRcasSettings {
+                    stops,
+                    domain: crate::RcasDomain::EncodedOutput,
+                }),
+                Err(CaptureRequestError::InvalidRecipe)
+            );
+        }
+        for stops in [0.0, 0.75, 2.0] {
+            let settings = crate::NativeRcasSettings {
+                stops,
+                domain: crate::RcasDomain::EncodedOutput,
+            };
+            let selected = recipe.clone().with_native_rcas(settings).unwrap();
+            assert_eq!(selected.native_rcas(), Some(settings));
+            assert!(selected.accumulated());
+        }
     }
 }

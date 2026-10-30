@@ -343,12 +343,12 @@ unchanged at every sharpness, and alpha is copied.
 
 How it differs from RCAS: RCAS is the optional second pass of the FSR 1 upscale. It runs at the
 output extent after EASU, takes its strength in stops from 0 (strongest) through 2, and limits
-ringing from the minimum and maximum of each color channel. It exists only with an upscale. CAS
+ringing from the minimum and maximum of each color channel. It also supports an opt-in native-resolution pass. CAS
 runs without scaling, at the render extent, with a 0 through 1 sharpness and a contrast
 adaptive amount driven by headroom, so it works with MSAA, FXAA or SMAA at native resolution. With
 an upscale configured, CAS sharpens before reconstruction and RCAS after it; use both only if the
-combined result is not over-sharpened. Prefer RCAS to restore detail after upscaling and CAS to
-offset the softness of FXAA, SMAA or a soft texture filter at native resolution.
+combined result is not over-sharpened. Choose the filter and its domain explicitly when restoring detail after reconstruction or a
+soft resolve at native resolution.
 
 Differences from the reference header: only the `noScaling` path of `CasFilter` is ported, as a
 fragment pass. Taps outside the image clamp to the edge texel. The default quality path is used
@@ -400,10 +400,46 @@ For HDR, set `HdrPostSettings::upscale` and provide the two extents in
 `FrameConfig`. Exposure and bloom run at the render extent before tone mapping.
 FXAA runs after tone mapping at the render extent, then EASU/bilinear and RCAS
 run before final attachment transfer and format conversion. At equal extents,
-the HDR path omits reconstruction and RCAS, preserving the native pass count.
+the HDR path omits reconstruction and upscale RCAS. Native RCAS is separately opt-in,
+so the default preserves the native pass count and output bytes.
 Use `PostChain::resize_extents` to replace both extents and their dependent
 bindings transactionally. `resize` changes the internal extent; an explicit
 presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
+
+### Native-resolution RCAS
+
+`HdrPostSettings::native_rcas: Option<NativeRcasSettings>` schedules one `rcas`
+fullscreen pass when the render and output extents are equal, after tone mapping,
+the selected resolve and CAS. `None` is the default and allocates no extra texture
+or stage. `NativeRcasSettings { stops, domain }` requires finite stops within
+`0..=2`: zero is strongest, two is weakest and neither means off. Invalid settings
+fail validation before allocation. At reduced render extents this setting is
+inactive; `UpscaleSettings::sharpness` retains its display-linear behavior.
+
+`RcasDomain::DisplayLinear` applies the existing RCAS equations directly to
+RGB. `RcasDomain::EncodedOutput` applies the output transfer to each RGB tap
+before the same kernel: sRGB outputs use the piecewise sRGB OETF, while linear
+UNORM and float outputs use identity transfer. Alpha is copied without transfer
+or filtering. Border loads clamp to the edge. Both domains use full-precision
+f32 division, including `1 / (1 + 4*lobe)`, rather than the reference's approximate
+reciprocal. No input tap is quantized to bytes.
+
+The final native RCAS input is `Rgba32Float`, one extra texture per admitted slot.
+For sRGB encoded-domain filtering the shader inverses the transfer on its result
+so the attachment's OETF encodes it once before quantization. Values saturate to
+`[0,1]` for the encoded sRGB output. UNORM conversion rounds to the nearest code;
+transfer implementation error and rounding at code boundaries permit a difference
+of one 8-bit code from the scalar f64 reference, including ties. The tiny known-edge
+GPU test checks that bound on each channel. The direct display-linear float test
+uses absolute error `0.00001` for f32 arithmetic; it has no half-float store.
+
+Interactive viewer frames select `FrameProfile::HdrNativeRcas { samples, tone_map,
+rcas }`. Retained captures select `RetainedCaptureRecipe::with_native_rcas(rcas)`,
+which validates the same settings and requires an HDR frame profile. Each capture
+sample runs at full raster resolution without reconstruction; the recipe override
+is restored to the interactive profile afterward. Supersampling and temporal
+accumulation combine the sharpened samples through the existing capture path.
+Feature readbacks retain their existing non-accumulated recipe restriction.
 
 ### Third-party license
 

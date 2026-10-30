@@ -1,3 +1,5 @@
+mod native_rcas;
+
 #[test]
 fn depth_fitted_recipe_then_ordinary_frame_and_plain_capture_keep_frame_identity() {
     let mut host = RetainedHost::new(
@@ -128,6 +130,13 @@ fn completed(
     recipe: RetainedCaptureRecipe,
 ) -> RetainedCaptureProducts {
     let id = host.request_capture_recipe(0, recipe).unwrap();
+    await_capture(host, renderer, id)
+}
+fn await_capture(
+    host: &mut RetainedHost,
+    renderer: &mut Renderer,
+    id: u64,
+) -> RetainedCaptureProducts {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         renderer.render_retained(host).unwrap();

@@ -186,20 +186,32 @@ impl Layout for PreloadData {
     }
 }
 
-/// Bytes of one quality level's settings, which follow its name.
-const QUALITY_LEVEL_SETTINGS_LEN: usize = 192;
+/// Bytes of one quality level's settings before its render pipeline reference.
+const QUALITY_LEVEL_BEFORE_PIPELINE_LEN: usize = 144;
 
-/// The player's quality levels: which one is current and what each is called.
+/// Bytes of one quality level's settings after its render pipeline reference.
+const QUALITY_LEVEL_AFTER_PIPELINE_LEN: usize = 36;
+
+/// Bytes of one quality level's settings after its name: 144, a render pipeline reference of
+/// 12 and 36.
+const QUALITY_LEVEL_SETTINGS_LEN: usize =
+    QUALITY_LEVEL_BEFORE_PIPELINE_LEN + PPTR_LEN + QUALITY_LEVEL_AFTER_PIPELINE_LEN;
+
+/// The player's quality levels: which one is current, what each is called and which render
+/// pipeline asset each names.
 ///
-/// This is the layout of Unity 6000.3 players. Each level's 192 bytes of settings are skipped
+/// This is the layout of Unity 6000.3 players. The rest of each level's 192 bytes of settings
 /// and the 8 bytes after the last level (both zero in the Old World player) are not read, so
-/// the values a level stands for are not decoded yet.
+/// the other values a level stands for are not decoded yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QualitySettings {
     /// The index of the level in use, as the player was built.
     pub current: i32,
     /// Level names in level order.
     pub names: Vec<String>,
+    /// The render pipeline asset of each level in level order, null when the level uses the
+    /// one `GraphicsSettings` names.
+    pub render_pipelines: Vec<PPtr>,
 }
 
 impl Layout for QualitySettings {
@@ -207,16 +219,23 @@ impl Layout for QualitySettings {
 
     fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         let current = r.i32()?;
-        let names = r.array(
+        let levels = r.array(
             "quality level",
             LENGTH_MIN + QUALITY_LEVEL_SETTINGS_LEN,
             |r| {
                 let name = r.string()?;
-                r.bytes::<QUALITY_LEVEL_SETTINGS_LEN>()?;
-                Ok(name)
+                r.bytes::<QUALITY_LEVEL_BEFORE_PIPELINE_LEN>()?;
+                let pipeline = r.pptr()?;
+                r.bytes::<QUALITY_LEVEL_AFTER_PIPELINE_LEN>()?;
+                Ok((name, pipeline))
             },
         )?;
         r.bytes::<8>()?;
-        Ok(Self { current, names })
+        let (names, render_pipelines) = levels.into_iter().unzip();
+        Ok(Self {
+            current,
+            names,
+            render_pipelines,
+        })
     }
 }

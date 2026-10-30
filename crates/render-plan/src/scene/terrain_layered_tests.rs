@@ -55,6 +55,66 @@ fn explicit_textures() -> Vec<SceneTexture> {
 }
 
 #[test]
+fn layered_resources_reject_unreferenced_half_float_slots() {
+    let appearance = SceneTerrainAppearance {
+        layered: Some(layer()),
+        ..SceneTerrainAppearance::NEUTRAL
+    };
+    let terrain = terrain(appearance, 1);
+    let slots = [
+        TerrainLayerTexture::AlbedoMetallic,
+        TerrainLayerTexture::NormalRoughness,
+        TerrainLayerTexture::Height,
+    ];
+    for slot in 0..3 {
+        let channel = TerrainLayerChannel {
+            texture: slots[(slot + 1) % 3],
+            channel: 0,
+        };
+        let source = TerrainLayeredSource {
+            channel_map: Some(TerrainLayerChannelMap {
+                albedo: [channel; 3],
+                albedo_color_space: TextureColorSpace::Linear,
+                metallic: channel,
+                height: channel,
+                normal: [channel; 3],
+                normal_encoding: SceneNormalEncoding::TwoChannelXy,
+                roughness: channel,
+                invert_roughness: false,
+            }),
+            ..source()
+        };
+        let valid_textures = explicit_textures();
+        assert!(source.validate_resources(&terrain, &valid_textures).is_ok());
+        for format in [TexelFormat::Rg16Float, TexelFormat::Rgba16Float] {
+            for sampled in [false, true] {
+                let mut textures = valid_textures.clone();
+                let texture = SceneTexture::Texels {
+                    format,
+                    color_space: TextureColorSpace::Linear,
+                    width: 1,
+                    height: 1,
+                    mips: 1,
+                    bytes: vec![0; usize::try_from(format.bytes_per_texel()).unwrap()].into(),
+                };
+                textures[slot] = if sampled {
+                    texture.with_sampler(TextureSampler::default())
+                } else {
+                    texture
+                };
+                assert_eq!(
+                    source.validate_resources(&terrain, &textures),
+                    Err(SceneValidationError::UnsupportedInput {
+                        part: "terrain layered texture format",
+                    }),
+                    "format={format:?}, slot={slot}, sampled={sampled}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn layered_inputs_reject_encoded_layouts_in_every_slot() {
     let terrain = terrain(
         SceneTerrainAppearance {

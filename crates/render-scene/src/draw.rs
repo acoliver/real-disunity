@@ -626,6 +626,7 @@ impl SceneGpu {
 }
 
 use resources::{upload_meshes, upload_textures};
+mod environment;
 mod prepared;
 mod resources;
 pub use prepared::PreparedScene;

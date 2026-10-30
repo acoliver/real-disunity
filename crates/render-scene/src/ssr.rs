@@ -100,7 +100,7 @@ pub(crate) struct Ssr {
     water_trace: wgpu::RenderPipeline,
     water_resolve: wgpu::RenderPipeline,
 }
-fn composition(
+pub(crate) fn composition(
     selected: worldrunner_render_plan::SceneSsrComposition,
 ) -> worldrunner_render_lighting::reflections::Composition {
     match selected {

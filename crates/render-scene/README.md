@@ -330,3 +330,11 @@ index and transition bytes. They exclude internal resources, terrain, instances,
 driver overhead and staging alignment. `take_statistics()` acknowledges initial
 resource uploads for this resident generation; later calls retain residency and
 draw counts but report zero new resource uploads. Both APIs return owned values.
+
+Scene texture cubes and half-float BRDF tables use the common texture uploader.
+`SceneGpu::environment_maps` references that uploaded storage through
+`PreparedEnvironmentMaps`; the compositor water and reflection setters install
+those views without filtering or allocating another cube. `set_water_environment` selects only water;
+`set_reflection_environment` installs SSR maps and shares them with installed water.
+`set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
+retained settings publication, including removal and consumer changes.

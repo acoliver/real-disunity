@@ -110,6 +110,7 @@ pub use worldrunner_render_gpu::texture::MipLevel;
 /// A governed texture resolved to a `wgpu` format and a borrowed mip chain.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreparedTexture<'a> {
+    cube: Option<&'a worldrunner_render_plan::SceneSpecularCube>,
     format: TextureFormat,
     width: u32,
     height: u32,
@@ -145,6 +146,7 @@ impl<'a> PreparedTexture<'a> {
 /// Owned prepared mip bytes for transfer from CPU workers to GPU publication.
 #[derive(Debug)]
 pub struct OwnedPreparedTexture {
+    cube: Option<worldrunner_render_plan::SceneSpecularCube>,
     format: TextureFormat,
     width: u32,
     height: u32,
@@ -164,6 +166,7 @@ impl PreparedTexture<'_> {
     /// Copies the prepared mip chain into transferable owned storage.
     pub fn into_owned(self) -> OwnedPreparedTexture {
         OwnedPreparedTexture {
+            cube: self.cube.cloned(),
             format: self.format,
             width: self.width,
             height: self.height,
@@ -185,6 +188,7 @@ impl OwnedPreparedTexture {
     /// Borrows the prepared bytes without parsing or validating the source container.
     pub fn as_prepared(&self) -> PreparedTexture<'_> {
         PreparedTexture {
+            cube: self.cube.as_ref(),
             format: self.format,
             width: self.width,
             height: self.height,
@@ -212,6 +216,7 @@ impl OwnedPreparedTexture {
 /// declared.
 pub fn prepare_texture(texture: &SceneTexture) -> Result<PreparedTexture<'_>, TextureError> {
     match texture.payload() {
+        SceneTexture::SpecularCube(cube) => prepare_cube(cube),
         SceneTexture::Sampled { .. } => unreachable!("payload removes sampling wrapper"),
         SceneTexture::Texels {
             format,
@@ -256,6 +261,7 @@ fn prepare_texels(
     let gpu_format = texel_format(format, declared)?;
     let mips = canonical_mips(gpu_format, width, height, mip_count, bytes)?;
     Ok(PreparedTexture {
+        cube: None,
         format: gpu_format,
         width,
         height,
@@ -274,15 +280,21 @@ fn texel_format(
     declared: TextureColorSpace,
 ) -> Result<TextureFormat, TextureError> {
     match (format, declared) {
+        (TexelFormat::Rg16Float, TextureColorSpace::Linear) => Ok(TextureFormat::Rg16Float),
+        (TexelFormat::Rgba16Float, TextureColorSpace::Linear) => Ok(TextureFormat::Rgba16Float),
         (TexelFormat::R8Unorm, TextureColorSpace::Linear) => Ok(TextureFormat::R8Unorm),
         (TexelFormat::Rg8Unorm, TextureColorSpace::Linear) => Ok(TextureFormat::Rg8Unorm),
         (TexelFormat::Rgba8Unorm, TextureColorSpace::Linear) => Ok(TextureFormat::Rgba8Unorm),
         (TexelFormat::Rgba8Unorm, TextureColorSpace::Srgb) => Ok(TextureFormat::Rgba8UnormSrgb),
         (TexelFormat::Bgra8Unorm, TextureColorSpace::Linear) => Ok(TextureFormat::Bgra8Unorm),
         (TexelFormat::Bgra8Unorm, TextureColorSpace::Srgb) => Ok(TextureFormat::Bgra8UnormSrgb),
-        (format @ (TexelFormat::R8Unorm | TexelFormat::Rg8Unorm), declared) => {
-            Err(TextureError::ColorSpaceUnrepresentable { format, declared })
-        }
+        (
+            format @ (TexelFormat::R8Unorm
+            | TexelFormat::Rg8Unorm
+            | TexelFormat::Rg16Float
+            | TexelFormat::Rgba16Float),
+            declared,
+        ) => Err(TextureError::ColorSpaceUnrepresentable { format, declared }),
     }
 }
 
@@ -334,6 +346,7 @@ fn prepare_dds(
         &bytes[DX10_HEADER_END..],
     )?;
     Ok(PreparedTexture {
+        cube: None,
         format,
         width,
         height,
@@ -386,3 +399,42 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
 
 #[cfg(test)]
 mod tests;
+
+fn prepare_cube(
+    cube: &worldrunner_render_plan::SceneSpecularCube,
+) -> Result<PreparedTexture<'_>, TextureError> {
+    let format = cube_format(cube);
+    let face_bytes = cube.bytes().len() / 6;
+    Ok(PreparedTexture {
+        cube: Some(cube),
+        format,
+        width: cube.size(),
+        height: cube.size(),
+        mips: canonical_mips(
+            format,
+            cube.size(),
+            cube.size(),
+            cube.mip_count(),
+            &cube.bytes()[..face_bytes],
+        )?,
+    })
+}
+pub(crate) fn cube_format(cube: &worldrunner_render_plan::SceneSpecularCube) -> TextureFormat {
+    match cube.format() {
+        worldrunner_render_plan::SceneSpecularCubeFormat::Bc6hRgbUfloat => {
+            TextureFormat::Bc6hRgbUfloat
+        }
+        worldrunner_render_plan::SceneSpecularCubeFormat::Rgba16Float => TextureFormat::Rgba16Float,
+    }
+}
+impl PreparedTexture<'_> {
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        self.cube.map_or_else(
+            || self.mips.iter().map(|m| m.bytes.len() as u64).sum(),
+            |cube| cube.bytes().len() as u64,
+        )
+    }
+    pub(crate) fn cube(&self) -> Option<&worldrunner_render_plan::SceneSpecularCube> {
+        self.cube
+    }
+}

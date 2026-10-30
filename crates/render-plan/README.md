@@ -93,3 +93,19 @@ but only one resolve. `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` 
 fitted ACES), followed by FXAA. MSAA and FXAA are allowed together: MSAA resolves
 HDR coverage before metering and FXAA filters the display-linear result.
 Contrast and saturation remain unsupported.
+
+## Shared specular environment
+
+`SceneEffects::with_environment` selects an optional `SceneEnvironment` by texture
+handles. Its cube is `SceneTexture::SpecularCube`, using the existing
+`SceneSpecularCube`: linear BC6H unsigned-float radiance with a complete mip chain,
+or linear RGBA16Float radiance with an explicitly sized mip chain. Faces are
++X, -X, +Y, -Y, +Z, -Z, with finest-to-coarsest levels per face.
+
+The split-sum LUT is a square, single-mip linear RG16Float or RGBA16Float texel
+grid. RG stores A,B at x = view cosine, y = roughness. Its roughness and visibility
+convention must match the scene. Consumers select water, reflection fallback, or
+both, and must be enabled. Scene construction rejects missing handles, wrong
+resource kinds, LUT formats and mismatched conventions with `SceneValidationError`.
+Retained settings updates replace or remove the environment without uploading the
+scene again. Omitting it preserves the stock empty-environment rendering.

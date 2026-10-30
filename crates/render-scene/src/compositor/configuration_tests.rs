@@ -1,4 +1,67 @@
 #[test]
+fn scene_environment_consumers_isolate_water_and_reflections() {
+    use worldrunner_render_plan::SceneEnvironmentConsumers::{Both, Reflections, Water};
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let maps = reflection_maps(
+        &context,
+        crate::sky::preparation::EnvironmentPreparation {
+            convention: worldrunner_render_plan::SceneSpecularConvention::default(),
+            cube_size: 2,
+            source_lod_tail: 1,
+            mip_count: 2,
+            specular_intensity_micro: 1_000_000,
+            lut_size: 1,
+            samples: 8,
+        },
+    );
+    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    settings.ssr = Some(worldrunner_render_plan::SceneSsr::default());
+    settings.water = vec![environment_water_body()];
+    let mut renderer =
+        ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1_000_000)).unwrap();
+    for consumers in [Water, Reflections, Both, Reflections, Water] {
+        renderer.clear_environment(context.device());
+        renderer
+            .set_scene_environment(context.device(), &maps, consumers)
+            .unwrap();
+        let current = renderer.state.current();
+        let ssr = &current.ssr.as_ref().unwrap().environment;
+        let water = &current.water.as_ref().unwrap().environment;
+        let (cube, lut) = maps.views().unwrap();
+        for (actual, expected) in [(ssr, consumers.reflections()), (water, consumers.water())] {
+            assert_eq!(actual[0].texture() == cube.texture(), expected);
+            assert_eq!(actual[1].texture() == lut.texture(), expected);
+        }
+        assert_eq!(
+            current.environment_conventions[0].is_some(),
+            consumers.reflections()
+        );
+        assert_eq!(
+            current.environment_conventions[1].is_some(),
+            consumers.water()
+        );
+    }
+}
+
+fn environment_water_body() -> worldrunner_render_plan::SceneWaterBody {
+    worldrunner_render_plan::SceneWaterBody {
+        material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+        surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: 0,
+        east_min_millimeters: -10000,
+        north_min_millimeters: -10000,
+        east_extent_millimeters: 20000,
+        north_extent_millimeters: 20000,
+        color_micro: [50000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50000],
+        roughness_micro: 200_000,
+    }
+}
+
+#[test]
 fn reflection_mip_inventory_counts_physical_storage_once() {
     use worldrunner_render_plan::{SceneSsr, SceneSsrPyramid};
     let limits = wgpu::Limits::default();

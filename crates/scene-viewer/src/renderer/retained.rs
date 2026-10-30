@@ -118,6 +118,7 @@ pub(super) fn configure_effects(
         Resident::Plain(_) => {}
     }
     presentation.scheduler.reconfigure(context, settings)?;
+    super::environment::install(context, resident, presentation, Some(effects), true)?;
     presentation.refresh_targets();
     Ok(())
 }

@@ -44,14 +44,7 @@ impl ResourceCounters {
             textures: prepared
                 .textures
                 .iter()
-                .map(|texture| {
-                    texture
-                        .as_prepared()
-                        .mips()
-                        .iter()
-                        .map(|mip| mip.bytes.len() as u64)
-                        .sum::<u64>()
-                })
+                .map(|texture| texture.as_prepared().payload_bytes())
                 .sum(),
             meshes: prepared
                 .meshes

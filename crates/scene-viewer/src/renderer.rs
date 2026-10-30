@@ -7,6 +7,7 @@ use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
 mod capture;
+mod environment;
 mod execution;
 mod live;
 mod readiness;
@@ -75,7 +76,7 @@ impl Renderer {
         let extents = Extents::for_device([size.width, size.height], context.device())?;
         let initial = extents.unwrap_or_else(Extents::placeholder);
         let viewport = extents.map(|extents| extents.surface);
-        let presentation = Presentation::with_settings(
+        let mut presentation = Presentation::with_settings(
             &context,
             policy.format,
             [initial.render, initial.surface],
@@ -86,7 +87,14 @@ impl Renderer {
                 recipes: startup.recipes,
             },
         )?;
-        let resident = Resident::new(&context, scene, shadows, profile)?;
+        let mut resident = Resident::new(&context, scene, shadows, profile)?;
+        environment::install(
+            &context,
+            &mut resident,
+            &mut presentation,
+            scene.effects(),
+            false,
+        )?;
         #[cfg(all(test, target_os = "linux"))]
         let test_instance = instance.clone();
         let execution = execution::SurfaceExecution::new(
@@ -306,7 +314,8 @@ fn required_features(scene: &RenderScene) -> wgpu::Features {
         .resources()
         .textures()
         .iter()
-        .any(|texture| matches!(texture, SceneTexture::Encoded { .. }))
+        .any(|texture| matches!(texture.payload(), SceneTexture::Encoded { .. })
+            || matches!(texture.payload(), SceneTexture::SpecularCube(cube) if cube.format() == worldrunner_render_plan::SceneSpecularCubeFormat::Bc6hRgbUfloat))
     {
         wgpu::Features::TEXTURE_COMPRESSION_BC
     } else {

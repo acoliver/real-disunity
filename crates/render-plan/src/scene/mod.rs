@@ -13,7 +13,7 @@ pub use decal::{
 };
 mod atmosphere;
 mod specular_cube;
-pub use specular_cube::SceneSpecularCube;
+pub use specular_cube::{SceneSpecularCube, SceneSpecularCubeFormat};
 mod celestial_lighting;
 pub use celestial_lighting::SceneCelestialLighting;
 mod fog_density;
@@ -31,6 +31,8 @@ mod depth_fitting;
 mod depth_footprint;
 pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod effects;
+mod environment;
+pub use environment::{SceneEnvironment, SceneEnvironmentConsumers};
 mod shadow_sampling;
 pub use shadow_sampling::{SceneShadowFilter, SceneShadowSampling};
 mod lighting;
@@ -81,6 +83,8 @@ mod foliage_wind;
 #[cfg(test)]
 mod foliage_wind_tests;
 mod geometry;
+mod scene_geometry;
+pub use scene_geometry::SceneGeometry;
 mod lod_material;
 pub use lod_material::SceneLodMaterialSlot;
 mod lod_policy;
@@ -156,60 +160,6 @@ pub struct SceneParts {
     pub terrain: Option<SceneTerrain>,
     /// Optional environmental profile. Absence requests unlit rendering.
     pub effects: Option<SceneEffects>,
-}
-
-/// Mesh table plus ordered objects of one scene.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SceneGeometry {
-    meshes: std::sync::Arc<[SceneMesh]>,
-    objects: Box<[SceneObject]>,
-}
-
-impl SceneGeometry {
-    /// Adopts the mesh table and ordered objects.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SceneValidationError`] when a mesh chain or an object
-    /// transform violates its own closure.
-    pub fn new(
-        meshes: Vec<SceneMesh>,
-        objects: Vec<SceneObject>,
-    ) -> Result<Self, SceneValidationError> {
-        let geometry = Self {
-            meshes: meshes.into(),
-            objects: objects.into_boxed_slice(),
-        };
-        geometry.validate()?;
-        Ok(geometry)
-    }
-
-    /// Returns the owned mesh table.
-    #[must_use]
-    pub fn meshes(&self) -> &[SceneMesh] {
-        &self.meshes
-    }
-
-    /// Returns the ordered objects in authored draw order.
-    #[must_use]
-    pub fn objects(&self) -> &[SceneObject] {
-        &self.objects
-    }
-
-    /// Validates every mesh chain and object transform.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SceneValidationError`] on the first violated invariant.
-    pub fn validate(&self) -> Result<(), SceneValidationError> {
-        for mesh in self.meshes.iter() {
-            mesh.validate()?;
-        }
-        for object in &self.objects {
-            object.transform().validate()?;
-        }
-        Ok(())
-    }
 }
 
 /// One complete closed renderer-domain scene.
@@ -375,6 +325,9 @@ impl RenderScene {
         self.validate_decals()?;
         if let Some(effects) = &self.effects {
             effects.validate()?;
+            if let Some(environment) = effects.environment() {
+                environment.validate(&self.resources, effects.specular_convention())?;
+            }
         }
         if let Some(atmosphere) = self.effects.as_ref().and_then(SceneEffects::atmosphere) {
             atmosphere.validate_handles(

@@ -1,6 +1,7 @@
 //! Bounded environment filtering jobs recorded through the queue's submission authority.
 //! No resource becomes observable until its transaction submits; cancellation drops the work.
 pub mod authored;
+mod uploaded;
 use wgpu::util::DeviceExt;
 use worldrunner_render_gpu::{
     configuration::{AllocationBudget, AllocationSet},
@@ -96,7 +97,7 @@ pub struct PreparedEnvironmentMaps {
     lut: wgpu::Texture,
     authored_brdf: Option<AuthoredBrdfTable>,
     specular_intensity_micro: u32,
-    transaction: Publications,
+    transaction: Option<Publications>,
     convention: worldrunner_render_plan::SceneSpecularConvention,
 }
 impl PreparedEnvironmentMaps {
@@ -105,7 +106,7 @@ impl PreparedEnvironmentMaps {
     }
     /// Queue ordering permits use after submission without a CPU wait.
     pub fn views(&self) -> Result<(wgpu::TextureView, wgpu::TextureView), PreparationError> {
-        if self.transaction.status() != TransactionStatus::Submitted {
+        if self.status() != TransactionStatus::Submitted {
             return Err(PreparationError::NotSubmitted);
         }
         Ok((
@@ -126,7 +127,9 @@ impl PreparedEnvironmentMaps {
         ))
     }
     pub fn status(&self) -> TransactionStatus {
-        self.transaction.status()
+        self.transaction
+            .as_ref()
+            .map_or(TransactionStatus::Submitted, Publications::status)
     }
 }
 
@@ -175,7 +178,7 @@ pub fn encode(
     Ok(PreparedEnvironmentMaps {
         cube,
         lut,
-        transaction,
+        transaction: Some(transaction),
         convention: settings.convention,
         authored_brdf: None,
         specular_intensity_micro: settings.specular_intensity_micro,

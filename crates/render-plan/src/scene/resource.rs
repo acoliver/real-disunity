@@ -45,6 +45,8 @@ dense_handle!(
 /// Closed texel formats with a fixed whole byte length per texel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TexelFormat {
+    Rg16Float,
+    Rgba16Float,
     /// One unsigned normalized byte per texel.
     R8Unorm,
     /// Two unsigned normalized bytes per texel.
@@ -60,9 +62,10 @@ impl TexelFormat {
     #[must_use]
     pub const fn bytes_per_texel(self) -> u64 {
         match self {
+            Self::Rgba16Float => 8,
             Self::R8Unorm => 1,
             Self::Rg8Unorm => 2,
-            Self::Rgba8Unorm | Self::Bgra8Unorm => 4,
+            Self::Rg16Float | Self::Rgba8Unorm | Self::Bgra8Unorm => 4,
         }
     }
 }
@@ -104,6 +107,8 @@ pub enum TextureColorSpace {
 /// One owned texture as either an explicit texel grid or one exact encoded payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SceneTexture {
+    /// Validated linear prefiltered radiance cube.
+    SpecularCube(super::SceneSpecularCube),
     /// Per-texture sampling with an unchanged owned payload.
     Sampled {
         texture: Box<SceneTexture>,
@@ -140,6 +145,7 @@ impl SceneTexture {
     #[must_use]
     pub const fn color_space(&self) -> TextureColorSpace {
         match self {
+            Self::SpecularCube(_) => TextureColorSpace::Linear,
             Self::Sampled { texture, .. } => texture.color_space(),
             Self::Texels { color_space, .. } | Self::Encoded { color_space, .. } => *color_space,
         }
@@ -155,6 +161,7 @@ impl SceneTexture {
     /// content carries an empty payload.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         match self {
+            Self::SpecularCube(_) => Ok(()),
             Self::Sampled { texture, .. } => texture.validate(),
             Self::Texels {
                 format,
@@ -618,107 +625,14 @@ impl SceneResources {
     pub fn materials(&self) -> &[SceneMaterial] {
         &self.materials
     }
-
-    /// Validates every texture payload and material texture reference.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SceneValidationError`] on the first violated invariant.
-    pub fn validate(&self) -> Result<(), SceneValidationError> {
-        for texture in self.textures.iter() {
-            texture.validate()?;
-        }
-        let limit = u64::try_from(self.textures.len()).map_err(|_| {
-            SceneValidationError::ArithmeticOverflow {
-                part: "texture table length",
-            }
-        })?;
-        for material in self.materials.iter() {
-            validate_auxiliary_textures(material, &self.textures, limit)?;
-            require_texture("material albedo", material.albedo(), limit)?;
-            if let Some(atlas) = material.impostor() {
-                atlas.validate_channels(material)?;
-                if let Some((depth, _)) = atlas.relief() {
-                    require_texture("impostor depth", depth, limit)?;
-                }
-                if let Some(border) = atlas.borders() {
-                    require_texture("impostor borders", border, limit)?;
-                }
-            }
-            if let Some(normal) = material.normal() {
-                require_texture("material normal", normal, limit)?;
-            }
-            if let Some(roughness_metallic) = material.roughness_metallic() {
-                require_texture("material roughness_metallic", roughness_metallic, limit)?;
-            }
-            if let Some(ambient_occlusion) = material.ambient_occlusion() {
-                require_texture("material ambient_occlusion", ambient_occlusion, limit)?;
-            }
-            if let Some(self_illumination) = material.self_illumination() {
-                require_texture("material self_illumination", self_illumination, limit)?;
-            }
-            if let Some(layer) = material.features().and_then(|features| features.layer) {
-                let count = self.materials.len() as u64;
-                if u64::from(layer.material().raw()) >= count {
-                    return Err(SceneValidationError::HandleOutOfRange {
-                        part: "material layer",
-                        resource: "material",
-                        handle: layer.material().raw(),
-                        limit: count,
-                    });
-                }
-                if self.materials[layer.material().raw() as usize]
-                    .features()
-                    .is_some_and(|features| features.layer.is_some())
-                {
-                    return Err(SceneValidationError::UnsupportedInput {
-                        part: "nested material layers",
-                    });
-                }
-            }
-            material.alpha_mode().validate()?;
-        }
-        Ok(())
-    }
 }
 
-/// Requires one texture handle to address the texture table.
-fn require_texture(
-    part: &'static str,
-    handle: TextureHandle,
-    limit: u64,
-) -> Result<(), SceneValidationError> {
-    if u64::from(handle.raw()) < limit {
-        Ok(())
-    } else {
-        Err(SceneValidationError::HandleOutOfRange {
-            part,
-            resource: "texture",
-            handle: handle.raw(),
-            limit,
-        })
-    }
-}
+#[path = "resource_validation.rs"]
+mod validation;
 
 #[cfg(test)]
 #[path = "resource_tests.rs"]
 mod tests;
-
-fn validate_auxiliary_textures(
-    material: &SceneMaterial,
-    textures: &[SceneTexture],
-    limit: u64,
-) -> Result<(), SceneValidationError> {
-    material.fade_coverage().validate(textures)?;
-    if let Some(field) = material
-        .features()
-        .and_then(|f| f.wind)
-        .and_then(super::SceneWind::field)
-    {
-        require_texture("wind force field", field.texture(), limit)?;
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 #[path = "resource_table_tests.rs"]

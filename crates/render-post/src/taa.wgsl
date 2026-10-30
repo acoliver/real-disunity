@@ -158,10 +158,13 @@ fn linear_depth(z: f32) -> f32 {
 // The history uv for the pixel and whether it is usable: the motion of the
 // closest-depth neighbor, applied at the pixel centre. The camera motion comes from depth, the
 // object motion from the velocity of that same texel (Karis dilation), so a thin moving edge
-// carries its foreground's vector to the pixels around it.
+// carries its foreground's vector to the pixels around it. A multisampled frame takes both the
+// depth and the residual from the pixel itself, with no dilation: its samples already resolve
+// the edge, and a neighbor's vector would carry a moving object's history onto the background
+// beside it.
 fn history_uv(p: vec2<i32>, size: vec2<i32>) -> Lookup {
     let size_f = vec2<f32>(size);
-    let q = closest(p, size);
+    let q = select(closest(p, size), clamp(p, vec2<i32>(0), size - 1), SAMPLES > 1);
     let texel = (vec2<f32>(q) + 0.5) / size_f;
     let jitter = taa.jitter_valid.xy;
     // The depth texel was rasterised `jitter` pixels off its centre.

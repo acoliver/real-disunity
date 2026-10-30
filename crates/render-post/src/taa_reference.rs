@@ -285,8 +285,9 @@ impl Frame<'_> {
         best
     }
 
-    /// The object-motion residual of the closest-depth texel `q`, from the same texel (and, for
-    /// a multisampled frame, the same minimum-depth sample) that supplies the depth.
+    /// The object-motion residual of texel `q`, from the same texel (and, for a multisampled
+    /// frame, the same minimum-depth sample) that supplies the depth. `history_uv` passes the
+    /// closest-depth neighbor at 1x and the pixel itself when multisampled.
     fn residual(&self, q: [i32; 2]) -> [f64; 2] {
         self.velocity.map_or([0.0; 2], |velocity| {
             velocity.load(q, self.depth.winning_sample(q[0], q[1]))
@@ -297,9 +298,16 @@ impl Frame<'_> {
     /// or lands outside the image. The motion is that of the closest-depth neighbor: its
     /// unjittered NDC (the depth texel was rasterised `jitter` pixels off its centre) and its
     /// depth go through the reprojection matrix, and the uv displacement is applied at the
-    /// pixel centre, plus that texel's object-motion residual (Karis dilation).
+    /// pixel centre, plus that texel's object-motion residual (Karis dilation). A multisampled frame
+    /// takes both the depth and the residual from the pixel itself, with no dilation: its coverage
+    /// samples already resolve the edge, and a neighbor's vector would drag a background pixel
+    /// next to a moving object to the object's history.
     fn history_uv(&self, at: [i32; 2]) -> Option<Lookup> {
-        let q = self.closest(at);
+        let q = if self.samples > 1 {
+            at
+        } else {
+            self.closest(at)
+        };
         let size = self.depth.size.map(f64::from);
         let uv = |p: [i32; 2]| {
             [

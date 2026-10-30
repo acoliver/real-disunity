@@ -18,7 +18,8 @@
 //! | ------------------------------------- | ----------------------------------------- |
 //! | Opaque, masked and relief objects     | Residual (`@location(1)`): wind and the   |
 //! |                                       | instance's own previous transform         |
-//! | Billboards and impostor cards         | Wind only (no transform of their own)     |
+//! | Billboards and impostor cards         | Wind, instance motion and the turn of the |
+//! |                                       | camera-facing basis (previous camera)     |
 //! | Terrain                               | Written as zero (static in world space)   |
 //! | Dynamic quads                         | Not written (empty mask), stays at zero   |
 //! | Sky, celestial mesh composition       | Not written (empty mask), stays at zero   |
@@ -110,8 +111,15 @@ fn replace_once(source: &str, from: &str, to: &str) -> String {
 
 /// Declarations behind the previous-transform vertex buffer (locations 12 to 15, the layout of
 /// the instance buffer's matrix). The model matrix is handed to the delta through a private
-/// variable so the stock vertex helpers keep their signatures. Billboards and impostors face the
-/// camera rather than follow their transform, so their previous position is the current one.
+/// variable so the stock vertex helpers keep their signatures.
+///
+/// Billboards and impostor cards build their basis from the camera, so their previous position
+/// is rebuilt by `scene_card_position` from the previous camera (`previous_frame.camera_time.xyz`)
+/// and the previous pivot and scale, through the same `billboard_basis_from` the stock vertex
+/// stage uses for the current frame. The card vertex `scene_card_local` is the same local offset
+/// both times: the authored vertex, or the cropped plane point of a relief impostor. The delta is
+/// added to the stock position as `previous card - current card`, so an unchanged camera and
+/// instance give bitwise equal terms and a delta of exactly zero.
 const PREVIOUS_INSTANCE: &str = "
 struct PreviousInstance {
     @location(12) model_column_0: vec4<f32>,
@@ -120,6 +128,14 @@ struct PreviousInstance {
     @location(15) model_column_3: vec4<f32>,
 }
 var<private> scene_previous_model: mat4x4<f32>;
+var<private> scene_card_local: vec3<f32>;
+fn scene_card_position(camera: vec3<f32>, mode: u32, model: mat4x4<f32>, local: vec3<f32>) -> vec3<f32> {
+    var center = model[3].xyz;
+    if material.impostor_grid.w != 0.0 {
+        center += mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz) * material.wind_field_mode.yzw;
+    }
+    return center + billboard_basis_from(camera, mode, center) * length(model[0].xyz) * local;
+}
 fn scene_object_world_delta(vertex: VertexInput, position: vec3<f32>, instance: InstanceInput) -> vec3<f32> {
     var before = instance;
     before.model_column_0 = vec4<f32>(scene_previous_model[0].xyz, instance.model_column_0.w);
@@ -130,9 +146,20 @@ fn scene_object_world_delta(vertex: VertexInput, position: vec3<f32>, instance: 
     if (vertex.lod_billboard_mode & 3u) == BILLBOARD_FIXED {
         let rotation = mat3x3<f32>(scene_previous_model[0].xyz, scene_previous_model[1].xyz, scene_previous_model[2].xyz);
         before_position = scene_previous_model[3].xyz + rotation * vertex.position;
+    } else {
+        let mode = vertex.lod_billboard_mode & 3u;
+        let current_model = mat4x4<f32>(instance.model_column_0, instance.model_column_1, instance.model_column_2, instance.model_column_3);
+        let current_card = scene_card_position(frame.camera_position.xyz, mode, current_model, scene_card_local);
+        let previous_card = scene_card_position(previous_frame.camera_time.xyz, mode, scene_previous_model, scene_card_local);
+        before_position = position + (previous_card - current_card);
     }
     return scene_world_delta(position, before_position, vertex.ambient_occlusion, instance, before);
 }
+";
+
+/// The stock `billboard_basis`, now a view of `billboard_basis_from` at the current camera.
+const BILLBOARD_BASIS: &str = "
+fn billboard_basis(mode: u32, pivot: vec3<f32>) -> mat3x3<f32> { return billboard_basis_from(frame.camera_position.xyz, mode, pivot); }
 ";
 
 /// The object source with the previous-position varying, before any fragment rewrite.
@@ -155,9 +182,19 @@ pub(crate) fn vertex_source(source: &str) -> String {
     let source = replace_once(
         &source,
         "@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {",
-        "@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput, previous: PreviousInstance) -> VertexOutput {\n    scene_previous_model = mat4x4<f32>(previous.model_column_0, previous.model_column_1, previous.model_column_2, previous.model_column_3);",
+        "@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput, previous: PreviousInstance) -> VertexOutput {\n    scene_previous_model = mat4x4<f32>(previous.model_column_0, previous.model_column_1, previous.model_column_2, previous.model_column_3);\n    scene_card_local = vertex.position;",
     );
-    format!("{source}\n{PREVIOUS_INSTANCE}")
+    let source = replace_once(
+        &source,
+        "            out.world_position = capture_center + billboard_basis(vertex.lod_billboard_mode & 3u, capture_center) * scale * shaped;",
+        "            out.world_position = capture_center + billboard_basis(vertex.lod_billboard_mode & 3u, capture_center) * scale * shaped;\n            scene_card_local = shaped;",
+    );
+    let source = replace_once(
+        &source,
+        "fn billboard_basis(mode: u32, pivot: vec3<f32>) -> mat3x3<f32> {\n    let to_camera = frame.camera_position.xyz - pivot;",
+        "fn billboard_basis_from(camera: vec3<f32>, mode: u32, pivot: vec3<f32>) -> mat3x3<f32> {\n    let to_camera = camera - pivot;",
+    );
+    format!("{source}\n{PREVIOUS_INSTANCE}{BILLBOARD_BASIS}")
 }
 
 /// The object source with velocity-writing fragment entry points and the `world_delta` varying.
@@ -249,6 +286,17 @@ pub(crate) fn reflection_terrain_source(source: &str) -> String {
         "{source}\n{REFLECTION_OUTPUT}
 @fragment fn fs_terrain(input: TerrainVertexOutput) -> SceneVelocityOutput {{ let r = reflected_terrain(input); return SceneVelocityOutput(r.color, r.environment, r.factor, vec2<f32>(0.0)); }}
 "
+    )
+}
+
+/// A velocity object source whose camera-facing previous basis uses the current camera, which
+/// is how billboards and impostor cards behaved before the previous camera was tracked.
+#[cfg(test)]
+pub(crate) fn current_camera_object_source(source: &str) -> String {
+    replace_once(
+        &object_source(source),
+        "scene_card_position(previous_frame.camera_time.xyz,",
+        "scene_card_position(frame.camera_position.xyz,",
     )
 }
 

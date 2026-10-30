@@ -14,7 +14,7 @@ public enum CameraClearFlags { Skybox = 1, Color = 2, SolidColor = 2, Depth = 3,
 /// frame is prepared. A camera added to an object starts orthographic, as the 2D games expect;
 /// scene data sets the lens the object serialized.
 /// </summary>
-public sealed partial class Camera : NativeComponent
+public sealed partial class Camera : Behaviour
 {
     public enum MonoOrStereoscopicEye { Left = 0, Right = 1, Mono = 2 }
     public enum StereoscopicEye { Left = 0, Right = 1 }
@@ -34,7 +34,7 @@ public sealed partial class Camera : NativeComponent
         DisunityHost.ThrowIfError(NativeBindings.disunity_camera_write(DisunityHost.WorldHandle, Handle, &value));
     private void Update(Func<DisunityCamera, DisunityCamera> change) => Write(change(Read()));
 
-    public bool enabled { get => Read().enabled == 1; set => Update(c => { c.enabled = value ? 1u : 0u; return c; }); }
+    private protected override bool EnabledState { get => Read().enabled == 1; set => Update(c => { c.enabled = value ? 1u : 0u; return c; }); }
     public CameraClearFlags clearFlags { get => (CameraClearFlags)Read().clear_flags; set => Update(c => { c.clear_flags = (uint)value; return c; }); }
     public Color backgroundColor
     {

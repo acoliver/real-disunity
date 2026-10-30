@@ -40,10 +40,10 @@ pub use ui_error::{FontId, UiError};
 #[cfg(feature = "ui")]
 pub mod ui;
 pub use edits::ObjectEdit;
+pub use journal::{ComponentChange, ComponentChangeEntry, ComponentKind, WorldChanges};
 pub use mesh_instance::{
     MAX_INSTANCE_LODS, MAX_INSTANCE_MATERIALS, MAX_TINT_CHANNEL, MaterialId, MeshId, MeshInstance,
 };
-pub use journal::{ComponentChange, ComponentChangeEntry, ComponentKind, WorldChanges};
 mod clone;
 mod construction;
 mod fields;

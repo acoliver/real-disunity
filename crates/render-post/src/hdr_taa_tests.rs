@@ -223,6 +223,7 @@ fn rebinding_settings_without_taa_releases_both_histories() {
         .unwrap()
         .with_retained_effects(&device, settings(false, true), Some(&with_taa))
         .unwrap();
+    let _built = slots(&without, &device, &targets(&device, [8, 8], 1));
     assert_eq!(without.taa_history_size(), None);
     assert_eq!(
         with_taa.taa_history_size(),
@@ -297,4 +298,29 @@ fn a_failed_replacement_keeps_the_committed_history_bank() {
     chain.factory().fail.set(false);
     assert!(chain.resize(&device, [16, 4]).unwrap());
     assert_eq!(chain.factory().inner.taa_history_size(), Some([16, 4]));
+}
+
+#[test]
+fn a_rejected_settings_change_that_turns_taa_off_keeps_the_committed_bank() {
+    let (device, _) = crate::gpu_tests::gpu();
+    let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba16Float, 1);
+    let live = FailsLast {
+        inner: factory(&device, &settings(true, false)),
+        fail: std::cell::Cell::new(false),
+    };
+    let mut chain = PostChain::new(&device, config, Resources::default(), live).unwrap();
+    let off = ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)
+        .unwrap()
+        .with_retained_effects(&device, settings(false, true), Some(&chain.factory().inner))
+        .unwrap();
+    let rejected = FailsLast {
+        inner: off,
+        fail: std::cell::Cell::new(true),
+    };
+    assert!(chain.reconfigure(&device, rejected).is_err());
+    assert_eq!(
+        chain.factory().inner.taa_history_size(),
+        Some([8, 8]),
+        "the live slots still run on the committed bank"
+    );
 }

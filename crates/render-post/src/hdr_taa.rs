@@ -47,6 +47,8 @@ impl TaaHistory {
 struct Banks {
     committed: Option<TaaHistory>,
     candidate: Option<TaaHistory>,
+    /// Settings that no longer use TAA asked to drop the committed bank when their build is accepted.
+    release_pending: bool,
 }
 
 /// History shared by the stage sets of every slot. Cloning shares it.
@@ -60,6 +62,7 @@ impl SharedHistory {
         let Banks {
             committed,
             candidate,
+            ..
         } = &mut *banks;
         let bank = match committed {
             Some(history) if history.key == key => history,
@@ -71,18 +74,27 @@ impl SharedHistory {
         bank.clone()
     }
 
-    /// Ends a build: an accepted build promotes its candidate, a rejected one drops it.
+    /// Ends a build: an accepted build promotes its candidate (or drops the committed bank when
+    /// a release was requested), a rejected one drops the candidate and the request.
     pub fn settle(&self, accepted: bool) {
         let mut banks = self.0.borrow_mut();
         let candidate = banks.candidate.take();
-        if accepted && candidate.is_some() {
+        let release = std::mem::take(&mut banks.release_pending);
+        if !accepted {
+            return;
+        }
+        if release {
+            banks.committed = None;
+        }
+        if candidate.is_some() {
             banks.committed = candidate;
         }
     }
 
-    /// Drops the history, for settings that no longer use TAA.
+    /// Asks to drop the history, for settings that no longer use TAA. The bank stays until the
+    /// build of those settings is accepted, because the live stage sets still read it.
     pub fn release(&self) {
-        *self.0.borrow_mut() = Banks::default();
+        self.0.borrow_mut().release_pending = true;
     }
 
     #[cfg(test)]

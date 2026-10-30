@@ -56,6 +56,7 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-camera", Layer::Foundation),
     ("worldrunner-unity-serialized", Layer::Foundation),
     ("worldrunner-disunity-ffi", Layer::Foundation),
+    ("worldrunner-silent-wwise", Layer::Foundation),
     ("worldrunner-world-simulation", Layer::Foundation),
     ("worldrunner-world-schema", Layer::World),
     ("worldrunner-world-model", Layer::World),

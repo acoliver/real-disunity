@@ -4190,6 +4190,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "worldrunner-silent-wwise"
+version = "0.1.0"
+
+[[package]]
 name = "worldrunner-texture"
 version = "0.1.0"
 dependencies = [

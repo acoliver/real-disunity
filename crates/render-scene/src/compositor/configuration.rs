@@ -315,6 +315,7 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
         radiance_allocations(settings.frame, &ssr, set);
         reflection_depth_allocations([w, h], crate::ssr::depth_level_count(&ssr, [w, h]), set);
         set.buffer("reflection uniform", 192, 1);
+        set.buffer("environment intensity", 16, 1);
         set.buffer("reflection staging", 192, 3);
     }
 }
@@ -645,6 +646,7 @@ fn water_vertex_bytes(body: &worldrunner_render_plan::SceneWaterBody) -> u64 {
 fn retain_water_inputs(next: &mut FrameRenderer, previous: Option<&crate::water::Water>) {
     if let (Some(next), Some(previous)) = (&mut next.water, previous) {
         next.environment.clone_from(&previous.environment);
+        next.environment_intensity_micro = previous.environment_intensity_micro;
         if next.settings == previous.settings {
             next.surface_inputs.clone_from(&previous.surface_inputs);
         }
@@ -652,6 +654,7 @@ fn retain_water_inputs(next: &mut FrameRenderer, previous: Option<&crate::water:
 }
 
 struct ReflectionInputs {
+    intensity_micro: u32,
     environment: [wgpu::TextureView; 2],
     composition: worldrunner_render_lighting::reflections::Composition,
     selected: worldrunner_render_plan::SceneSsrComposition,
@@ -660,6 +663,7 @@ impl ReflectionInputs {
     fn new(ssr: &crate::ssr::Ssr) -> Self {
         Self {
             environment: ssr.environment.clone(),
+            intensity_micro: ssr.environment_intensity_micro,
             composition: ssr.composition,
             selected: ssr.settings.composition,
         }
@@ -672,10 +676,16 @@ fn retain_reflection_inputs(
 ) {
     if let (Some(ssr), Some(screen), Some(previous)) = (&mut next.ssr, &mut next.ssao, previous) {
         ssr.environment.clone_from(&previous.environment);
+        ssr.environment_intensity_micro = previous.intensity_micro;
         if ssr.settings.composition == previous.selected {
             ssr.composition = previous.composition;
         }
-        let group = crate::ssr::forward::group(device, screen, &previous.environment);
+        let group = crate::ssr::forward::group(
+            device,
+            screen,
+            &previous.environment,
+            previous.intensity_micro,
+        );
         screen
             .geometry
             .forward

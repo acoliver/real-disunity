@@ -11,6 +11,8 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SceneValidationError {
+    #[error("environment specular intensity {observed} exceeds 64000000 millionths")]
+    EnvironmentIntensity { observed: u32 },
     #[error("unsupported scene input: {part}")]
     UnsupportedInput { part: &'static str },
     #[error("invalid HDR post quantity: {part}")]

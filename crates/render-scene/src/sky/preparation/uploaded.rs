@@ -8,7 +8,11 @@ impl PreparedEnvironmentMaps {
         cube: &wgpu::Texture,
         lut: &wgpu::Texture,
         convention: SceneSpecularConvention,
+        specular_intensity_micro: u32,
     ) -> Result<Self, PreparationError> {
+        if specular_intensity_micro > 64_000_000 {
+            return Err(PreparationError::Settings);
+        }
         if cube.width() != cube.height()
             || cube.depth_or_array_layers() != 6
             || cube.dimension() != wgpu::TextureDimension::D2
@@ -31,7 +35,8 @@ impl PreparedEnvironmentMaps {
             cube: cube.clone(),
             lut: lut.clone(),
             authored_brdf: None,
-            specular_intensity_micro: 1_000_000,
+            baked_specular_intensity_micro: 1_000_000,
+            specular_intensity_micro,
             transaction: None,
             convention,
         })

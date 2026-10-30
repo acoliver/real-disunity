@@ -1,3 +1,6 @@
+#[path = "base_arithmetic_tests.rs"]
+mod base_arithmetic_tests;
+
 #[test]
 fn specular_intensity_matches_closed_form_single_sample_without_changing_cube() {
     assert_eq!(integration_source(1_000_000), SOURCE);
@@ -26,6 +29,7 @@ fn specular_intensity_matches_closed_form_single_sample_without_changing_cube() 
             .unwrap();
         prepared.submit().unwrap();
         let maps = maps.unwrap();
+        assert_eq!(maps.specular_intensity_micro(), 1_000_000);
         let data = read_texture(device, context.submission(), &maps.lut, 0);
         for x in 0_u16..4 {
             let no_v = (f64::from(x) + 0.5) / 4.0;

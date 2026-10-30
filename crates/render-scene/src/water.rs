@@ -150,6 +150,7 @@ pub(crate) struct Water {
     samples: u32,
     pub receivers: [[wgpu::Texture; 3]; 3],
     pub environment: [wgpu::TextureView; 2],
+    pub environment_intensity_micro: u32,
     sampler: wgpu::Sampler,
     surface_sampler: wgpu::Sampler,
     pub surface_inputs: Vec<[Option<wgpu::TextureView>; 3]>,
@@ -162,6 +163,7 @@ impl Water {
     ) -> Result<Self, FrameError> {
         let mut replacement = Self::new(device, config, self.settings.to_vec())?;
         replacement.environment.clone_from(&self.environment);
+        replacement.environment_intensity_micro = self.environment_intensity_micro;
         replacement.surface_inputs.clone_from(&self.surface_inputs);
         Ok(replacement)
     }
@@ -200,6 +202,7 @@ impl Water {
         Ok(Self {
             receivers: std::array::from_fn(|_| receivers::textures(device, config)),
             environment: receivers::empty_environment(device),
+            environment_intensity_micro: 1_000_000,
             sampler: device.create_sampler(&wgpu::SamplerDescriptor {
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
@@ -528,7 +531,9 @@ impl PreparedFeature for WaterFeature {
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
         for (s, body) in self.water.settings.iter().zip(self.water.bodies.iter()) {
-            let data = uniform_data(&self.frame, self.time, s);
+            let mut data = uniform_data(&self.frame, self.time, s);
+            // The ambient vector has a spare lane for the independent cube scale.
+            data[75] = number(i64::from(self.water.environment_intensity_micro)) / 1000.0;
             context.upload_buffer(&body.uniforms[self.slot], 768, &self.frame.to_bytes());
             context.upload_buffer(
                 &body.uniforms[self.slot],

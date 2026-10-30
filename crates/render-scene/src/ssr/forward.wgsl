@@ -1,6 +1,7 @@
 @group(3) @binding(1) var reflection_environment: texture_cube<f32>;
 @group(3) @binding(2) var reflection_brdf: texture_2d<f32>;
 @group(3) @binding(3) var reflection_sampler: sampler;
+@group(3) @binding(4) var<uniform> environment_intensity: vec4<u32>;
 var<private> published_environment: vec3<f32>;
 var<private> published_factor: vec3<f32>;
 var<private> published_self_ao: f32;
@@ -15,7 +16,7 @@ fn forward_reflection(world: vec3<f32>, normal: vec3<f32>, f0: vec3<f32>, roughn
     let cosine = clamp(dot(normal, view), 0.0001, 1.0);
     let coefficients = textureSampleLevel(reflection_brdf, reflection_sampler, vec2<f32>(cosine, roughness), 0.0).rg;
     let factor = scene_environment_factor(f0, coefficients, cosine, ao, roughness);
-    let radiance = textureSampleLevel(reflection_environment, reflection_sampler, reflect(-view, normal), roughness * f32(textureNumLevels(reflection_environment) - 1u)).rgb;
+    let radiance = textureSampleLevel(reflection_environment, reflection_sampler, reflect(-view, normal), roughness * f32(textureNumLevels(reflection_environment) - 1u)).rgb * (f32(environment_intensity.x) / 1000000.0);
     let air = scene_surface_transmission(world);
     published_self_ao = self_ao;
     published_visibility = cosine;

@@ -199,7 +199,7 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>, depth: f32) -> vec3<f
     }
     let coefficients = textureSampleLevel(environment_brdf, environment_sampler, vec2<f32>(no_v, environment_roughness), 0.0).rg;
     let reflected = reflect(-view, normal);
-    let radiance = textureSampleLevel(environment_cube, environment_sampler, reflected, environment_roughness * f32(textureNumLevels(environment_cube) - 1u)).rgb;
+    let radiance = textureSampleLevel(environment_cube, environment_sampler, reflected, environment_roughness * f32(textureNumLevels(environment_cube) - 1u)).rgb * water.ambient.w;
     var f0 = 0.02037;
     if water.optics.z != 0.0 { f0 = water.optics.x; }
     let lighting_f0 = select(vec3<f32>(f0), vec3<f32>(0.04), (WATER_TERMS & 2u) != 0u && water.composition.y != 0.0);

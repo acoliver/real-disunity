@@ -107,5 +107,11 @@ grid. RG stores A,B at x = view cosine, y = roughness. Its roughness and visibil
 convention must match the scene. Consumers select water, reflection fallback, or
 both, and must be enabled. Scene construction rejects missing handles, wrong
 resource kinds, LUT formats and mismatched conventions with `SceneValidationError`.
+`SceneEnvironment::new` defaults `specular_intensity_micro` to `1_000_000`.
+The accepted range is `0..=64_000_000`; larger values return
+`SceneValidationError::EnvironmentIntensity`. This linear multiplier scales only
+the cube-derived lobe, once per selected consumer. Diffuse SH, direct light,
+BRDF factors, scene-hit radiance and source payloads remain unchanged. Water
+retains its independent per-body environment amplitude.
 Retained settings updates replace or remove the environment without uploading the
 scene again. Omitting it preserves the stock empty-environment rendering.

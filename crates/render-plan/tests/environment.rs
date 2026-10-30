@@ -1,4 +1,32 @@
 #[test]
+fn environment_intensity_accepts_bounded_linear_scale() {
+    let value = environment();
+    assert_eq!(
+        SceneEnvironment::new(
+            value.cube,
+            value.brdf_lut,
+            value.convention,
+            value.consumers
+        )
+        .specular_intensity_micro,
+        1_000_000
+    );
+    for intensity in [0, 1_000_000, 64_000_000] {
+        let mut value = environment();
+        value.specular_intensity_micro = intensity;
+        assert!(value.validate(&resources(), value.convention).is_ok());
+    }
+    let mut value = environment();
+    value.specular_intensity_micro = 64_000_001;
+    assert!(matches!(
+        value.validate(&resources(), value.convention),
+        Err(SceneValidationError::EnvironmentIntensity {
+            observed: 64_000_001
+        })
+    ));
+}
+
+#[test]
 fn environment_lut_requires_linear_float_square_single_mip() {
     for (format, color_space, width, height, mips) in [
         (TexelFormat::Rgba8Unorm, TextureColorSpace::Linear, 1, 1, 1),
@@ -67,6 +95,7 @@ fn environment() -> SceneEnvironment {
         brdf_lut: TextureHandle::from_raw(1),
         convention: SceneSpecularConvention::default(),
         consumers: SceneEnvironmentConsumers::Both,
+        specular_intensity_micro: 1_000_000,
     }
 }
 
@@ -88,4 +117,16 @@ fn environment_references_and_formats_fail_before_upload() {
         ..convention
     };
     assert!(environment().validate(&resources, mismatch).is_err());
+}
+
+#[test]
+fn environment_consumers_select_only_the_requested_lobes() {
+    for (consumers, water, reflections) in [
+        (SceneEnvironmentConsumers::Water, true, false),
+        (SceneEnvironmentConsumers::Reflections, false, true),
+        (SceneEnvironmentConsumers::Both, true, true),
+    ] {
+        assert_eq!(consumers.water(), water);
+        assert_eq!(consumers.reflections(), reflections);
+    }
 }

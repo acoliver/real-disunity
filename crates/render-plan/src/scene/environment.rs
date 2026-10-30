@@ -27,13 +27,35 @@ pub struct SceneEnvironment {
     pub brdf_lut: TextureHandle,
     pub convention: SceneSpecularConvention,
     pub consumers: SceneEnvironmentConsumers,
+    /// Linear cube-lobe multiplier in millionths, independent of diffuse and direct light.
+    pub specular_intensity_micro: u32,
 }
 impl SceneEnvironment {
+    pub const fn new(
+        cube: TextureHandle,
+        brdf_lut: TextureHandle,
+        convention: SceneSpecularConvention,
+        consumers: SceneEnvironmentConsumers,
+    ) -> Self {
+        Self {
+            cube,
+            brdf_lut,
+            convention,
+            consumers,
+            specular_intensity_micro: 1_000_000,
+        }
+    }
+
     pub fn validate(
         self,
         resources: &SceneResources,
         selected: SceneSpecularConvention,
     ) -> Result<(), SceneValidationError> {
+        if self.specular_intensity_micro > 64_000_000 {
+            return Err(SceneValidationError::EnvironmentIntensity {
+                observed: self.specular_intensity_micro,
+            });
+        }
         let cube = lookup(resources, self.cube)?;
         let lut = lookup(resources, self.brdf_lut)?;
         if !matches!(cube.payload(), SceneTexture::SpecularCube(_)) {

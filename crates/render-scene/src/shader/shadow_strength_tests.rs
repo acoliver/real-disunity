@@ -15,6 +15,7 @@ const ENTRY: &str = r"
 fn reflection_fixture() -> String {
     // Constant texture inputs leave the production SSR publication equations intact.
     include_str!("../ssr/forward.wgsl")
+        .replace("f32(environment_intensity.x) / 1000000.0", "1.0")
         .replace(
             "textureSampleLevel(reflection_brdf, reflection_sampler, vec2<f32>(cosine, roughness), 0.0).rg",
             "vec2<f32>(0.5, 0.1)",

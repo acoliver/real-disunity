@@ -54,7 +54,9 @@ fn gpu_scalar(value: usize) -> f32 {
 
 use super::*;
 use crate::compositor::{FrameRenderer, encode_scene};
-use worldrunner_render_plan::{SceneSsr, SceneWaterBody, SceneWaterSettings, SceneWaterSurface};
+use worldrunner_render_plan::{
+    SceneEnvironmentConsumers, SceneSsr, SceneWaterBody, SceneWaterSettings, SceneWaterSurface,
+};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
 
 fn request() -> SceneSsr {
@@ -177,6 +179,23 @@ fn render_with_environment(
     maps: &crate::sky::preparation::PreparedEnvironmentMaps,
     frame: &FrameUniform,
 ) -> FrameRenderer {
+    render_selected_environment(
+        context,
+        source,
+        samples,
+        maps,
+        frame,
+        worldrunner_render_plan::SceneEnvironmentConsumers::Both,
+    )
+}
+fn render_selected_environment(
+    context: &GpuContext,
+    source: &RenderScene,
+    samples: u32,
+    maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+    frame: &FrameUniform,
+    consumers: worldrunner_render_plan::SceneEnvironmentConsumers,
+) -> FrameRenderer {
     let mut renderer = FrameRenderer::hdr(
         context,
         [32, 32],
@@ -186,9 +205,16 @@ fn render_with_environment(
         source.effects(),
     )
     .unwrap();
-    renderer
-        .set_reflection_environment(context.device(), maps)
-        .unwrap();
+    match consumers {
+        SceneEnvironmentConsumers::Water => renderer.set_water_environment(maps),
+        SceneEnvironmentConsumers::Reflections => {
+            renderer.set_reflection_only_environment(context.device(), maps)
+        }
+        SceneEnvironmentConsumers::Both => {
+            renderer.set_reflection_environment(context.device(), maps)
+        }
+    }
+    .unwrap();
     let pipelines =
         ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, samples)
             .unwrap();
@@ -614,6 +640,9 @@ fn selected_environment_settings(
         ..environment_settings()
     }
 }
+
+#[path = "environment_intensity.rs"]
+mod environment_intensity;
 
 #[path = "fog_policy_tests.rs"]
 mod fog_policy_tests;

@@ -608,3 +608,46 @@ fn a_frame_prepared_before_a_rewind_does_not_republish_after_it() {
     context.device().poll(wgpu::PollType::Poll).unwrap();
     assert!(!renderer.has_temporal_history());
 }
+
+/// A ratio-aware sequence shifts clip space by the offset over the internal raster extent.
+///
+/// The renderer here rasterises at `SIZE` for a 2x larger output, so `for_extents` yields 32
+/// phases. The expected shift of a projected point is `2 * offset.x / SIZE[0]` horizontally and
+/// `-2 * offset.y / SIZE[1]` vertically. Both sides go through f32 matrix math with projected
+/// coordinates of magnitude at most 1, so each differs by a few ulp (about 1e-7 each); the bound
+/// of 1e-5 is far above that and far below the gap between the internal and output extents that
+/// the check must tell apart (at least `|offset| / 64` on one axis, about 2e-4 for the smallest).
+#[test]
+fn a_ratio_aware_sequence_shifts_the_projection_by_the_offset_over_the_internal_extent() {
+    const BOUND: f32 = 1e-5;
+    let output = SIZE.map(|extent| extent * 2);
+    let sequence = ProjectionJitter::for_extents(SIZE, output).unwrap();
+    assert_eq!(sequence.length(), 32);
+    let context = context();
+    let mut renderer = renderer(&context);
+    renderer.set_projection_jitter(Some(sequence)).unwrap();
+    let points = [
+        glam::Vec3::new(0.0, 0.0, 1.7),
+        glam::Vec3::new(1.0, 2.0, 2.5),
+    ];
+    for index in 0..u64::from(sequence.length()) {
+        let prepared = submit(&context, &renderer, 0);
+        let unjittered = temporal(&prepared).unjittered_view_projection;
+        let [x, y] = sequence.offset_pixels(index);
+        assert_offset(temporal(&prepared).jitter_pixels, [x, y]);
+        let internal = [2.0 * x / 64.0, -2.0 * y / 32.0];
+        let at_output = [2.0 * x / 128.0, -2.0 * y / 64.0];
+        for point in points {
+            let shift = prepared.view_projection.project_point3(point).truncate()
+                - unjittered.project_point3(point).truncate();
+            assert!((shift.x - internal[0]).abs() < BOUND, "x at {index}");
+            assert!((shift.y - internal[1]).abs() < BOUND, "y at {index}");
+            let distinct =
+                (shift.x - at_output[0]).abs() > BOUND || (shift.y - at_output[1]).abs() > BOUND;
+            assert!(
+                distinct,
+                "the output extent must be distinguishable at {index}"
+            );
+        }
+    }
+}

@@ -19,6 +19,8 @@ mod fxaa_kernel_tests;
 #[cfg(test)]
 mod fxaa_quality_gpu_tests;
 #[cfg(test)]
+mod fxaa_tolerance_tests;
+#[cfg(test)]
 mod native_rcas_tests;
 #[cfg(test)]
 mod operations_buffer_scope_tests;

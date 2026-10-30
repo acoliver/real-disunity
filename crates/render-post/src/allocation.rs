@@ -41,8 +41,17 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     let upscale = settings
         .upscale
         .filter(|_| config.size != config.output_extent());
-    for _ in 0..usize::from(fxaa) + usize::from(upscale.is_some()) {
-        let [w, h] = config.size;
+    let [w, h] = config.size;
+    if fxaa {
+        set.texture(
+            "display-linear post input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            3,
+        );
+    }
+    if upscale.is_some() {
         set.texture(
             "display-linear post input",
             [w, h, 1],

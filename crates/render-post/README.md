@@ -98,8 +98,11 @@ the source texture: the chain always supplies display-linear RGB.
 A Sobel-derived tangent selects bilinear samples 1.5 texels away along its
 major axis, with center weight 1/2 and side weights 1/4. The product of strength
 and `subpixel_blend` blends that result with the original pixel. Zero gradient
-or zero blend preserves the original. An Rgba32Float LDR intermediate preserves
-flat-region precision. Only the final sRGB attachment applies output transfer;
+or zero blend preserves the original. The Rgba16Float LDR intermediate keeps flat
+regions within one 8-bit step of the unfiltered output: Vulkan lets the float
+conversion round either way, so a stored value is off by at most one unit in the last
+place, `2^-10` of itself, and the sRGB transfer turns that into at most
+`255 * 0.4396 * 2^-10 = 0.11` steps. Only the final sRGB attachment applies output transfer;
 alpha is preserved. The filter uses explicit integer loads and bilinear
 arithmetic, without implicit derivatives in divergent control flow. See the
 [post-filter derivation](../../dev-docs/rendering/post-filters.md) for the base
@@ -189,9 +192,10 @@ hardware bilinear fetch per side, as the reference does.
 
 The display-referred image between tone mapping and SMAA is `Rgba16Float`. Values in 0..1
 have an 11-bit mantissa at half precision, finer than the 8-bit output, and the format is
-filterable, which the bilinear blend fetch needs. FXAA keeps its `Rgba32Float` intermediate
-and its flat-region precision contract. `PostResolve::display_format` is the one place that
-chooses the format. A resolve followed by an upscale still writes `Rgba32Float` between the
+filterable, which the bilinear blend fetch needs. FXAA and CMAA2 use the same format; FXAA
+previously kept `Rgba32Float`, and its flat-region contract now reads "within one 8-bit step"
+(see the FXAA section). `PostResolve::display_format` is the one place that chooses the
+format. A resolve followed by an upscale still writes `Rgba32Float` between the
 resolve and the upscale.
 
 Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
@@ -276,7 +280,7 @@ allocation report. Without a CMAA2 resolve none of it is allocated.
 Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
 AMD Radeon 780M (RADV) at 1920x1080, median of 5 timestamp-query samples per stage, with the
 total including the `tone` stage (about 0.9 to 1.0 ms, the same work for every resolve except
-FXAA, whose `Rgba32Float` intermediate makes `tone` about 2 ms). Times are in ms. The "disc"
+FXAA before it moved to `Rgba16Float`, when its `Rgba32Float` intermediate made `tone` about 2 ms). Times are in ms. The "disc"
 frame is a sparse disc edge and the "stripes" frame is dense stripes. Run-to-run noise is about
 0.1 to 0.3 ms.
 
@@ -295,7 +299,7 @@ frame is a sparse disc edge and the "stripes" frame is dense stripes. Run-to-run
 
 On this GPU CMAA2 high now costs less than SMAA high and FXAA in total: 2.37 ms against 3.05 ms
 (SMAA) and 3.07 ms (FXAA) on stripes, and 1.73 ms against 2.08 ms and 2.82 ms on the disc. The
-FXAA total is mostly its wider `tone` intermediate. Counting only the AA passes, CMAA2 high is
+FXAA total in this table was mostly its wider `tone` intermediate, measured before FXAA moved to `Rgba16Float`. Counting only the AA passes, CMAA2 high is
 1.40 ms on stripes and 0.73 ms on the disc, SMAA high is 2.10 and 1.06 ms, and the single `fxaa`
 pass is 0.93 and 0.84 ms: CMAA2 is cheaper than SMAA on both frames, and cheaper than the FXAA
 pass only on the sparse frame. The disc edge pass costs 0.30 ms, the same as `smaa_edges` at

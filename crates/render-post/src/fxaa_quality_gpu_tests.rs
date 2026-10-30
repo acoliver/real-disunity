@@ -1,5 +1,8 @@
-use super::filter_reference::{Image, fxaa_quality, half_bits};
+use super::filter_reference::{Image, fxaa_quality};
 use super::filter_reference_gpu_tests::render;
+use super::fxaa_tolerance_tests::{
+    assert_half_close, assert_steps_close, max_half_difference, range, run_within,
+};
 use crate::{FxaaKernel, FxaaLuminance, FxaaQuality};
 
 #[test]
@@ -15,6 +18,10 @@ fn asymmetric_diagonals_have_independently_calculated_centre() {
     };
     // H = 1, V = 1.5 selects X taps of 0.1875, yielding centre RGB 0.15625.
     let expected = [0.15625_f32, 0.15625, 0.15625, 0.25];
+    let reference = Image::render(input.size, |uv| fxaa_quality(&input, uv, 1.0, q));
+    assert_eq!(reference.pixels[12], expected);
+    // The filter moved the centre from 0.125 by 0.03125, over 100 times the half bound.
+    assert!(0.03125 > 100.0 * super::fxaa_tolerance_tests::half_bound(0.15625, 0.625));
     let half = render(
         (&device, &queue),
         "fxaa",
@@ -23,21 +30,7 @@ fn asymmetric_diagonals_have_independently_calculated_centre() {
         wgpu::TextureFormat::Rgba16Float,
         &q.constants(1.0),
     );
-    for (bytes, value) in half[12 * 8..13 * 8].chunks_exact(2).zip(expected) {
-        assert_eq!(
-            u16::from_le_bytes(bytes.try_into().unwrap()),
-            half_bits(value)
-        );
-    }
-    for (channel, value) in expected.into_iter().enumerate() {
-        let value = f64::from(value);
-        let encoded = if channel < 3 {
-            1.055 * value.powf(1.0 / 2.4) - 0.055
-        } else {
-            value
-        } * 255.0;
-        assert!((encoded - (encoded.floor() + 0.5)).abs() >= 0.1);
-    }
+    assert_half_close(&half, &reference, range(&input), "asymmetric half");
     let srgb = render(
         (&device, &queue),
         "fxaa",
@@ -46,7 +39,13 @@ fn asymmetric_diagonals_have_independently_calculated_centre() {
         wgpu::TextureFormat::Rgba8UnormSrgb,
         &q.constants(1.0),
     );
-    assert_eq!(&srgb[12 * 4..13 * 4], &[110, 110, 110, 64]);
+    // Centre RGB encodes to 110.15 steps and alpha 0.25 to 63.75, within the output bound.
+    assert_steps_close(
+        &srgb,
+        &reference,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        "asymmetric srgb",
+    );
 }
 
 #[test]
@@ -123,13 +122,7 @@ fn both_kernels_srgb_readbacks_and_default_bytes() {
             ..Default::default()
         };
         let expected = Image::render(input.size, |uv| fxaa_quality(&input, uv, 1.0, q));
-        for pixel in &expected.pixels {
-            for &value in &pixel[..3] {
-                let encoded = (1.055 * f64::from(value).powf(1.0 / 2.4) - 0.055) * 255.0;
-                assert!((encoded - (encoded.floor() + 0.5)).abs() >= 0.1);
-            }
-        }
-        super::filter_reference_gpu_tests::run(
+        run_within(
             (&device, &queue),
             "fxaa",
             (&input, None),
@@ -141,6 +134,8 @@ fn both_kernels_srgb_readbacks_and_default_bytes() {
     let expected = Image::render(input.size, |uv| {
         fxaa_quality(&input, uv, 0.75, FxaaQuality::default())
     });
+    // Shader override defaults against explicit constants of the same values: one pipeline on one
+    // device, so the bytes must be identical.
     let old_defaults = render(
         (&device, &queue),
         "fxaa",
@@ -153,6 +148,8 @@ fn both_kernels_srgb_readbacks_and_default_bytes() {
     assert_eq!(old_defaults, explicit);
 }
 
+/// Renders with the explicit quality constants and checks the half-float store against the f64
+/// reference within the bound in `fxaa_tolerance_tests`.
 fn check(gpu: (&wgpu::Device, &wgpu::Queue), input: &Image, q: FxaaQuality) -> Vec<u8> {
     let expected = Image::render(input.size, |uv| fxaa_quality(input, uv, 0.75, q));
     let actual = render(
@@ -163,17 +160,15 @@ fn check(gpu: (&wgpu::Device, &wgpu::Queue), input: &Image, q: FxaaQuality) -> V
         wgpu::TextureFormat::Rgba16Float,
         &q.constants(0.75),
     );
-    for (pixel, reference) in actual.chunks_exact(8).zip(&expected.pixels) {
-        for (channel, (&value, bytes)) in reference.iter().zip(pixel.chunks_exact(2)).enumerate() {
-            let bits = u16::from_le_bytes(bytes.try_into().unwrap());
-            let distance = bits.abs_diff(half_bits(value));
-            assert!(
-                distance <= u16::from(channel < 3),
-                "channel={channel}, distance={distance}, q={q:?}, reference={reference:?}, actual={bits:#x}"
-            );
-        }
-    }
+    assert_half_close(&actual, &expected, range(input), &format!("{q:?}"));
     actual
+}
+
+/// Largest difference two outputs can have when both are within one bound of the same
+/// reference: twice the half bound at the fixture's largest value. Outputs that differ by more
+/// than this come from different references.
+fn distinct_by(input: &Image) -> f64 {
+    2.0 * super::fxaa_tolerance_tests::half_bound(range(input), range(input))
 }
 
 fn fixture(size: [u16; 2], thin: bool) -> Image {
@@ -261,7 +256,7 @@ fn fxaa_quality_thresholds_and_transfer_change_edge_admission() {
             ..q
         },
     );
-    assert_ne!(active, off);
+    assert!(max_half_difference(&active, &off) > 10.0 * distinct_by(&input));
     for quality in [
         FxaaQuality {
             edge_threshold: 1.0,
@@ -272,7 +267,8 @@ fn fxaa_quality_thresholds_and_transfer_change_edge_admission() {
             ..q
         },
     ] {
-        assert_eq!(check((&device, &queue), &input, quality), off);
+        let unfiltered = check((&device, &queue), &input, quality);
+        assert!(max_half_difference(&unfiltered, &off) <= distinct_by(&input));
     }
     let srgb = check(
         (&device, &queue),
@@ -282,8 +278,8 @@ fn fxaa_quality_thresholds_and_transfer_change_edge_admission() {
             ..q
         },
     );
-    assert_ne!(
-        srgb, active,
+    assert!(
+        max_half_difference(&srgb, &active) > 10.0 * distinct_by(&input),
         "nonlinear luminance changes the edge direction"
     );
 }
@@ -313,10 +309,17 @@ fn srgb_luminance_toe_changes_absolute_threshold_admission() {
             ..q
         },
     );
-    assert_eq!(check((&device, &queue), &input, q), off);
+    let linear = check((&device, &queue), &input, q);
+    assert!(max_half_difference(&linear, &off) <= distinct_by(&input));
     let srgb = FxaaQuality {
         luminance: FxaaLuminance::Srgb,
         ..q
     };
-    assert_ne!(check((&device, &queue), &input, srgb), off);
+    let toe = check((&device, &queue), &input, srgb);
+    assert!(
+        max_half_difference(&toe, &off) > distinct_by(&input),
+        "{} vs {}",
+        max_half_difference(&toe, &off),
+        distinct_by(&input)
+    );
 }

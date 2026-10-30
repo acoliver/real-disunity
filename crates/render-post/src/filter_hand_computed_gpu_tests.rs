@@ -80,60 +80,90 @@ fn cutoff_case(base: f32, step: f32, filters_center: bool, transpose: bool) -> (
     (input, expected)
 }
 
+/// Runs the FXAA entry on a cutoff fixture. `tie` marks a contrast exactly at the cutoff, where
+/// the comparison `contrast < cutoff` depends on how the product `maximum * edge_threshold`
+/// rounds in the driver's f32 arithmetic, so either decision is accepted.
+fn check_cutoff(
+    gpu: (&wgpu::Device, &wgpu::Queue),
+    case: (f32, f32, bool, bool),
+    constants: &[(&str, f64)],
+) {
+    let (base, step, active, tie) = case;
+    for transpose in [false, true] {
+        let (input, expected) = cutoff_case(base, step, active, transpose);
+        let format = wgpu::TextureFormat::Rgba16Float;
+        if !tie {
+            super::fxaa_tolerance_tests::run_within(
+                gpu,
+                "fxaa",
+                (&input, None),
+                &expected,
+                format,
+                constants,
+            );
+            continue;
+        }
+        let (_, other) = cutoff_case(base, step, !active, transpose);
+        let actual = super::filter_reference_gpu_tests::render(
+            gpu,
+            "fxaa",
+            (&input, None),
+            &expected,
+            format,
+            constants,
+        );
+        let range = super::fxaa_tolerance_tests::range(&input);
+        assert!(
+            [&expected, &other]
+                .into_iter()
+                .any(|image| super::fxaa_tolerance_tests::half_within(&actual, image, range)),
+            "tie at base {base}, step {step} matched neither decision"
+        );
+    }
+}
+
 #[test]
 fn channel_varying_fxaa_matches_hand_computed_cutoffs_and_tangents() {
     let (device, queue) = crate::gpu_tests::gpu();
     // Center contrast is twice the step; border contrast is only one step.
     // The first three straddle 1/64 by 1/512. The last three straddle
-    // maximum/10, with exact equality at contrast 1/16 and maximum 5/8.
+    // maximum/10, with contrast 1/16 and maximum 5/8 at the tie.
     // All border pixels remain below their cutoff in every case.
-    for (base, step, filters_center) in [
-        (1.0 / 16.0, 7.0 / 1024.0, false),
-        (1.0 / 16.0, 8.0 / 1024.0, false),
-        (1.0 / 16.0, 9.0 / 1024.0, true),
-        (9.0 / 16.0, 31.0 / 1024.0, false),
-        (9.0 / 16.0, 32.0 / 1024.0, false),
-        (9.0 / 16.0, 33.0 / 1024.0, true),
+    for (base, step, filters_center, tie) in [
+        (1.0 / 16.0, 7.0 / 1024.0, false, false),
+        (1.0 / 16.0, 8.0 / 1024.0, false, true),
+        (1.0 / 16.0, 9.0 / 1024.0, true, false),
+        (9.0 / 16.0, 31.0 / 1024.0, false, false),
+        (9.0 / 16.0, 32.0 / 1024.0, false, true),
+        (9.0 / 16.0, 33.0 / 1024.0, true, false),
     ] {
-        for transpose in [false, true] {
-            let (input, expected) = cutoff_case(base, step, filters_center, transpose);
-            run(
-                (&device, &queue),
-                "fxaa",
-                (&input, None),
-                &expected,
-                wgpu::TextureFormat::Rgba16Float,
-                &[("FXAA", 1.0)],
-            );
-        }
+        check_cutoff(
+            (&device, &queue),
+            (base, step, filters_center, tie),
+            &[("FXAA", 1.0)],
+        );
     }
 }
 
 #[test]
 fn configurable_fxaa_cutoffs_match_hand_computed_neighbors() {
     let (device, queue) = crate::gpu_tests::gpu();
-    for (base, step, edge, minimum, active) in [
-        (1.0 / 16.0, 15.0 / 1024.0, 0.0, 1.0 / 32.0, false),
-        (1.0 / 16.0, 16.0 / 1024.0, 0.0, 1.0 / 32.0, false),
-        (1.0 / 16.0, 17.0 / 1024.0, 0.0, 1.0 / 32.0, true),
-        (3.0 / 8.0, 63.0 / 1024.0, 0.25, 0.0, false),
-        (3.0 / 8.0, 64.0 / 1024.0, 0.25, 0.0, false),
-        (3.0 / 8.0, 65.0 / 1024.0, 0.25, 0.0, true),
+    for (base, step, edge, minimum, active, tie) in [
+        (1.0 / 16.0, 15.0 / 1024.0, 0.0, 1.0 / 32.0, false, false),
+        (1.0 / 16.0, 16.0 / 1024.0, 0.0, 1.0 / 32.0, false, true),
+        (1.0 / 16.0, 17.0 / 1024.0, 0.0, 1.0 / 32.0, true, false),
+        (3.0 / 8.0, 63.0 / 1024.0, 0.25, 0.0, false, false),
+        (3.0 / 8.0, 64.0 / 1024.0, 0.25, 0.0, false, true),
+        (3.0 / 8.0, 65.0 / 1024.0, 0.25, 0.0, true, false),
     ] {
-        for transpose in [false, true] {
-            let (input, expected) = cutoff_case(base, step, active, transpose);
-            run(
-                (&device, &queue),
-                "fxaa",
-                (&input, None),
-                &expected,
-                wgpu::TextureFormat::Rgba16Float,
-                &[
-                    ("FXAA", 1.0),
-                    ("EDGE_THRESHOLD", edge),
-                    ("MINIMUM_THRESHOLD", minimum),
-                ],
-            );
-        }
+        check_cutoff(
+            (&device, &queue),
+            (base, step, active, tie),
+            &[
+                ("FXAA", 1.0),
+                ("EDGE_THRESHOLD", edge),
+                ("MINIMUM_THRESHOLD", minimum),
+            ],
+        );
     }
 }

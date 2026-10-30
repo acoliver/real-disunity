@@ -37,7 +37,7 @@ pub(crate) fn catmull_rom_history(history: &Image, uv: [f64; 2]) -> Option<[f64;
 
 /// Centre and half-extent of the min/max box of nine samples in `YCoCg` of luminance-compressed
 /// color.
-pub(crate) fn neighbourhood_box(samples: [[f64; 4]; 9]) -> ([f64; 3], [f64; 3]) {
+pub(crate) fn neighbourhood_box(samples: &[[f64; 4]; 9]) -> ([f64; 3], [f64; 3]) {
     let samples = samples.map(|s| to_ycocg(compress([s[0], s[1], s[2]])));
     let lo: [f64; 3] =
         std::array::from_fn(|i| samples.iter().map(|s| s[i]).fold(f64::INFINITY, f64::min));

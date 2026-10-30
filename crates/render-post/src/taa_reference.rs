@@ -249,7 +249,7 @@ impl Frame<'_> {
     /// luminance-compressed color. The standard-deviation box of Salvi 2016 rejected partially
     /// covered edge history of aliased input (static 1x error 0.0027 against 0.0022).
     pub fn statistics(&self, at: [i32; 2]) -> ([f64; 3], [f64; 3]) {
-        neighbourhood_box(OFFSETS.map(|d| self.sample(at[0] + d[0], at[1] + d[1])))
+        neighbourhood_box(&OFFSETS.map(|d| self.sample(at[0] + d[0], at[1] + d[1])))
     }
 
     /// The texel of the 3x3 neighborhood with the smallest depth; the first in row-major order

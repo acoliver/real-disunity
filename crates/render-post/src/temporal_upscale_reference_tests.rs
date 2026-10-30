@@ -11,6 +11,14 @@ const EPS: f64 = f64::EPSILON;
 /// (dense scan of the kernel over fractions 0..1 in steps of 1/1000), so 0.032 bounds it.
 const RAMP_PHASE_ERROR: f64 = 0.032;
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the test stores f32 pixels, and its bounds include the f32 rounding"
+)]
+fn narrow(v: f64) -> f32 {
+    v as f32
+}
+
 fn settings(history_weight: f32) -> TaaSettings {
     TaaSettings {
         history_weight,
@@ -101,7 +109,7 @@ fn a_constant_field_is_preserved_exactly_up_to_f64_rounding() {
 #[test]
 fn an_affine_ramp_is_reproduced_at_exact_phases() {
     let ramp = |x: f64, y: f64| 0.5 + x / 16.0 + y / 32.0;
-    let color = image([8, 8], |x, y| ramp(f64::from(x), f64::from(y)) as f32);
+    let color = image([8, 8], |x, y| narrow(ramp(f64::from(x), f64::from(y))));
     let history = image([16, 16], |_, _| 0.0);
     // q = p / 2 - 0.25 + jitter, so jitter 0.25 puts q on integers and half integers.
     let t = frame(&color, &history, [0.25, 0.25], 0.0);
@@ -123,7 +131,7 @@ fn an_affine_ramp_is_reproduced_at_exact_phases() {
 fn an_affine_ramp_is_reproduced_within_the_kernel_phase_error_everywhere() {
     let (sx, sy) = (1.0 / 16.0, 1.0 / 32.0);
     let ramp = |x: f64, y: f64| 0.5 + sx * x + sy * y;
-    let color = image([10, 9], |x, y| ramp(f64::from(x), f64::from(y)) as f32);
+    let color = image([10, 9], |x, y| narrow(ramp(f64::from(x), f64::from(y))));
     let history = image([17, 13], |_, _| 0.0);
     for jitter in [[0.0, 0.0], [0.3, -0.2], [-0.41, 0.43]] {
         let t = frame(&color, &history, jitter, 0.0);
@@ -154,7 +162,7 @@ fn the_jitter_sign_places_a_world_ramp_at_the_same_output_position_for_any_inter
             let r = f64::from(render);
             let color = image([render, render], |x, y| {
                 let (sx, sy) = (f64::from(x), f64::from(y));
-                (((sx + 0.5 - jitter[0]) / r) + ((sy + 0.5 - jitter[1]) / r)) as f32
+                narrow(((sx + 0.5 - jitter[0]) / r) + ((sy + 0.5 - jitter[1]) / r))
             });
             let t = frame(&color, &history, jitter, 0.0);
             let bound = 2.0 * RAMP_PHASE_ERROR / r + 1e-6;

@@ -96,7 +96,7 @@ impl Temporal<'_> {
         {
             *slot = self.sample(centre[0] + dx, centre[1] + dy);
         }
-        neighbourhood_box(samples)
+        neighbourhood_box(&samples)
     }
 
     /// One output pixel. History is looked up at `u + motion_uv` and ignored when that lies

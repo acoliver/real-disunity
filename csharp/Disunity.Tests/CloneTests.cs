@@ -8,6 +8,7 @@ internal static class CloneTests
         public Vector3 Spawn = new(1, 2, 3);
         public Color Tint = new(0.2f, 0.4f, 0.6f, 0.5f);
         public Bounds Box = new(new(1, 2, 3), new(4, 5, 6));
+        public LayerMask Mask = 1 << 5;
         public Color[] Tints = { new(0.3f, 0.5f, 0.7f, 0.9f) };
         public List<Bounds> Boxes = new() { new(new(2, 3, 4), new(5, 6, 7)) };
         public Probe? Internal;
@@ -59,6 +60,7 @@ internal static class CloneTests
             || result.Tints[0] != template.Tints[0] || result.Boxes[0] != template.Boxes[0]
             || ReferenceEquals(result.Tints, template.Tints) || ReferenceEquals(result.Boxes, template.Boxes))
             throw new Exception("Color and Bounds serialized fields and collections must retain values");
+        if (result.Mask.value != 1 << 5) throw new Exception("a LayerMask field keeps its value");
         if (ReferenceEquals(template, result) || !order.SequenceEqual(new[] { "awake", "awake", "nested-return", "return" }))
             throw new Exception("nested Instantiate must drain native lifecycle before returning");
         Probe.Activation = null;

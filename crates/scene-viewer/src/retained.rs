@@ -36,6 +36,9 @@ mod tests;
 
 #[cfg(test)]
 mod terrain_tests;
+
+#[cfg(test)]
+mod batch_tests;
 /// Caller-selected identity. Initial objects have IDs 0 through `object_count - 1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ObjectId(pub u64);
@@ -53,6 +56,13 @@ pub enum RetainedUpdate {
         id: ObjectId,
         object: SceneObject,
     },
+    /// Applies the edits in order as one atomic update: one validation pass, one
+    /// scene rebuild and one preparation slot, however many edits it holds.
+    /// Later edits see the effect of earlier ones, so the last edit to an ID wins
+    /// and an `Add` after a `Remove` of the same ID is accepted. If any edit is
+    /// invalid, the error names its index (`object edit N`) and the host is
+    /// unchanged. An empty batch is accepted without taking a slot.
+    Objects(Vec<SceneObjectEdit>),
     Camera {
         pose: CameraPose,
         lens: SceneCamera,
@@ -72,6 +82,15 @@ pub enum RetainedUpdate {
         resources: worldrunner_render_plan::SceneResources,
         meshes: Vec<worldrunner_render_plan::SceneMesh>,
     },
+}
+
+/// One object edit inside `RetainedUpdate::Objects`, with the semantics of the
+/// matching single-object `RetainedUpdate` variant.
+#[derive(Clone, Copy, Debug)]
+pub enum SceneObjectEdit {
+    Add { id: ObjectId, object: SceneObject },
+    Replace { id: ObjectId, object: SceneObject },
+    Remove(ObjectId),
 }
 
 /// Typed OS input, without application action mapping or GPU types.
@@ -276,28 +295,39 @@ impl RetainedHost {
     }
 
     fn apply_scene_update(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
+        if matches!(&update, RetainedUpdate::Objects(edits) if edits.is_empty()) {
+            return Ok(());
+        }
         let mut objects = self.objects.clone();
         let mut effects = self.scene.effects().cloned();
         let mut replacement = None;
         let rebuild = match &update {
             RetainedUpdate::Add { id, object } => {
-                self.validate_object(*object)?;
-                if objects.insert(*id, *object).is_some() {
-                    return Err(ViewerError::Driver("duplicate object ID".into()));
-                }
+                self.edit_object(
+                    &mut objects,
+                    SceneObjectEdit::Add {
+                        id: *id,
+                        object: *object,
+                    },
+                )?;
                 false
             }
             RetainedUpdate::Remove(id) => {
-                objects
-                    .remove(id)
-                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))?;
+                self.edit_object(&mut objects, SceneObjectEdit::Remove(*id))?;
                 false
             }
             RetainedUpdate::Replace { id, object } => {
-                self.validate_object(*object)?;
-                *objects
-                    .get_mut(id)
-                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))? = *object;
+                self.edit_object(
+                    &mut objects,
+                    SceneObjectEdit::Replace {
+                        id: *id,
+                        object: *object,
+                    },
+                )?;
+                false
+            }
+            RetainedUpdate::Objects(edits) => {
+                self.edit_objects(&mut objects, edits)?;
                 false
             }
             RetainedUpdate::Camera { .. }
@@ -324,6 +354,45 @@ impl RetainedHost {
         self.scene = scene;
         self.objects = objects;
         self.enqueue(update, rebuild);
+        Ok(())
+    }
+
+    fn edit_objects(
+        &self,
+        objects: &mut BTreeMap<ObjectId, SceneObject>,
+        edits: &[SceneObjectEdit],
+    ) -> Result<(), ViewerError> {
+        for (index, edit) in edits.iter().enumerate() {
+            self.edit_object(objects, *edit)
+                .map_err(|error| ViewerError::Driver(format!("object edit {index}: {error}")))?;
+        }
+        Ok(())
+    }
+
+    fn edit_object(
+        &self,
+        objects: &mut BTreeMap<ObjectId, SceneObject>,
+        edit: SceneObjectEdit,
+    ) -> Result<(), ViewerError> {
+        match edit {
+            SceneObjectEdit::Add { id, object } => {
+                self.validate_object(object)?;
+                if objects.insert(id, object).is_some() {
+                    return Err(ViewerError::Driver("duplicate object ID".into()));
+                }
+            }
+            SceneObjectEdit::Remove(id) => {
+                objects
+                    .remove(&id)
+                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))?;
+            }
+            SceneObjectEdit::Replace { id, object } => {
+                self.validate_object(object)?;
+                *objects
+                    .get_mut(&id)
+                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))? = object;
+            }
+        }
         Ok(())
     }
 

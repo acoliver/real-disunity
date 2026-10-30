@@ -13,6 +13,7 @@ internal static class PanelInputConfigurationTests
             Defaults();
             NoCurrentConfiguration();
             SettingsCanBeReplaced();
+            ApplyCallbackStartsEmpty();
         }
         finally { DisunityHost.UnloadWorld(); }
         Console.WriteLine("PASS: PanelInputConfiguration defaults, no current configuration and validated settings");
@@ -35,6 +36,20 @@ internal static class PanelInputConfigurationTests
         var configuration = new GameObject("Panels").AddComponent<PanelInputConfiguration>();
         Expect.That(PanelInputConfiguration.current == null, "a component in the scene is not a current configuration");
         Expect.Equal(PanelInputConfiguration.PanelInputRedirection.AutoSwitch, configuration.settings.panelInputRedirection, "a new component has the defaults");
+    }
+
+    private static void ApplyCallbackStartsEmpty()
+    {
+        Expect.That(PanelInputConfiguration.onApply == null, "nothing subscribes to apply by default");
+        var calls = 0;
+        PanelInputConfiguration.onApply += _ => calls++;
+        try
+        {
+            var configuration = new GameObject("Panels").AddComponent<PanelInputConfiguration>();
+            configuration.settings = PanelInputConfiguration.Settings.Default;
+            Expect.Equal(0, calls, "the engine applies no panel input, so it raises nothing");
+        }
+        finally { PanelInputConfiguration.onApply = null; }
     }
 
     private static void SettingsCanBeReplaced()

@@ -336,6 +336,7 @@ QualitySettingsTests.Run();
 PlayerPipelineTests.Run();
 CursorTests.Run();
 PanelInputConfigurationTests.Run();
+UIElementsPanelTests.Run();
 ColorUtilityTests.Run();
 EndOfFrameTests.Run();
 RenderPipelineAssetTests.Run();

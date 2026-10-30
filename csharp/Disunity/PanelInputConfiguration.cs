@@ -31,7 +31,7 @@ public class PanelInputConfiguration : MonoBehaviour
     }
 
     /// <summary>Raised when a configuration's settings are applied. The engine never raises it.</summary>
-    public static System.Action? onApply;
+    public static System.Action<PanelInputConfiguration>? onApply;
 
     private Settings _settings = Settings.Default;
 

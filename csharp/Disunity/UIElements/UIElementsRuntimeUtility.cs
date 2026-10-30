@@ -6,6 +6,15 @@ namespace UnityEngine.UIElements;
 /// </summary>
 public static class UIElementsRuntimeUtility
 {
+    /// <summary>
+    /// Subscribes to panel creation. No panel is ever created, so a subscription is accepted and never called.
+    /// </summary>
+    public static event System.Action<BaseRuntimePanel> onCreatePanel
+    {
+        add { }
+        remove { }
+    }
+
     /// <summary>The player panels in display order: none.</summary>
     public static List<BaseRuntimePanel> GetSortedPlayerPanels() => new();
 }

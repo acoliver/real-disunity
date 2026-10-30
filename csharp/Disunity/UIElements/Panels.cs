@@ -6,6 +6,8 @@ namespace UnityEngine.UIElements;
 /// </summary>
 public abstract class BaseVisualElementPanel
 {
+    /// <summary>True once the panel is destroyed. A new panel is not disposed.</summary>
+    public bool disposed { get; protected set; }
 }
 
 /// <summary>A panel that draws into a player. The engine creates none.</summary>

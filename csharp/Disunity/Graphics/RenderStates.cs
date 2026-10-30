@@ -134,69 +134,6 @@ public struct RasterState : IEquatable<RasterState>
 }
 
 /// <summary>
-/// Stencil test and operations for front and back faces. The constructor sets the same compare function and
-/// operations for both faces. Plain data.
-/// </summary>
-public struct StencilState : IEquatable<StencilState>
-{
-    public bool enabled { get; set; }
-    public byte readMask { get; set; }
-    public byte writeMask { get; set; }
-    public CompareFunction compareFunctionFront { get; set; }
-    public StencilOp passOperationFront { get; set; }
-    public StencilOp failOperationFront { get; set; }
-    public StencilOp zFailOperationFront { get; set; }
-    public CompareFunction compareFunctionBack { get; set; }
-    public StencilOp passOperationBack { get; set; }
-    public StencilOp failOperationBack { get; set; }
-    public StencilOp zFailOperationBack { get; set; }
-
-    public StencilState(bool enabled = false, byte readMask = 255, byte writeMask = 255, CompareFunction compareFunction = CompareFunction.Always,
-        StencilOp passOperation = StencilOp.Keep, StencilOp failOperation = StencilOp.Keep, StencilOp zFailOperation = StencilOp.Keep)
-    {
-        this.enabled = enabled;
-        this.readMask = readMask;
-        this.writeMask = writeMask;
-        compareFunctionFront = compareFunctionBack = compareFunction;
-        passOperationFront = passOperationBack = passOperation;
-        failOperationFront = failOperationBack = failOperation;
-        zFailOperationFront = zFailOperationBack = zFailOperation;
-    }
-
-    /// <summary>Disabled, masks 255, compare Always, every operation Keep.</summary>
-    public static StencilState defaultValue =>
-        new(false, 255, 255, CompareFunction.Always, StencilOp.Keep, StencilOp.Keep, StencilOp.Keep);
-
-    /// <summary>Sets the compare function of both faces.</summary>
-    public void SetCompareFunction(CompareFunction value) => compareFunctionFront = compareFunctionBack = value;
-
-    /// <summary>Sets the pass operation of both faces.</summary>
-    public void SetPassOperation(StencilOp value) => passOperationFront = passOperationBack = value;
-
-    /// <summary>Sets the fail operation of both faces.</summary>
-    public void SetFailOperation(StencilOp value) => failOperationFront = failOperationBack = value;
-
-    /// <summary>Sets the depth-fail operation of both faces.</summary>
-    public void SetZFailOperation(StencilOp value) => zFailOperationFront = zFailOperationBack = value;
-
-    public readonly bool Equals(StencilState other) =>
-        enabled == other.enabled && readMask == other.readMask && writeMask == other.writeMask
-        && compareFunctionFront == other.compareFunctionFront && passOperationFront == other.passOperationFront
-        && failOperationFront == other.failOperationFront && zFailOperationFront == other.zFailOperationFront
-        && compareFunctionBack == other.compareFunctionBack && passOperationBack == other.passOperationBack
-        && failOperationBack == other.failOperationBack && zFailOperationBack == other.zFailOperationBack;
-
-    public override readonly bool Equals(object? obj) => obj is StencilState other && Equals(other);
-
-    public override readonly int GetHashCode() => HashCode.Combine(
-        HashCode.Combine(enabled, readMask, writeMask), HashCode.Combine(compareFunctionFront, passOperationFront, failOperationFront, zFailOperationFront),
-        HashCode.Combine(compareFunctionBack, passOperationBack, failOperationBack, zFailOperationBack));
-
-    public static bool operator ==(StencilState left, StencilState right) => left.Equals(right);
-    public static bool operator !=(StencilState left, StencilState right) => !left.Equals(right);
-}
-
-/// <summary>
 /// A set of render states to override, chosen by <see cref="mask"/>. Plain data; the engine does not apply it yet.
 /// A new block holds the default state of each kind and stencil reference 0.
 /// </summary>

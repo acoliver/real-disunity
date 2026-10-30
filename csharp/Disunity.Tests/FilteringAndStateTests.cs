@@ -97,7 +97,14 @@ internal static class FilteringAndStateTests
         Expect.That(!stencil.enabled && stencil.readMask == 255 && stencil.writeMask == 255, "stencil defaults: off, masks 255");
         Expect.That(stencil.compareFunctionFront == CompareFunction.Always && stencil.compareFunctionBack == CompareFunction.Always, "compare Always");
         Expect.That(stencil.passOperationFront == StencilOp.Keep && stencil.zFailOperationBack == StencilOp.Keep, "operations Keep");
-        var set = new StencilState(true, 1, 2, CompareFunction.Equal, StencilOp.Replace, StencilOp.Zero, StencilOp.Invert);
+        var set = StencilState.defaultValue;
+        set.enabled = true;
+        set.readMask = 1;
+        set.writeMask = 2;
+        set.SetCompareFunction(CompareFunction.Equal);
+        set.SetPassOperation(StencilOp.Replace);
+        set.SetFailOperation(StencilOp.Zero);
+        set.SetZFailOperation(StencilOp.Invert);
         Expect.That(set.enabled && set.readMask == 1 && set.writeMask == 2, "enabled and masks");
         Expect.That(set.compareFunctionFront == CompareFunction.Equal && set.compareFunctionBack == CompareFunction.Equal, "compare function on both faces");
         Expect.That(set.passOperationFront == StencilOp.Replace && set.passOperationBack == StencilOp.Replace, "pass operation on both faces");

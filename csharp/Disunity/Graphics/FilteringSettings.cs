@@ -11,23 +11,6 @@ public enum RenderQueue
     Overlay = 4000,
 }
 
-/// <summary>A closed range of render queue values. Plain data; equality compares both bounds.</summary>
-public struct RenderQueueRange : IEquatable<RenderQueueRange>
-{
-    public int lowerBound;
-    public int upperBound;
-
-    public static RenderQueueRange all => new() { lowerBound = 0, upperBound = 5000 };
-    public static RenderQueueRange opaque => new() { lowerBound = 0, upperBound = (int)RenderQueue.GeometryLast };
-    public static RenderQueueRange transparent => new() { lowerBound = (int)RenderQueue.GeometryLast + 1, upperBound = 5000 };
-
-    public readonly bool Equals(RenderQueueRange other) => lowerBound == other.lowerBound && upperBound == other.upperBound;
-    public override readonly bool Equals(object? obj) => obj is RenderQueueRange other && Equals(other);
-    public override readonly int GetHashCode() => HashCode.Combine(lowerBound, upperBound);
-    public static bool operator ==(RenderQueueRange left, RenderQueueRange right) => left.Equals(right);
-    public static bool operator !=(RenderQueueRange left, RenderQueueRange right) => !left.Equals(right);
-}
-
 /// <summary>A closed range of sorting layer values. Plain data; equality compares both bounds.</summary>
 public struct SortingLayerRange : IEquatable<SortingLayerRange>
 {

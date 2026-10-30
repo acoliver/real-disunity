@@ -92,7 +92,12 @@ impl DirectionalShadowSettings {
     }
 
     pub(super) fn validate_light(self, effects: &SceneEffects) -> Result<(), ShadowError> {
-        let sun = crate::frame::sun_direction(effects.sun());
+        let sun = crate::frame::direction_vector(
+            effects
+                .shadow_direction()
+                .unwrap_or(effects.sun().direction),
+        );
+
         self.matrix(sun)?;
         let cascades = effects.shadows();
         if cascades.split_distances_millimeters().is_some() {

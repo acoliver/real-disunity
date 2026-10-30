@@ -46,4 +46,7 @@ public static class GraphicsFormatUtility
     public static string GetFormatString(GraphicsFormat format) => format.ToString();
 
     public static bool IsCompressedFormat(TextureFormat format) => TexelFormats.IsCompressed(format);
+
+    /// <summary>True for the Crunch-compressed formats, which the engine can name but not decode.</summary>
+    public static bool IsCrunchFormat(TextureFormat format) => TexelFormats.IsCrunched(format);
 }

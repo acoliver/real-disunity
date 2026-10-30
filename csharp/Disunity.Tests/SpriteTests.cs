@@ -31,6 +31,7 @@ internal static class SpriteTests
         renderer.flipY = true;
         renderer.sortingOrder = 9;
         renderer.sortingLayerID = -2;
+        Require(sprite.associatedAlphaSplitTexture == null, "a sprite has no split alpha texture");
         Require(renderer.sprite!.rect == sprite.rect && renderer.sprite.pixelsPerUnit == 2, "native sprite content roundtrip");
         Require(renderer.color.a == 0.5f && renderer.flipX && renderer.flipY, "native tint and flips");
         Require(renderer.sortingOrder == 9 && renderer.sortingLayer == -2, "native sorting");

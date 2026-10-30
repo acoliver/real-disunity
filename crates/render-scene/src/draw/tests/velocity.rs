@@ -563,4 +563,6 @@ fn four_sample_msaa_binds_a_multisampled_velocity_target_and_does_not_resolve_wo
 
 mod screen_space;
 
+mod billboard_motion_tests;
+
 mod instance_motion_tests;

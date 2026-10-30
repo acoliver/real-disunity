@@ -50,7 +50,7 @@ pub struct TemporalView {
     /// Equal to the current matrix when [`history_valid`](Self::history_valid) is false, so
     /// a reprojection through it is the identity rather than a stale lookup.
     pub previous_view_projection: Mat4,
-    /// Sub-pixel offset applied to this frame's projection, in output pixels, +y down.
+    /// Sub-pixel offset applied to this frame's projection, in internal raster pixels, +y down.
     pub jitter_pixels: [f32; 2],
     /// Offset applied to the previous published frame. Equal to the current one without history.
     pub previous_jitter_pixels: [f32; 2],

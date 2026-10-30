@@ -21,6 +21,15 @@ internal static partial class MeshTests
         VertexCountChanges();
         BoundsRules();
         Console.WriteLine("PASS: Mesh sub-meshes, indices, topologies, index format limit, vertex count changes and bounds");
+        NormalsOfAQuad();
+        NormalsAreAreaWeighted();
+        TangentsOfAQuad();
+        TangentsNeedNormalsAndUvs();
+        ClearEmptiesTheMesh();
+        UnreadableAfterUpload();
+        OptimizeKeepsData();
+        SnapshotIsACopy();
+        Console.WriteLine("PASS: Mesh normals, tangents, Clear, readability, Optimize and the renderer snapshot");
     }
 
     private static Vector3[] QuadPositions() => [new(0, 0, 0), new(0, 1, 0), new(1, 1, 0), new(1, 0, 0)];

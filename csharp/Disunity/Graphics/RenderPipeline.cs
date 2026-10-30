@@ -76,4 +76,3 @@ public class RenderPipelineGraphicsSettingsCollection
 
     public List<IRenderPipelineGraphicsSettings> settingsList => m_SettingsList;
 }
-

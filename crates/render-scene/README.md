@@ -32,6 +32,43 @@ Vulkan run on Linux, pass the driver selection explicitly to Cargo, for example:
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
+## Masked alpha-to-coverage
+
+`SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA
+sample coverage. Opaque materials reject this request. It belongs to the material
+because the cutoff, filtered albedo alpha, alpha factor and impostor cutoff policy
+already live there; different foliage materials can choose it independently.
+The default is false, preserving the hard-cutoff shader output and uniform bytes.
+Single-sample passes ignore it and retain the hard cutoff, including equality.
+
+For multisampled colour passes, coverage alpha is
+`clamp((alpha - cutoff) / max(fwidth(alpha), 0.000001) + 0.5, 0, 1)`.
+Alpha includes the material factor after texture filtering. The cutoff is the
+half-covered contour, and the screen-space alpha variation sets a one-pixel
+transition. This approximates the filtered silhouette rather than integrating
+its exact area. The device selects covered samples, so a four-sample white
+surface over black resolves to multiples of one quarter. RGB remains unblended.
+Hashed LOD and distance fades retain their existing rejection rules.
+
+The same fixed-function sample mask gates colour, depth, velocity and forward
+SSR attachments. Depth is written only for covered samples, allowing background
+geometry to fill the others regardless of draw order. Relief impostors use their
+camera cutoff and corrected depth. Directional shadow casters retain their own
+hard cutoff and flat caster geometry.
+
+The depth/normal and reflection-material prepasses are separate single-sample
+metadata targets, never the forward depth attachment. SSR receivers are
+pixel-centre majority owners at alpha-to-coverage silhouettes, exactly as at
+geometric MSAA edges: every lane reads the same receiver depth, normal and
+roughness. The masked foreground owns that metadata if and only if
+`alpha >= cutoff`, including equality. The positive derivative denominator
+preserves this half-coverage boundary even when clamped to epsilon; below-cutoff
+results are capped at the preceding float below 0.5 to prevent rounding onto it.
+This pixel-centre approximation does not supply per-sample surface identities.
+Metadata cannot occlude uncovered forward samples. Terrain uses
+albedo alpha as blend height, so terrain coverage is unchanged. Foliage and
+clutter drawn as ordinary material geometry use the masked policy above.
+
 
 ## Projected decal channels and opacity
 

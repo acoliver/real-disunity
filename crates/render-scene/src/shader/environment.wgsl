@@ -138,12 +138,11 @@ fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bo
 @fragment
 fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let shaded = shade(input, front_facing);
-    // Cutout, not blending: the fragment is either present or absent, so no
-    // draw ordering is required and the depth buffer stays authoritative.
+    let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a, input) {
         discard;
     }
-    return SceneSurfaceOutput(vec4<f32>(shaded.rgb, 1.0), scene_relief_depth(input));
+    return SceneSurfaceOutput(vec4<f32>(shaded.rgb, coverage_alpha), scene_relief_depth(input));
 }
 
 @fragment
@@ -161,6 +160,7 @@ fn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> 
 @fragment
 fn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
     let shaded = shade(input,front_facing);
+    let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a,input) { discard; }
-    return vec4<f32>(shaded.rgb,1.0);
+    return vec4<f32>(shaded.rgb,coverage_alpha);
 }

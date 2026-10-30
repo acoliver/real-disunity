@@ -56,7 +56,7 @@ pub(super) fn depth_pipelines(
     pipelines: &ScenePipelines,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-) -> ([wgpu::RenderPipeline; 8], wgpu::RenderPipeline) {
+) -> ([wgpu::RenderPipeline; 16], wgpu::RenderPipeline) {
     let mut configuration = settings.configuration();
     configuration.caster_bias.slope_scale = slope_bias(sampling);
     let module = depth_shader(device);

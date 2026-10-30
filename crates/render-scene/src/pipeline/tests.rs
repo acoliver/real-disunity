@@ -130,7 +130,11 @@ fn every_reachable_material_maps_into_the_prebuilt_pipeline_set() {
     // that mapped outside it would fail at draw time, in the middle of a
     // frame, rather than at startup.
     let all: BTreeSet<PipelineKey> = PipelineKey::ALL.into_iter().collect();
-    assert_eq!(all.len(), 8, "the four variants are distinct");
+    assert_eq!(
+        all.len(),
+        16,
+        "the coverage and raster variants are distinct"
+    );
     for double_sided in [false, true] {
         for alpha_mode in [
             SceneAlphaMode::Opaque,
@@ -284,3 +288,6 @@ fn normal_parameters_are_validated_and_encoded_without_changing_stock_prefix() {
         );
     }
 }
+
+#[path = "coverage_tests.rs"]
+mod coverage_tests;

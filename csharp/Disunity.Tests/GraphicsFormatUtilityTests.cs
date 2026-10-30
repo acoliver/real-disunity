@@ -8,6 +8,7 @@ internal static class GraphicsFormatUtilityTests
     {
         Conversions();
         Facts();
+        BlockSizes();
         Unsupported();
         Console.WriteLine("PASS: GraphicsFormatUtility converts texture, render texture and graphics formats and reports depth, stencil and sRGB facts");
     }
@@ -43,6 +44,31 @@ internal static class GraphicsFormatUtilityTests
         Expect.Equal(GraphicsFormat.None, GraphicsFormatUtility.GetDepthStencilFormat(0), "no depth bits");
         Expect.That(GraphicsFormatUtility.IsCompressedFormat(TextureFormat.DXT5), "DXT5 compressed");
         Expect.That(!GraphicsFormatUtility.IsCompressedFormat(TextureFormat.RGBA32), "RGBA32 not compressed");
+    }
+
+    private static void BlockSizes()
+    {
+        var sizes = new (GraphicsFormat Format, uint Bytes)[]
+        {
+            (GraphicsFormat.None, 0), (GraphicsFormat.R8_UNorm, 1), (GraphicsFormat.R8G8B8A8_SRGB, 4), (GraphicsFormat.R16G16B16A16_SFloat, 8),
+            (GraphicsFormat.R32G32B32A32_SFloat, 16), (GraphicsFormat.R5G6B5_UNormPack16, 2), (GraphicsFormat.A2R10G10B10_UNormPack32, 4),
+            (GraphicsFormat.E5B9G9R9_UFloatPack32, 4), (GraphicsFormat.D16_UNorm, 2), (GraphicsFormat.D32_SFloat, 4),
+            (GraphicsFormat.D24_UNorm_S8_UInt, 4), (GraphicsFormat.S8_UInt, 1), (GraphicsFormat.RGB_DXT1_UNorm, 8),
+            (GraphicsFormat.RGBA_DXT5_UNorm, 16), (GraphicsFormat.R_BC4_UNorm, 8), (GraphicsFormat.RG_BC5_UNorm, 16),
+            (GraphicsFormat.RGBA_BC7_UNorm, 16), (GraphicsFormat.RGB_ETC2_UNorm, 8), (GraphicsFormat.RGBA_ETC2_UNorm, 16),
+            (GraphicsFormat.R_EAC_UNorm, 8), (GraphicsFormat.RG_EAC_UNorm, 16), (GraphicsFormat.RGBA_ASTC6X6_UNorm, 16),
+            (GraphicsFormat.RGB_PVRTC_2Bpp_UNorm, 8),
+        };
+        foreach (var (format, bytes) in sizes)
+            Expect.Equal(bytes, GraphicsFormatUtility.GetBlockSize(format), $"GetBlockSize({format})");
+        Expect.Equal(1u, GraphicsFormatUtility.GetBlockWidth(GraphicsFormat.R8G8B8A8_UNorm), "plain block width");
+        Expect.Equal(1u, GraphicsFormatUtility.GetBlockHeight(GraphicsFormat.R8G8B8A8_UNorm), "plain block height");
+        Expect.Equal(4u, GraphicsFormatUtility.GetBlockWidth(GraphicsFormat.RGBA_BC7_UNorm), "BC7 block width");
+        Expect.Equal(4u, GraphicsFormatUtility.GetBlockHeight(GraphicsFormat.RGB_DXT1_UNorm), "DXT1 block height");
+        Expect.Equal(6u, GraphicsFormatUtility.GetBlockWidth(GraphicsFormat.RGBA_ASTC6X6_UNorm), "ASTC 6x6 block width");
+        Expect.Equal(6u, GraphicsFormatUtility.GetBlockHeight(GraphicsFormat.RGBA_ASTC6X6_UNorm), "ASTC 6x6 block height");
+        Expect.Equal(8u, GraphicsFormatUtility.GetBlockWidth(GraphicsFormat.RGB_PVRTC_2Bpp_UNorm), "PVRTC 2bpp block width");
+        Expect.Equal(4u, GraphicsFormatUtility.GetBlockHeight(GraphicsFormat.RGB_PVRTC_2Bpp_UNorm), "PVRTC 2bpp block height");
     }
 
     private static void Unsupported()

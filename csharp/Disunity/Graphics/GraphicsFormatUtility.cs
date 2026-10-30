@@ -36,5 +36,11 @@ public static class GraphicsFormatUtility
 
     public static GraphicsFormat GetDepthStencilFormat(int depthBits) => GraphicsFormats.DepthFormat(depthBits);
 
+    public static uint GetBlockSize(GraphicsFormat format) => GraphicsFormatBlocks.Bytes(format);
+
+    public static uint GetBlockWidth(GraphicsFormat format) => GraphicsFormatBlocks.Width(format);
+
+    public static uint GetBlockHeight(GraphicsFormat format) => GraphicsFormatBlocks.Height(format);
+
     public static bool IsCompressedFormat(TextureFormat format) => TexelFormats.IsCompressed(format);
 }

@@ -42,6 +42,15 @@ impl ConfiguredFrameRenderer {
     pub fn encoding(&mut self) -> FrameEncoding<'_> {
         FrameEncoding(self.state.current_mut())
     }
+    /// Restores the stock empty bindings for consumers not supplied by a scene.
+    pub fn clear_environment(&mut self, device: &wgpu::Device) {
+        self.state.current_mut().clear_environment(device);
+        if let Some(settings) = self.settings.ssr.filter(|s| s.enabled) {
+            self.state
+                .current_mut()
+                .set_reflection_composition(crate::ssr::composition(settings.composition));
+        }
+    }
     /// Retains submitted, host-budgeted environment map views without allocating storage.
     pub fn set_water_environment(
         &mut self,
@@ -57,6 +66,23 @@ impl ConfiguredFrameRenderer {
         self.state
             .current_mut()
             .set_reflection_environment(device, maps)
+    }
+    /// Installs retained scene maps only for the selected consumers.
+    pub fn set_scene_environment(
+        &mut self,
+        device: &wgpu::Device,
+        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+        consumers: worldrunner_render_plan::SceneEnvironmentConsumers,
+    ) -> Result<(), crate::sky::preparation::PreparationError> {
+        use worldrunner_render_plan::SceneEnvironmentConsumers;
+        match consumers {
+            SceneEnvironmentConsumers::Water => self.set_water_environment(maps),
+            SceneEnvironmentConsumers::Reflections => self
+                .state
+                .current_mut()
+                .set_reflection_only_environment(device, maps),
+            SceneEnvironmentConsumers::Both => self.set_reflection_environment(device, maps),
+        }
     }
     pub fn set_reflection_composition(
         &mut self,

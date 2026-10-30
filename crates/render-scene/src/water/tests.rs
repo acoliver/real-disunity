@@ -14,6 +14,8 @@ mod optical_render_tests;
 mod optics_tests;
 #[path = "regressions.rs"]
 mod regressions;
+#[path = "retained_environment_tests.rs"]
+mod retained_environment_tests;
 #[path = "review_tests.rs"]
 mod review_tests;
 #[path = "screen_tests.rs"]

@@ -1,3 +1,38 @@
+#[test]
+fn layered_channels_reject_half_float_formats() {
+    for format in [TexelFormat::Rg16Float, TexelFormat::Rgba16Float] {
+        for slot in 0..3 {
+            for sampled in [false, true] {
+                let mut textures = textures();
+                let texture = SceneTexture::Texels {
+                    format,
+                    color_space: if slot == 0 {
+                        TextureColorSpace::Srgb
+                    } else {
+                        TextureColorSpace::Linear
+                    },
+                    width: 1,
+                    height: 1,
+                    mips: 1,
+                    bytes: vec![0; usize::try_from(format.bytes_per_texel()).unwrap()].into(),
+                };
+                textures[slot] = if sampled {
+                    texture.with_sampler(TextureSampler::default())
+                } else {
+                    texture
+                };
+                assert_eq!(
+                    map().validate(layer(), &textures),
+                    Err(SceneValidationError::UnsupportedInput {
+                        part: "terrain layered texture format",
+                    }),
+                    "format={format:?}, slot={slot}, sampled={sampled}"
+                );
+            }
+        }
+    }
+}
+
 use super::*;
 
 fn layer() -> TerrainLayer {

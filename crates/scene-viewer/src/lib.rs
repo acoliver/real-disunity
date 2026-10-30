@@ -100,6 +100,8 @@ impl Default for PresentationCadence {
 #[derive(Debug, thiserror::Error)]
 pub enum ViewerError {
     #[error(transparent)]
+    Environment(#[from] worldrunner_render_scene::sky::preparation::PreparationError),
+    #[error(transparent)]
     Configuration(
         #[from]
         worldrunner_render_gpu::configuration::ConfigurationError<

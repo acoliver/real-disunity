@@ -178,6 +178,9 @@ impl TerrainLayeredSource {
                 .appearance()
                 .layered
                 .expect("validated layered source");
+            for handle in [layer.albedo_metallic, layer.normal_roughness, layer.height] {
+                super::terrain_channels::channel_count(&textures[handle.raw() as usize])?;
+            }
             self.channels(layer, textures)?.validate(layer, textures)?;
         }
         if let Some(map) = self.colorization {

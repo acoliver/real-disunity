@@ -60,6 +60,7 @@ fn resources() -> SceneResources {
 fn payload(texture: &SceneTexture) -> *const u8 {
     match texture {
         SceneTexture::Sampled { texture, .. } => payload(texture),
+        SceneTexture::SpecularCube(cube) => cube.bytes().as_ptr(),
         SceneTexture::Texels { bytes, .. } | SceneTexture::Encoded { bytes, .. } => bytes.as_ptr(),
     }
 }

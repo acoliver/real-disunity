@@ -301,6 +301,9 @@ pub fn upload_texture(
     queue: &Queue,
     prepared: &PreparedTexture,
 ) -> Result<Texture, UploadError> {
+    if let Some(cube) = prepared.cube() {
+        return upload_cube(device, queue, cube);
+    }
     TextureUpload::new(&[texture_layer(prepared)], 0, TextureKind::D2)?.upload(
         device,
         queue,
@@ -433,4 +436,32 @@ pub(crate) fn extended_material_group(
 fn install_cached_entries(entries: &mut Vec<BindGroupLayoutEntry>) {
     entries.retain(|entry| entry.binding != 1);
     entries.extend(cached_terrain_entries());
+}
+
+fn upload_cube(
+    device: &Device,
+    queue: &Queue,
+    cube: &worldrunner_render_plan::SceneSpecularCube,
+) -> Result<Texture, UploadError> {
+    let format = crate::texture::cube_format(cube);
+    let faces = cube
+        .bytes()
+        .chunks_exact(cube.bytes().len() / 6)
+        .map(|bytes| packed_mips(format, cube.size(), cube.size(), cube.mip_count(), bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    let layers = faces
+        .iter()
+        .map(|mips| TextureLayer {
+            format,
+            width: cube.size(),
+            height: cube.size(),
+            mips,
+        })
+        .collect::<Vec<_>>();
+    TextureUpload::new(&layers, 0, TextureKind::Cube)?.upload(
+        device,
+        queue,
+        "scene environment cube",
+        TextureUsages::empty(),
+    )
 }

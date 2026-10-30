@@ -147,9 +147,15 @@ fn channel_texture(
 pub(super) fn channel_count(texture: &SceneTexture) -> Result<u32, SceneValidationError> {
     match texture {
         SceneTexture::Sampled { texture, .. } => channel_count(texture),
-        SceneTexture::Texels { format, .. } => {
-            Ok(u32::try_from(format.bytes_per_texel()).expect("four channels"))
-        }
+        SceneTexture::SpecularCube(_) => Err(invalid("terrain cube texture")),
+        SceneTexture::Texels { format, .. } => Ok(match format {
+            super::TexelFormat::R8Unorm => 1,
+            super::TexelFormat::Rg8Unorm => 2,
+            super::TexelFormat::Rgba8Unorm | super::TexelFormat::Bgra8Unorm => 4,
+            super::TexelFormat::Rg16Float | super::TexelFormat::Rgba16Float => {
+                return Err(invalid("terrain layered texture format"));
+            }
+        }),
         SceneTexture::Encoded {
             encoding: super::TextureEncoding::DdsContainer,
             bytes,

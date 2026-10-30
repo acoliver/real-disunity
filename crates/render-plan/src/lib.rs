@@ -153,3 +153,5 @@ pub use scene::{
     SceneDecal, SceneDecalAlphaMode, SceneDecalAngle, SceneDecalAxis, SceneDecalColorModifier,
     SceneDecalMapping, SceneDecalNormalFrame, SceneDecalReceivers, SceneDecalWriteMask,
 };
+
+pub use scene::{SceneEnvironment, SceneEnvironmentConsumers, SceneSpecularCubeFormat};

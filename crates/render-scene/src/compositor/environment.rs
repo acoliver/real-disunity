@@ -6,6 +6,18 @@ impl FrameRenderer {
         device: &wgpu::Device,
         maps: &crate::sky::preparation::PreparedEnvironmentMaps,
     ) -> Result<(), crate::sky::preparation::PreparationError> {
+        self.set_reflection_only_environment(device, maps)?;
+        if self.water.is_some() {
+            self.set_water_environment(maps)?;
+        }
+        Ok(())
+    }
+    /// Installs reflection maps without changing an installed water consumer.
+    pub(crate) fn set_reflection_only_environment(
+        &mut self,
+        device: &wgpu::Device,
+        maps: &crate::sky::preparation::PreparedEnvironmentMaps,
+    ) -> Result<(), crate::sky::preparation::PreparationError> {
         let (cube, lut) = maps.views()?;
         self.ssr
             .as_mut()
@@ -25,10 +37,6 @@ impl FrameRenderer {
             .expect("SSR must be installed")
             .composition =
             worldrunner_render_lighting::reflections::Composition::ReplaceEnvironment;
-        if let Some(water) = &mut self.water {
-            water.environment = [cube, lut];
-            self.environment_conventions[1] = Some(maps.convention());
-        }
         Ok(())
     }
     /// Select the reflection composition algorithm explicitly.
@@ -80,6 +88,25 @@ impl FrameRenderer {
             }
         }
         Ok(())
+    }
+}
+
+impl FrameRenderer {
+    pub(crate) fn clear_environment(&mut self, device: &wgpu::Device) {
+        if let Some(water) = &mut self.water {
+            water.environment = crate::water::receivers::empty_environment(device);
+        }
+        if let Some(ssr) = &mut self.ssr {
+            ssr.environment = crate::water::receivers::empty_environment(device);
+            let screen = self.ssao.as_mut().expect("SSR metadata installed");
+            screen
+                .geometry
+                .forward
+                .as_mut()
+                .expect("SSR forward pipelines")
+                .1 = crate::ssr::forward::group(device, screen, &ssr.environment);
+        }
+        self.environment_conventions = [None; 2];
     }
 }
 

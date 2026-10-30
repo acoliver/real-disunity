@@ -14,6 +14,9 @@ pub fn allocations(
     settings: EnvironmentPreparation,
 ) -> Result<AllocationSet, PreparationError> {
     settings.allocations()?;
+    if cube.format() != worldrunner_render_plan::SceneSpecularCubeFormat::Bc6hRgbUfloat {
+        return Err(PreparationError::Source);
+    }
     if cube.size() != settings.cube_size || cube.mip_count() != settings.mip_count {
         return Err(PreparationError::Settings);
     }
@@ -95,7 +98,7 @@ pub fn encode(
     Ok(PreparedEnvironmentMaps {
         cube: texture,
         lut,
-        transaction,
+        transaction: Some(transaction),
         convention: settings.convention,
         authored_brdf: None,
         specular_intensity_micro: settings.specular_intensity_micro,

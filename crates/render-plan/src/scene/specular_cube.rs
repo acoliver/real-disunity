@@ -1,9 +1,17 @@
-//! Authored linear BC6H unsigned-float reflection radiance.
+//! Authored linear BC6H or half-float prefiltered reflection radiance.
 use super::SceneValidationError;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneSpecularCubeFormat {
+    Bc6hRgbUfloat,
+    Rgba16Float,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneSpecularCube {
     size: u32,
+    mips: u32,
+    format: SceneSpecularCubeFormat,
     bytes: Box<[u8]>,
 }
 impl SceneSpecularCube {
@@ -24,13 +32,59 @@ impl SceneSpecularCube {
                 part: "specular cube mip payload",
             });
         }
-        Ok(Self { size, bytes })
+        Ok(Self {
+            size,
+            mips: size.ilog2() + 1,
+            format: SceneSpecularCubeFormat::Bc6hRgbUfloat,
+            bytes,
+        })
+    }
+    /// Linear half-float RGBA, face-major with finest-to-coarsest mips per face.
+    pub fn rgba16_float(
+        size: u32,
+        mips: u32,
+        bytes: Box<[u8]>,
+    ) -> Result<Self, SceneValidationError> {
+        if size == 0
+            || size > 1024
+            || !size.is_power_of_two()
+            || mips == 0
+            || mips > size.ilog2() + 1
+        {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "specular cube extent or mips",
+            });
+        }
+        let expected: u64 = (0..mips)
+            .map(|m| u64::from(size >> m).pow(2) * 8)
+            .sum::<u64>()
+            * 6;
+        if bytes.len() as u64 != expected {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "specular cube mip payload",
+            });
+        }
+        Ok(Self {
+            size,
+            mips,
+            format: SceneSpecularCubeFormat::Rgba16Float,
+            bytes,
+        })
+    }
+    pub const fn format(&self) -> SceneSpecularCubeFormat {
+        self.format
+    }
+    fn level_bytes(&self, size: u32) -> u64 {
+        match self.format {
+            SceneSpecularCubeFormat::Bc6hRgbUfloat => level_bytes(size),
+            SceneSpecularCubeFormat::Rgba16Float => u64::from(size).pow(2) * 8,
+        }
     }
     pub const fn size(&self) -> u32 {
         self.size
     }
     pub const fn mip_count(&self) -> u32 {
-        self.size.ilog2() + 1
+        self.mips
     }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
@@ -40,12 +94,13 @@ impl SceneSpecularCube {
             return None;
         }
         let face_bytes: u64 = (0..self.mip_count())
-            .map(|m| level_bytes(self.size >> m))
+            .map(|m| self.level_bytes(self.size >> m))
             .sum();
-        let preceding: u64 = (0..mip).map(|m| level_bytes(self.size >> m)).sum();
+        let preceding: u64 = (0..mip).map(|m| self.level_bytes(self.size >> m)).sum();
         let start =
             usize::try_from(u64::from(face) * face_bytes + preceding).expect("bounded cube");
-        let length = usize::try_from(level_bytes(self.size >> mip)).expect("bounded cube level");
+        let length =
+            usize::try_from(self.level_bytes(self.size >> mip)).expect("bounded cube level");
         Some(&self.bytes[start..start + length])
     }
 }

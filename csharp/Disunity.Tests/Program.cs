@@ -339,3 +339,4 @@ SceneSwitchTests.Run();
 SubsystemTests.Run();
 XRDisplayTests.Run();
 XRSettingsTests.Run();
+GraphicsTypeTests.Run();

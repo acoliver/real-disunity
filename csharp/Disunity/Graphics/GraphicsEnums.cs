@@ -31,3 +31,10 @@ namespace UnityEngine.Rendering
 
     public enum ShaderKeywordType { None = 0, BuiltinDefault = 2, BuiltinExtra = 6, BuiltinAutoStripped = 10, UserDefined = 16, Plugin = 32 }
 }
+
+namespace UnityEngine.Rendering
+{
+    public enum ReflectionProbeUsage { Off = 0, BlendProbes = 1, BlendProbesAndSkybox = 2, Simple = 3 }
+
+    public enum SynchronisationStage { VertexProcessing = 0, PixelProcessing = 1 }
+}

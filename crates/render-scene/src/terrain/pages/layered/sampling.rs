@@ -119,6 +119,15 @@ impl LayeredReference<'_> {
         else {
             unreachable!()
         };
+        if self.source.anisotropy.level() > 1 {
+            let dimensions = glam::UVec2::new(*width, *height).as_vec2();
+            let footprint = super::anisotropy::Footprint::new(
+                derivatives,
+                dimensions,
+                self.source.anisotropy.level(),
+            );
+            return self.texture_anisotropic(handle, uv, &footprint, *mips);
+        }
         if *mips == 1 {
             return self.texture(handle, uv, true);
         }
@@ -134,6 +143,31 @@ impl LayeredReference<'_> {
         Ok(std::array::from_fn(|axis| {
             a[axis] + (b[axis] - a[axis]) * lod.fract()
         }))
+    }
+
+    fn texture_anisotropic(
+        &self,
+        handle: TextureHandle,
+        uv: [f32; 2],
+        footprint: &super::anisotropy::Footprint,
+        mips: u32,
+    ) -> Result<[f32; 4], LayeredError> {
+        let maximum = f32::from(u16::try_from(mips - 1).expect("validated mip count"));
+        let lod = footprint.lod.clamp(0.0, maximum);
+        let lower = (0..mips)
+            .rfind(|level| f64::from(*level) <= f64::from(lod))
+            .unwrap();
+        let mut sum = [0.0; 4];
+        for tap in 0..footprint.count {
+            let offset = (f32::from(tap) + 0.5) / f32::from(footprint.count) - 0.5;
+            let position = (glam::Vec2::from_array(uv) + footprint.direction * offset).to_array();
+            let a = self.texture_level(handle, position, true, lower)?;
+            let b = self.texture_level(handle, position, true, (lower + 1).min(mips - 1))?;
+            for axis in 0..4 {
+                sum[axis] += a[axis] + (b[axis] - a[axis]) * lod.fract();
+            }
+        }
+        Ok(sum.map(|value| value / f32::from(footprint.count)))
     }
 
     #[expect(

@@ -86,6 +86,7 @@ pub(super) fn fixture(
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
+        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2; 2], [0; 2], 12_000, vec![0; 4]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
@@ -318,11 +319,21 @@ fn single_mip_gpu_products_are_byte_identical_for_all_footprints() {
     }
 }
 
-fn execute_footprint(
+pub(super) fn execute_footprint(
     context: &crate::device::GpuContext,
     source: &LayeredGpuSource,
     positions: &[[f32; 2]],
     footprint: [f32; 2],
+) -> Vec<u8> {
+    execute_shader(context, source, positions, footprint, None)
+}
+
+pub(super) fn execute_shader(
+    context: &crate::device::GpuContext,
+    source: &LayeredGpuSource,
+    positions: &[[f32; 2]],
+    footprint: [f32; 2],
+    shader: Option<&str>,
 ) -> Vec<u8> {
     let device = context.device();
     let mut registry = ResourceRegistry::default();
@@ -334,6 +345,9 @@ fn execute_footprint(
             (positions, footprint),
         )
         .unwrap();
+    if let Some(shader) = shader {
+        super::anisotropy_tests::replace_pipeline(device, &mut operations, shader);
+    }
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: positions.len() as u64 * 16,

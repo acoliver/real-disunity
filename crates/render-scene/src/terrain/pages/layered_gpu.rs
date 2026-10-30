@@ -3,9 +3,19 @@ mod admission;
 #[cfg(test)]
 mod admission_tests;
 #[cfg(test)]
+mod anisotropy_diagnostics;
+#[cfg(test)]
+mod anisotropy_reference;
+#[cfg(test)]
+mod anisotropy_tests;
+#[cfg(test)]
 mod channel_tests;
 #[cfg(test)]
+mod finite_footprint_tests;
+#[cfg(test)]
 mod mip_tests;
+#[cfg(test)]
+mod principal_tests;
 #[cfg(test)]
 mod resident_tests;
 mod scratch;

@@ -269,7 +269,11 @@ pub fn upload_palette_array(
         device,
         queue,
         label,
-        TextureUsages::empty(),
+        if cfg!(test) {
+            TextureUsages::COPY_SRC
+        } else {
+            TextureUsages::empty()
+        },
     )
 }
 

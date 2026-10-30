@@ -53,8 +53,12 @@ samplers use linear minification, magnification and mip filtering with repeat
 wrapping regardless of per-texture `TextureSampler` settings. Materials with
 equal levels share a sampler; shared textures do not force equal material levels.
 Dynamic quads and sprites continue to use their texture filter/wrap settings
-without anisotropy. Terrain anisotropy is not implemented for sources or cached
-pages and is tracked by [#347](https://github.com/acoliver/real-disunity/issues/347).
+without anisotropy. `TerrainLayeredSource::anisotropy` selects the same validated
+levels for source images; 1 preserves isotropic sampling bytes. Higher levels use
+portable shader taps along the major footprint axis with explicit trilinear LOD,
+bounded by the footprint ratio and authored level. Hardware source samplers stay
+at 1 to avoid backend-dependent anisotropy. Cached-page reads remain isotropic
+and are the next slice in [#347](https://github.com/acoliver/real-disunity/issues/347).
 See [texture sampling](../../dev-docs/rendering/2d.md#texture-sampling) for device
 clamping and [terrain pages](../../dev-docs/rendering/terrain-pages.md) for the
 terrain sampling limitations.

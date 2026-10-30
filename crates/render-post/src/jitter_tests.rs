@@ -1,4 +1,4 @@
-use crate::{PostError, ProjectionJitter};
+use crate::{PostError, ProjectionJitter, RenderScale};
 
 fn bits(offset: [f32; 2]) -> [u32; 2] {
     offset.map(f32::to_bits)
@@ -152,4 +152,156 @@ fn lengths_outside_one_to_sixty_four_are_rejected() {
     }
     assert!(ProjectionJitter::new(1).is_ok());
     assert!(ProjectionJitter::new(64).is_ok());
+}
+
+const OUTPUTS: [[u32; 2]; 2] = [[1920, 1080], [1452, 921]];
+
+fn scaled(output: [u32; 2], millionths: u32) -> [u32; 2] {
+    RenderScale::new(millionths)
+        .unwrap()
+        .extent(output)
+        .unwrap()
+}
+
+fn length_at(output: [u32; 2], millionths: u32) -> u32 {
+    ProjectionJitter::for_extents(scaled(output, millionths), output)
+        .unwrap()
+        .length()
+}
+
+#[test]
+fn for_extents_lengths_match_the_requested_scales_at_both_outputs() {
+    for output in OUTPUTS {
+        assert_eq!(length_at(output, 1_000_000), 8, "{output:?} native");
+        assert_eq!(length_at(output, 500_000), 32, "{output:?} at 0.5");
+        assert_eq!(length_at(output, 670_000), 18, "{output:?} at 0.67");
+        assert_eq!(length_at(output, 770_000), 14, "{output:?} at 0.77");
+    }
+}
+
+#[test]
+fn for_extents_handles_odd_rounded_extents() {
+    assert_eq!(scaled([1453, 919], 670_000), [974, 616]);
+    assert_eq!(length_at([1453, 919], 670_000), 18);
+    assert_eq!(scaled([1453, 919], 500_000), [727, 460]);
+    assert_eq!(length_at([1453, 919], 500_000), 32);
+}
+
+#[test]
+fn for_extents_uses_the_axis_with_the_larger_ratio() {
+    // Width ratio 1.0, height ratio 2.0: the height axis sets the length.
+    let jitter = ProjectionJitter::for_extents([100, 50], [100, 100]).unwrap();
+    assert_eq!(jitter.length(), 32);
+    let jitter = ProjectionJitter::for_extents([50, 100], [100, 100]).unwrap();
+    assert_eq!(jitter.length(), 32);
+}
+
+#[test]
+fn for_extents_rounds_the_length_up_from_exact_integer_arithmetic() {
+    // 8 * 3^2 / 2^2 = 18 exactly: no rounding up.
+    assert_eq!(
+        ProjectionJitter::for_extents([2, 2], [3, 3])
+            .unwrap()
+            .length(),
+        18
+    );
+    // 8 * 4^2 / 3^2 = 14.2..: rounds up to 15.
+    assert_eq!(
+        ProjectionJitter::for_extents([3, 3], [4, 4])
+            .unwrap()
+            .length(),
+        15
+    );
+    // Extents near u32::MAX must not overflow the product, and a ratio a hair under 2 stays 32.
+    let half_up = 1_u32 << 31;
+    let jitter = ProjectionJitter::for_extents([half_up, half_up], [u32::MAX, u32::MAX]).unwrap();
+    assert_eq!(jitter.length(), 32);
+    let jitter = ProjectionJitter::for_extents([u32::MAX, u32::MAX], [u32::MAX, u32::MAX]);
+    assert_eq!(jitter.unwrap().length(), 8);
+}
+
+#[test]
+fn for_extents_at_equal_extents_is_exactly_the_default_sequence() {
+    for extent in [[1920, 1080], [1, 1], [1453, 919]] {
+        let jitter = ProjectionJitter::for_extents(extent, extent).unwrap();
+        assert_eq!(jitter, ProjectionJitter::default());
+        for index in 0..20_u64 {
+            assert_eq!(
+                bits(jitter.offset_pixels(index)),
+                bits(ProjectionJitter::default().offset_pixels(index))
+            );
+        }
+    }
+}
+
+#[test]
+fn for_extents_offsets_are_a_prefix_of_the_halton_generator_inside_half_a_pixel() {
+    let longest = ProjectionJitter::new(ProjectionJitter::MAX_LENGTH).unwrap();
+    for output in OUTPUTS {
+        for millionths in [500_000, 670_000, 770_000] {
+            let jitter = ProjectionJitter::for_extents(scaled(output, millionths), output).unwrap();
+            for index in 0..u64::from(jitter.length()) {
+                let offset = jitter.offset_pixels(index);
+                assert_eq!(bits(offset), bits(longest.offset_pixels(index)));
+                let point = u32::try_from(index).unwrap() + 1;
+                assert!((f64::from(offset[0]) - (halton(point, 2) - 0.5)).abs() < 1e-6);
+                assert!((f64::from(offset[1]) - (halton(point, 3) - 0.5)).abs() < 1e-6);
+                assert!(offset.iter().all(|value| value.abs() < 0.5), "{offset:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn for_extents_rejects_empty_extents() {
+    for (render, output) in [
+        ([0, 10], [20, 20]),
+        ([10, 0], [20, 20]),
+        ([10, 10], [0, 20]),
+        ([10, 10], [20, 0]),
+        ([0, 0], [0, 0]),
+    ] {
+        assert_eq!(
+            ProjectionJitter::for_extents(render, output),
+            Err(PostError::EmptyExtent),
+            "{render:?} in {output:?}"
+        );
+    }
+}
+
+#[test]
+fn for_extents_rejects_a_render_extent_larger_than_the_output_on_either_axis() {
+    for (render, output) in [
+        ([21, 20], [20, 20]),
+        ([20, 21], [20, 20]),
+        ([40, 40], [20, 20]),
+    ] {
+        assert_eq!(
+            ProjectionJitter::for_extents(render, output),
+            Err(PostError::RenderExtent),
+            "{render:?} in {output:?}"
+        );
+    }
+}
+
+#[test]
+fn for_extents_rejects_a_ratio_below_one_half_on_either_axis() {
+    let rejected = [
+        ([9, 20], [20, 20]),
+        ([20, 9], [20, 20]),
+        ([1, 3], [3, 3]),
+        ([1919, 1079], [3840, 2160]),
+        ([2_147_483_647, 2_147_483_648], [u32::MAX, u32::MAX]),
+    ];
+    for (render, output) in rejected {
+        assert!(
+            matches!(
+                ProjectionJitter::for_extents(render, output),
+                Err(PostError::UnsupportedProfile(_))
+            ),
+            "{render:?} in {output:?}"
+        );
+    }
+    assert!(ProjectionJitter::for_extents([10, 10], [20, 20]).is_ok());
+    assert!(ProjectionJitter::for_extents([1920, 1080], [3840, 2160]).is_ok());
 }

@@ -288,21 +288,45 @@ fn decodes_render_settings_with_each_flag_alone() {
 }
 
 /// Quality levels as the Old World player stores them: each name is followed by 192 bytes of
-/// settings, here filled with a marker so a wrong skip length misreads the next name.
-fn quality_bytes(big_endian: bool, current: i32, names: &[&str]) -> Vec<u8> {
+/// settings, here filled with a marker so a wrong skip length misreads the next name, with
+/// the level's custom render pipeline at byte 144 of the settings.
+fn quality_bytes(big_endian: bool, current: i32, levels: &[(&str, PPtr)]) -> Vec<u8> {
     let mut w = ObjectWriter::new(big_endian);
-    w.i32(current).i32(i32::try_from(names.len()).unwrap());
-    for name in names {
-        w.string(name).unwrap().bytes(&[0xAB; 192]);
+    w.i32(current).i32(i32::try_from(levels.len()).unwrap());
+    for (name, pipeline) in levels {
+        w.string(name).unwrap().bytes(&[0xAB; 144]);
+        w.pptr(*pipeline);
+        w.bytes(&[0xAB; 36]);
     }
     w.bytes(&[0; 8]);
     w.finish()
 }
 
+fn unset(names: &[&'static str]) -> Vec<(&'static str, PPtr)> {
+    names.iter().map(|&name| (name, ptr(0))).collect()
+}
+
 #[test]
 fn decodes_quality_levels() {
     for big_endian in [false, true] {
-        let bytes = quality_bytes(big_endian, 1, &["Low", "Medium", "High"]);
+        let levels = [
+            ("Low", ptr(0)),
+            (
+                "Medium",
+                PPtr {
+                    file_id: 1,
+                    path_id: 4988,
+                },
+            ),
+            (
+                "High",
+                PPtr {
+                    file_id: 0,
+                    path_id: 77,
+                },
+            ),
+        ];
+        let bytes = quality_bytes(big_endian, 1, &levels);
         assert_eq!(
             bytes.len(),
             620,
@@ -315,6 +339,7 @@ fn decodes_quality_levels() {
             QualitySettings {
                 current: 1,
                 names: owned(&["Low", "Medium", "High"]),
+                render_pipelines: levels.map(|(_, pipeline)| pipeline).to_vec(),
             }
         );
     }
@@ -324,7 +349,7 @@ fn decodes_quality_levels() {
 fn decodes_quality_levels_with_unaligned_names_and_no_levels() {
     let decoded: QualitySettings = decode_one(
         ClassId::QUALITY_SETTINGS,
-        quality_bytes(false, 0, &["A", "Ultra High"]),
+        quality_bytes(false, 0, &unset(&["A", "Ultra High"])),
         false,
     )
     .unwrap();
@@ -340,7 +365,7 @@ fn decodes_quality_levels_with_unaligned_names_and_no_levels() {
 
 #[test]
 fn quality_levels_must_fill_the_object_exactly() {
-    let bytes = quality_bytes(false, 0, &["Low", "Medium", "High"]);
+    let bytes = quality_bytes(false, 0, &unset(&["Low", "Medium", "High"]));
     rejects_bad_lengths::<QualitySettings>(ClassId::QUALITY_SETTINGS, &bytes);
 }
 

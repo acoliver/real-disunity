@@ -13,8 +13,9 @@ use worldrunner_unity_serialized::{
     classes::{GameObject, MonoBehaviour, MonoScript, RectTransform, Transform},
     font::Font,
     graphics::{Material, MeshFilter, MeshRenderer, SkinnedMeshRenderer, Texture2D},
+    graphics_settings::GraphicsSettings,
     light::Light,
-    managers::{BuildSettings, PreloadData, ResourceManager, TagManager},
+    managers::{BuildSettings, PreloadData, QualitySettings, ResourceManager, TagManager},
     mesh::Mesh,
     object::{Layout, decode},
     render_settings::RenderSettings,
@@ -365,7 +366,7 @@ const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
 }
 
 /// The classes with layouts, each with the check [`decode_census`] runs on its objects.
-const LAYOUTS: [(ClassId, Check); 26] = [
+const LAYOUTS: [(ClassId, Check); 28] = [
     layout::<GameObject>(),
     layout::<Transform>(),
     layout::<RectTransform>(),
@@ -392,6 +393,8 @@ const LAYOUTS: [(ClassId, Check); 26] = [
     layout::<ResourceManager>(),
     layout::<PreloadData>(),
     layout::<RenderSettings>(),
+    layout::<GraphicsSettings>(),
+    layout::<QualitySettings>(),
 ];
 const FAILURES_KEPT: usize = 5;
 

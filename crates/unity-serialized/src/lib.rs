@@ -18,6 +18,7 @@ mod error;
 mod file;
 pub mod font;
 pub mod graphics;
+pub mod graphics_settings;
 mod header;
 pub mod light;
 pub mod lz4;

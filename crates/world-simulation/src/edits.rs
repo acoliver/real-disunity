@@ -27,6 +27,14 @@ pub(crate) struct Staging {
 enum Undo {
     Replaced(ComponentHandle, Box<ComponentDesc>),
     Added(ComponentHandle),
+    Follow(ObjectHandle, Option<ObjectHandle>),
+}
+
+impl Staging {
+    /// Notes the follow target `object` had before a change, so rollback can restore it.
+    pub(crate) fn record_follow(&mut self, object: ObjectHandle, previous: Option<ObjectHandle>) {
+        self.undo.push(Undo::Follow(object, previous));
+    }
 }
 
 impl World {
@@ -79,6 +87,7 @@ impl World {
             match undo {
                 Undo::Replaced(handle, desc) => self.restore_component(handle, *desc),
                 Undo::Added(handle) => self.unwind_added_component(handle),
+                Undo::Follow(object, previous) => self.store_follow(object, previous),
             }
         }
         if let Some(physics) = staging.physics {

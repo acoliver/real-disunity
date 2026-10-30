@@ -98,7 +98,14 @@ fn disabled_cutoff_resolves_rough_surfaces_without_fading() {
                 ..settings()
             },
         );
-        assert_eq!(&bytes[32..34], &half(0.75).to_le_bytes());
+        // The resolved red is 0.75 for scene colour up to 1, so the f32 arithmetic range is 1;
+        // `assert_half_value` adds the half store bound.
+        crate::tolerance_tests::assert_half_value(
+            f64::from(::half::f16::from_le_bytes([bytes[32], bytes[33]]).to_f32()),
+            0.75,
+            1.0,
+            &format!("resolved red at roughness {roughness}"),
+        );
     }
 }
 

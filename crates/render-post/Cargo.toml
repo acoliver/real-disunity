@@ -13,6 +13,7 @@ wgpu.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 pollster.workspace = true
 naga = { version = "30.0.0", features = ["wgsl-in"] }
 

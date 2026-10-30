@@ -12,5 +12,9 @@ wgpu.workspace = true
 thiserror.workspace = true
 pollster.workspace = true
 
+[features]
+# Display-output bounds for the render crates' tests; not for production builds.
+test-support = []
+
 [lints]
 workspace = true

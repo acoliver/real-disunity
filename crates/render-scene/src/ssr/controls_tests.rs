@@ -218,11 +218,23 @@ fn gpu_depth_scaled_thickness_matches_linear_depth_at_two_depths() {
         &[],
     );
     encoder.finish().submit().unwrap();
-    let expected: Vec<_> = [0.5, 0.0, 0.0, 1.0, 1.25, 0.0, 0.0, 1.0]
+    // `base + depth * slope` is one multiply and one add, 0.25 + 8 * 0.03125 and 0.25 + 32 * 0.03125,
+    // each exact in f32; the bound is still the shared half store bound with range equal to the
+    // result, because contraction and the half conversion are implementation-defined.
+    let bytes = read(&context, &target);
+    for (index, want) in [0.5, 0.0, 0.0, 1.0, 1.25, 0.0, 0.0, 1.0]
         .into_iter()
-        .flat_map(|value| half(value).to_le_bytes())
-        .collect();
-    assert_eq!(read(&context, &target), expected);
+        .enumerate()
+    {
+        crate::tolerance_tests::assert_half_value(
+            f64::from(
+                ::half::f16::from_le_bytes([bytes[2 * index], bytes[2 * index + 1]]).to_f32(),
+            ),
+            want,
+            want,
+            &format!("thickness word {index}"),
+        );
+    }
 }
 #[test]
 fn gpu_default_trace_bytes_match_fixed_traversal() {

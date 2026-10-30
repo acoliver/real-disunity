@@ -61,21 +61,7 @@ fn zero_bound_and_zero_opacity_preserve_original_snapshot_at_every_supported_sam
                 });
             }
             let renderer = renderer(&context, samples, body);
-            let snapshot = &renderer.water.as_ref().unwrap().snapshots[1];
-            let colors: Vec<_> = (0..32 * 32)
-                .flat_map(|p| {
-                    [
-                        if p % 2 == 0 { 0x3400u16 } else { 0x3800 },
-                        0x3000,
-                        0x2c00,
-                        0x3c00,
-                    ]
-                })
-                .flat_map(u16::to_le_bytes)
-                .collect();
-            upload_snapshot(&context, &snapshot.color, &colors, 8);
-            let depths: Vec<_> = (0..32 * 32).flat_map(|_| 10.0f32.to_le_bytes()).collect();
-            upload_snapshot(&context, &snapshot.depth, &depths, 4);
+            let colors = upload_checker_snapshot(&context, &renderer);
             draw_water_only(&context, &renderer);
             let actual = read(&context, renderer.targets().texture());
             let center = (16 * 32 + 16) * 8;
@@ -157,24 +143,119 @@ fn disabled_optical_controls_are_byte_identical_to_stock_shader_at_every_support
         let expected = read(&context, renderer.targets().texture());
         let receivers = receiver_bytes(&context, &renderer, samples);
         assert_default_uniform_bytes();
-        let source = water_source(false)
-            .replace(
-                include_str!("water.wgsl"),
-                include_str!("stock_reference.wgsl"),
-            )
-            .replace(include_str!("terms.wgsl"), "");
-        let water = renderer.water.as_mut().unwrap();
-        water.pipeline = pipeline_with_source(
-            context.device(),
-            samples,
-            &water.layout,
-            false,
-            [0; 4],
-            &source,
-        );
+        use_stock_shader(&context, &mut renderer, samples);
         draw_water_only(&context, &renderer);
-        assert_eq!(read(&context, renderer.targets().texture()), expected);
-        assert_eq!(receiver_bytes(&context, &renderer, samples), receivers);
+        assert_images_agree(
+            &read(&context, renderer.targets().texture()),
+            &expected,
+            "colour",
+        );
+        for (index, (actual, want)) in receiver_bytes(&context, &renderer, samples)
+            .iter()
+            .zip(&receivers)
+            .enumerate()
+        {
+            assert_images_agree(actual, want, &format!("receiver {index}"));
+        }
+        assert_transparent_water_passes_snapshot(&context, samples);
+    }
+}
+
+/// With colour 0 and absorption 0 the transmission is 1 and the scattering 0, so both shaders
+/// must output the snapshot pixel itself. This absolute value does not depend on either shader
+/// text agreeing with the other, so a change to the shared compose term cannot hide.
+fn assert_transparent_water_passes_snapshot(context: &GpuContext, samples: u32) {
+    let mut body = settings();
+    body.color_micro = [0; 3];
+    body.absorption_micro = [0; 3];
+    body.material.refraction_millimeters = Some(0);
+    let mut renderer = renderer(context, samples, body);
+    upload_checker_snapshot(context, &renderer);
+    let center = (16 * 32 + 16) * 8;
+    for stock in [false, true] {
+        if stock {
+            use_stock_shader(context, &mut renderer, samples);
+        }
+        draw_water_only(context, &renderer);
+        let actual = read(context, renderer.targets().texture());
+        crate::tolerance_tests::assert_half_pixel(
+            &actual[center..center + 8],
+            [0.25, 0.125, 0.0625, 1.0],
+            if stock {
+                "stock shader"
+            } else {
+                "current shader"
+            },
+        );
+    }
+}
+
+/// Fills the snapshot with a constant-depth checker whose even pixels (including the centre)
+/// are (0.25, 0.125, 0.0625, 1). Returns the colour bytes.
+fn upload_checker_snapshot(
+    context: &GpuContext,
+    renderer: &crate::compositor::FrameRenderer,
+) -> Vec<u8> {
+    let snapshot = &renderer.water.as_ref().unwrap().snapshots[1];
+    let colors: Vec<_> = (0..32 * 32)
+        .flat_map(|p| {
+            [
+                if p % 2 == 0 { 0x3400u16 } else { 0x3800 },
+                0x3000,
+                0x2c00,
+                0x3c00,
+            ]
+        })
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    upload_snapshot(context, &snapshot.color, &colors, 8);
+    let depths: Vec<_> = (0..32 * 32).flat_map(|_| 10.0f32.to_le_bytes()).collect();
+    upload_snapshot(context, &snapshot.depth, &depths, 4);
+    colors
+}
+
+fn use_stock_shader(
+    context: &GpuContext,
+    renderer: &mut crate::compositor::FrameRenderer,
+    samples: u32,
+) {
+    let source = water_source(false)
+        .replace(
+            include_str!("water.wgsl"),
+            include_str!("stock_reference.wgsl"),
+        )
+        .replace(include_str!("terms.wgsl"), "");
+    let water = renderer.water.as_mut().unwrap();
+    water.pipeline = pipeline_with_source(
+        context.device(),
+        samples,
+        &water.layout,
+        false,
+        [0; 4],
+        &source,
+    );
+}
+
+/// The two shaders are different texts that are equal for default controls, so their float16
+/// outputs differ only by the arithmetic before the store and the store itself: every word of
+/// both is within twice the derived half bound (one store each) of the other, for values up to
+/// the largest word of the image.
+fn assert_images_agree(actual: &[u8], expected: &[u8], context: &str) {
+    assert_eq!(actual.len(), expected.len(), "{context}: lengths");
+    let word = |bytes: &[u8], i: usize| {
+        f64::from(::half::f16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]).to_f32())
+    };
+    let words = expected.len() / 2;
+    let range = (0..words)
+        .map(|i| word(expected, i).abs())
+        .fold(1.0, f64::max);
+    for i in 0..words {
+        let (a, e) = (word(actual, i), word(expected, i));
+        let bound = 2.0 * worldrunner_render_gpu::tolerance_test_support::half_bound(e, range);
+        assert!(
+            (a - e).abs() <= bound,
+            "{context}: word {i}, got {a}, want {e}, bound {bound}"
+        );
     }
 }
 

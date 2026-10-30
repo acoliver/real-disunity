@@ -139,12 +139,10 @@ internal static class PlayerNativePluginTests
             var player = new PlayerAssemblies(managed, typeof(DisunityHost).Assembly, new[] { "Game" }, scratch.Plugins());
             player.Attach(context);
             var game = player.Resolve(context, new AssemblyName("Game")) ?? throw new InvalidOperationException("Game resolves");
-            try
-            {
-                System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(game, (_, _, _) => 0);
-                throw new InvalidOperationException("a game assembly the player loads must already have the player's native resolver");
-            }
-            catch (InvalidOperationException error) when (error.Message.Contains("already")) { }
+            var registered = false;
+            try { System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(game, (_, _, _) => 0); }
+            catch (InvalidOperationException) { registered = true; }
+            Require(registered, "a game assembly the player loads must have the player's native resolver set");
         }
         finally { context.Unload(); }
     }

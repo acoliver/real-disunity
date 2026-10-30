@@ -149,6 +149,7 @@ mod tests {
     fn a_repeated_name_is_rejected_with_the_second_line_number() {
         let error = parse("int CSharp_A\nvoid CSharp_B\nuint CSharp_A\n").unwrap_err();
         assert!(error.starts_with("line 3:"), "{error}");
+        assert!(error.contains("listed twice"), "{error}");
     }
 
     #[test]

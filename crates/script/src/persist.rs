@@ -113,6 +113,11 @@ impl GameScripts {
             if scheduler.is_running() {
                 return Err(refused("cannot save from inside a scheduler thread".into()));
             }
+            if !scheduler.is_saveable() {
+                return Err(refused(
+                    "cannot save threads on other clocks or in waits yet".into(),
+                ));
+            }
             (scheduler.records(), scheduler.now())
         };
         let unstarted: Vec<(usize, Thread)> = records

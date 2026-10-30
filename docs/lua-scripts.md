@@ -65,6 +65,21 @@ let failures = scripts.advance(tick_ms)?;
 | `now()` | The scheduler clock in milliseconds. |
 
 `advance(ms)` moves the clock and runs every thread due by then, in order of wake time and then of scheduling. A thread sees the clock at its wake time, so one that sleeps again within the advanced span runs again within it. `sleep(0)` and any other plain `coroutine.yield` wait for the next `advance`, so a loop of zero sleeps cannot spin within one. Each resume has the full instruction budget. An error ends only the thread that raised it and is returned in `advance`'s failure list; the other threads keep running. `sleep` outside a scheduler thread is an error.
+
+`register_scheduler_with(&names, &policy)` selects the semantics of a game's original engine with a `SchedulerPolicy`. The default policy is the behavior above. A policy sets:
+
+| Setting | Default | Alternative |
+| --- | --- | --- |
+| `fraction` | `Ceil` | `Truncate`: 19.53 ms is 19 ms |
+| `negative_sleep` | `Error` | `Forever`: a negative sleep waits without a timeout |
+| `zero_sleep` | `NextAdvance` | `SameAdvance`: due now, may run again in the same advance; `max_zero_sleeps` ends a thread that loops |
+| `new_thread` | `NextAdvance` | `SameAdvance`: a thread created in an advance runs in it when due |
+| `order` | `ByWakeThenReschedule` | `ByWakeThenClockThenRegistration`: ties run by clock in the order `clocks` lists them, then by creation |
+| `clocks` | `["game"]` | Named clocks, each with its own time. The first is the default. `spawn_on` and `read_clock` bind natives for a clock; the host uses `set_clock`, `clock_now` and `set_clock_paused`. A paused clock does not move and its threads do not run |
+| `waits`, `wake` | none | Waits with an optional timeout (`WaitWakeup`, `WaitMsg`). A timeout resumes the thread with the kind's `timeout_value`; `wake(thread, ...)` or `GameScripts::wake_thread` resumes it with the given values. A kind's `on_resume` native runs just before either, so the game can unlink the thread from its own message tables |
+
+A save refuses threads on clocks other than the first and threads in waits until restored threads can be adopted (#147).
+
 ## Saving Lua state
 
 A game saves its Lua data with `save` and restores it, into a fresh `GameScripts` that has run the same scripts, with `restore`:

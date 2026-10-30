@@ -14,7 +14,8 @@ namespace Disunity.Hosting;
 /// a script asset binds its fields before its <c>Awake</c> and <c>OnEnable</c>, as Unity
 /// deserializes an asset before activating it. Script assets one load reaches through their
 /// references are all bound before any of them is activated, so assets that reference each
-/// other see each other's data; when one fails, none of them is kept. A destroyed asset is
+/// other see each other's data; when one fails, none of them is kept. A prefab is built from its
+/// own plan into template objects (see <c>ResourceDatabase.Prefabs.cs</c>). A destroyed asset is
 /// built again on its next load. Loading an entry of a class the engine does not build fails
 /// with the path and class named. Resources load on the main thread only.
 /// </summary>
@@ -53,7 +54,7 @@ internal sealed partial class ResourceDatabase
         RequireMainThread();
         var key = Normalize(path);
         foreach (var entry in _entries)
-            if (entry.Path == key && Matches(entry, type)) return Build(entry, type);
+            if (entry.Path == key && Fetch(entry, type) is { } found) return found;
         return null;
     }
 
@@ -64,8 +65,9 @@ internal sealed partial class ResourceDatabase
         var key = Normalize(path);
         var prefix = key.Length == 0 ? "" : key + "/";
         return _entries
-            .Where(entry => (entry.Path == key || entry.Path.StartsWith(prefix, StringComparison.Ordinal)) && Matches(entry, type))
-            .Select(entry => Build(entry, type))
+            .Where(entry => entry.Path == key || entry.Path.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(entry => Fetch(entry, type))
+            .OfType<Object>()
             .Distinct()
             .ToArray();
     }
@@ -99,6 +101,7 @@ internal sealed partial class ResourceDatabase
         "Sprite" => typeof(Sprite),
         "SpriteAtlas" => typeof(UnityEngine.U2D.SpriteAtlas),
         "Script" => ScriptType(asset),
+        "Prefab" or "UnplannedPrefab" => typeof(GameObject),
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
 
@@ -150,6 +153,8 @@ internal sealed partial class ResourceDatabase
             "Texture2D" => _built[index] = Texture(asset),
             "Sprite" => _built[index] = PlayerSprite(asset),
             "SpriteAtlas" => _built[index] = Atlas(asset),
+            "Prefab" => _built[index] = Prefab(index, asset),
+            "UnplannedPrefab" => throw new InvalidOperationException($"Resources: prefab {asset.Str("name")} did not plan: {asset.Str("error")}"),
             _ => Script(index, asset),
         };
     }

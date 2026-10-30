@@ -16,6 +16,7 @@ mod player_hierarchy;
 pub mod player_identity;
 pub mod player_objects;
 pub mod player_plan;
+mod player_prefabs;
 pub mod player_resources;
 pub mod player_scene;
 pub mod player_scripts;

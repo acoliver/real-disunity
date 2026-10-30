@@ -58,22 +58,14 @@ pub fn plan_player_scene(
     layouts: &ScriptLayouts,
 ) -> Result<ScenePlan, PlayerError> {
     let (tags, layers) = tag_manager_names(data_dir)?;
-    let mut planner = PlayerPlanner {
-        files: PlayerFiles::new(data_dir),
-        path: data_dir.join(scene),
-        tags,
-        objects: Vec::new(),
-        index: BTreeMap::new(),
-        differences: Vec::new(),
-    };
-    planner.files.open_path(&planner.path)?;
-    for root in planner.files.roots(&planner.path)? {
-        planner.add_object(root, None)?;
+    let mut files = PlayerFiles::new(data_dir);
+    let path = data_dir.join(scene);
+    let mut planner = PlayerPlanner::new(path.clone(), &tags, false);
+    files.open_path(&path)?;
+    for root in files.roots(&path)? {
+        planner.add_object(&mut files, root, None)?;
     }
-    let mut objects = Vec::with_capacity(planner.objects.len());
-    for i in 0..planner.objects.len() {
-        objects.push(planner.plan_object(i, layouts)?);
-    }
+    let objects = planner.plan_objects(&mut files, layouts)?;
     Ok(ScenePlan {
         scene: scene.to_owned(),
         objects,
@@ -93,7 +85,9 @@ const LAYER_COUNT: usize = 32;
 /// The tag names by tag index (Unity's built-in tags and the user tags of the player's tag
 /// manager) and the manager's layer names by layer index. Both come from one decode of
 /// `globalgamemanagers`; without that file, or a tag manager in it, the layers are empty.
-fn tag_manager_names(data_dir: &Path) -> Result<(BTreeMap<u16, String>, Vec<String>), PlayerError> {
+pub(crate) fn tag_manager_names(
+    data_dir: &Path,
+) -> Result<(BTreeMap<u16, String>, Vec<String>), PlayerError> {
     let mut names: BTreeMap<u16, String> = BUILTIN_TAGS
         .iter()
         .map(|&(index, name)| (index, name.to_owned()))
@@ -140,22 +134,72 @@ enum Target {
     Unbuilt(ClassId),
 }
 
-struct PlayerPlanner {
-    files: PlayerFiles,
-    path: PathBuf,
-    tags: BTreeMap<u16, String>,
-    objects: Vec<Found>,
-    /// The plan entry each scene object's path ID resolves to.
-    index: BTreeMap<i64, Target>,
-    differences: Vec<String>,
+/// Where a planner reads serialized files from, and how it refers to objects its own set of
+/// objects does not hold.
+pub(crate) trait PlanSource {
+    fn files(&mut self) -> &mut PlayerFiles;
+
+    /// The plan reference for a reference from `owner` to an object outside the planned
+    /// hierarchy, or why there is none.
+    fn outside(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String>;
 }
 
-impl PlayerPlanner {
+/// A scene holds nothing outside its own file's hierarchy.
+impl PlanSource for PlayerFiles {
+    fn files(&mut self) -> &mut PlayerFiles {
+        self
+    }
+
+    fn outside(&mut self, _owner: &Path, pptr: PPtr) -> Result<Json, String> {
+        Err(not_held(pptr))
+    }
+}
+
+/// Plans the object hierarchies that start at the transforms it is given, in one player file.
+pub(crate) struct PlayerPlanner<'t> {
+    path: PathBuf,
+    tags: &'t BTreeMap<u16, String>,
+    /// Whether every object is a prefab template.
+    template: bool,
+    objects: Vec<Found>,
+    /// The plan entry each planned object's path ID resolves to.
+    index: BTreeMap<i64, Target>,
+    pub(crate) differences: Vec<String>,
+}
+
+impl<'t> PlayerPlanner<'t> {
+    pub(crate) fn new(path: PathBuf, tags: &'t BTreeMap<u16, String>, template: bool) -> Self {
+        Self {
+            path,
+            tags,
+            template,
+            objects: Vec::new(),
+            index: BTreeMap::new(),
+            differences: Vec::new(),
+        }
+    }
+
+    /// Plans every object added so far, in the order they were added.
+    pub(crate) fn plan_objects(
+        &mut self,
+        src: &mut impl PlanSource,
+        layouts: &ScriptLayouts,
+    ) -> Result<Vec<PlanObject>, PlayerError> {
+        (0..self.objects.len())
+            .map(|i| self.plan_object(src, i, layouts))
+            .collect()
+    }
+
     /// Adds an object and its children, depth first, parents before children.
-    fn add_object(&mut self, transform_id: i64, parent: Option<usize>) -> Result<(), PlayerError> {
-        let transform = self.files.transform(&self.path, transform_id)?;
-        let game_object: GameObject = self
-            .files
+    pub(crate) fn add_object(
+        &mut self,
+        src: &mut impl PlanSource,
+        transform_id: i64,
+        parent: Option<usize>,
+    ) -> Result<(), PlayerError> {
+        let transform = src.files().transform(&self.path, transform_id)?;
+        let game_object: GameObject = src
+            .files()
             .local(&self.path, transform.game_object)?
             .decode(transform.game_object.path_id)?;
         let at = self.objects.len();
@@ -165,7 +209,7 @@ impl PlayerPlanner {
         let mut planned = 0;
         for component in &game_object.components {
             if component.path_id != transform_id {
-                let target = match self.unbuilt_class(*component)? {
+                let target = match self.unbuilt_class(src, *component)? {
                     Some(class) => Target::Unbuilt(class),
                     None => Target::Component(at, planned),
                 };
@@ -181,16 +225,20 @@ impl PlayerPlanner {
             parent,
         });
         for child in children {
-            self.add_object(child, Some(at))?;
+            self.add_object(src, child, Some(at))?;
         }
         Ok(())
     }
 
     /// The class of a component the engine does not build, or `None` for a script component
     /// with a script.
-    fn unbuilt_class(&mut self, component: PPtr) -> Result<Option<ClassId>, PlayerError> {
+    fn unbuilt_class(
+        &mut self,
+        src: &mut impl PlanSource,
+        component: PPtr,
+    ) -> Result<Option<ClassId>, PlayerError> {
         let path = self.path.clone();
-        let file = self.files.local(&path, component)?;
+        let file = src.files().local(&path, component)?;
         let class = file
             .file
             .object(component.path_id)
@@ -218,6 +266,7 @@ impl PlayerPlanner {
 
     fn plan_object(
         &mut self,
+        src: &mut impl PlanSource,
         i: usize,
         layouts: &ScriptLayouts,
     ) -> Result<PlanObject, PlayerError> {
@@ -236,7 +285,7 @@ impl PlayerPlanner {
         let mut components = Vec::new();
         for component in &game_object.components {
             if component.path_id != transform_id {
-                components.push(self.component(&game_object.name, *component, layouts)?);
+                components.push(self.component(src, &game_object.name, *component, layouts)?);
             }
         }
         Ok(PlanObject {
@@ -245,7 +294,7 @@ impl PlayerPlanner {
             layer: game_object.layer.into(),
             active: game_object.active,
             parent,
-            template: false,
+            template: self.template,
             position: transform.local_position.map(f64::from),
             rotation: transform.local_rotation.map(f64::from),
             scale: transform.local_scale.map(f64::from),
@@ -263,6 +312,7 @@ impl PlayerPlanner {
     /// A camera, light or canvas group as its plan component, and any other engine class as unsupported.
     fn engine_component(
         &mut self,
+        src: &mut impl PlanSource,
         owner: &str,
         class: ClassId,
         component: PPtr,
@@ -273,29 +323,29 @@ impl PlayerPlanner {
             reason,
         };
         if class == ClassId::CAMERA {
-            let camera: Camera = self
-                .files
+            let camera: Camera = src
+                .files()
                 .local(&path, component)?
                 .decode(component.path_id)?;
             return plan_camera(owner, &camera, &mut self.differences).map_err(invalid);
         }
         if class == ClassId::LIGHT {
-            let light: Light = self
-                .files
+            let light: Light = src
+                .files()
                 .local(&path, component)?
                 .decode(component.path_id)?;
             return plan_light(owner, &light, &mut self.differences).map_err(invalid);
         }
         if class == ClassId::CANVAS_GROUP {
-            let group: CanvasGroup = self
-                .files
+            let group: CanvasGroup = src
+                .files()
                 .local(&path, component)?
                 .decode(component.path_id)?;
             return Ok(plan_canvas_group(&group));
         }
         if class == ClassId::CANVAS_RENDERER {
-            let renderer: CanvasRenderer = self
-                .files
+            let renderer: CanvasRenderer = src
+                .files()
                 .local(&path, component)?
                 .decode(component.path_id)?;
             return Ok(PlanComponent::CanvasRenderer {
@@ -309,13 +359,14 @@ impl PlayerPlanner {
 
     fn component(
         &mut self,
+        src: &mut impl PlanSource,
         owner: &str,
         component: PPtr,
         layouts: &ScriptLayouts,
     ) -> Result<PlanComponent, PlayerError> {
         let path = self.path.clone();
-        let class = self
-            .files
+        let class = src
+            .files()
             .local(&path, component)?
             .file
             .object(component.path_id)
@@ -325,9 +376,9 @@ impl PlayerPlanner {
                 path_id: component.path_id,
             })?;
         if class != ClassId::MONO_BEHAVIOUR {
-            return self.engine_component(owner, class, component);
+            return self.engine_component(src, owner, class, component);
         }
-        let data = script_fields(&mut self.files, &path, component.path_id, layouts)?.map_err(
+        let data = script_fields(src.files(), &path, component.path_id, layouts)?.map_err(
             |(script, reason)| PlayerError::InvalidHierarchy {
                 path: path.clone(),
                 reason: format!("{owner}: script {script}: {reason}"),
@@ -343,8 +394,11 @@ impl PlayerPlanner {
         };
         let place = format!("{owner}.{}", script.full_name);
         let index = &self.index;
-        let fields = FieldWriter::new(|pptr| scene_reference(index, pptr), &mut self.differences)
-            .fields(&place, &data.fields);
+        let fields = FieldWriter::new(
+            |pptr| planned_reference(index, pptr).unwrap_or_else(|| src.outside(&path, pptr)),
+            &mut self.differences,
+        )
+        .fields(&place, &data.fields);
         Ok(PlanComponent::Script {
             script: String::new(),
             class: script.full_name,
@@ -355,19 +409,18 @@ impl PlayerPlanner {
     }
 }
 
-/// The plan reference for a same-file reference to an object of the scene, or why there is
-/// none.
-fn scene_reference(index: &BTreeMap<i64, Target>, pptr: PPtr) -> Result<Json, String> {
+/// The plan reference for a same-file reference to an object the planner holds, or why there
+/// is none; `None` for a reference to anything else.
+fn planned_reference(index: &BTreeMap<i64, Target>, pptr: PPtr) -> Option<Result<Json, String>> {
     let target = (pptr.file_id == 0)
         .then(|| index.get(&pptr.path_id))
-        .flatten();
-    match target {
-        Some(Target::Object(i)) => Ok(json!({ "$object": i })),
-        Some(Target::Transform(i)) => Ok(json!({ "$transform": i })),
-        Some(Target::Component(i, j)) => Ok(json!({ "$component": [i, j] })),
-        Some(Target::Unbuilt(class)) => Err(format!(
+        .flatten()?;
+    Some(match target {
+        Target::Object(i) => Ok(json!({ "$object": i })),
+        Target::Transform(i) => Ok(json!({ "$transform": i })),
+        Target::Component(i, j) => Ok(json!({ "$component": [i, j] })),
+        Target::Unbuilt(class) => Err(format!(
             "references a {class} component, which the engine does not build"
         )),
-        None => Err(not_held(pptr)),
-    }
+    })
 }

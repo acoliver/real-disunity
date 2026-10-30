@@ -102,6 +102,8 @@ public static partial class DisunityHost
             return result;
         }
         var fields = SerializedFields(type).ToArray();
+        // An engine struct whose state is all private, such as LayerMask, is plain data that boxing already copied.
+        if (type.IsValueType && fields.Length == 0 && type.Assembly == typeof(EngineObject).Assembly) return value;
         var isList = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>);
         if (!isList && (fields.Length == 0 || value is IEnumerable or Delegate))
             throw new NotSupportedException($"unsupported serialized field type {type}");

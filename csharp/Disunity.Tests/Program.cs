@@ -267,6 +267,7 @@ UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();
+PrefabResourceTests.Run();
 TextCoreTests.Run();
 FieldBinderTests.Run();
 EnvironmentTests.Run();

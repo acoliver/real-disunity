@@ -67,7 +67,11 @@ public static partial class DisunityHost
             && !LoadedScenes.Exists(info => info != scene && info.Roots.Contains(value))).ToList();
     }
 
-    private static bool IsTemplate(GameObject value) => LoadedScenes.Exists(info => info.Templates.Contains(value));
+    /// <summary>The template objects of the player's resource prefabs, which belong to no scene.</summary>
+    internal static HashSet<GameObject> ResourceTemplates { get; } = new();
+
+    private static bool IsTemplate(GameObject value) =>
+        ResourceTemplates.Contains(value) || LoadedScenes.Exists(info => info.Templates.Contains(value));
 
     /// <summary>Makes a loaded scene the active one. The scene that was active keeps the roots it holds now.</summary>
     internal static bool ActivateScene(int handle)
@@ -88,6 +92,7 @@ public static partial class DisunityHost
     {
         foreach (var info in LoadedScenes.ToArray()) SceneManager.RaiseUnloaded(new Scene { Handle = info.Handle });
         LoadedScenes.Clear();
+        ResourceTemplates.Clear();
         SceneManager.ClearHandlers();
         Canvas.ClearHandlers();
         ResetBuildScenes();

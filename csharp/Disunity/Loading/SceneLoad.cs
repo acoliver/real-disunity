@@ -15,6 +15,10 @@ public sealed record SceneLoadOptions(Assembly Scripts, Func<string, byte[]> Fon
     /// <summary>The assembly with a given name, for scripts a player's plan names by assembly
     /// and full class name. Project plans name scripts by file and use <see cref="Scripts"/>.</summary>
     public Func<string, Assembly>? Assemblies { get; init; }
+
+    /// <summary>The object a resource plan's asset index names, for the prefab plans of a player's
+    /// resources, which refer to the resources plan's assets as <c>{"$asset": i}</c>.</summary>
+    internal Func<int, object>? ResourceAsset { get; init; }
 }
 
 /// <summary>A plan texture with the identity its sprites use, for the host to upload.</summary>

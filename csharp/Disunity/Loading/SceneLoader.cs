@@ -48,6 +48,27 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         }
     }
 
+    /// <summary>Builds a plan of template objects only: a player's prefab. Nothing is activated, so the
+    /// objects stay unpublished for <c>Instantiate</c> and belong to no scene.</summary>
+    public LoadedScene LoadTemplates()
+    {
+        var templates = DisunityHost.BeginConstruction();
+        try
+        {
+            CreateObjects(templates, templates);
+            CreateComponents();
+            BindFields();
+            return new LoadedScene(templates, objects, [], [], differences, templateObjects);
+        }
+        catch (Exception failure)
+        {
+            templates.Dispose();
+            if (failure is SceneLoadException) throw;
+            var cause = Cause(failure);
+            throw new SceneLoadException($"{plan.Str("scene")}: {Describe(cause)}", cause);
+        }
+    }
+
     /// <summary>A plan that carries layer names replaces every layer name with them, so scripts that look a
     /// layer up in Awake find it. A plan without them (a project plan) leaves what the host set.</summary>
     private void ApplyLayerNames()
@@ -234,7 +255,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         "$object" => objects[reference.Value.GetInt32()],
         "$transform" => objects[reference.Value.GetInt32()].transform,
         "$component" => ComponentReference(reference.Value[0].GetInt32(), reference.Value[1].GetInt32()),
-        "$asset" => assets[reference.Value.GetInt32()],
+        "$asset" => options.ResourceAsset is { } resource ? resource(reference.Value.GetInt32()) : assets[reference.Value.GetInt32()],
         "$sprite" => sprites[reference.Value.GetInt32()],
         "$font" => Font(reference.Value.GetString() ?? ""),
         var other => throw new SceneLoadException($"references {other}, which scripts cannot hold"),

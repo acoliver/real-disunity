@@ -46,7 +46,10 @@ pub(super) fn uniforms(body: &SceneWaterBody, time_milliseconds: u32) -> [f32; 3
         data[13] = super::number(i64::from(disk.peak_micro)) / 1000.0;
     }
     if let Some(coordinates) = body.material.flow_coordinates {
-        data[10] = 1.0;
+        data[10] = match coordinates.mode {
+            worldrunner_render_plan::SceneWaterSeedCoordinates::Repeat => 1.0,
+            worldrunner_render_plan::SceneWaterSeedCoordinates::EndpointClamped => 2.0,
+        };
         data[16..18].copy_from_slice(
             &coordinates
                 .origin_millimeters

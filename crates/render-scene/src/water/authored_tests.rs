@@ -2,6 +2,51 @@
 mod flow_tests;
 
 #[test]
+fn endpoint_seed_dimensions_require_two_samples_per_axis() {
+    use worldrunner_render_plan::{SceneWaterFlowCoordinates, SceneWaterSeedCoordinates};
+    let mut body = settings();
+    body.material.flow = Some(TextureHandle::from_raw(0));
+    body.material.flow_coordinates = Some(SceneWaterFlowCoordinates {
+        origin_millimeters: [0; 2],
+        tile_millimeters: [10_000; 2],
+        mode: SceneWaterSeedCoordinates::EndpointClamped,
+    });
+    for (width, height) in [(1, 17), (17, 1), (1, 1), (2, 2), (17, 17)] {
+        let source = scene(
+            vec![body.clone()],
+            vec![SceneTexture::Texels {
+                format: TexelFormat::Rg8Unorm,
+                color_space: TextureColorSpace::Linear,
+                width,
+                height,
+                mips: 1,
+                bytes: vec![128; usize::try_from(width * height * 2).unwrap()].into_boxed_slice(),
+            }],
+        );
+        assert_eq!(
+            surface::validate(&source).is_ok(),
+            width >= 2 && height >= 2
+        );
+    }
+    body.material
+        .flow_coordinates
+        .as_mut()
+        .unwrap()
+        .tile_millimeters[0] = 0;
+    assert!(body.validate().is_err());
+    body.material
+        .flow_coordinates
+        .as_mut()
+        .unwrap()
+        .tile_millimeters[0] = 10_000;
+    body.material.flow = None;
+    assert!(body.validate().is_err());
+    body.material.flow = Some(TextureHandle::from_raw(0));
+    body.east_extent_millimeters = 0;
+    assert!(body.validate().is_err());
+}
+
+#[test]
 fn authored_map_representations_and_tiles_fail_before_allocation() {
     let mut body = settings();
     body.material.tile_millimeters = [0, 1000];

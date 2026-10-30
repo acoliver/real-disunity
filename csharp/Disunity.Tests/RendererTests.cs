@@ -97,7 +97,7 @@ internal static class RendererTests
     internal static Mesh Cube()
     {
         var mesh = new Mesh { name = "Cube" };
-        mesh.vertices = [new(-1, -1, -1), new(1, 1, 1), new(1, -1, 1)];
+        mesh.vertices = [new(-1, -2, -3), new(1, 2, 3), new(1, -2, 3)];
         mesh.triangles = [0, 1, 2];
         mesh.RecalculateBounds();
         return mesh;
@@ -113,10 +113,10 @@ internal static class RendererTests
         filter.sharedMesh = Cube();
         owner.transform.position = new Vector3(10, 0, 0);
         owner.transform.localScale = new Vector3(2, 3, 4);
-        Ensure(r.localBounds.size == new Vector3(2, 2, 2), "local bounds are the mesh bounds");
-        Ensure(r.bounds.center == new Vector3(10, 0, 0) && r.bounds.size == new Vector3(4, 6, 8), "world box under position and scale");
+        Ensure(r.localBounds.size == new Vector3(2, 4, 6), "local bounds are the mesh bounds");
+        Ensure(r.bounds.center == new Vector3(10, 0, 0) && r.bounds.size == new Vector3(4, 12, 24), "world box under position and scale");
         owner.transform.rotation = Quaternion.Euler(0, 0, 90);
-        Near(r.bounds.size, new Vector3(6, 4, 8), "a quarter turn swaps the box's x and y extents");
+        Near(r.bounds.size, new Vector3(12, 4, 24), "a quarter turn swaps the box's x and y extents");
         Throws<NotSupportedException>(() => r.localBounds = default, "setting a MeshRenderer's local bounds", "localBounds");
     }
 

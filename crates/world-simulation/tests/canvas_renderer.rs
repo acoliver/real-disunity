@@ -62,13 +62,16 @@ fn distinct() -> CanvasRenderer {
 #[test]
 fn a_new_renderer_is_white_opaque_unclipped_and_empty() {
     let renderer = CanvasRenderer::default();
-    assert_eq!(renderer.color, [1.; 4]);
+    assert_eq!(renderer.color.map(f32::to_bits), [1f32.to_bits(); 4]);
     assert_eq!(renderer.alpha.to_bits(), 1f32.to_bits());
     assert!(!renderer.flags.cull);
     assert!(!renderer.flags.cull_transparent_mesh);
     assert!(!renderer.flags.has_pop_instruction);
     assert_eq!(renderer.clip_rect, None);
-    assert_eq!(renderer.clipping_softness, [0.; 2]);
+    assert_eq!(
+        renderer.clipping_softness.map(f32::to_bits),
+        [0f32.to_bits(); 2]
+    );
     assert_eq!(
         (renderer.material_count, renderer.pop_material_count),
         (0, 0)
@@ -137,7 +140,12 @@ fn a_clip_rectangle_is_stored_and_can_be_removed() {
         renderer_of(&world, object).clip_rect,
         Some([-1., 2., 30., 40.])
     );
-    assert_eq!(renderer_of(&world, object).clipping_softness, [0.5, 1.5]);
+    assert_eq!(
+        renderer_of(&world, object)
+            .clipping_softness
+            .map(f32::to_bits),
+        [0.5f32.to_bits(), 1.5f32.to_bits()]
+    );
     let unclipped = CanvasRenderer {
         clip_rect: None,
         ..clipped

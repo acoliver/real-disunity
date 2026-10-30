@@ -146,8 +146,8 @@ internal static class CanvasRendererTests
         Ensure(renderer.materialCount == CanvasRenderer.MaxMaterials, "a rejected count changes nothing");
 
         renderer.popMaterialCount = 1;
-        renderer.SetPopMaterial(first, 0);
-        Ensure(ReferenceEquals(renderer.GetPopMaterial(0), first) && renderer.GetPopMaterial(1) is null, "pop materials");
+        renderer.SetPopMaterial(second, 0);
+        Ensure(ReferenceEquals(renderer.GetPopMaterial(0), second) && renderer.GetPopMaterial(1) is null, "pop materials");
         Throws<ArgumentOutOfRangeException>(() => renderer.SetPopMaterial(first, 1), "pop slot past the count", "count");
         Throws<ArgumentOutOfRangeException>(() => renderer.popMaterialCount = CanvasRenderer.MaxMaterials + 1, "too many pop materials", "count");
         Ensure(ReferenceEquals(renderer.GetMaterial(0), first), "pop materials are separate");

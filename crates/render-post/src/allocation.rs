@@ -37,30 +37,10 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     }
     gaussian_allocations(&mut set, config, &settings);
     tent_allocations(&mut set, config, &settings);
-    let fxaa = settings.resolve.active_fxaa().is_some();
     let upscale = settings
         .upscale
         .filter(|_| config.size != config.output_extent());
-    for _ in 0..usize::from(fxaa) + usize::from(upscale.is_some()) {
-        let [w, h] = config.size;
-        set.texture(
-            "display-linear post input",
-            [w, h, 1],
-            wgpu::TextureFormat::Rgba32Float,
-            [1, 1],
-            3,
-        );
-    }
-    if settings.native_rcas.is_some() && config.size == config.output_extent() {
-        let [w, h] = config.size;
-        set.texture(
-            "native RCAS input",
-            [w, h, 1],
-            wgpu::TextureFormat::Rgba32Float,
-            [1, 1],
-            3,
-        );
-    }
+    display_input_allocations(&mut set, config, &settings);
     if settings.resolve.active_cmaa2().is_some() {
         crate::cmaa2_gpu::allocations(&mut set, config.size);
     }
@@ -87,6 +67,45 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
         );
     }
     set
+}
+/// The display-linear intermediates between tone mapping and a spatial resolve or upscale: FXAA
+/// reads an `Rgba16Float` copy, the upscale and native RCAS read `Rgba32Float`.
+fn display_input_allocations(
+    set: &mut AllocationSet,
+    config: FrameConfig,
+    settings: &HdrPostSettings,
+) {
+    let fxaa = settings.resolve.active_fxaa().is_some();
+    let upscale = settings.upscale.is_some() && config.size != config.output_extent();
+    let [w, h] = config.size;
+    if fxaa {
+        set.texture(
+            "display-linear post input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            3,
+        );
+    }
+    if upscale {
+        set.texture(
+            "display-linear post input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba32Float,
+            [1, 1],
+            3,
+        );
+    }
+    if settings.native_rcas.is_some() && config.size == config.output_extent() {
+        let [w, h] = config.size;
+        set.texture(
+            "native RCAS input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba32Float,
+            [1, 1],
+            3,
+        );
+    }
 }
 fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrPostSettings) {
     if let Some(bloom) = settings

@@ -134,7 +134,7 @@ fn fixture(size: [u16; 2]) -> Image {
 }
 
 #[test]
-fn gpu_fxaa_exactly_matches_scalar_reference() {
+fn gpu_fxaa_matches_scalar_reference_within_the_derived_bounds() {
     let (device, queue) = crate::gpu_tests::gpu();
     for size in [[8, 8], [9, 7], [1, 1]] {
         for amount in [0.0, 0.5, 1.0] {
@@ -150,7 +150,7 @@ fn gpu_fxaa_exactly_matches_scalar_reference() {
                     }
                 }
                 let expected = Image::render(size, |uv| fxaa(&input, uv, amount));
-                run(
+                super::fxaa_tolerance_tests::run_within(
                     (&device, &queue),
                     "fxaa",
                     (&input, None),

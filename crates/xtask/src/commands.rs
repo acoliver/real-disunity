@@ -153,6 +153,8 @@ pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
                 "2",
                 "--package",
                 "worldrunner-disunity-ffi",
+                "--package",
+                "worldrunner-silent-wwise",
             ],
         )?;
         run_command(root, "dotnet", &["--info"])?;

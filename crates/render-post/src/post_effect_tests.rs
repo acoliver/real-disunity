@@ -302,8 +302,17 @@ fn gpu_bloom_spreads_energy_and_excludes_nonfinite_fireflies() {
     .unwrap();
     assert!(raw.chunks_exact(8).all(|p| p[..6] == [0; 6]));
 }
+/// The tone stage stores the FXAA input as `Rgba16Float`, so a flat region differs from the
+/// unfiltered 8-bit output only by that store. Vulkan lets the float conversion round either
+/// way, so a stored value is off by at most one unit in the last place, `2^-10` of itself. The
+/// sRGB encoding has `v * f'(v) = (1.055 / 2.4) * v^(1 / 2.4) <= 0.4396` on 0..1, so the
+/// encoded error is at most `255 * 0.4396 * 2^-10 = 0.11` steps, and 0.01 steps in the linear
+/// toe. That moves a rounded byte by at most one step, hence the bound of one.
+const FLAT_REGION_STEPS: u8 = 1;
+
 #[test]
-fn gpu_fxaa_smooths_diagonal_preserves_flat_and_disabled_bytes() {
+fn gpu_fxaa_smooths_diagonal_preserves_flat_within_the_half_store_and_disabled_bytes() {
+    use crate::fxaa_tolerance_tests::{differing_pixels, max_step_difference};
     let (device, queue) = crate::gpu_tests::gpu();
     let plain = chain(&device, &HdrPostSettings::default(), [32, 32]);
     let filtered = chain(
@@ -319,21 +328,20 @@ fn gpu_fxaa_smooths_diagonal_preserves_flat_and_disabled_bytes() {
     let b = step(&device, &queue, &filtered, 0, edge, false);
     let a = pixels(&device, &queue, &a);
     let b = pixels(&device, &queue, &b);
-    assert!(
-        a.chunks_exact(4)
-            .zip(b.chunks_exact(4))
-            .filter(|(a, b)| a != b)
-            .count()
-            > 20
-    );
-    assert_eq!(&a[..8], &b[..8]);
+    // Smoothing changes pixels by far more than the store does: count those beyond the bound.
+    assert!(differing_pixels(&a, &b, FLAT_REGION_STEPS) > 20);
+    assert!(max_step_difference(&a[..8], &b[..8]) <= FLAT_REGION_STEPS);
+    // The same pipeline on the same device is deterministic.
     let empty = chain(&device, &HdrPostSettings::default(), [32, 32]);
     let b = step(&device, &queue, &empty, 0, edge, false);
     assert_eq!(a, pixels(&device, &queue, &b));
     let flat = "return vec4<f32>(0.75,0.75,0.75,1.0);";
     let a = step(&device, &queue, &plain, 0, flat, false);
     let b = step(&device, &queue, &filtered, 0, flat, false);
-    assert_eq!(pixels(&device, &queue, &a), pixels(&device, &queue, &b));
+    let a = pixels(&device, &queue, &a);
+    let b = pixels(&device, &queue, &b);
+    assert!(max_step_difference(&a, &b) <= FLAT_REGION_STEPS);
+    assert!(b.chunks_exact(4).all(|pixel| pixel == &b[..4]));
 }
 
 #[test]

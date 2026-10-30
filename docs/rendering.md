@@ -51,7 +51,7 @@ One `AntiAliasing` value holds the choice: an `MsaaSamples` count (`X1`, `X2`, `
 | Choice | Cost | What it smooths |
 | --- | --- | --- |
 | MSAA | Memory and fill rate grow with the count. | Geometry edges, using coverage samples. Shader aliasing and thin alpha-tested detail stay. |
-| FXAA | One full-screen pass after tone mapping. | Edges by contrast, including shader and texture aliasing, with some softening. |
+| FXAA | One full-screen pass after tone mapping, reading an `Rgba16Float` intermediate (8 bytes a texel per frame slot). | Edges by contrast, including shader and texture aliasing, with some softening. |
 | SMAA 1x | Three full-screen passes after tone mapping, plus two small intermediate targets. | Edges by contrast, blended by the shape of the edge. Near-horizontal, near-vertical and diagonal lines come out cleaner and thin lines stay crisper than with FXAA. |
 | CMAA2 | A buffer clear, three compute passes and one full-screen pass after tone mapping, plus about 32 MB of storage at 1080p. | Edges by contrast, blended by shape, with extra care for text and thin detail. Needs compute shaders. |
 | TAA | One full-screen pass and one texture copy before exposure metering, one `Rgba16Float` history texture, sub-pixel camera jitter and a depth contract (see [Temporal antialiasing](#temporal-antialiasing)). | Accumulates many jittered frames, so it smooths geometry, shader and texture aliasing and thin lines over time. Moving objects soften and can ghost slightly. |

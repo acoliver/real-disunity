@@ -91,10 +91,14 @@ fn config(bridge: &Path) -> Result<ManagedHostConfig, PlayError> {
     })
 }
 
-/// Builds the bridge into `<output>/bridge` and returns the host configuration for it.
+/// Builds the bridge into `<output>/bridge` and returns the host configuration for it. A
+/// built player may import native libraries it does not ship for this platform, so the
+/// engine's substitutes are built beside the engine library first.
 pub(crate) fn bridge_config(root: &Path, output: &Path) -> Result<ManagedHostConfig, PlayError> {
     let bridge = build_bridge(root, output)?;
-    config(&bridge)
+    let config = config(&bridge)?;
+    ensure_substitutes(root, &config.ffi_library)?;
+    Ok(config)
 }
 
 fn build_bridge(root: &Path, output: &Path) -> Result<PathBuf, PlayError> {
@@ -196,6 +200,58 @@ fn system_font(name: &str) -> Result<PathBuf, PlayError> {
     if truetype { Ok(file) } else { Err(missing()) }
 }
 
+/// The file name of the silent Wwise library the engine substitutes for `AkSoundEngine`.
+fn silent_wwise_name() -> String {
+    format!(
+        "{}worldrunner_silent_wwise{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    )
+}
+
+/// The `cargo build` arguments that put a package in the Cargo profile directory `directory`
+/// names: `debug` is the `dev` profile, any other name is a profile of that name.
+fn profile_arguments(directory: &Path) -> Vec<String> {
+    match directory.file_name().and_then(std::ffi::OsStr::to_str) {
+        Some("debug") | None => Vec::new(),
+        Some(profile) => vec!["--profile".to_owned(), profile.to_owned()],
+    }
+}
+
+/// Makes sure the engine's substitute native libraries sit beside `ffi_library`, building the
+/// silent Wwise library into its profile directory when it is not there. A player that
+/// ships no `AkSoundEngine` library for this platform loads it from there.
+fn ensure_substitutes(root: &Path, ffi_library: &Path) -> Result<(), PlayError> {
+    let directory = ffi_library.parent().unwrap_or(root);
+    let library = directory.join(silent_wwise_name());
+    if library.is_file() {
+        return Ok(());
+    }
+    run(
+        Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+            .args([
+                "build",
+                "--locked",
+                "--jobs",
+                "2",
+                "-p",
+                "worldrunner-silent-wwise",
+            ])
+            .args(profile_arguments(directory))
+            .current_dir(root),
+    )?;
+    if library.is_file() {
+        Ok(())
+    } else {
+        Err(PlayError::Invalid(format!(
+            "{} not found beside the engine library after building worldrunner-silent-wwise; \
+             build it into {} or put the engine library in a Cargo profile directory",
+            library.display(),
+            directory.display()
+        )))
+    }
+}
+
 /// The engine library: `DISUNITY_FFI_LIBRARY`, or the one Cargo built beside this program.
 fn native_library() -> Result<PathBuf, PlayError> {
     if let Some(path) = std::env::var_os("DISUNITY_FFI_LIBRARY") {
@@ -219,4 +275,25 @@ fn native_library() -> Result<PathBuf, PlayError> {
                 exe.display()
             ))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_debug_directory_builds_the_dev_profile_and_others_their_own() {
+        assert!(profile_arguments(Path::new("/work/target/debug")).is_empty());
+        assert_eq!(
+            profile_arguments(Path::new("/work/target/release")),
+            ["--profile", "release"]
+        );
+    }
+
+    #[test]
+    fn the_silent_library_has_the_platform_name() {
+        let name = silent_wwise_name();
+        assert!(name.contains("worldrunner_silent_wwise"));
+        assert!(name.ends_with(std::env::consts::DLL_SUFFIX));
+    }
 }

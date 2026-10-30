@@ -74,6 +74,17 @@ scene: 2 objects
 missing references: 0
 ```
 
+## Player native plugins
+
+A built player's game and package assemblies import native libraries through `DllImport`, such as Old World's `AkSoundEngine` for Wwise audio. `play --player` registers a resolver (`Disunity.Hosting.PlayerNativePlugins`) for each of those assemblies. For a library name, it tries in order:
+
+1. The runtime's default probing, which finds libraries installed on the system.
+2. The player's own plugin files, in `<Game>_Data/Plugins/<arch>` (`x86_64`, `x86`, `arm64` or `arm`, for the process architecture) and then `<Game>_Data/Plugins`, with the platform's file names: `name.dll` on Windows, `libname.so` and `name.so` on Linux, `name.bundle`, `libname.dylib` and `name.dylib` on macOS. A Windows host loads the game's own `AkSoundEngine.dll`. A file that exists but fails to load fails the run with its path and the loader's cause, since falling back would hide a broken install.
+3. The engine's substitute for the name, from the directory of the engine library (`worldrunner-disunity-ffi`) that the host loaded. The table lives in one place, `PlayerNativePlugins.Substitutes`, and has one entry: `AkSoundEngine` maps to `worldrunner_silent_wwise`, built by `crates/silent-wwise`. It exports all 1170 entry points of the Wwise 2021.1 C# binding and returns zero from each, so the game runs without sound. The run logs `native plugin AkSoundEngine: the player ships none for this platform; using the engine's silent library ...` once per library.
+4. Nothing: the name stays unresolved and the runtime throws `DllNotFoundException`.
+
+`play --player` builds `worldrunner-silent-wwise` into the engine library's Cargo profile directory when it is not already there. Real audio is later work.
+
 ## Status of the test games
 
 Three small open-source Unity games are the first targets. They run from their original repositories at pinned commits, with no changes to their source or assets.

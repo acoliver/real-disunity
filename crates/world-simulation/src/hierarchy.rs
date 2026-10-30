@@ -128,6 +128,7 @@ impl World {
             .expect("validated object")
             .active = active;
         self.record_change(crate::journal::Change::Properties(object));
+        self.spatial_touch(object);
         self.refresh_lifecycle(&nodes, mutation);
         Ok(mutation)
     }

@@ -43,6 +43,13 @@ internal sealed partial class SceneLoader
         return group;
     }
 
+    private static CanvasRenderer CanvasRenderer(GameObject owner, JsonElement value)
+    {
+        var renderer = owner.AddComponent<CanvasRenderer>();
+        renderer.cullTransparentMesh = value.Bool("cull_transparent_mesh");
+        return renderer;
+    }
+
     /// <summary>Applies a CanvasScaler to the canvas on its object. The scaler has no engine
     /// object of its own.</summary>
     private object? Scale(GameObject owner, JsonElement value, string where)

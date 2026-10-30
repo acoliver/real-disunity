@@ -24,6 +24,7 @@ internal sealed partial class SceneLoader
         "Light2D" => Light(owner, value),
         "Light" => Light3D(owner, value),
         "CanvasGroup" => CanvasGroup(owner, value),
+        "CanvasRenderer" => CanvasRenderer(owner, value),
         "UniversalAdditionalCameraData" => CameraData(owner, value, where),
         "Script" => Script(owner, value, where),
         "Unsupported" => Unbuilt(where, $"{value.Str("class")} components are not built yet"),

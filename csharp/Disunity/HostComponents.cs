@@ -24,6 +24,8 @@ public static partial class DisunityHost
             ThrowIfError(NativeBindings.disunity_light_create(WorldHandle, owner.NativeHandle, &handle));
         else if (value is CanvasGroup)
             ThrowIfError(NativeBindings.disunity_canvas_group_create(WorldHandle, owner.NativeHandle, &handle));
+        else if (value is CanvasRenderer)
+            ThrowIfError(NativeBindings.disunity_canvas_renderer_create(WorldHandle, owner.NativeHandle, &handle));
         else if (value is SpriteRenderer)
         {
             ThrowIfError(NativeBindings.disunity_sprite_create(WorldHandle, owner.NativeHandle, &handle));

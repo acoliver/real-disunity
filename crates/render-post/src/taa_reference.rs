@@ -303,7 +303,7 @@ impl Frame<'_> {
     /// the neighbor's residual would drag a background pixel next to a moving object to the
     /// object's history.
     fn history_uv(&self, at: [i32; 2]) -> Option<Lookup> {
-        let q = self.closest(at);
+        let q = if self.samples > 1 { at } else { self.closest(at) };
         let size = self.depth.size.map(f64::from);
         let uv = |p: [i32; 2]| {
             [
@@ -327,7 +327,7 @@ impl Frame<'_> {
         let previous = [0.5 + 0.5 * row(0) / clip_w, 0.5 - 0.5 * row(1) / clip_w];
         let unjittered = [0.5 + 0.5 * ndc[0], 0.5 - 0.5 * ndc[1]];
         let centre = uv(at);
-        let residual = self.residual(if self.samples > 1 { at } else { q });
+        let residual = self.residual(q);
         let out = [
             centre[0] + previous[0] - unjittered[0] + residual[0],
             centre[1] + previous[1] - unjittered[1] + residual[1],

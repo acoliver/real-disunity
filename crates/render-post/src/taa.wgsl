@@ -163,7 +163,7 @@ fn linear_depth(z: f32) -> f32 {
 // residual would carry a moving object's history onto the background beside it.
 fn history_uv(p: vec2<i32>, size: vec2<i32>) -> Lookup {
     let size_f = vec2<f32>(size);
-    let q = closest(p, size);
+    let q = select(closest(p, size), clamp(p, vec2<i32>(0), size - 1), SAMPLES > 1);
     let texel = (vec2<f32>(q) + 0.5) / size_f;
     let jitter = taa.jitter_valid.xy;
     // The depth texel was rasterised `jitter` pixels off its centre.
@@ -175,7 +175,7 @@ fn history_uv(p: vec2<i32>, size: vec2<i32>) -> Lookup {
     let clip = taa.reprojection * vec4<f32>(ndc, z, 1.0);
     let previous = vec2<f32>(0.5 + 0.5 * clip.x / clip.w, 0.5 - 0.5 * clip.y / clip.w);
     let unjittered = vec2<f32>(0.5 + 0.5 * ndc.x, 0.5 - 0.5 * ndc.y);
-    let residual = residual_at(select(q, p, SAMPLES > 1));
+    let residual = residual_at(q);
     let uv = (vec2<f32>(p) + 0.5) / size_f + previous - unjittered + residual;
     let usable = finite(clip.w) && clip.w > 0.0 && finite(uv.x) && finite(uv.y)
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));

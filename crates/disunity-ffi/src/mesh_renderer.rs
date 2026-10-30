@@ -3,7 +3,6 @@
 use crate::{DisunityResult, callbacks::mutate, errors::AbiError, physics::component};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
-    WorldError,
 };
 
 /// A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer and 1 for a
@@ -184,7 +183,7 @@ pub unsafe extern "C" fn disunity_mesh_renderer_write(
     mutate(world, |s| {
         let (id, current) = renderer(s, handle)?;
         let desc = ComponentDesc::MeshRenderer(value.to_native(current)?);
-        s.native.set_component(id, desc).map_err(WorldError::from)?;
+        s.native.set_component(id, desc)?;
         Ok(())
     })
 }

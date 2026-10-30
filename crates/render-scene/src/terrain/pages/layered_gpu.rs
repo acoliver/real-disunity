@@ -18,6 +18,8 @@ mod mip_tests;
 mod principal_tests;
 #[cfg(test)]
 mod resident_tests;
+#[cfg(test)]
+mod rotation_tests;
 mod scratch;
 mod source;
 pub(crate) mod textures;

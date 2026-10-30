@@ -1,6 +1,7 @@
 mod admission;
 mod array_layers;
 mod capture;
+mod normal_basis;
 mod shared_source_arrays;
 use super::*;
 use crate::draw::PreparedScene;
@@ -121,9 +122,34 @@ pub(super) fn page_source() -> TerrainPageSource {
 }
 
 fn render_prepared(context: &GpuContext, scene: &RenderScene, cached: bool) -> Vec<u8> {
+    render_with_frame(context, scene, cached, &matching_frame())
+}
+
+fn render_with_frame(
+    context: &GpuContext,
+    scene: &RenderScene,
+    cached: bool,
+    frame: &FrameUniform,
+) -> Vec<u8> {
+    render_with_source(context, scene, cached, frame, crate::shader::TERRAIN_WGSL)
+}
+
+fn render_with_source(
+    context: &GpuContext,
+    scene: &RenderScene,
+    cached: bool,
+    frame: &FrameUniform,
+    source: &str,
+) -> Vec<u8> {
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
+    let pipelines = ScenePipelines::with_environment(
+        device,
+        (COLOR_FORMAT, 1),
+        crate::shader::ENVIRONMENT_WGSL,
+        source,
+        None,
+    );
     let mut gpu = SceneGpu::upload_prepared(
         device,
         &authority,
@@ -131,13 +157,12 @@ fn render_prepared(context: &GpuContext, scene: &RenderScene, cached: bool) -> V
         &pipelines,
     )
     .unwrap();
-    let frame = matching_frame();
-    gpu.set_frame(context.queue(), frame);
+    gpu.set_frame(context.queue(), *frame);
     if cached {
         gpu.enable_terrain_pages(device, &authority, &pipelines, page_source())
             .unwrap();
         let mut transaction = authority.begin(device).unwrap();
-        gpu.prepare_terrain_pages(device, &mut transaction, &frame, [TARGET; 2])
+        gpu.prepare_terrain_pages(device, &mut transaction, frame, [TARGET; 2])
             .unwrap();
         transaction.finish().submit().unwrap();
         assert!(gpu.terrain_pages_ready());

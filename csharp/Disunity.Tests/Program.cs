@@ -332,5 +332,6 @@ Hash128Tests.Run();
 FilteringAndStateTests.Run();
 CullingDataTests.Run();
 TransformAccessArrayTests.Run();
+RenderEntryPointTests.Run();
 SceneManagerTests.Run();
 SceneSwitchTests.Run();

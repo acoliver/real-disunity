@@ -336,3 +336,4 @@ RenderEntryPointTests.Run();
 SceneManagerTests.Run();
 SceneSwitchTests.Run();
 SubsystemTests.Run();
+XRDisplayTests.Run();

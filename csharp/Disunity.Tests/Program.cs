@@ -340,3 +340,4 @@ SubsystemTests.Run();
 XRDisplayTests.Run();
 XRSettingsTests.Run();
 GraphicsTypeTests.Run();
+GraphicsTests.Run();

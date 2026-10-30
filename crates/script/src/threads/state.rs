@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use mlua::{Function, MultiValue, Thread};
 
+use super::PersistedThread;
 use super::policy::{NewThread, Order, ResumeValue, SchedulerPolicy, ZeroSleep};
+use crate::persist::ThreadSchedule;
 
 /// Wake time on a clock, then the tie-break the policy's order picks.
 type Key = (u64, u64);
@@ -33,6 +35,27 @@ pub(crate) struct Waiting {
 /// that has run is saved by capturing where it stopped, so this is cleared on its first resume.
 pub(crate) struct Origin {
     pub start: Option<(Function, MultiValue)>,
+    /// The game's flags on the thread; the engine does not read their bits.
+    pub flags: i64,
+    pub source: String,
+}
+
+impl Origin {
+    pub(crate) fn new(start: Option<(Function, MultiValue)>) -> Self {
+        Self {
+            start,
+            flags: 0,
+            source: String::new(),
+        }
+    }
+}
+
+/// How an adopted thread is parked: the wait it was suspended in when it was saved.
+pub(crate) enum Parking {
+    /// `Some(ms)` more to sleep, or `None` until woken.
+    Sleep(Option<u64>),
+    /// In the wait kind at this index, with the milliseconds left before it times out.
+    Wait(usize, Option<u64>),
 }
 
 /// A thread restored from a save, ready to be scheduled.
@@ -41,6 +64,7 @@ pub(crate) struct Restored {
     /// Set for a thread that had not run; it starts from the beginning.
     pub start: Option<(Function, MultiValue)>,
     pub wake: Wake,
+    pub schedule: ThreadSchedule,
 }
 
 /// When a saved thread runs next.
@@ -57,6 +81,7 @@ pub(crate) struct ThreadRecord {
     /// Set for a thread that has not run yet.
     pub start: Option<(Function, MultiValue)>,
     pub wake: Wake,
+    pub schedule: ThreadSchedule,
 }
 
 pub(crate) struct ClockState {
@@ -68,6 +93,8 @@ pub(crate) struct ClockState {
 
 /// A wait kind as the scheduler runs it.
 pub(crate) struct WaitSpec {
+    /// The path of the native that waits.
+    pub native: String,
     pub timeout: ResumeValue,
     pub on_resume: Option<Function>,
 }
@@ -85,6 +112,12 @@ pub(crate) struct Scheduler {
     rules: Rules,
     next_seq: u64,
     next_reg: u64,
+    /// The path of the native that sleeps.
+    pub(crate) sleep_native: String,
+    /// The park kind the game gave each native, by path.
+    pub(crate) parks: BTreeMap<String, String>,
+    /// Restored threads noted as parked, by the kind, until they are adopted.
+    pub(crate) parked: HashMap<usize, String>,
     keys: HashMap<usize, (usize, Key)>,
     /// Threads released at the start of the next advance.
     deferred: Vec<Waiting>,
@@ -119,6 +152,9 @@ impl Scheduler {
             },
             next_seq: 0,
             next_reg: 0,
+            sleep_native: String::new(),
+            parks: BTreeMap::new(),
+            parked: HashMap::new(),
             keys: HashMap::new(),
             deferred: Vec::new(),
             running: None,
@@ -186,9 +222,9 @@ impl Scheduler {
         self.running = None;
     }
 
-    /// Whether a save can describe every waiting thread: they are on the default clock and
-    /// sleeping. Threads on other clocks and in waits are saved with adoption (#147).
-    pub(crate) fn is_saveable(&self) -> bool {
+    /// Whether every waiting thread sleeps on the default clock, which a save of all threads
+    /// can describe without the game saying which of its threads it persists.
+    pub(crate) fn is_plain(&self) -> bool {
         let plain = |waiting: &Waiting| waiting.clock == 0 && waiting.wait.is_none();
         self.deferred.iter().all(plain)
             && self
@@ -197,49 +233,212 @@ impl Scheduler {
                 .all(|clock| clock.queue.values().all(plain))
     }
 
-    /// Every waiting thread, in the order it would run: by wake time, then those waiting for
-    /// the next advance.
+    /// Whether a save can describe every waiting thread. A wait that was woken but has not
+    /// run yet holds the values it will resume with, which a save cannot keep.
+    pub(crate) fn is_saveable(&self) -> bool {
+        let plain = |waiting: &Waiting| waiting.wait.is_none() || !waiting.woken;
+        self.deferred.iter().all(plain)
+            && self
+                .clocks
+                .iter()
+                .all(|clock| clock.queue.values().all(plain))
+    }
+
+    /// Every waiting thread, in the order it would run: by clock, then wake time, then those
+    /// waiting for the next advance.
     pub(crate) fn records(&self) -> Vec<ThreadRecord> {
-        let record = |thread: &Thread, wake| ThreadRecord {
-            thread: thread.clone(),
-            start: self.origins[&id(thread)].start.clone(),
-            wake,
-        };
-        let timed = self.clocks[0].queue.iter().map(|(&(at, _), waiting)| {
-            let wake = if at == u64::MAX {
-                Wake::UntilWoken
-            } else {
-                Wake::At(at)
+        let record = |waiting: &Waiting, wake| {
+            let origin = &self.origins[&id(&waiting.thread)];
+            let native = match waiting.wait {
+                Some(kind) => &self.waits[kind].native,
+                None => &self.sleep_native,
             };
-            record(&waiting.thread, wake)
+            ThreadRecord {
+                thread: waiting.thread.clone(),
+                start: origin.start.clone(),
+                wake,
+                schedule: ThreadSchedule {
+                    clock: Some(self.clocks[waiting.clock].name.clone()),
+                    wait: waiting.wait.map(|kind| self.waits[kind].native.clone()),
+                    flags: origin.flags,
+                    source: origin.source.clone(),
+                    park: self.parks.get(native).cloned(),
+                },
+            }
+        };
+        let timed = self.clocks.iter().flat_map(|clock| {
+            clock.queue.iter().map(|(&(at, _), waiting)| {
+                let wake = if at == u64::MAX {
+                    Wake::UntilWoken
+                } else {
+                    Wake::At(at)
+                };
+                record(waiting, wake)
+            })
         });
         let next = self
             .deferred
             .iter()
-            .map(|waiting| record(&waiting.thread, Wake::NextAdvance));
+            .map(|waiting| record(waiting, Wake::NextAdvance));
         timed.chain(next).collect()
     }
 
-    /// Schedules restored threads on the default clock with its time at `now`.
-    pub(crate) fn restore(&mut self, now: u64, threads: Vec<Restored>) {
-        self.clocks[0].now = now;
-        for Restored {
-            thread,
-            start,
-            wake,
-        } in threads
-        {
+    /// Schedules restored threads, with each clock of `times` set to its saved time.
+    pub(crate) fn restore(
+        &mut self,
+        times: &[(String, u64)],
+        threads: Vec<Restored>,
+    ) -> Result<(), String> {
+        for (name, now) in times {
+            let index = self
+                .clock_index(name)
+                .ok_or(format!("no clock named {name}"))?;
+            self.clocks[index].now = *now;
+        }
+        for restored in threads {
+            let (clock, wait) = self.resolve(&restored.schedule)?;
+            let Restored {
+                thread,
+                start,
+                wake,
+                schedule,
+            } = restored;
             let args = start
                 .as_ref()
                 .map_or_else(MultiValue::new, |(_, a)| a.clone());
-            self.origins.insert(id(&thread), Origin { start });
-            let waiting = self.waiting(thread, args, 0);
+            let mut origin = Origin::new(start);
+            origin.flags = schedule.flags;
+            origin.source = schedule.source;
+            self.origins.insert(id(&thread), origin);
+            if let Some(kind) = schedule.park {
+                self.parked.insert(id(&thread), kind);
+            }
+            let mut waiting = self.waiting(thread, args, clock);
+            waiting.wait = wait;
             match wake {
                 Wake::NextAdvance => self.deferred.push(waiting),
                 Wake::At(at) => self.schedule(waiting, at),
                 Wake::UntilWoken => self.schedule(waiting, u64::MAX),
             }
         }
+        Ok(())
+    }
+
+    /// The clock and wait kind a saved thread names.
+    fn resolve(&self, schedule: &ThreadSchedule) -> Result<(usize, Option<usize>), String> {
+        let clock = match &schedule.clock {
+            None => 0,
+            Some(name) => self
+                .clock_index(name)
+                .ok_or(format!("no clock named {name}"))?,
+        };
+        let wait = match &schedule.wait {
+            None => None,
+            Some(native) => Some(
+                self.wait_index(native)
+                    .ok_or(format!("no wait named {native}"))?,
+            ),
+        };
+        Ok((clock, wait))
+    }
+
+    pub(crate) fn wait_index(&self, native: &str) -> Option<usize> {
+        self.waits.iter().position(|wait| wait.native == native)
+    }
+
+    /// Registers a thread that a restore left suspended in a wait, as parked how `parking`
+    /// says, on clock `clock`. The thread is filed after those adopted before it.
+    pub(crate) fn adopt(
+        &mut self,
+        thread: Thread,
+        clock: usize,
+        parking: Parking,
+        game: (i64, String),
+    ) -> Result<(), String> {
+        if self.is_running_thread(&thread) {
+            return Err("a running thread cannot be adopted".into());
+        }
+        self.remove(&thread);
+        self.parked.remove(&id(&thread));
+        let mut origin = Origin::new(None);
+        (origin.flags, origin.source) = game;
+        self.origins.insert(id(&thread), origin);
+        let mut waiting = self.waiting(thread, MultiValue::new(), clock);
+        let (wait, timeout) = match parking {
+            Parking::Sleep(timeout) => (None, timeout),
+            Parking::Wait(kind, timeout) => (Some(kind), timeout),
+        };
+        waiting.wait = wait;
+        let now = self.clocks[clock].now;
+        self.schedule(
+            waiting,
+            timeout.map_or(u64::MAX, |ms| now.saturating_add(ms)),
+        );
+        Ok(())
+    }
+
+    /// How a thread noted as parked in `kind` is parked, given the time left.
+    pub(crate) fn parking_of(&self, kind: &str, remaining: Option<u64>) -> Result<Parking, String> {
+        let native = self
+            .parks
+            .iter()
+            .find_map(|(native, other)| (other == kind).then_some(native))
+            .ok_or(format!("park kind {kind} has no native"))?;
+        if *native == self.sleep_native {
+            return Ok(Parking::Sleep(remaining));
+        }
+        let wait = self
+            .wait_index(native)
+            .ok_or(format!("park kind {kind} is not a scheduler wait"))?;
+        Ok(Parking::Wait(wait, remaining))
+    }
+
+    /// Live threads whose flags share a bit with `mask`, in registration order.
+    pub(crate) fn flagged(&self, mask: i64) -> Vec<PersistedThread> {
+        let mut found: Vec<(u64, PersistedThread)> = Vec::new();
+        let mut add = |waiting: &Waiting, wake: Option<u64>| {
+            let origin = &self.origins[&id(&waiting.thread)];
+            if origin.flags & mask == 0 {
+                return;
+            }
+            let clock = &self.clocks[waiting.clock];
+            let native = match waiting.wait {
+                Some(kind) => &self.waits[kind].native,
+                None => &self.sleep_native,
+            };
+            found.push((
+                waiting.reg,
+                PersistedThread {
+                    thread: waiting.thread.clone(),
+                    flags: origin.flags,
+                    source: origin.source.clone(),
+                    clock: clock.name.clone(),
+                    remaining: wake.map(|at| at.saturating_sub(clock.now)),
+                    park: self.parks.get(native).cloned(),
+                },
+            ));
+        };
+        for clock in &self.clocks {
+            for (&(at, _), waiting) in &clock.queue {
+                add(waiting, (at != u64::MAX).then_some(at));
+            }
+        }
+        for waiting in &self.deferred {
+            add(waiting, Some(self.clocks[waiting.clock].now));
+        }
+        found.sort_by_key(|entry| entry.0);
+        found.into_iter().map(|(_, persisted)| persisted).collect()
+    }
+
+    pub(crate) fn set_flags(&mut self, thread: &Thread, flags: i64) -> bool {
+        self.origins
+            .get_mut(&id(thread))
+            .map(|o| o.flags = flags)
+            .is_some()
+    }
+
+    pub(crate) fn flags_of(&self, thread: &Thread) -> Option<i64> {
+        self.origins.get(&id(thread)).map(|origin| origin.flags)
     }
 
     pub(crate) fn waiting(&mut self, thread: Thread, args: MultiValue, clock: usize) -> Waiting {

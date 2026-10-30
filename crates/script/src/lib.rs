@@ -35,9 +35,11 @@ pub use lua_resume;
 pub use modules::{AssetResolver, AssetsApi, WorldApi};
 pub use original::GameScripts;
 pub use patches::{Edit, Overlay, Patch, PatchError, PatchSet, Patched, sha256_hex};
-pub use persist::{LuaSnapshot, Saved, SavedTable, SavedThread, SavedWake};
+pub use persist::{
+    LuaSnapshot, SaveOptions, Saved, SavedTable, SavedThread, SavedWake, ThreadSchedule,
+};
 pub use threads::{
-    ClockNative, Fraction, NegativeSleep, NewThread, Order, ResumeValue, SchedulerNames,
-    SchedulerPolicy, ThreadFailure, WaitKind, ZeroSleep,
+    AdoptWait, Adoption, ClockNative, Fraction, NegativeSleep, NewThread, Order, PersistedThread,
+    ResumeValue, SchedulerNames, SchedulerPolicy, ThreadFailure, WaitKind, ZeroSleep,
 };
 pub use world::{EntityHandle, WorldView};

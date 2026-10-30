@@ -77,6 +77,31 @@ pub struct SavedThread {
     pub args: Vec<Saved>,
 }
 
+/// How a saved thread is scheduled besides when it wakes: its clock, the wait it is in, the
+/// game's flags and the kind of native it is parked in. Snapshots that predate it have none, and
+/// their threads are sleepers on the default clock.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct ThreadSchedule {
+    /// The name of the thread's clock; none is the default clock.
+    pub clock: Option<String>,
+    /// The native path of the wait kind the thread is in; none for a sleeper.
+    pub wait: Option<String>,
+    pub flags: i64,
+    pub source: String,
+    /// The park kind of the native the thread waits in. A restore notes it again, so the
+    /// thread can be adopted by a game that persists its own thread array.
+    pub park: Option<String>,
+}
+
+/// What a save keeps.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SaveOptions {
+    /// Keeps only the scheduler threads whose flags share a bit with the mask. `None` keeps
+    /// every scheduler thread, which refuses threads on other clocks or in waits: a game that
+    /// has them says which it persists.
+    pub persisted: Option<i64>,
+}
+
 /// One saved table in the format that predates the graph.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct SavedTable {
@@ -96,6 +121,12 @@ pub struct LuaSnapshot {
     /// The scheduler clock, in milliseconds.
     #[serde(default)]
     pub clock: u64,
+    /// How each of `threads` is scheduled, in the same order. Missing for older snapshots.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schedules: Vec<ThreadSchedule>,
+    /// The time of every clock by name. Missing for older snapshots, which have `clock` only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clocks: Vec<(String, u64)>,
     /// Roots in the format that predates the graph.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roots: Vec<(String, Saved)>,
@@ -107,18 +138,44 @@ pub struct LuaSnapshot {
 impl GameScripts {
     /// Saves the values at `roots`, treating everything under `permanents` as code.
     pub fn save(&self, roots: &[&str], permanents: &[&str]) -> Result<LuaSnapshot, ScriptError> {
+        self.save_with(roots, permanents, &SaveOptions::default())
+    }
+
+    /// Saves like [`save`](Self::save), keeping the scheduler threads `options` selects.
+    pub fn save_with(
+        &self,
+        roots: &[&str],
+        permanents: &[&str],
+        options: &SaveOptions,
+    ) -> Result<LuaSnapshot, ScriptError> {
         let names = permanent_names(self.lua(), self.natives(), permanents)?;
-        let (records, clock) = {
+        let (records, clock, clocks) = {
             let scheduler = self.scheduler().lock().expect("scheduler");
             if scheduler.is_running() {
                 return Err(refused("cannot save from inside a scheduler thread".into()));
             }
             if !scheduler.is_saveable() {
                 return Err(refused(
-                    "cannot save threads on other clocks or in waits yet".into(),
+                    "cannot save a wait that was woken and has not run".into(),
                 ));
             }
-            (scheduler.records(), scheduler.now())
+            if options.persisted.is_none() && !scheduler.is_plain() {
+                return Err(refused(
+                    "cannot save threads on other clocks or in waits without choosing the \
+                     persisted threads"
+                        .into(),
+                ));
+            }
+            let mut records = scheduler.records();
+            if let Some(mask) = options.persisted {
+                records.retain(|record| record.schedule.flags & mask != 0);
+            }
+            let times = scheduler
+                .clocks
+                .iter()
+                .map(|clock| (clock.name.clone(), clock.now))
+                .collect::<Vec<_>>();
+            (records, scheduler.now(), times)
         };
         let unstarted: Vec<(usize, Thread)> = records
             .iter()
@@ -136,6 +193,7 @@ impl GameScripts {
             values.push((root.to_owned(), value));
         }
         let (threads, running) = thread_starts(&records, &mut values);
+        let schedules = records.iter().map(|r| r.schedule.clone()).collect();
         let named: Vec<(&str, Value)> = values
             .iter()
             .map(|(name, value)| (name.as_str(), value.clone()))
@@ -145,6 +203,8 @@ impl GameScripts {
             graph,
             threads,
             clock,
+            schedules,
+            clocks,
             ..LuaSnapshot::default()
         })
     }
@@ -198,6 +258,7 @@ impl GameScripts {
                 thread,
                 start,
                 wake,
+                schedule: snapshot.schedules.get(index).cloned().unwrap_or_default(),
             });
         }
         for (root, value) in &restored.roots {
@@ -207,7 +268,12 @@ impl GameScripts {
         }
         if live {
             let mut scheduler = self.scheduler().lock().expect("scheduler");
-            scheduler.restore(snapshot.clock, scheduled);
+            let mut times = snapshot.clocks.clone();
+            if times.is_empty() {
+                let default = scheduler.clocks[0].name.clone();
+                times.push((default, snapshot.clock));
+            }
+            scheduler.restore(&times, scheduled).map_err(refused)?;
         }
         Ok(())
     }

@@ -26,6 +26,8 @@ internal sealed partial class ResourceDatabase
     private readonly List<Entry> _entries = new();
     private readonly List<JsonElement> _assets = new();
     private readonly string _directory;
+    // The plan's graphics section, absent from plans of projects without player settings.
+    private readonly JsonElement? _graphics;
     private readonly Func<string, Assembly> _assemblies;
     private readonly Dictionary<int, Object> _built = new();
     // Script assets created by the load in progress, in creation order, waiting to activate.
@@ -43,6 +45,7 @@ internal sealed partial class ResourceDatabase
                 asset.ValueKind == JsonValueKind.Null ? null : asset.GetInt32()));
         }
         foreach (var asset in plan.RootElement.GetProperty("assets").EnumerateArray()) _assets.Add(asset.Clone());
+        if (plan.RootElement.TryGetProperty("graphics", out var graphics)) _graphics = graphics.Clone();
     }
 
     /// <summary>Forgets the built assets, which belong to the world being unloaded.</summary>

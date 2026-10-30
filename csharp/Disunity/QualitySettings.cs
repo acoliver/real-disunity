@@ -1,3 +1,5 @@
+using UnityEngine.Rendering;
+
 namespace UnityEngine;
 
 /// <summary>
@@ -7,12 +9,14 @@ namespace UnityEngine;
 /// distance 150, all shadows, gamma color space. The engine does not know the values of each of a
 /// project's quality levels yet, so switching levels changes only the current index and leaves
 /// every stored value as it is. <see cref="SetQualityLevel(int)"/> clamps an index past the last
-/// level to the last level.
+/// level to the last level. Each level can name a render pipeline asset; a host supplies them with
+/// <c>SetPipelines</c> and <see cref="renderPipeline"/> reads and replaces the current level's.
 /// </summary>
 public static class QualitySettings
 {
     private static readonly object Gate = new();
     private static string[] _names = ["Default"];
+    private static RenderPipelineAsset?[] _pipelines = [null];
     private static int _level;
     private static int _antiAliasing;
     private static int _mipmapLimit;
@@ -98,6 +102,41 @@ public static class QualitySettings
         get { lock (Gate) return _colorSpace; }
     }
 
+    /// <summary>The render pipeline asset of the current level, or null when the level names none.
+    /// Setting it replaces the current level's asset.</summary>
+    public static RenderPipelineAsset? renderPipeline
+    {
+        get { lock (Gate) return _pipelines[_level]; }
+        set { lock (Gate) _pipelines[_level] = value; }
+    }
+
+    /// <summary>The render pipeline asset of level <paramref name="index"/>, or null when it names none.</summary>
+    public static RenderPipelineAsset? GetRenderPipelineAssetAt(int index)
+    {
+        lock (Gate)
+        {
+            if (index < 0 || index >= _pipelines.Length) throw new ArgumentOutOfRangeException(nameof(index), index, $"the level is 0 to {_pipelines.Length - 1}");
+            return _pipelines[index];
+        }
+    }
+
+    /// <summary>The assets of every level that names one, each once.</summary>
+    internal static RenderPipelineAsset[] ConfiguredPipelines()
+    {
+        lock (Gate) return _pipelines.Where(asset => asset).Distinct().ToArray()!;
+    }
+
+    /// <summary>Gives each level its render pipeline asset, in level order.</summary>
+    internal static void SetPipelines(IReadOnlyList<RenderPipelineAsset?> assets)
+    {
+        ArgumentNullException.ThrowIfNull(assets);
+        lock (Gate)
+        {
+            if (assets.Count != _names.Length) throw new ArgumentException($"{assets.Count} render pipeline assets for {_names.Length} quality levels", nameof(assets));
+            _pipelines = assets.ToArray();
+        }
+    }
+
     /// <summary>A copy of the quality level names, in level order.</summary>
     public static string[] names
     {
@@ -130,7 +169,7 @@ public static class QualitySettings
         if (levelNames.Count == 0) throw new ArgumentException("there must be at least one quality level", nameof(levelNames));
         if (current < 0 || current >= levelNames.Count) throw new ArgumentOutOfRangeException(nameof(current), current, "the current level is not one of the names");
         var copy = levelNames.ToArray();
-        lock (Gate) (_names, _level) = (copy, current);
+        lock (Gate) (_names, _level, _pipelines) = (copy, current, new RenderPipelineAsset?[copy.Length]);
     }
 
     internal static void SetColorSpace(ColorSpace space)
@@ -143,7 +182,7 @@ public static class QualitySettings
     {
         lock (Gate)
         {
-            _names = ["Default"];
+            (_names, _pipelines) = (["Default"], [null]);
             (_level, _antiAliasing, _mipmapLimit, _maximumLod, _queuedFrames, _vSync) = (0, 0, 0, 0, 2, 1);
             (_lodBias, _shadowDistance, _shadows, _colorSpace) = (1f, 150f, ShadowQuality.All, ColorSpace.Gamma);
         }

@@ -20,7 +20,6 @@ public sealed partial class GraphicsSettings : Object
     private static uint _renderingLayerMask = 1;
     private static Camera.GateFitMode _gateFitMode = Camera.GateFitMode.Horizontal;
     private static RenderPipelineAsset? _defaultPipeline;
-    private static RenderPipelineAsset? _qualityPipeline;
 
     private GraphicsSettings() { }
 
@@ -55,31 +54,32 @@ public sealed partial class GraphicsSettings : Object
     /// <summary>The active quality level's asset when it has one, else the default asset; null with neither.</summary>
     public static RenderPipelineAsset? currentRenderPipeline
     {
-        get { lock (Gate) return _qualityPipeline ? _qualityPipeline : _defaultPipeline; }
+        get
+        {
+            var quality = QualitySettings.renderPipeline;
+            lock (Gate) return quality ? quality : _defaultPipeline;
+        }
     }
 
     public static bool isScriptableRenderPipelineEnabled => currentRenderPipeline;
 
     public static Type? currentRenderPipelineAssetType => currentRenderPipeline?.GetType();
 
-    /// <summary>The default and quality assets that are set, each once.</summary>
+    /// <summary>The default asset and the assets of every quality level that are set, each once.</summary>
     public static RenderPipelineAsset[] allConfiguredRenderPipelines
     {
         get
         {
-            lock (Gate)
-            {
-                var found = new List<RenderPipelineAsset>(2);
-                if (_defaultPipeline) found.Add(_defaultPipeline!);
-                if (_qualityPipeline && _qualityPipeline != _defaultPipeline) found.Add(_qualityPipeline!);
-                return [.. found];
-            }
+            var found = new List<RenderPipelineAsset>(QualitySettings.ConfiguredPipelines());
+            lock (Gate) if (_defaultPipeline && !found.Contains(_defaultPipeline!)) found.Insert(0, _defaultPipeline!);
+            return [.. found];
         }
     }
 
     internal static void SetPipelineAssets(RenderPipelineAsset? defaultAsset, RenderPipelineAsset? qualityAsset)
     {
-        lock (Gate) (_defaultPipeline, _qualityPipeline) = (defaultAsset, qualityAsset);
+        lock (Gate) _defaultPipeline = defaultAsset;
+        QualitySettings.renderPipeline = qualityAsset;
     }
 
     /// <summary>The object Unity's graphics settings live in; here one shared object without settings of its own.</summary>

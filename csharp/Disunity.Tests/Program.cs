@@ -320,6 +320,7 @@ CommandBufferAttachmentTests.Run();
 BaselibTests.Run();
 ScreenTests.Run();
 QualitySettingsTests.Run();
+PlayerPipelineTests.Run();
 CursorTests.Run();
 ColorUtilityTests.Run();
 EndOfFrameTests.Run();

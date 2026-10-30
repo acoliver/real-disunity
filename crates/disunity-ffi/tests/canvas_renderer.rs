@@ -177,8 +177,8 @@ fn nan_alpha_booleans_above_one_and_big_counts_are_rejected_and_change_nothing()
     assert_eq!(write(world, renderer, eight).code, 0);
 }
 
-#[test]
-fn materials_are_stored_by_slot_and_cleared_past_a_lowered_count() {
+/// A renderer with materials 100, 101 and 102 in slots 0 to 2 and pop material 201 in slot 1.
+fn renderer_with_materials() -> (u64, u64) {
     let (world, _, renderer) = renderer_world();
     assert_eq!(write(world, renderer, distinct()).code, 0);
     for index in 0..3 {
@@ -195,6 +195,12 @@ fn materials_are_stored_by_slot_and_cleared_past_a_lowered_count() {
         disunity_canvas_renderer_material_write(world, renderer, 1, 1, 201).code,
         0
     );
+    (world, renderer)
+}
+
+#[test]
+fn materials_are_stored_by_slot() {
+    let (world, renderer) = renderer_with_materials();
     assert_eq!(material(world, renderer, 0, 2), Some(102));
     assert_eq!(material(world, renderer, 1, 1), Some(201));
     assert_eq!(
@@ -211,6 +217,11 @@ fn materials_are_stored_by_slot_and_cleared_past_a_lowered_count() {
         disunity_canvas_renderer_material_write(world, renderer, 2, 0, 5).code,
         0
     );
+}
+
+#[test]
+fn materials_past_a_lowered_count_are_cleared() {
+    let (world, renderer) = renderer_with_materials();
     let fewer = DisunityCanvasRenderer {
         material_count: 1,
         ..distinct()

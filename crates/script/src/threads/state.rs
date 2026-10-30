@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use mlua::{Function, MultiValue, Thread};
 
 use super::PersistedThread;
+use super::info::{ThreadInfo, ThreadWait};
 use super::policy::{NewThread, Order, ResumeValue, SchedulerPolicy, ZeroSleep};
 use crate::persist::ThreadSchedule;
 
@@ -29,6 +30,13 @@ pub(crate) struct Waiting {
     pub woken: bool,
     /// Zero sleeps in a row.
     pub zeros: u32,
+}
+
+impl Waiting {
+    /// The thread, the index of its clock and its creation order.
+    fn parts(&self) -> (&Thread, usize, u64) {
+        (&self.thread, self.clock, self.reg)
+    }
 }
 
 /// What a thread has not run yet: the function and arguments it was spawned with. A thread
@@ -433,6 +441,58 @@ impl Scheduler {
         found.into_iter().map(|(_, persisted)| persisted).collect()
     }
 
+    /// Every live thread in creation order.
+    pub(crate) fn infos(&self) -> Vec<ThreadInfo> {
+        let mut found = Vec::new();
+        for clock in &self.clocks {
+            for (&(at, _), waiting) in &clock.queue {
+                let due = (at != u64::MAX).then_some(at);
+                found.push(self.info(waiting.parts(), self.queued_wait(waiting, at), due));
+            }
+        }
+        for waiting in &self.deferred {
+            let due = Some(self.clocks[waiting.clock].now);
+            found.push(self.info(waiting.parts(), ThreadWait::Deferred, due));
+        }
+        found.sort_by_key(|info| info.order);
+        found
+    }
+
+    fn info(
+        &self,
+        (thread, clock, reg): (&Thread, usize, u64),
+        wait: ThreadWait,
+        due: Option<u64>,
+    ) -> ThreadInfo {
+        let origin = self.origins.get(&id(thread));
+        ThreadInfo {
+            thread: thread.clone(),
+            clock: self.clocks[clock].name.clone(),
+            flags: origin.map_or(0, |origin| origin.flags),
+            source: origin
+                .map(|origin| origin.source.clone())
+                .unwrap_or_default(),
+            wait,
+            due,
+            order: reg,
+        }
+    }
+
+    /// What a thread filed on a clock at wake time `at` is doing.
+    fn queued_wait(&self, waiting: &Waiting, at: u64) -> ThreadWait {
+        let unstarted = self
+            .origins
+            .get(&id(&waiting.thread))
+            .is_some_and(|origin| origin.start.is_some());
+        if waiting.woken || (unstarted && at <= self.clocks[waiting.clock].now) {
+            return ThreadWait::Ready;
+        }
+        match waiting.wait {
+            Some(kind) => ThreadWait::Wait(self.waits[kind].native.clone()),
+            None => ThreadWait::Sleep,
+        }
+    }
+
     pub(crate) fn set_flags(&mut self, thread: &Thread, flags: i64) -> bool {
         self.origins
             .get_mut(&id(thread))
@@ -576,6 +636,16 @@ impl Scheduler {
         let now = self.clocks[clock].now;
         self.schedule(waiting, now);
         true
+    }
+
+    /// Wakes a timed thread that is in the wait of kind `kind` and has not been woken yet, and
+    /// resumes it with `values`. Any other thread is left as it is.
+    pub(crate) fn wake_kind(&mut self, thread: &Thread, kind: usize, values: MultiValue) -> bool {
+        let in_kind = self.keys.get(&id(thread)).is_some_and(|&(clock, key)| {
+            let waiting = &self.clocks[clock].queue[&key];
+            waiting.wait == Some(kind) && !waiting.woken
+        });
+        in_kind && self.wake(thread, Some(values))
     }
 
     /// Moves threads waiting for the next advance onto their clocks, due now. Returns the time

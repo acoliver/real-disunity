@@ -21,6 +21,7 @@
 
 mod adopt;
 mod advance;
+mod info;
 mod lua;
 mod natives;
 mod policy;
@@ -28,10 +29,11 @@ mod register;
 mod state;
 
 pub use adopt::{AdoptWait, Adoption, PersistedThread};
+pub use info::{ThreadInfo, ThreadWait};
 pub(crate) use natives::Shared;
 pub use policy::{
     ClockNative, FlagNatives, FlaggedSpawn, Fraction, NegativeSleep, NewThread, Order, ResumeValue,
-    SchedulerPolicy, WaitKind, ZeroSleep,
+    SchedulerPolicy, WaitKind, WakeNative, ZeroSleep,
 };
 pub(crate) use state::{Restored, ThreadRecord, Wake};
 

@@ -121,11 +121,24 @@ internal static unsafe class UdpSockets
             if (!Find(handle, errorState, out var slot)) return;
             try
             {
-                if (slot.Socket.AddressFamily == AddressFamily.InterNetwork) slot.Socket.DontFragment = value;
+                if (slot.Socket.AddressFamily == AddressFamily.InterNetwork) SetDontFragment(slot.Socket, value);
                 Binding.Succeed(errorState);
             }
             catch (SocketException e) { Binding.Fail(errorState, BaselibAddress.Code(e), (ulong)e.ErrorCode); }
         }
+    }
+
+    // Darwin's IPPROTO_IP option for the don't-fragment bit. .NET's DontFragment option fails on
+    // macOS, so the option is set directly there.
+    private const int IpProtocolLevel = 0;
+    private const int DarwinIpDontFrag = 28;
+
+    private static void SetDontFragment(Socket socket, bool value)
+    {
+        if (OperatingSystem.IsMacOS())
+            socket.SetRawSocketOption(IpProtocolLevel, DarwinIpDontFrag, BitConverter.GetBytes(value ? 1 : 0));
+        else
+            socket.DontFragment = value;
     }
 
     public static void Close(IntPtr handle)

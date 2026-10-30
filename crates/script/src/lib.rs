@@ -39,7 +39,8 @@ pub use persist::{
     LuaSnapshot, SaveOptions, Saved, SavedTable, SavedThread, SavedWake, ThreadSchedule,
 };
 pub use threads::{
-    AdoptWait, Adoption, ClockNative, Fraction, NegativeSleep, NewThread, Order, PersistedThread,
-    ResumeValue, SchedulerNames, SchedulerPolicy, ThreadFailure, WaitKind, ZeroSleep,
+    AdoptWait, Adoption, ClockNative, FlagNatives, FlaggedSpawn, Fraction, NegativeSleep,
+    NewThread, Order, PersistedThread, ResumeValue, SchedulerNames, SchedulerPolicy, ThreadFailure,
+    WaitKind, ZeroSleep,
 };
 pub use world::{EntityHandle, WorldView};

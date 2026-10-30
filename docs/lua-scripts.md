@@ -78,6 +78,21 @@ let failures = scripts.advance(tick_ms)?;
 | `clocks` | `["game"]` | Named clocks, each with its own time. The first is the default. `spawn_on` and `read_clock` bind natives for a clock; the host uses `set_clock`, `clock_now` and `set_clock_paused`. A paused clock does not move and its threads do not run |
 | `waits`, `wake` | none | Waits with an optional timeout (`WaitWakeup`, `WaitMsg`). A timeout resumes the thread with the kind's `timeout_value`; `wake(thread, ...)` or `GameScripts::wake_thread` resumes it with the given values. A kind's `on_resume` native runs just before either, so the game can unlink the thread from its own message tables |
 
+A policy can also bind natives that let a game's Lua use the state the scheduler holds. Each is optional and registered under the name the policy gives it:
+
+| Setting | Native | Behaviour |
+| --- | --- | --- |
+| `spawn_flagged` | `spawn(f, ...)` on a named clock | Like `spawn_on`, and the thread carries the entry's `flags` from creation. `spawn_on` and the default `spawn` create threads with flags 0 |
+| `thread_flags.get` | `get(thread)` | The thread's flags, nil for a value that is not a scheduler thread |
+| `thread_flags.set` | `set(thread, flags)` | Adds the bits of `flags` to the thread's flags (`flags \|= bits`), as the original `ThreadSetFlags` does. `GameScripts::set_thread_flags` replaces them. Ignored for a value that is not a scheduler thread |
+| `thread_flags.has` | `has(thread, mask)` | True when the thread carries every bit of `mask`; false for a value that is not a scheduler thread |
+| `set_source` | `set_source(thread, name)` | Tags the thread with the game's source name. `persisted` and `save_with` return and keep it |
+| `clock_of` | `clock_of(thread)` | The name of the thread's clock, nil for a value that is not a scheduler thread. A game defines `IsGameTimeThread` and `IsRealTimeThread` over it |
+| `set_clock` | `set_clock(ms)` for a named clock | Sets the clock to `ms`; nil and negative times are 0. Threads already waiting keep their wake times, so moving the clock back makes them wait longer and moving it ahead makes them due at once. Inside an advance a clock set back is moved forward again as the advance continues, unless the advance is interrupted |
+| `interrupt` | `interrupt()` | Ends the advance in progress once the running thread yields. The clocks stay at the time of that thread and the threads still due stay due for the next `advance`. Called outside an advance it does nothing |
+
+Flags set from Lua are what `GameScripts::persisted(mask)` and `SaveOptions::persisted` select, so a game marks the threads it wants saved after it creates them. These natives are policy settings, so `register_scheduler_with` registers them together with the rest of the scheduler, before the first `add_source`, as natives always are. The game grants them to its sources by name like any other native; no separate hook is needed.
+
 A save refuses threads on clocks other than the first and threads in waits until restored threads can be adopted (#147).
 
 ## Saving Lua state

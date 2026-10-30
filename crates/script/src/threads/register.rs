@@ -43,7 +43,7 @@ impl GameScripts {
         }
         let sleep = self.yielding(&sleep_text(policy), SLEEP_CHUNK, &[])?;
         let mut natives = vec![
-            (names.spawn.clone(), natives::spawn(&lua, &shared, 0)?),
+            (names.spawn.clone(), natives::spawn(&lua, &shared, 0, 0)?),
             (names.sleep.clone(), sleep),
             (names.wakeup.clone(), natives::wakeup(&lua, &shared)?),
             (names.kill.clone(), natives::kill(&lua, &shared)?),
@@ -72,8 +72,16 @@ impl GameScripts {
         };
         let mut out = Vec::new();
         for spawn in &policy.spawn_on {
-            let function = natives::spawn(lua, shared, index(&spawn.clock)?)?;
+            let function = natives::spawn(lua, shared, index(&spawn.clock)?, 0)?;
             out.push((spawn.native.clone(), function));
+        }
+        for spawn in &policy.spawn_flagged {
+            let function = natives::spawn(lua, shared, index(&spawn.clock)?, spawn.flags)?;
+            out.push((spawn.native.clone(), function));
+        }
+        for set in &policy.set_clock {
+            let function = natives::set_clock(lua, shared, index(&set.clock)?)?;
+            out.push((set.native.clone(), function));
         }
         for read in &policy.read_clock {
             let function = natives::read_clock(lua, shared, index(&read.clock)?)?;
@@ -82,6 +90,7 @@ impl GameScripts {
         if let Some(name) = &policy.wake {
             out.push((name.clone(), natives::wake(lua, shared)?));
         }
+        out.extend(thread_natives(lua, shared, policy)?);
         let text = wait_text(policy);
         for (kind, wait) in policy.waits.iter().enumerate() {
             let kind = i64::try_from(kind).map_err(|_| refused("too many wait kinds"))?;
@@ -136,6 +145,36 @@ impl GameScripts {
         args.extend_from_slice(extra);
         Ok(make.call(mlua::MultiValue::from_iter(args))?)
     }
+}
+
+/// The natives over a thread's flags, source and clock, and the one that interrupts an advance.
+fn thread_natives(
+    lua: &Lua,
+    shared: &Shared,
+    policy: &SchedulerPolicy,
+) -> Result<Vec<(String, Function)>, ScriptError> {
+    let mut out = Vec::new();
+    if let Some(flags) = &policy.thread_flags {
+        if let Some(name) = &flags.get {
+            out.push((name.clone(), natives::get_flags(lua, shared)?));
+        }
+        if let Some(name) = &flags.set {
+            out.push((name.clone(), natives::set_flags(lua, shared)?));
+        }
+        if let Some(name) = &flags.has {
+            out.push((name.clone(), natives::has_flags(lua, shared)?));
+        }
+    }
+    if let Some(name) = &policy.set_source {
+        out.push((name.clone(), natives::set_source(lua, shared)?));
+    }
+    if let Some(name) = &policy.clock_of {
+        out.push((name.clone(), natives::clock_of(lua, shared)?));
+    }
+    if let Some(name) = &policy.interrupt {
+        out.push((name.clone(), natives::interrupt(lua, shared)?));
+    }
+    Ok(out)
 }
 
 fn refused(message: &str) -> ScriptError {

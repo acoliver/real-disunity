@@ -88,6 +88,29 @@ pub struct ClockNative {
     pub clock: String,
 }
 
+/// A native that creates a thread on a named clock with the game's flags already set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlaggedSpawn {
+    pub native: String,
+    /// The name of a clock in [`SchedulerPolicy::clocks`].
+    pub clock: String,
+    /// The flags the new thread carries from the moment it exists.
+    pub flags: i64,
+}
+
+/// Natives that read and change the game's flags on a thread. The engine does not read the bits.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FlagNatives {
+    /// `get(thread)` returns the thread's flags, or nil for a thread that is not in the
+    /// scheduler.
+    pub get: Option<String>,
+    /// `set(thread, flags)` adds the bits of `flags` to the thread's flags and keeps the rest.
+    pub set: Option<String>,
+    /// `has(thread, mask)` is true when the thread carries every bit of `mask`. It is false
+    /// for a thread that is not in the scheduler.
+    pub has: Option<String>,
+}
+
 /// A wait other than sleep, such as `WaitWakeup` or `WaitMsg`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WaitKind {
@@ -119,6 +142,21 @@ pub struct SchedulerPolicy {
     pub spawn_on: Vec<ClockNative>,
     /// Natives that return the time of a named clock.
     pub read_clock: Vec<ClockNative>,
+    /// Natives that create a thread on a named clock with initial flags.
+    pub spawn_flagged: Vec<FlaggedSpawn>,
+    /// Natives for a thread's flags.
+    pub thread_flags: Option<FlagNatives>,
+    /// `set_source(thread, name)` tags a thread with the game's source name, which a save keeps.
+    pub set_source: Option<String>,
+    /// `clock_of(thread)` returns the name of the thread's clock, or nil for a thread that is
+    /// not in the scheduler.
+    pub clock_of: Option<String>,
+    /// Natives `set_clock(ms)` that set a named clock; a nil time is 0. Threads already
+    /// waiting keep their wake times.
+    pub set_clock: Vec<ClockNative>,
+    /// `interrupt()` ends the current advance after the running thread yields. Threads still
+    /// due stay due for the next advance and the clocks stop at the time of the interruption.
+    pub interrupt: Option<String>,
     /// The waits besides sleep.
     pub waits: Vec<WaitKind>,
     /// `wake(thread, ...)` makes a thread in a wait due now and resumes it with the values.
@@ -138,6 +176,12 @@ impl Default for SchedulerPolicy {
             clocks: vec!["game".into()],
             spawn_on: Vec::new(),
             read_clock: Vec::new(),
+            spawn_flagged: Vec::new(),
+            thread_flags: None,
+            set_source: None,
+            clock_of: None,
+            set_clock: Vec::new(),
+            interrupt: None,
             waits: Vec::new(),
             wake: None,
         }

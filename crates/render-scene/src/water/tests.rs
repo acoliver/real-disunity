@@ -1,9 +1,15 @@
+#[path = "anisotropy_tests.rs"]
+mod anisotropy_tests;
 #[path = "authored_tests.rs"]
 mod authored_tests;
 #[path = "bodies_tests.rs"]
 mod bodies_tests;
 #[path = "contracts.rs"]
 mod contracts;
+#[path = "default_tests.rs"]
+mod default_tests;
+#[path = "diffuse_tests.rs"]
+mod diffuse_tests;
 #[path = "lighting_tests.rs"]
 mod lighting_tests;
 #[path = "numerical.rs"]

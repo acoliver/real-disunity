@@ -88,18 +88,19 @@ fn wind_uniforms(body: &SceneWaterBody, time_milliseconds: u32) -> [f32; 12] {
     data
 }
 
-pub(super) fn constants(options: [u32; 4]) -> Vec<(&'static str, f64)> {
-    let mut constants =
-        crate::renderer::specular_constants([options[0], options[1], options[2], 0, 0, 0, 0])
-            .to_vec();
-    if options[3] != 0 {
-        constants.push(("WATER_TERMS", f64::from(options[3])));
+pub(super) fn constants(options: [u32; 5]) -> Vec<(&'static str, f64)> {
+    let mut constants = crate::renderer::specular_constants([
+        options[0], options[1], options[2], options[3], 0, 0, 0,
+    ])
+    .to_vec();
+    if options[4] != 0 {
+        constants.push(("WATER_TERMS", f64::from(options[4])));
     }
     constants
 }
-pub(super) fn vertex_constants(options: [u32; 4]) -> Vec<(&'static str, f64)> {
-    if options[3] & 128 != 0 {
-        vec![("WATER_TERMS", f64::from(options[3]))]
+pub(super) fn vertex_constants(options: [u32; 5]) -> Vec<(&'static str, f64)> {
+    if options[4] & 128 != 0 {
+        vec![("WATER_TERMS", f64::from(options[4]))]
     } else {
         Vec::new()
     }

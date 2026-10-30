@@ -130,3 +130,12 @@ BRDF factors, scene-hit radiance and source payloads remain unchanged. Water
 retains its independent per-body environment amplitude.
 Retained settings updates replace or remove the environment without uploading the
 scene again. Omitting it preserves the stock empty-environment rendering.
+
+## Water surface sampling
+
+`SceneWaterSettings::normal_anisotropy` uses `TextureAnisotropy`, accepting only
+1, 2, 4, 8 or 16. `STOCK` selects 1. Enable `normal_mips` to use derivative-selected
+normal sampling with the authored ratio. Without normal mips, the explicit
+mip-zero bilinear path is unchanged. Water uses the scene's `direct_diffuse`
+convention, including `SceneDirectDiffuse::LambertianPrepared` for prepared sun
+colours. Per-body `sun_disk` controls remain independent of the scene surface disk.

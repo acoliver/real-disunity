@@ -210,7 +210,7 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>, depth: f32) -> vec3<f
         environment_specular = radiance * scene_environment_factor(material_f0, coefficients, no_v, 1.0, environment_roughness);
     }
     var specular = environment_specular;
-    if (SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u) && frame.grading.y == 0.0 {
+    if (SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u || SCENE_DIRECT_DIFFUSE != 0u) && frame.grading.y == 0.0 {
         let lit = scene_surface_lighting(input.world, normal, base_color,
             vec3<f32>(roughness, water.terms.z, 1.0), lighting_f0);
         scattering = lit.diffuse;

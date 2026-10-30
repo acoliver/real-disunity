@@ -517,3 +517,6 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
     ));
     encoder.finish().submit().unwrap();
 }
+
+#[path = "sky_tests.rs"]
+mod sky_tests;

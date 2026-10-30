@@ -497,14 +497,14 @@ impl SceneGpu {
         }
         if dynamic {
             if let Some(sky) = &self.sky {
-                sky.draw(pass, &frame_group);
+                sky.draw_targets(pass, &frame_group, pipelines.sky_targets());
             }
             if let Some(meshes) = &self.celestial {
                 self.sky
                     .as_ref()
                     .expect("celestial atmosphere")
                     .bind_background(pass, &frame_group);
-                meshes.draw(pass);
+                meshes.draw(pass, pipelines.sky_targets());
             }
             self.dynamic.draw(pass, &frame_group, pipelines);
         }
@@ -631,7 +631,7 @@ mod resources;
 pub use prepared::PreparedScene;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 fn validate_profile(scene: &RenderScene, pipelines: &ScenePipelines) -> Result<(), DrawError> {
     if let Some(effects) = scene.effects() {

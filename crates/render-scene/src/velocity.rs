@@ -37,26 +37,6 @@
 //! Pipelines that write velocity carry [`MARKER`] in their source; it is how the target list
 //! learns about the second colour target.
 
-/// The colour targets of a pipeline that is not an object or terrain draw, beside `colour`.
-///
-/// With velocity pipelines active the opaque pass has a second attachment, and every pipeline
-/// drawn into the pass must list it. Pipelines that carry no object motion list it with an empty
-/// write mask, so the cleared zero stays.
-pub(crate) fn masked_targets(
-    colour: wgpu::ColorTargetState,
-    velocity: bool,
-) -> Vec<Option<wgpu::ColorTargetState>> {
-    let mut targets = vec![Some(colour)];
-    if velocity {
-        targets.push(Some(wgpu::ColorTargetState {
-            format: worldrunner_render_post::VELOCITY_FORMAT,
-            blend: None,
-            write_mask: wgpu::ColorWrites::empty(),
-        }));
-    }
-    targets
-}
-
 /// Whether reflection forward draws can also write the residual.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReflectionVelocity {

@@ -1,6 +1,7 @@
 //! Opt-in atmospheric background in the existing opaque scene pass.
 //! All directions are scene Z-up; the shared frame owns exposure and solar direction.
 use glam::Vec3;
+use std::{cell::RefCell, collections::BTreeMap};
 use wgpu::util::DeviceExt;
 use worldrunner_render_plan::{SceneAtmosphere, SceneCelestialDisc};
 
@@ -13,6 +14,8 @@ mod mesh_target;
 pub(crate) mod meshes;
 pub mod preparation;
 mod scattering;
+#[cfg(test)]
+mod ssr_tests;
 const SOURCE: &str = concat!(
     worldrunner_render_lighting::lighting_wgsl!(),
     include_str!("medium.wgsl"),
@@ -95,6 +98,7 @@ pub(crate) fn pipeline(
     device: &wgpu::Device,
     frame: &wgpu::BindGroupLayout,
     target: (wgpu::TextureFormat, u32, bool),
+    reflection: bool,
 ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
     let group = layout(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -125,13 +129,13 @@ pub(crate) fn pipeline(
             module: &module,
             entry_point: Some("fragment"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &crate::velocity::masked_targets(
+            targets: &targets(
                 wgpu::ColorTargetState {
                     format: target.0,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 },
-                target.2,
+                (target.2, reflection),
             ),
         }),
         multiview_mask: None,
@@ -142,7 +146,10 @@ pub(crate) fn pipeline(
 
 #[derive(Debug)]
 pub(crate) struct Sky {
-    pipeline: wgpu::RenderPipeline,
+    variants: RefCell<BTreeMap<(bool, bool), wgpu::RenderPipeline>>,
+    device: wgpu::Device,
+    frame_layout: wgpu::BindGroupLayout,
+    target: (wgpu::TextureFormat, u32, bool),
     groups: Vec<wgpu::BindGroup>,
     lookup: Option<scattering::Lookup>,
     identity: std::rc::Rc<()>,
@@ -195,7 +202,7 @@ impl Sky {
     ) -> Self {
         settings.validate().expect("validated atmosphere");
         let (views, white) = textures;
-        let (pipeline, layout) = pipeline(device, frame, target);
+        let (pipeline, layout) = pipeline(device, frame, target, false);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("celestial sampling"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -243,7 +250,10 @@ impl Sky {
             })
             .collect();
         Self {
-            pipeline,
+            variants: RefCell::new(BTreeMap::from([((target.2, false), pipeline)])),
+            device: device.clone(),
+            frame_layout: frame.clone(),
+            target,
             groups,
             lookup,
             identity: std::rc::Rc::new(()),
@@ -278,8 +288,27 @@ impl Sky {
         pass.set_bind_group(0, frame, &[]);
         pass.set_bind_group(1, &self.groups[0], &[]);
     }
+    #[cfg(test)]
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, frame: &wgpu::BindGroup) {
-        pass.set_pipeline(&self.pipeline);
+        self.draw_targets(pass, frame, (self.target.2, false));
+    }
+    pub fn draw_targets(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        frame: &wgpu::BindGroup,
+        key: (bool, bool),
+    ) {
+        let mut variants = self.variants.borrow_mut();
+        let pipeline = variants.entry(key).or_insert_with(|| {
+            pipeline(
+                &self.device,
+                &self.frame_layout,
+                (self.target.0, self.target.1, key.0),
+                key.1,
+            )
+            .0
+        });
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, frame, &[]);
         for group in &self.groups {
             pass.set_bind_group(1, group, &[]);
@@ -443,3 +472,27 @@ mod policy_tests;
 
 #[cfg(test)]
 mod review_tests;
+
+fn targets(
+    colour: wgpu::ColorTargetState,
+    key: (bool, bool),
+) -> Vec<Option<wgpu::ColorTargetState>> {
+    let mut targets = vec![Some(colour)];
+    if key.1 {
+        targets.extend((0..2).map(|_| {
+            Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba16Float,
+                blend: None,
+                write_mask: wgpu::ColorWrites::empty(),
+            })
+        }));
+    }
+    if key.0 {
+        targets.push(Some(wgpu::ColorTargetState {
+            format: worldrunner_render_post::VELOCITY_FORMAT,
+            blend: None,
+            write_mask: wgpu::ColorWrites::empty(),
+        }));
+    }
+    targets
+}

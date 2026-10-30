@@ -93,10 +93,10 @@ impl Target {
     }
 }
 
-pub(super) fn pipeline(
+fn composition_layout(
     device: &wgpu::Device,
     scene: &crate::renderer::ScenePipelines,
-) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+) -> (wgpu::PipelineLayout, wgpu::BindGroupLayout) {
     let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("celestial radiance"),
         entries: &[wgpu::BindGroupLayoutEntry {
@@ -119,6 +119,15 @@ pub(super) fn pipeline(
         ],
         immediate_size: 0,
     });
+    (layout, group)
+}
+
+pub(super) fn pipeline(
+    device: &wgpu::Device,
+    scene: &crate::renderer::ScenePipelines,
+    targets: (bool, bool),
+) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let (layout, group) = composition_layout(device, scene);
     let module = composite_shader(device, scene.samples);
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("celestial composition"),
@@ -139,13 +148,13 @@ pub(super) fn pipeline(
             module: &module,
             entry_point: Some("fragment"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &crate::velocity::masked_targets(
+            targets: &super::targets(
                 wgpu::ColorTargetState {
                     format: scene.color_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 },
-                scene.writes_velocity(),
+                targets,
             ),
         }),
         multiview_mask: None,

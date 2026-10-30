@@ -4,7 +4,7 @@ use super::{FrameOutput, FrameRenderer};
 use crate::device::GpuContext;
 pub use encoding::FrameEncoding;
 use worldrunner_render_gpu::configuration::{
-    AllocationBudget, AllocationSet, Configuration, ConfigurationError,
+    AllocationBudget, AllocationBudgetPolicy, AllocationSet, Configuration, ConfigurationError,
 };
 use worldrunner_render_post::{
     FrameConfig, HdrPostSettings, PostChain, PostError, Resources, TimingMode, ToneMap,
@@ -103,7 +103,22 @@ impl RendererConfiguration {
         set.extend(self.additional.clone());
         set
     }
-    fn allocation_plan(&self, context: &GpuContext) -> AllocationSet {
+    /// Includes exposure storage preserved by an earlier post-processing generation.
+    pub fn allocations_with_history(&self, retained_effect_history: bool) -> AllocationSet {
+        let mut allocations = self.allocations();
+        if retained_effect_history && !self.post.enabled() {
+            allocations.extend(worldrunner_render_post::allocation::exposure_allocations());
+            if self.hdr.is_some() {
+                allocations.buffer("exposure staging", 16, 3);
+            }
+        }
+        allocations
+    }
+    fn allocation_plan(
+        &self,
+        context: &GpuContext,
+        retained_effect_history: bool,
+    ) -> AllocationSet {
         if self.timing == TimingMode::Optional
             && !context
                 .device()
@@ -112,9 +127,9 @@ impl RendererConfiguration {
         {
             let mut effective = self.clone();
             effective.timing = TimingMode::Disabled;
-            effective.allocations()
+            effective.allocations_with_history(retained_effect_history)
         } else {
-            self.allocations()
+            self.allocations_with_history(retained_effect_history)
         }
     }
     fn validate(&self, context: &GpuContext) -> Result<(), PostError> {
@@ -411,6 +426,13 @@ impl ConfiguredFrameRenderer {
         settings: RendererConfiguration,
         budget: AllocationBudget,
     ) -> Result<Self, ConfigurationError<PostError>> {
+        Self::new_with_policy(context, settings, budget.into())
+    }
+    pub fn new_with_policy(
+        context: &GpuContext,
+        settings: RendererConfiguration,
+        budget: AllocationBudgetPolicy,
+    ) -> Result<Self, ConfigurationError<PostError>> {
         Self::new_with(context, settings, budget, |settings| {
             allocate(context, settings, None, None)
         })
@@ -418,20 +440,24 @@ impl ConfiguredFrameRenderer {
     fn new_with(
         context: &GpuContext,
         settings: RendererConfiguration,
-        budget: AllocationBudget,
+        budget: impl Into<AllocationBudgetPolicy>,
         allocate: impl FnOnce(&RendererConfiguration) -> Result<FrameRenderer, PostError>,
     ) -> Result<Self, ConfigurationError<PostError>> {
+        let budget = budget.into();
         settings
             .validate(context)
             .map_err(ConfigurationError::Allocation)?;
-        let allocations = settings.allocation_plan(context);
-        allocations.validate_budget(&context.device().limits(), budget)?;
+        let allocations = settings.allocation_plan(context, false);
+        let required = allocations
+            .validate(&context.device().limits())
+            .map_err(ConfigurationError::Invalid)?;
+        budget.resolve::<PostError>(required)?;
         let _guard = context.submission().try_replacement()?;
         let renderer = allocate(&settings);
         context.submission().check_device()?;
         let renderer = renderer.map_err(ConfigurationError::Allocation)?;
         let history = history(&renderer);
-        let state = Configuration::new(
+        let state = Configuration::new_with_policy(
             context.submission(),
             renderer,
             allocations,
@@ -463,8 +489,17 @@ impl ConfiguredFrameRenderer {
     pub fn configuration(&self) -> &RendererConfiguration {
         &self.settings
     }
+    pub fn budget(&self) -> AllocationBudget {
+        self.state.budget()
+    }
     pub fn generation(&self) -> u64 {
         self.state.generation()
+    }
+    /// Whether replacement must retain exposure storage from prior effects.
+    pub fn has_effect_history(&self) -> bool {
+        self.history
+            .as_ref()
+            .is_some_and(ToneMapOutput::has_effect_history)
     }
     pub fn collect(&mut self) {
         self.state.collect();
@@ -486,18 +521,7 @@ impl ConfiguredFrameRenderer {
         settings
             .validate(context)
             .map_err(ConfigurationError::Allocation)?;
-        let mut allocations = settings.allocation_plan(context);
-        if self
-            .history
-            .as_ref()
-            .is_some_and(ToneMapOutput::has_effect_history)
-            && !settings.post.enabled()
-        {
-            allocations.extend(worldrunner_render_post::allocation::exposure_allocations());
-            if settings.hdr.is_some() {
-                allocations.buffer("exposure staging", 16, 3);
-            }
-        }
+        let allocations = settings.allocation_plan(context, self.has_effect_history());
         let previous = self.state.current();
         if previous.chain.registered_feature_count() != usize::from(previous.water.is_some()) {
             return Err(ConfigurationError::Invalid(

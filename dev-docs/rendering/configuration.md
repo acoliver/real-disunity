@@ -23,7 +23,19 @@ The stock wrapper exposes explicit frame operations and a restricted `FrameEncod
 Custom compositions can use `Configuration<T>` with a builder that includes their feature objects and allocation inventory.
 
 The viewer uses this transaction for attachment resize and retained settings changes,
-with the positive `ViewerOptions::presentation_budget` byte limit (1 GiB by default).
+with `ViewerOptions::presentation_budget` (a fixed 1 GiB by default).
+`PresentationBudgetPolicy::Derived` delegates to `AllocationBudgetPolicy` in the
+existing configuration owner. The policy resolves the exact live replacement peak
+before allocation, adding headroom and rounding up to a positive byte granularity.
+An optional cap clamps the result and preserves typed budget rejection. Failed
+replacement leaves the published configuration and effective budget unchanged.
+The host reports the effective limit in `RetainedFrameStatistics::presentation_budget_bytes`.
+`scene-viewer::plan_presentation` uses the same configuration descriptors and
+capture reservations without constructing a device; recipe plans use the recipe's
+raster extent and native RCAS selection. `PresentationPlanning` also carries the
+retained effect-history state exposed by `ConfiguredFrameRenderer::has_effect_history`.
+Planning and live replacement share `RendererConfiguration::allocations_with_history`,
+which retains exposure storage after effects are disabled or a recipe is restored.
 Budget errors retain `required` and `budget` through `ViewerError::Configuration`.
 Retained desktop and windowless hosts include their 256 MiB capture-recipe pool
 in the initial inventory, declared with `AllocationSet::shared_cpu` so the single

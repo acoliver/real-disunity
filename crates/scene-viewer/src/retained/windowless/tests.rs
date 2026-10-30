@@ -1,3 +1,4 @@
+mod budget;
 mod celestial;
 mod convention;
 mod environment;

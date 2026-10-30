@@ -23,6 +23,9 @@ mod static_scene;
 pub(super) trait Content {
     fn title(&self) -> &str;
     fn size(&self) -> [u32; 2];
+    fn window_size_unit(&self) -> crate::WindowSizeUnit {
+        crate::WindowSizeUnit::default()
+    }
     fn interval(&self) -> Duration {
         Duration::from_millis(16)
     }
@@ -162,7 +165,7 @@ impl ApplicationHandler for App<'_> {
                 .create_window(
                     Window::default_attributes()
                         .with_title(self.content.title())
-                        .with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1])),
+                        .with_inner_size(self.content.window_size_unit().creation_size(size)),
                 )
                 .map_err(ViewerError::from)
                 .and_then(|window| {

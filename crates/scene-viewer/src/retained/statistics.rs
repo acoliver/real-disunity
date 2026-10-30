@@ -8,6 +8,8 @@ pub struct RetainedFrameStatistics {
     pub frame: u64,
     pub generation: u64,
     pub scene: SceneStatistics,
+    /// Effective descriptor-byte admission budget for the presentation configuration.
+    pub presentation_budget_bytes: u64,
 }
 impl super::RetainedHost {
     /// A single replaceable snapshot, initially absent. Reading does not consume it.

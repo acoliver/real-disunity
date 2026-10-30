@@ -57,6 +57,10 @@ impl Objects {
 }
 
 impl Renderer {
+    pub(crate) fn presentation_budget_bytes(&self) -> u64 {
+        self.presentation.scheduler.budget().0
+    }
+
     pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
         self.resident.scene_mut().take_statistics()
     }

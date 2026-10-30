@@ -144,6 +144,7 @@ internal static class PlayerMaterialTests
         var bare = Resources.Load<Material>("materials/bare")!;
         Expect.That(bare.shader is not null && bare.shader.name == "Hidden/InternalErrorShader", "a material without a shader gets the fallback shader");
         Expect.That(bare.rawRenderQueue == -1 && bare.renderQueue == bare.shader!.renderQueue, "a queue of -1 is the shader's");
+        Expect.Equal(2000, bare.renderQueue, "the fallback shader draws in the geometry queue");
         Console.WriteLine("PASS: a material without a shader gets the fallback shader and the shader's queue");
     }
 

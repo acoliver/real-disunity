@@ -33,6 +33,7 @@ mod edits;
 mod handles;
 mod journal;
 mod mesh_instance;
+mod mesh_renderer;
 pub mod physics2d;
 mod spatial;
 pub mod tilemap;
@@ -44,6 +45,9 @@ pub use edits::ObjectEdit;
 pub use journal::{ComponentChange, ComponentChangeEntry, ComponentKind, WorldChanges};
 pub use mesh_instance::{
     MAX_INSTANCE_LODS, MAX_INSTANCE_MATERIALS, MAX_TINT_CHANNEL, MaterialId, MeshId, MeshInstance,
+};
+pub use mesh_renderer::{
+    MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
 };
 mod clone;
 mod construction;
@@ -90,6 +94,8 @@ pub enum ComponentError {
     InvalidScript,
     #[error("mesh instance needs 1..=64 materials, at most 8 LODs and tint channels in 0..=4")]
     InvalidMeshInstance,
+    #[error("mesh renderer modes out of range or more than 64 materials")]
+    InvalidMeshRenderer,
     #[error("component kind cannot be changed")]
     KindMismatch,
 }

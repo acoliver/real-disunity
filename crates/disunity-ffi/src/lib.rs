@@ -26,6 +26,7 @@ pub mod hierarchy;
 pub mod input;
 pub mod input_axes;
 pub mod light;
+pub mod mesh_renderer;
 pub mod object_api;
 pub mod physics;
 #[cfg(test)]

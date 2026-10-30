@@ -73,6 +73,8 @@ pub enum ComponentDesc {
     Body2d(crate::physics2d::Body2d),
     Collider2d(crate::physics2d::Collider2d),
     MeshInstance(crate::MeshInstance),
+    MeshRenderer(crate::MeshRenderer),
+    MeshFilter(crate::MeshFilter),
     Renderer {
         material_slot: u32,
     },
@@ -109,6 +111,8 @@ impl ComponentDesc {
             Self::Body2d(value) => value.validate().map_err(WorldError::from),
             Self::Collider2d(value) => value.validate().map_err(WorldError::from),
             Self::MeshInstance(value) => value.validate(),
+            Self::MeshRenderer(value) => value.validate(),
+            Self::MeshFilter(_) => Ok(()),
             Self::Renderer { .. } => Ok(()),
             Self::Script {
                 assembly,

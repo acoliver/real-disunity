@@ -112,6 +112,9 @@ impl Content for Session<'_> {
     fn title(&self) -> &str {
         &self.host.options.title
     }
+    fn window_size_unit(&self) -> crate::WindowSizeUnit {
+        self.host.options.window_size_unit
+    }
     fn size(&self) -> [u32; 2] {
         self.host.options.size
     }
@@ -167,6 +170,7 @@ impl Content for Session<'_> {
                 frame: self.frame,
                 generation: self.host.readiness.published,
                 scene: renderer.take_statistics(),
+                presentation_budget_bytes: renderer.presentation_budget_bytes(),
             });
             self.notify(&RetainedEvent::Presented { frame: self.frame })
                 .map_err(ViewerError::Driver)?;

@@ -292,7 +292,7 @@ impl SceneGpu {
             scene,
             pipelines,
             (&views, &placeholder_view),
-            (&sampler, &contact_heights),
+            &contact_heights,
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
         let terrain =

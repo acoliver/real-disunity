@@ -72,7 +72,7 @@ public sealed class Rigidbody2D : NativeComponent
     public void MovePosition(Vector2 position) => DisunityHost.ThrowIfError(NativeBindings.disunity_body_move_position(DisunityHost.WorldHandle, Handle, position.x, position.y));
     public Vector2 position { get { var p = transform.position; return new(p.x, p.y); } set { var p = transform.position; transform.position = new(value.x, value.y, p.z); } }
 }
-public abstract class Collider2D : NativeComponent
+public abstract class Collider2D : Behaviour
 {
     public PhysicsMaterial2D? sharedMaterial { get => PhysicsMaterial2D.Get(Handle); set => PhysicsMaterial2D.Set(Handle, value); }
     internal unsafe DisunityCollider2d Read()
@@ -82,7 +82,7 @@ public abstract class Collider2D : NativeComponent
         return value;
     }
     internal unsafe void Write(DisunityCollider2d value) => DisunityHost.ThrowIfError(NativeBindings.disunity_collider_write(DisunityHost.WorldHandle, Handle, &value));
-    public bool enabled { get => Read().enabled == 1; set { var c = Read(); c.enabled = value ? 1u : 0u; Write(c); } }
+    private protected override bool EnabledState { get => Read().enabled == 1; set { var c = Read(); c.enabled = value ? 1u : 0u; Write(c); } }
     public bool isTrigger { get => Read().trigger == 1; set { var c = Read(); c.trigger = value ? 1u : 0u; Write(c); } }
     public Vector2 offset { get { var c = Read(); return new(c.offset_x, c.offset_y); } set { var c = Read(); c.offset_x = value.x; c.offset_y = value.y; Write(c); } }
     public Rigidbody2D? attachedRigidbody

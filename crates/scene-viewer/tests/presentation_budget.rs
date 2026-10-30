@@ -43,7 +43,8 @@ fn main() {
     .unwrap();
     let mut driver = Driver(false);
     let mut options = options();
-    options.presentation_budget = PresentationBudget(if reject { 256 } else { 300 } * 1024 * 1024);
+    options.presentation_budget =
+        PresentationBudget(if reject { 256 } else { 300 } * 1024 * 1024).into();
     let result = RetainedHost::new(scene, options).unwrap().run(&mut driver);
     if reject {
         assert!(!driver.0);
@@ -59,7 +60,8 @@ fn main() {
 
 fn options() -> ViewerOptions {
     ViewerOptions {
-        presentation_budget: PresentationBudget::default(),
+        presentation_budget: PresentationBudget::default().into(),
+        window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         frame_profile: FrameProfile::Legacy,
         frames_in_flight: 2,

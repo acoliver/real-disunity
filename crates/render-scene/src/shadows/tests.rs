@@ -24,6 +24,7 @@ use worldrunner_render_plan::*;
 use worldrunner_render_post::{PassSlot, ResourceRef};
 
 use super::*;
+use crate::lit_model_tests;
 use crate::offscreen::capture_scene;
 use fixture::{scene, settings, view};
 
@@ -455,7 +456,48 @@ fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
         "shadow visibility must not multiply hemisphere ambient or emission",
     );
     assert!(at(&image, Vec3::new(-0.75, 0.0, 0.0)) > 150);
+    assert_ambient_and_emission_match_model(&context, &source, [&image, &baseline]);
 }
+
+fn assert_ambient_and_emission_match_model(
+    context: &GpuContext,
+    source: &RenderScene,
+    [image, baseline]: [&RgbaImage; 2],
+) {
+    // Both renders share lighting.wgsl, so an error there would cancel in the comparison above.
+    // Absolute check against the f64 model: no sun, so the ground quad (texel 220, sRGB) shows
+    // ambient `albedo * 0.1` plus emission `albedo * texel_r`, where the emission mask is the
+    // same sRGB texture (red channel decoded to the same linear value).
+    let albedo = lit_model_tests::srgb_decode(220);
+    let ambient = albedo * AMBIENT_RADIANCE;
+    let point = Vec3::new(-0.75, 0.0, 0.0);
+    for (name, rendered) in [("shadowed", image), ("plain", baseline)] {
+        lit_model_tests::assert_display_matches_radiance(
+            at(rendered, point),
+            ambient + albedo * albedo,
+            &format!("{name} ambient plus emission"),
+        );
+    }
+    let ambient_only = RenderScene::new(SceneParts {
+        resources: SceneResources::new(
+            source.resources().textures().to_vec(),
+            vec![
+                fixture::scene(&[], 600_000, None).resources().materials()[0],
+                source.resources().materials()[1],
+            ],
+        )
+        .unwrap(),
+        geometry: source.geometry().clone(),
+        terrain: None,
+        effects: source.effects().cloned(),
+    })
+    .unwrap();
+    let image = capture_scene_shadowed(context, &ambient_only, &view(), settings()).unwrap();
+    lit_model_tests::assert_display_matches_radiance(at(&image, point), ambient, "ambient only");
+}
+
+/// Hemisphere ambient radiance of the shadow fixture: white sky at 0.1 irradiance.
+const AMBIENT_RADIANCE: f64 = 0.1;
 
 fn render_target(
     renderer: &mut ShadowedScene,

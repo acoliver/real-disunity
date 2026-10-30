@@ -25,7 +25,7 @@ const BOUND: f64 = 1e-3;
 
 /// Test-only passes: a depth upload (`Depth32Float` cannot be a copy destination) and an
 /// identity pass to the chain output, which a stage set requires as its last stage.
-const SHADER: &str = "
+pub(crate) const SHADER: &str = "
 @group(0) @binding(0) var source: texture_2d<f32>;
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(f32((i << 1u) & 2u) * 2.0 - 1.0, f32(i & 2u) * 2.0 - 1.0, 0.0, 1.0);
@@ -124,7 +124,7 @@ impl Case {
 }
 
 /// Round-to-nearest f32 to f16 bits for zero and normal values within the f16 range.
-fn f16_bits(v: f32) -> u16 {
+pub(crate) fn f16_bits(v: f32) -> u16 {
     let bits = v.to_bits();
     let sign = u16::try_from((bits >> 16) & 0x8000).unwrap();
     let exponent = i32::try_from((bits >> 23) & 0xff).unwrap() - 127 + 15;
@@ -136,7 +136,7 @@ fn f16_bits(v: f32) -> u16 {
     sign | u16::try_from((u32::try_from(exponent).unwrap() << 10) + rounded).unwrap()
 }
 
-fn f16_to_f32(bits: u16) -> f32 {
+pub(crate) fn f16_to_f32(bits: u16) -> f32 {
     let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
     let exponent = i32::from((bits >> 10) & 0x1f);
     let mantissa = f32::from(bits & 0x3ff);
@@ -147,7 +147,12 @@ fn f16_to_f32(bits: u16) -> f32 {
     }
 }
 
-fn write_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, bytes: &[u8], pixel_bytes: u32) {
+pub(crate) fn write_texture(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    bytes: &[u8],
+    pixel_bytes: u32,
+) {
     let size = texture.size();
     queue.write_texture(
         texture.as_image_copy(),
@@ -161,7 +166,7 @@ fn write_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, bytes: &[u8], pix
     );
 }
 
-fn sampled(
+pub(crate) fn sampled(
     device: &wgpu::Device,
     label: &str,
     size: [u32; 2],
@@ -179,11 +184,11 @@ fn sampled(
     })
 }
 
-fn view(texture: &wgpu::Texture) -> wgpu::TextureView {
+pub(crate) fn view(texture: &wgpu::Texture) -> wgpu::TextureView {
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-fn passthrough_pipeline(
+pub(crate) fn passthrough_pipeline(
     device: &wgpu::Device,
     module: &wgpu::ShaderModule,
     fragment: &str,
@@ -415,7 +420,10 @@ impl StageFactory for Resolve {
     }
 }
 
-fn read((device, queue): (&wgpu::Device, &wgpu::Queue), texture: &wgpu::Texture) -> Vec<[f64; 4]> {
+pub(crate) fn read(
+    (device, queue): (&wgpu::Device, &wgpu::Queue),
+    texture: &wgpu::Texture,
+) -> Vec<[f64; 4]> {
     let size = [texture.width(), texture.height()];
     let raw = Readback::new(
         device,
@@ -590,7 +598,7 @@ fn noise(x: i32, y: i32, channel: u32) -> f32 {
     f32::from(u16::try_from(h & 0xffff).unwrap()) / 65535.0 * 4.0
 }
 
-fn noisy(size: [i32; 2], channel_offset: u32) -> Image {
+pub(crate) fn noisy(size: [i32; 2], channel_offset: u32) -> Image {
     Image::from_fn(size, |x, y| {
         [0, 1, 2, 3]
             .map(|c| noise(x, y, c + channel_offset))

@@ -101,6 +101,10 @@ mod taa_reference;
 #[cfg(test)]
 mod taa_tests;
 #[cfg(test)]
+mod taa_upscale_gpu;
+#[cfg(test)]
+mod taa_upscale_gpu_tests;
+#[cfg(test)]
 mod taa_velocity;
 mod temporal_block;
 #[cfg(test)]

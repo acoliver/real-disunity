@@ -63,13 +63,12 @@ impl Temporal<'_> {
         })
     }
 
-    /// The current color at the output pixel: normalised Lanczos2 over the 4x4 internal texels
-    /// around the sample position, edge-clamped and sanitised.
-    pub fn reconstruct(&self, at: [i32; 2]) -> [f64; 4] {
+    /// The 4x4 internal taps around the sample position as (weight, sanitised sample), weights
+    /// before normalisation, in row-major order from `floor(q) - 1`.
+    pub fn footprint(&self, at: [i32; 2]) -> Vec<(f64, [f64; 4])> {
         let q = self.sample_position(at);
         let base = q.map(f64::floor);
-        let mut sum = [0.0; 4];
-        let mut total = 0.0;
+        let mut taps = Vec::with_capacity(16);
         for dy in -1..=2 {
             for dx in -1..=2 {
                 #[expect(
@@ -78,10 +77,21 @@ impl Temporal<'_> {
                 )]
                 let (x, y) = (base[0] as i32 + dx, base[1] as i32 + dy);
                 let w = lanczos2(q[0] - f64::from(x)) * lanczos2(q[1] - f64::from(y));
-                total += w;
-                for (acc, v) in sum.iter_mut().zip(self.sample(x, y)) {
-                    *acc += w * v;
-                }
+                taps.push((w, self.sample(x, y)));
+            }
+        }
+        taps
+    }
+
+    /// The current color at the output pixel: normalised Lanczos2 over the 4x4 internal texels
+    /// around the sample position, edge-clamped and sanitised.
+    pub fn reconstruct(&self, at: [i32; 2]) -> [f64; 4] {
+        let mut sum = [0.0; 4];
+        let mut total = 0.0;
+        for (w, sample) in self.footprint(at) {
+            total += w;
+            for (acc, v) in sum.iter_mut().zip(sample) {
+                *acc += w * v;
             }
         }
         sum.map(|v| v / total)

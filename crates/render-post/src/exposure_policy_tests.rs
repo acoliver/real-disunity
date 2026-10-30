@@ -51,14 +51,23 @@ fn gpu_output_scale_precedes_bloom_addition() {
     let observed = bytes[0];
     let raw = buffer(&device, &queue, c.factory().exposure_buffer(0).unwrap());
     let exposure = f32::from_le_bytes(raw[..4].try_into().unwrap());
-    let linear = 0.25 * exposure * 4.0 + 0.125;
-    let display = f64::from(linear / (1.0 + linear));
-    let srgb_code = (1.055 * display.powf(1.0 / 2.4) - 0.055) * 255.0;
-    assert!((srgb_code.fract() - 0.5).abs() >= 0.1);
-    let expected = (0u16..=255)
-        .find(|&v| f64::from(v) + 0.5 > srgb_code)
-        .unwrap();
-    assert_eq!(u16::from(observed), expected);
+    let linear = 0.25 * f64::from(exposure) * 4.0 + 0.125;
+    let code = |l: f64| crate::fxaa_tolerance_tests::encoded_steps(l / (1.0 + l), true);
+    // The bloom term enters the sum after it passed at most three `Rgba16Float` stores (prefilter,
+    // one reduction, one reconstruction). Each errs by at most `2^-10` of the stored 0.25 (the
+    // module comment in `fxaa_tolerance_tests` covers rounding toward zero), scaled by the
+    // intensity 0.5. The display code is monotone in that term, so its effect is the code
+    // difference at `linear` shifted by the term, taking the larger side. The remaining arithmetic (a product, a sum, a
+    // division) is inside the shared 8-bit output bound.
+    let bloom_error = 3.0 * 0.25 / 1024.0 * 0.5;
+    let bloom_steps =
+        (code(linear + bloom_error) - code(linear)).max(code(linear) - code(linear - bloom_error));
+    crate::fxaa_tolerance_tests::assert_code_within(
+        observed,
+        code(linear),
+        bloom_steps,
+        "output scale precedes bloom",
+    );
 }
 
 fn submit_sample(

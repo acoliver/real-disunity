@@ -79,7 +79,11 @@ pub(super) fn assert_half_close(actual: &[u8], expected: &Image, range: f64, con
 
 /// Encoded value in output steps, unquantised.
 pub(super) fn steps(value: f32, srgb_color: bool) -> f64 {
-    let value = f64::from(value);
+    encoded_steps(f64::from(value), srgb_color)
+}
+
+/// Unquantised encoded value of a display value, in output steps.
+pub(super) fn encoded_steps(value: f64, srgb_color: bool) -> f64 {
     255.0
         * if !srgb_color {
             value
@@ -88,6 +92,43 @@ pub(super) fn steps(value: f32, srgb_color: bool) -> f64 {
         } else {
             1.055 * value.powf(1.0 / 2.4) - 0.055
         }
+}
+
+/// Largest error, in output steps, of storing a display value once as `Rgba16Float` before the
+/// sRGB attachment encodes it. The store errs by at most `2^-10 d` for a value `d` (a whole unit
+/// in the last place, see the module comment). The encoding's steepest `d * ds/dd` is at `d = 1`
+/// in the power segment: `255 * 1.055 / 2.4 * 1 = 112.1` steps, so the error is at most
+/// `112.1 / 1024 = 0.1095`. The toe (`d <= 0.0031308`, slope `12.92 * 255`) gives only 0.01.
+pub(super) const HALF_INTERMEDIATE_STEPS: f64 = 255.0 * 1.055 / 2.4 / 1024.0;
+
+/// Largest difference, in output steps, between two 8-bit renders of the same display value
+/// where one passes the plain tone path and the other an extra half intermediate (SMAA, CMAA2,
+/// CAS). Each render is within [`OUTPUT_STEPS`] of the unquantised value; the second adds
+/// [`HALF_INTERMEDIATE_STEPS`] for its extra store. Integer codes then differ by at most
+/// `floor(0.625 + 0.625 + 0.1095) = 1`.
+pub(super) const PATH_STEPS: f64 = 2.0 * OUTPUT_STEPS + HALF_INTERMEDIATE_STEPS;
+
+/// Asserts two 8-bit readbacks of the same scene from different shader paths agree within
+/// [`PATH_STEPS`] in every channel. Byte identity is not required: the paths round and store
+/// differently.
+pub(super) fn assert_paths_agree(plain: &[u8], other: &[u8], context: &str) {
+    assert_eq!(plain.len(), other.len(), "{context}");
+    for (index, (&a, &b)) in plain.iter().zip(other).enumerate() {
+        assert!(
+            f64::from(a.abs_diff(b)) <= PATH_STEPS,
+            "{context}: channel {index}, {a} versus {b}, allowed {PATH_STEPS}"
+        );
+    }
+}
+
+/// Asserts an 8-bit `code` is within [`OUTPUT_STEPS`] plus `extra` of an unquantised reference
+/// in output steps.
+pub(super) fn assert_code_within(code: u8, reference: f64, extra: f64, context: &str) {
+    let bound = OUTPUT_STEPS + extra;
+    assert!(
+        (f64::from(code) - reference).abs() <= bound,
+        "{context}: got {code}, want {reference}, bound {bound}"
+    );
 }
 
 /// Asserts 8-bit `actual` is within [`OUTPUT_STEPS`] of the unquantised reference.
@@ -122,7 +163,8 @@ pub(super) fn run_within(
         super::filter_reference_gpu_tests::render(gpu, entry, inputs, expected, format, constants);
     let context = format!("{entry}, {format:?}");
     if format == wgpu::TextureFormat::Rgba16Float {
-        assert_half_close(&actual, expected, range(inputs.0), &context);
+        let range = inputs.1.map_or(0.0, range).max(range(inputs.0));
+        assert_half_close(&actual, expected, range, &context);
     } else {
         assert_steps_close(&actual, expected, format, &context);
     }

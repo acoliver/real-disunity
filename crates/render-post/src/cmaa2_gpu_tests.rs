@@ -34,7 +34,7 @@ fn constant_images_are_unchanged_by_every_preset() {
             [16, 16],
             "return vec4<f32>(0.5,1.25,2.0,0.75);",
         );
-        assert_eq!(plain, filtered, "{cmaa2:?}");
+        crate::fxaa_tolerance_tests::assert_paths_agree(&plain, &filtered, &format!("{cmaa2:?}"));
     }
 }
 
@@ -46,7 +46,11 @@ fn straight_axis_aligned_edges_stay_sharp() {
     for cmaa2 in presets() {
         for body in [vertical, horizontal] {
             let (plain, filtered) = render_pair(&rig, cmaa2, [16, 16], body);
-            assert_eq!(plain, filtered, "{cmaa2:?}");
+            crate::fxaa_tolerance_tests::assert_paths_agree(
+                &plain,
+                &filtered,
+                &format!("{cmaa2:?}"),
+            );
         }
     }
 }
@@ -179,7 +183,11 @@ fn odd_and_tiny_extents_render() {
             assert_within_plain_range(&plain, &filtered);
             let (flat, filtered_flat) =
                 render_pair(&rig, cmaa2, size, "return vec4<f32>(1.0,2.0,0.5,1.0);");
-            assert_eq!(flat, filtered_flat, "{size:?}");
+            crate::fxaa_tolerance_tests::assert_paths_agree(
+                &flat,
+                &filtered_flat,
+                &format!("{size:?}"),
+            );
         }
     }
 }
@@ -298,7 +306,16 @@ fn frames_do_not_leak_state_into_each_other() {
     let first = frame(DIAGONAL);
     let _ = frame(TEXT);
     let flat_after_busy = frame(flat);
-    assert_eq!(flat_after_busy, rig.render(PostResolve::None, size, flat));
+    // The same CMAA2 code on a fresh chain of the same device must match byte for byte; the
+    // plain tone path differs only by the bound of `assert_paths_agree`. A leaked work list or
+    // counter would move whole edge pixels (about 190 codes), far beyond either.
+    let fresh = rig.render(PostResolve::cmaa2(Cmaa2Preset::Ultra), size, flat);
+    assert_eq!(flat_after_busy, fresh);
+    crate::fxaa_tolerance_tests::assert_paths_agree(
+        &flat_after_busy,
+        &rig.render(PostResolve::None, size, flat),
+        "flat after busy",
+    );
     let second = frame(DIAGONAL);
     assert_eq!(first, second);
 }

@@ -239,10 +239,45 @@ fn copy_preserves_pattern_orientation_alpha_and_every_srgb_code() {
         let red: std::collections::BTreeSet<_> =
             original.chunks_exact(4).map(|pixel| pixel[0]).collect();
         assert_eq!(red.len(), 256, "pattern exercises every encoded value");
-        assert_eq!(
-            copied, original,
-            "no orientation, alpha or transfer-function changes"
-        );
+        // The pattern is a plain integer code per channel, so the CPU holds the exact intended
+        // code of every texel. `original` comes from `pow`, a division and the attachment's
+        // encoding; `copied` additionally passes the sampler's decode and a second encoding, so
+        // neither is a byte transfer: the values `n / 255` (or their linear form) are not
+        // representable in f32. Each is compared with the intended code within `OUTPUT_STEPS`
+        // (nearest rounding 0.5, transfer precision 0.1, arithmetic 0.025). Extra terms: the
+        // copy adds one more implementation-precision transfer (0.1, sRGB only), and `pow` is
+        // `exp2(2.4 log2 x)` with `log2` at most `2^-21` absolute: a relative error of
+        // `2.4 ln2 2^-21 + 24 * 2^-23 = 3.7e-6` in the linear value, times the steepest
+        // `l ds/dl = 112` steps, is 0.0004, taken as 0.001 for the sRGB pattern. Both bounds stay
+        // below one code, so on integer codes a conforming driver reproduces the intended
+        // code; the assertion states the bound so a driver outside it is reported.
+        let srgb = format.is_srgb();
+        let pattern_error = if srgb { 0.001 } else { 0.0 };
+        let copy_error = pattern_error + if srgb { 0.1 } else { 0.0 };
+        for (index, (original, copied)) in original
+            .chunks_exact(4)
+            .zip(copied.chunks_exact(4))
+            .enumerate()
+        {
+            let (x, y) = (index % 257, index / 257);
+            let intended = [x % 256, y * 71, (x * 17) % 256, (x * 23) % 256];
+            for channel in 0..4 {
+                let reference = f64::from(u16::try_from(intended[channel]).unwrap());
+                let context = format!("{format:?} ({x}, {y}) channel {channel}");
+                crate::fxaa_tolerance_tests::assert_code_within(
+                    original[channel],
+                    reference,
+                    pattern_error,
+                    &context,
+                );
+                crate::fxaa_tolerance_tests::assert_code_within(
+                    copied[channel],
+                    reference,
+                    copy_error,
+                    &context,
+                );
+            }
+        }
     }
 }
 

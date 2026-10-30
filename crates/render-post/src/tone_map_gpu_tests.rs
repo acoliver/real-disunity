@@ -371,12 +371,18 @@ fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
         .unwrap()
         .read(&device, &crate::test_authority(&queue), &output)
         .unwrap();
-    let expected = encoded_byte(radiance, 1.0);
-    assert!(
-        pixels
-            .chunks_exact(4)
-            .all(|pixel| pixel == [expected, expected, expected, 255])
-    );
+    // The cleared radiance 0.75 is a dyadic half value, stored and resolved exactly. The shader
+    // adds the exposure product (1) and one division (`v / (1 + v)`, 2.5 ulp), a few operations
+    // of `2^-24` on a display value at most 1: inside the arithmetic term of `OUTPUT_STEPS`
+    // (rounding 0.5, sRGB transfer 0.1, arithmetic 0.025).
+    let reference =
+        crate::fxaa_tolerance_tests::encoded_steps(ToneMapOutput::evaluate(radiance, 1.0), true);
+    for pixel in pixels.chunks_exact(4) {
+        for &channel in &pixel[..3] {
+            crate::fxaa_tolerance_tests::assert_code_within(channel, reference, 0.0, "resized");
+        }
+        assert_eq!(pixel[3], 255);
+    }
 }
 
 fn edge_pipeline(device: &wgpu::Device, samples: u32) -> wgpu::RenderPipeline {

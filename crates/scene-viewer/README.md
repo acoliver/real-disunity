@@ -4,6 +4,14 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Retained shadow light
+
+Submit `RetainedUpdate::Settings` with effects updated through
+`SceneEffects::with_shadow_direction` to move the shadow light without replacing
+resident geometry. `None` follows the direct sun. Direct lighting, sky and the
+celestial sun are unchanged. Interactive frames and same-frame captures use the
+same shadow direction, including when depth fitting is enabled.
+
 ## Presentation settings
 
 Set `present_mode` explicitly to `PresentMode::Fifo`, `FifoRelaxed`, `Mailbox` or

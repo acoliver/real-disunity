@@ -504,13 +504,13 @@ impl ShadowedScene {
         let mut cascades = Self::prepare_cascades(
             (&self.gpu, &self.effects, self.settings),
             view,
-            frame.sun_direction,
+            frame.shadow_direction,
             fitting,
         )?;
         let refresh = next_refresh.prepare(
             &mut cascades,
             self.settings,
-            frame.sun_direction,
+            frame.shadow_direction,
             color.size(),
             self.gpu.caster_generation(),
         );

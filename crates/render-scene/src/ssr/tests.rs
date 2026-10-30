@@ -63,6 +63,7 @@ fn frame() -> FrameUniform {
         camera_position: glam::Vec3::ZERO,
         camera_position_millimeters: [0; 3],
         sun_direction: glam::Vec3::Z,
+        shadow_direction: glam::Vec3::Z,
         sun_ao_intensity: None,
         sun_tint: glam::Vec3::ONE,
         sun_irradiance: glam::Vec3::ZERO,

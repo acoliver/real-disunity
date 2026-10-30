@@ -61,7 +61,11 @@ impl GameScripts {
         lua.set_memory_limit(DEFAULT_MEMORY_LIMIT)?;
         restrict_base(&lua)?;
         let instructions = Arc::new(AtomicU64::new(0));
-        let budget = Budget::new(config.instruction_budget, Arc::clone(&instructions));
+        let budget = Budget::new(
+            config.instruction_budget,
+            config.resume_budget.as_ref(),
+            Arc::clone(&instructions),
+        );
         budget.hook_main(&lua);
         crate::coroutines::install(&lua, &budget)?;
         let loader = SharedLoader::default();
@@ -217,9 +221,10 @@ impl GameScripts {
     ) -> Result<serde_json::Value, ScriptError> {
         let env = self.environment(source)?;
         self.instructions.store(0, Ordering::Relaxed);
+        let hooked = self.loader.lock().expect("loader").hooked(code)?;
         let chunk = self
             .lua
-            .load(code)
+            .load(hooked)
             .set_name("<eval>")
             .set_mode(ChunkMode::Text)
             .set_environment(env);
@@ -248,7 +253,9 @@ impl GameScripts {
         &self.loader
     }
 
-    pub(crate) fn debug(&self) -> &Debug {
+    /// The private debug capability for saving and restoring threads, built from the debug
+    /// table that was never a global. Host-only: scripts cannot reach it.
+    pub fn debug(&self) -> &Debug {
         &self.debug
     }
 
@@ -260,7 +267,15 @@ impl GameScripts {
         &self.standard
     }
 
-    pub(crate) fn lua(&self) -> &Lua {
+    pub(crate) fn standard_mut(&mut self) -> &mut Permanents {
+        &mut self.standard
+    }
+
+    /// The Lua state the scripts run in, for a host that restores or adopts values into it.
+    /// Host-only: it grants a script nothing, because scripts see only their source's
+    /// environment, and a host that sets globals or calls functions through it bypasses the
+    /// instruction budget and the sandbox.
+    pub fn lua(&self) -> &Lua {
         &self.lua
     }
 

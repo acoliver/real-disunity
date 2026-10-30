@@ -1,3 +1,4 @@
+mod shadow_direction;
 #[test]
 fn retained_lighting_settings_change_the_next_frame_without_reupload() {
     let context =

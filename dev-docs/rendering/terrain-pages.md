@@ -34,6 +34,12 @@ All levels preserve the base padded domain in normalized UV space. `maximum_samp
 
 GPU cache admission limits padded page area to `u32::MAX / 256` texels, in addition to device texture limits. This bounds integer area-weighted color/roughness sums and their rounding additions without overflow. Geometry interval counts are independent of this material-resolution limit.
 
+## Anisotropy limitations
+
+Terrain anisotropy is not implemented for layered sources or cached pages. Both paths remain isotropic; material-level `SceneMaterial::with_anisotropy` does not affect them. Source and cached-page anisotropy are tracked by [#347](https://github.com/acoliver/real-disunity/issues/347).
+
+Cached pages use `Rgba8Uint` storage, which cannot use a filtering sampler. An anisotropic page reader needs bounded major-axis footprint integration over the existing integer trilinear reader, minor-axis mip selection, and gutter-safe ancestor selection for every tap. That extension must preserve the 1x lookup and filtering bytes and test page boundaries, rectangular pages and grazing-angle detail.
+
 ## GPU execution
 
 `CompositionBatch` validates and packs variable layer spans. Its `TypedOperation::Compute` uses checked buffer bindings and explicit read/write declarations. Source ranges and samples must be produced by uploads of that batch's byte slices. Output is write-only scratch from the executor's perspective, despite WGSL's read-write storage binding syntax.

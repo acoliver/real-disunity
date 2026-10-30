@@ -62,7 +62,6 @@ pub(super) struct MaterialBindings<'a> {
     pub(super) layout: &'a BindGroupLayout,
     pub(super) views: &'a [TextureView],
     pub(super) placeholder: &'a TextureView,
-    pub(super) sampler: &'a Sampler,
     pub(super) heights: &'a Buffer,
 }
 
@@ -77,12 +76,13 @@ pub(super) fn upload_materials(
         layout,
         views,
         placeholder,
-        sampler,
         heights,
     } = *bindings;
+    let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut groups = Vec::new();
     let mut uniforms = Vec::new();
     for material in scene.resources().materials() {
+        let sampler = samplers.get(device, material);
         let optional = |handle: Option<TextureHandle>| {
             handle.map_or(placeholder, |handle| &views[table_index(handle)])
         };
@@ -520,7 +520,7 @@ pub(super) fn scene_materials(
     scene: &RenderScene,
     pipelines: &crate::renderer::ScenePipelines,
     textures: (&[TextureView], &TextureView),
-    shared: (&Sampler, &Buffer),
+    heights: &Buffer,
 ) -> (Vec<BindGroup>, Vec<Buffer>) {
     upload_materials(
         device,
@@ -530,8 +530,7 @@ pub(super) fn scene_materials(
             layout: pipelines.material_layout(),
             views: textures.0,
             placeholder: textures.1,
-            sampler: shared.0,
-            heights: shared.1,
+            heights,
         },
     )
 }

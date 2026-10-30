@@ -35,31 +35,62 @@ fn grazing_plane_anisotropy_preserves_minor_axis_checker_detail() {
     assert!(east_texels_per_pixel < 4.0 && north_texels_per_pixel > 4.0);
     let context = context();
     for channel in 0..5 {
-        let mut frame = grazing_frame();
-        frame.sun_direction = glam::Vec3::new(0.8, 0.0, 0.6);
-        frame.sun_irradiance = glam::Vec3::splat(2.0);
-        frame.ambient_sky = glam::Vec3::splat(0.1);
-        frame.ambient_ground = glam::Vec3::splat(0.1);
-        let textures = if channel == 0 {
-            vec![checker()]
-        } else {
-            vec![white_texture(), checker()]
-        };
-        let material = channel_material(channel);
-        let one = render_frame(&context, &plane(textures.clone(), &material), &frame);
-        let sixteen = render_frame(
-            &context,
-            &plane(
-                textures,
-                &material.with_anisotropy(TextureAnisotropy::new(16).unwrap()),
-            ),
-            &frame,
-        );
-        let low = horizontal_energy(&one);
-        let high = horizontal_energy(&sixteen);
+        check_channel(&context, channel);
+    }
+}
+
+fn check_channel(context: &GpuContext, channel: usize) {
+    let mut frame = grazing_frame();
+    frame.sun_direction = glam::Vec3::new(0.8, 0.0, 0.6);
+    frame.sun_irradiance = glam::Vec3::splat(2.0);
+    frame.ambient_sky = glam::Vec3::splat(0.1);
+    frame.ambient_ground = glam::Vec3::splat(0.1);
+    let textures = if channel == 0 {
+        vec![checker()]
+    } else {
+        vec![white_texture(), checker()]
+    };
+    let material = channel_material(channel);
+    let mut overhead = frame;
+    overhead.camera_position = glam::Vec3::new(0.0, 0.0, 2.0);
+    overhead.view_projection =
+        glam::camera::rh::proj::directx::orthographic(-1.1, 1.1, -1.1, 1.1, 0.1, 100.0)
+            * glam::camera::rh::view::look_at_mat4(
+                overhead.camera_position,
+                glam::Vec3::ZERO,
+                glam::Vec3::Y,
+            );
+    let baseline = render_frame(context, &plane(textures.clone(), &material), &overhead);
+    let detail = horizontal_energy(&baseline);
+    assert!(
+        detail > 10_000,
+        "channel {channel} isotropic detail: {detail}"
+    );
+    let one = render_frame(context, &plane(textures.clone(), &material), &frame);
+    let sixteen = render_frame(
+        context,
+        &plane(
+            textures,
+            &material.with_anisotropy(TextureAnisotropy::new(16).unwrap()),
+        ),
+        &frame,
+    );
+    let low = horizontal_energy(&one);
+    let high = horizontal_energy(&sixteen);
+    if context
+        .adapter()
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING)
+    {
         assert!(
             high > low + 10_000,
             "channel {channel}: 1x={low}, 16x={high}"
+        );
+    } else {
+        assert_eq!(
+            sixteen, one,
+            "channel {channel}: anisotropy must clamp to 1x"
         );
     }
 }

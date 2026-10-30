@@ -14,35 +14,52 @@ fn source(level: u16) -> LayeredGpuSource {
 }
 
 fn energy(bytes: &[u8]) -> u64 {
-    // Composition writes one packed RGBA color in each sixteen-byte output record.
+    // Compare horizontal pairs of packed RGBA colors in sixteen-byte records.
     bytes
-        .chunks_exact(16)
-        .map(|record| record[0])
-        .collect::<Vec<_>>()
-        .windows(2)
-        .map(|pair| u64::from(pair[0].abs_diff(pair[1])).pow(2))
+        .chunks_exact(32)
+        .map(|pair| u64::from(pair[0].abs_diff(pair[16])).pow(2))
         .sum()
 }
 
 #[test]
 fn source_anisotropy_preserves_detail_across_the_minor_footprint_axis() {
     let context = crate::terrain::pages::residency_tests::context();
-    // One-metre repeats and 256 texels give independently known 1x16 texel axes.
+    // Match each SIMD quad's coordinates to the explicit 1x16 texel Jacobian.
+    // Software anisotropic filters can also derive their ellipse from lane UVs.
     let positions: Vec<_> = (0_u16..64)
-        .map(|x| [0.5 + f32::from(x) / 256.0, 0.5])
+        .map(|lane| {
+            [
+                0.5 + f32::from(lane / 4 * 2 + lane % 2) / 256.0,
+                0.5 + f32::from(lane % 4 / 2) * 16.0 / 256.0,
+            ]
+        })
         .collect();
-    let render = |level| {
-        super::source_mip_tests::execute_footprint(
-            &context,
-            &source(level),
-            &positions,
-            [1.0 / 256.0, 16.0 / 256.0],
-        )
+    let render = |level, footprint| {
+        super::source_mip_tests::execute_footprint(&context, &source(level), &positions, footprint)
     };
-    let low = energy(&render(1));
-    let high = energy(&render(16));
+    let baseline = energy(&render(1, [1.0 / 256.0; 2]));
+    assert!(baseline > 10_000, "small isotropic footprint: {baseline}");
+    let one = render(1, [1.0 / 256.0, 16.0 / 256.0]);
+    let sixteen = render(16, [1.0 / 256.0, 16.0 / 256.0]);
+    // The 1x major axis selects mip four, authored as opaque uniform gray.
     assert!(
-        high > low + 10_000,
-        "source detail energy: 1x={low}, 16x={high}"
+        one.chunks_exact(16)
+            .all(|record| record[..4] == [128, 128, 128, 255]),
+        "coarse isotropic output must contain the authored gray mip"
     );
+    let low = energy(&one);
+    let high = energy(&sixteen);
+    if context
+        .adapter()
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING)
+    {
+        assert!(
+            high > low + 10_000,
+            "source detail energy: 1x={low}, 16x={high}"
+        );
+    } else {
+        assert_eq!(sixteen, one, "unsupported anisotropy must clamp to 1x");
+    }
 }

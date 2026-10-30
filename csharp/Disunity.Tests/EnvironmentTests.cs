@@ -105,6 +105,12 @@ internal static class EnvironmentTests
             Require(received.SequenceEqual([("plain", false, LogType.Log), ("formatted 2", true, LogType.Warning),
                 ("Tag: tagged", false, LogType.Log), ("InvalidOperationException: broken", false, LogType.Exception),
                 ("error", true, LogType.Error)]), string.Join(" | ", received));
+            var stacks = new List<string>();
+            void OnStack(string condition, string stack, LogType type) => stacks.Add(stack);
+            Application.logMessageReceived += OnStack;
+            Debug.LogException(new InvalidOperationException("outer", new ArgumentException("cause")));
+            Application.logMessageReceived -= OnStack;
+            Require(stacks is [var logged] && logged.Contains("Inner exception: ArgumentException: cause"), $"an exception's log names its inner exception: {string.Join(" | ", stacks)}");
             received.Clear();
             Task.Run(() => Debug.Log("from a worker")).Wait();
             Require(threaded[^1] == "from a worker" && received.Count == 0, "a worker's message reaches the threaded event at once");

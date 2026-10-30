@@ -11,6 +11,22 @@ internal static class RectTransformMemberTests
         {
             Offsets();
             Console.WriteLine("PASS: RectTransform offsetMin and offsetMax read and keep the opposite corner when set");
+            UISystemProfilerApi.BeginSample(UISystemProfilerApi.SampleType.Layout);
+            UISystemProfilerApi.AddMarker("layout", null!);
+            UISystemProfilerApi.EndSample(UISystemProfilerApi.SampleType.Layout);
+            Expect.That(ModuleFacades.Forwards(typeof(DisunityHost).Assembly, "UnityEngine.UISystemProfilerApi"), "the module facades forward UISystemProfilerApi");
+            Expect.That((int)UISystemProfilerApi.SampleType.Render == 1, "SampleType values");
+            Console.WriteLine("PASS: UISystemProfilerApi accepts markers");
+            RectTransform? seen = null;
+            RectTransform.ReapplyDrivenProperties handler = driven => seen = driven;
+            RectTransform.reapplyDrivenProperties += handler;
+            var target = NewChild(NewCanvas(), new Vector2(1, 1));
+            RectTransform.RaiseReapplyDrivenProperties(target);
+            RectTransform.reapplyDrivenProperties -= handler;
+            Expect.That(seen == target, "reapplyDrivenProperties handlers receive the rectangle");
+            var missing = new MissingComponentException("no Rigidbody");
+            Expect.That(missing is SystemException && missing.Message == "no Rigidbody", "MissingComponentException");
+            Console.WriteLine("PASS: RectTransform.reapplyDrivenProperties registers handlers, and MissingComponentException");
             Position3D();
             Console.WriteLine("PASS: RectTransform.anchoredPosition3D carries the local z");
             Corners();

@@ -7,6 +7,15 @@ namespace UnityEngine;
 /// derives from the anchors.</summary>
 public sealed partial class RectTransform
 {
+    /// <summary>Called for a rectangle whose driven properties need applying again. Only an editor or an
+    /// animation that drives properties raises it; the engine has neither, so nothing raises it.</summary>
+    public delegate void ReapplyDrivenProperties(RectTransform driven);
+
+    public static event ReapplyDrivenProperties? reapplyDrivenProperties;
+
+    /// <summary>Calls the handlers once; tests use it to check registration.</summary>
+    internal static void RaiseReapplyDrivenProperties(RectTransform driven) => reapplyDrivenProperties?.Invoke(driven);
+
     public enum Edge { Left, Right, Top, Bottom }
 
     public enum Axis { Horizontal, Vertical }

@@ -8,7 +8,7 @@ use crate::presentation::extraction::{camera_admits, selected_camera};
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::ui::{Canvas, CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiGlyphQuad {
@@ -71,7 +71,7 @@ pub fn extract_ui(
         if !overlay && !camera_admits(world, camera, component.object)? {
             continue;
         }
-        let text = fonts.layout(run, rect.size)?;
+        let text = fonts.layout(run, rect.size.max(Vec2::ZERO))?;
         budget.add(
             run.text.chars().filter(|c| *c != '\r').count(),
             text.atlas.alpha.len(),

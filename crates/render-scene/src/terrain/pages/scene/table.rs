@@ -18,7 +18,10 @@ pub(super) fn upload(
         u32::try_from(selection.leaves().len()).expect("leaf count"),
         u32::try_from(residents.len()).expect("resident count"),
         pages.cache.product_count() - 2,
-        0,
+        pages
+            .layered
+            .as_ref()
+            .map_or(0, |source| u32::from(source.anisotropy.level() - 1)),
         settings.parts().interior[0],
         settings.parts().interior[1],
         settings.parts().border,

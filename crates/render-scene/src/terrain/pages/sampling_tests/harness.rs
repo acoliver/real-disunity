@@ -17,7 +17,40 @@ pub(in crate::terrain::pages) fn sample_metric(
     points: &[[f32; 4]],
     work: bool,
 ) -> Vec<u8> {
-    let table = table(device, cache, leaves);
+    sample_with(
+        device,
+        authority,
+        cache,
+        leaves,
+        points,
+        Mode {
+            work,
+            normals: false,
+            level: 1,
+            baseline: false,
+            extent: [1.0; 2],
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::terrain::pages) struct Mode {
+    pub work: bool,
+    pub normals: bool,
+    pub level: u16,
+    pub baseline: bool,
+    pub extent: [f32; 2],
+}
+
+pub(in crate::terrain::pages) fn sample_with(
+    device: &wgpu::Device,
+    authority: &SubmissionAuthority,
+    cache: &ResidentPages,
+    leaves: &[PageKey],
+    points: &[[f32; 4]],
+    mode: Mode,
+) -> Vec<u8> {
+    let table = table(device, cache, leaves, mode);
     let input = buffer(
         device,
         &points
@@ -28,7 +61,7 @@ pub(in crate::terrain::pages) fn sample_metric(
     );
     let output = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("sampling output"),
-        size: points.len() as u64 * 4,
+        size: points.len() as u64 * if mode.normals { 16 } else { 4 },
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
@@ -38,7 +71,7 @@ pub(in crate::terrain::pages) fn sample_metric(
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let (pipeline, group, empty) = pipeline(device, cache, &table, &input, &output, work);
+    let (pipeline, group, empty) = pipeline(device, cache, &table, &input, &output, mode);
     let mut frame = authority.begin(device).unwrap();
     {
         let mut pass = frame.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
@@ -73,17 +106,9 @@ fn pipeline(
     table: &wgpu::Buffer,
     input: &wgpu::Buffer,
     output: &wgpu::Buffer,
-    work: bool,
+    mode: Mode,
 ) -> (wgpu::ComputePipeline, wgpu::BindGroup, wgpu::BindGroup) {
-    let source = "struct BlendedSurface { albedo: vec3<f32>, normal: vec3<f32>, roughness: f32, metalness: f32 }\n".to_owned() + include_str!("../sampling.wgsl") + "\n@group(1) @binding(8) var<storage, read_write> output: array<u32>;\n@group(1) @binding(9) var<storage, read> points: array<vec4<f32>>;\n@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) { let p = points[id.x]; let value = cached_surface(p.xy, vec2<f32>(p.z, 0.0), vec2<f32>(0.0, p.w)); output[id.x] = pack4x8unorm(vec4<f32>(value.albedo, 1.0)); }";
-    let source = if work {
-        source.replace(
-            "pack4x8unorm(vec4<f32>(value.albedo, 1.0))",
-            "lookup_page(p.xy, 0.0).work",
-        )
-    } else {
-        source
-    };
+    let source = shader(mode);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shared terrain sampling test"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -128,22 +153,27 @@ fn pipeline(
     (pipeline, group, empty)
 }
 
-fn table(device: &wgpu::Device, cache: &ResidentPages, leaves: &[PageKey]) -> wgpu::Buffer {
+fn table(
+    device: &wgpu::Device,
+    cache: &ResidentPages,
+    leaves: &[PageKey],
+    mode: Mode,
+) -> wgpu::Buffer {
     let residents = cache.residents();
     let settings = cache.settings();
     let mut words = vec![
         u32::try_from(leaves.len()).unwrap(),
         u32::try_from(residents.len()).unwrap(),
-        0,
-        0,
+        cache.product_count() - 2,
+        u32::from(mode.level - 1),
         settings.parts().interior[0],
         settings.parts().interior[1],
         settings.parts().border,
         settings.maximum_sampling_mip(),
         0,
         0,
-        1.0f32.to_bits(),
-        1.0f32.to_bits(),
+        mode.extent[0].to_bits(),
+        mode.extent[1].to_bits(),
     ];
     for record in super::super::scene::table::records(leaves, &residents) {
         words.extend(record);
@@ -155,4 +185,29 @@ fn table(device: &wgpu::Device, cache: &ResidentPages, leaves: &[PageKey]) -> wg
             .flat_map(u32::to_le_bytes)
             .collect::<Vec<_>>(),
     )
+}
+
+fn shader(mode: Mode) -> String {
+    let source = include_str!("../footprint.wgsl").to_owned()
+        + include_str!("../sampling.wgsl")
+        + include_str!("kernel.wgsl");
+    let source = if mode.baseline {
+        source.replace("fn cached_surface(", "fn unused_cached_surface(")
+            + include_str!("main_cached_test.wgsl")
+    } else {
+        source
+    };
+    let packed = "pack4x8unorm(vec4<f32>(value.albedo, select(0.0, 1.0, finite_surface(value))))";
+    if mode.work {
+        source.replace(packed, "lookup_page(p.xy, 0.0).work")
+    } else if mode.normals {
+        source
+            .replace("output: array<u32>", "output: array<vec4<f32>>")
+            .replace(
+                packed,
+                "vec4<f32>(value.normal, select(0.0, 1.0, finite_surface(value)))",
+            )
+    } else {
+        source
+    }
 }

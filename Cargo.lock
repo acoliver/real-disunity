@@ -4174,6 +4174,7 @@ dependencies = [
  "worldrunner-render-plan",
  "worldrunner-render-post",
  "worldrunner-render-scene",
+ "worldrunner-world-simulation",
 ]
 
 [[package]]

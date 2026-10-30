@@ -37,6 +37,32 @@ impl World {
             .collect())
     }
 
+    /// Every live object below any of `roots`, excluding the roots themselves unless one is
+    /// below another. Costs one pass over the objects however many roots there are.
+    /// Stale roots are ignored. The result is in handle order.
+    pub fn descendants(&self, roots: &[ObjectHandle]) -> Vec<ObjectHandle> {
+        if roots.is_empty() {
+            return Vec::new();
+        }
+        let mut children: std::collections::BTreeMap<ObjectHandle, Vec<ObjectHandle>> =
+            std::collections::BTreeMap::new();
+        for (id, value) in self.objects.iter(self.identity) {
+            if let Some(parent) = value.parent {
+                children.entry(parent).or_default().push(ObjectHandle(id));
+            }
+        }
+        let mut found = std::collections::BTreeSet::new();
+        let mut pending: Vec<_> = roots.to_vec();
+        while let Some(object) = pending.pop() {
+            for &child in children.get(&object).into_iter().flatten() {
+                if found.insert(child) {
+                    pending.push(child);
+                }
+            }
+        }
+        found.into_iter().collect()
+    }
+
     pub(crate) fn subtree(&self, root: ObjectHandle) -> Result<Vec<ObjectHandle>, WorldError> {
         self.live_object(root)?;
         let mut result = Vec::new();

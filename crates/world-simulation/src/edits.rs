@@ -100,6 +100,11 @@ impl World {
         {
             object.renderer = None;
         }
+        if matches!(component.desc, ComponentDesc::MeshInstance(_))
+            && let Some(object) = self.objects.get_mut(owner.0)
+        {
+            object.mesh_instance = None;
+        }
         self.lifecycle.scripts.remove(&handle);
         self.lifetime.components.remove(&handle);
         self.components.unwind_insert(handle.0);

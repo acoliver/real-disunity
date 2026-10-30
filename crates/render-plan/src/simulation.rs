@@ -1,4 +1,5 @@
 //! Native observations mapped to the shared scene texture/material contract.
+pub mod mesh_instances;
 use crate::SceneTexture;
 use glam::Mat4;
 use std::collections::BTreeMap;

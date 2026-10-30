@@ -35,6 +35,12 @@ impl World {
                     .expect("live component owner")
                     .renderer = None;
             }
+            ComponentDesc::MeshInstance(_) => {
+                self.objects
+                    .get_mut(component.object.0)
+                    .expect("live component owner")
+                    .mesh_instance = None;
+            }
             #[cfg(feature = "ui")]
             ComponentDesc::RectTransform(_)
             | ComponentDesc::Canvas(_)

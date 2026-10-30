@@ -31,6 +31,7 @@ pub use timeline::{
 mod components;
 mod edits;
 mod handles;
+mod journal;
 pub mod physics2d;
 pub mod tilemap;
 mod ui_error;
@@ -38,6 +39,7 @@ pub use ui_error::{FontId, UiError};
 #[cfg(feature = "ui")]
 pub mod ui;
 pub use edits::ObjectEdit;
+pub use journal::{ComponentChange, ComponentChangeEntry, ComponentKind, WorldChanges};
 mod clone;
 mod construction;
 mod fields;

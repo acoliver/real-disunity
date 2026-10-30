@@ -335,3 +335,4 @@ TransformAccessArrayTests.Run();
 RenderEntryPointTests.Run();
 SceneManagerTests.Run();
 SceneSwitchTests.Run();
+SubsystemTests.Run();

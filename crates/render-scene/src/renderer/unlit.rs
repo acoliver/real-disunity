@@ -49,6 +49,7 @@ pub(super) fn build(
             samples: target.1,
             front_face: wgpu::FrontFace::Ccw,
             key: PipelineKey {
+                coverage: crate::pipeline::MaskCoverage::Cutoff,
                 relief: false,
                 masked: false,
                 double_sided: true,

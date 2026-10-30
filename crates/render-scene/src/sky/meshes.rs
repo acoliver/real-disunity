@@ -17,6 +17,7 @@ struct CelestialFragment {
 }
 fn celestial_fragment(input:VertexOutput,front_facing:bool,masked:bool)->CelestialFragment {
     let shaded=shade(input,front_facing);
+    let coverage_alpha = scene_mask_alpha(shaded.a, input);
     let clip=frame.view_projection*vec4(input.world_position,1.0);
     // Clip in the original camera space, but retain distant background surfaces.
     if clip.z<0.0 || clip.w<=0.0 { discard; }
@@ -24,7 +25,7 @@ fn celestial_fragment(input:VertexOutput,front_facing:bool,masked:bool)->Celesti
     scene_apply_coverage(input);
     let depth=clip.z/clip.w;
     var out:CelestialFragment;
-    out.color=vec4(shaded.rgb,1.0);
+    out.color=vec4(shaded.rgb,select(1.0, coverage_alpha, masked));
     // Evaluate after interpolation so intersecting triangles keep their real ordering.
     out.depth=depth/(1.0+depth);
     return out;
@@ -83,11 +84,11 @@ pub(crate) struct MeshDraw {
     pub key: crate::pipeline::PipelineKey,
 }
 type PipelineCache =
-    std::cell::RefCell<std::collections::BTreeMap<[u32; 12], [wgpu::RenderPipeline; 8]>>;
+    std::cell::RefCell<std::collections::BTreeMap<[u32; 12], [wgpu::RenderPipeline; 16]>>;
 
 #[derive(Debug)]
 pub(crate) struct Meshes {
-    pipelines: [wgpu::RenderPipeline; 8],
+    pipelines: [wgpu::RenderPipeline; 16],
     device: wgpu::Device,
     scene: crate::renderer::ScenePipelines,
     physical: bool,
@@ -188,7 +189,7 @@ impl Meshes {
         raster: ([u32; 7], wgpu::FrontFace),
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
-    ) -> [wgpu::RenderPipeline; 8] {
+    ) -> [wgpu::RenderPipeline; 16] {
         let (options, front_face) = raster;
         if front_face == wgpu::FrontFace::Ccw
             && options == [0; 7]

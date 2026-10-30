@@ -13,17 +13,33 @@ fn celestial_visibility_composites_corresponding_msaa_samples() {
 }
 
 fn assert_celestial_composites_samples(context: &GpuContext, samples: u32) {
-    let device = context.device();
     let source = scene(0, false, false);
+    let image = capture_celestial(context, &source, samples);
+    assert_eq!(
+        image.rgb(4).map(f32::to_bits),
+        [0.0_f32, 1.0, 0.0].map(f32::to_bits)
+    );
+    assert_eq!(
+        image.rgb(0).map(f32::to_bits),
+        [0.0_f32, 0.0, 2.0].map(f32::to_bits)
+    );
+}
+
+fn capture_celestial(
+    context: &GpuContext,
+    source: &worldrunner_render_plan::RenderScene,
+    samples: u32,
+) -> Capture {
+    let device = context.device();
     let pipelines =
         ScenePipelines::with_samples(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
     let color = multisampled_target(device, wgpu::TextureFormat::Rgba16Float, samples);
     let depth = multisampled_target(device, wgpu::TextureFormat::Depth32Float, samples);
     let color = AttachmentView::new(ResourceRef::new("msaa color"), &color).unwrap();
     let depth = AttachmentView::new(ResourceRef::new("msaa depth"), &depth).unwrap();
     let frame = FrameUniform::new(&view(), source.effects()).unwrap();
-    let image = capture(context, |encoder, resolved, _| {
+    capture(context, |encoder, resolved, _| {
         let mut renderer = crate::compositor::FrameRenderer::new(device);
         crate::compositor::encode_scene(
             &mut renderer,
@@ -50,14 +66,47 @@ fn assert_celestial_composites_samples(context: &GpuContext, samples: u32) {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-    });
+    })
+}
+
+#[test]
+fn celestial_alpha_coverage_composites_occupied_samples_once() {
+    use worldrunner_render_plan::*;
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let masked = SceneMaterial::new(SceneMaterialParts {
+        albedo: TextureHandle::from_raw(0),
+        normal: None,
+        roughness_metallic: None,
+        ambient_occlusion: None,
+        self_illumination: Some(TextureHandle::from_raw(0)),
+        roughness_micro: 1_000_000,
+        metalness_micro: 0,
+        alpha_mode: SceneAlphaMode::Mask {
+            cutoff_micro: 500_000,
+        },
+        double_sided: true,
+    })
+    .unwrap()
+    .with_alpha_factor(500_000)
+    .unwrap()
+    .with_alpha_to_coverage(true)
+    .unwrap();
+    let source = RenderScene::new(SceneParts {
+        resources: SceneResources::new(textures().to_vec(), vec![material(1), masked]).unwrap(),
+        geometry: SceneGeometry::new(vec![quad()], vec![]).unwrap(),
+        terrain: None,
+        effects: Some(effects(0, false)),
+    })
+    .unwrap();
+    let image = capture_celestial(&context, &source, 4);
     assert_eq!(
         image.rgb(4).map(f32::to_bits),
-        [0.0, 1.0, 0.0].map(f32::to_bits)
+        [0.5_f32, 0.5, 1.5].map(f32::to_bits),
+        "half white over blue radiance 2"
     );
     assert_eq!(
         image.rgb(0).map(f32::to_bits),
-        [0.0, 0.0, 2.0].map(f32::to_bits)
+        [0.0_f32, 0.0, 2.0].map(f32::to_bits)
     );
 }
 

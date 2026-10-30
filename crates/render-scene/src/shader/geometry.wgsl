@@ -312,15 +312,34 @@ fn scene_normal(linear: mat3x3<f32>, normal: vec3<f32>) -> vec3<f32> {
     return normalize((cofactors * normal) / determinant);
 }
 
+override SCENE_ALPHA_TO_COVERAGE: bool = false;
+
+// The cutoff is the half-covered contour; one pixel's alpha variation spans
+// the transition. Constant alpha uses epsilon to retain a finite denominator.
+fn scene_coverage_alpha(alpha: f32, cutoff: f32, width: f32) -> f32 {
+    let coverage = clamp((alpha - cutoff) / max(width, 0.000001) + 0.5, 0.0, 1.0);
+    // Rounding the sum must not move below-cutoff alpha onto the half contour.
+    if alpha < cutoff { return min(coverage, bitcast<f32>(0x3effffffu)); }
+    return max(coverage, 0.5);
+}
+fn scene_mask_alpha(alpha: f32, input: VertexOutput) -> f32 {
+    if !SCENE_ALPHA_TO_COVERAGE { return 1.0; }
+    return scene_coverage_alpha(alpha, scene_alpha_cutoff(input, false), fwidth(alpha));
+}
+
 fn scene_alpha_covered(alpha: f32, input: VertexOutput) -> bool {
+    if SCENE_ALPHA_TO_COVERAGE { return scene_geometry_covered(input); }
     return scene_alpha_covered_pass(alpha, input, false);
 }
-fn scene_alpha_covered_pass(alpha: f32, input: VertexOutput, shadow: bool) -> bool {
+fn scene_alpha_cutoff(input: VertexOutput, shadow: bool) -> f32 {
     var cutoff = material.alpha_cutoff;
     if input.atlas_eye.w != 0.0 && (material.wind_clock.z & 1u) != 0u {
         cutoff = select(material.alpha_factor_reserved.z, material.alpha_factor_reserved.w, shadow);
     }
-    return alpha >= cutoff && scene_geometry_covered(input);
+    return cutoff;
+}
+fn scene_alpha_covered_pass(alpha: f32, input: VertexOutput, shadow: bool) -> bool {
+    return alpha >= scene_alpha_cutoff(input, shadow) && scene_geometry_covered(input);
 }
 
 fn scene_material_alpha(filtered_alpha: f32) -> f32 {

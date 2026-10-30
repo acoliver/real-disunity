@@ -16,6 +16,7 @@ pub const MATERIAL_UNIFORM_BYTES: usize = 448;
 /// draw, and it names only the properties that cannot vary within a pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PipelineKey {
+    pub coverage: MaskCoverage,
     pub relief: bool,
     /// Whether the fragment shader discards texels below the alpha cutoff.
     pub masked: bool,
@@ -23,58 +24,57 @@ pub struct PipelineKey {
     pub double_sided: bool,
 }
 
+/// Masked coverage policy, specialized to hard cutoff for single-sample passes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MaskCoverage {
+    Cutoff,
+    Multisample,
+}
+
 impl PipelineKey {
+    pub const fn alpha_to_coverage(self, samples: u32) -> bool {
+        self.masked && matches!(self.coverage, MaskCoverage::Multisample) && samples > 1
+    }
+
     /// Every pipeline this renderer can require, in a stable order.
     ///
     /// The stable indices address the shared material-variant cache. Variants
     /// compile on first use so unused relief shaders do not delay ordinary scenes.
-    pub const ALL: [Self; 8] = [
-        Self {
+    pub const ALL: [Self; 16] = Self::variants();
+
+    const fn variants() -> [Self; 16] {
+        let mut keys = [Self {
+            relief: false,
             masked: false,
             double_sided: false,
-            relief: false,
-        },
-        Self {
-            masked: false,
-            double_sided: true,
-            relief: false,
-        },
-        Self {
-            masked: true,
-            double_sided: false,
-            relief: false,
-        },
-        Self {
-            masked: true,
-            double_sided: true,
-            relief: false,
-        },
-        Self {
-            masked: false,
-            double_sided: false,
-            relief: true,
-        },
-        Self {
-            masked: false,
-            double_sided: true,
-            relief: true,
-        },
-        Self {
-            masked: true,
-            double_sided: false,
-            relief: true,
-        },
-        Self {
-            masked: true,
-            double_sided: true,
-            relief: true,
-        },
-    ];
+            coverage: MaskCoverage::Cutoff,
+        }; 16];
+        let mut index = 0;
+        while index < keys.len() {
+            keys[index] = Self {
+                relief: index & 4 != 0,
+                masked: index & 2 != 0,
+                double_sided: index & 1 != 0,
+                coverage: if index & 8 != 0 {
+                    MaskCoverage::Multisample
+                } else {
+                    MaskCoverage::Cutoff
+                },
+            };
+            index += 1;
+        }
+        keys
+    }
 
     /// Derives the pipeline state one governed material requires.
     #[must_use]
     pub fn from_material(material: &SceneMaterial) -> Self {
         Self {
+            coverage: if material.alpha_to_coverage() {
+                MaskCoverage::Multisample
+            } else {
+                MaskCoverage::Cutoff
+            },
             relief: material.impostor().is_some_and(|a| a.relief().is_some()),
             masked: matches!(material.alpha_mode(), SceneAlphaMode::Mask { .. }),
             double_sided: material.double_sided(),
@@ -90,7 +90,10 @@ impl PipelineKey {
     /// render as opaque rectangles.
     #[must_use]
     pub fn index(self) -> usize {
-        usize::from(self.relief) * 4 + usize::from(self.masked) * 2 + usize::from(self.double_sided)
+        usize::from(self.coverage == MaskCoverage::Multisample) * 8
+            + usize::from(self.relief) * 4
+            + usize::from(self.masked) * 2
+            + usize::from(self.double_sided)
     }
 
     #[must_use]

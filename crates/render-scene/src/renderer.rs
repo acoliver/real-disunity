@@ -450,6 +450,7 @@ pub(super) fn build_variant(
         }),
         multisample: MultisampleState {
             count: state.samples,
+            alpha_to_coverage_enabled: state.key.alpha_to_coverage(state.samples),
             ..Default::default()
         },
         fragment: Some(fragment),
@@ -593,7 +594,7 @@ pub(crate) fn celestial_pipelines(
     physical: bool,
     separate: bool,
     object_exposure: bool,
-) -> [RenderPipeline; 8] {
+) -> [RenderPipeline; 16] {
     celestial_specialization(
         device,
         scene,
@@ -610,7 +611,7 @@ pub(crate) fn celestial_specialization(
     options: ([u32; 7], FrontFace),
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
-) -> [RenderPipeline; 8] {
+) -> [RenderPipeline; 16] {
     let mut constants = crate::sky::lighting::constants(options.0, lighting);
     specular::raster_constants(&mut constants, options.1);
     let source = ENVIRONMENT_WGSL.replace(
@@ -639,6 +640,11 @@ pub(crate) fn celestial_specialization(
     let buffers = vertex_buffers(&vertices, &instances);
     let targets = color_targets(wgpu::TextureFormat::Rgba16Float);
     PipelineKey::ALL.map(|key| {
+        let mut constants = constants.clone();
+        constants.push((
+            "SCENE_ALPHA_TO_COVERAGE",
+            f64::from(key.alpha_to_coverage(scene.samples)),
+        ));
         build_variant(
             device,
             &layout,

@@ -1,3 +1,6 @@
+#[path = "ssr_coverage.rs"]
+mod coverage_tests;
+
 #[test]
 fn narrow_sloped_water_publishes_sample_origins_on_its_geometric_plane() {
     let context = context();

@@ -31,6 +31,7 @@ use worldrunner_render_plan::{
     SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy, TextureColorSpace,
     TextureEncoding, TextureHandle,
 };
+mod alpha_coverage;
 mod alpha_factor;
 mod curved_wind;
 pub(crate) mod decals;

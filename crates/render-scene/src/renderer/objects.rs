@@ -15,7 +15,7 @@ struct Objects {
     samples: u32,
     front_face: wgpu::FrontFace,
     constants: Vec<(String, f64)>,
-    pipelines: [OnceLock<wgpu::RenderPipeline>; 8],
+    pipelines: [OnceLock<wgpu::RenderPipeline>; 16],
 }
 
 impl ObjectPipelines {
@@ -59,11 +59,15 @@ impl Index<usize> for ObjectPipelines {
             if state.previous_transforms {
                 buffers.push(Some(crate::renderer::previous_instance_buffer(&previous)));
             }
-            let constants: Vec<_> = state
+            let mut constants: Vec<_> = state
                 .constants
                 .iter()
                 .map(|(name, value)| (name.as_str(), *value))
                 .collect();
+            constants.push((
+                "SCENE_ALPHA_TO_COVERAGE",
+                f64::from(key.alpha_to_coverage(state.samples)),
+            ));
             let entry = match (key.relief, key.masked) {
                 (true, true) => "fs_relief_masked",
                 (true, false) => "fs_relief_opaque",

@@ -5,6 +5,8 @@
 }
 @fragment fn fragment(@builtin(position) pixel:vec4<f32>,@builtin(sample_index) sample:u32)->@location(0) vec4<f32> {
     var surface=textureLoad(radiance,vec2<i32>(pixel.xy),i32(sample));
+    // Sample occupancy already includes the material's alpha-to-coverage mask.
+    surface.a=select(0.0,1.0,surface.a>0.0);
     if sky.reserved3.z != 0.0 && sky.reserved3.y == 0.0 && !(sky.mode.z > 0.5 && sky.reserved2.z > 0.5) {
         return vec4(surface.rgb*celestial_exposure(),surface.a);
     }

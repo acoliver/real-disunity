@@ -331,6 +331,7 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    alpha_to_coverage: bool,
     fade_direction: super::SceneFadeDirection,
     fade_reference: Option<super::SceneFadeReference>,
     fade_coverage: super::SceneFadeCoverage,
@@ -355,6 +356,21 @@ pub struct SceneMaterial {
 }
 
 impl SceneMaterial {
+    /// Enables sample coverage for masked materials. Ignored by single-sample
+    /// passes and shadow casters, which keep the hard cutoff. Defaults to false.
+    pub fn with_alpha_to_coverage(mut self, enabled: bool) -> Result<Self, SceneValidationError> {
+        if enabled && !matches!(self.alpha_mode, SceneAlphaMode::Mask { .. }) {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "alpha-to-coverage requires a masked material",
+            });
+        }
+        self.alpha_to_coverage = enabled;
+        Ok(self)
+    }
+    pub const fn alpha_to_coverage(&self) -> bool {
+        self.alpha_to_coverage
+    }
+
     #[must_use]
     pub const fn with_fade_direction(mut self, direction: super::SceneFadeDirection) -> Self {
         self.fade_direction = direction;
@@ -495,6 +511,7 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            alpha_to_coverage: false,
             fade_direction: super::SceneFadeDirection::Inclusive,
             fade_reference: None,
             fade_coverage: super::SceneFadeCoverage::Hashed,

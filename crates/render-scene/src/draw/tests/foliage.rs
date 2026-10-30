@@ -245,7 +245,7 @@ fn pass_pipelines(
     source: &str,
     entry: &str,
     color: bool,
-) -> [wgpu::RenderPipeline; 8] {
+) -> [wgpu::RenderPipeline; 16] {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(source.into()),

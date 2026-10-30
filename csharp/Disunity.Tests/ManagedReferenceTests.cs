@@ -21,6 +21,12 @@ internal static class ManagedReferenceTests
         public string? label = null;
     }
 
+    [Serializable]
+    public sealed class Unrelated
+    {
+        public int size = 0;
+    }
+
     public abstract class AbstractGroup : IRenderPipelineGraphicsSettings
     {
         public int version => 1;
@@ -43,6 +49,7 @@ internal static class ManagedReferenceTests
                 "{\"settings\": {\"m_SettingsList\": [" + Value(typeof(Group), "{\"size\": \"5\"}") + ", null, "
                 + Value(typeof(ResourceGroup), "{\"size\": \"7\", \"label\": \"r\"}") + "]}, \"single\": " + Value(typeof(ResourceGroup), "{}") + "}"),
             new(typeof(Holder), "abstract", "{\"single\": " + Value(typeof(AbstractGroup), "{}") + "}"),
+            new(typeof(Holder), "unrelated", "{\"single\": " + Value(typeof(Unrelated), "{}") + "}"),
             new(typeof(Holder), "missing", """{"single": {"$managed": {"class": "Nope", "assembly": "x", "fields": {}}}}"""),
         ];
         PlanHarness.With(assets, () =>
@@ -51,7 +58,8 @@ internal static class ManagedReferenceTests
             Expect.That(holder.settings.settingsList is [Group { size: 5 }, null, ResourceGroup { size: 7, label: "r" }], "a collection of settings groups holds the classes the plan names");
             Expect.That(holder.single is ResourceGroup { size: 1, version: 2 }, "a [SerializeReference] field holds a subclass of its declared type");
             Fails(assets[1], "single: a Group field cannot hold a ManagedReferenceTests/AbstractGroup");
-            Fails(assets[2], "single: x has no class Nope");
+            Fails(assets[2], "single: a Group field cannot hold a ManagedReferenceTests/Unrelated");
+            Fails(assets[3], "single: x has no class Nope");
         });
         Console.WriteLine("PASS: [SerializeReference] values load as the classes the plan names and fail when a class does not fit the field");
     }

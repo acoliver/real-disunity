@@ -12,6 +12,19 @@ resident geometry. `None` follows the direct sun. Direct lighting, sky and the
 celestial sun are unchanged. Interactive frames and same-frame captures use the
 same shadow direction, including when depth fitting is enabled.
 
+## Batch object updates
+
+`RetainedUpdate::Objects(Vec<SceneObjectEdit>)` applies many `Add { id, object }`,
+`Replace { id, object }` and `Remove(id)` edits as one atomic update. The host
+clones its object table once, validates and applies the edits in order, rebuilds
+the scene once and takes one preparation slot, so a game can edit hundreds of
+objects per frame without reaching the preparation limit. Edits apply in order:
+the last edit to an ID wins, and an `Add` after a `Remove` of the same ID is
+accepted. Adding an ID that is present, or replacing or removing an unknown ID,
+fails the whole batch. A failing batch leaves the host unchanged and the error
+names the edit (`object edit 3: unknown object ID`). An empty batch is accepted
+and takes no slot. The single-object variants keep their behavior.
+
 ## Presentation settings
 
 Set `present_mode` explicitly to `PresentMode::Fifo`, `FifoRelaxed`, `Mailbox` or

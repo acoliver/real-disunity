@@ -1,5 +1,5 @@
 use super::{Renderer, Resident};
-use crate::{ObjectId, RetainedHost, RetainedUpdate, ViewerError};
+use crate::{ObjectId, RetainedHost, RetainedUpdate, SceneObjectEdit, ViewerError};
 use std::collections::BTreeMap;
 use worldrunner_render_plan::SceneEffects;
 use worldrunner_render_scene::draw::{InstanceHandle, SceneGpu};
@@ -25,20 +25,17 @@ impl Objects {
         for update in updates {
             match update {
                 RetainedUpdate::Add { id, object } => {
-                    handles.insert(id, gpu.add_instance(object, true)?);
+                    apply_edit(handles, gpu, SceneObjectEdit::Add { id, object })?;
                 }
                 RetainedUpdate::Remove(id) => {
-                    gpu.remove_instance(handles.remove(&id).expect("validated object ID"))?;
+                    apply_edit(handles, gpu, SceneObjectEdit::Remove(id))?;
                 }
                 RetainedUpdate::Replace { id, object } => {
-                    let handle = handles.get_mut(&id).expect("validated object ID");
-                    let old = gpu.instance(*handle)?.0;
-                    if old.mesh() == object.mesh() && old.material() == object.material() {
-                        gpu.set_instance_object(*handle, object)?;
-                    } else {
-                        let replacement = gpu.add_instance(object, true)?;
-                        gpu.remove_instance(*handle)?;
-                        *handle = replacement;
+                    apply_edit(handles, gpu, SceneObjectEdit::Replace { id, object })?;
+                }
+                RetainedUpdate::Objects(edits) => {
+                    for edit in edits {
+                        apply_edit(handles, gpu, edit)?;
                     }
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
@@ -54,6 +51,34 @@ impl Objects {
         }
         Ok(effects)
     }
+}
+
+/// Edits were validated against the host's object table before publication.
+fn apply_edit(
+    handles: &mut BTreeMap<ObjectId, InstanceHandle>,
+    gpu: &mut SceneGpu,
+    edit: SceneObjectEdit,
+) -> Result<(), ViewerError> {
+    match edit {
+        SceneObjectEdit::Add { id, object } => {
+            handles.insert(id, gpu.add_instance(object, true)?);
+        }
+        SceneObjectEdit::Remove(id) => {
+            gpu.remove_instance(handles.remove(&id).expect("validated object ID"))?;
+        }
+        SceneObjectEdit::Replace { id, object } => {
+            let handle = handles.get_mut(&id).expect("validated object ID");
+            let old = gpu.instance(*handle)?.0;
+            if old.mesh() == object.mesh() && old.material() == object.material() {
+                gpu.set_instance_object(*handle, object)?;
+            } else {
+                let replacement = gpu.add_instance(object, true)?;
+                gpu.remove_instance(*handle)?;
+                *handle = replacement;
+            }
+        }
+    }
+    Ok(())
 }
 
 impl Renderer {

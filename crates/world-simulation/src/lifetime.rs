@@ -91,12 +91,7 @@ impl World {
         }
         self.lifetime.delayed.remove(&object);
         let nodes = self.subtree(object)?;
-        let components: Vec<_> = self
-            .components
-            .iter(self.identity)
-            .filter(|(_, c)| nodes.contains(&c.object))
-            .map(|(_, c)| c.handle)
-            .collect();
+        let components = self.owned_components(&nodes);
         for &script in &components {
             if !self.lifetime.components.contains(&script) {
                 self.queue_script_cleanup(script);
@@ -152,32 +147,49 @@ impl World {
         self.lifecycle.scripts.remove(&component);
         self.physics.targets.remove(&component);
         self.note_component_removed(component);
+        if let Some(owner) = self.components.get(component.0).map(|c| c.object)
+            && let Some(object) = self.objects.get_mut(owner.0)
+        {
+            object.components.retain(|owned| *owned != component);
+        }
         self.components.remove(component.0);
     }
 
+    /// Handles of every stored component owned by `nodes`, in slot order.
+    pub(crate) fn owned_components(&self, nodes: &[ObjectHandle]) -> Vec<ComponentHandle> {
+        let mut owned: Vec<_> = nodes
+            .iter()
+            .filter_map(|node| self.objects.get(node.0))
+            .flat_map(|object| object.components.iter().copied())
+            .collect();
+        owned.sort_unstable();
+        owned
+    }
+
+    fn remove_object(&mut self, object: ObjectHandle) {
+        self.lifetime.delayed.remove(&object);
+        self.lifetime.objects.remove(&object);
+        self.note_object_removed(object);
+        let parent = self.objects.get(object.0).and_then(|stored| stored.parent);
+        self.relink_child(object, parent, None);
+        self.objects.remove(object.0);
+    }
+
     pub(crate) fn retire_subtree(&mut self, root: ObjectHandle) {
-        let mut nodes = BTreeSet::new();
+        let mut nodes = Vec::new();
         let mut pending = vec![root];
         while let Some(object) = pending.pop() {
-            nodes.insert(object);
-            pending.extend(self.objects.iter(self.identity).filter_map(|(id, value)| {
-                (value.parent == Some(object)).then_some(ObjectHandle(id))
-            }));
+            nodes.push(object);
+            if let Some(stored) = self.objects.get(object.0) {
+                pending.extend(stored.children.iter().copied());
+            }
         }
-        let components: Vec<_> = self
-            .components
-            .iter(self.identity)
-            .filter(|(_, component)| nodes.contains(&component.object))
-            .map(|(_, component)| component.handle)
-            .collect();
-        for component in components {
+        nodes.sort_unstable();
+        for component in self.owned_components(&nodes) {
             self.retire_component(component);
         }
         for object in nodes {
-            self.lifetime.delayed.remove(&object);
-            self.lifetime.objects.remove(&object);
-            self.note_object_removed(object);
-            self.objects.remove(object.0);
+            self.remove_object(object);
         }
     }
 
@@ -187,9 +199,7 @@ impl World {
             self.retire_component(component);
         }
         for object in std::mem::take(&mut self.lifetime.objects) {
-            self.lifetime.delayed.remove(&object);
-            self.note_object_removed(object);
-            self.objects.remove(object.0);
+            self.remove_object(object);
         }
     }
 }

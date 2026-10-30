@@ -44,10 +44,9 @@ impl World {
             self.live_object(parent)?;
         }
         let components: Vec<_> = self
-            .components
-            .iter(self.identity)
-            .filter(|(_, c)| source.contains(&c.object))
-            .map(|(_, c)| c.clone())
+            .owned_components(&source)
+            .into_iter()
+            .filter_map(|handle| self.components.get(handle.0).cloned())
             .collect();
         self.objects.check_additional(source.len())?;
         self.components.check_additional(components.len())?;

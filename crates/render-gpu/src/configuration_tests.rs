@@ -58,6 +58,58 @@ fn context() -> (wgpu::Device, SubmissionAuthority) {
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     (device, SubmissionAuthority::new(queue))
 }
+#[test]
+fn derived_budget_tracks_all_live_generations_and_shared_reservations() {
+    let (device, authority) = context();
+    let inventory = |size| {
+        let mut set = bytes(size);
+        set.shared_cpu("host capture pool", 256);
+        set
+    };
+    let policy = AllocationBudgetPolicy::Derived {
+        headroom_bytes: 8,
+        granularity_bytes: 16,
+        cap_bytes: Some(512),
+    };
+    let mut config =
+        Configuration::new_with_policy(&authority, 1, inventory(16), &device.limits(), policy)
+            .unwrap();
+    assert_eq!(config.budget(), AllocationBudget(288));
+    let flight = authority
+        .prepare(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap()
+        .submit()
+        .unwrap();
+    config
+        .replace(&device.limits(), inventory(24), || Ok::<_, ()>(2))
+        .unwrap();
+    assert_eq!(config.budget(), AllocationBudget(304));
+    config
+        .replace(&device.limits(), inventory(28), || Ok::<_, ()>(3))
+        .unwrap();
+    assert_eq!(config.budget(), AllocationBudget(336));
+    assert_eq!(config.resident_bytes(&device.limits()).unwrap(), 324);
+    assert!(matches!(
+        config.replace(&device.limits(), inventory(256), || Ok::<_, ()>(4)),
+        Err(ConfigurationError::Budget {
+            required: 580,
+            budget: 512
+        })
+    ));
+    assert_eq!(config.budget(), AllocationBudget(336));
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(flight),
+            timeout: None,
+        })
+        .unwrap();
+    config.collect();
+    config
+        .replace(&device.limits(), inventory(16), || Ok::<_, ()>(4))
+        .unwrap();
+    assert_eq!(config.budget(), AllocationBudget(320));
+}
+
 fn bytes(size: u64) -> AllocationSet {
     let mut set = AllocationSet::default();
     set.buffer("target", size, 1);

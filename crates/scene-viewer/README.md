@@ -27,27 +27,56 @@ backend can clamp to its supported range. It is independent of
 `frames_in_flight`, which bounds admitted engine submissions in `1..=3`.
 Windowless hosts validate both presentation fields but ignore them because they
 have no surface.
+
+## Window dimensions
+
+`size` is the initial request, with each dimension in `1..=4096`.
+`window_size_unit: WindowSizeUnit::Logical` preserves logical-pixel creation.
+Select `WindowSizeUnit::Physical` to request exact physical backing dimensions,
+independent of the display scale. The window system may constrain either request.
+Resize events and retained host sizes always use physical pixels. Windowless hosts
+have no display scale, so both units use the supplied pixel dimensions directly.
+
 ## Presentation allocation budget
 
-Set `presentation_budget: PresentationBudget::default()` for a 1 GiB limit, or
-`PresentationBudget(bytes)` for an explicit positive byte limit. Zero returns
+Set `presentation_budget: PresentationBudgetPolicy::default()` for a fixed 1 GiB
+limit, or `PresentationBudget(bytes).into()` for an explicit fixed byte limit.
+`PresentationBudgetPolicy::Derived { headroom_bytes, granularity_bytes, cap_bytes }`
+computes the complete live descriptor inventory at startup and every replacement,
+adds headroom and rounds up to the positive byte granularity. `cap_bytes: Some(n)`
+clamps that result to `n`; an inventory above the cap retains typed budget rejection.
+The peak includes the current and all unretired generations, counting shared
+storage once. Overflow returns a typed configuration error. Zero fixed limits,
+zero granularity and zero caps return
 `ViewerError::InvalidOptions` before window or GPU startup. This limit covers the
 presentation allocation inventory, including CPU capture storage, rather than
 all scene resources or total process memory.
 
-Creation, resize and retained settings changes use the same budget. Rejections
-remain typed as `ViewerError::Configuration(ConfigurationError::Budget {
+Creation, resize, capture recipes and retained settings changes use the selected
+policy. Rejections remain typed as `ViewerError::Configuration(ConfigurationError::Budget {
 required, budget })`. The required bytes include renderer generations that
 coexist during replacement. No rendering quality is reduced to fit the budget.
 
 Desktop and windowless retained hosts reserve the 256 MiB capture-recipe pool in
 the initial inventory, reducing the headroom available to renderer targets even
 when no capture is requested. This host-wide pool is counted once across renderer
-generations. Requesting a recipe does not replace renderer targets or create a
-second renderer generation. Ordinary desktop and live presentation do
-not reserve that pool. Attachment resize still creates replacement targets while
-the previous targets remain alive, so its old-plus-new peak must fit.
+generations. Admitting a recipe reserves storage without replacing targets.
+Executing accumulated recipes can replace targets for their raster footprint or
+RCAS selection; restoring ordinary presentation uses the same admission policy.
+Ordinary desktop and live presentation do not reserve that pool. Attachment
+replacement creates targets while previous generations remain alive, so the full
+replacement peak must fit.
 
+`plan_presentation` returns an `AllocationSet` without a device or backing storage.
+Pass the physical extent, viewer settings, effective scene effects, selected device
+limits and features, and `PresentationPlanning` with the capture mode
+(`PresentationCapture::Ordinary`, `Retained`, or `Recipe(&recipe)`) and retained
+effect history. Set `retained_effect_history` to false at startup; for replacements
+use `ConfiguredFrameRenderer::has_effect_history()`. History persists after disabling
+post-processing or restoring ordinary presentation after a native-RCAS recipe.
+Recipe plans include their supersampled raster footprint and native RCAS override. Call `validate(limits)` to obtain descriptor bytes. To plan a
+replacement peak, extend one inventory with each live generation before validating;
+shared entries are counted once. The planner does not allocate or reduce quality.
 
 ## Selected adapter
 
@@ -72,7 +101,8 @@ scene or presentation settings.
 `RetainedHost::statistics()` and `RetainedEventHost::statistics()` return the
 latest `RetainedFrameStatistics`. It is absent before the first ordinary
 submission and replaced before each `Presented` callback. A snapshot identifies
-its frame and published scene generation. Polling, capture-only work and queued
+its frame and published scene generation. `presentation_budget_bytes` reports the
+effective presentation admission budget, including the admitted replacement peak. Polling, capture-only work and queued
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
 

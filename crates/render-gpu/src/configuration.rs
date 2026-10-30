@@ -1,6 +1,8 @@
 //! Allocation preflight and atomic replacement at a queue admission boundary.
 use crate::submission::{SubmissionAuthority, SubmitError};
+mod budget;
 mod errors;
+pub use budget::AllocationBudgetPolicy;
 pub use errors::{AllocationScope, DriverAllocationError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -283,6 +285,7 @@ pub struct Configuration<T> {
     retired: Vec<Generation<T>>,
     generation: u64,
     budget: AllocationBudget,
+    policy: AllocationBudgetPolicy,
     authority: SubmissionAuthority,
 }
 impl<T> Configuration<T> {
@@ -293,13 +296,26 @@ impl<T> Configuration<T> {
         limits: &wgpu::Limits,
         budget: AllocationBudget,
     ) -> Result<Self, ConfigurationError<std::convert::Infallible>> {
-        allocations.validate_budget(limits, budget)?;
+        Self::new_with_policy(authority, current, allocations, limits, budget.into())
+    }
+    pub fn new_with_policy(
+        authority: &SubmissionAuthority,
+        current: T,
+        allocations: AllocationSet,
+        limits: &wgpu::Limits,
+        policy: AllocationBudgetPolicy,
+    ) -> Result<Self, ConfigurationError<std::convert::Infallible>> {
+        let required = allocations
+            .validate(limits)
+            .map_err(ConfigurationError::Invalid)?;
+        let budget = policy.resolve(required)?;
         Ok(Self {
             current,
             allocations,
             retired: Vec::new(),
             generation: 0,
             budget,
+            policy,
             authority: authority.clone(),
         })
     }
@@ -320,6 +336,10 @@ impl<T> Configuration<T> {
     }
     pub fn set_budget(&mut self, budget: AllocationBudget) {
         self.budget = budget;
+        self.policy = budget.into();
+    }
+    pub fn budget(&self) -> AllocationBudget {
+        self.budget
     }
     pub fn collect(&mut self) {
         let complete = self.authority.completed_serial();
@@ -350,12 +370,7 @@ impl<T> Configuration<T> {
             limits,
         )
         .map_err(ConfigurationError::Invalid)?;
-        if required > self.budget.0 {
-            return Err(ConfigurationError::Budget {
-                required,
-                budget: self.budget.0,
-            });
-        }
+        let budget = self.policy.resolve(required)?;
         let replacement = allocate();
         self.authority.check_device()?;
         let replacement = replacement.map_err(ConfigurationError::Allocation)?;
@@ -364,6 +379,7 @@ impl<T> Configuration<T> {
             allocations: std::mem::replace(&mut self.allocations, allocations),
             last_submission: self.authority.submitted_serial(),
         };
+        self.budget = budget;
         self.retired.push(old);
         self.generation += 1;
         self.collect();

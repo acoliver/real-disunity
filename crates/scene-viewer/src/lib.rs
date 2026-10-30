@@ -22,7 +22,10 @@ pub use clock::RenderClock;
 mod camera;
 mod presentation;
 mod presentation_budget;
-pub use presentation_budget::PresentationBudget;
+pub use presentation_budget::{PresentationBudget, PresentationBudgetPolicy};
+mod window_size;
+pub use presentation::planning::{PresentationCapture, PresentationPlanning, plan_presentation};
+pub use window_size::WindowSizeUnit;
 mod renderer;
 mod retained;
 pub use retained::{
@@ -46,7 +49,7 @@ use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 #[derive(Clone, Debug)]
 pub struct ViewerOptions {
     /// Presentation descriptor-byte limit, including replacement overlap. Default: 1 GiB.
-    pub presentation_budget: PresentationBudget,
+    pub presentation_budget: PresentationBudgetPolicy,
     /// Raster camera convention; use the shared right-handed default unless selected explicitly.
     pub camera_convention: worldrunner_camera::ViewConvention,
     /// Optional startup SSR override. Requires authored scene effects and HDR.
@@ -54,7 +57,9 @@ pub struct ViewerOptions {
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
     /// Window title; no engine/game default is inserted.
     pub title: String,
-    /// Initial logical-pixel dimensions; each must be in `1..=4096`.
+    /// Unit of the initial desktop size request. Resize events remain physical.
+    pub window_size_unit: WindowSizeUnit,
+    /// Initial window dimensions; each must be in `1..=4096`.
     pub size: [u32; 2],
     /// Initial Z-up scene-space camera pose, restored exactly by R/Home.
     pub pose: CameraPose,

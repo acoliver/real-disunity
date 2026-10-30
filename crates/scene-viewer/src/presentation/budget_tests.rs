@@ -6,9 +6,9 @@ fn default_budget_preserves_ordinary_scene_admission() {
     let options = crate::tests::options();
     assert_eq!(
         options.presentation_budget,
-        crate::PresentationBudget::default()
+        crate::PresentationBudget::default().into()
     );
-    assert_eq!(options.presentation_budget.0, 1024 * 1024 * 1024);
+    assert_eq!(fixed_budget(&options), 1024 * 1024 * 1024);
     let mut settings = RendererConfiguration::legacy([800, 600], COLOR);
     settings.additional = capture_allocations(Viewport {
         width: 800,
@@ -19,7 +19,7 @@ fn default_budget_preserves_ordinary_scene_admission() {
         .allocations()
         .validate_budget::<std::convert::Infallible>(
             &wgpu::Limits::default(),
-            AllocationBudget(options.presentation_budget.0),
+            AllocationBudget(fixed_budget(&options)),
         )
         .unwrap();
 }
@@ -27,7 +27,7 @@ fn default_budget_preserves_ordinary_scene_admission() {
 #[test]
 fn invalid_budget_fails_before_host_startup() {
     let mut options = crate::tests::options();
-    options.presentation_budget = crate::PresentationBudget(0);
+    options.presentation_budget = crate::PresentationBudget(0).into();
     assert!(matches!(
         crate::RetainedHost::new(crate::tests::scene(false), options),
         Err(ViewerError::InvalidOptions(_))
@@ -42,11 +42,11 @@ fn raised_viewer_budget_admits_above_default_inventory() {
         height: 1600,
     };
     let required = expected_water_inventory(size);
-    assert!(required > options.presentation_budget.0);
+    assert!(required > fixed_budget(&options));
     assert!(matches!(synthetic_inventory(size, &options),
         Err(ViewerError::Configuration(ConfigurationError::Budget { required: bytes, budget }))
             if bytes == required && budget == 1024 * 1024 * 1024));
-    options.presentation_budget = crate::PresentationBudget(2 * 1024 * 1024 * 1024);
+    options.presentation_budget = crate::PresentationBudget(2 * 1024 * 1024 * 1024).into();
     assert_eq!(synthetic_inventory(size, &options).unwrap(), required);
 }
 
@@ -61,8 +61,8 @@ fn retained_recipe_reservation_fits_issue_sized_water_msaa_inventory() {
     assert_eq!(reserved, expected_water_inventory(size));
     assert_eq!(reserved, 707_714_400);
     let ordinary = reserved - 256 * 1024 * 1024;
-    assert!(ordinary + reserved > options.presentation_budget.0);
-    assert!(reserved < options.presentation_budget.0);
+    assert!(ordinary + reserved > fixed_budget(&options));
+    assert!(reserved < fixed_budget(&options));
 }
 
 fn synthetic_inventory(size: Viewport, options: &crate::ViewerOptions) -> Result<u64, ViewerError> {
@@ -113,7 +113,7 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         crate::FrameProfile::Legacy,
         None,
         PresentationPolicy {
-            budget: crate::PresentationBudget(300 * 1024 * 1024),
+            budget: crate::PresentationBudget(300 * 1024 * 1024).into(),
             recipes: true,
         },
     )
@@ -147,7 +147,7 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         height: 8,
     };
     let policy = PresentationPolicy {
-        budget: crate::PresentationBudget(1),
+        budget: crate::PresentationBudget(1).into(),
         recipes: false,
     };
     assert!(
@@ -163,7 +163,7 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         crate::FrameProfile::Legacy,
         None,
         PresentationPolicy {
-            budget: crate::PresentationBudget(50_000),
+            budget: crate::PresentationBudget(50_000).into(),
             recipes: false,
         },
     )
@@ -176,4 +176,11 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         Err(ViewerError::Configuration(ConfigurationError::Budget { required, budget: 50_000 }))
             if required > 50_000));
     assert_eq!(presentation.capture_size, size);
+}
+
+fn fixed_budget(options: &crate::ViewerOptions) -> u64 {
+    let crate::PresentationBudgetPolicy::Fixed(budget) = options.presentation_budget else {
+        panic!("expected fixed presentation budget");
+    };
+    budget.0
 }

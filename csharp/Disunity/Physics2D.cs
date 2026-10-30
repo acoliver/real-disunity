@@ -5,6 +5,11 @@ namespace UnityEngine;
 
 public abstract class NativeComponent : Component
 {
+    /// <summary>Copies what the managed side of the component holds from the one it was cloned from; the native
+    /// side is copied by the world. <paramref name="remap"/> maps an object of the original hierarchy to its clone.</summary>
+    internal virtual void CopyManagedState(NativeComponent source, Func<Object, Object> remap)
+    {
+    }
 }
 [Flags]
 public enum RigidbodyConstraints2D

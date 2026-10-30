@@ -116,13 +116,13 @@ public sealed partial class CanvasRenderer : NativeComponent
     internal Texture? MainTexture => Find<Texture>(Read().texture);
     internal Texture? AlphaTexture => Find<Texture>(Read().alpha_texture);
 
-    private static ulong IdOf(Object? value, string name)
+    internal static ulong IdOf(Object? value, string name)
     {
         if (value is null) return 0;
         if (!value) throw new ArgumentException($"the {name} was destroyed", name);
         return unchecked((ulong)(uint)value.GetInstanceID());
     }
 
-    private static T? Find<T>(ulong id) where T : Object =>
+    internal static T? Find<T>(ulong id) where T : Object =>
         id == 0 ? null : ObjectRegistry.Find(unchecked((int)(uint)id)) as T;
 }

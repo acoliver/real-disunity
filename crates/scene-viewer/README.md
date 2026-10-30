@@ -129,3 +129,13 @@ a new measurement is dropped while rendering continues. Mapping is asynchronous;
 normal nonblocking device polls deliver completions. Reading retains only the
 newest completed sample and never waits or consumes it. Resize and settings
 changes preserve the timing ring and its unread samples.
+
+## Native-resolution sharpening
+
+Use `FrameProfile::HdrNativeRcas { samples, tone_map, rcas }` for interactive
+HDR frames. A retained HDR capture can override it with
+`RetainedCaptureRecipe::with_native_rcas(NativeRcasSettings { stops, domain })`;
+stops must be finite in `0..=2`. The override applies only to that recipe,
+and ordinary frames restore the profile setting. The default is off.
+See [the post contract](../render-post/README.md#native-resolution-rcas) for
+domain transfer, reciprocal and quantization behavior.

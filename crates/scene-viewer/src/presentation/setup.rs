@@ -30,6 +30,10 @@ pub(super) fn configuration(
         None
     };
 
+    if let crate::FrameProfile::HdrNativeRcas { rcas, .. } = profile {
+        rcas.validate()?;
+        settings.post.native_rcas = Some(rcas);
+    }
     Ok((settings, scale))
 }
 
@@ -42,6 +46,9 @@ fn configure_hdr(
     let hdr = match profile {
         crate::FrameProfile::Legacy => None,
         crate::FrameProfile::Hdr { samples, tone_map }
+        | crate::FrameProfile::HdrNativeRcas {
+            samples, tone_map, ..
+        }
         | crate::FrameProfile::HdrUpscaled {
             samples, tone_map, ..
         } => Some((samples, tone_map)),

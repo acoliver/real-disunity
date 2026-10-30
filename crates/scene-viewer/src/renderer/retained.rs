@@ -97,8 +97,10 @@ pub(super) fn configure_effects(
 ) -> Result<(), ViewerError> {
     let mut settings = presentation.scheduler.configuration().clone();
     let upscale = settings.post.upscale;
+    let native_rcas = settings.post.native_rcas;
     settings.post = worldrunner_render_scene::post_settings(effects)?;
     settings.post.upscale = upscale;
+    settings.post.native_rcas = native_rcas;
     settings.ssao = effects.ssao().copied();
     settings.ssr = effects.ssr().copied();
     settings.water = effects.water_bodies().to_vec();

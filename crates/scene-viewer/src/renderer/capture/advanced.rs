@@ -131,7 +131,8 @@ impl Renderer {
             .with_raster_sample(size, active.recipe.jitter_offset(active.sample))?;
         let time = active.recipe.subframe_time(active.time, active.sample);
         let outputs = active.recipe.outputs().to_vec();
-        self.presentation.resize_recipe(&self.context, size)?;
+        self.presentation
+            .resize_recipe(&self.context, size, active.recipe.native_rcas())?;
         let Some(ready) = self
             .execution
             .acquire_capture(&self.context, [size.width, size.height])?

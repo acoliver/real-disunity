@@ -1,4 +1,33 @@
 #[test]
+fn native_rcas_admission_requires_hdr_without_consuming_capacity() {
+    let mut host = host();
+    let recipe = RetainedCaptureRecipe::new(
+        1,
+        1,
+        CaptureJitter::None,
+        false,
+        vec![CaptureOutput::Srgb8],
+        u64::MAX,
+    )
+    .unwrap()
+    .with_native_rcas(crate::NativeRcasSettings {
+        stops: 0.75,
+        domain: crate::RcasDomain::EncodedOutput,
+    })
+    .unwrap();
+    assert_eq!(
+        host.request_capture_recipe(0, recipe.clone()),
+        Err(CaptureRequestError::HdrRequired)
+    );
+    assert!(host.captures.outstanding.is_empty());
+    host.options.frame_profile = crate::FrameProfile::Hdr {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    assert_eq!(host.request_capture_recipe(0, recipe), Ok(0));
+}
+
+#[test]
 fn recipe_admission_is_bounded_and_cancelled_reservations_release_on_delivery() {
     let mut host = host();
     let hdr = || {

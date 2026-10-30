@@ -61,6 +61,11 @@ pub enum FrameProfile {
         samples: u32,
         tone_map: worldrunner_render_post::ToneMap,
     },
+    HdrNativeRcas {
+        samples: u32,
+        tone_map: worldrunner_render_post::ToneMap,
+        rcas: worldrunner_render_post::NativeRcasSettings,
+    },
     HdrUpscaled {
         samples: u32,
         tone_map: worldrunner_render_post::ToneMap,
@@ -72,9 +77,9 @@ impl FrameProfile {
     pub const fn target(self) -> (wgpu::TextureFormat, u32) {
         match self {
             Self::Legacy => (wgpu::TextureFormat::Rgba8UnormSrgb, 1),
-            Self::Hdr { samples, .. } | Self::HdrUpscaled { samples, .. } => {
-                (wgpu::TextureFormat::Rgba16Float, samples)
-            }
+            Self::Hdr { samples, .. }
+            | Self::HdrNativeRcas { samples, .. }
+            | Self::HdrUpscaled { samples, .. } => (wgpu::TextureFormat::Rgba16Float, samples),
         }
     }
 }

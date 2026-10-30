@@ -73,3 +73,58 @@ fn assert_single_sample_generation(renderer: &mut Renderer, host: &mut crate::Re
         Some(crate::RetainedEvent::Capture { id: actual,
             outcome: crate::RetainedCaptureOutcome::RecipeCompleted { .. }, .. }) if actual == id));
 }
+
+#[test]
+fn native_rcas_settings_publish_once_with_an_earlier_frame_in_flight() {
+    let mut host = host(300 * 1024 * 1024);
+    let rcas = crate::NativeRcasSettings {
+        stops: 0.75,
+        domain: crate::RcasDomain::EncodedOutput,
+    };
+    host.options.frame_profile = crate::FrameProfile::HdrNativeRcas {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+        rcas,
+    };
+    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let settings = renderer.presentation.scheduler.configuration().clone();
+    let mut pair = settings.allocations();
+    pair.extend(settings.allocations());
+    let budget = pair.validate(&renderer.context.device().limits()).unwrap();
+    renderer.presentation.scheduler =
+        worldrunner_render_scene::compositor::ConfiguredFrameRenderer::new(
+            &renderer.context,
+            settings,
+            worldrunner_render_gpu::configuration::AllocationBudget(budget),
+        )
+        .unwrap();
+    renderer.presentation.refresh_targets();
+    assert!(renderer.render_retained(&mut host).unwrap());
+    let authority = renderer.context.submission();
+    assert!(authority.submitted_serial() > authority.completed_serial());
+    let generation = renderer.presentation.scheduler.generation();
+    let effects = host.scene.effects().unwrap().clone();
+    host.apply(crate::RetainedUpdate::Settings(Box::new(effects)))
+        .unwrap();
+    renderer.publish_retained(&mut host).unwrap();
+    assert_eq!(host.ready_generation(), host.accepted_generation());
+    assert_eq!(
+        renderer
+            .presentation
+            .scheduler
+            .configuration()
+            .post
+            .native_rcas,
+        Some(rcas)
+    );
+    assert_eq!(renderer.presentation.scheduler.generation(), generation + 1);
+    let size = host.view().unwrap().unwrap().viewport();
+    renderer
+        .presentation
+        .resize(&renderer.context, size, size)
+        .unwrap();
+    assert_eq!(renderer.presentation.scheduler.generation(), generation + 1);
+    assert!(renderer.render_retained(&mut host).unwrap());
+    assert_eq!(renderer.presentation.scheduler.generation(), generation + 1);
+    renderer.drain().unwrap();
+}

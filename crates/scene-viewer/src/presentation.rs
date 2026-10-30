@@ -48,6 +48,7 @@ pub(super) struct Presentation {
     scale: Option<worldrunner_render_post::RenderScale>,
     capture_size: Viewport,
     recipe_capacity: bool,
+    native_rcas: Option<crate::NativeRcasSettings>,
 }
 
 pub(super) struct Targets {
@@ -107,6 +108,7 @@ impl Presentation {
             setup::configuration(context.device().features(), format, size, profile, effects)?;
         let settings = policy.inventory(settings, capture_size, &context.device().limits())?;
         let recipe_capacity = policy.recipes;
+        let native_rcas = settings.post.native_rcas;
         let scheduler =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(policy.budget.0))?;
         let targets = Targets::new(context.device(), &scheduler, size);
@@ -116,6 +118,7 @@ impl Presentation {
             scale,
             capture_size,
             recipe_capacity,
+            native_rcas,
         })
     }
 
@@ -125,15 +128,16 @@ impl Presentation {
         size: Viewport,
         capture_size: Viewport,
     ) -> Result<(), ViewerError> {
-        self.resize_scaled(context, size, capture_size, self.scale)
+        self.resize_scaled(context, size, capture_size, self.scale, self.native_rcas)
     }
 
     pub fn resize_recipe(
         &mut self,
         context: &worldrunner_render_scene::device::GpuContext,
         size: Viewport,
+        rcas: Option<crate::NativeRcasSettings>,
     ) -> Result<(), ViewerError> {
-        self.resize_scaled(context, size, size, None)
+        self.resize_scaled(context, size, size, None, rcas.or(self.native_rcas))
     }
 
     fn resize_scaled(
@@ -142,6 +146,7 @@ impl Presentation {
         size: Viewport,
         capture_size: Viewport,
         scale: Option<worldrunner_render_post::RenderScale>,
+        rcas: Option<crate::NativeRcasSettings>,
     ) -> Result<(), ViewerError> {
         self.scheduler.collect();
         let extent = [size.width, size.height];
@@ -149,8 +154,10 @@ impl Presentation {
         if self.scheduler.configuration().frame.output_extent() != extent
             || self.scheduler.configuration().frame.size != render
             || self.capture_size != capture_size
+            || self.scheduler.configuration().post.native_rcas != rcas
         {
             let mut settings = self.scheduler.configuration().clone();
+            settings.post.native_rcas = rcas;
             settings.frame.size = [size.width, size.height];
             settings.frame.output_size = None;
             if let Some(scale) = scale {

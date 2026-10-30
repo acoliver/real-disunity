@@ -23,8 +23,9 @@ impl FrameRenderer {
         &self,
         mut requested: worldrunner_render_post::HdrPostSettings,
     ) -> Result<(), FrameError> {
-        // Scene effects never carry reconstruction; the frame profile owns it.
+        // Reconstruction and native RCAS are owned by the frame output configuration.
         requested.upscale = self.post_requested.upscale;
+        requested.native_rcas = self.post_requested.native_rcas;
         if self.post_requested != requested {
             return Err(FrameError::UnsupportedEffect(
                 "post resident/profile settings mismatch",

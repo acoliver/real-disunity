@@ -375,3 +375,11 @@ those views without filtering or allocating another cube. `set_water_environment
 `set_reflection_environment` installs SSR maps and shares them with installed water.
 `set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
 retained settings publication, including removal and consumer changes.
+
+## Native-resolution RCAS
+
+`RendererConfiguration::post.native_rcas` selects an optional native RCAS pass.
+`FrameProfile::HdrNativeRcas` exposes the same setting to hosts. It runs only
+at equal render and output extents, after the resolve and CAS, and does not
+alter upscale RCAS. See [the post contract](../render-post/README.md#native-resolution-rcas)
+for stops, filter domains and output rounding.

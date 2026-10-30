@@ -20,6 +20,7 @@
 override OUTPUT_WIDTH: f32 = 1.0;
 override OUTPUT_HEIGHT: f32 = 1.0;
 override SHARPNESS: f32 = 0.0;
+override ENCODED_SRGB: bool = false;
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(f32((i << 1u) & 2u) * 2.0 - 1.0, f32(i & 2u) * 2.0 - 1.0, 0.0, 1.0);
 }
@@ -80,15 +81,29 @@ fn tap(off: vec2<f32>, dir: vec2<f32>, len: vec2<f32>, lob: f32) -> f32 {
     let c = load(q+vec2<i32>(0,1)).rgb; let d = load(q+vec2<i32>(1,1)).rgb;
     return vec4<f32>(clamp(color/weight,min(min(a,b),min(c,d)),max(max(a,b),max(c,d))),linear(pp).a);
 }
+fn rcas_load(p: vec2<i32>) -> vec4<f32> {
+    let value = load(p);
+    if !ENCODED_SRGB { return value; }
+    let c = clamp(value.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(select(1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055,
+        12.92 * c, c <= vec3<f32>(0.0031308)), value.a);
+}
+fn rcas_output(c: vec3<f32>) -> vec3<f32> {
+    if !ENCODED_SRGB { return c; }
+    let v = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    // Undo the transfer so the sRGB attachment encodes exactly once before quantization.
+    return select(pow((v + 0.055) / 1.055, vec3<f32>(2.4)), v / 12.92,
+        v <= vec3<f32>(0.04045));
+}
 @fragment fn rcas(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
     let q = vec2<i32>(p.xy);
-    let b = load(q+vec2<i32>(0,-1)).rgb; let d = load(q+vec2<i32>(-1,0)).rgb;
-    let e = load(q); let f = load(q+vec2<i32>(1,0)).rgb; let h = load(q+vec2<i32>(0,1)).rgb;
+    let b = rcas_load(q+vec2<i32>(0,-1)).rgb; let d = rcas_load(q+vec2<i32>(-1,0)).rgb;
+    let e = rcas_load(q); let f = rcas_load(q+vec2<i32>(1,0)).rgb; let h = rcas_load(q+vec2<i32>(0,1)).rgb;
     let mn = min(min(b,d),min(f,h)); let mx = max(max(b,d),max(f,h));
     // Degenerate black/white rings have zero permitted negative lobe.
     let hit_min = min(mn,e.rgb)/max(4.0*mx,vec3<f32>(1e-20));
     let hit_max = (1.0-max(mx,e.rgb))/min(4.0*mn-4.0,vec3<f32>(-1e-20));
     let limit = max(-hit_min,hit_max);
     let lob = max(-0.1875,min(max(limit.r,max(limit.g,limit.b)),0.0))*exp2(-SHARPNESS);
-    return vec4<f32>((lob*(b+d+h+f)+e.rgb)/(4.0*lob+1.0),e.a);
+    return vec4<f32>(rcas_output((lob*(b+d+h+f)+e.rgb)/(4.0*lob+1.0)),e.a);
 }

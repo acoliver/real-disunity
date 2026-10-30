@@ -51,6 +51,16 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
             3,
         );
     }
+    if settings.native_rcas.is_some() && config.size == config.output_extent() {
+        let [w, h] = config.size;
+        set.texture(
+            "native RCAS input",
+            [w, h, 1],
+            wgpu::TextureFormat::Rgba32Float,
+            [1, 1],
+            3,
+        );
+    }
     if settings.resolve.active_cmaa2().is_some() {
         crate::cmaa2_gpu::allocations(&mut set, config.size);
     }

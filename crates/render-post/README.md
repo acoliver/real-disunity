@@ -279,15 +279,14 @@ allocation report. Without a CMAA2 resolve none of it is allocated.
 
 Measured with the ignored probe `chain::aa_tests::smaa_gpu_tests::smaa_and_fxaa_stage_timestamps` on an
 AMD Radeon 780M (RADV) at 1920x1080, median of 5 timestamp-query samples per stage, with the
-total including the `tone` stage (about 0.9 to 1.0 ms, the same work for every resolve except
-FXAA before it moved to `Rgba16Float`, when its `Rgba32Float` intermediate made `tone` about 2 ms). Times are in ms. The "disc"
+total including the `tone` stage (about 0.9 to 1.2 ms, the same work for every resolve). Times are in ms. The "disc"
 frame is a sparse disc edge and the "stripes" frame is dense stripes. Run-to-run noise is about
 0.1 to 0.3 ms.
 
 | Resolve | AA stages, stripes | Total, stripes | Total, disc |
 | --- | --- | --- | --- |
 | none | none | 0.375 | 0.344 |
-| FXAA | `fxaa` 0.930 | 3.068 | 2.816 |
+| FXAA | `fxaa` 0.499 | 1.655 | 1.518 |
 | SMAA low | edges 0.542, weights 0.770, blend 0.441 | 2.760 | 2.017 |
 | SMAA medium | edges 0.543, weights 0.788, blend 0.516 | 2.932 | 2.101 |
 | SMAA high | edges 0.543, weights 1.120, blend 0.441 | 3.053 | 2.081 |
@@ -297,12 +296,16 @@ frame is a sparse disc edge and the "stripes" frame is dense stripes. Run-to-run
 | CMAA2 high | edges 0.429, candidates 0.522, present 0.454 | 2.374 | 1.727 |
 | CMAA2 ultra | edges 0.413, candidates 0.518, present 0.473 | 2.383 | 1.746 |
 
-On this GPU CMAA2 high now costs less than SMAA high and FXAA in total: 2.37 ms against 3.05 ms
-(SMAA) and 3.07 ms (FXAA) on stripes, and 1.73 ms against 2.08 ms and 2.82 ms on the disc. The
-FXAA total in this table was mostly its wider `tone` intermediate, measured before FXAA moved to `Rgba16Float`. Counting only the AA passes, CMAA2 high is
-1.40 ms on stripes and 0.73 ms on the disc, SMAA high is 2.10 and 1.06 ms, and the single `fxaa`
-pass is 0.93 and 0.84 ms: CMAA2 is cheaper than SMAA on both frames, and cheaper than the FXAA
-pass only on the sparse frame. The disc edge pass costs 0.30 ms, the same as `smaa_edges` at
+FXAA is the cheapest resolve in total: 1.66 ms on stripes and 1.52 ms on the disc, against 2.37
+and 1.73 ms for CMAA2 high and 3.05 and 2.08 ms for SMAA high. Its row was measured after the
+FXAA intermediate moved from `Rgba32Float` to `Rgba16Float`, as the median of three runs
+alternating with main on the same GPU: the total fell from 3.34 to 1.66 ms on stripes and from
+2.95 to 1.52 ms on the disc, `tone` from about 2.2 to 1.15 ms and `fxaa` from about 1.0 to 0.45
+ms. The other rows predate that change and are unaffected by it. Counting only the AA passes,
+CMAA2 high is 1.40 ms on stripes and 0.73 ms on the disc, SMAA high is 2.10 and 1.06 ms, and
+the single `fxaa` pass is 0.50 and 0.38 ms. FXAA does the least work, but it only blurs along
+detected edges and does not reconstruct geometry, so CMAA2 and SMAA remain the higher-quality
+choices. The disc edge pass costs 0.30 ms, the same as `smaa_edges` at
 0.32 ms, which is close to the time to read the 16.6 MB image once. The extra cost on the stripes
 frame is the candidate pass (0.52 ms, atomics and the line search) and the present pass
 (0.45 ms against 0.38 ms on the disc). The preset changes the time by less than the noise, because

@@ -431,7 +431,7 @@ impl FrameRenderer {
                 self.frame_delta,
                 self.exposure_reset.get(),
             )?;
-            self.prepare_taa(factory, encoder);
+            self.prepare_taa(factory, encoder)?;
             let reset = self.exposure_reset.clone();
             publication::encode(encoder, &reset.clone(), move || {
                 reset.set(false);

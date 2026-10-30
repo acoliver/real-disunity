@@ -6,10 +6,12 @@
 //! publication key. A host that calls `encode_frame` without `encode_output` uploads nothing,
 //! and the next `encode_frame` replaces the block; a frame without temporal data (or the
 //! unplanned [`FrameRenderer::encode`]) leaves no block, which uploads as "no history".
+use super::block;
 use crate::compositor::FrameRenderer;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use worldrunner_render_post::{
-    AttachmentView, FrameError, ResourceRef, TAA_UNIFORM_BYTES, TaaUniform, ToneMapOutput,
+    AttachmentView, FrameError, PostError, ResourceRef, TAA_UNIFORM_BYTES, TaaUniform,
+    ToneMapOutput,
 };
 
 /// The `(a, b)` of the linear view depth `b / (z - a)` of device depth `z`, read off the
@@ -63,9 +65,25 @@ pub(super) fn uniform(view: &TemporalView) -> TaaUniform {
 impl FrameRenderer {
     /// Keeps the block of `frame`, or none when it has no temporal data.
     pub(crate) fn remember_taa_block(&self, frame: Option<&FrameUniform>) {
-        self.temporal.borrow_mut().pending_taa = frame
-            .and_then(|frame| frame.temporal.as_ref())
-            .map(|view| uniform(view).to_bytes());
+        let view = frame.and_then(|frame| frame.temporal.as_ref());
+        let temporal = self.temporal_block(view);
+        let mut history = self.temporal.borrow_mut();
+        history.pending_taa = view.map(|view| uniform(view).to_bytes());
+        history.pending_temporal = temporal;
+    }
+
+    /// The temporal block for `view` when this renderer reconstructs temporally. Without camera
+    /// data it is the reset block: valid extents, no history.
+    fn temporal_block(
+        &self,
+        view: Option<&TemporalView>,
+    ) -> Option<worldrunner_render_post::TemporalBlock> {
+        let config = self.targets().config();
+        let settings = self.post_requested.resolve.active_taa()?;
+        let jitter = self.temporal.borrow().jitter?;
+        self.post_requested
+            .reconstructs_temporally(config)
+            .then(|| block::temporal_block(config, jitter, settings, view))
     }
 
     /// The block the next output uploads.
@@ -121,10 +139,27 @@ impl FrameRenderer {
     }
 
     /// Uploads the pending block for this frame slot. Renderers without TAA upload nothing.
-    pub(crate) fn prepare_taa(&self, factory: &ToneMapOutput, encoder: &mut wgpu::CommandEncoder) {
+    pub(crate) fn prepare_taa(
+        &self,
+        factory: &ToneMapOutput,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), PostError> {
+        if let Some(block) = self.pending_temporal_block() {
+            return factory.prepare_temporal(encoder, self.frame_slot, &block);
+        }
         if self.taa_resident() {
             factory.prepare_taa(encoder, self.frame_slot, self.taa_block().as_ref());
         }
+        Ok(())
+    }
+
+    /// The block the next output uploads when reconstructing temporally: the pending one, or
+    /// the reset block when no frame was encoded since the last reset.
+    fn pending_temporal_block(&self) -> Option<worldrunner_render_post::TemporalBlock> {
+        self.temporal
+            .borrow()
+            .pending_temporal
+            .or_else(|| self.temporal_block(None))
     }
 
     pub(crate) fn taa_resident(&self) -> bool {

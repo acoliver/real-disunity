@@ -6,6 +6,7 @@
 //! prepared before the reset cannot republish a stale matrix when it is submitted afterwards.
 
 use super::FrameRenderer;
+mod block;
 mod taa;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use glam::{Mat4, Vec3};
@@ -16,7 +17,8 @@ use worldrunner_render_post::{FrameError, PostError, ProjectionJitter};
 struct Published {
     view_projection: Mat4,
     jitter_pixels: [f32; 2],
-    size: [u32; 2],
+    /// Render and output extents, see [`block::extents_key`].
+    extents: [[u32; 2]; 2],
     animation_time_ms: u32,
     camera_position: Vec3,
 }
@@ -30,11 +32,14 @@ pub(crate) struct TemporalHistory {
     previous: Option<Published>,
     /// TAA block of the last encoded frame, uploaded by the next output. Never published.
     pending_taa: Option<[u8; worldrunner_render_post::TAA_UNIFORM_BYTES]>,
+    /// Temporal block of the last encoded frame under reduced temporal reconstruction.
+    pending_temporal: Option<worldrunner_render_post::TemporalBlock>,
 }
 
 impl TemporalHistory {
     fn reset(&mut self) {
         self.previous = None;
+        self.pending_temporal = None;
         self.frame_index = 0;
         self.epoch += 1;
     }
@@ -98,11 +103,11 @@ impl FrameRenderer {
 
     /// Whether the next prepared frame has a previous camera to reproject from.
     pub fn has_temporal_history(&self) -> bool {
-        let size = self.targets().config().size;
+        let extents = block::extents_key(self.targets().config());
         self.temporal
             .borrow()
             .previous
-            .is_some_and(|previous| previous.size == size)
+            .is_some_and(|previous| previous.extents == extents)
     }
 
     /// Applies the jitter of the next frame to the camera matrix and attaches the history.
@@ -126,10 +131,13 @@ impl FrameRenderer {
         };
         let config = self.targets().config();
         let (size, samples) = (config.size, config.samples);
+        let extents = block::extents_key(config);
         let unjittered = frame.selection_view_projection();
         let jitter_pixels = jitter.offset_pixels_for(history.frame_index, samples);
         let [x, y] = jitter.clip_offset_for(history.frame_index, size, samples);
-        let previous = history.previous.filter(|previous| previous.size == size);
+        let previous = history
+            .previous
+            .filter(|previous| previous.extents == extents);
         frame.view_projection = Mat4::from_translation(Vec3::new(x, y, 0.0)) * unjittered;
         frame.temporal = Some(TemporalView {
             unjittered_view_projection: unjittered,
@@ -160,7 +168,7 @@ impl FrameRenderer {
         let published = Published {
             view_projection: temporal.unjittered_view_projection,
             jitter_pixels: temporal.jitter_pixels,
-            size: self.targets().config().size,
+            extents: block::extents_key(self.targets().config()),
             animation_time_ms: frame.animation_time_milliseconds,
             camera_position: frame.camera_position,
         };

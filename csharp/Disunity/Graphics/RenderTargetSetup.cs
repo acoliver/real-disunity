@@ -5,7 +5,7 @@ namespace UnityEngine;
 /// <summary>
 /// The buffers to render into, with the mip level, cube face and depth slice to use and what to do with
 /// each buffer's contents. The struct stores them; <see cref="Graphics.SetRenderTarget(RenderTargetSetup)"/> does not bind them yet.
-/// Every buffer loads and stores by default.
+/// Every buffer loads and stores by default, which is the zero value of both actions.
 /// </summary>
 public struct RenderTargetSetup
 {
@@ -29,8 +29,6 @@ public struct RenderTargetSetup
         this.depthSlice = depthSlice;
         colorLoad = new RenderBufferLoadAction[color.Length];
         colorStore = new RenderBufferStoreAction[color.Length];
-        Array.Fill(colorLoad, RenderBufferLoadAction.Load);
-        Array.Fill(colorStore, RenderBufferStoreAction.Store);
         depthLoad = RenderBufferLoadAction.Load;
         depthStore = RenderBufferStoreAction.Store;
     }

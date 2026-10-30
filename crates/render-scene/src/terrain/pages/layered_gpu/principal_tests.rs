@@ -63,7 +63,11 @@ fn gpu_matches_analytical_principal_filter_expectations() {
     }
 }
 
-fn fixture(level: u16, single_mip: bool, rotation: u32) -> (SceneTerrain, SceneResources) {
+pub(super) fn fixture(
+    level: u16,
+    single_mip: bool,
+    rotation: u32,
+) -> (SceneTerrain, SceneResources) {
     let reference = Reference::new();
     let (terrain, _) = source_mip_tests::fixture(rotation, 1000, [4; 3]);
     let mut textures = vec![
@@ -99,7 +103,13 @@ fn public_reference_matches_anisotropic_gpu_with_and_without_mips() {
         let (terrain, resources) = fixture(level, single_mip, 2700);
         let source = LayeredGpuSource::new(&terrain, &resources).unwrap();
         let reference = LayeredReference::new(&terrain, &resources).unwrap();
-        for footprint in [[0.375; 2], [2.0, 0.25], [0.0; 2], [0.0, 0.625]] {
+        for footprint in [
+            [0.375; 2],
+            [2.0, 0.25],
+            [0.0; 2],
+            [0.0, 0.625],
+            [1e-13, 0.0],
+        ] {
             let actual = source_mip_tests::execute_footprint(&context, &source, &points, footprint);
             for (point, record) in points.iter().zip(actual.chunks_exact(16)) {
                 let (material, height) = reference

@@ -1,6 +1,8 @@
 //! CPU reference for ordered, height-aware terrain composition.
 
 mod anisotropy;
+#[cfg(test)]
+mod anisotropy_tests;
 mod sampling;
 mod splat;
 #[cfg(test)]

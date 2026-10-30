@@ -133,14 +133,7 @@ fn nonfinite_output(device: &wgpu::Device, queue: &wgpu::Queue, samples: u32, ex
         .chunks_exact(2)
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
         .collect();
-    // The sign and payload of a NaN are unspecified, so any NaN stands for any
-    // other. Every other word must match bit for bit.
-    let canonical = |word: u16| if word & 0x7fff > 0x7c00 { 0x7e00 } else { word };
-    assert_eq!(
-        bits.iter().copied().map(canonical).collect::<Vec<_>>(),
-        SPECIAL_HALF_WORDS.map(canonical),
-        "stored HDR bits, samples={samples}"
-    );
+    assert_special_words(&bits, samples);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     chain.encode(
         &mut encoder,
@@ -149,6 +142,17 @@ fn nonfinite_output(device: &wgpu::Device, queue: &wgpu::Queue, samples: u32, ex
     queue.submit([encoder.finish()]);
     let displayed = read_texture(device, queue, &output);
     assert_nonfinite_output(&displayed, samples, exposure);
+}
+
+/// The sign and payload of a NaN are unspecified, so any NaN stands for any
+/// other. Every other word must match bit for bit.
+fn assert_special_words(bits: &[u16], samples: u32) {
+    let canonical = |word: u16| if word & 0x7fff > 0x7c00 { 0x7e00 } else { word };
+    assert_eq!(
+        bits.iter().copied().map(canonical).collect::<Vec<_>>(),
+        SPECIAL_HALF_WORDS.map(canonical),
+        "stored HDR bits, samples={samples}"
+    );
 }
 
 fn special_pipeline(device: &wgpu::Device, samples: u32) -> wgpu::RenderPipeline {

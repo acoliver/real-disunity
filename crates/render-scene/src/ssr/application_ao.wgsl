@@ -4,7 +4,7 @@ fn reflection_far_depth() -> f32 {
 }
 fn gathered_visibility(pixel: vec2<i32>, cosine: f32, roughness: f32, sample: u32) -> f32 {
     let extent = vec2<i32>(textureDimensions(application_ao));
-    let origin = vec2<i32>(floor((vec2<f32>(pixel) + 0.5) / camera.size.xy * vec2<f32>(extent) - 0.5));
+    let origin = gather_origin(pixel, vec2<i32>(camera.size.xy), extent);
     let a = clamp(origin, vec2<i32>(0), extent - 1);
     let b = clamp(origin + 1, vec2<i32>(0), extent - 1);
     let coordinates = array<vec2<i32>, 4>(vec2<i32>(a.x, b.y), b, vec2<i32>(b.x, a.y), a);

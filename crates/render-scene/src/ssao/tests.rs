@@ -316,7 +316,14 @@ fn gpu_bilateral_axes_have_exact_impulse_and_reject_depth_steps() {
         let group = passes::group(context.device(), &pipeline, None, &[&depths, &input]);
         draw(&context, &pipeline, &group, &output);
         let values = read(&context, &output);
-        assert_eq!(values[3..], [1.0, 1.0]);
+        // Taps at depth 1 are rejected for the depth-4 pixels, so numerator and
+        // denominator accumulate the same weights in the same order and their
+        // quotient is exactly 1 in real arithmetic. Vulkan allows OpFDiv 2.5 ULP
+        // of error (RADV returns 1 - 2^-24), so allow 2.5 ULP at 1.0, where one
+        // ULP is at most f32::EPSILON = 2^-23.
+        for value in &values[3..] {
+            assert!((value - 1.0).abs() <= 2.5 * f32::EPSILON, "{value}");
+        }
         assert!(values[0] > 0.0 && values[0] < 1.0);
         assert!(values[2] > values[0]);
         assert_eq!(values[1].to_bits(), 0.0f32.to_bits());

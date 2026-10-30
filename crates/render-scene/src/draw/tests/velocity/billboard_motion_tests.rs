@@ -50,8 +50,7 @@ fn scene(mask: bool) -> RenderScene {
         identity(),
         MeshHandle::from_raw(0),
         MaterialHandle::from_raw(0),
-    )
-    .with_tint(worldrunner_render_plan::SceneTint::new([0; 3]).unwrap());
+    );
     RenderScene::new(SceneParts {
         resources: SceneResources::new(vec![texture], vec![material(alpha, true)]).unwrap(),
         geometry: SceneGeometry::new(vec![card(Some(BillboardPolicy::YawLocked))], vec![object])

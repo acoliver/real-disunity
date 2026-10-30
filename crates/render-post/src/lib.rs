@@ -111,6 +111,7 @@ mod native_rcas;
 mod tone_map;
 pub use native_rcas::{NativeRcasSettings, RcasDomain};
 mod upscale;
+mod upscale_temporal;
 pub use hdr_post::{
     AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,
 };
@@ -335,6 +336,9 @@ mod upscale_tests;
 
 #[cfg(test)]
 mod upscale_hdr_tests;
+
+#[cfg(test)]
+mod upscale_temporal_tests;
 
 #[cfg(test)]
 mod bloom_policy_tests;

@@ -167,7 +167,7 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        post.validate_frame(config)?;
+        post.validate_frame_with_jitter(config, antialiasing.jitter)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();

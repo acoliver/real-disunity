@@ -38,7 +38,14 @@ pub struct HdrPostSettings {
 }
 impl HdrPostSettings {
     /// Validate the HDR display path before allocating frame targets.
+    ///
+    /// `UpscaleMode::Temporal` has its own rows, see the Temporal rows in `upscale_temporal.rs`.
     pub fn validate_frame(self, config: crate::FrameConfig) -> Result<(), PostError> {
+        self.validate_frame_inner(config)?;
+        self.validate_temporal(config, None)
+    }
+
+    fn validate_frame_inner(self, config: crate::FrameConfig) -> Result<(), PostError> {
         self.validate()?;
         if config.size != config.output_extent() && self.upscale.is_none() {
             return Err(PostError::UnsupportedProfile(
@@ -56,6 +63,18 @@ impl HdrPostSettings {
             )?;
         }
         Ok(())
+    }
+
+    /// [`Self::validate_frame`] for a renderer whose scene passes use `explicit` jitter.
+    ///
+    /// `None` means the sequence the renderer derives itself, which is long enough.
+    pub fn validate_frame_with_jitter(
+        self,
+        config: crate::FrameConfig,
+        explicit: Option<crate::ProjectionJitter>,
+    ) -> Result<(), PostError> {
+        self.validate_frame_inner(config)?;
+        self.validate_temporal(config, explicit)
     }
 
     pub fn validate(self) -> Result<(), PostError> {

@@ -147,6 +147,13 @@ Range and counter vectors retain their capacities between frames.
 
 ## Cascade coverage
 
+`SceneEffects::shadow_direction()` overrides only the shadow light. Its default
+`None` follows the direct sun without changing existing output. The lighting
+service prepares the override; cascade fitting, caster depth extension, refresh
+scheduling and both interactive and same-frame depth-fitted captures use that
+prepared direction. `ShadowedScene::set_effects` updates it without uploading
+geometry. Direct shading, sky and celestial bodies still use the direct sun.
+
 The shadow adapter supports one to four layers at the chosen resolution.
 `SceneShadowCascades::new` declares light-space XY half-widths in millimetres,
 centred on `DirectionalShadowSettings::focus_meters`. Selection uses the smallest

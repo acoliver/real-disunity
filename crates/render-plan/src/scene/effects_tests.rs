@@ -1,6 +1,30 @@
 use super::*;
 use crate::scene::direction::SceneDirection;
 
+#[test]
+fn shadow_override_preserves_direct_sun_and_can_be_cleared() {
+    let original = SceneEffects::new(parts()).unwrap();
+    assert_eq!(original.shadow_direction(), None);
+    let direction = SceneDirection::new([-600_000, 0, 800_000]).unwrap();
+    let changed = original.clone().with_shadow_direction(Some(direction));
+    changed.validate().unwrap();
+    assert_eq!(changed.shadow_direction(), Some(direction));
+    assert_eq!(changed.sun(), original.sun());
+    assert_eq!(changed.sky(), original.sky());
+    assert_eq!(changed.with_shadow_direction(None), original);
+}
+
+#[test]
+fn shadow_direction_inputs_reject_zero_and_nonfinite_values() {
+    assert_eq!(
+        SceneDirection::new([0; 3]),
+        Err(SceneValidationError::DirectionNotNormalized)
+    );
+    for invalid in ["[NaN,0,1]", "[Infinity,0,1]", "[null,0,1]", "[0,0,0]"] {
+        assert!(serde_json::from_str::<SceneDirection>(invalid).is_err());
+    }
+}
+
 fn parts() -> SceneEffectsParts {
     SceneEffectsParts {
         water: Some(water_body()),

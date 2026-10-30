@@ -160,6 +160,9 @@ fn configured_frame(
         camera_position: Vec3::Z,
         camera_position_millimeters: [0, 0, 1_000],
         sun_direction: environment.toward_light,
+        shadow_direction: environment
+            .toward_shadow_light
+            .unwrap_or(environment.toward_light),
         sun_ao_intensity: None,
         sun_tint: glam::Vec3::ONE,
         sun_irradiance: environment.direct_radiance,

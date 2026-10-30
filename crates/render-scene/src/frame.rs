@@ -102,6 +102,8 @@ pub struct FrameUniform {
     pub camera_position_millimeters: [i64; 3],
     /// Unit vector pointing from the surface toward the sun, scene space.
     pub sun_direction: Vec3,
+    /// Prepared shadow-light direction; CPU fitting only, outside the direct-light uniform ABI.
+    pub shadow_direction: Vec3,
     /// Linear sun radiance, already scaled by irradiance.
     pub sun_irradiance: Vec3,
     /// Untinted intensity when colour prevents recovering it from radiance.
@@ -176,7 +178,7 @@ impl FrameUniform {
                 radiance: Vec3::splat(micro_to_unit(effects.sun().irradiance_micro))
                     * sun_tint(effects),
             },
-            shadow_direction: None,
+            shadow_direction: effects.shadow_direction().map(direction_vector),
             ambient: AmbientLight::Hemisphere { sky, ground },
             exposure: ExposureOwnership::SceneLinear(micro_to_unit(u64::from(
                 effects.grading().exposure_micro,
@@ -197,6 +199,9 @@ impl FrameUniform {
             camera_position: view.eye_meters(),
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: environment.toward_light,
+            shadow_direction: environment
+                .toward_shadow_light
+                .unwrap_or(environment.toward_light),
             sun_irradiance: environment.direct_radiance,
             sun_tint: sun_tint(effects),
             sun_ao_intensity: (effects.sun_tint() != worldrunner_render_plan::SceneTint::WHITE)
@@ -222,6 +227,7 @@ impl FrameUniform {
             camera_position: view.eye_meters(),
             camera_position_millimeters: view.eye_millimeters(),
             sun_direction: Vec3::ZERO,
+            shadow_direction: Vec3::ZERO,
             sun_irradiance: Vec3::ZERO,
             sun_ao_intensity: None,
             sun_tint: Vec3::ONE,
@@ -359,7 +365,11 @@ fn write_f32(bytes: &mut [u8; FRAME_UNIFORM_BYTES], offset: &mut usize, value: f
 
 /// Converts the validated scene-space direction to the shader's float format.
 pub(crate) fn sun_direction(sun: &SceneSun) -> Vec3 {
-    let [x, y, z] = sun.direction.components_micro().map(i64::from);
+    direction_vector(sun.direction)
+}
+
+pub(crate) fn direction_vector(direction: worldrunner_render_plan::SceneDirection) -> Vec3 {
+    let [x, y, z] = direction.components_micro().map(i64::from);
     Vec3::new(micro_component(x), micro_component(y), micro_component(z)).normalize()
 }
 

@@ -217,9 +217,10 @@ impl GameScripts {
     ) -> Result<serde_json::Value, ScriptError> {
         let env = self.environment(source)?;
         self.instructions.store(0, Ordering::Relaxed);
+        let hooked = self.loader.lock().expect("loader").hooked(code)?;
         let chunk = self
             .lua
-            .load(code)
+            .load(hooked)
             .set_name("<eval>")
             .set_mode(ChunkMode::Text)
             .set_environment(env);
@@ -260,6 +261,10 @@ impl GameScripts {
 
     pub(crate) fn standard(&self) -> &Permanents {
         &self.standard
+    }
+
+    pub(crate) fn standard_mut(&mut self) -> &mut Permanents {
+        &mut self.standard
     }
 
     /// The Lua state the scripts run in, for a host that restores or adopts values into it.

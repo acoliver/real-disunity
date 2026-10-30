@@ -91,6 +91,10 @@ internal static class SystemInfoTests
         Expect.Equal(4, SystemInfo.GetRenderTextureSupportedMSAASampleCount(new RenderTextureDescriptor(4, 4) { msaaSamples = 8 }), "limited to the device maximum");
         Expect.Equal(2, SystemInfo.GetRenderTextureSupportedMSAASampleCount(new RenderTextureDescriptor(4, 4) { msaaSamples = 2 }), "a request below the maximum");
         Expect.Equal(2, SystemInfo.GetRenderTextureSupportedMSAASampleCount(new RenderTextureDescriptor(4, 4) { msaaSamples = 3 }), "3 samples round down to 2");
+        DisunityHost.SetGraphicsDevice(GraphicsDeviceInfo.Windowless);
+        Expect.That(SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null && !SystemInfo.supportsRendering, "a windowless host is still the null device");
+        Expect.That(SystemInfo.maxTextureSize == 8192 && SystemInfo.maxCubemapSize == 8192 && SystemInfo.maxTexture3DSize == 2048, "windowless texture limits");
+        Expect.That(SystemInfo.maxTextureArraySlices == 256 && SystemInfo.maxAnisotropyLevel == 16, "windowless array and anisotropy limits");
         DisunityHost.SetGraphicsDevice(device with { Capabilities = GraphicsCapabilities.TiledGPU });
         Expect.Throws<NotSupportedException>(() => SystemInfo.GetTiledRenderTargetStorageSize(GraphicsFormat.R8G8B8A8_UNorm, 1), "tiled storage sizes are unknown");
     }

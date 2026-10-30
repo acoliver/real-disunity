@@ -64,6 +64,24 @@ public sealed record GraphicsDeviceInfo
     /// engine reports every capability as absent because it draws nothing, the conservative answer where
     /// Unity's own values are not documented.</summary>
     public static GraphicsDeviceInfo Null { get; } = new();
+
+    /// <summary>
+    /// The device a windowless player host reports: still the null device, with no capabilities, because nothing
+    /// draws, but with the texture limits the engine's renderer guarantees on every GPU adapter it accepts (8192 for
+    /// 2D textures and cubemaps, 2048 for 3D textures, 256 array layers, 16x anisotropy). Render pipelines size their
+    /// atlases and allocators from these limits when they are created, so zero limits would make those sizes invalid.
+    /// </summary>
+    public static GraphicsDeviceInfo Windowless { get; } = new()
+    {
+        MaxTextureSize = 8192,
+        Limits = new Dictionary<string, int>
+        {
+            ["maxCubemapSize"] = 8192,
+            ["maxTexture3DSize"] = 2048,
+            ["maxTextureArraySlices"] = 256,
+            ["maxAnisotropyLevel"] = 16,
+        },
+    };
 }
 
 public static partial class DisunityHost

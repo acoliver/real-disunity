@@ -28,6 +28,51 @@ internal static class GraphicsBufferTests
         ReleasedBuffersRejectEveryMember();
         ReleaseAndDisposeAreTheSameAndRepeatable();
         Console.WriteLine("PASS: GraphicsBuffer validation, zeroed managed contents, unique handles, SetData offsets and strides, and release");
+        TargetsUsageAndName();
+        ListNativeAndGetDataRoundTrip();
+        Console.WriteLine("PASS: GraphicsBuffer targets, usage flags, name, IsValid, list and NativeArray SetData, and GetData");
+    }
+
+    private static void TargetsUsageAndName()
+    {
+        var structured = GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Constant;
+        using var buffer = new GraphicsBuffer(structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, 4, 4);
+        Expect.Equal(structured, buffer.target, "target");
+        Expect.Equal(GraphicsBuffer.UsageFlags.LockBufferForWrite, buffer.usageFlags, "usage flags");
+        Expect.Equal("", buffer.name, "a new buffer has an empty name");
+        buffer.name = "_AdditionalLightsBuffer";
+        Expect.Equal("_AdditionalLightsBuffer", buffer.name, "name");
+        Expect.Equal(GraphicsBuffer.UsageFlags.None, new GraphicsBuffer(GraphicsBuffer.Target.Vertex, 1, 4).usageFlags, "the short constructor has no usage flags");
+        Expect.Equal(1023, (int)(GraphicsBuffer.Target.Vertex | GraphicsBuffer.Target.Index | GraphicsBuffer.Target.CopySource | GraphicsBuffer.Target.CopyDestination
+            | GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.Append | GraphicsBuffer.Target.Counter
+            | GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Constant), "the ten targets are the low ten bits");
+        Expect.Throws<ArgumentException>(() => new GraphicsBuffer(Raw, (GraphicsBuffer.UsageFlags)2, 4, 4), "an undefined usage flag");
+        Expect.That(buffer.IsValid(), "a live buffer is valid");
+        buffer.Release();
+        Expect.That(!buffer.IsValid(), "a released buffer is not valid");
+        Expect.Equal("_AdditionalLightsBuffer", buffer.name, "the name outlives the contents");
+        Expect.Throws<ObjectDisposedException>(() => _ = buffer.target, "target after release");
+    }
+
+    private static void ListNativeAndGetDataRoundTrip()
+    {
+        using var buffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 6, 4);
+        buffer.SetData(new List<int> { 1, 2, 3 });
+        var native = new Unity.Collections.NativeArray<int>(new[] { 7, 8, 9, 10 }, Unity.Collections.Allocator.Temp);
+        buffer.SetData(native, 1, 3, 2);
+        native.Dispose();
+        buffer.SetData(new List<int> { 40, 50 }, 1, 5, 1);
+        var all = new int[6];
+        buffer.GetData(all);
+        Expect.Sequence(new[] { 1, 2, 3, 8, 9, 50 }, all, "list, NativeArray and offset list writes land at element offsets");
+        var part = new int[3];
+        buffer.GetData(part, 1, 2, 2);
+        Expect.Sequence(new[] { 0, 3, 8 }, part, "GetData reads from the buffer index into the array index");
+        Expect.Throws<ArgumentOutOfRangeException>(() => buffer.GetData(new int[2], 0, 5, 2), "GetData past the end of the buffer");
+        Expect.Throws<ArgumentOutOfRangeException>(() => buffer.SetData(new List<int> { 1 }, 0, 0, 2), "SetData past the end of the list");
+        buffer.SetData(new[] { 11, 12 });
+        buffer.GetData(all);
+        Expect.Sequence(new[] { 11, 12, 3, 8, 9, 50 }, all, "SetData(Array) writes from the start");
     }
 
     private static void ConstructorValidatesItsArguments()

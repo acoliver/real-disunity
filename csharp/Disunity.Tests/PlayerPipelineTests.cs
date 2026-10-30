@@ -13,6 +13,12 @@ internal static class PlayerPipelineTests
     public sealed class HighAsset : RenderPipelineAsset<TestPipeline>
     {
         public int level = -1;
+        public ComputeShader? compute = null;
+    }
+
+    public sealed class ThrowingAsset : RenderPipelineAsset
+    {
+        public ThrowingAsset() => throw new InvalidOperationException("constructor failed");
     }
 
     public sealed class GlobalAsset : RenderPipelineGlobalSettings { }
@@ -39,12 +45,13 @@ internal static class PlayerPipelineTests
     private static string AssemblyName => typeof(PlayerPipelineTests).Assembly.GetName().Name!;
 
     /// <summary>Writes a plan whose assets are a High pipeline (0), the global settings (1), a Low pipeline (2) and an
-    /// asset of a class that does not exist (3), with <paramref name="graphics"/> as its graphics section.</summary>
+    /// asset of a class that does not exist (3), an asset whose constructor throws (4), with <paramref name="graphics"/> as its graphics section.</summary>
     private static string WritePlan(string directory, JsonNode? graphics)
     {
         var assets = new JsonArray();
-        var classes = new[] { ("High", "PlayerPipelineTests/HighAsset", """{"level":"3"}"""), ("Global", "PlayerPipelineTests/GlobalAsset", "{}"),
-            ("Low", "PlayerPipelineTests/HighAsset", """{"level":"1"}"""), ("Broken", Missing, "{}") };
+        var classes = new[] { ("High", "PlayerPipelineTests/HighAsset", """{"level":"3","compute":null}"""), ("Global", "PlayerPipelineTests/GlobalAsset", "{}"),
+            ("Low", "PlayerPipelineTests/HighAsset", """{"level":"1"}"""), ("Broken", Missing, "{}"),
+            ("Throws", "PlayerPipelineTests/ThrowingAsset", "{}") };
         for (var i = 0; i < classes.Length; i++)
         {
             File.WriteAllText(Path.Combine(directory, $"{i}.json"), classes[i].Item3);
@@ -100,6 +107,7 @@ internal static class PlayerPipelineTests
             Expect.That(pipeline is not null, "the default pipeline is the planned asset");
             Expect.Equal("High", pipeline!.name, "the pipeline asset's name");
             Expect.Equal(3, pipeline.level, "the pipeline asset's fields are bound");
+            Expect.That(pipeline.compute is null, "a compute shader reference binds null");
             Expect.Equal("render pipeline asset: High (PlayerPipelineTests+HighAsset)", log.First(line => line.StartsWith("render pipeline asset")), "the start logs the asset once");
             Expect.Equal(1, log.Count(line => line.StartsWith("render pipeline asset")), "one line per asset");
             Expect.Equal("Global", GraphicsSettings.GetSettingsForRenderPipeline<TestPipeline>()?.name, "the global settings belong to the asset's pipeline type");
@@ -126,6 +134,11 @@ internal static class PlayerPipelineTests
             Expect.That(log.Any(line => line.Contains("Global") && line.Contains("not registered")), "global settings without a pipeline type are not registered");
             Expect.Equal("Low", QualitySettings.GetRenderPipelineAssetAt(1)?.name, "the other assets still build");
             Expect.That(GraphicsSettings.GetSettingsForRenderPipeline<TestPipeline>() is null, "no settings are registered");
+        });
+        With(Graphics(4, null), [], log =>
+        {
+            Expect.That(GraphicsSettings.defaultRenderPipeline is null, "a constructor failure leaves the pipeline null");
+            Expect.That(log.Any(line => line.Contains("Throws") && line.Contains("InvalidOperationException: constructor failed") && !line.Contains("TargetInvocation")), $"the log names the constructor's exception: {string.Join(" | ", log)}");
         });
     }
 

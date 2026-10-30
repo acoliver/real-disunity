@@ -43,6 +43,8 @@ internal sealed partial class ResourceDatabase
         }
         catch (Exception error)
         {
+            // Creating the instance wraps an exception of its constructor.
+            while (error is System.Reflection.TargetInvocationException { InnerException: { } inner }) error = inner;
             log($"the {what} {name} could not be built: {error.GetType().Name}: {error.Message}; the player starts without it");
         }
         return null;

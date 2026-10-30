@@ -41,6 +41,7 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
         .upscale
         .filter(|_| config.size != config.output_extent());
     display_input_allocations(&mut set, config, &settings);
+    taa_allocations(&mut set, config, &settings);
     if settings.resolve.active_cmaa2().is_some() {
         crate::cmaa2_gpu::allocations(&mut set, config.size);
     }
@@ -67,6 +68,31 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
         );
     }
     set
+}
+/// The TAA history bank and the slot outputs. The history is shared by the three slots and
+/// counted once. Native TAA works on the render grid and keeps a linear-depth history for the
+/// disocclusion test. Temporal reconstruction works on the output grid and has no depth history.
+fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrPostSettings) {
+    if settings.resolve.active_taa().is_none() {
+        return;
+    }
+    let temporal = settings
+        .upscale
+        .is_some_and(|upscale| upscale.mode == crate::UpscaleMode::Temporal)
+        && config.size != config.output_extent();
+    let [w, h] = if temporal {
+        config.output_extent()
+    } else {
+        config.size
+    };
+    let colour = crate::taa_gpu::FORMAT;
+    set.shared_texture("taa history", [w, h, 1], colour, [1, 1], 1);
+    set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
+    if !temporal {
+        let depth = crate::taa_gpu::DEPTH_FORMAT;
+        set.shared_texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
+        set.texture("taa depth output", [w, h, 1], depth, [1, 1], 3);
+    }
 }
 /// The display-linear intermediates between tone mapping and a spatial resolve or upscale: FXAA
 /// reads an `Rgba16Float` copy, the upscale and native RCAS read `Rgba32Float`.

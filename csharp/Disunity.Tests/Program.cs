@@ -287,6 +287,7 @@ TransformMemberTests.Run();
 GameObjectMemberTests.Run();
 CoreMemberTests.Run();
 TextureTests.Run();
+MeshTests.Run();
 RenderTextureTests.Run();
 ShaderMaterialTests.Run();
 ProfilingTests.Run();

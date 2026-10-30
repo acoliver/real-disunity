@@ -329,5 +329,6 @@ ColorUtilityTests.Run();
 EndOfFrameTests.Run();
 RenderPipelineAssetTests.Run();
 Hash128Tests.Run();
+FilteringAndStateTests.Run();
 SceneManagerTests.Run();
 SceneSwitchTests.Run();

@@ -16,7 +16,7 @@ fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
 }
 
-const TYPES: [ClassId; 9] = [
+const TYPES: [ClassId; 10] = [
     ClassId::GAME_OBJECT,
     ClassId::TRANSFORM,
     ClassId::MONO_BEHAVIOUR,
@@ -26,6 +26,7 @@ const TYPES: [ClassId; 9] = [
     ClassId::CAMERA,
     ClassId::AUDIO_LISTENER,
     ClassId::CANVAS_GROUP,
+    ClassId::CANVAS_RENDERER,
 ];
 
 fn class(class_id: ClassId) -> SerializedType {
@@ -684,12 +685,17 @@ fn group_bytes(enabled: bool, alpha: f32, flags: [bool; 3]) -> Vec<u8> {
 }
 
 fn plan_group(bytes: Vec<u8>, other: Vec<u8>) -> Vec<PlanComponent> {
+    plan_pair(ClassId::CANVAS_GROUP, bytes, other)
+}
+
+/// A panel holding a component of the given class and a light.
+fn plan_pair(class_id: ClassId, bytes: Vec<u8>, other: Vec<u8>) -> Vec<PlanComponent> {
     let dir = tempfile::tempdir().unwrap();
     let panel = game_object("Panel", 5, &[ptr(0, 3), ptr(0, 4), ptr(0, 5)]);
     let objects = vec![
         object(2, ClassId::GAME_OBJECT, panel),
         object(3, ClassId::TRANSFORM, transform(2, ptr(0, 0), &[])),
-        object(4, ClassId::CANVAS_GROUP, bytes),
+        object(4, class_id, bytes),
         object(5, ClassId::LIGHT, other),
     ];
     write_file(dir.path(), "level0", objects);
@@ -740,5 +746,44 @@ fn a_planned_canvas_group_serializes_flat() {
             "type": "CanvasGroup", "enabled": false, "alpha": 0.5,
             "interactable": true, "blocks_raycasts": false, "ignore_parent_groups": true
         })
+    );
+}
+
+/// A canvas renderer on object 2.
+fn renderer_bytes(cull_transparent_mesh: bool) -> Vec<u8> {
+    let mut w = ObjectWriter::new(false);
+    w.pptr(ptr(0, 2)).u8(u8::from(cull_transparent_mesh));
+    w.finish()
+}
+
+#[test]
+fn plans_a_canvas_renderer_with_its_cull_setting() {
+    let light = light_bytes(0, 0, null(), null());
+    for cull in [false, true] {
+        let components = plan_pair(
+            ClassId::CANVAS_RENDERER,
+            renderer_bytes(cull),
+            light.clone(),
+        );
+        let [
+            PlanComponent::CanvasRenderer {
+                cull_transparent_mesh,
+            },
+            PlanComponent::Light { .. },
+        ] = &components[..]
+        else {
+            panic!("the panel has a renderer and a light: {components:?}")
+        };
+        assert_eq!(*cull_transparent_mesh, cull);
+    }
+}
+
+#[test]
+fn a_planned_canvas_renderer_serializes_flat() {
+    let light = light_bytes(0, 0, null(), null());
+    let components = plan_pair(ClassId::CANVAS_RENDERER, renderer_bytes(true), light);
+    assert_eq!(
+        serde_json::to_value(&components[0]).unwrap(),
+        json!({"type": "CanvasRenderer", "cull_transparent_mesh": true})
     );
 }

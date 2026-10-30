@@ -21,7 +21,7 @@ use worldrunner_unity_serialized::{
     managers::TagManager,
     object::PPtr,
     script_data::ScriptLayouts,
-    ui::CanvasGroup,
+    ui::{CanvasGroup, CanvasRenderer},
 };
 
 use crate::{
@@ -199,7 +199,14 @@ impl PlayerPlanner {
                 path: path.clone(),
                 path_id: component.path_id,
             })?;
-        if [ClassId::CAMERA, ClassId::LIGHT, ClassId::CANVAS_GROUP].contains(&class) {
+        if [
+            ClassId::CAMERA,
+            ClassId::LIGHT,
+            ClassId::CANVAS_GROUP,
+            ClassId::CANVAS_RENDERER,
+        ]
+        .contains(&class)
+        {
             return Ok(None);
         }
         if class != ClassId::MONO_BEHAVIOUR {
@@ -285,6 +292,15 @@ impl PlayerPlanner {
                 .local(&path, component)?
                 .decode(component.path_id)?;
             return Ok(plan_canvas_group(&group));
+        }
+        if class == ClassId::CANVAS_RENDERER {
+            let renderer: CanvasRenderer = self
+                .files
+                .local(&path, component)?
+                .decode(component.path_id)?;
+            return Ok(PlanComponent::CanvasRenderer {
+                cull_transparent_mesh: renderer.cull_transparent_mesh,
+            });
         }
         Ok(PlanComponent::Unsupported {
             class: class.to_string(),

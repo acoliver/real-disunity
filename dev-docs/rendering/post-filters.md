@@ -49,3 +49,48 @@ Sample bilinearly at tangent offsets of plus and minus 1.5 texels. Give the orig
 ## Temporal antialiasing
 
 TAA runs before exposure metering, bloom and tone mapping, unlike FXAA, SMAA and CMAA2, which read the tone-mapped image. The stages are `taa resolve`, `taa history` and `taa depth history`, then the usual order. The resolve rebuilds the pixel with a Gaussian (sigma 0.47 pixel) over the 3x3 jittered samples around it, where the sample at pixel `q` lies at `q + 0.5 - jitter`. It reprojects history with the closest depth of the 3x3 neighborhood (per-sample minimum under MSAA), clips the history to the mean plus or minus `clip_scale` standard deviations of the neighborhood in YCoCg of luminance-compressed color along the ray toward the box center, and blends with weight `1 - history_weight` for the current color, each side weighted by `1 / (1 + luma)`. `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` authors both settings in micro-units; `SceneAntiAlias::taa(history_micro)` uses the default `clip_scale` of 1. The render-plan bounds `500_000..=2_000_000` equal the `0.5..=2` range of `TaaSettings::validate`, which a render-scene test cross-checks. References: Brian Karis, "High Quality Temporal Supersampling" (SIGGRAPH 2014) and Marco Salvi, "An Excursion in Temporal Supersampling" (GDC 2016).
+
+## Quality FXAA kernel
+
+The optional `FxaaKernel::Quality` uses preset 12. The centre and four axial
+luminances determine the contrast range before diagonal sampling. Horizontal and
+vertical scores sum three parallel second differences with weights 1, 2, 1.
+The larger score chooses the edge tangent; the stronger perpendicular gradient
+chooses the side, with ties choosing the negative side. Search samples at
+cumulative distances 1, 2.5, 4.5 and 8.5 stop when the luma deviation from the
+selected pair average reaches one quarter of the gradient. Unfinished searches
+extend to 20.5, retaining the last sampled deviation for the sign test.
+
+A valid nearest endpoint produces displacement `0.5 - near / (near + far)`.
+The subpixel displacement is `smoothstep(0, 1, abs(avg - centre) / range)^2`
+times `subpixel_blend`, where `avg` weights axial taps twice and diagonals once.
+The larger displacement offsets the final bilinear sample perpendicular to the
+edge. Explicit X/Y texel scales affect search and displacement only. See the
+[settings contract](../../crates/render-post/README.md#fxaa-quality-search).
+
+### Quality settings
+
+`FxaaKernel::Quality { preset: 12, sample_scale: [1.0, 1.0] }` selects the
+quality search in the existing `fxaa` pass. Sobel remains the default, with unchanged
+output bytes. Only preset 12 is supported; other preset numbers fail validation.
+The quality kernel uses axial contrast for early exit, then diagonal taps for
+weighted second-difference orientation, gradient side selection and edge search.
+Preset 12 samples cumulative search distances 1, 2.5, 4.5 and 8.5, then extends
+unfinished endpoints to 20.5 without another sample. Its subpixel displacement is
+the squared smoothstep of the normalized neighbourhood contrast, multiplied by
+`subpixel_blend`. `strength` blends the displaced RGB with the original; alpha is
+preserved.
+
+`sample_scale` contains independent X/Y scales in texels, finite in (0, 4]. It
+scales the endpoint search, half-texel side shift and final displacement, but not
+the one-texel axial and diagonal taps. `[0.5, 0.5]` explicitly requests half-texel
+search spacing. All three luminance policies and the existing thresholds apply.
+For green-luma quality filtering use `luminance: Green`, `subpixel_blend: 0.75`,
+`edge_threshold: 0.166` and `minimum_threshold: 0.0833`.
+
+At scene level, `SceneHdrPost::fxaa_quality.kernel` accepts
+`SceneFxaaKernel::Quality { preset: 12, sample_scale_micro: [1_000_000; 2] }`.
+The scale uses millionths of a texel and validates in 1..=4_000_000 per axis.
+The quality block applies to FXAA strength selected by either `SceneHdrPost` or
+`SceneAntiAlias`. Kernel and scale specialize the existing shader through WGSL
+overrides carried with the FXAA settings.

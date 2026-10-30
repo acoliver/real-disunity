@@ -30,6 +30,16 @@ fn scene_quality_reaches_existing_post_executor_settings() {
             s::SceneFxaaKernel::SecondDifference,
             p::FxaaKernel::SecondDifference,
         ),
+        (
+            s::SceneFxaaKernel::Quality {
+                preset: 12,
+                sample_scale_micro: [500_000, 1_500_000],
+            },
+            p::FxaaKernel::Quality {
+                preset: 12,
+                sample_scale: [0.5, 1.5],
+            },
+        ),
     ] {
         for (luminance, expected_luminance) in [
             (s::SceneFxaaLuminance::Linear, p::FxaaLuminance::Linear),
@@ -59,4 +69,44 @@ fn scene_quality_reaches_existing_post_executor_settings() {
             );
         }
     }
+}
+
+#[test]
+fn scene_anti_alias_strength_uses_hdr_quality_kernel() {
+    let authored = s::SceneFxaaQuality {
+        kernel: s::SceneFxaaKernel::Quality {
+            preset: 12,
+            sample_scale_micro: [500_000; 2],
+        },
+        ..Default::default()
+    };
+    let effects = crate::post_taa_tests::effects(
+        s::SceneAntiAlias::Fxaa {
+            subpixel_micro: 750_000,
+        },
+        None,
+    )
+    .with_hdr_post(s::SceneHdrPost {
+        tone_map: None,
+        grading: None,
+        adaptive_exposure: None,
+        bloom: None,
+        fxaa_subpixel_micro: None,
+        fxaa_quality: Some(authored),
+    })
+    .unwrap();
+    let actual = crate::post_settings(&effects).unwrap();
+    assert_eq!(
+        actual.resolve,
+        p::PostResolve::fxaa_with(
+            0.75,
+            p::FxaaQuality {
+                kernel: p::FxaaKernel::Quality {
+                    preset: 12,
+                    sample_scale: [0.5; 2]
+                },
+                ..Default::default()
+            }
+        )
+    );
 }

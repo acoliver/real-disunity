@@ -33,6 +33,16 @@ impl SceneFxaaQuality {
                 return Err(SceneValidationError::PostSettings { part });
             }
         }
+        if let SceneFxaaKernel::Quality {
+            preset,
+            sample_scale_micro,
+        } = self.kernel
+            && (preset != 12 || sample_scale_micro.iter().any(|v| *v == 0 || *v > 4_000_000))
+        {
+            return Err(SceneValidationError::PostSettings {
+                part: "FXAA quality preset or sample scale",
+            });
+        }
         Ok(())
     }
 }
@@ -52,4 +62,9 @@ pub enum SceneFxaaKernel {
     #[default]
     Sobel,
     SecondDifference,
+    /// Preset 12 with search and final offset scales in millionths of a texel.
+    Quality {
+        preset: u8,
+        sample_scale_micro: [u32; 2],
+    },
 }

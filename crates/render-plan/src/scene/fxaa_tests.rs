@@ -21,7 +21,14 @@ fn omitted_quality_preserves_existing_serialized_recipe() {
 
 #[test]
 fn complete_quality_round_trips_for_all_kernels_and_luminance_inputs() {
-    for kernel in [SceneFxaaKernel::Sobel, SceneFxaaKernel::SecondDifference] {
+    for kernel in [
+        SceneFxaaKernel::Sobel,
+        SceneFxaaKernel::SecondDifference,
+        SceneFxaaKernel::Quality {
+            preset: 12,
+            sample_scale_micro: [500_000, 1_000_000],
+        },
+    ] {
         for luminance in [
             SceneFxaaLuminance::Linear,
             SceneFxaaLuminance::Srgb,
@@ -82,4 +89,25 @@ fn quality_rejects_out_of_range_units_and_malformed_inputs() {
     json["edge_threshold_micro"] = serde_json::json!(0);
     json["kernel"] = serde_json::json!("unknown");
     assert!(serde_json::from_value::<SceneFxaaQuality>(json).is_err());
+}
+
+#[test]
+fn quality_search_requires_supported_preset_and_positive_bounded_scale() {
+    for (preset, sample_scale_micro, valid) in [
+        (12, [500_000, 1_000_000], true),
+        (12, [4_000_000; 2], true),
+        (11, [1_000_000; 2], false),
+        (20, [1_000_000; 2], false),
+        (12, [0, 1_000_000], false),
+        (12, [1_000_000, 4_000_001], false),
+    ] {
+        let q = SceneFxaaQuality {
+            kernel: SceneFxaaKernel::Quality {
+                preset,
+                sample_scale_micro,
+            },
+            ..Default::default()
+        };
+        assert_eq!(q.validate().is_ok(), valid);
+    }
 }

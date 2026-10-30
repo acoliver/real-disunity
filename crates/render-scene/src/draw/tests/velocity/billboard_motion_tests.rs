@@ -332,6 +332,48 @@ fn band_error(image: &[u8], reference: &[u8]) -> f64 {
     f64::from(sum) / f64::from(count) / 255.0
 }
 
+/// Where a pixel lies relative to the card in the reference frame.
+#[derive(Clone, Copy)]
+enum Region {
+    /// Background with no card pixel in its 3x3 neighborhood.
+    Far,
+    /// Background touching the card silhouette: the pixels a wrong vector fills with card colour.
+    Ring,
+    /// Pixels the reference shows as card.
+    Card,
+}
+
+/// Mean absolute error of the target (0..1 per channel) and the pixel count, per region.
+fn region_errors(image: &[u8], reference: &[u8]) -> [(f64, u32); 3] {
+    let side = i64::from(TARGET);
+    let pixel = |x: i64, y: i64| usize::try_from((y * side + x) * 4).unwrap();
+    let background = &reference[..4];
+    let card = |x: i64, y: i64| {
+        (0..side).contains(&x)
+            && (0..side).contains(&y)
+            && reference[pixel(x, y)..pixel(x, y) + 4] != *background
+    };
+    let mut sums = [(0_u32, 0_u32); 3];
+    for y in 0..side {
+        for x in 0..side {
+            let touches = (-1..=1).any(|dy| (-1..=1).any(|dx| card(x + dx, y + dy)));
+            let region = match (card(x, y), touches) {
+                (true, _) => Region::Card,
+                (false, true) => Region::Ring,
+                (false, false) => Region::Far,
+            };
+            let index = region as usize;
+            let start = pixel(x, y);
+            let error: u32 = (0..4)
+                .map(|lane| u32::from(image[start + lane].abs_diff(reference[start + lane])))
+                .sum();
+            sums[index].0 += error;
+            sums[index].1 += 1;
+        }
+    }
+    sums.map(|(sum, count)| (f64::from(sum) / f64::from(count.max(1) * 4) / 255.0, count))
+}
+
 fn errors(samples: MsaaSamples) -> (f64, f64) {
     let reference = output(Basis::Reference, samples);
     let error = |basis| band_error(&output(basis, samples), &reference);
@@ -348,14 +390,39 @@ fn a_billboard_under_an_orbiting_camera_resolves_closer_to_the_unjittered_frame(
     );
 }
 
+/// At 4x the unjittered frame is already antialiased, so the camera-only vectors leave
+/// `without` equal to the plain MSAA frame: 16 times the 0.8 px camera motion of the card
+/// zeroes its history weight. The card with the right vector keeps history, which lags the
+/// reference by a fraction of an 8-bit step. The property wrong vectors break is on the
+/// background: a card vector handed to a background pixel keeps history that carries card
+/// colour there. So the background beside and away from the card must be no worse than
+/// `without`, and the card must stay within one 8-bit step.
 #[test]
-fn four_sample_msaa_with_an_orbiting_billboard_does_not_resolve_worse() {
+fn four_sample_msaa_with_an_orbiting_billboard_does_not_bleed_or_lag_beyond_a_step() {
     let context = context();
     if !crate::msaa_tests::supported_samples(&context).contains(&4) {
         return;
     }
     drop(context);
-    let (without, with) = errors(MsaaSamples::X4);
-    println!("orbiting billboard band error at 4x: without {without}, with {with}");
-    assert!(with <= without, "with {with}, without {without} at 4x");
+    let reference = output(Basis::Reference, MsaaSamples::X4);
+    let regions = |basis| region_errors(&output(basis, MsaaSamples::X4), &reference);
+    let (without, with) = (regions(Basis::Current), regions(Basis::Previous));
+    println!("orbiting billboard regions at 4x: without {without:?}, with {with:?}");
+    for region in [Region::Far, Region::Ring] {
+        let index = region as usize;
+        assert!(with[index].1 > 0, "no pixels in region {index}");
+        assert!(
+            with[index].0 <= without[index].0,
+            "region {index}: with {}, without {}",
+            with[index].0,
+            without[index].0
+        );
+    }
+    assert!(with[Region::Card as usize].1 > 0, "no card pixels");
+    let step = 1.0 / 255.0;
+    let card = with[Region::Card as usize].0;
+    assert!(
+        card < step,
+        "card error {card} is not within one 8-bit step {step}"
+    );
 }

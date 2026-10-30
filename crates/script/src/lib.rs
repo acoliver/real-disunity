@@ -31,5 +31,8 @@ pub use modules::{AssetResolver, AssetsApi, WorldApi};
 pub use original::GameScripts;
 pub use patches::{Edit, Overlay, Patch, PatchError, PatchSet, Patched, sha256_hex};
 pub use persist::{LuaSnapshot, Saved, SavedTable, SavedThread, SavedWake};
-pub use threads::{SchedulerNames, ThreadFailure};
+pub use threads::{
+    ClockNative, Fraction, NegativeSleep, NewThread, Order, ResumeValue, SchedulerNames,
+    SchedulerPolicy, ThreadFailure, WaitKind, ZeroSleep,
+};
 pub use world::{EntityHandle, WorldView};

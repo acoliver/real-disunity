@@ -235,6 +235,47 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_canvas_group_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_canvas_group_write(ulong world, ulong handle, DisunityCanvasGroup* value);
         /// <summary>
+        ///  Creates a canvas renderer with the engine's default settings on a live object.
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_create(ulong world, ulong @object, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one CanvasRenderer record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_read(ulong world, ulong handle, DisunityCanvasRenderer* output);
+        /// <summary>
+        ///  Validates every setting before changing the renderer; a rejected write changes nothing.
+        ///  # Safety
+        ///  Value is readable for one CanvasRenderer record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_write(ulong world, ulong handle, DisunityCanvasRenderer* value);
+        /// <summary>
+        ///  Reads one material identity; `pop` is 0 for the materials and 1 for the pop materials. An
+        ///  `index` at or past the count of that list is rejected.
+        ///  # Safety
+        ///  Output is writable for one instance id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_material_read(ulong world, ulong handle, uint pop, uint index, ulong* output);
+        /// <summary>
+        ///  Writes one material identity (0 for none); `pop` and `index` are as for the read.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_material_write(ulong world, ulong handle, uint pop, uint index, ulong instance);
+        /// <summary>
+        ///  Reads the alpha the renderer's element is drawn with: the renderer's alpha times the alpha
+        ///  of the enabled canvas groups above it.
+        ///  # Safety
+        ///  Output is writable for one f32.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_inherited_alpha", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_inherited_alpha(ulong world, ulong handle, float* output);
+        /// <summary>
         ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>
@@ -699,47 +740,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_canvas_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_canvas_write(ulong world, ulong handle, DisunityCanvas* value);
-        /// <summary>
-        ///  # Safety
-        ///  Output is writable for one Canvas record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_canvas_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_canvas_read(ulong world, ulong handle, DisunityCanvas* output);
-        /// <summary>
-        ///  # Safety
-        ///  Bytes are readable for length; null is permitted only for empty text.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_text_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_text_write(ulong world, ulong handle, float size, byte* bytes, uint length);
-        /// <summary>
-        ///  # Safety
-        ///  Buffer is writable for capacity, written and size for one value each.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_text_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_text_read(ulong world, ulong handle, byte* buffer, uint capacity, uint* written, float* size);
-        /// <summary>
-        ///  # Safety
-        ///  Output is writable for one rectangle record. Size and position fields carry resolved bounds.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_ui_rect", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_ui_rect(ulong world, ulong @object, uint width, uint height, DisunityRect* output);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one transform record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_transform_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_transform_read(ulong world, ulong @object, DisunityTransform* output);
-        /// <summary>
-        ///  # Safety
-        ///  `value` points to one readable local transform record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_transform_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_transform_write(ulong world, ulong @object, DisunityTransform* value);
-        /// <summary>
-        ///  # Safety
-        ///  `bytes` spans `length` readable bytes.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_object_text_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_object_text_write(ulong world, ulong @object, uint field, byte* bytes, uint length);
     }
 }

@@ -10,6 +10,8 @@ pub enum UiError {
     InvalidCanvas,
     #[error("invalid CanvasGroup alpha")]
     InvalidCanvasGroup,
+    #[error("invalid CanvasRenderer")]
+    InvalidCanvasRenderer,
     #[error("invalid viewport")]
     InvalidViewport,
     #[error("screen Canvas must be an object root")]

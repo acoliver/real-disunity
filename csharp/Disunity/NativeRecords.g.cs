@@ -92,6 +92,38 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  A canvas renderer's settings; booleans are 0 or 1. `mesh`, `texture` and `alpha_texture` are
+    ///  managed instance ids (0 for none). The clip rectangle is x, y, width, height and only counts
+    ///  when `has_rect_clipping` is 1. The materials have their own calls. A write rejects a NaN
+    ///  alpha, a count above 8 or a boolean above 1, leaving the renderer unchanged, and clears the
+    ///  material slots past the new counts.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityCanvasRenderer
+    {
+        public ulong mesh;
+        public ulong texture;
+        public ulong alpha_texture;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public float alpha;
+        public uint cull;
+        public uint cull_transparent_mesh;
+        public uint has_pop_instruction;
+        public uint has_rect_clipping;
+        public float clip_x;
+        public float clip_y;
+        public float clip_width;
+        public float clip_height;
+        public float softness_x;
+        public float softness_y;
+        public uint material_count;
+        public uint pop_material_count;
+    }
+
+    /// <summary>
     ///  A light's settings. `kind` uses the managed `LightType` values (0 Spot, 1 Directional,
     ///  2 Point, 3 Rectangle, 4 Disc, 5 Pyramid, 6 Box, 7 Tube), `shadows` is 0 None, 1 Hard or 2 Soft,
     ///  and `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime. The masks have one bit per layer,

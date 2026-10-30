@@ -82,7 +82,7 @@ public static partial class DisunityHost
         for (var current = type; current != null && current != typeof(MonoBehaviour); current = current.BaseType)
             foreach (var field in current.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 if (!field.IsStatic && !field.IsInitOnly && !field.IsDefined(typeof(NonSerializedAttribute))
-                    && (field.IsPublic || field.IsDefined(typeof(SerializeField)))) yield return field;
+                    && (field.IsPublic || field.IsDefined(typeof(SerializeField)) || field.IsDefined(typeof(SerializeReference)))) yield return field;
     }
 
     private static object? CopyField(object? value, Dictionary<object, object> remap, Dictionary<object, object> copied)
@@ -105,7 +105,7 @@ public static partial class DisunityHost
         // An engine struct whose state is all private, such as LayerMask, is plain data that boxing already copied.
         if (type.IsValueType && fields.Length == 0 && type.Assembly == typeof(EngineObject).Assembly) return value;
         var isList = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>);
-        if (!isList && (fields.Length == 0 || value is IEnumerable or Delegate))
+        if (!isList && (fields.Length == 0 || value is Delegate))
             throw new NotSupportedException($"unsupported serialized field type {type}");
         object clone;
         try { clone = SerializableInstance.Create(type); }
@@ -114,7 +114,16 @@ public static partial class DisunityHost
         if (isList)
             foreach (var item in (IList)value) ((IList)clone).Add(CopyField(item, remap, copied));
         else
-            foreach (var field in fields) field.SetValue(clone, CopyField(field.GetValue(value), remap, copied));
+            CopyFields(value, clone, fields, remap, copied);
         return clone;
+    }
+
+    /// <summary>Copies the serialized fields as a serialize and deserialize would: the source prepares its
+    /// fields first, and the copy completes itself once they are set.</summary>
+    private static void CopyFields(object source, object clone, FieldInfo[] fields, Dictionary<object, object> remap, Dictionary<object, object> copied)
+    {
+        (source as ISerializationCallbackReceiver)?.OnBeforeSerialize();
+        foreach (var field in fields) field.SetValue(clone, CopyField(field.GetValue(source), remap, copied));
+        (clone as ISerializationCallbackReceiver)?.OnAfterDeserialize();
     }
 }

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -12,6 +13,18 @@ namespace Disunity.Hosting;
 internal static class SerializableInstance
 {
     private const BindingFlags AnyInstance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+    /// <summary>
+    /// Whether a value of the type is loaded and copied by its serialized fields: a <c>[Serializable]</c>
+    /// type that is not a <c>UnityEngine.Object</c> or a delegate. Of the collections only arrays and
+    /// <c>List&lt;T&gt;</c> are serialized as sequences; any other collection type is serialized by its own
+    /// serialized fields, as a class deriving from <c>Dictionary</c> with key and value lists is, and a
+    /// collection with none cannot be loaded.
+    /// </summary>
+    public static bool IsSerializedClass(Type type) =>
+        type.IsDefined(typeof(SerializableAttribute)) && !typeof(UnityEngine.Object).IsAssignableFrom(type)
+        && !typeof(Delegate).IsAssignableFrom(type)
+        && (!typeof(IEnumerable).IsAssignableFrom(type) || DisunityHost.SerializedFields(type).Any());
 
     public static object Create(Type type) => NeedsNoConstructor(type)
         ? RuntimeHelpers.GetUninitializedObject(type)

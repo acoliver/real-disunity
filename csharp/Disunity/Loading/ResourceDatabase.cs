@@ -108,12 +108,13 @@ internal sealed partial class ResourceDatabase
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
 
+    private Assembly ResolveAssembly(string name) => name == "UnityEngine.CoreModule" ? typeof(Object).Assembly : _assemblies(name);
+
     private Type ScriptType(JsonElement asset)
     {
         var assembly = asset.Str("assembly");
         var name = asset.Str("class");
-        var source = assembly == "UnityEngine.CoreModule" ? typeof(Object).Assembly : _assemblies(assembly);
-        var type = source.GetType(name.Replace('/', '+'), throwOnError: false);
+        var type = ResolveAssembly(assembly).GetType(name.Replace('/', '+'), throwOnError: false);
         if (type is null || !typeof(ScriptableObject).IsAssignableFrom(type) || type.IsAbstract)
             throw new InvalidDataException($"resource {asset.Str("name")}: {assembly} has no ScriptableObject class {name}");
         return type;
@@ -192,7 +193,7 @@ internal sealed partial class ResourceDatabase
         _built[index] = instance;
         _binding.Add((index, instance));
         using var fields = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(_directory, asset.Str("fields"))));
-        new FieldBinder(Resolve).Bind(instance, fields.RootElement, $"resource {instance.name}");
+        new FieldBinder(Resolve, assemblies: ResolveAssembly).Bind(instance, fields.RootElement, $"resource {instance.name}");
         return instance;
     }
 

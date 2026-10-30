@@ -124,6 +124,19 @@ pub struct WaitKind {
     pub on_resume: Option<String>,
 }
 
+/// A wake native that resumes only threads in one kind of wait, such as `Wakeup` for
+/// `WaitWakeup` threads and the message wake for `WaitMsg` threads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WakeNative {
+    /// `wake(thread, ...)` makes a thread in the wait due now and resumes it with the values.
+    /// It returns whether the thread was in that wait and not already woken; for a thread in
+    /// another wait or sleep, or a value that is not a scheduler thread, it does nothing and
+    /// returns false.
+    pub native: String,
+    /// The `native` of a wait in [`SchedulerPolicy::waits`].
+    pub wait: String,
+}
+
 /// The behaviour of a game's scheduler. [`Default`] is the engine's own.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SchedulerPolicy {
@@ -162,6 +175,8 @@ pub struct SchedulerPolicy {
     /// `wake(thread, ...)` makes a thread in a wait due now and resumes it with the values.
     /// It returns whether the thread was in a wait.
     pub wake: Option<String>,
+    /// Natives like `wake` that resume only threads in the wait they name.
+    pub wake_kinds: Vec<WakeNative>,
 }
 
 impl Default for SchedulerPolicy {
@@ -184,6 +199,7 @@ impl Default for SchedulerPolicy {
             interrupt: None,
             waits: Vec::new(),
             wake: None,
+            wake_kinds: Vec::new(),
         }
     }
 }

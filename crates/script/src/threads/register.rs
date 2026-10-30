@@ -91,6 +91,7 @@ impl GameScripts {
             out.push((name.clone(), natives::wake(lua, shared)?));
         }
         out.extend(thread_natives(lua, shared, policy)?);
+        out.extend(kind_wakes(lua, shared, policy)?);
         let text = wait_text(policy);
         for (kind, wait) in policy.waits.iter().enumerate() {
             let kind = i64::try_from(kind).map_err(|_| refused("too many wait kinds"))?;
@@ -175,6 +176,26 @@ fn thread_natives(
         out.push((name.clone(), natives::interrupt(lua, shared)?));
     }
     Ok(out)
+}
+
+/// The wake natives that each resume one kind of wait.
+fn kind_wakes(
+    lua: &Lua,
+    shared: &Shared,
+    policy: &SchedulerPolicy,
+) -> Result<Vec<(String, Function)>, ScriptError> {
+    policy
+        .wake_kinds
+        .iter()
+        .map(|wake| {
+            let kind = policy
+                .waits
+                .iter()
+                .position(|wait| wait.native == wake.wait)
+                .ok_or_else(|| refused(&format!("no wait named {}", wake.wait)))?;
+            Ok((wake.native.clone(), natives::wake_kind(lua, shared, kind)?))
+        })
+        .collect()
 }
 
 fn refused(message: &str) -> ScriptError {

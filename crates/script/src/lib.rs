@@ -41,6 +41,6 @@ pub use persist::{
 pub use threads::{
     AdoptWait, Adoption, ClockNative, FlagNatives, FlaggedSpawn, Fraction, NegativeSleep,
     NewThread, Order, PersistedThread, ResumeValue, SchedulerNames, SchedulerPolicy, ThreadFailure,
-    WaitKind, ZeroSleep,
+    ThreadInfo, ThreadWait, WaitKind, WakeNative, ZeroSleep,
 };
 pub use world::{EntityHandle, WorldView};

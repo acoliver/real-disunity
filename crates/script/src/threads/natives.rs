@@ -45,6 +45,15 @@ pub(crate) fn wake(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
     })
 }
 
+/// `wake(thread, ...)` for the wait kind at index `kind`: a thread in another kind of wait, one
+/// already woken and any other value is left alone and the native returns false.
+pub(crate) fn wake_kind(lua: &Lua, shared: &Shared, kind: usize) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, (thread, values): (Value, MultiValue)| {
+        Ok(thread_of(&thread).is_some_and(|thread| lock(&shared).wake_kind(thread, kind, values)))
+    })
+}
+
 pub(crate) fn kill(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
     let shared = Arc::clone(shared);
     lua.create_function(move |_, thread: Thread| {

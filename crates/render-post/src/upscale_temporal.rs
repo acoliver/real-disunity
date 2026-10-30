@@ -5,6 +5,28 @@
 use crate::{FrameConfig, HdrPostSettings, PostError, ProjectionJitter, UpscaleMode};
 
 impl HdrPostSettings {
+    /// The extent of the colour the post chain carries: the output when TAA reconstructs onto the
+    /// output grid, the render extent for every other mode.
+    pub(crate) fn post_extent(self, config: FrameConfig) -> [u32; 2] {
+        if self.reconstructs_temporally(config) {
+            config.output_extent()
+        } else {
+            config.size
+        }
+    }
+
+    /// RCAS after temporal reconstruction. It runs on the display-linear image at the output
+    /// extent like the native RCAS, because there is no spatial upscale to fold it into.
+    pub(crate) fn temporal_rcas(self, config: FrameConfig) -> Option<crate::NativeRcasSettings> {
+        self.upscale
+            .filter(|_| self.reconstructs_temporally(config))
+            .and_then(|upscale| upscale.sharpness)
+            .map(|stops| crate::NativeRcasSettings {
+                stops,
+                domain: crate::RcasDomain::DisplayLinear,
+            })
+    }
+
     /// Whether TAA reconstructs the output grid itself: `UpscaleMode::Temporal` at a render
     /// extent that differs from the output. Every other configuration, including Temporal at
     /// equal extents (the native TAA), keeps the render grid for the whole post chain.

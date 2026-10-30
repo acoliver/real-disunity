@@ -9,6 +9,7 @@ pub(crate) struct Filters<'a> {
 /// The stages that run on the display-referred image after tone mapping.
 #[derive(Clone, Copy)]
 struct LaterStages {
+    extent: [u32; 2],
     resolve: crate::PostResolve,
     sharpen: Option<crate::CasSettings>,
     upscale: Option<crate::UpscaleSettings>,
@@ -52,7 +53,9 @@ impl<'a> Filters<'a> {
             targets.config().size != targets.config().output_extent()
                 && !settings.reconstructs_temporally(targets.config())
         });
-        let native_rcas = settings.native_rcas.filter(|_| upscale.is_none());
+        let native_rcas = settings
+            .temporal_rcas(targets.config())
+            .or_else(|| settings.native_rcas.filter(|_| upscale.is_none()));
         let resolved = resolve.schedules_pass();
         let display_format = if native_rcas.is_some() && !resolved && settings.sharpen.is_none() {
             wgpu::TextureFormat::Rgba32Float
@@ -61,7 +64,7 @@ impl<'a> Filters<'a> {
         };
         let ldr =
             (resolved || settings.sharpen.is_some() || upscale.is_some() || native_rcas.is_some())
-                .then(|| self.display_texture(targets.config().size, display_format));
+                .then(|| self.display_texture(scene.extent, display_format));
         self.pass(FilterPass {
             entry: "tone",
             level: 0,
@@ -75,6 +78,7 @@ impl<'a> Filters<'a> {
                 .map_or(StageTarget::Output, |v| StageTarget::Texture(v.clone())),
         });
         let later = LaterStages {
+            extent: scene.extent,
             resolve,
             sharpen: settings.sharpen,
             upscale,
@@ -91,7 +95,7 @@ impl<'a> Filters<'a> {
         ldr: Option<&wgpu::TextureView>,
         format: wgpu::TextureFormat,
     ) {
-        let size = targets.config().size;
+        let size = later.extent;
         let resolving = later.resolve.schedules_pass();
         let sharpening = later.sharpen.is_some();
         let final_filter = later.upscale.is_some() || later.native_rcas.is_some();
@@ -235,7 +239,7 @@ impl<'a> Filters<'a> {
     }
     fn bloom(&mut self, scene: &Scene<'_>, b: crate::Bloom) -> wgpu::TextureView {
         let mut levels = Vec::new();
-        let mut size = scene.targets.config().size;
+        let mut size = scene.extent;
         let first = self.texture(size);
         self.filter(
             ("prefilter", 0),

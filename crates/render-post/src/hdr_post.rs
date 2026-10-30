@@ -52,12 +52,12 @@ impl HdrPostSettings {
                 "reduced HDR extent requires an upscale mode",
             ));
         }
-        // Gaussian levels run at the render extent and must not be smaller than 1x1.
+        // Gaussian levels run at the carried colour extent and must not be smaller than 1x1.
         if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
             (self.bloom, self.bloom_kernel)
         {
             crate::gaussian_extents_with_terminal(
-                config.size,
+                self.post_extent(config),
                 bloom.levels,
                 bloom.policies.terminal,
             )?;
@@ -233,7 +233,7 @@ impl HdrPost {
     ) {
         crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block);
     }
-    /// Uploads the temporal block of `slot`; `None` uploads zeros, which reads as no history.
+    /// Uploads the temporal block of `slot`.
     ///
     /// # Errors
     ///
@@ -242,7 +242,7 @@ impl HdrPost {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
-        block: Option<&crate::TemporalBlock>,
+        block: &crate::TemporalBlock,
     ) -> Result<(), PostError> {
         crate::hdr_taa::upload_temporal(&self.device, encoder, &self.taa[slot], block)
     }
@@ -303,6 +303,7 @@ impl HdrPost {
         let scene = crate::hdr_taa::Scene {
             targets,
             color: &color,
+            extent: self.settings.post_extent(targets.config()),
         };
         if let Some(a) = self.settings.adaptive {
             self.meter(&scene, slot, a, &mut set);
@@ -334,7 +335,7 @@ impl HdrPost {
         set: &mut StageSet,
     ) {
         let device = &self.device;
-        let size = scene.targets.config().size;
+        let size = scene.extent;
         let bins = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("slot luminance histogram"),
             size: 1024,

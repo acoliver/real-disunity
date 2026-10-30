@@ -155,8 +155,7 @@ impl ToneMapOutput {
             post.prepare_taa(encoder, slot, block);
         }
     }
-    /// Uploads the temporal block of `slot`; `None` uploads zeros, so the reconstruction ignores
-    /// history. Without effects there is nothing to upload to.
+    /// Uploads the temporal block of `slot`. Without effects there is nothing to upload to.
     ///
     /// # Errors
     ///
@@ -165,7 +164,7 @@ impl ToneMapOutput {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
-        block: Option<&crate::TemporalBlock>,
+        block: &crate::TemporalBlock,
     ) -> Result<(), PostError> {
         self.post
             .as_ref()

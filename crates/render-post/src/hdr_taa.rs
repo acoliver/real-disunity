@@ -92,10 +92,12 @@ impl SharedHistory {
     }
 }
 
-/// The scene color the HDR path reads, and the frame it belongs to.
+/// The scene color the HDR path reads, and the frame it belongs to. `extent` is the extent of
+/// `color`: the render extent, or the output extent after temporal reconstruction.
 pub(crate) struct Scene<'a> {
     pub targets: &'a crate::FrameTargets,
     pub color: &'a wgpu::TextureView,
+    pub extent: [u32; 2],
 }
 
 /// A slot's uniform buffer, zeroed: no history until the first upload.
@@ -212,7 +214,8 @@ fn block_size() -> wgpu::BufferAddress {
     wgpu::BufferAddress::try_from(TAA_UNIFORM_BYTES).expect("the block size fits a buffer address")
 }
 
-/// Copies `block` (zeros for `None`) into the head of `destination`, a slot's uniform buffer.
+/// Copies `block` into the head of `destination`, a slot's uniform buffer. A temporal block is
+/// always supplied: its extents divide, so an all-zero block is not a "no history" block.
 ///
 /// # Errors
 ///
@@ -222,12 +225,11 @@ pub(crate) fn upload_temporal(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Buffer,
-    block: Option<&TemporalBlock>,
+    block: &TemporalBlock,
 ) -> Result<(), crate::PostError> {
-    let bytes = block.map(|block| block.to_bytes()).transpose()?;
     let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("immutable temporal block"),
-        contents: &bytes.unwrap_or([0; crate::TEMPORAL_BLOCK_BYTES]),
+        contents: &block.to_bytes()?,
         usage: wgpu::BufferUsages::COPY_SRC,
     });
     let size = wgpu::BufferAddress::try_from(crate::TEMPORAL_BLOCK_BYTES)

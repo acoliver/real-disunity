@@ -87,6 +87,8 @@ mod history_key_tests;
 mod jitter;
 #[cfg(test)]
 mod jitter_tests;
+#[cfg(test)]
+mod post_extent_allocation_tests;
 mod post_filters;
 mod smaa;
 mod smaa_gpu;

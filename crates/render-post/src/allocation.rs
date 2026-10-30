@@ -37,18 +37,18 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     }
     gaussian_allocations(&mut set, config, &settings);
     tent_allocations(&mut set, config, &settings);
-    let upscale = settings
-        .upscale
-        .filter(|_| config.size != config.output_extent());
+    let upscale = settings.upscale.filter(|_| {
+        config.size != config.output_extent() && !settings.reconstructs_temporally(config)
+    });
     display_input_allocations(&mut set, config, &settings);
     taa_allocations(&mut set, config, &settings);
     if settings.resolve.active_cmaa2().is_some() {
-        crate::cmaa2_gpu::allocations(&mut set, config.size);
+        crate::cmaa2_gpu::allocations(&mut set, settings.post_extent(config));
     }
     if settings.sharpen.is_some() {
         // Sharpening is one more stage between tone mapping and the output, so it adds one
         // intermediate: the stage before it can no longer write the output.
-        let [w, h] = config.size;
+        let [w, h] = settings.post_extent(config);
         set.texture(
             "CAS input",
             [w, h, 1],
@@ -99,8 +99,10 @@ fn display_input_allocations(
     settings: &HdrPostSettings,
 ) {
     let fxaa = settings.resolve.active_fxaa().is_some();
-    let upscale = settings.upscale.is_some() && config.size != config.output_extent();
-    let [w, h] = config.size;
+    let upscale = settings.upscale.is_some()
+        && config.size != config.output_extent()
+        && !settings.reconstructs_temporally(config);
+    let [w, h] = settings.post_extent(config);
     if fxaa {
         set.texture(
             "display-linear post input",
@@ -119,8 +121,9 @@ fn display_input_allocations(
             3,
         );
     }
-    if settings.native_rcas.is_some() && config.size == config.output_extent() {
-        let [w, h] = config.size;
+    let temporal_rcas = settings.temporal_rcas(config).is_some();
+    if temporal_rcas || (settings.native_rcas.is_some() && config.size == config.output_extent()) {
+        let [w, h] = settings.post_extent(config);
         set.texture(
             "native RCAS input",
             [w, h, 1],
@@ -135,7 +138,7 @@ fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &Hdr
         .bloom
         .filter(|_| matches!(settings.bloom_kernel, crate::BloomKernel::Tent))
     {
-        let mut sizes = vec![config.size];
+        let mut sizes = vec![settings.post_extent(config)];
         while sizes.len() < usize::try_from(bloom.levels).unwrap()
             && *sizes.last().unwrap() != [1, 1]
         {
@@ -165,7 +168,7 @@ fn gaussian_allocations(set: &mut AllocationSet, config: FrameConfig, settings: 
     if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
         (settings.bloom, settings.bloom_kernel)
         && let Ok(extents) = crate::gaussian_extents_with_terminal(
-            config.size,
+            settings.post_extent(config),
             bloom.levels,
             bloom.policies.terminal,
         )

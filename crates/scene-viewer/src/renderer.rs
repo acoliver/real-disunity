@@ -535,7 +535,7 @@ pub(crate) mod retained_tests;
 mod hdr_tests;
 
 #[cfg(test)]
-mod sdsm_tests;
+pub(crate) mod sdsm_tests;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Startup {

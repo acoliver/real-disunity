@@ -78,7 +78,9 @@ impl FrameRenderer {
                 crate::water::snapshots::Snapshots::new(device, self.targets().config())
             }));
         }
+        let velocity = self.targets().velocity_texture().cloned();
         let mut textures = Vec::new();
+        textures.extend(velocity.as_ref());
         if let Some(screen) = &self.ssao {
             textures.extend(screen.passes.textures());
             textures.extend([&screen.depth, &screen.normals]);

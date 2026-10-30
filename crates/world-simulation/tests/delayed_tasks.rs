@@ -54,7 +54,7 @@ fn the_receiver_gets_update_each_frame_between_update_and_late_update() {
         let tasks: Vec<_> = calls
             .iter()
             .enumerate()
-            .filter(|(_, call)| call.0 == 77)
+            .filter(|(_, call)| call.0 == 77 && call.1 == ScriptMessage::Update)
             .collect();
         assert_eq!(tasks.len(), 1, "{calls:?}");
         let (at, &(_, message)) = tasks[0];
@@ -66,10 +66,34 @@ fn the_receiver_gets_update_each_frame_between_update_and_late_update() {
 }
 
 #[test]
+fn the_receiver_gets_one_late_update_after_the_scripts_late_update_each_frame() {
+    let mut world = world_with_script();
+    frame(&mut world);
+    world.set_delayed_tasks(Some(77)).unwrap();
+    for _ in 0..2 {
+        let calls = frame(&mut world);
+        let late = calls
+            .iter()
+            .position(|&call| call == (0, ScriptMessage::LateUpdate))
+            .expect("LateUpdate runs");
+        let will_render: Vec<_> = calls
+            .iter()
+            .enumerate()
+            .filter(|(_, call)| call.0 == 77 && call.1 == ScriptMessage::LateUpdate)
+            .collect();
+        assert_eq!(will_render.len(), 1, "{calls:?}");
+        assert!(late < will_render[0].0, "{calls:?}");
+    }
+}
+
+#[test]
 fn the_receiver_runs_in_a_world_without_scripts_and_only_while_idle() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     world.set_delayed_tasks(Some(5)).unwrap();
-    assert_eq!(frame(&mut world), [(5, ScriptMessage::Update)]);
+    assert_eq!(
+        frame(&mut world),
+        [(5, ScriptMessage::Update), (5, ScriptMessage::LateUpdate)]
+    );
     let mut scripted = world_with_script();
     let mut work = scripted.advance(TimeSpan::new(1, 100).unwrap()).unwrap();
     let Advance::Callback(callback) = work else {
@@ -122,7 +146,7 @@ fn a_failed_delayed_tasks_callback_tears_the_world_down_before_late_update() {
                 calls.push(c.message);
                 world.resume(c.ticket, CallbackOutcome::Returned)
             }
-            Ok(Advance::AssetCallback(c)) => {
+            Ok(Advance::AssetCallback(c)) if c.message == ScriptMessage::Update => {
                 world.resume(c.ticket, CallbackOutcome::Failed(failure.clone()))
             }
             Err(WorldError::CallbackFailed(error)) => {

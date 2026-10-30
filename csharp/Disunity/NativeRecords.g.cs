@@ -442,6 +442,11 @@ namespace Disunity.Native
         public float orthographic_size;
         public float plane_distance;
         public int sorting_order;
+        public int sorting_layer;
+        public uint override_sorting;
+        public uint target_display;
+        public uint additional_shader_channels;
+        public float reference_pixels_per_unit;
     }
 
     [StructLayout(LayoutKind.Sequential)]

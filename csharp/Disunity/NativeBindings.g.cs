@@ -123,8 +123,9 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_asset_create(ulong world, ulong identity);
         /// <summary>
         ///  Makes `identity` receive message 14 once a frame, after `Update` coroutines, where
-        ///  Unity runs work posted to the main thread's synchronization context. `enabled` 0 stops
-        ///  it.
+        ///  Unity runs work posted to the main thread's synchronization context, and message 15 once
+        ///  a frame after the scripts' `LateUpdate`, where the canvas events are raised. `enabled` 0
+        ///  stops both.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_world_delayed_tasks", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_world_delayed_tasks(ulong world, ulong identity, uint enabled);

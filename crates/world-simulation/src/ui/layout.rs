@@ -185,7 +185,9 @@ impl World {
                 matrix = self.screen_matrix(c.mode, pivot, viewport, factor, canvases)?;
             }
         }
-        if !size.is_finite() || size.min_element() < 0. || !matrix.is_finite() {
+        // A layout group whose padding exceeds its own size gives its children negative sizes, which
+        // scripts read back from the rectangle, so a negative size is kept; only non-finite values fail.
+        if !size.is_finite() || !matrix.is_finite() {
             return Err(UiError::InvalidRect.into());
         }
         Ok(Resolved {

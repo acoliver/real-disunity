@@ -89,6 +89,7 @@ public static partial class DisunityHost
         foreach (var info in LoadedScenes.ToArray()) SceneManager.RaiseUnloaded(new Scene { Handle = info.Handle });
         LoadedScenes.Clear();
         SceneManager.ClearHandlers();
+        Canvas.ClearHandlers();
         ResetBuildScenes();
     }
 }

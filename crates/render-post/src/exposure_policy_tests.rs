@@ -51,6 +51,10 @@ fn gpu_output_scale_precedes_bloom_addition() {
     let observed = bytes[0];
     let raw = buffer(&device, &queue, c.factory().exposure_buffer(0).unwrap());
     let exposure = f32::from_le_bytes(raw[..4].try_into().unwrap());
+    assert_output_scale_code(observed, exposure);
+}
+
+fn assert_output_scale_code(observed: u8, exposure: f32) {
     let linear = 0.25 * f64::from(exposure) * 4.0 + 0.125;
     let code = |l: f64| crate::fxaa_tolerance_tests::encoded_steps(l / (1.0 + l), true);
     // The bloom term enters the sum after it passed at most three `Rgba16Float` stores (prefilter,

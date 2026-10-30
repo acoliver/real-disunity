@@ -371,6 +371,10 @@ fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
         .unwrap()
         .read(&device, &crate::test_authority(&queue), &output)
         .unwrap();
+    assert_resized_output(&pixels, radiance);
+}
+
+fn assert_resized_output(pixels: &[u8], radiance: f64) {
     // The cleared radiance 0.75 is a dyadic half value, stored and resolved exactly. The shader
     // adds the exposure product (1) and one division (`v / (1 + v)`, 2.5 ulp), a few operations
     // of `2^-24` on a display value at most 1: inside the arithmetic term of `OUTPUT_STEPS`

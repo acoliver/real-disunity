@@ -112,6 +112,9 @@ impl World {
         {
             object.mesh_instance = None;
         }
+        if let Some(object) = self.objects.get_mut(owner.0) {
+            object.components.retain(|owned| *owned != handle);
+        }
         self.lifecycle.scripts.remove(&handle);
         self.lifetime.components.remove(&handle);
         self.components.unwind_insert(handle.0);

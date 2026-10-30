@@ -48,6 +48,11 @@ pub(crate) struct Object {
     layer: u8,
     pub(crate) active: bool,
     pub(crate) parent: Option<ObjectHandle>,
+    /// Live objects whose `parent` is this object, kept equal to a scan of all objects.
+    /// Handle order is slot order within a world, which is the order `children` reports.
+    pub(crate) children: std::collections::BTreeSet<ObjectHandle>,
+    /// Every stored component owned by this object, including the transform.
+    pub(crate) components: Vec<ComponentHandle>,
     transform: ComponentHandle,
     pub(crate) renderer: Option<ComponentHandle>,
     pub(crate) mesh_instance: Option<ComponentHandle>,
@@ -142,6 +147,8 @@ impl World {
                 layer: desc.layer,
                 active: desc.active,
                 parent: None,
+                children: std::collections::BTreeSet::new(),
+                components: vec![transform],
                 transform,
                 renderer: None,
                 mesh_instance: None,
@@ -232,33 +239,30 @@ impl World {
             | ComponentDesc::UniversalAdditionalCameraData(_)
             | ComponentDesc::AudioListener { .. }
             | ComponentDesc::GUILayer { .. }
-            | ComponentDesc::FlareLayer { .. } => {
-                self.components.iter(self.identity).any(|(_, c)| {
-                    c.object == object
-                        && !self.lifetime.components.contains(&c.handle)
-                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
-                })
-            }
+            | ComponentDesc::FlareLayer { .. } => self.owns_unretired(owner, desc),
             #[cfg(feature = "ui")]
             ComponentDesc::RectTransform(_)
             | ComponentDesc::Canvas(_)
             | ComponentDesc::CanvasGroup(_)
             | ComponentDesc::CanvasRenderer(_)
-            | ComponentDesc::Text(_) => self.components.iter(self.identity).any(|(_, c)| {
-                c.object == object
-                    && !self.lifetime.components.contains(&c.handle)
-                    && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
-            }),
+            | ComponentDesc::Text(_) => self.owns_unretired(owner, desc),
             ComponentDesc::Renderer { .. } => owner.renderer.is_some(),
             ComponentDesc::MeshInstance(_) => owner.mesh_instance.is_some(),
             ComponentDesc::ShadowCaster2d
             | ComponentDesc::Script { .. }
             | ComponentDesc::Collider2d(_) => false,
-            ComponentDesc::Body2d(_) => self.components.iter(self.identity).any(|(_, c)| {
-                c.object == object
-                    && !self.lifetime.components.contains(&c.handle)
-                    && matches!(c.desc, ComponentDesc::Body2d(_))
-            }),
+            ComponentDesc::Body2d(_) => self.owns_unretired(owner, desc),
+        })
+    }
+
+    /// Whether `owner` has a component of `desc`'s kind that is not already retiring. Walks the
+    /// owner's own components, so the cost does not depend on the size of the world.
+    fn owns_unretired(&self, owner: &Object, desc: &ComponentDesc) -> bool {
+        owner.components.iter().any(|handle| {
+            !self.lifetime.components.contains(handle)
+                && self.components.get(handle.0).is_some_and(|c| {
+                    std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
+                })
         })
     }
 
@@ -290,6 +294,11 @@ impl World {
                 .mesh_instance = Some(handle);
         }
         let script = matches!(desc, ComponentDesc::Script { .. });
+        self.objects
+            .get_mut(object.0)
+            .expect("validated object")
+            .components
+            .push(handle);
         self.components.insert(
             handle.0,
             ComponentSnapshot {

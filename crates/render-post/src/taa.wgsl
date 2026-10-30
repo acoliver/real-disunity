@@ -158,9 +158,10 @@ fn linear_depth(z: f32) -> f32 {
 // The history uv for the pixel and whether it is usable: the motion of the
 // closest-depth neighbor, applied at the pixel centre. The camera motion comes from depth, the
 // object motion from the velocity of that same texel (Karis dilation), so a thin moving edge
-// carries its foreground's vector to the pixels around it. A multisampled frame reads the
-// residual of the pixel itself: its samples already resolve the edge, and the neighbor's
-// residual would carry a moving object's history onto the background beside it.
+// carries its foreground's vector to the pixels around it. A multisampled frame takes both the
+// depth and the residual from the pixel itself, with no dilation: its samples already resolve
+// the edge, and a neighbor's vector would carry a moving object's history onto the background
+// beside it.
 fn history_uv(p: vec2<i32>, size: vec2<i32>) -> Lookup {
     let size_f = vec2<f32>(size);
     let q = select(closest(p, size), clamp(p, vec2<i32>(0), size - 1), SAMPLES > 1);

@@ -299,9 +299,9 @@ impl Frame<'_> {
     /// unjittered NDC (the depth texel was rasterised `jitter` pixels off its centre) and its
     /// depth go through the reprojection matrix, and the uv displacement is applied at the
     /// pixel centre, plus that texel's object-motion residual (Karis dilation). A multisampled frame
-    /// takes the residual of the pixel itself: its coverage samples already resolve the edge, and
-    /// the neighbor's residual would drag a background pixel next to a moving object to the
-    /// object's history.
+    /// takes both the depth and the residual from the pixel itself, with no dilation: its coverage
+    /// samples already resolve the edge, and a neighbor's vector would drag a background pixel
+    /// next to a moving object to the object's history.
     fn history_uv(&self, at: [i32; 2]) -> Option<Lookup> {
         let q = if self.samples > 1 {
             at

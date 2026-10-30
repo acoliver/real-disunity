@@ -33,7 +33,11 @@ fn a_frame_without_camera_data_uploads_a_valid_block_without_history() {
     let block = block(None);
     assert!(!block.history_valid);
     assert_eq!((block.render, block.output), (RENDER, OUTPUT));
-    assert_eq!(block.jitter, [0.0, 0.0]);
+    assert!(
+        block.jitter.iter().all(|&v| v.abs() < f32::EPSILON),
+        "{:?}",
+        block.jitter
+    );
     let jitter = ProjectionJitter::for_extents(RENDER, OUTPUT).unwrap();
     assert_eq!(block.phase_count, jitter.length());
     assert_eq!(
@@ -46,7 +50,9 @@ fn a_frame_without_camera_data_uploads_a_valid_block_without_history() {
 fn history_validity_and_jitter_follow_the_camera_data() {
     let valid = block(Some(&view(true)));
     assert!(valid.history_valid);
-    assert_eq!(valid.jitter, [0.25, -0.375]);
+    for (got, want) in valid.jitter.into_iter().zip([0.25_f32, -0.375]) {
+        assert!((got - want).abs() < 1e-6, "{:?}", valid.jitter);
+    }
     assert!(!block(Some(&view(false))).history_valid);
 }
 

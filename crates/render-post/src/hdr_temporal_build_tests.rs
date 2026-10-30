@@ -162,7 +162,7 @@ fn a_temporal_block_reaches_the_slot_uniform_buffer() {
 
 /// A factory around `HdrPost` that does not apply the public "not yet scheduled" gate, so the
 /// built chain can run. Only test code can construct it.
-struct BelowTheGate(HdrPost);
+pub(crate) struct BelowTheGate(pub(crate) HdrPost);
 impl crate::StageFactory for BelowTheGate {
     fn validate_config(&self, _: &wgpu::Device, _: FrameConfig) -> Result<(), crate::PostError> {
         Ok(())

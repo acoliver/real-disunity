@@ -81,6 +81,8 @@ mod fxaa;
 mod hdr_taa;
 #[cfg(test)]
 mod hdr_temporal_build_tests;
+#[cfg(test)]
+mod hdr_temporal_reset_tests;
 mod history_key;
 #[cfg(test)]
 mod history_key_tests;

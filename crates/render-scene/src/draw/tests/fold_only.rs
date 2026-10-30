@@ -40,11 +40,21 @@ fn fold_only_preserves_surface_channels_at_local_heights_and_raised_placements()
         let first = pass_color(&context, &gpu, &layouts, &forward, "fs_opaque");
         let second = pass_color(&context, &gpu, &layouts, &metadata, "fs_opaque");
         let center = (32 * TARGET as usize + 32) * 4;
-        assert_eq!(&first[center..center + 4], &second[center..center + 4]);
-        assert_eq!(
+        // Forward and metadata shaders are separate compiled code for the same ideal value.
+        worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
             &first[center..center + 4],
-            &[170, 170, 124, 255],
-            "height={height}"
+            &second[center..center + 4],
+            &format!("height={height} forward versus metadata"),
         );
+        // White albedo and roughness 1 give 0.2 + 0.202, metalness 0 gives 0.202.
+        for (channel, linear) in [0.402, 0.402, 0.202].into_iter().enumerate() {
+            worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+                first[center + channel],
+                worldrunner_render_gpu::tolerance_test_support::encoded_steps(linear, true),
+                0.0,
+                &format!("height={height}, channel {channel}"),
+            );
+        }
+        assert_eq!(first[center + 3], 255, "height={height}, alpha");
     }
 }

@@ -259,13 +259,16 @@ fn fitted_normals_match_baked_geometry_in_shading_and_normal_metadata() {
         eye_millimeters: [0, -10_000, 4000],
         target_millimeters: [0, 0, 3000],
     });
-    assert_eq!(
-        render_frame(&context, &fitted, &frame),
-        render_frame(&context, &baked, &frame)
+    // The fitted normal is computed in the shader and the baked one is stored, so the renders hold
+    // the same ideal value and may round one code apart.
+    worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+        &render_frame(&context, &fitted, &frame),
+        &render_frame(&context, &baked, &frame),
+        "fitted versus baked shading",
     );
     let sources = geometry_sources();
     for source in [&sources[1], &sources[2]] {
-        let mut reference = None;
+        let mut reference: Option<Vec<u8>> = None;
         for scene in [&fitted, &baked] {
             let gpu =
                 SceneGpu::upload(context.device(), context.submission(), scene, &layouts).unwrap();
@@ -273,7 +276,11 @@ fn fitted_normals_match_baked_geometry_in_shading_and_normal_metadata() {
             let pixels = pass_color(&context, &gpu, &layouts, source, "fs_opaque");
             assert!(pixels.chunks_exact(4).any(|pixel| pixel[2] != 0));
             if let Some(reference) = &reference {
-                assert_eq!(&pixels, reference);
+                worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+                    &pixels,
+                    reference,
+                    "fitted versus baked normal metadata",
+                );
             } else {
                 reference = Some(pixels);
             }

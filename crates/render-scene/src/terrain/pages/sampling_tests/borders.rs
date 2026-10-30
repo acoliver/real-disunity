@@ -38,11 +38,42 @@ fn terrain_pages_gpu_filters_neighbor_gutters_and_fractional_mips_without_seams(
             [0.5625, 0.25, derivative, 0.0],
         ];
         let bytes = harness::sample(device, &authority, &cache, &leaves, &points);
-        assert_eq!(
-            bytes,
-            [116, 64, 192, 255, 128, 64, 192, 255, 140, 64, 192, 255],
-            "LOD derivative {derivative}"
+        assert_ramp_across_gutter(&bytes, derivative);
+    }
+}
+
+/// The red ramp is `32 + 192 u` (116, 128 and 140 at the three points), the other channels are
+/// constant. A bilinear filter of texels that sit on an affine ramp returns the ramp at the sample
+/// point (the weighted centre of the texels), so the filtered value differs from the ideal ramp
+/// only by: the 8-bit store of each texel and of each mip generation (0.5 code each, at most two
+/// generations here: 1.0), the final 8-bit store (0.5), and the filter weight quantisation. Vulkan
+/// guarantees only 4 bits of sub-texel precision, so a weight errs by up to 2^-4 times the texel
+/// pitch, at most 48 codes for a root texel (0.25 of the ramp's 192 codes): 3.0. The total is
+/// 4.5 codes. A missing gutter would clamp the ramp flat or jump by a whole pitch and fail the
+/// strict monotonic order or the bound. Constant channels are exact copies of a constant texel.
+fn assert_ramp_across_gutter(bytes: &[u8], derivative: f32) {
+    const BOUND: f64 = 0.5 + 1.0 + 3.0;
+    let ideal = [116.0, 128.0, 140.0];
+    let mut previous = None;
+    for (point, want) in ideal.into_iter().enumerate() {
+        let pixel = &bytes[point * 4..point * 4 + 4];
+        assert!(
+            (f64::from(pixel[0]) - want).abs() <= BOUND,
+            "LOD derivative {derivative}, point {point}: got {}, ideal {want}, bound {BOUND}",
+            pixel[0]
         );
+        assert_eq!(
+            &pixel[1..],
+            [64, 192, 255],
+            "LOD derivative {derivative}, point {point}: constant channels"
+        );
+        if let Some(before) = previous {
+            assert!(
+                pixel[0] > before,
+                "LOD derivative {derivative}, point {point}: ramp not strictly increasing across the gutter"
+            );
+        }
+        previous = Some(pixel[0]);
     }
 }
 

@@ -41,7 +41,45 @@ fn terrain_pages_gpu_composition_matches_exact_cpu_products() {
             [texel.color, texel.normal_roughness].concat()
         })
         .collect();
-    assert_eq!(execute(&context, &batch), expected);
+    let actual = execute(&context, &batch);
+    assert_eq!(actual.len(), expected.len());
+    for (index, (layers, (actual, expected))) in samples
+        .iter()
+        .zip(actual.chunks_exact(8).zip(expected.chunks_exact(8)))
+        .enumerate()
+    {
+        // Colour and roughness are weighted means in integer arithmetic, which is exact on any
+        // device, so those five bytes equal the CPU products.
+        assert_eq!(actual[..4], expected[..4], "texel {index} colour");
+        assert_eq!(actual[7], expected[7], "texel {index} roughness");
+        let ideal = ideal_normal_codes(layers);
+        for (axis, (&code, ideal)) in actual[4..7].iter().zip(ideal).enumerate() {
+            // The normal is float arithmetic (up to 256 normalised terms summed, then normalised)
+            // whose last bits differ between devices. The device code is within the 8-bit rounding
+            // step (0.5) plus the f32 rounding of about 320 operations on a value of at most one,
+            // times 255 and a factor of five for GPU divide and square root accuracy.
+            let bound =
+                0.5 + 255.0 * 5.0 * worldrunner_render_gpu::tolerance_test_support::ARITHMETIC;
+            assert!(
+                (f64::from(code) - ideal).abs() <= bound,
+                "texel {index} normal axis {axis}: got {code}, ideal {ideal}, bound {bound}"
+            );
+        }
+    }
+}
+
+/// Unquantised encoded normal codes of the weighted normalised normals, in f64.
+fn ideal_normal_codes(layers: &[LayerSample]) -> [f64; 3] {
+    let mut sum = [0.0_f64; 3];
+    for layer in layers.iter().filter(|layer| layer.weight > 0) {
+        let n = layer.normal.map(f64::from);
+        let length = n.iter().map(|v| v * v).sum::<f64>().sqrt();
+        for (total, v) in sum.iter_mut().zip(n) {
+            *total += v / length * f64::from(layer.weight);
+        }
+    }
+    let length = sum.iter().map(|v| v * v).sum::<f64>().sqrt();
+    sum.map(|v| ((v / length) * 0.5 + 0.5) * 255.0)
 }
 
 fn execute(context: &crate::device::GpuContext, batch: &CompositionBatch) -> Vec<u8> {

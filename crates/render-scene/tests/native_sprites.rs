@@ -294,12 +294,16 @@ fn native_global_lights_multiply_exact_gpu_pixels() {
         )
         .unwrap();
         let mut gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
+        // Two enabled lights of intensity 2 add on a white texel, so the product is four times the
+        // colour; the colour is chosen so that it encodes near sRGB codes 64, 128 and 192.
+        let lit_colour =
+            [0.012_817_365_f32, 0.053_965_125, 0.131_778_78].map(|c| f64::from(c * 4.0));
         for (lit, layer, active_light, expected) in [
-            (true, 7, Some(true), [64, 128, 192, 255]),
-            (true, 8, Some(true), [0, 0, 0, 255]),
-            (false, 7, Some(true), [255, 255, 255, 255]),
-            (true, 7, Some(false), [255, 255, 255, 255]),
-            (true, 7, None, [255, 255, 255, 255]),
+            (true, 7, Some(true), lit_colour),
+            (true, 8, Some(true), [0.0; 3]),
+            (false, 7, Some(true), [1.0; 3]),
+            (true, 7, Some(false), [1.0; 3]),
+            (true, 7, None, [1.0; 3]),
         ] {
             let frame = global_light_frame(lit, layer, active_light);
             gpu.set_dynamic_contribution(
@@ -312,13 +316,29 @@ fn native_global_lights_multiply_exact_gpu_pixels() {
             .unwrap();
             let image = capture(&context, &mut gpu, &pipelines, [16, 16], samples, &frame);
             let center = (8 * 16 + 8) * 4;
-            assert_eq!(
+            assert_linear_pixel(
                 &image[center..center + 4],
-                &expected,
-                "samples={samples} lit={lit} layer={layer} enabled={active_light:?}"
+                expected,
+                &format!("samples={samples} lit={lit} layer={layer} enabled={active_light:?}"),
             );
         }
     }
+}
+
+/// Asserts the RGB codes of `pixel` are within the derived output bound of the unquantised sRGB
+/// encoding of the linear `want`, and that alpha holds the stored 1.0 as 255. The scene target is
+/// the 8-bit sRGB attachment itself, so the only quantisation is the final store (no half
+/// intermediate). A linear value of 0 or 1 leaves no room: only code 0 or 255 is within bound.
+fn assert_linear_pixel(pixel: &[u8], want: [f64; 3], context: &str) {
+    for (channel, (&code, linear)) in pixel.iter().zip(want).enumerate() {
+        worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+            code,
+            worldrunner_render_gpu::tolerance_test_support::encoded_steps(linear, true),
+            0.0,
+            &format!("{context}, channel {channel}"),
+        );
+    }
+    assert_eq!(pixel[3], 255, "{context}, alpha");
 }
 
 fn global_light_frame(lit: bool, layer: i32, active_light: Option<bool>) -> WorldSceneContribution {
@@ -425,18 +445,23 @@ fn sampling_frame(
     frame.quads[0].corners = Some([[-3., 0., -3.], [3., 0., -3.], [3., 0., 3.], [-3., 0., 3.]]);
     frame
 }
-fn sampling_cases() -> [(Option<worldrunner_render_plan::TextureSampler>, f32, u8); 7] {
+/// Cases of (sampler, u, expected linear value). The 2x1 texture holds 0 and 1. Linear filtering
+/// at u = 0.375 weights the texels by (0.75, 0.25): the weight is a dyadic fraction of two bits,
+/// exact in any fixed-point filter weight of four bits or more (the Vulkan minimum), so the
+/// filtered value is exactly 0.25 and encodes to code 137. Point sampling at u = 0.375, 1.25
+/// and 1.75 lies far from a texel boundary and selects a whole texel.
+fn sampling_cases() -> [(Option<worldrunner_render_plan::TextureSampler>, f32, f64); 7] {
     use worldrunner_render_plan::{TextureFilter as F, TextureSampler as S, TextureWrap as W};
     [
-        (None, 0.375, 137),
-        (Some(S::default()), 0.375, 137),
+        (None, 0.375, 0.25),
+        (Some(S::default()), 0.375, 0.25),
         (
             Some(S {
                 filter: F::Point,
                 ..Default::default()
             }),
             0.375,
-            0,
+            0.0,
         ),
         (
             Some(S {
@@ -444,7 +469,7 @@ fn sampling_cases() -> [(Option<worldrunner_render_plan::TextureSampler>, f32, u
                 ..Default::default()
             }),
             1.25,
-            0,
+            0.0,
         ),
         (
             Some(S {
@@ -453,7 +478,7 @@ fn sampling_cases() -> [(Option<worldrunner_render_plan::TextureSampler>, f32, u
                 wrap_v: W::Clamp,
             }),
             1.25,
-            255,
+            1.0,
         ),
         (
             Some(S {
@@ -462,7 +487,7 @@ fn sampling_cases() -> [(Option<worldrunner_render_plan::TextureSampler>, f32, u
                 wrap_v: W::Mirror,
             }),
             1.25,
-            255,
+            1.0,
         ),
         (
             Some(S {
@@ -471,7 +496,7 @@ fn sampling_cases() -> [(Option<worldrunner_render_plan::TextureSampler>, f32, u
                 wrap_v: W::Mirror,
             }),
             1.75,
-            0,
+            0.0,
         ),
     ]
 }
@@ -500,10 +525,10 @@ fn per_texture_sampling_has_exact_pixels_and_default_output() {
             )
             .unwrap();
             let image = capture(&context, &mut gpu, &pipelines, [16, 16], samples, &frame);
-            assert_eq!(
+            assert_linear_pixel(
                 &image[(8 * 16 + 8) * 4..(8 * 16 + 8) * 4 + 4],
-                &[expected, expected, expected, 255],
-                "samples={samples} sampler={sampler:?} u={u}"
+                [expected; 3],
+                &format!("samples={samples} sampler={sampler:?} u={u}"),
             );
             if sampler.is_none() {
                 default_image = Some(image.clone());
@@ -549,13 +574,17 @@ fn texture_samplers_are_independent_within_one_frame() {
         )
         .unwrap();
         let image = capture(&context, &mut gpu, &pipelines, [16, 16], samples, &frame);
-        assert_eq!(
+        // Left: linear filtering at u = 0.375 gives exactly 0.25 (see `sampling_cases`).
+        // Right: point sampling selects the black texel.
+        assert_linear_pixel(
             &image[(8 * 16 + 4) * 4..(8 * 16 + 4) * 4 + 4],
-            &[137, 137, 137, 255]
+            [0.25; 3],
+            &format!("samples={samples} linear half"),
         );
-        assert_eq!(
+        assert_linear_pixel(
             &image[(8 * 16 + 12) * 4..(8 * 16 + 12) * 4 + 4],
-            &[0, 0, 0, 255]
+            [0.0; 3],
+            &format!("samples={samples} point half"),
         );
     }
 }

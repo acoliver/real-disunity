@@ -37,10 +37,7 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
         pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
     let view = page_view();
-    for (interior, color, expected) in [
-        ([4, 4], [64, 128, 192, 255], [137, 188, 225, 255]),
-        ([7, 3], [192, 64, 128, 255], [225, 137, 188, 255]),
-    ] {
+    for (interior, color) in [([4, 4], [64, 128, 192, 255]), ([7, 3], [192, 64, 128, 255])] {
         let source = fixture::scene(interior != [4, 4]);
         let mut gpu =
             SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
@@ -78,12 +75,12 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
         let image = target.render(&context, &gpu, &pipelines).unwrap();
         assert!(gpu.terrain_pages_ready());
         assert_eq!(gpu.terrain_residency_ready(&request), Ok(true));
-        assert_eq!(
+        assert_uniform_page_colour(
             &image.pixels[40 * 4..41 * 4],
-            expected,
-            "four-page intersection"
+            color,
+            "four-page intersection",
         );
-        assert_eq!(&image.pixels[39 * 4..40 * 4], expected, "left page gutter");
+        assert_uniform_page_colour(&image.pixels[39 * 4..40 * 4], color, "left page gutter");
         gpu.invalidate_terrain_pages([0.4, 0.4], [0.6, 0.6]);
         assert_eq!(
             gpu.terrain_residency_ready(&request),
@@ -92,6 +89,23 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
         assert!(!gpu.terrain_pages_ready());
         assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), image);
     }
+}
+
+/// The page texels all hold one colour, so a bilinear filter across a page intersection or gutter
+/// returns that texel value for any weights (the weights sum to one) and the display value is the
+/// sRGB encoding of the UNORM texel. Rounding is bounded by the shared output bound; a 0 or 255
+/// alpha leaves no room.
+fn assert_uniform_page_colour(pixel: &[u8], texel: [u8; 4], context: &str) {
+    use worldrunner_render_gpu::tolerance_test_support::{assert_code_within, encoded_steps};
+    for channel in 0..3 {
+        assert_code_within(
+            pixel[channel],
+            encoded_steps(f64::from(texel[channel]) / 255.0, true),
+            0.0,
+            &format!("{context}, channel {channel}"),
+        );
+    }
+    assert_eq!(pixel[3], texel[3], "{context}, alpha");
 }
 
 fn page_view() -> SceneView {

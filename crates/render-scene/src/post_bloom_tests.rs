@@ -280,12 +280,27 @@ fn gpu_scene_recipe_matches_direct_and_omission_preserves_tent_bytes() {
             ..Default::default()
         },
     );
+    // The scene recipe translates to the same post settings as the direct ones, so both renders run
+    // the same shader code on the same device and stay byte identical.
     assert_eq!(actual, expected);
     // Uniform half radiance plus (Reinhard(0.5) * tint 0.5 * intensity 0.75).
     let linear: f64 = 0.625 / 1.625;
     let encoded = (1.055 * linear.powf(1.0 / 2.4) - 0.055) * 255.0;
-    assert!((encoded - (encoded.floor() + 0.5)).abs() > 0.1);
-    assert!(actual.chunks_exact(4).all(|p| p == [167, 167, 167, 255]));
+    // The pipeline stores to Rgba16Float at most once per pass: extraction, downsample, two blur
+    // passes and the composite per level for two levels is under eight stores, each at most
+    // `HALF_INTERMEDIATE_STEPS` (values stay at most 1 and the blurs are convex, so errors add).
+    let stores = 8.0 * worldrunner_render_gpu::tolerance_test_support::HALF_INTERMEDIATE_STEPS;
+    for pixel in actual.chunks_exact(4) {
+        for &code in &pixel[..3] {
+            worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+                code,
+                encoded,
+                stores,
+                "uniform bloom recipe",
+            );
+        }
+        assert_eq!(pixel[3], 255, "alpha");
+    }
     let omitted = s::SceneBloom {
         recipe: None,
         ..bloom()

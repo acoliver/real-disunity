@@ -42,5 +42,8 @@ public static class GraphicsFormatUtility
 
     public static uint GetBlockHeight(GraphicsFormat format) => GraphicsFormatBlocks.Height(format);
 
+    /// <summary>The format's name, such as <c>R8G8B8A8_SRGB</c>.</summary>
+    public static string GetFormatString(GraphicsFormat format) => format.ToString();
+
     public static bool IsCompressedFormat(TextureFormat format) => TexelFormats.IsCompressed(format);
 }

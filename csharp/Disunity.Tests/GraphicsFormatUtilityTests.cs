@@ -42,6 +42,8 @@ internal static class GraphicsFormatUtilityTests
         Expect.Equal(0u, GraphicsFormatUtility.GetStencilBits(GraphicsFormat.D16_UNorm), "no stencil bits");
         Expect.Equal(GraphicsFormat.D16_UNorm, GraphicsFormatUtility.GetDepthStencilFormat(16), "16 depth bits");
         Expect.Equal(GraphicsFormat.None, GraphicsFormatUtility.GetDepthStencilFormat(0), "no depth bits");
+        Expect.Equal("R8G8B8A8_SRGB", GraphicsFormatUtility.GetFormatString(GraphicsFormat.R8G8B8A8_SRGB), "GetFormatString");
+        Expect.Equal("None", GraphicsFormatUtility.GetFormatString(GraphicsFormat.None), "GetFormatString of None");
         Expect.That(GraphicsFormatUtility.IsCompressedFormat(TextureFormat.DXT5), "DXT5 compressed");
         Expect.That(!GraphicsFormatUtility.IsCompressedFormat(TextureFormat.RGBA32), "RGBA32 not compressed");
     }

@@ -36,7 +36,7 @@ GPU cache admission limits padded page area to `u32::MAX / 256` texels, in addit
 
 ## Anisotropy limitations
 
-Terrain anisotropy is not implemented for layered sources or cached pages. Both paths remain isotropic; material-level `SceneMaterial::with_anisotropy` does not affect them. Source and cached-page anisotropy are tracked by [#347](https://github.com/acoliver/real-disunity/issues/347).
+`TerrainLayeredSource::anisotropy` accepts the validated levels 1, 2, 4, 8 and 16. Source samplers use linear texel/mip filtering with repeat or clamp addressing. At 1, the shader preserves the largest-axis isotropic footprint. Above 1, it passes the actual UV gradients. This source path passes its grazing-angle regression on Metal; lavapipe behavior remains under investigation in [#347](https://github.com/acoliver/real-disunity/issues/347). The row and quad regressions report adapter capabilities, created samplers, raw samples, gradients, GPU source mip readbacks and small-footprint baselines when they fail. Separate baseline tests check source detail independently of anisotropy. Material-level `SceneMaterial::with_anisotropy` does not affect terrain, and cached pages remain isotropic.
 
 Cached pages use `Rgba8Uint` storage, which cannot use a filtering sampler. An anisotropic page reader needs bounded major-axis footprint integration over the existing integer trilinear reader, minor-axis mip selection, and gutter-safe ancestor selection for every tap. That extension must preserve the 1x lookup and filtering bytes and test page boundaries, rectangular pages and grazing-angle detail.
 

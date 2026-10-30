@@ -12,10 +12,12 @@ pub(crate) const ARRAY_LIMIT: u32 = 7;
 #[derive(Debug)]
 pub(crate) struct ResidentSource {
     pub buffers: Vec<wgpu::Buffer>,
-    textures: Vec<wgpu::Texture>,
+    pub(super) textures: Vec<wgpu::Texture>,
     pub views: Vec<wgpu::TextureView>,
     pub samplers: [wgpu::Sampler; 2],
     checked_samplers: [CheckedSampler; 2],
+    #[cfg(test)]
+    pub(super) sampler_descriptors: [wgpu::SamplerDescriptor<'static>; 2],
 }
 
 pub(super) fn image(
@@ -111,13 +113,17 @@ pub(super) fn payload_bytes(arrays: &[Vec<OwnedPreparedTexture>]) -> u64 {
         .sum()
 }
 
-fn sampler(repeat: bool) -> wgpu::SamplerDescriptor<'static> {
+fn sampler(
+    repeat: bool,
+    anisotropy: worldrunner_render_plan::TextureAnisotropy,
+) -> wgpu::SamplerDescriptor<'static> {
     let address = if repeat {
         wgpu::AddressMode::Repeat
     } else {
         wgpu::AddressMode::ClampToEdge
     };
     wgpu::SamplerDescriptor {
+        anisotropy_clamp: anisotropy.level(),
         address_mode_u: address,
         address_mode_v: address,
         mag_filter: wgpu::FilterMode::Linear,
@@ -219,7 +225,10 @@ impl LayeredGpuSource {
                 })
             })
             .collect();
-        let descriptors = [sampler(true), sampler(false)];
+        let descriptors = [
+            sampler(true, self.anisotropy),
+            sampler(false, self.anisotropy),
+        ];
         Ok(ResidentSource {
             buffers,
             textures,
@@ -230,6 +239,8 @@ impl LayeredGpuSource {
             checked_samplers: descriptors
                 .each_ref()
                 .map(|descriptor| CheckedSampler::new(device, descriptor)),
+            #[cfg(test)]
+            sampler_descriptors: descriptors,
         })
     }
 

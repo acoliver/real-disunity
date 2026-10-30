@@ -27,12 +27,13 @@ struct Source {
 @group(0) @binding(15) var layered_repeat: sampler;
 @group(0) @binding(16) var layered_clamp: sampler;
 fn layered_sample(image: Image, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, repeat: bool) -> vec4<f32> {
-    // Preserve the isotropic reference footprint at 1x. Authored anisotropy
-    // passes the actual UV Jacobian to hardware filtering.
+    // Isotropic filtering uses the longest footprint basis vector. Supplying
+    // equivalent axis-aligned gradients avoids backend-dependent rotated-ellipse
+    // approximations while preserving the reference mip footprint.
     let size = vec2<f32>(image.shape.zw);
     let footprint = max(length(dx * size), length(dy * size));
-    let horizontal = select(vec2<f32>(footprint / size.x, 0.0), dx, layered_source.mapping.w > 0.0);
-    let vertical = select(vec2<f32>(0.0, footprint / size.y), dy, layered_source.mapping.w > 0.0);
+    let horizontal = vec2<f32>(footprint / size.x, 0.0);
+    let vertical = vec2<f32>(0.0, footprint / size.y);
     switch image.shape.x {
         case 0u: {
             if repeat { return textureSampleGrad(layered_array_0, layered_repeat, uv, i32(image.shape.y), horizontal, vertical); }

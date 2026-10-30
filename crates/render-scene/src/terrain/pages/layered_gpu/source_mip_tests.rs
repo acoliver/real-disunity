@@ -86,7 +86,6 @@ pub(super) fn fixture(
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
-        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2; 2], [0; 2], 12_000, vec![0; 4]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
@@ -319,7 +318,7 @@ fn single_mip_gpu_products_are_byte_identical_for_all_footprints() {
     }
 }
 
-pub(super) fn execute_footprint(
+fn execute_footprint(
     context: &crate::device::GpuContext,
     source: &LayeredGpuSource,
     positions: &[[f32; 2]],

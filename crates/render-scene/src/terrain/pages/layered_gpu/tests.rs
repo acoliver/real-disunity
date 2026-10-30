@@ -41,7 +41,6 @@ pub(super) fn fixture(
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
-        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([3, 3], [0; 2], 700, vec![0, 1, 2, 1, 2, 0, 2, 0, 1])
             .unwrap(),

@@ -72,7 +72,6 @@ fn asymmetric_spiral_coverage_matches_independent_tent_integrals() {
     let (terrain, resources) = fixture(TerrainSplatFilter::Spiral14);
     let terrain = terrain
         .with_layered_source(TerrainLayeredSource {
-            anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
             channel_map: None,
             type_grid: TerrainTypeGrid::new([3, 3], [0; 2], 1000, vec![0, 1, 0, 1, 0, 1, 1, 1, 0])
                 .unwrap(),
@@ -217,7 +216,6 @@ fn fixture(filter: TerrainSplatFilter) -> (SceneTerrain, SceneResources) {
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
-        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0, 1, 0, 1]).unwrap(),
         filter,
@@ -271,7 +269,6 @@ fn texture_colorization_uses_declared_channels() {
     let (terrain, resources) = fixture(TerrainSplatFilter::Spiral14);
     let terrain = terrain
         .with_layered_source(TerrainLayeredSource {
-            anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
             channel_map: None,
             type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0, 1, 0, 1]).unwrap(),
             filter: TerrainSplatFilter::Spiral14,
@@ -296,7 +293,6 @@ fn texture_colorization_uses_declared_channels() {
 fn layered_descriptors_reject_missing_layers_and_zero_mapping_extent() {
     let (terrain, _) = fixture(TerrainSplatFilter::Spiral14);
     let source = TerrainLayeredSource {
-        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0, 1, 0, 1]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
@@ -412,7 +408,6 @@ fn type_grid_resolution_and_world_mapping_are_independent_of_geometry() {
     let (terrain, resources) = fixture(TerrainSplatFilter::Bilinear);
     let terrain = terrain
         .with_layered_source(TerrainLayeredSource {
-            anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
             channel_map: None,
             type_grid: TerrainTypeGrid::new([3, 1], [2000, 3000], 500, vec![1, 0, 1]).unwrap(),
             filter: TerrainSplatFilter::Bilinear,

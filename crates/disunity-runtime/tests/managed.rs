@@ -45,6 +45,8 @@ fn build_fixture(root: &Path) -> ManagedHostConfig {
                 "2",
                 "-p",
                 "worldrunner-disunity-ffi",
+                "-p",
+                "worldrunner-silent-wwise",
             ])
             .current_dir(root),
     );

@@ -19,6 +19,10 @@ public static partial class DisunityHost
     public static bool IsLoaded => WorldHandle != 0;
 
     public static void ConfigureNativeLibrary(string path) => NativeLibrary.Configure(path);
+
+    /// <summary>The directory of the configured engine library, where the engine's substitute
+    /// native libraries are, or null before <see cref="ConfigureNativeLibrary"/>.</summary>
+    public static string? NativeLibraryDirectory => NativeLibrary.LibraryDirectory;
     public static unsafe void LoadWorld()
     {
         EnsureLoaded();

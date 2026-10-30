@@ -241,7 +241,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
 
     private void BindFields()
     {
-        var binder = new FieldBinder(Resolve, differences.Add);
+        var binder = new FieldBinder(Resolve, differences.Add, options.Assemblies);
         foreach (var (script, fields, where) in scripts) binder.Bind(script, fields, where);
         var planned = plan.GetProperty("assets").EnumerateArray().ToList();
         for (var i = 0; i < planned.Count; i++)

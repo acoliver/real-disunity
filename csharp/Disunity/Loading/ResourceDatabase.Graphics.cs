@@ -55,7 +55,7 @@ internal sealed partial class ResourceDatabase
     private static void RegisterGlobalSettings(RenderPipelineAsset? pipeline, RenderPipelineGlobalSettings? global, Action<string> log)
     {
         if (!global) return;
-        var type = pipeline is null ? null : PipelineType(pipeline.GetType());
+        var type = pipeline?.PipelineType;
         if (type is null)
         {
             log($"the global settings {global!.name} are not registered: the pipeline asset names no pipeline type");
@@ -63,12 +63,5 @@ internal sealed partial class ResourceDatabase
         }
         GraphicsSettings.RegisterRenderPipelineSettings(type, global!);
         log($"render pipeline global settings: {global!.name} for {type.FullName}");
-    }
-
-    private static Type? PipelineType(Type asset)
-    {
-        for (var type = asset; type is not null; type = type.BaseType)
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(RenderPipelineAsset<>)) return type.GenericTypeArguments[0];
-        return null;
     }
 }

@@ -272,6 +272,8 @@ ResourceTests.Run();
 PrefabResourceTests.Run();
 TextCoreTests.Run();
 FieldBinderTests.Run();
+SerializedCollectionTests.Run();
+ManagedReferenceTests.Run();
 EnvironmentTests.Run();
 
 NativeArrayTests.Run();
@@ -303,6 +305,7 @@ ProfilingTests.Run();
 GeometryUtilityTests.Run();
 SystemInfoTests.Run();
 GraphicsSettingsTests.Run();
+StencilStateTests.Run();
 Physics3DComponentTests.Run();
 Physics3DQueryTests.Run();
 AnimationTests.Run();

@@ -67,8 +67,8 @@ without anisotropy. `TerrainLayeredSource::anisotropy` selects the same validate
 levels for source images; 1 preserves isotropic sampling bytes. Higher levels use
 portable shader taps along the major footprint axis with explicit trilinear LOD,
 bounded by the footprint ratio and authored level. Hardware source samplers stay
-at 1 to avoid backend-dependent anisotropy. Cached-page reads remain isotropic
-and are the next slice in [#347](https://github.com/acoliver/real-disunity/issues/347).
+at 1 to avoid backend-dependent anisotropy. The same setting governs cached-page
+reads, with at most 16 manual trilinear taps and per-tap gutter-safe page lookup.
 See [texture sampling](../../dev-docs/rendering/2d.md#texture-sampling) for device
 clamping and [terrain pages](../../dev-docs/rendering/terrain-pages.md) for the
 terrain sampling limitations.

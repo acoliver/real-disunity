@@ -60,8 +60,9 @@ the adapter's supported capability. Layered terrain sources use their own valida
 average the major-axis footprint at `log2(max(major / taps, minor))`, with the tap
 count bounded by the footprint ratio and authored level. Hardware sampler
 anisotropy stays 1, preventing backend-dependent double filtering. The 1x path
-preserves its isotropic bytes. Cached-page reads remain isotropic and are the
-next slice in [#347](https://github.com/acoliver/real-disunity/issues/347). See the
+preserves its isotropic bytes. Cached-page reads share the principal-axis geometry
+and authored level, using at most 16 manual trilinear taps with independent
+gutter-safe page lookup. See the
 [terrain source contract](../../dev-docs/rendering/terrain-pages.md#portable-source-anisotropy) and the
 [sampling contract](../../dev-docs/rendering/2d.md#texture-sampling).
 

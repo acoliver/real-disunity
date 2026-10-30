@@ -1,3 +1,4 @@
+mod anisotropy;
 mod borders;
 mod outer;
 use super::{

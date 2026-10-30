@@ -95,11 +95,17 @@ mod taa_gpu;
 #[cfg(test)]
 mod taa_gpu_tests;
 #[cfg(test)]
+mod taa_history_reference;
+#[cfg(test)]
 mod taa_reference;
 #[cfg(test)]
 mod taa_tests;
 #[cfg(test)]
 mod taa_velocity;
+#[cfg(test)]
+mod temporal_upscale_reference;
+#[cfg(test)]
+mod temporal_upscale_reference_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use cas::CasSettings;
 pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};

@@ -17,6 +17,7 @@
 //! edges and at zero; the GPU builds it from nine bilinear taps.
 use crate::TaaSettings;
 use crate::cas_reference::Image;
+use crate::taa_history_reference::{blend_clipped, catmull_rom_history, neighbourhood_box};
 
 /// A 4x4 matrix as columns: `m[column][row]`, applied to column vectors.
 pub(crate) type Mat4 = [[f64; 4]; 4];
@@ -187,12 +188,12 @@ pub(crate) fn clip_toward_centre(
 }
 
 /// Non-finite values become 0 and negative values become 0.
-fn sanitize(v: f64) -> f64 {
+pub(crate) fn sanitize(v: f64) -> f64 {
     if v.is_finite() { v.max(0.0) } else { 0.0 }
 }
 
 /// Catmull-Rom weights of the four texels around a sample at fraction `f` between the middle two.
-fn catmull_rom_weights(f: f64) -> [f64; 4] {
+pub(crate) fn catmull_rom_weights(f: f64) -> [f64; 4] {
     [
         f * (-0.5 + f * (1.0 - 0.5 * f)),
         1.0 + f * f * (-2.5 + 1.5 * f),
@@ -248,22 +249,7 @@ impl Frame<'_> {
     /// luminance-compressed color. The standard-deviation box of Salvi 2016 rejected partially
     /// covered edge history of aliased input (static 1x error 0.0027 against 0.0022).
     pub fn statistics(&self, at: [i32; 2]) -> ([f64; 3], [f64; 3]) {
-        let samples = OFFSETS.map(|d| {
-            let s = self.sample(at[0] + d[0], at[1] + d[1]);
-            to_ycocg(compress([s[0], s[1], s[2]]))
-        });
-        let lo: [f64; 3] =
-            std::array::from_fn(|i| samples.iter().map(|s| s[i]).fold(f64::INFINITY, f64::min));
-        let hi: [f64; 3] = std::array::from_fn(|i| {
-            samples
-                .iter()
-                .map(|s| s[i])
-                .fold(f64::NEG_INFINITY, f64::max)
-        });
-        (
-            std::array::from_fn(|i| 0.5 * (lo[i] + hi[i])),
-            std::array::from_fn(|i| 0.5 * (hi[i] - lo[i])),
-        )
+        neighbourhood_box(OFFSETS.map(|d| self.sample(at[0] + d[0], at[1] + d[1])))
     }
 
     /// The texel of the 3x3 neighborhood with the smallest depth; the first in row-major order
@@ -355,32 +341,8 @@ impl Frame<'_> {
         dx.hypot(dy)
     }
 
-    /// Catmull-Rom (bicubic) history color at `uv` over the 4x4 texels around it, edge-clamped.
-    /// The GPU builds the same filter from nine bilinear taps. `None` when any contributing
-    /// texel is not finite; negative lobes that undershoot are clamped to zero.
     fn fetch_history(&self, uv: [f64; 2]) -> Option<[f64; 3]> {
-        let size = self.history.size.map(f64::from);
-        let pos = [uv[0] * size[0] - 0.5, uv[1] * size[1] - 0.5];
-        let base = pos.map(f64::floor);
-        let frac = [pos[0] - base[0], pos[1] - base[1]];
-        let (wx, wy) = (catmull_rom_weights(frac[0]), catmull_rom_weights(frac[1]));
-        let mut sum = [0.0; 3];
-        for (dy, wy) in (-1_i32..).zip(wy) {
-            for (dx, wx) in (-1_i32..).zip(wx) {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "bounded by the image extent"
-                )]
-                let (x, y) = (base[0] as i32 + dx, base[1] as i32 + dy);
-                let t = self.history.load(x, y);
-                for (acc, v) in sum.iter_mut().zip(t) {
-                    *acc += wx * wy * v;
-                }
-            }
-        }
-        sum.iter()
-            .all(|v| v.is_finite())
-            .then(|| sum.map(|v| v.max(0.0)))
+        catmull_rom_history(self.history, uv)
     }
 
     /// Blends clipped history into the reconstructed color linearly. Karis `1 / (1 + luma)` weights
@@ -393,9 +355,6 @@ impl Frame<'_> {
         box_: ([f64; 3], [f64; 3]),
         motion_pixels: f64,
     ) -> [f64; 3] {
-        let scale = f64::from(self.settings.clip_scale);
-        let clipped = clip_toward_centre(to_ycocg(compress(history)), box_.0, box_.1, scale);
-        let history = decompress(from_ycocg(clipped));
         let slope = if self.samples > 1 {
             MSAA_MOTION_K
         } else {
@@ -403,7 +362,8 @@ impl Frame<'_> {
         };
         let weight = f64::from(self.settings.history_weight)
             * slope.mul_add(-motion_pixels, 1.0).clamp(0.0, 1.0);
-        std::array::from_fn(|i| current[i] * (1.0 - weight) + history[i] * weight)
+        let scale = f64::from(self.settings.clip_scale);
+        blend_clipped(current, history, box_, (scale, weight))
     }
 
     /// One output pixel; alpha is the reconstructed alpha. The output is finite and not negative.

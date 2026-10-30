@@ -331,5 +331,6 @@ RenderPipelineAssetTests.Run();
 Hash128Tests.Run();
 FilteringAndStateTests.Run();
 CullingDataTests.Run();
+TransformAccessArrayTests.Run();
 SceneManagerTests.Run();
 SceneSwitchTests.Run();

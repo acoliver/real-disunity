@@ -211,7 +211,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             var name = value.Str("class");
             differences.Add($"{where}: script {name} is not built: {cause.Message}");
             Debug.LogWarning($"The script {name} on {owner.name} cannot load and is left off: {cause.Message}");
-            return new UnbuiltComponent(name);
+            return new UnbuiltComponent(name, Script: true);
         }
         DisunityHost.AttachComponent<Component>(owner, script);
         if (!value.Bool("enabled")) script.enabled = false;

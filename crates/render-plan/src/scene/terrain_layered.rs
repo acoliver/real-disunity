@@ -8,6 +8,10 @@ pub struct TerrainLayer {
     /// First texture slot. Default packing: RGB albedo, linear metallic alpha.
     pub albedo_metallic: TextureHandle,
     /// Second texture slot. Default packing: tangent normal, roughness alpha.
+    /// Normal +X follows increasing layer U, +Y increasing V, and +Z up.
+    /// At zero appearance rotation, U is east and V is north. Sampling rotates
+    /// world XY by the appearance angle; normals rotate by its inverse before
+    /// blending into the shared east/north frame.
     pub normal_roughness: TextureHandle,
     pub normal_encoding: super::SceneNormalEncoding,
     /// Third texture slot. Default packing: linear red-channel height in [0, 1].

@@ -10,7 +10,11 @@ use worldrunner_render_plan::TerrainPageSettings;
 pub struct LayerSample {
     /// Linear RGBA8, not sRGB-encoded values.
     pub color: [u8; 4],
-    /// Signed tangent-space direction, normalized before blending.
+    /// Signed direction in the common terrain material frame, normalized before blending.
+    /// X follows unrotated U (east), Y follows unrotated V (north), and Z points out.
+    /// Source texel columns and rows increase U and V, without a vertical flip.
+    /// Decode normalized source channels as `2 * value - 1`, then inverse-rotate
+    /// each appearance's XY direction before supplying this already-unrotated value.
     pub normal: [i16; 3],
     /// Perceptual roughness in UNORM8.
     pub roughness: u8,

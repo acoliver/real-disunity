@@ -151,6 +151,7 @@ impl TerrainUniformState {
             "the block is written in full"
         );
 
+        write_normal_strength(&mut bytes, terrain.material_normal_strength());
         Ok(Self {
             bytes,
             layer_materials,
@@ -196,6 +197,14 @@ fn distinct_materials(surfaces: &[SceneTerrainSurface]) -> Vec<MaterialHandle> {
     materials
 }
 
+// XOR encoding preserves the neutral-zero lane without losing small strengths
+// to subtraction rounding. Only the first surface owns this terrain-wide word.
+fn write_normal_strength(bytes: &mut [u8; TERRAIN_UNIFORM_BYTES], strength: f32) {
+    let offset = TERRAIN_HEADER_BYTES + TERRAIN_SURFACE_BYTES - 4;
+    let encoded = strength.to_bits() ^ 1.0_f32.to_bits();
+    bytes[offset..offset + 4].copy_from_slice(&encoded.to_le_bytes());
+}
+
 /// Writes one surface against the palette layer its material occupies.
 fn write_surface(
     bytes: &mut [u8; TERRAIN_UNIFORM_BYTES],
@@ -211,13 +220,9 @@ fn write_surface(
     write_f32(bytes, offset, f32::from(tint[2]) / NEUTRAL_TINT_PERCENT);
     write_f32(bytes, offset, blur_texels(&appearance, spacing_millimeters));
 
-    // The angle is reduced modulo a turn before the trig so that the conversion
-    // stays exact for the arcminute values authoring actually uses.
-    let turns =
-        f32_from_u32(appearance.rotation_arcminutes % arcminutes_per_turn()) / ARCMINUTES_PER_TURN;
-    let radians = turns * std::f32::consts::TAU;
-    write_f32(bytes, offset, radians.cos());
-    write_f32(bytes, offset, radians.sin());
+    let (sine, cosine) = rotation_sin_cos(appearance.rotation_arcminutes);
+    write_f32(bytes, offset, cosine);
+    write_f32(bytes, offset, sine);
     write_f32(bytes, offset, f32_from_usize(layer));
     write_f32(bytes, offset, 0.0);
 }
@@ -246,9 +251,12 @@ fn blur_texels(
     f32_from_u32(appearance.blur_radius_millimeters) / f32_from_u32(spacing_millimeters)
 }
 
-/// Arcminutes in one full turn, as the integer the authored unit uses.
-const fn arcminutes_per_turn() -> u32 {
-    360 * 60
+/// Shared coefficients for terrain UV mapping and inverse normal rotation.
+/// Reduce before conversion so even large authored angles retain arcminute precision.
+pub(crate) fn rotation_sin_cos(arcminutes: u32) -> (f32, f32) {
+    let reduced = u16::try_from(arcminutes % (360 * 60)).expect("angle within one turn");
+    let radians = f32::from(reduced) / ARCMINUTES_PER_TURN * std::f32::consts::TAU;
+    radians.sin_cos()
 }
 
 /// Widens one authored magnitude to the precision the shader reads it at.

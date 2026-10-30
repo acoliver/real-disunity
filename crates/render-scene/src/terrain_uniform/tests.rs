@@ -1,5 +1,24 @@
 //! Encoding tests for the terrain splat uniform block.
 
+#[test]
+fn material_normal_strength_preserves_default_bytes_and_encodes_all_finite_strengths() {
+    let terrain = terrain(vec![surface(0, SceneTerrainAppearance::NEUTRAL)]);
+    let baseline = TerrainUniformState::encode(&terrain).unwrap();
+    assert_eq!(&baseline.bytes()[60..64], &[0; 4]);
+    for value in [0.0, 1.0, 2.0, 4.0, f32::MIN_POSITIVE, f32::from_bits(1)] {
+        let authored = terrain
+            .clone()
+            .with_material_normal_strength(Some(value))
+            .unwrap();
+        let encoded = TerrainUniformState::encode(&authored).unwrap();
+        let bits = u32::from_le_bytes(encoded.bytes()[60..64].try_into().unwrap());
+        assert_eq!(bits ^ 1.0_f32.to_bits(), value.to_bits());
+        if value.to_bits() == 1.0_f32.to_bits() {
+            assert_eq!(encoded.bytes(), baseline.bytes());
+        }
+    }
+}
+
 use worldrunner_render_plan::{
     MaterialHandle, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface,
     TerrainLodPolicy,

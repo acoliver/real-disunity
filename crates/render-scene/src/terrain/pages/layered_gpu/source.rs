@@ -159,12 +159,12 @@ fn surface_parameters(
             appearance.blur_radius_millimeters as f32 * 0.001,
         ],
     );
-    let angle = appearance.rotation_arcminutes as f32 * std::f32::consts::PI / 10_800.0;
+    let (sine, cosine) = crate::terrain_uniform::rotation_sin_cos(appearance.rotation_arcminutes);
     floats(
         parameters,
         [
-            angle.cos(),
-            angle.sin(),
+            cosine,
+            sine,
             layer.roughness_metallic_offset_micro[0] as f32 * 0.000_001,
             layer.roughness_metallic_offset_micro[1] as f32 * 0.000_001,
         ],

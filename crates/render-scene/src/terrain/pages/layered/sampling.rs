@@ -1,3 +1,11 @@
+fn unrotate_normal(normal: [f32; 3], (sine, cosine): (f32, f32)) -> [f32; 3] {
+    [
+        normal[0] * cosine + normal[1] * sine,
+        -normal[0] * sine + normal[1] * cosine,
+        normal[2],
+    ]
+}
+
 use super::{LayeredError, LayeredReference};
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace, TextureHandle};
 
@@ -8,6 +16,7 @@ impl LayeredReference<'_> {
         uv: [f32; 2],
         derivatives: [[f32; 2]; 2],
         coverage: f32,
+        rotation: (f32, f32),
     ) -> Result<super::HeightLayerSample, LayeredError> {
         let layer = appearance.layered.ok_or(LayeredError::Source)?;
         let map = self
@@ -45,7 +54,7 @@ impl LayeredReference<'_> {
             albedo: std::array::from_fn(|axis| {
                 color[axis] * f32::from(appearance.tint_percent[axis]) / 100.0
             }),
-            normal: super::decode_normal(packed, map.normal_encoding),
+            normal: unrotate_normal(super::decode_normal(packed, map.normal_encoding), rotation),
             roughness: roughness + offsets.x,
             metallic: channel(map.metallic) + offsets.y,
             height: channel(map.height),

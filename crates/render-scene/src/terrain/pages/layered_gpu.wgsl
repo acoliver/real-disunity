@@ -217,6 +217,8 @@ fn compose_layered(world: vec2<f32>, world_dx: vec2<f32>, world_dy: vec2<f32>) -
         var normal = vec3<f32>(layered_channel(values, layer, 3u), layered_channel(values, layer, 4u), 0.5) * 2.0 - 1.0;
         if (layer.textures.w & 1u) != 0u { normal.z = sqrt(max(0.0, 1.0 - dot(normal.xy, normal.xy))); }
         else { normal.z = layered_channel(values, layer, 5u) * 2.0 - 1.0; }
+        normal = vec3<f32>(normal.x * layer.rotation_offsets.x + normal.y * layer.rotation_offsets.y,
+            -normal.x * layer.rotation_offsets.y + normal.y * layer.rotation_offsets.x, normal.z);
         var roughness = layered_channel(values, layer, 8u);
         if (layer.textures.w & 2u) != 0u { roughness = 1.0 - roughness; }
         if !spiral { strength *= max(height, 0.01); }

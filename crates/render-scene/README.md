@@ -10,6 +10,20 @@ a normalized material mixture. Reordering a dense palette with the matching grid
 remap does not change the rendered surface. Blur radii, tints, and rotations come
 from scene inputs; no content-specific blur table is embedded.
 
+Terrain material normals use +X along layer U and +Y along layer V. Unrotated
+U follows east and V follows north in the Z-up scene. Appearance rotation applies
+to world-to-UV mapping; its inverse brings each layer normal into the common
+east/north frame before blending and page storage. From the normalized geometric
+normal N, the draw constructs T = normalize([N.z, 0, -N.x]) and B = cross(N, T).
+T follows the eastward heightfield direction at constant north. Live layered draws
+and cached pages use the same final normal composition.
+
+`SceneTerrain::with_material_normal_strength(Some(value))` accepts finite values
+in [0, 4]; `None` restores the default 1. Zero uses the interpolated geometric
+normal, one preserves the unscaled shading bytes, and larger values scale the
+material normal's XY components before normalization. Strength is applied after
+page lookup, so it has identical semantics for live and cached materials.
+
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and

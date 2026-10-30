@@ -44,6 +44,16 @@ There is no built-in content adapter registry, inventory interpreter, source
 terrain/clutter table, format-specific decoder, or bundled content. Producers must
 supply engine artifacts or construct scenes through the validated public API.
 
+## Terrain normal inputs
+
+Terrain source texel columns and rows increase layer U and V without a vertical
+flip. Normal channels decode as `2 * value - 1`. Appearance rotation is inverted
+on each layer normal before blending into the common east/north material frame.
+Page callbacks supply already-unrotated directions. See the public
+[`LayerSample::normal`](../render-scene/src/terrain/pages/composition.rs) and
+[`TerrainPageSource::sample`](../render-scene/src/terrain/pages/scene.rs) contracts
+and the [terrain page contract](../../dev-docs/rendering/terrain-pages.md).
+
 ## Material anisotropy
 
 `SceneMaterial::with_anisotropy` accepts a validated `TextureAnisotropy` and applies

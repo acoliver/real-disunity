@@ -341,3 +341,9 @@ mod bloom_policy_tests;
 
 #[cfg(test)]
 mod aces_fitted_tests;
+
+#[cfg(test)]
+mod fxaa_pc_tests;
+
+#[cfg(test)]
+mod fxaa_pc_reference;

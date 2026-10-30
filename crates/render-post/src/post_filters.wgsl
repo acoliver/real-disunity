@@ -19,6 +19,9 @@ override SUBPIXEL_BLEND: f32 = 1.0;
 override SRGB_LUMA: bool = false;
 override GREEN_LUMA: bool = false;
 override SECOND_DIFFERENCE: bool = false;
+override QUALITY_PRESET: u32 = 0u;
+override QUALITY_SCALE_X: f32 = 1.0;
+override QUALITY_SCALE_Y: f32 = 1.0;
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(f32((i << 1u) & 2u) * 2.0 - 1.0, f32(i & 2u) * 2.0 - 1.0, 0.0, 1.0);
 }
@@ -157,6 +160,7 @@ fn second_difference(pixel: vec2<f32>, original: vec4<f32>) -> vec4<f32> {
     let extent = vec2<f32>(textureDimensions(source));
     let center_uv = pixel.xy / extent;
     let original = load(source, vec2<i32>(pixel.xy));
+    if QUALITY_PRESET == 12u { return quality_resolve(pixel.xy, original); }
     if SECOND_DIFFERENCE { return second_difference(pixel.xy, original); }
     var darkest = edge_brightness(original.rgb);
     var brightest = darkest;
@@ -184,4 +188,68 @@ fn second_difference(pixel: vec2<f32>, original: vec4<f32>) -> vec4<f32> {
     let after = linear(source, center_uv + reach).rgb;
     let smoothed = original.rgb * 0.5 + (before + after) * 0.25;
     return vec4<f32>(mix(original.rgb, smoothed, FXAA * SUBPIXEL_BLEND), original.a);
+}
+
+// Each endpoint is sampled at cumulative distances 1, 2.5, 4.5, 8.5.
+// An unfinished search extends to 20.5 without another sample in preset 12.
+fn quality_endpoint(base: vec2<f32>, direction: vec2<f32>, level: f32, cutoff: f32) -> vec2<f32> {
+    let steps = array<f32, 4>(1.5, 2.0, 4.0, 12.0);
+    var distance = 1.0;
+    var difference = 0.0;
+    for (var i = 0u; i < 4u; i += 1u) {
+        let position = base + direction * distance;
+        difference = edge_brightness(linear(source, position / vec2<f32>(textureDimensions(source))).rgb) - level;
+        if abs(difference) >= cutoff { break; }
+        distance += steps[i];
+    }
+    return vec2<f32>(distance, difference);
+}
+
+fn quality_scores(m: f32, axial: vec4<f32>, corners: vec4<f32>) -> vec2<f32> {
+    let n = axial.x; let s = axial.y; let e = axial.z; let w = axial.w;
+    let nw = corners.x; let ne = corners.y; let sw = corners.z; let se = corners.w;
+    let h = 2.0 * abs(n + s - 2.0 * m) + abs(ne + se - 2.0 * e) + abs(nw + sw - 2.0 * w);
+    let v = 2.0 * abs(e + w - 2.0 * m) + abs(nw + ne - 2.0 * n) + abs(sw + se - 2.0 * s);
+    return vec2<f32>(h, v);
+}
+
+fn quality_resolve(pixel: vec2<f32>, original: vec4<f32>) -> vec4<f32> {
+    let p = vec2<i32>(pixel);
+    let m = edge_brightness(original.rgb);
+    let axial = vec4<f32>(
+        edge_brightness(load(source, p + vec2<i32>(0,-1)).rgb),
+        edge_brightness(load(source, p + vec2<i32>(0,1)).rgb),
+        edge_brightness(load(source, p + vec2<i32>(1,0)).rgb),
+        edge_brightness(load(source, p + vec2<i32>(-1,0)).rgb));
+    let maximum = max(m, max(max(axial.x, axial.y), max(axial.z, axial.w)));
+    let minimum = min(m, min(min(axial.x, axial.y), min(axial.z, axial.w)));
+    let range = maximum - minimum;
+    if range == 0.0 || range < max(MINIMUM_THRESHOLD, maximum * EDGE_THRESHOLD) { return original; }
+    let corners = vec4<f32>(
+        edge_brightness(load(source, p + vec2<i32>(-1,-1)).rgb),
+        edge_brightness(load(source, p + vec2<i32>(1,-1)).rgb),
+        edge_brightness(load(source, p + vec2<i32>(-1,1)).rgb),
+        edge_brightness(load(source, p + vec2<i32>(1,1)).rgb));
+    let scores = quality_scores(m, axial, corners);
+    let horizontal = scores.x >= scores.y;
+    let pair = select(axial.wz, axial.xy, horizontal);
+    let negative = abs(pair.x - m) >= abs(pair.y - m);
+    let adjacent = select(pair.y, pair.x, negative);
+    let level = (m + adjacent) * 0.5;
+    let cutoff = max(abs(pair.x - m), abs(pair.y - m)) * 0.25;
+    let scale = vec2<f32>(QUALITY_SCALE_X, QUALITY_SCALE_Y);
+    let normal = select(vec2<f32>(scale.x,0.0), vec2<f32>(0.0,scale.y), horizontal) * select(1.0,-1.0,negative);
+    let tangent = select(vec2<f32>(0.0,scale.y), vec2<f32>(scale.x,0.0), horizontal);
+    let base = pixel + normal * 0.5;
+    let before = quality_endpoint(base, -tangent, level, cutoff);
+    let after = quality_endpoint(base, tangent, level, cutoff);
+    let nearest = select(after, before, before.x < after.x);
+    let good = (nearest.y < 0.0) != (m - level < 0.0);
+    let edge_offset = select(0.0, 0.5 - nearest.x / (before.x + after.x), good);
+    let average = (2.0 * dot(axial, vec4<f32>(1.0)) + dot(corners, vec4<f32>(1.0))) / 12.0;
+    let contrast = clamp(abs(average - m) / range, 0.0, 1.0);
+    let subpixel_curve = contrast * contrast * (3.0 - 2.0 * contrast);
+    let offset = max(edge_offset, subpixel_curve * subpixel_curve * SUBPIXEL_BLEND);
+    let color = linear(source, (pixel + normal * offset) / vec2<f32>(textureDimensions(source))).rgb;
+    return vec4<f32>(mix(original.rgb, color, FXAA), original.a);
 }

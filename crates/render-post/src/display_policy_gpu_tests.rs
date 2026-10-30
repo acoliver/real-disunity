@@ -221,3 +221,29 @@ fn filmic_uses_published_adaptive_exposure() {
 
 #[path = "aces_fitted_gpu_tests.rs"]
 mod aces_fitted;
+
+#[test]
+fn quality_kernel_specializes_the_existing_fxaa_stage() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let config = FrameConfig::new([9, 7], wgpu::TextureFormat::Rgba16Float, 1);
+    let body = "let v=select(0.125,4.0,p.x>p.y);return vec4(v,v*0.5,v*0.25,0.625);";
+    let draw = |quality| {
+        render(
+            (&device, &queue),
+            config,
+            (ToneMap::Reinhard, 1.0),
+            &HdrPostSettings {
+                resolve: crate::PostResolve::fxaa_with(0.75, quality),
+                ..Default::default()
+            },
+            body,
+        )
+    };
+    let (default, ids) = draw(FxaaQuality::default());
+    let (quality, quality_ids) = draw(crate::fxaa_pc_tests::quality([1.0; 2]));
+    assert!(default.chunks_exact(4).all(|p| p[0] > 0 && p[3] > 0));
+    assert!(quality.chunks_exact(4).all(|p| p[0] > 0 && p[3] > 0));
+    assert_ne!(default, quality);
+    assert_eq!(quality_ids, ids);
+    assert_eq!(ids, [StageId::new("tone", 0), StageId::new("fxaa", 0)]);
+}

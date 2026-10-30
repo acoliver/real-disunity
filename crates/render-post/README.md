@@ -739,3 +739,12 @@ The 96 bytes are the 80-byte block of the reprojection, jitter and `history_vali
 `taa resolve` writes a second target, the linear depth of the closest-depth texel (`R32Float`, `taa_gpu::DEPTH_FORMAT`), through `StageTarget::Pair`, and `taa depth history` copies it into the depth history with `Operation::CopyTexture`, as the color path does; the frame depth itself cannot be copied (it may be multisampled and has no `COPY_SRC` guarantee). The depth history has the lifecycle of the color history: one texture per render size shared by all frame slots, created and replaced together with the color history, released by `release()` when TAA is no longer requested, and reset only through `history_valid`. The resolve reads it at `@binding(6)` with `textureLoad`.
 
 Measured at 1920x1080 on a Radeon 780M with the same probe (stripes and disc scenes, median of 5): `taa resolve` takes 1.99 and 2.01 ms with the depth history against 2.04 and 1.93 ms before it, and the untimed whole chain takes 3.99 and 4.18 ms per frame against 3.78 and 3.77 ms, so the second target and the depth copy cost 0.2 to 0.4 ms per frame.
+
+### FXAA quality search
+
+`FxaaKernel::Quality { preset: 12, sample_scale: [1.0; 2] }` selects axial early
+exit, weighted orientation and preset edge search in the existing pass. Sobel stays
+the default with unchanged bytes. Only preset 12 is accepted. X/Y search and final
+offset scales are finite in (0, 4] texels; contrast taps stay one texel apart.
+Scene quality settings expose the same option with scales in millionths of a texel.
+See [quality settings and math](../../dev-docs/rendering/post-filters.md#quality-fxaa-kernel).

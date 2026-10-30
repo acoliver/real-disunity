@@ -79,7 +79,7 @@ pub(super) fn upsample(high: &Image, low: &Image, uv: [f32; 2]) -> [f32; 4] {
     c[3] = 1.0;
     c
 }
-fn luma(c: [f32; 4], transfer: crate::FxaaLuminance) -> f32 {
+pub(super) fn luma(c: [f32; 4], transfer: crate::FxaaLuminance) -> f32 {
     let v = (c[0] + 2.0 * c[1] + c[2]) * 0.25;
     match transfer {
         crate::FxaaLuminance::Green => c[1],

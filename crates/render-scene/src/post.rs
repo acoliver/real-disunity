@@ -174,6 +174,13 @@ fn authored_fxaa_quality(post: &worldrunner_render_plan::SceneHdrPost) -> FxaaQu
             kernel: match q.kernel {
                 SceneFxaaKernel::Sobel => FxaaKernel::Sobel,
                 SceneFxaaKernel::SecondDifference => FxaaKernel::SecondDifference,
+                SceneFxaaKernel::Quality {
+                    preset,
+                    sample_scale_micro,
+                } => FxaaKernel::Quality {
+                    preset,
+                    sample_scale: sample_scale_micro.map(micro),
+                },
             },
         })
 }

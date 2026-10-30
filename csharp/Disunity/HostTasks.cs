@@ -8,6 +8,9 @@ public static partial class DisunityHost
     /// <summary>The message the native scheduler sends the delayed-tasks identity each frame.</summary>
     private const uint DelayedTasksMessage = 14;
 
+    /// <summary>The message the same identity gets after the scripts' LateUpdate, which raises the canvas events.</summary>
+    private const uint WillRenderMessage = 15;
+
     private static UnitySynchronizationContext? _mainThreadContext;
     private static SynchronizationContext? _previousContext;
     private static ulong _delayedTasks;
@@ -59,8 +62,12 @@ public static partial class DisunityHost
     /// <summary>Whether a native callback is the delayed-tasks phase, which it then runs.</summary>
     private static bool DispatchDelayedTasks(ulong identity, uint message)
     {
-        if (message != DelayedTasksMessage || identity != _delayedTasks) return false;
-        _mainThreadContext?.Execute();
-        return true;
+        if (identity != _delayedTasks) return false;
+        switch (message)
+        {
+            case DelayedTasksMessage: _mainThreadContext?.Execute(); return true;
+            case WillRenderMessage: Canvas.RaiseWillRender(); return true;
+            default: return false;
+        }
     }
 }

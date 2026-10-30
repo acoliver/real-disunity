@@ -120,7 +120,19 @@ pub struct Canvas {
     /// Unity's `Canvas.pixelPerfect`: on a screen-space canvas, each text is moved so its first
     /// glyph starts on a whole screen pixel. World-space canvases ignore it, as Unity's do.
     pub pixel_perfect: bool,
+    /// Unity's `Canvas.overrideSorting`: a nested canvas sorts by its own layer and order
+    /// instead of its parent's. The engine stores it; sorting does not read it yet.
+    pub override_sorting: bool,
+    /// Unity's `Canvas.targetDisplay`, stored and not used: the engine has one display.
+    pub target_display: u32,
+    /// Unity's `AdditionalCanvasShaderChannels` flags (TexCoord1 = 1, TexCoord2 = 2,
+    /// TexCoord3 = 4, Normal = 8, Tangent = 16), stored and not used.
+    pub additional_shader_channels: u32,
+    /// Unity's `Canvas.referencePixelsPerUnit`, stored and not used by layout.
+    pub reference_pixels_per_unit: f32,
 }
+/// Every defined bit of [`Canvas::additional_shader_channels`].
+const SHADER_CHANNELS: u32 = 0b1_1111;
 impl Default for Canvas {
     fn default() -> Self {
         Self {
@@ -130,12 +142,22 @@ impl Default for Canvas {
             sorting_layer: 0,
             sorting_order: 0,
             pixel_perfect: false,
+            override_sorting: false,
+            target_display: 0,
+            additional_shader_channels: 0,
+            reference_pixels_per_unit: 100.,
         }
     }
 }
 impl Canvas {
     pub(crate) fn validate(self) -> Result<(), UiError> {
         self.scale.factor(UVec2::new(800, 600))?;
+        if !self.reference_pixels_per_unit.is_finite()
+            || self.reference_pixels_per_unit <= 0.
+            || self.additional_shader_channels & !SHADER_CHANNELS != 0
+        {
+            return Err(UiError::InvalidCanvas);
+        }
         if let CanvasMode::ScreenSpaceCamera {
             orthographic_size,
             plane_distance,

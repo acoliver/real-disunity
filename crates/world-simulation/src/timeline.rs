@@ -66,6 +66,9 @@ pub(crate) enum Task {
     /// Unity's delayed tasks after `Update` coroutines: work posted to the main thread's
     /// synchronization context runs here.
     DelayedTasks,
+    /// After `LateUpdate` and before the frame is drawn, the same host identity gets
+    /// `LateUpdate`, where Unity raises the canvas events that build UI for the frame.
+    WillRender,
     Cleanup,
 }
 #[derive(Clone, Copy)]
@@ -176,7 +179,8 @@ impl World {
     }
     /// Names the host identity that receives an `Update` asset callback once a frame, after
     /// `Update` coroutines and before `LateUpdate`, where Unity runs the main thread's
-    /// delayed tasks; `None` stops it.
+    /// delayed tasks, and a `LateUpdate` asset callback once a frame after the scripts'
+    /// `LateUpdate`, where the canvas events are raised; `None` stops both.
     pub fn set_delayed_tasks(&mut self, identity: Option<u64>) -> Result<(), WorldError> {
         self.require_idle()?;
         // Callbacks are routed by identity, so the phase cannot share one with a script asset.
@@ -205,6 +209,7 @@ impl World {
             Task::Coroutines(CoroutinePhase::Update),
             Task::DelayedTasks,
             Task::Phase(ScriptMessage::LateUpdate),
+            Task::WillRender,
             Task::Coroutines(CoroutinePhase::End),
             Task::Cleanup,
         ]);
@@ -710,6 +715,11 @@ impl World {
             Task::DelayedTasks => {
                 if let Some(identity) = self.scheduler.delayed_tasks {
                     return self.issue_identity_callback(identity, ScriptMessage::Update);
+                }
+            }
+            Task::WillRender => {
+                if let Some(identity) = self.scheduler.delayed_tasks {
+                    return self.issue_identity_callback(identity, ScriptMessage::LateUpdate);
                 }
             }
             Task::Cleanup => self.enqueue_cleanup(),

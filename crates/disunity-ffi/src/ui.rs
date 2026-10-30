@@ -34,6 +34,26 @@ pub struct DisunityCanvas {
     pub orthographic_size: f32,
     pub plane_distance: f32,
     pub sorting_order: i32,
+    pub sorting_layer: i32,
+    pub override_sorting: u32,
+    pub target_display: u32,
+    pub additional_shader_channels: u32,
+    pub reference_pixels_per_unit: f32,
+}
+
+impl DisunityCanvas {
+    fn from_native(c: Canvas) -> Self {
+        Self {
+            enabled: u32::from(c.enabled),
+            sorting_order: c.sorting_order,
+            sorting_layer: c.sorting_layer,
+            override_sorting: u32::from(c.override_sorting),
+            target_display: c.target_display,
+            additional_shader_channels: c.additional_shader_channels,
+            reference_pixels_per_unit: c.reference_pixels_per_unit,
+            ..Self::default()
+        }
+    }
 }
 
 /// # Safety
@@ -181,14 +201,14 @@ pub unsafe extern "C" fn disunity_rect_read(
     })
 }
 
-/// Applies a canvas record to `current`, keeping its scale and sorting layer, which the record
-/// does not carry.
+/// Applies a canvas record to `current`, keeping its scale and pixel-perfect flag, which the
+/// record does not carry.
 fn canvas(
     s: &crate::store::Session,
     current: Canvas,
     v: DisunityCanvas,
 ) -> Result<Canvas, crate::errors::AbiError> {
-    if v.enabled > 1 {
+    if v.enabled > 1 || v.override_sorting > 1 {
         return Err("invalid Canvas flags".into());
     }
     let mode = match v.mode {
@@ -205,6 +225,11 @@ fn canvas(
         enabled: v.enabled == 1,
         mode,
         sorting_order: v.sorting_order,
+        sorting_layer: v.sorting_layer,
+        override_sorting: v.override_sorting == 1,
+        target_display: v.target_display,
+        additional_shader_channels: v.additional_shader_channels,
+        reference_pixels_per_unit: v.reference_pixels_per_unit,
         ..current
     })
 }
@@ -249,11 +274,7 @@ pub unsafe extern "C" fn disunity_canvas_read(
         else {
             return Err("component is not a Canvas".into());
         };
-        let mut v = DisunityCanvas {
-            enabled: u32::from(c.enabled),
-            sorting_order: c.sorting_order,
-            ..Default::default()
-        };
+        let mut v = DisunityCanvas::from_native(c);
         match c.mode {
             CanvasMode::ScreenSpaceOverlay => {}
             CanvasMode::WorldSpace => v.mode = 2,

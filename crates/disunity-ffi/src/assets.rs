@@ -11,8 +11,9 @@ pub extern "C" fn disunity_asset_create(world: u64, identity: u64) -> DisunityRe
 }
 
 /// Makes `identity` receive message 14 once a frame, after `Update` coroutines, where
-/// Unity runs work posted to the main thread's synchronization context. `enabled` 0 stops
-/// it.
+/// Unity runs work posted to the main thread's synchronization context, and message 15 once
+/// a frame after the scripts' `LateUpdate`, where the canvas events are raised. `enabled` 0
+/// stops both.
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_world_delayed_tasks(
     world: u64,

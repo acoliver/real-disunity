@@ -1,5 +1,5 @@
 {
-  "abi_version": 6,
+  "abi_version": 7,
   "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does.",
   "functions": [
     {

@@ -79,6 +79,9 @@ mod cmaa2_gpu;
 mod cmaa2_tests;
 mod fxaa;
 mod hdr_taa;
+mod history_key;
+#[cfg(test)]
+mod history_key_tests;
 mod jitter;
 #[cfg(test)]
 mod jitter_tests;

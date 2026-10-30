@@ -7,13 +7,13 @@ use std::{cell::RefCell, rc::Rc};
 
 use wgpu::util::DeviceExt;
 
-use crate::{StageSet, TAA_UNIFORM_BYTES, TaaSettings, taa_gpu};
+use crate::{StageSet, TAA_UNIFORM_BYTES, TaaSettings, history_key::HistoryKey, taa_gpu};
 
 /// The colour and linear-depth history textures of one render size. They are created, replaced
 /// and released together, and both are reset by the CPU's `history_valid`.
 #[derive(Debug)]
 struct TaaHistory {
-    size: [u32; 2],
+    key: HistoryKey,
     texture: wgpu::Texture,
     depth: wgpu::Texture,
 }
@@ -24,11 +24,12 @@ pub(crate) struct SharedHistory(Rc<RefCell<Option<TaaHistory>>>);
 impl SharedHistory {
     /// The colour and depth histories for `size`, created on first use and replaced when the
     /// size changes.
-    fn acquire(&self, device: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::Texture) {
+    fn acquire(&self, device: &wgpu::Device, key: HistoryKey) -> (wgpu::Texture, wgpu::Texture) {
+        let size = key.render();
         let mut slot = self.0.borrow_mut();
-        if slot.as_ref().is_none_or(|history| history.size != size) {
+        if slot.as_ref().is_none_or(|history| history.key != key) {
             *slot = Some(TaaHistory {
-                size,
+                key,
                 texture: taa_gpu::history(device, size),
                 depth: taa_gpu::depth_history(device, size),
             });
@@ -44,7 +45,7 @@ impl SharedHistory {
 
     #[cfg(test)]
     pub fn size(&self) -> Option<[u32; 2]> {
-        self.0.borrow().as_ref().map(|history| history.size)
+        self.0.borrow().as_ref().map(|history| history.key.render())
     }
 }
 
@@ -73,7 +74,8 @@ pub(crate) fn append(
     (settings, history, uniform): (TaaSettings, &SharedHistory, &wgpu::Buffer),
 ) -> wgpu::TextureView {
     let config = targets.config();
-    let (history_texture, depth_history) = history.acquire(device, config.size);
+    let (history_texture, depth_history) =
+        history.acquire(device, HistoryKey::new(config.size, None, config.samples));
     let output = taa_gpu::output(device, config.size);
     let depth_output = taa_gpu::depth_output(device, config.size);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());

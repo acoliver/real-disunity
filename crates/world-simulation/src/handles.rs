@@ -124,6 +124,17 @@ impl<T> Arena<T> {
         self.slots[id.slot as usize].value = None;
     }
 
+    /// Reverses the latest `insert` of `id` so the slot's next vacancy repeats `id`'s identity.
+    pub fn unwind_insert(&mut self, id: Identity) {
+        if id.generation == 1 {
+            self.slots.pop();
+        } else {
+            let slot = &mut self.slots[id.slot as usize];
+            slot.generation = id.generation - 1;
+            slot.value = None;
+        }
+    }
+
     pub fn iter(&self, world: u64) -> impl Iterator<Item = (Identity, &T)> {
         self.slots
             .iter()

@@ -16,6 +16,7 @@ impl World {
             .get_mut(object.0)
             .expect("validated object")
             .parent = parent;
+        self.record_change(crate::journal::Change::Parent(object));
         if parent.is_some_and(|parent| self.lifetime.objects.contains(&parent)) {
             self.destroy(object, crate::DestroyWhen::EndOfFrame)?;
         }
@@ -100,6 +101,7 @@ impl World {
             .get_mut(object.0)
             .expect("validated object")
             .active = active;
+        self.record_change(crate::journal::Change::Properties(object));
         self.refresh_lifecycle(&nodes, mutation);
         Ok(mutation)
     }

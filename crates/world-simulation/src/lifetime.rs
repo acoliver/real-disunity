@@ -145,6 +145,7 @@ impl World {
         self.lifetime.components.remove(&component);
         self.lifecycle.scripts.remove(&component);
         self.physics.targets.remove(&component);
+        self.note_component_removed(component);
         self.components.remove(component.0);
     }
 
@@ -169,6 +170,7 @@ impl World {
         for object in nodes {
             self.lifetime.delayed.remove(&object);
             self.lifetime.objects.remove(&object);
+            self.note_object_removed(object);
             self.objects.remove(object.0);
         }
     }
@@ -180,6 +182,7 @@ impl World {
         }
         for object in std::mem::take(&mut self.lifetime.objects) {
             self.lifetime.delayed.remove(&object);
+            self.note_object_removed(object);
             self.objects.remove(object.0);
         }
     }

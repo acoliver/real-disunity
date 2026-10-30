@@ -1,4 +1,5 @@
 use crate::handles::{Arena, next_world};
+use crate::journal::Change;
 use crate::{
     ComponentDesc, ComponentError, ComponentHandle, LimitKind, LocalTransform, ObjectHandle,
     WorldError,
@@ -90,6 +91,8 @@ pub struct World {
     pub(crate) lifetime: crate::lifetime::Lifetime,
     pub(crate) lifecycle: crate::lifecycle::Lifecycle,
     pub(crate) components: Arena<ComponentSnapshot>,
+    pub(crate) journal: crate::journal::Journal,
+    pub(crate) staging: Option<crate::edits::Staging>,
 }
 
 impl World {
@@ -107,6 +110,8 @@ impl World {
             lifecycle: crate::lifecycle::Lifecycle::default(),
             objects: Arena::new(settings.max_objects, LimitKind::Objects),
             components: Arena::new(settings.max_components, LimitKind::Components),
+            journal: crate::journal::Journal::default(),
+            staging: None,
         })
     }
 
@@ -138,6 +143,7 @@ impl World {
                 renderer: None,
             },
         );
+        self.record_change(Change::Created(object));
         Ok(object)
     }
 
@@ -173,6 +179,7 @@ impl World {
             .get_mut(handle.0)
             .expect("validated object")
             .layer = layer;
+        self.record_change(Change::Properties(handle));
         Ok(())
     }
 
@@ -192,6 +199,7 @@ impl World {
         } else {
             object.name = text;
         }
+        self.record_change(Change::Properties(handle));
         Ok(())
     }
 
@@ -280,6 +288,7 @@ impl World {
             },
         );
         self.register_component_lifetime(handle, object, script);
+        self.note_component_added(handle);
         Ok(handle)
     }
 
@@ -311,10 +320,12 @@ impl World {
         if std::mem::discriminant(&old.desc) != std::mem::discriminant(&desc) {
             return Err(WorldError::InvalidComponent(ComponentError::KindMismatch));
         }
-        self.components
+        let slot = self
+            .components
             .get_mut(handle.0)
-            .expect("validated component")
-            .desc = desc;
+            .expect("validated component");
+        let previous = std::mem::replace(&mut slot.desc, desc);
+        self.note_component_replaced(handle, previous);
         Ok(())
     }
 

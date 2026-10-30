@@ -46,6 +46,10 @@ internal static class GraphicsFormatUtilityTests
         Expect.Equal("None", GraphicsFormatUtility.GetFormatString(GraphicsFormat.None), "GetFormatString of None");
         Expect.That(GraphicsFormatUtility.IsCompressedFormat(TextureFormat.DXT5), "DXT5 compressed");
         Expect.That(!GraphicsFormatUtility.IsCompressedFormat(TextureFormat.RGBA32), "RGBA32 not compressed");
+        foreach (var crunched in new[] { TextureFormat.DXT1Crunched, TextureFormat.DXT5Crunched, TextureFormat.ETC_RGB4Crunched, TextureFormat.ETC2_RGBA8Crunched })
+            Expect.That(GraphicsFormatUtility.IsCrunchFormat(crunched), $"{crunched} is Crunch");
+        foreach (var plain in new[] { TextureFormat.DXT5, TextureFormat.RGBA32, TextureFormat.BC7 })
+            Expect.That(!GraphicsFormatUtility.IsCrunchFormat(plain), $"{plain} is not Crunch");
     }
 
     private static void BlockSizes()

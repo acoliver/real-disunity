@@ -18,6 +18,7 @@ impl SceneGpu {
             texture(environment.cube)?,
             texture(environment.brdf_lut)?,
             environment.convention,
+            environment.specular_intensity_micro,
         )
     }
 }

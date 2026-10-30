@@ -1,4 +1,5 @@
 use crate::scene_metadata::SceneMetadata;
+use wgpu::util::DeviceExt;
 use worldrunner_render_post::{
     AttachmentView, FrameConfig, FrameError, PassDeclaration, PassSlot, ResourceRef,
 };
@@ -75,6 +76,16 @@ pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
         count: None,
     });
+    entries.push(wgpu::BindGroupLayoutEntry {
+        binding: 4,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    });
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("reflection environment"),
         entries: &entries,
@@ -84,6 +95,7 @@ pub(crate) fn group(
     device: &wgpu::Device,
     screen: &SceneMetadata,
     views: &[wgpu::TextureView; 2],
+    intensity: u32,
 ) -> wgpu::BindGroup {
     let ao = screen
         .passes
@@ -106,6 +118,18 @@ pub(crate) fn group(
     entries.push(wgpu::BindGroupEntry {
         binding: 3,
         resource: wgpu::BindingResource::Sampler(&sampler),
+    });
+    let intensity = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("environment intensity"),
+        contents: &[intensity, 0, 0, 0]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>(),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    entries.push(wgpu::BindGroupEntry {
+        binding: 4,
+        resource: intensity.as_entire_binding(),
     });
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("reflection environment"),
@@ -144,7 +168,7 @@ pub(super) fn install(
 ) -> [wgpu::TextureView; 2] {
     let (application_ao, velocity) = options;
     let maps = crate::water::receivers::empty_environment(device);
-    let group = group(device, screen, &maps);
+    let group = group(device, screen, &maps, 1_000_000);
     let (object, terrain) = velocity_sources(
         (crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL),
         velocity,

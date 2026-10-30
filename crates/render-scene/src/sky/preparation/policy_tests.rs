@@ -88,7 +88,7 @@ fn authored_table_keeps_identity_and_view_cosine_roughness_axes() {
     }
 }
 
-fn sample_table(context: &crate::device::GpuContext, view: &wgpu::TextureView) -> f32 {
+pub(super) fn sample_table(context: &crate::device::GpuContext, view: &wgpu::TextureView) -> f32 {
     let device = context.device();
     let pipeline = table_pipeline(device);
     let output = device.create_buffer(&wgpu::BufferDescriptor {
@@ -210,7 +210,7 @@ fn write_graded_mips(context: &crate::device::GpuContext, source: &wgpu::Texture
     }
 }
 
-fn authored_table_format(
+pub(super) fn authored_table_format(
     context: &crate::device::GpuContext,
     format: wgpu::TextureFormat,
 ) -> AuthoredBrdfTable {

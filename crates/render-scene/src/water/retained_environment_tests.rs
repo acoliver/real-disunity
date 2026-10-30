@@ -1,7 +1,10 @@
 use super::*;
 use worldrunner_render_plan::{SceneSpecularCube, SceneTexture, TexelFormat, TextureColorSpace};
 
-fn uploaded_maps(context: &GpuContext) -> crate::sky::preparation::PreparedEnvironmentMaps {
+fn uploaded_maps(
+    context: &GpuContext,
+    intensity: u32,
+) -> crate::sky::preparation::PreparedEnvironmentMaps {
     let cube = SceneTexture::SpecularCube(
         SceneSpecularCube::rgba16_float(
             1,
@@ -39,13 +42,14 @@ fn uploaded_maps(context: &GpuContext) -> crate::sky::preparation::PreparedEnvir
         &upload(&cube),
         &upload(&lut),
         worldrunner_render_plan::SceneSpecularConvention::default(),
+        intensity,
     )
     .unwrap()
 }
 #[test]
 fn uploaded_constant_environment_matches_independent_water_split_sum() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
-    let maps = uploaded_maps(&context);
+    let maps = uploaded_maps(&context, 1_000_000);
     let mut renderer = regressions::renderer(&context, 1);
     renderer
         .install_water(context.device(), settings())

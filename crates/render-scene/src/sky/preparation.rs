@@ -96,11 +96,16 @@ pub struct PreparedEnvironmentMaps {
     cube: wgpu::Texture,
     lut: wgpu::Texture,
     authored_brdf: Option<AuthoredBrdfTable>,
+    baked_specular_intensity_micro: u32,
     specular_intensity_micro: u32,
     transaction: Option<Publications>,
     convention: worldrunner_render_plan::SceneSpecularConvention,
 }
 impl PreparedEnvironmentMaps {
+    /// Cube-radiance scale; preparation intensity is already baked into the LUT.
+    pub const fn specular_intensity_micro(&self) -> u32 {
+        self.specular_intensity_micro
+    }
     pub const fn convention(&self) -> worldrunner_render_plan::SceneSpecularConvention {
         self.convention
     }
@@ -116,7 +121,7 @@ impl PreparedEnvironmentMaps {
             }),
             self.authored_brdf
                 .as_ref()
-                .filter(|_| self.specular_intensity_micro == 1_000_000)
+                .filter(|_| self.baked_specular_intensity_micro == 1_000_000)
                 .map_or_else(
                     || {
                         self.lut
@@ -181,7 +186,8 @@ pub fn encode(
         transaction: Some(transaction),
         convention: settings.convention,
         authored_brdf: None,
-        specular_intensity_micro: settings.specular_intensity_micro,
+        baked_specular_intensity_micro: settings.specular_intensity_micro,
+        specular_intensity_micro: 1_000_000,
     })
 }
 struct Integration<'a> {

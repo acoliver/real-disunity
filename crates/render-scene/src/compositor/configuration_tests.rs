@@ -1,9 +1,8 @@
-#[test]
-fn scene_environment_consumers_isolate_water_and_reflections() {
-    use worldrunner_render_plan::SceneEnvironmentConsumers::{Both, Reflections, Water};
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+fn uploaded_reflection_maps(
+    context: &GpuContext,
+) -> crate::sky::preparation::PreparedEnvironmentMaps {
     let maps = reflection_maps(
-        &context,
+        context,
         crate::sky::preparation::EnvironmentPreparation {
             convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             cube_size: 2,
@@ -14,6 +13,21 @@ fn scene_environment_consumers_isolate_water_and_reflections() {
             samples: 8,
         },
     );
+    let (cube, lut) = maps.views().unwrap();
+    crate::sky::preparation::PreparedEnvironmentMaps::from_uploaded(
+        cube.texture(),
+        lut.texture(),
+        maps.convention(),
+        2_000_000,
+    )
+    .unwrap()
+}
+
+#[test]
+fn scene_environment_consumers_isolate_water_and_reflections() {
+    use worldrunner_render_plan::SceneEnvironmentConsumers::{Both, Reflections, Water};
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let maps = uploaded_reflection_maps(&context);
     let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     settings.frame.format = wgpu::TextureFormat::Rgba16Float;
     settings.hdr = Some((1.0, ToneMap::Reinhard));
@@ -30,6 +44,22 @@ fn scene_environment_consumers_isolate_water_and_reflections() {
         let ssr = &current.ssr.as_ref().unwrap().environment;
         let water = &current.water.as_ref().unwrap().environment;
         let (cube, lut) = maps.views().unwrap();
+        assert_eq!(
+            ssr_intensity(current),
+            if consumers.reflections() {
+                2_000_000
+            } else {
+                1_000_000
+            }
+        );
+        assert_eq!(
+            current.water.as_ref().unwrap().environment_intensity_micro,
+            if consumers.water() {
+                2_000_000
+            } else {
+                1_000_000
+            }
+        );
         for (actual, expected) in [(ssr, consumers.reflections()), (water, consumers.water())] {
             assert_eq!(actual[0].texture() == cube.texture(), expected);
             assert_eq!(actual[1].texture() == lut.texture(), expected);
@@ -474,4 +504,8 @@ fn authored_reflection_composition_changes_override_retained_service_selection()
             expected
         );
     }
+}
+
+fn ssr_intensity(renderer: &FrameRenderer) -> u32 {
+    renderer.ssr.as_ref().unwrap().environment_intensity_micro
 }

@@ -80,6 +80,7 @@ pub(crate) struct Ssr {
     pub settings: SceneSsr,
     forward_products: [wgpu::Texture; 2],
     pub environment: [wgpu::TextureView; 2],
+    pub environment_intensity_micro: u32,
     pub composition: worldrunner_render_lighting::reflections::Composition,
     velocity: bool,
     material: wgpu::Texture,
@@ -236,6 +237,7 @@ impl Ssr {
         Ok(Self {
             settings,
             environment,
+            environment_intensity_micro: 1_000_000,
             forward_products: forward::products(device, config),
             velocity,
             composition: composition(settings.composition),
@@ -271,8 +273,14 @@ impl Ssr {
         let mut replacement =
             Self::with_velocity(device, config, self.settings, screen, self.velocity)?;
         replacement.environment.clone_from(&self.environment);
+        replacement.environment_intensity_micro = self.environment_intensity_micro;
         replacement.composition = self.composition;
-        let group = forward::group(device, screen, &replacement.environment);
+        let group = forward::group(
+            device,
+            screen,
+            &replacement.environment,
+            replacement.environment_intensity_micro,
+        );
         screen
             .geometry
             .forward

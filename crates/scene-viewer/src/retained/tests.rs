@@ -1,3 +1,43 @@
+#[test]
+fn environment_intensity_updates_are_retained_without_gpu_work() {
+    let mut options = crate::tests::options();
+    options.frame_profile = crate::FrameProfile::Hdr {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let mut host = RetainedHost::new(crate::renderer::retained_tests::source(), options).unwrap();
+    let (initial, mut environment) = install_environment_resources(&mut host);
+    for intensity in [0, 1_000_000, 64_000_000] {
+        environment.specular_intensity_micro = intensity;
+        let effects = initial.clone().with_environment(Some(environment));
+        host.apply(RetainedUpdate::Settings(Box::new(effects)))
+            .unwrap();
+        assert_eq!(
+            host.scene.effects().unwrap().environment(),
+            Some(environment)
+        );
+        assert_eq!(host.ready_generation(), 0);
+    }
+    let generation = host.accepted_generation();
+    environment.specular_intensity_micro = 64_000_001;
+    assert!(
+        host.apply(RetainedUpdate::Settings(Box::new(
+            initial.with_environment(Some(environment))
+        )))
+        .is_err()
+    );
+    assert_eq!(host.accepted_generation(), generation);
+    assert_eq!(
+        host.scene
+            .effects()
+            .unwrap()
+            .environment()
+            .unwrap()
+            .specular_intensity_micro,
+        64_000_000
+    );
+}
+
 fn celestial_mesh(direction: SceneDirection) -> SceneCelestialMesh {
     SceneCelestialMesh {
         lighting: SceneCelestialLighting::NEUTRAL,
@@ -309,4 +349,45 @@ fn assert_camera_mirror_and_default_bytes(
             .abs()
             < 0.001
     );
+}
+
+fn install_environment_resources(host: &mut RetainedHost) -> (SceneEffects, SceneEnvironment) {
+    let mut textures = host.scene.resources().textures().to_vec();
+    let cube = TextureHandle::from_raw(u32::try_from(textures.len()).unwrap());
+    textures.push(SceneTexture::SpecularCube(
+        SceneSpecularCube::rgba16_float(1, 1, vec![0; 48].into()).unwrap(),
+    ));
+    let brdf_lut = TextureHandle::from_raw(u32::try_from(textures.len()).unwrap());
+    textures.push(SceneTexture::Texels {
+        format: TexelFormat::Rg16Float,
+        color_space: TextureColorSpace::Linear,
+        width: 1,
+        height: 1,
+        mips: 1,
+        bytes: vec![0; 4].into(),
+    });
+    let resources =
+        SceneResources::new(textures, host.scene.resources().materials().to_vec()).unwrap();
+    let initial = host
+        .scene
+        .effects()
+        .unwrap()
+        .clone()
+        .with_ssr(SceneSsr::default())
+        .unwrap();
+    host.scene = host
+        .scene
+        .with_resources(
+            resources,
+            host.scene.geometry().clone(),
+            Some(initial.clone()),
+        )
+        .unwrap();
+    let environment = SceneEnvironment::new(
+        cube,
+        brdf_lut,
+        SceneSpecularConvention::default(),
+        SceneEnvironmentConsumers::Reflections,
+    );
+    (initial, environment)
 }

@@ -149,6 +149,15 @@ device limits and the supplied `AllocationBudget` before creating resources.
 Face sizes are powers of two through 1024, LUT dimensions through 1024, and
 sample counts through 4096. Output images are `Rgba16Float`, without an sRGB
 transfer function. The two LUT channels are A and B for `F0 * A + B`.
+`EnvironmentPreparation::specular_intensity_micro` accepts `0..=64_000_000`
+and scales generated or authored coefficients before half-float LUT storage.
+This preparation scale also affects the published SSR factor and scene-hit
+replacement. Consumers do not multiply prepared cube radiance again.
+
+Uploaded `SceneEnvironment` maps carry unit baked intensity. Their separate
+`specular_intensity_micro` scales cube radiance once for each selected consumer,
+without changing BRDF coefficients or the SSR scene-hit factor. A miss preserves
+the scaled forward lobe.
 
 The convolution uses deterministic low-discrepancy GGX samples and normalized
 cosine weighting. Each source mip is selected from the sample's solid-angle

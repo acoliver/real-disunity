@@ -101,7 +101,8 @@ pub fn encode(
         transaction: Some(transaction),
         convention: settings.convention,
         authored_brdf: None,
-        specular_intensity_micro: settings.specular_intensity_micro,
+        baked_specular_intensity_micro: settings.specular_intensity_micro,
+        specular_intensity_micro: 1_000_000,
     })
 }
 

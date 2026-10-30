@@ -97,7 +97,7 @@ pub(super) fn install(
     table: AuthoredBrdfTable,
 ) -> Result<PreparedEnvironmentMaps, PreparationError> {
     let maps = maps.with_authored_brdf(table)?;
-    if maps.specular_intensity_micro != 1_000_000 {
+    if maps.baked_specular_intensity_micro != 1_000_000 {
         scale_table(device, encoder, &maps);
     }
     Ok(maps)
@@ -108,7 +108,7 @@ fn scale_table(
     encoder: &mut wgpu::CommandEncoder,
     maps: &PreparedEnvironmentMaps,
 ) {
-    let pipeline = scale_pipeline(device, maps.specular_intensity_micro);
+    let pipeline = scale_pipeline(device, maps.baked_specular_intensity_micro);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,

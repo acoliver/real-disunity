@@ -23,9 +23,18 @@ impl FrameRenderer {
             .as_mut()
             .expect("SSR must be installed")
             .environment = [cube.clone(), lut.clone()];
+        self.ssr
+            .as_mut()
+            .expect("SSR installed")
+            .environment_intensity_micro = maps.specular_intensity_micro();
         self.environment_conventions[0] = Some(maps.convention());
         let screen = self.ssao.as_mut().expect("SSR metadata must be installed");
-        let group = crate::ssr::forward::group(device, screen, &[cube.clone(), lut.clone()]);
+        let group = crate::ssr::forward::group(
+            device,
+            screen,
+            &[cube.clone(), lut.clone()],
+            maps.specular_intensity_micro(),
+        );
         screen
             .geometry
             .forward
@@ -59,6 +68,10 @@ impl FrameRenderer {
             .as_mut()
             .expect("water must be installed")
             .environment = [cube, lut];
+        self.water
+            .as_mut()
+            .expect("water installed")
+            .environment_intensity_micro = maps.specular_intensity_micro();
         self.environment_conventions[1] = Some(maps.convention());
         Ok(())
     }
@@ -95,16 +108,23 @@ impl FrameRenderer {
     pub(crate) fn clear_environment(&mut self, device: &wgpu::Device) {
         if let Some(water) = &mut self.water {
             water.environment = crate::water::receivers::empty_environment(device);
+            water.environment_intensity_micro = 1_000_000;
         }
         if let Some(ssr) = &mut self.ssr {
             ssr.environment = crate::water::receivers::empty_environment(device);
+            ssr.environment_intensity_micro = 1_000_000;
             let screen = self.ssao.as_mut().expect("SSR metadata installed");
             screen
                 .geometry
                 .forward
                 .as_mut()
                 .expect("SSR forward pipelines")
-                .1 = crate::ssr::forward::group(device, screen, &ssr.environment);
+                .1 = crate::ssr::forward::group(
+                device,
+                screen,
+                &ssr.environment,
+                ssr.environment_intensity_micro,
+            );
         }
         self.environment_conventions = [None; 2];
     }

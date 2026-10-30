@@ -5,6 +5,7 @@ fn source(output: &str) -> String {
     // Fixed cube/LUT samples isolate publication from texture filtering. All
     // forward BRDF, scene occlusion, exposure and metadata math is production.
     let forward = include_str!("forward.wgsl")
+        .replace("f32(environment_intensity.x) / 1000000.0", "1.0")
         .replace("textureSampleLevel(reflection_brdf, reflection_sampler, vec2<f32>(cosine, roughness), 0.0).rg", "vec2<f32>(1.0, 0.0)")
         .replace("textureSampleLevel(reflection_environment, reflection_sampler, reflect(-view, normal), roughness * f32(textureNumLevels(reflection_environment) - 1u)).rgb", "vec3<f32>(1.0, 0.5, 0.25)");
     let shader = format!(

@@ -134,6 +134,7 @@ fn source(water: bool) -> (RenderScene, SceneEnvironment) {
             brdf_lut,
             convention: worldrunner_render_plan::SceneSpecularConvention::default(),
             consumers: SceneEnvironmentConsumers::Water,
+            specular_intensity_micro: 1_000_000,
         },
     )
 }
@@ -166,6 +167,13 @@ fn retained_environment_updates_and_removal_preserve_resident_scene() {
         .unwrap();
     let reflected = capture(&mut run, &events);
     assert_ne!(baseline, reflected);
+    assert_intensity_updates(
+        &mut run,
+        &events,
+        &initial,
+        environment,
+        [&baseline, &reflected],
+    );
     assert_eq!(
         run.host()
             .statistics()
@@ -189,4 +197,32 @@ fn retained_environment_updates_and_removal_preserve_resident_scene() {
         .unwrap();
     assert_eq!(baseline, capture(&mut run, &events));
     run.shutdown().unwrap();
+}
+
+fn assert_intensity_updates(
+    run: &mut WindowlessRetained<'_>,
+    events: &RefCell<Vec<RetainedEvent>>,
+    initial: &worldrunner_render_plan::SceneEffects,
+    environment: SceneEnvironment,
+    expected: [&(Duration, RgbaImage); 2],
+) {
+    for intensity in [0, 2_000_000, 1_000_000] {
+        let environment = SceneEnvironment {
+            specular_intensity_micro: intensity,
+            ..environment
+        };
+        run.host_mut()
+            .apply(RetainedUpdate::Settings(Box::new(
+                initial.clone().with_environment(Some(environment)),
+            )))
+            .unwrap();
+        let actual = capture(run, events);
+        if intensity == 0 {
+            assert_eq!(&actual, expected[0]);
+        } else if intensity == 1_000_000 {
+            assert_eq!(&actual, expected[1]);
+        } else {
+            assert_ne!(&actual, expected[1]);
+        }
+    }
 }

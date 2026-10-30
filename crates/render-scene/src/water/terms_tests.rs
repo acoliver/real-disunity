@@ -615,7 +615,17 @@ fn default_disk_uniform_and_rendered_bytes_match_fixed_radius() {
             .borrow_mut()
             .insert([0, 0, 0, 32], [fixed_pipeline.clone(), fixed_pipeline]);
         draw_water_slot(&context, &renderer, 0);
-        assert_eq!(read(&context, renderer.targets().texture()), expected);
+        // The fixed-radius source folds cos(0.0027) and sin(0.0027) like the
+        // default branch of the production source, so the two are mathematically
+        // equal. Separate shader compiles may contract or order the f32
+        // operations differently, which moves a result by a few f32 ULP, far
+        // below one float16 step: after the identical float16 store the words
+        // are equal or adjacent. Measured on RADV: 1 of 4096 words, by one step.
+        let actual = read(&context, renderer.targets().texture());
+        assert!(
+            crate::tolerance_tests::max_half_steps(&actual, &expected) <= 1,
+            "samples={samples}"
+        );
         let mut dark_body = body.clone();
         dark_body
             .material

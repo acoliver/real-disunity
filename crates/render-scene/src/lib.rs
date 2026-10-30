@@ -48,6 +48,8 @@ mod post_bloom_tests;
 mod post_fxaa_tests;
 #[cfg(test)]
 mod post_taa_tests;
+#[cfg(test)]
+mod tolerance_tests;
 
 pub mod simulation;
 pub mod sky;

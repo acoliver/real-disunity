@@ -68,6 +68,10 @@ internal static class RectTransformMemberTests
         Same(min, child.offsetMin, "offsetMin kept with an off-center pivot");
         Same(new Vector2(150, 60), child.offsetMax, "offsetMax set");
         Same(child.offsetMax - child.offsetMin, child.sizeDelta, "size is the offset difference");
+        var max = child.offsetMax;
+        child.offsetMin = new Vector2(-40, -30);
+        Same(max, child.offsetMax, "offsetMax kept when offsetMin is set with an off-center pivot");
+        Same(new Vector2(-40, -30), child.offsetMin, "offsetMin set");
     }
 
     private static void Position3D()

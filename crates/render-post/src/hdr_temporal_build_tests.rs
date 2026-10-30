@@ -225,6 +225,28 @@ fn full_chain_settings() -> HdrPostSettings {
     }
 }
 
+/// Paints the render-extent scene a constant colour.
+fn constant_scene(encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("constant scene"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color {
+                    r: 0.5,
+                    g: 0.25,
+                    b: 0.125,
+                    a: 1.0,
+                }),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        ..Default::default()
+    }));
+}
+
 #[test]
 fn a_temporal_chain_dispatches_every_stage_at_the_output_extent_and_writes_every_pixel() {
     let (device, queue) = crate::gpu_tests::gpu();
@@ -242,24 +264,7 @@ fn a_temporal_chain_dispatches_every_stage_at_the_output_extent_and_writes_every
     // A constant field at the render extent; the output must be the same field at O.
     let out = crate::color_texture(&device, "out", output, wgpu::TextureFormat::Rgba8UnormSrgb);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("constant scene"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: chain.targets().resolved(),
-            resolve_target: None,
-            depth_slice: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color {
-                    r: 0.5,
-                    g: 0.25,
-                    b: 0.125,
-                    a: 1.0,
-                }),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        ..Default::default()
-    }));
+    constant_scene(&mut encoder, chain.targets().resolved());
     let block = TemporalBlock {
         render,
         output,

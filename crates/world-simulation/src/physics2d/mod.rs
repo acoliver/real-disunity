@@ -121,7 +121,9 @@ impl World {
     /// Errors do not publish partial motion or contact state.
     pub fn step_physics(&mut self, dt: f32) -> Result<(), WorldError> {
         self.ensure_no_advance()?;
-        self.step_physics_inner(dt)
+        self.step_physics_inner(dt)?;
+        self.refresh_spatial_index();
+        Ok(())
     }
     pub(crate) fn step_physics_inner(&mut self, dt: f32) -> Result<(), WorldError> {
         if !dt.is_finite() || dt < 0.0 {

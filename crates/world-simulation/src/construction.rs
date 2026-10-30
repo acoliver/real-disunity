@@ -60,6 +60,9 @@ impl World {
             .into_iter()
             .filter(|&object| self.live_object(object).is_ok())
             .collect();
+        for &object in &live {
+            self.spatial_touch(object);
+        }
         self.refresh_lifecycle(&live, construction.0);
         Ok(())
     }

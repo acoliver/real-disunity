@@ -34,6 +34,7 @@ mod handles;
 mod journal;
 mod mesh_instance;
 pub mod physics2d;
+mod spatial;
 pub mod tilemap;
 mod ui_error;
 pub use ui_error::{FontId, UiError};
@@ -141,6 +142,10 @@ pub enum WorldError {
     NotScript,
     #[error("lifecycle mutation does not belong to this world")]
     WrongMutation,
+    #[error("the spatial index is not enabled")]
+    SpatialIndexDisabled,
+    #[error("invalid spatial index argument: expected finite values and a positive cell size")]
+    InvalidSpatialArgument,
     #[error("physics: {0}")]
     Physics(#[from] physics2d::PhysicsError),
 }

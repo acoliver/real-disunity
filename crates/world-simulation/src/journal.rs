@@ -302,6 +302,7 @@ impl World {
     }
 
     pub(crate) fn record_change(&mut self, change: Change) {
+        self.spatial_observe(change);
         self.journal.record(change);
     }
 }

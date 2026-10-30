@@ -93,6 +93,7 @@ pub struct World {
     pub(crate) lifecycle: crate::lifecycle::Lifecycle,
     pub(crate) components: Arena<ComponentSnapshot>,
     pub(crate) journal: crate::journal::Journal,
+    pub(crate) spatial: Option<crate::spatial::SpatialIndex>,
     pub(crate) staging: Option<crate::edits::Staging>,
 }
 
@@ -112,6 +113,7 @@ impl World {
             objects: Arena::new(settings.max_objects, LimitKind::Objects),
             components: Arena::new(settings.max_components, LimitKind::Components),
             journal: crate::journal::Journal::default(),
+            spatial: None,
             staging: None,
         })
     }

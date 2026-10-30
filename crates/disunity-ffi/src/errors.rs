@@ -38,7 +38,9 @@ impl AbiError {
                 | W::WrongMutation
                 | W::InputOrder
                 | W::InvalidInput
-                | W::InvalidContact => crate::abi::DisunityErrorReason::InvalidArgument,
+                | W::InvalidContact
+                | W::SpatialIndexDisabled
+                | W::InvalidSpatialArgument => crate::abi::DisunityErrorReason::InvalidArgument,
             },
         }
     }

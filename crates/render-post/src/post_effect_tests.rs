@@ -443,9 +443,21 @@ fn gpu_bloom_threshold_and_quadratic_knee_match_exact_reference() {
         .unwrap()
         .read(&device, &crate::test_authority(&queue), bloom)
         .unwrap();
+    // The shader computes rgb * (extracted / brightness) in float32, which is
+    // inexact for 0.75 (extracted = 1/32), and the float16 store may round
+    // toward zero. Exact references: 0, 1/32, 1/8, 1. A zero input stays exactly
+    // zero (the ramp clamps to 0); the others may land one float16 step low.
     for (pixel, expected) in raw.chunks_exact(8).zip([0_u16, 0x2800, 0x3000, 0x3c00]) {
         for channel in pixel[..6].chunks_exact(2) {
-            assert_eq!(u16::from_le_bytes(channel.try_into().unwrap()), expected);
+            let actual = u16::from_le_bytes(channel.try_into().unwrap());
+            assert!(
+                if expected == 0 {
+                    actual == 0
+                } else {
+                    crate::tone_map_gpu_tests::half_words_within_one_step(actual, expected)
+                },
+                "bloom threshold {actual:#06x} versus {expected:#06x}"
+            );
         }
     }
 }

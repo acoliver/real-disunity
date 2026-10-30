@@ -59,13 +59,30 @@ fn gpu_odd_bloom_pyramid_preserves_constants() {
         "return vec4<f32>(3.25,3.25,3.25,1.0);",
         false,
     );
-    for texture in &c.configured[0].resources.textures {
+    // Weights sum to one, so every pass maps a constant to the same constant up to
+    // float32 rounding (about 2^-23 relative, far below one float16 step of
+    // 2^-10). A float16 store that rounds toward zero (RADV) turns that into at
+    // most one step below its input per pass, and each pass reads the float16
+    // result of the previous one. Texture `index` is written by pass `index + 1`
+    // (prefilter, three downsamples, three upsamples), so it may sit up to
+    // `index + 1` steps below 3.25. Output never exceeds 3.25.
+    let constant = 0x4280_u16; // 3.25 as float16
+    assert_eq!(
+        crate::tone_map_gpu_tests::half(&constant.to_le_bytes()).to_bits(),
+        3.25_f64.to_bits()
+    );
+    for (index, texture) in c.configured[0].resources.textures.iter().enumerate() {
         let raw = pixels(&device, &queue, texture);
-        assert!(raw.chunks_exact(8).all(|pixel| {
-            pixel[..6].chunks_exact(2).all(|channel| {
-                crate::tone_map_gpu_tests::half(channel).to_bits() == 3.25_f64.to_bits()
-            })
-        }));
+        let allowed_steps = u16::try_from(index + 1).unwrap();
+        assert!(
+            raw.chunks_exact(8).all(|pixel| {
+                pixel[..6].chunks_exact(2).all(|channel| {
+                    let word = u16::from_le_bytes([channel[0], channel[1]]);
+                    word <= constant && constant - word <= allowed_steps
+                })
+            }),
+            "texture {index} drifted from 3.25 by more than {allowed_steps} float16 steps"
+        );
     }
 }
 

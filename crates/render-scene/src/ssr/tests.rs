@@ -12,6 +12,8 @@ mod final_depth_tests;
 mod fix_tests;
 #[path = "forward_ao_tests.rs"]
 mod forward_ao_tests;
+#[path = "gather_origin_tests.rs"]
+mod gather_origin_tests;
 #[path = "grid_tests.rs"]
 mod grid_tests;
 #[path = "msaa.rs"]

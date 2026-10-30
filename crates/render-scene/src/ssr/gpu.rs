@@ -299,7 +299,8 @@ pub(super) fn configured_resolve_source(
             "let visibility = gathered_visibility(p, cosine, surface.a, sample); factor *= visibility;"
         });
     format!(
-        "{source}\n{}\n{}",
+        "{source}\n{}\n{}\n{}",
+        include_str!("gather_origin.wgsl"),
         include_str!("application_ao.wgsl"),
         include_str!("ao_math.wgsl")
     )

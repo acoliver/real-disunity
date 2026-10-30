@@ -268,10 +268,20 @@ fn albedo_and_scalar_material_channels_are_blended_before_lighting() {
         )
         .unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
-        assert_eq!(
-            capture(&context, &expected, samples),
-            capture(&context, &base.with_decals(vec![d]).unwrap(), samples)
+        let reference = capture(&context, &expected, samples);
+        let blended = capture(&context, &base.with_decals(vec![d]).unwrap(), samples);
+        // The decal path blends the albedo in the shader and the reference reads
+        // the same albedo from the texture, so both lit values agree to a tiny
+        // fraction of an 8-bit code before quantisation and may land on adjacent
+        // codes. Measured on RADV: 2 of 16384 bytes differ, by one code.
+        assert!(
+            crate::tolerance_tests::max_byte_codes(&reference, &blended) <= 1,
+            "samples={samples}"
         );
+        // The undecorated base uses the other texture, so one code cannot hide a
+        // missing blend.
+        let undecorated = capture(&context, &base, samples);
+        assert!(crate::tolerance_tests::max_byte_codes(&reference, &undecorated) > 32);
     }
 }
 

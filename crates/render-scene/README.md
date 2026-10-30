@@ -397,3 +397,17 @@ retained settings publication, including removal and consumer changes.
 at equal render and output extents, after the resolve and CAS, and does not
 alter upscale RCAS. See [the post contract](../render-post/README.md#native-resolution-rcas)
 for stops, filter domains and output rounding.
+
+## Water lighting and normal filtering
+
+Water specializes the shared lighting shader with the scene's direct-diffuse
+convention. `LambertianPrepared` uses prepared sun colour without another Fresnel
+or pi factor in diffuse. Water sun disks remain per-body controls. Each distinct
+lighting convention has its own cached plain and shadowed water pipelines.
+
+`SceneWaterSettings::normal_anisotropy` selects validated 1x, 2x, 4x, 8x or 16x
+filtering when `normal_mips` is enabled. Bodies with the same level reuse one
+sampler. The default 1x descriptor preserves trilinear repeat sampling; explicit
+mip-zero normals retain their float-precision bilinear path. The synthetic water
+normal readback test checks minor-axis detail at a grazing angle and compares the
+1x bytes with the original sampler descriptor.

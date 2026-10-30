@@ -163,7 +163,7 @@ fn disabled_optical_controls_are_byte_identical_to_stock_shader_at_every_support
             samples,
             &water.layout,
             false,
-            [0; 4],
+            [0; 5],
             &source,
         );
         draw_water_only(&context, &renderer);

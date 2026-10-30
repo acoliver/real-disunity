@@ -145,14 +145,14 @@ pub(crate) struct Water {
     shadow_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     specializations: std::rc::Rc<
-        std::cell::RefCell<std::collections::BTreeMap<[u32; 4], [wgpu::RenderPipeline; 2]>>,
+        std::cell::RefCell<std::collections::BTreeMap<[u32; 5], [wgpu::RenderPipeline; 2]>>,
     >,
     samples: u32,
     pub receivers: [[wgpu::Texture; 3]; 3],
     pub environment: [wgpu::TextureView; 2],
     pub environment_intensity_micro: u32,
     sampler: wgpu::Sampler,
-    surface_sampler: wgpu::Sampler,
+    surface_samplers: Vec<wgpu::Sampler>,
     pub surface_inputs: Vec<[Option<wgpu::TextureView>; 3]>,
 }
 impl Water {
@@ -192,8 +192,8 @@ impl Water {
             ));
         }
         let layout = input_layout(device);
-        let plain_pipeline = pipeline(device, config.samples, &layout, false, [0; 4]);
-        let shadow_pipeline = pipeline(device, config.samples, &layout, true, [0; 4]);
+        let plain_pipeline = pipeline(device, config.samples, &layout, false, [0; 5]);
+        let shadow_pipeline = pipeline(device, config.samples, &layout, true, [0; 5]);
         let bodies = geometry
             .into_iter()
             .map(|vertices| Body::new(device, &vertices))
@@ -210,7 +210,7 @@ impl Water {
                 ..Default::default()
             }),
             surface_inputs: vec![[None, None, None]; settings.len()],
-            surface_sampler: surface::sampler(device),
+            surface_samplers: surface::samplers(device, &settings),
             bodies,
             settings: settings.into(),
             snapshots: std::array::from_fn(|_| Snapshots::new(device, config)),
@@ -240,8 +240,14 @@ impl Water {
             .collect();
         let mut water = self.clone();
         let base = frame.specular_convention.shader_options();
-        let options = [base[0], base[1], base[2], terms::mask(&self.settings)];
-        if options != [0; 4] {
+        let options = [
+            base[0],
+            base[1],
+            base[2],
+            base[3],
+            terms::mask(&self.settings),
+        ];
+        if options != [0; 5] {
             let mut cache = self.specializations.borrow_mut();
             let selected = cache.entry(options).or_insert_with(|| {
                 [
@@ -319,7 +325,7 @@ impl Water {
                 ),
                 wgpu::BindGroupEntry {
                     binding: 9,
-                    resource: wgpu::BindingResource::Sampler(&self.surface_sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.surface_samplers[index]),
                 },
             ],
         })
@@ -343,7 +349,7 @@ fn pipeline(
     samples: u32,
     layout: &wgpu::BindGroupLayout,
     shadows: bool,
-    options: [u32; 4],
+    options: [u32; 5],
 ) -> wgpu::RenderPipeline {
     pipeline_with_source(
         device,
@@ -359,7 +365,7 @@ fn pipeline_with_source(
     samples: u32,
     layout: &wgpu::BindGroupLayout,
     shadows: bool,
-    options: [u32; 4],
+    options: [u32; 5],
     source: &str,
 ) -> wgpu::RenderPipeline {
     let constants = terms::constants(options);

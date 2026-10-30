@@ -82,15 +82,31 @@ pub(crate) fn inputs(
             .collect()
     })
 }
-pub(super) fn sampler(device: &wgpu::Device) -> wgpu::Sampler {
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        address_mode_u: wgpu::AddressMode::Repeat,
-        address_mode_v: wgpu::AddressMode::Repeat,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::MipmapFilterMode::Linear,
-        ..Default::default()
-    })
+pub(super) fn samplers(
+    device: &wgpu::Device,
+    bodies: &[worldrunner_render_plan::SceneWaterBody],
+) -> Vec<wgpu::Sampler> {
+    let mut cache = std::collections::HashMap::new();
+    bodies
+        .iter()
+        .map(|body| {
+            let level = body.material.normal_anisotropy;
+            cache
+                .entry(level)
+                .or_insert_with(|| {
+                    device.create_sampler(&wgpu::SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::Repeat,
+                        address_mode_v: wgpu::AddressMode::Repeat,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                        anisotropy_clamp: level.level(),
+                        ..Default::default()
+                    })
+                })
+                .clone()
+        })
+        .collect()
 }
 pub(super) fn binding(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry {

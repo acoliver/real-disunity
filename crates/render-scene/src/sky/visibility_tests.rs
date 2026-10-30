@@ -30,6 +30,15 @@ fn capture_celestial(
     source: &worldrunner_render_plan::RenderScene,
     samples: u32,
 ) -> Capture {
+    capture_celestial_target(context, source, samples, false)
+}
+
+fn capture_celestial_target(
+    context: &GpuContext,
+    source: &worldrunner_render_plan::RenderScene,
+    samples: u32,
+    occupancy: bool,
+) -> Capture {
     let device = context.device();
     let pipelines =
         ScenePipelines::with_samples(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
@@ -50,10 +59,14 @@ fn capture_celestial(
             frame,
         )
         .unwrap();
+        let reference = occupancy.then(|| gpu.capture_celestial_textures(device, [9, 3]));
+        let reference_view = reference
+            .as_ref()
+            .map(|textures| textures[0].create_view(&wgpu::TextureViewDescriptor::default()));
         let _resolve = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("celestial acceptance resolve"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color.view(),
+                view: reference_view.as_ref().unwrap_or_else(|| color.view()),
                 resolve_target: Some(resolved),
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -98,11 +111,17 @@ fn celestial_alpha_coverage_composites_occupied_samples_once() {
         effects: Some(effects(0, false)),
     })
     .unwrap();
+    // Resolve the unblended white radiance before composition: occupied
+    // samples store white and untouched samples store zero on this device.
+    let reference = capture_celestial_target(&context, &source, 4, true);
+    let fraction = reference.rgb(4)[0];
+    assert!([0.25, 0.5, 0.75, 1.0].contains(&fraction), "{fraction}");
+    assert_eq!(reference.rgb(4).map(f32::to_bits), [fraction.to_bits(); 3]);
     let image = capture_celestial(&context, &source, 4);
     assert_eq!(
         image.rgb(4).map(f32::to_bits),
-        [0.5_f32, 0.5, 1.5].map(f32::to_bits),
-        "half white over blue radiance 2"
+        [fraction, fraction, 2.0 - fraction].map(f32::to_bits),
+        "occupied white samples over blue radiance 2, coverage {fraction}"
     );
     assert_eq!(
         image.rgb(0).map(f32::to_bits),

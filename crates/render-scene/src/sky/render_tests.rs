@@ -5,7 +5,7 @@ use crate::{
 };
 use worldrunner_render_plan::SceneCamera;
 
-pub(super) fn settings() -> SceneAtmosphere {
+pub(crate) fn settings() -> SceneAtmosphere {
     SceneAtmosphere {
         celestial_composition: worldrunner_render_plan::SceneCelestialComposition::Inherit,
         celestial_exposure_micro: None,

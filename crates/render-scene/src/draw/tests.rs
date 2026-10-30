@@ -341,7 +341,7 @@ fn effects() -> SceneEffects {
     SceneEffects::new(effect_parts()).expect("the fixture effects validate")
 }
 
-fn effect_parts() -> SceneEffectsParts {
+pub(crate) fn effect_parts() -> SceneEffectsParts {
     SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {

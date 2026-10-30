@@ -95,7 +95,7 @@ pub(crate) struct Meshes {
     object_exposure: bool,
     specializations: PipelineCache,
     draws: Vec<MeshDraw>,
-    composite: wgpu::RenderPipeline,
+    composites: std::cell::RefCell<std::collections::BTreeMap<(bool, bool), wgpu::RenderPipeline>>,
     samples: u32,
     layout: wgpu::BindGroupLayout,
     target: std::cell::RefCell<Option<super::mesh_target::Target>>,
@@ -109,9 +109,12 @@ impl Meshes {
         separate: bool,
         object_exposure: bool,
     ) -> Self {
-        let (composite, layout) = super::mesh_target::pipeline(device, pipelines);
+        let key = pipelines.sky_targets();
+        let (composite, layout) = super::mesh_target::pipeline(device, pipelines, key);
         Self {
-            composite,
+            composites: std::cell::RefCell::new(std::collections::BTreeMap::from([(
+                key, composite,
+            )])),
             device: device.clone(),
             scene: pipelines.clone(),
             physical,
@@ -153,12 +156,17 @@ impl Meshes {
             .expect("allocated visibility")
             .schedule(passes, views, declaration);
     }
-    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, key: (bool, bool)) {
         let target = self.target.borrow();
         let target = target
             .as_ref()
             .expect("celestial meshes require scheduled visibility before scene draw");
-        pass.set_pipeline(&self.composite);
+        // The immutable scene owns the colour format, sample count and frame layout.
+        let mut composites = self.composites.borrow_mut();
+        let composite = composites
+            .entry(key)
+            .or_insert_with(|| super::mesh_target::pipeline(&self.device, &self.scene, key).0);
+        pass.set_pipeline(composite);
         pass.set_bind_group(2, &target.group, &[]);
         pass.draw(0..3, 0..1);
     }

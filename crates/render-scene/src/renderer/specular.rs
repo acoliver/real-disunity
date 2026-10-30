@@ -62,6 +62,15 @@ impl Specialization {
     }
 }
 impl ScenePipelines {
+    pub(crate) fn sky_targets(&self) -> (bool, bool) {
+        (
+            self.writes_velocity(),
+            self.specialization
+                .source
+                .contains("struct ReflectionOutput"),
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn for_convention(
         &self,

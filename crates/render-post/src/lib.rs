@@ -102,6 +102,9 @@ mod taa_reference;
 mod taa_tests;
 #[cfg(test)]
 mod taa_velocity;
+mod temporal_block;
+#[cfg(test)]
+mod temporal_block_tests;
 #[cfg(test)]
 mod temporal_upscale_reference;
 #[cfg(test)]
@@ -113,6 +116,7 @@ pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use jitter::ProjectionJitter;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 pub use taa::{TAA_UNIFORM_BYTES, TaaSettings, TaaUniform};
+pub use temporal_block::{TEMPORAL_BLOCK_BYTES, TemporalBlock};
 mod native_rcas;
 mod tone_map;
 pub use native_rcas::{NativeRcasSettings, RcasDomain};

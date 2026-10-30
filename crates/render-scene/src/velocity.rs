@@ -25,6 +25,8 @@
 //! | Celestial mesh geometry, water        | Own passes, no velocity attachment        |
 //! | Decals                                | Part of the receiving object's draw       |
 //! | Shadow receivers (objects, terrain)   | Same rewrite as the unshadowed draws      |
+//! | SSAO objects and terrain              | Same rewrite, `with_ssao_taa_velocity`;   |
+//! |                                       | the SSAO metadata prepass writes none     |
 //! | Shadow caster depth draws             | No colour target, nothing to write        |
 //! | Reflection forward draws              | Residual at `@location(3)` when it fits   |
 //!

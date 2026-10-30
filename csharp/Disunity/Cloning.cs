@@ -82,7 +82,7 @@ public static partial class DisunityHost
         for (var current = type; current != null && current != typeof(MonoBehaviour); current = current.BaseType)
             foreach (var field in current.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 if (!field.IsStatic && !field.IsInitOnly && !field.IsDefined(typeof(NonSerializedAttribute))
-                    && (field.IsPublic || field.IsDefined(typeof(SerializeField)))) yield return field;
+                    && (field.IsPublic || field.IsDefined(typeof(SerializeField)) || field.IsDefined(typeof(SerializeReference)))) yield return field;
     }
 
     private static object? CopyField(object? value, Dictionary<object, object> remap, Dictionary<object, object> copied)

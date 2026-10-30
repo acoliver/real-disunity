@@ -14,9 +14,11 @@ namespace Disunity.Hosting;
 /// is ignored, and data for a field whose type cannot be loaded fails with the field named and the
 /// innermost cause. A nested serializable class is built by <see cref="SerializableInstance"/>. A
 /// reference to an <see cref="UnbuiltComponent"/> binds null and reports a difference, when the
-/// binder has somewhere to report it.
+/// binder has somewhere to report it. A <c>[SerializeReference]</c> value, which the plan writes as
+/// <c>{"$managed": {"class", "assembly", "fields"}}</c>, is built as the class it names, found with
+/// <paramref name="assemblies"/>.
 /// </summary>
-internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<string>? difference = null)
+internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<string>? difference = null, Func<string, Assembly>? assemblies = null)
 {
     /// <summary>Sets the fields, then calls <see cref="ISerializationCallbackReceiver.OnAfterDeserialize"/>
     /// as Unity does once an object's data is loaded.</summary>
@@ -48,6 +50,7 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<str
     private object? Convert(JsonElement value, Type type, string path)
     {
         if (value.ValueKind == JsonValueKind.Null && !type.IsValueType) return null;
+        if (AsReference(value) is { Name: "$managed" } managed) return Managed(managed.Value, type, path);
         if (AsReference(value) is { } reference) return Reference(reference, type, path);
         if (type == typeof(string)) return value.GetString();
         if (type == typeof(bool)) return Text(value) switch { "0" => false, "1" => true, var other => throw new FormatException(other) };
@@ -76,6 +79,22 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<str
         if (value.ValueKind != JsonValueKind.Object) return null;
         var members = value.EnumerateObject().Take(2).ToList();
         return members is [{ Name: ['$', ..] } only] ? only : null;
+    }
+
+    /// <summary>A <c>[SerializeReference]</c> value: an instance of the class the plan names, which must be
+    /// assignable to the field's declared type, with its fields bound.</summary>
+    private object Managed(JsonElement value, Type declared, string path)
+    {
+        var (assembly, name) = (Text(value.GetProperty("assembly")), Text(value.GetProperty("class")));
+        var resolver = assemblies
+            ?? throw new SceneLoadException($"{path}: the plan holds a {name} value for a [SerializeReference] field, and the loader has no assembly resolver");
+        var type = resolver(assembly).GetType(name.Replace('/', '+'), throwOnError: false)
+            ?? throw new SceneLoadException($"{path}: {assembly} has no class {name}");
+        if (!declared.IsAssignableFrom(type) || type.IsAbstract || type.IsInterface || typeof(UnityEngine.Object).IsAssignableFrom(type))
+            throw new SceneLoadException($"{path}: a {declared.Name} field cannot hold a {name}");
+        var instance = SerializableInstance.Create(type);
+        Bind(instance, value.GetProperty("fields"), path);
+        return instance;
     }
 
     private static string Text(JsonElement value) => value.GetString() ?? throw new FormatException("expected a value");

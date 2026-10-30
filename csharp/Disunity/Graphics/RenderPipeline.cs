@@ -35,3 +35,20 @@ public interface IRenderPipelineGraphicsSettings
 
     void Reset() { }
 }
+
+/// <summary>A group of settings that holds the resources a render pipeline loads, such as shaders and
+/// materials. The version and the player-build flag are those of <see cref="IRenderPipelineGraphicsSettings"/>.</summary>
+public interface IRenderPipelineResources : IRenderPipelineGraphicsSettings
+{
+}
+
+/// <summary>The settings groups a global settings asset holds. The list holds each group by
+/// <c>[SerializeReference]</c>, so a group's class is whatever the data names.</summary>
+[Serializable]
+public class RenderPipelineGraphicsSettingsCollection
+{
+    [SerializeReference] private List<IRenderPipelineGraphicsSettings> m_SettingsList = new();
+
+    public List<IRenderPipelineGraphicsSettings> settingsList => m_SettingsList;
+}
+

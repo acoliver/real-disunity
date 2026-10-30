@@ -13,6 +13,8 @@ mod channel_tests;
 #[cfg(test)]
 mod mip_tests;
 #[cfg(test)]
+mod principal_tests;
+#[cfg(test)]
 mod resident_tests;
 mod scratch;
 mod source;

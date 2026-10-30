@@ -40,10 +40,21 @@ fn layered_level(image: Image, uv: vec2<f32>, lod: f32) -> vec4<f32> {
 }
 fn layered_anisotropic(image: Image, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let size = vec2<f32>(image.shape.zw);
-    let lengths = vec2<f32>(length(dx * size), length(dy * size));
-    let major = max(lengths.x, lengths.y);
-    let minor = min(lengths.x, lengths.y);
-    let direction = select(dy, dx, lengths.x >= lengths.y);
+    let x = dx * size;
+    let y = dy * size;
+    let a = x.x * x.x + y.x * y.x;
+    let b = x.x * x.y + y.x * y.y;
+    let c = x.y * x.y + y.y * y.y;
+    let eigenvalue = 0.5 * (a + c + length(vec2<f32>(a - c, 2.0 * b)));
+    let major = sqrt(eigenvalue);
+    // det(J) / rho_max avoids cancellation in the smaller eigenvalue.
+    let minor = abs(x.x * y.y - x.y * y.x) / max(major, 1e-20);
+    var axis = vec2<f32>(1.0, 0.0);
+    if a < c { axis = vec2<f32>(0.0, 1.0); }
+    if b != 0.0 {
+        axis = normalize(select(vec2<f32>(b, eigenvalue - a), vec2<f32>(eigenvalue - c, b), a >= c));
+    }
+    let direction = axis * major / size;
     let limit = layered_source.mapping.w + 1.0;
     let count = u32(clamp(ceil(major / max(minor, 1e-20)), 1.0, limit));
     let lod = log2(max(max(major / f32(count), minor), 1e-20));

@@ -1,6 +1,48 @@
 //! Independent f64 oracle over the exact authored byte mip chain.
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
 
+#[derive(Debug)]
+pub(super) struct Geometry {
+    pub(super) major: f64,
+    pub(super) minor: f64,
+    pub(super) direction: glam::DVec2,
+    pub(super) count: f64,
+    pub(super) lod: f64,
+}
+
+impl Geometry {
+    pub(super) fn new(gradients: [glam::DVec2; 2], level: u16) -> Self {
+        let size = glam::DVec2::new(8.0, 4.0);
+        let [east, north] = gradients.map(|g| g * size);
+        let covariance =
+            glam::DMat2::from_cols(east, north) * glam::DMat2::from_cols(east, north).transpose();
+        let a = covariance.x_axis.x;
+        let b = covariance.x_axis.y;
+        let c = covariance.y_axis.y;
+        let discriminant = (a - c).hypot(2.0 * b);
+        let major = ((a + c + discriminant) * 0.5).sqrt();
+        let minor = if major == 0.0 {
+            0.0
+        } else {
+            east.perp_dot(north).abs() / major
+        };
+        // The half-angle eigenvector is independent of the shader's vector solve.
+        let angle = 0.5 * (2.0 * b).atan2(a - c);
+        let direction = glam::DVec2::new(angle.cos(), angle.sin()) * major / size;
+        let count = (major / minor.max(f64::MIN_POSITIVE))
+            .ceil()
+            .clamp(1.0, f64::from(level));
+        let lod = (major / count).max(minor).max(f64::MIN_POSITIVE).log2();
+        Self {
+            major,
+            minor,
+            direction,
+            count,
+            lod,
+        }
+    }
+}
+
 pub(super) struct Reference {
     mips: Vec<(u16, u16, Vec<u8>)>,
 }
@@ -51,14 +93,24 @@ impl Reference {
     }
 
     pub(super) fn sample(&self, uv: glam::DVec2, gradients: [glam::DVec2; 2], level: u16) -> f64 {
-        let size = glam::DVec2::new(8.0, 4.0);
-        let mut axes = gradients.map(|axis| ((axis * size).length(), axis));
-        axes.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let [(minor, _), (major, direction)] = axes;
-        let count = (major / minor.max(f64::MIN_POSITIVE))
-            .ceil()
-            .clamp(1.0, f64::from(level));
-        let lod = (major / count).max(minor).max(1.0).log2().min(3.0);
+        let geometry = Geometry::new(gradients, level);
+        let Geometry {
+            direction,
+            count,
+            lod,
+            ..
+        } = geometry;
+        self.sample_geometry(uv, direction, count, lod)
+    }
+
+    pub(super) fn sample_geometry(
+        &self,
+        uv: glam::DVec2,
+        direction: glam::DVec2,
+        count: f64,
+        lod: f64,
+    ) -> f64 {
+        let lod = lod.clamp(0.0, 3.0);
         let mut sum = 0.0;
         let mut tap = 0.0;
         while tap < count {

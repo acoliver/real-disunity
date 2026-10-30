@@ -56,6 +56,31 @@ impl HdrPostSettings {
         Ok(self.resolve.effective_jitter(explicit))
     }
 
+    /// Whether a renderer at `config` may use `jitter` as its projection jitter.
+    ///
+    /// Reduced temporal reconstruction needs a sequence at least as long as
+    /// [`ProjectionJitter::for_extents`] derives; every other configuration accepts any sequence,
+    /// and `None` means the renderer derives its own.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::UnsupportedProfile`] for a shorter sequence, or the error of
+    /// [`ProjectionJitter::for_extents`] when the extents cannot be reconstructed.
+    pub fn validate_jitter(
+        self,
+        config: FrameConfig,
+        jitter: Option<ProjectionJitter>,
+    ) -> Result<(), PostError> {
+        let Some(jitter) = jitter.filter(|_| self.reconstructs_temporally(config)) else {
+            return Ok(());
+        };
+        let derived = ProjectionJitter::for_extents(config.size, config.output_extent())?;
+        if jitter.length() < derived.length() {
+            return unsupported(JITTER_TOO_SHORT);
+        }
+        Ok(())
+    }
+
     /// The Temporal rows of the configuration table for `config`.
     ///
     /// Settings without `UpscaleMode::Temporal` always pass. Equal extents with TAA are the
@@ -90,15 +115,13 @@ impl HdrPostSettings {
                 "temporal upscaling requires a render extent of at least half the output",
             );
         }
-        let derived = ProjectionJitter::for_extents(config.size, output)?;
-        if explicit.is_some_and(|jitter| jitter.length() < derived.length()) {
-            return unsupported(
-                "temporal upscaling requires a jitter sequence at least as long as the derived one",
-            );
-        }
+        self.validate_jitter(config, explicit)?;
         unsupported("temporal reconstruction is not yet scheduled")
     }
 }
+
+const JITTER_TOO_SHORT: &str =
+    "temporal upscaling requires a jitter sequence at least as long as the derived one";
 
 fn unsupported(message: &'static str) -> Result<(), PostError> {
     Err(PostError::UnsupportedProfile(message))

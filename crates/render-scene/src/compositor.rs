@@ -205,7 +205,7 @@ impl FrameRenderer {
             )?,
         };
         renderer.install_reflections(context.device(), size)?;
-        renderer.set_projection_jitter(crate::post::jitter(&post, antialiasing.jitter))?;
+        renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
             renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
         }

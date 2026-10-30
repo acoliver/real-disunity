@@ -58,7 +58,10 @@ impl FrameRenderer {
     /// # Errors
     ///
     /// [`PostError::UnsupportedProfile`] when `jitter` is `None` while a TAA resolve is
-    /// resident: TAA cannot accumulate unjittered frames. The selection is unchanged.
+    /// resident: TAA cannot accumulate unjittered frames. The same error for a sequence shorter
+    /// than reduced temporal reconstruction derives from both extents
+    /// ([`HdrPostSettings::validate_jitter`](worldrunner_render_post::HdrPostSettings::validate_jitter)).
+    /// The selection is unchanged.
     /// This returns a `Result` since the milestone 1 signature, which returned nothing.
     pub fn set_projection_jitter(
         &mut self,
@@ -69,6 +72,8 @@ impl FrameRenderer {
                 "TAA requires projection jitter",
             ));
         }
+        self.post_requested
+            .validate_jitter(self.targets().config(), jitter)?;
         let mut history = self.temporal.borrow_mut();
         if history.jitter != jitter {
             history.jitter = jitter;

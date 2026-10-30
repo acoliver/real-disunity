@@ -93,9 +93,10 @@ fn authored_anti_alias(
 /// routes, owned by `PostResolve::effective_jitter`.
 pub(crate) fn jitter(
     post: &HdrPostSettings,
+    config: worldrunner_render_post::FrameConfig,
     explicit: Option<ProjectionJitter>,
-) -> Option<ProjectionJitter> {
-    post.resolve.effective_jitter(explicit)
+) -> Result<Option<ProjectionJitter>, PostError> {
+    post.effective_jitter(config, explicit)
 }
 /// Authored post settings with the descriptor's resolve and sharpening; the scene effects and
 /// the descriptor may not both choose a resolve (FXAA or TAA).

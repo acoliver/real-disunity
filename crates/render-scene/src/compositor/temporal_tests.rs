@@ -651,3 +651,42 @@ fn a_ratio_aware_sequence_shifts_the_projection_by_the_offset_over_the_internal_
         }
     }
 }
+
+/// A renderer whose post settings request reduced temporal reconstruction. The gate on reduced
+/// Temporal stands for public construction, so the settings are installed on a renderer built at
+/// the reduced extent; the jitter contract only reads the settings and the frame configuration.
+fn reduced_temporal_renderer(context: &GpuContext) -> FrameRenderer {
+    use worldrunner_render_post as post;
+    let config =
+        post::FrameConfig::new([64, 48], crate::offscreen::OffscreenTarget::COLOR_FORMAT, 1)
+            .with_render_extent([43, 32]);
+    let mut renderer = FrameRenderer::with_output(
+        context.device(),
+        config,
+        crate::offscreen::OffscreenTarget::COLOR_FORMAT,
+    )
+    .unwrap();
+    renderer.post_requested = post::HdrPostSettings {
+        resolve: post::PostResolve::taa(0.9),
+        upscale: Some(post::UpscaleSettings {
+            mode: post::UpscaleMode::Temporal,
+            sharpness: None,
+        }),
+        ..post::HdrPostSettings::default()
+    };
+    renderer
+}
+
+#[test]
+fn a_jitter_sequence_shorter_than_the_derived_one_is_rejected_and_the_selection_kept() {
+    let context = context();
+    let mut renderer = reduced_temporal_renderer(&context);
+    let derived = ProjectionJitter::for_extents([43, 32], [64, 48]).unwrap();
+    let short = ProjectionJitter::new(derived.length() - 1).unwrap();
+    assert!(renderer.set_projection_jitter(Some(short)).is_err());
+    assert_eq!(renderer.projection_jitter(), None);
+    renderer.set_projection_jitter(Some(derived)).unwrap();
+    assert_eq!(renderer.projection_jitter(), Some(derived));
+    assert!(renderer.set_projection_jitter(Some(short)).is_err());
+    assert_eq!(renderer.projection_jitter(), Some(derived));
+}

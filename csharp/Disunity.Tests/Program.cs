@@ -272,6 +272,7 @@ ResourceTests.Run();
 PrefabResourceTests.Run();
 TextCoreTests.Run();
 FieldBinderTests.Run();
+SerializedCollectionTests.Run();
 EnvironmentTests.Run();
 
 NativeArrayTests.Run();

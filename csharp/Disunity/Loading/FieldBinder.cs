@@ -61,10 +61,7 @@ internal sealed class FieldBinder(Func<JsonProperty, object> resolve, Action<str
         if (type.IsArray) return Array(value, type.GetElementType()!, path);
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) return List(value, type, path);
         if (typeof(IPersistentCalls).IsAssignableFrom(type)) return Event(value, type, path);
-        // Unity serializes only arrays and List<T> among collections, and no delegates, though
-        // .NET marks many such types [Serializable].
-        if (type.IsDefined(typeof(SerializableAttribute)) && !typeof(UnityEngine.Object).IsAssignableFrom(type)
-            && !typeof(IEnumerable).IsAssignableFrom(type) && !typeof(Delegate).IsAssignableFrom(type))
+        if (SerializableInstance.IsSerializedClass(type))
         {
             var nested = SerializableInstance.Create(type);
             Bind(nested, value, path);

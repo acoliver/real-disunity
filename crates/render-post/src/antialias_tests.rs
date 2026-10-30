@@ -161,3 +161,40 @@ fn sharpening_alone_enables_the_hdr_path() {
     assert!(sharpen.enabled());
     assert!(!HdrPostSettings::default().enabled());
 }
+
+/// The tone stage writes the FXAA input as `Rgba16Float`, 8 bytes a texel for each of the 3
+/// frame slots. An upscale after FXAA adds the resolve's `Rgba32Float` output, 16 bytes a texel.
+#[test]
+fn fxaa_allocates_a_half_float_display_intermediate() {
+    use crate::{ColorGrading, UpscaleMode, UpscaleSettings, allocation::post_allocations};
+    let limits = wgpu::Limits::default();
+    let base = HdrPostSettings {
+        grading: ColorGrading {
+            linear_scale: 1.5,
+            ..ColorGrading::default()
+        },
+        ..HdrPostSettings::default()
+    };
+    let same = FrameConfig::new([64, 32], wgpu::TextureFormat::Rgba16Float, 1);
+    let bytes = |config, settings| {
+        post_allocations(config, settings)
+            .validate(&limits)
+            .unwrap()
+    };
+    let fxaa = HdrPostSettings {
+        resolve: PostResolve::fxaa(1.0),
+        ..base
+    };
+    assert_eq!(bytes(same, fxaa) - bytes(same, base), 64 * 32 * 8 * 3);
+    let reduced = same.with_render_extent([32, 16]);
+    let upscale = Some(UpscaleSettings {
+        mode: UpscaleMode::Bilinear,
+        sharpness: None,
+    });
+    let upscaled = HdrPostSettings { upscale, ..base };
+    let both = HdrPostSettings { upscale, ..fxaa };
+    assert_eq!(
+        bytes(reduced, both) - bytes(reduced, upscaled),
+        32 * 16 * 8 * 3
+    );
+}

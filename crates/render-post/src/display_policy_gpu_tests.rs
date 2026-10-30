@@ -154,7 +154,11 @@ fn hdr_chain_propagates_fxaa_quality_and_keeps_stage_ids() {
     };
     let (filtered, ids) = render((&device, &queue), config, display, &settings, body);
     assert_eq!(ids, [StageId::new("tone", 0), StageId::new("fxaa", 0)]);
-    assert_ne!(filtered, plain);
+    // A blend of 0.75 moves edge pixels by more than the half-float store can.
+    assert!(
+        crate::fxaa_tolerance_tests::differing_pixels(&filtered, &plain, 1) > 0,
+        "FXAA changed no pixel beyond the half-float store"
+    );
     for quality in [
         FxaaQuality {
             subpixel_blend: 0.0,
@@ -179,7 +183,9 @@ fn hdr_chain_propagates_fxaa_quality_and_keeps_stage_ids() {
             },
             body,
         );
-        assert_eq!(actual, plain);
+        // Admission off leaves the tone output, stored once as `Rgba16Float`: at most 0.11 of
+        // an 8-bit step (see `FLAT_REGION_STEPS`), so at most one step after rounding.
+        assert!(crate::fxaa_tolerance_tests::max_step_difference(&actual, &plain) <= 1);
         assert_eq!(actual_ids, ids);
     }
 }

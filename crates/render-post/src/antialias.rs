@@ -176,15 +176,15 @@ impl PostResolve {
 
     /// Format of the display-referred image between tone mapping and the resolve.
     ///
-    /// FXAA keeps `Rgba32Float`, its flat-region precision contract. SMAA reads values in
-    /// 0..1 with an 11-bit mantissa, finer than the 8-bit output, and its filterable
-    /// `Rgba16Float` input halves the tone stage's store bandwidth and allows a hardware
-    /// bilinear fetch in neighborhood blending. CMAA2 uses `Rgba16Float` for the same reason and
-    /// because it is a core write-only storage format, so its working copy needs no adapter
-    /// feature.
+    /// FXAA, SMAA and CMAA2 read values in 0..1 from `Rgba16Float`. Half precision has an 11-bit
+    /// significand, so a stored value is off by at most one unit in the last place, 2^-10 of
+    /// itself, which is below one 8-bit sRGB step (at most 0.11 of a step after the transfer). The format halves the
+    /// tone stage's store bandwidth and is filterable, which SMAA's bilinear neighborhood
+    /// blending needs. CMAA2 additionally needs a core write-only storage format, so its working
+    /// copy needs no adapter feature. TAA and no resolve keep `Rgba32Float`.
     pub(crate) fn display_format(self) -> wgpu::TextureFormat {
         match self {
-            Self::Smaa(_) | Self::Cmaa2(_) => wgpu::TextureFormat::Rgba16Float,
+            Self::Fxaa(_) | Self::Smaa(_) | Self::Cmaa2(_) => wgpu::TextureFormat::Rgba16Float,
             _ => wgpu::TextureFormat::Rgba32Float,
         }
     }

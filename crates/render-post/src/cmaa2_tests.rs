@@ -87,7 +87,7 @@ fn the_display_intermediate_is_half_precision_and_storage_capable_for_cmaa2() {
     );
     assert_eq!(
         PostResolve::fxaa(1.0).display_format(),
-        wgpu::TextureFormat::Rgba32Float
+        wgpu::TextureFormat::Rgba16Float
     );
 }
 

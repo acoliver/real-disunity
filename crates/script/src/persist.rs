@@ -306,7 +306,7 @@ fn set_root(lua: &Lua, root: &str, value: Value) -> Result<(), ScriptError> {
 
 /// Every permanent with its name: natives by path, then every function and table reachable
 /// through string keys from each permanent root, named by its shortest path.
-fn permanent_names(
+pub(crate) fn permanent_names(
     lua: &Lua,
     natives: &BTreeMap<String, mlua::Function>,
     roots: &[&str],

@@ -248,7 +248,9 @@ impl GameScripts {
         &self.loader
     }
 
-    pub(crate) fn debug(&self) -> &Debug {
+    /// The private debug capability for saving and restoring threads, built from the debug
+    /// table that was never a global. Host-only: scripts cannot reach it.
+    pub fn debug(&self) -> &Debug {
         &self.debug
     }
 
@@ -260,7 +262,11 @@ impl GameScripts {
         &self.standard
     }
 
-    pub(crate) fn lua(&self) -> &Lua {
+    /// The Lua state the scripts run in, for a host that restores or adopts values into it.
+    /// Host-only: it grants a script nothing, because scripts see only their source's
+    /// environment, and a host that sets globals or calls functions through it bypasses the
+    /// instruction budget and the sandbox.
+    pub fn lua(&self) -> &Lua {
         &self.lua
     }
 

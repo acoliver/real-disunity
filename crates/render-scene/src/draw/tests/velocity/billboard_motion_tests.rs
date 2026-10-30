@@ -23,6 +23,10 @@ fn at(millimetres: i16) -> SceneTransform {
 }
 
 /// The camera `step` orbit steps around the vertical axis through the card, looking at its middle.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the orbit radius is a few thousand millimetres"
+)]
 fn orbit(step: u8) -> CameraPose {
     let angle = ORBIT_STEP * f32::from(step);
     CameraPose {
@@ -164,6 +168,10 @@ fn residuals_after(frames: &[(CameraPose, i16)]) -> Vec<[f32; 2]> {
     card.velocity()
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "millimetre coordinates stay far below 2^24"
+)]
 fn position(pose: CameraPose, millimetres: i16) -> (Vec3, Vec3) {
     let millis = |values: [i64; 3]| Vec3::from_array(values.map(|value| value as f32 / 1000.0));
     (

@@ -24,6 +24,7 @@ pub use api::ScriptApi;
 pub use config::ScriptConfig;
 pub use error::ScriptError;
 pub use host::{API_VERSION, DEFAULT_MEMORY_LIMIT, HookContext, HookResult, Record, ScriptHost};
+pub use lua_resume;
 pub use modules::{AssetResolver, AssetsApi, WorldApi};
 pub use original::GameScripts;
 pub use patches::{Edit, Overlay, Patch, PatchError, PatchSet, Patched, sha256_hex};

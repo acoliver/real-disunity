@@ -6,7 +6,7 @@
 
 use std::borrow::Cow;
 
-use lua_resume::capture::{Snapshot, TableData, Value};
+use lua_resume::capture::{Metatable, Snapshot, TableData, Value};
 
 use crate::error::ScriptError;
 use crate::persist::{LuaSnapshot, Saved, SavedThread, SavedWake};
@@ -41,7 +41,7 @@ pub(crate) fn current(snapshot: &LuaSnapshot) -> Result<Cow<'_, LuaSnapshot>, Sc
                 .map(|(key, value)| (value_of(key), value_of(value)))
                 .collect(),
             metatable: match &table.metatable {
-                Some(Saved::Table(id)) => Some(*id),
+                Some(Saved::Table(id)) => Some(Metatable::Table(*id)),
                 Some(_) => {
                     return Err(crate::persist::refused(
                         "a metatable must be a table".into(),

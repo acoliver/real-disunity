@@ -21,6 +21,7 @@ mod player_prefabs;
 pub mod player_resources;
 pub mod player_scene;
 pub mod player_scripts;
+mod player_shader_refs;
 pub mod player_shaders;
 pub mod player_sprites;
 mod player_values;

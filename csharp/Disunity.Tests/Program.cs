@@ -270,6 +270,7 @@ ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
 ResourceTests.Run();
 PrefabResourceTests.Run();
+PlayerShaderTests.Run();
 TextCoreTests.Run();
 FieldBinderTests.Run();
 SerializedCollectionTests.Run();

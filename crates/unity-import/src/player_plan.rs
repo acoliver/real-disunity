@@ -31,7 +31,8 @@ use crate::{
     player_files::PlayerFiles,
     player_graphics::{plan_camera, plan_canvas_group, plan_light},
     player_scripts::script_fields,
-    player_values::{FieldWriter, not_held},
+    player_shader_refs::SceneSource,
+    player_values::FieldWriter,
 };
 
 /// Unity's built-in tags by index; user tags start at [`FIRST_USER_TAG`].
@@ -58,18 +59,18 @@ pub fn plan_player_scene(
     layouts: &ScriptLayouts,
 ) -> Result<ScenePlan, PlayerError> {
     let (tags, layers) = tag_manager_names(data_dir)?;
-    let mut files = PlayerFiles::new(data_dir);
+    let mut source = SceneSource::new(PlayerFiles::new(data_dir));
     let path = data_dir.join(scene);
     let mut planner = PlayerPlanner::new(path.clone(), &tags, false);
-    files.open_path(&path)?;
-    for root in files.roots(&path)? {
-        planner.add_object(&mut files, root, None)?;
+    source.files_mut().open_path(&path)?;
+    for root in source.files_mut().roots(&path)? {
+        planner.add_object(&mut source, root, None)?;
     }
-    let objects = planner.plan_objects(&mut files, layouts)?;
+    let objects = planner.plan_objects(&mut source, layouts)?;
     Ok(ScenePlan {
         scene: scene.to_owned(),
         objects,
-        assets: Vec::new(),
+        assets: source.assets,
         sprites: Vec::new(),
         textures: Vec::new(),
         fonts: Vec::new(),
@@ -142,17 +143,6 @@ pub(crate) trait PlanSource {
     /// The plan reference for a reference from `owner` to an object outside the planned
     /// hierarchy, or why there is none.
     fn outside(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String>;
-}
-
-/// A scene holds nothing outside its own file's hierarchy.
-impl PlanSource for PlayerFiles {
-    fn files(&mut self) -> &mut PlayerFiles {
-        self
-    }
-
-    fn outside(&mut self, _owner: &Path, pptr: PPtr) -> Result<Json, String> {
-        Err(not_held(pptr))
-    }
 }
 
 /// Plans the object hierarchies that start at the transforms it is given, in one player file.

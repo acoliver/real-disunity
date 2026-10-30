@@ -209,6 +209,13 @@ pub enum PlanAsset {
         #[serde(flatten)]
         material: PhysicsMaterial,
     },
+    /// A shader of a player, as [`crate::player_resources::ResourceAsset::Shader`].
+    Shader {
+        name: String,
+        render_queue: i32,
+        pass_count: usize,
+        subshader_count: usize,
+    },
 }
 
 /// A sprite of [`ScenePlan::textures`]`[texture]`. `physics_shape` is present for sprites that

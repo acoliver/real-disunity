@@ -30,6 +30,9 @@ public class PanelInputConfiguration : MonoBehaviour
         };
     }
 
+    /// <summary>Raised when a configuration's settings are applied. The engine never raises it.</summary>
+    public static System.Action? onApply;
+
     private Settings _settings = Settings.Default;
 
     /// <summary>The configuration of the panels in play. No world has UI Toolkit panels, so this is null.</summary>

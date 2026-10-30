@@ -5,6 +5,10 @@ const MAXIMUM_SIZE: u32 = 256;
 /// One row per frame size 1..=256 and one column per pixel. Each pixel reports
 /// the production `gather_origin`, offset by one so that the origin -1 stays
 /// representable in a half float (all values up to 2048 are exact).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the half holds an integer origin + 1 in 0..=257, exact in f64 and i32"
+)]
 fn origins(context: &GpuContext, extent: &str) -> Vec<(u32, u32, i32)> {
     let shader = format!(
         "{}

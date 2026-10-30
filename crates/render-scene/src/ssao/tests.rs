@@ -301,7 +301,20 @@ fn gpu_average_metadata_is_not_conservative_depth() {
         .chunks_exact(2)
         .map(|b| u16::from_le_bytes(b.try_into().unwrap()))
         .collect();
-    assert_eq!(actual, [0, 0, 0x3c00, 0x4400, 0, 0, 0x3c00, 0x4800]);
+    // Means of the covered texels (2 and 6 give 4, three 8s give 8), not the minimum depth 2 or
+    // the maximum 8 of the first footprint. Divide and half store: shared bound at range 32.
+    for (index, (word, want)) in actual
+        .iter()
+        .zip([0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 1.0, 8.0])
+        .enumerate()
+    {
+        crate::tolerance_tests::assert_half_value(
+            f64::from(::half::f16::from_bits(*word).to_f32()),
+            want,
+            32.0,
+            &format!("averaged metadata word {index}"),
+        );
+    }
 }
 
 #[test]

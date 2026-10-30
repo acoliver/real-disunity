@@ -48,13 +48,23 @@ fn gpu_replacement_preserves_diffuse_and_interpolates_confidence() {
         &[],
     );
     encoder.finish().submit().unwrap();
-    let expected: Vec<_> = [
+    // The shaded colour is stored unchanged; the delta is a few f32 multiplies and adds of
+    // dyadic values, so each word is within the shared half store bound of the exact value
+    // (range 1).
+    let bytes = read(&context, &target);
+    let expected = [
         0.5, 0.375, 0.25, 1.0, 0.625, 0.5625, 0.46875, 1.0, 0.75, 0.75, 0.6875, 1.0,
-    ]
-    .into_iter()
-    .flat_map(|value| half(value).to_le_bytes())
-    .collect();
-    assert_eq!(read(&context, &target), expected);
+    ];
+    for (index, want) in expected.into_iter().enumerate() {
+        crate::tolerance_tests::assert_half_value(
+            f64::from(
+                ::half::f16::from_le_bytes([bytes[2 * index], bytes[2 * index + 1]]).to_f32(),
+            ),
+            want,
+            1.0,
+            &format!("replacement word {index}"),
+        );
+    }
 }
 
 #[test]

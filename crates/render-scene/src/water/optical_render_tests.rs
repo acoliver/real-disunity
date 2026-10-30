@@ -109,13 +109,19 @@ fn authored_optics_publish_fresnel_and_squared_specular_for_ssr() {
                 sample,
             );
             let base = (16 * 32 + 16) * 8;
-            assert_eq!(
-                numerical::positive_half(&material[base + 4..base + 6]).to_bits(),
-                0.25f32.to_bits()
+            // The fresnel f0 and the squared specular 0.5 * 0.5 are f32 values stored as half,
+            // so each is within the shared half store bound of 0.25 (range 1).
+            crate::tolerance_tests::assert_half_value(
+                f64::from(numerical::positive_half(&material[base + 4..base + 6])),
+                0.25,
+                1.0,
+                "fresnel",
             );
-            assert_eq!(
-                numerical::positive_half(&environment[base + 6..base + 8]).to_bits(),
-                0.25f32.to_bits()
+            crate::tolerance_tests::assert_half_value(
+                f64::from(numerical::positive_half(&environment[base + 6..base + 8])),
+                0.25,
+                1.0,
+                "squared specular",
             );
         }
     }

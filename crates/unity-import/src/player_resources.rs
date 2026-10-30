@@ -27,6 +27,7 @@ use worldrunner_unity_serialized::{
 use crate::{
     PlayerError,
     player_files::PlayerFiles,
+    player_pipeline::{GraphicsAssets, admit_graphics_assets},
     player_plan::{PlanSource, tag_manager_names},
     player_prefabs::{is_root, plan_prefab, prefab_name},
     player_scripts::script_fields,
@@ -40,6 +41,8 @@ pub struct ResourcesPlan {
     /// lower case, without extensions.
     pub entries: Vec<ResourceEntry>,
     pub assets: Vec<ResourceAsset>,
+    /// The render pipeline assets of the graphics and quality settings, by asset index.
+    pub graphics: GraphicsAssets,
     pub differences: Vec<String>,
 }
 
@@ -162,6 +165,7 @@ pub fn plan_player_resources(
             asset,
         });
     }
+    let graphics = admit_graphics_assets(&mut planner.registry, &managers)?;
     // Objects an asset references join the queue while it is planned, so the queue grows
     // as it is walked and asset `i` is always `queue[i]`.
     let mut next = 0;
@@ -180,6 +184,7 @@ pub fn plan_player_resources(
     Ok(ResourcesPlan {
         entries,
         assets: planner.assets,
+        graphics,
         differences: planner.differences,
     })
 }
@@ -241,7 +246,7 @@ impl Registry {
         }
     }
 
-    fn class(&mut self, file: &Path, path_id: i64) -> Result<ClassId, PlayerError> {
+    pub(crate) fn class(&mut self, file: &Path, path_id: i64) -> Result<ClassId, PlayerError> {
         self.files
             .open_path(file)?
             .file
@@ -255,7 +260,11 @@ impl Registry {
 
     /// The asset index of the object, planning it first when it is new and the engine builds
     /// its class; `None` when it is not built.
-    fn admit(&mut self, key: &ObjectKey, class: ClassId) -> Result<Option<usize>, PlayerError> {
+    pub(crate) fn admit(
+        &mut self,
+        key: &ObjectKey,
+        class: ClassId,
+    ) -> Result<Option<usize>, PlayerError> {
         if let Some(&index) = self.planned.get(key) {
             return Ok(Some(index));
         }

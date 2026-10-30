@@ -158,6 +158,28 @@ impl ScenePipelines {
         format: TextureFormat,
         samples: u32,
     ) -> Result<Self, worldrunner_render_post::PostError> {
+        Self::ambient(device, (format, samples), false)
+    }
+
+    /// [`Self::with_ssao`] pipelines whose object and terrain draws also write the object-motion
+    /// residual, for a frame renderer with TAA resident and SSAO without SSR.
+    ///
+    /// The SSAO metadata prepass keeps its own pipelines and writes no velocity. The pass drawing
+    /// with these pipelines must bind the frame renderer's velocity attachment, which
+    /// [`crate::compositor::encode_scene`] does.
+    pub fn with_ssao_taa_velocity(
+        device: &Device,
+        format: TextureFormat,
+        samples: u32,
+    ) -> Result<Self, worldrunner_render_post::PostError> {
+        Self::ambient(device, (format, samples), true)
+    }
+
+    fn ambient(
+        device: &Device,
+        (format, samples): (TextureFormat, u32),
+        velocity: bool,
+    ) -> Result<Self, worldrunner_render_post::PostError> {
         if format != TextureFormat::Rgba16Float {
             return Err(worldrunner_render_post::PostError::UnsupportedProfile(
                 "SSAO requires HDR",
@@ -166,11 +188,19 @@ impl ScenePipelines {
         worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
             .validate_device(device)?;
         let layout = crate::ssao::ambient_layout(device);
+        let (object, terrain) = if velocity {
+            (
+                crate::velocity::object_source(ENVIRONMENT_WGSL),
+                crate::velocity::terrain_source(TERRAIN_WGSL),
+            )
+        } else {
+            (ENVIRONMENT_WGSL.to_owned(), TERRAIN_WGSL.to_owned())
+        };
         Ok(Self::with_screen_space(
             device,
             (format, samples),
-            &crate::ssao::ambient_source(ENVIRONMENT_WGSL),
-            &crate::ssao::ambient_source(TERRAIN_WGSL),
+            &crate::ssao::ambient_source(&object),
+            &crate::ssao::ambient_source(&terrain),
             None,
             Some(&layout),
         ))

@@ -18,6 +18,14 @@ public static partial class DisunityHost
     public static void LoadResources(string planPath, Func<string, System.Reflection.Assembly> assemblies) =>
         Resources = new ResourceDatabase(planPath, assemblies);
 
+    /// <summary>
+    /// Builds the render pipeline assets the loaded resource plan names and sets them in
+    /// <see cref="UnityEngine.Rendering.GraphicsSettings"/> and <see cref="UnityEngine.QualitySettings"/>, for a player
+    /// to call before its first scene loads. An asset that cannot be built is reported to <paramref name="log"/> and
+    /// left null. Nothing is drawn through the assets.
+    /// </summary>
+    public static void ApplyRenderPipelines(Action<string> log) => Resources?.ApplyGraphics(log);
+
     /// <summary>Stops <see cref="UnityEngine.Resources"/> loading from a player's resources.</summary>
     public static void UnloadResources() => Resources = null;
     internal static unsafe ScriptableObject RegisterAsset(ScriptableObject asset)

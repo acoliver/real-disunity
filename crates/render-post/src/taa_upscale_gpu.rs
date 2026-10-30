@@ -1,4 +1,5 @@
-//! Schedules the temporal reconstruction stage. The shader is `taa_upscale.wgsl`.
+//! Schedules the temporal reconstruction stage. The shader is `taa_upscale.wgsl` after the shared
+//! `taa_common.wgsl` helpers.
 //!
 //! It reads the jittered current color at the internal extent `R` and writes the output extent
 //! `O`, then copies its result into the history. The uniform block is a [`crate::TemporalBlock`].
@@ -76,7 +77,13 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) {
         .create_view(&wgpu::TextureViewDescriptor::default());
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("temporal upscale"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("taa_upscale.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(
+            concat!(
+                include_str!("taa_common.wgsl"),
+                include_str!("taa_upscale.wgsl")
+            )
+            .into(),
+        ),
     });
     let pipeline = pipeline(device, &module);
     let entry = |binding, resource| wgpu::BindGroupEntry { binding, resource };

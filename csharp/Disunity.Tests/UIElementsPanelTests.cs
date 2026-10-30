@@ -10,7 +10,7 @@ internal static class UIElementsPanelTests
         SubscriptionsAreAccepted();
         APanelStartsLive();
         DisunityHost.LoadWorld();
-        try { EventSystemsRegister(); }
+        try { EventSystemsRegister(); DestroyHelper(); }
         finally { DisunityHost.UnloadWorld(); }
         Console.WriteLine("PASS: UIElementsRuntimeUtility reports no panels, accepts subscriptions and a panel starts live");
     }
@@ -46,6 +46,16 @@ internal static class UIElementsPanelTests
         UIElementsRuntimeUtility.UnregisterEventSystem(eventSystem);
         Expect.Throws<ArgumentNullException>(() => UIElementsRuntimeUtility.RegisterEventSystem(null!), "register null");
         Expect.Throws<ArgumentNullException>(() => UIElementsRuntimeUtility.UnregisterEventSystem(null!), "unregister null");
+    }
+
+    private static void DestroyHelper()
+    {
+        UIRUtility.Destroy(null);
+        var panel = new UnityEngine.GameObject("Panel");
+        UIRUtility.Destroy(panel);
+        Expect.That(panel, "the object lives until the end of the frame");
+        DisunityHost.Step(0);
+        Expect.That(!panel, "the object is destroyed");
     }
 
     private sealed class TestPanel : BaseRuntimePanel

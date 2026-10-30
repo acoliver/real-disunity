@@ -80,7 +80,7 @@ The `worldrunner` crate is a facade that re-exports these crates behind feature 
 | Path | Contents |
 | --- | --- |
 | `crates/` | All Rust crates. `worldrunner` is the facade a game depends on. |
-| `csharp/` | `Disunity.Engine` (the `UnityEngine` API), its tests, and two small fixture projects. |
+| `csharp/` | `Disunity.Engine` (the `UnityEngine` API), its tests, the scene tests, the `play` bridge, the player layout tool, build projects for the pinned games, and two small fixture projects. |
 | `docs/` | Documentation for people using the engine to make games. Start at [docs/README.md](docs/README.md). |
 | `dev-docs/` | Documentation for people and coding agents changing the engine. Start at [dev-docs/README.md](dev-docs/README.md). |
 | `.github/workflows/` | CI: `pr.yml` runs the Linux pull request gate; `platforms.yml` runs Windows, macOS and the full GPU suite after merge and nightly. |

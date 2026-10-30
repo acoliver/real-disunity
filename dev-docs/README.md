@@ -15,6 +15,10 @@ Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for contributor policy. Coding 
 | `crates/xtask/` | The `cargo xtask` task runner, the layer table (`src/layers.rs`) and the explicit policy registry (`policy/explicit.toml`). |
 | `csharp/Disunity/` | `Disunity.Engine`: the only `UnityEngine` implementation. Files ending in `.g.cs` are generated from the Rust ABI and must not be hand-edited. |
 | `csharp/Disunity.Tests/` | Console tests for the managed API, run by `cargo xtask ci-managed`. |
+| `csharp/Disunity.SceneTests/` | Loads the pinned Snake, Pong and Breakout scenes and checks loader rules and scene state; run by `crates/disunity-runtime/tests/original_scenes.rs`. |
+| `csharp/Disunity.Play/` | The managed side of the `play` command: loads a scene or starts a built player, then returns to the Rust host that advances and renders. |
+| `csharp/Disunity.Layouts/` | Writes the script field layouts of a built player's assemblies for `unity-import` to decode script data with. |
+| `csharp/OriginalGames/` | Build projects that compile each pinned game's unchanged scripts against `Disunity.Engine`. |
 | `csharp/PortableFixture/`, `csharp/UnityConsumer/` | A fixture assembly with a reference host bridge, and a project that proves `UnityEngine` code compiles against `Disunity.Engine` alone. |
 | `csharp/README.md` | ABI binding regeneration and managed host behavior. |
 | `docs/` | User documentation. See [what belongs in docs](../docs/what-belongs-here.md). |
@@ -71,6 +75,8 @@ Not useful, and not to be written:
 - Verification receipts, hash manifests, provenance notes, before/after audits and session logs. CI and the PR are the record.
 - Restatements of the code line by line. Link to the file instead.
 - Hedging about what "may" be supported. State what is supported and what fails.
+
+When a behavior is an approximation (a fitted curve, a simplified lighting model, a fixed iteration count, a tolerance), say so on the page that documents it: what it approximates, the assumption it rests on, where the result departs from the exact behavior, and which test bounds the error.
 
 ## Rules that apply to every change
 

@@ -23,6 +23,19 @@ pub(crate) fn half(bytes: &[u8]) -> f64 {
         _ => (1.0 + f64::from(fraction) / 1024.0) * 2.0_f64.powi(i32::from(exponent) - 15),
     }
 }
+
+/// True when two non-negative finite half words are equal or adjacent.
+///
+/// Vulkan leaves the float32 to float16 conversion of a render output
+/// implementation-defined: it may round to nearest even or toward zero (RADV
+/// rounds toward zero). A shader result that is inexact in float32, even by one
+/// float32 ulp (2^-23 relative, far below one float16 step of 2^-10 relative),
+/// therefore lands on either of the two float16 neighbours of the true value.
+/// Results that are exactly representable in float32 and float16 never differ.
+pub(crate) fn half_words_within_one_step(actual: u16, expected: u16) -> bool {
+    actual & 0x8000 == 0 && expected & 0x8000 == 0 && actual.abs_diff(expected) <= 1
+}
+
 fn encode(value: f64) -> f64 {
     if value <= 0.003_130_8 {
         value * 12.92
@@ -120,8 +133,12 @@ fn nonfinite_output(device: &wgpu::Device, queue: &wgpu::Queue, samples: u32, ex
         .chunks_exact(2)
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
         .collect();
+    // The sign and payload of a NaN are unspecified, so any NaN stands for any
+    // other. Every other word must match bit for bit.
+    let canonical = |word: u16| if word & 0x7fff > 0x7c00 { 0x7e00 } else { word };
     assert_eq!(
-        bits, SPECIAL_HALF_WORDS,
+        bits.iter().copied().map(canonical).collect::<Vec<_>>(),
+        SPECIAL_HALF_WORDS.map(canonical),
         "stored HDR bits, samples={samples}"
     );
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

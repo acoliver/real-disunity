@@ -45,6 +45,27 @@ pub(super) fn run(
 ) {
     let actual = render(gpu, entry, inputs, expected, format, constants);
     let bytes = expected_bytes(expected, format, entry);
+    if format == wgpu::TextureFormat::Rgba16Float {
+        // Float16 stores may round toward zero where the scalar reference rounds
+        // to nearest; see `half_words_within_one_step`. The references are
+        // exactly representable, so results sit on the reference or one step low.
+        assert_eq!(actual.len(), bytes.len(), "{entry}, {format:?}");
+        for (index, (a, b)) in actual
+            .chunks_exact(2)
+            .zip(bytes.chunks_exact(2))
+            .enumerate()
+        {
+            let (a, b) = (
+                u16::from_le_bytes([a[0], a[1]]),
+                u16::from_le_bytes([b[0], b[1]]),
+            );
+            assert!(
+                a == b || (a < b && crate::tone_map_gpu_tests::half_words_within_one_step(a, b)),
+                "{entry}, {format:?}, word {index}: {a:#06x} versus {b:#06x}"
+            );
+        }
+        return;
+    }
     assert_eq!(actual, bytes, "{entry}, {format:?}");
 }
 

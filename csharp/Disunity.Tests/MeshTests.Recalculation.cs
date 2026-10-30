@@ -180,10 +180,12 @@ internal static partial class MeshTests
         mesh.uv = new Vector2[4];
         mesh.SetUVs(1, new List<Vector4>(new Vector4[4]));
         mesh.SetUVs(2, new Vector3[4]);
+        mesh.SetUVs(3, new Vector3[4]);
+        mesh.SetUVs(3, new Vector3[0]);
         mesh.subMeshCount = 2;
         mesh.SetIndices(new[] { 1, 2 }, MeshTopology.Lines, 1, false, 1);
         var snapshot = mesh.Snapshot();
-        Expect.Sequence(new[] { 2, 4, 3, 0 }, snapshot.UvDimensions.Take(4), "the snapshot records the uv dimensions");
+        Expect.Sequence(new[] { 2, 4, 3, 0 }, snapshot.UvDimensions.Take(4), "the snapshot records the uv dimensions, and an emptied channel has none");
         Expect.Equal(MeshTopology.Lines, snapshot.SubMeshes[1].Topology, "the snapshot holds the topology");
         Expect.Equal(1, snapshot.SubMeshes[1].BaseVertex, "the snapshot holds the base vertex");
         snapshot.Positions[0] = new Vector3(8, 8, 8);

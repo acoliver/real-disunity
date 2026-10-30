@@ -238,3 +238,32 @@ fn an_ssao_scene_under_taa_writes_the_residual_of_the_plain_scene() {
     assert_matches_plain(&occluded, &plain);
     assert_matches_cpu_residual(&occluded, (250.0, 312.5));
 }
+
+#[test]
+fn shadows_reflections_and_sky_under_taa_write_the_residual_of_the_plain_scene() {
+    let context = context();
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let frames = [(0.125, pose()), (0.25, pose())];
+    let plain = velocity_after(&context, &windy_under_sky(false), &frames);
+    let combined =
+        shadowed_velocity_with(&context, with_reflections(&windy_under_sky(false)), &frames);
+    assert!(pollster::block_on(scope.pop()).is_none());
+    assert_matches_plain(&combined, &plain);
+    assert_matches_cpu_residual(&combined, (125.0, 250.0));
+    assert_sky_texels_are_zero_and_quad_moves(&combined);
+}
+
+#[test]
+fn reflections_and_sky_under_taa_draw_without_validation_errors_and_keep_sky_velocity_zero() {
+    let context = context();
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let frames = [(0.125, pose()), (0.25, pose())];
+    let reflective = reflective_velocity_after(&context, &windy_under_sky(false), &frames);
+    assert!(pollster::block_on(scope.pop()).is_none());
+    assert_matches_cpu_residual(&reflective, (125.0, 250.0));
+    assert_sky_texels_are_zero_and_quad_moves(&reflective);
+}

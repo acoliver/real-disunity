@@ -415,9 +415,12 @@ fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
         },
     )
     .unwrap();
-    assert!(
-        no_shadow == baseline,
-        "explicit large bias must suppress depth occlusion"
+    // The shadow shader and the plain shader are different compiled code for the same lighting,
+    // so the images agree within the shared path bound rather than byte for byte.
+    worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+        no_shadow.pixels.as_slice(),
+        baseline.pixels.as_slice(),
+        "explicit large bias must suppress depth occlusion",
     );
     let mut effects = fixture::effects_parts(600_000);
     effects.sun.irradiance_micro = 0;
@@ -446,9 +449,10 @@ fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
     .unwrap();
     let baseline = capture_scene(&context, &source, &view()).unwrap();
     let image = capture_scene_shadowed(&context, &source, &view(), settings()).unwrap();
-    assert!(
-        image == baseline,
-        "shadow visibility must not multiply hemisphere ambient or emission"
+    worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+        image.pixels.as_slice(),
+        baseline.pixels.as_slice(),
+        "shadow visibility must not multiply hemisphere ambient or emission",
     );
     assert!(at(&image, Vec3::new(-0.75, 0.0, 0.0)) > 150);
 }

@@ -232,6 +232,8 @@ impl World {
         Ok(match desc {
             ComponentDesc::Transform(_) => true,
             ComponentDesc::Sprite(_)
+            | ComponentDesc::MeshRenderer(_)
+            | ComponentDesc::MeshFilter(_)
             | ComponentDesc::Tilemap(_)
             | ComponentDesc::Camera(_)
             | ComponentDesc::Light(_)

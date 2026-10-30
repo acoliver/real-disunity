@@ -172,6 +172,20 @@ pub enum PlanComponent {
     CanvasRenderer {
         cull_transparent_mesh: bool,
     },
+    /// A mesh filter of a player scene. A Mesh asset cannot be planned yet, so it has no mesh.
+    MeshFilter {},
+    /// A mesh renderer of a player scene. Its material slots are empty.
+    MeshRenderer {
+        #[serde(flatten)]
+        renderer: crate::renderers::PlanRenderer,
+    },
+    /// A skinned mesh renderer of a player scene. Its mesh and material slots are empty.
+    SkinnedMeshRenderer {
+        #[serde(flatten)]
+        renderer: crate::renderers::PlanRenderer,
+        quality: i32,
+        update_when_offscreen: bool,
+    },
     /// A 3D light of a player scene.
     Light {
         enabled: bool,

@@ -3,6 +3,17 @@ using UnityEngine;
 
 internal static class SpriteTests
 {
+    /// <summary>The sprite's sorting order lives in its native record; the Renderer members read it from there.</summary>
+    private static unsafe void SortingOrderReadsTheNativeRecord(SpriteRenderer renderer)
+    {
+        Disunity.Native.DisunitySprite value;
+        DisunityHost.ThrowIfError(Disunity.Native.NativeBindings.disunity_sprite_read(DisunityHost.WorldHandle, renderer.Handle, &value));
+        value.sorting_order = 31;
+        DisunityHost.ThrowIfError(Disunity.Native.NativeBindings.disunity_sprite_write(DisunityHost.WorldHandle, renderer.Handle, &value));
+        Require(renderer.sortingOrder == 31, "sortingOrder reads the native sprite record");
+        renderer.sortingOrder = 9;
+    }
+
     public static void Run()
     {
         DisunityHost.LoadWorld();
@@ -34,6 +45,7 @@ internal static class SpriteTests
         Require(renderer.color.a == 0.5f, "invalid write is atomic");
         renderer.enabled = false;
         Require(!renderer.enabled, "native renderer disable");
+        SortingOrderReadsTheNativeRecord(renderer);
         AffineBounds();
         DisunityHost.UnloadWorld();
         try { _ = renderer.bounds; throw new Exception("stale renderer survived unload"); }

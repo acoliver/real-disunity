@@ -3,8 +3,22 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-public sealed class SpriteRenderer : NativeComponent
+/// <summary>A <see cref="Renderer"/> that draws a <see cref="Sprite"/>. It has exactly one material, a built-in
+/// sprite material: a list of any other length, or a material that is not one, throws. Its
+/// <see cref="Renderer.localBounds"/> is the zero box; <see cref="bounds"/> is the world box of the sprite.</summary>
+public sealed class SpriteRenderer : Renderer
 {
+    private DisunityMeshRenderer _other = Defaults();
+
+    /// <summary>A sprite casts no shadow, receives none and uses no probes.</summary>
+    private static DisunityMeshRenderer Defaults() => new()
+    {
+        enabled = 1,
+        allow_occlusion_when_dynamic = 1,
+        motion_vector_mode = (uint)MotionVectorGenerationMode.Object,
+        rendering_layer_mask = 1,
+    };
+
     private unsafe DisunitySprite Read()
     {
         DisunitySprite value;
@@ -13,11 +27,44 @@ public sealed class SpriteRenderer : NativeComponent
     }
     private unsafe void Write(DisunitySprite value) => DisunityHost.ThrowIfError(
         NativeBindings.disunity_sprite_write(DisunityHost.WorldHandle, Handle, &value));
-    public Material sharedMaterial
+
+    internal override DisunityMeshRenderer ReadSettings()
     {
-        get => Material.FromNative(Read().lighting);
-        set { ArgumentNullException.ThrowIfNull(value); var v = Read(); v.lighting = (uint)value.SpriteMaterial; Write(v); }
+        var sprite = Read();
+        var settings = _other;
+        settings.enabled = sprite.enabled;
+        settings.sorting_layer = sprite.sorting_layer;
+        settings.sorting_order = sprite.sorting_order;
+        return settings;
     }
+
+    internal override void WriteSettings(DisunityMeshRenderer value)
+    {
+        var sprite = Read();
+        sprite.enabled = value.enabled;
+        sprite.sorting_layer = value.sorting_layer;
+        sprite.sorting_order = value.sorting_order;
+        Write(sprite);
+        _other = value;
+    }
+
+    internal override IReadOnlyList<Material?> ReadShared() => [Material.FromNative(Read().lighting)];
+
+    internal override void WriteShared(IReadOnlyList<Material?> materials)
+    {
+        if (materials.Count != 1) throw new NotSupportedException("a SpriteRenderer has exactly one material");
+        ArgumentNullException.ThrowIfNull(materials[0]);
+        var sprite = Read();
+        sprite.lighting = (uint)materials[0]!.SpriteMaterial;
+        Write(sprite);
+    }
+
+    internal override void CopyManagedState(NativeComponent source, Func<Object, Object> remap)
+    {
+        base.CopyManagedState(source, remap);
+        _other = ((SpriteRenderer)source)._other;
+    }
+
     public Sprite? sprite
     {
         get { var value = Read(); return value.present == 0 ? null : DisunityHost.ResolveSprite(value); }
@@ -34,14 +81,10 @@ public sealed class SpriteRenderer : NativeComponent
         }
     }
     public Color color { get { var v = Read(); return new(v.r, v.g, v.b, v.a); } set { var v = Read(); v.r = value.r; v.g = value.g; v.b = value.b; v.a = value.a; Write(v); } }
-    public bool enabled { get => Read().enabled == 1; set { var v = Read(); v.enabled = value ? 1u : 0u; Write(v); } }
     public bool flipX { get => Read().flip_x == 1; set { var v = Read(); v.flip_x = value ? 1u : 0u; Write(v); } }
     public bool flipY { get => Read().flip_y == 1; set { var v = Read(); v.flip_y = value ? 1u : 0u; Write(v); } }
-    public int sortingOrder { get => Read().sorting_order; set { var v = Read(); v.sorting_order = value; Write(v); } }
-    public int sortingLayerID { get => Read().sorting_layer; set { var v = Read(); v.sorting_layer = value; Write(v); } }
     public int sortingLayer { get => sortingLayerID; set => sortingLayerID = value; }
-    public string sortingLayerName { get => sortingLayerID == 0 ? "Default" : throw new NotSupportedException("named sorting layer is not registered"); set { if (value != "Default") throw new NotSupportedException("named sorting layer is not registered"); sortingLayerID = 0; } }
-    public unsafe Bounds bounds
+    public override unsafe Bounds bounds
     {
         get
         {

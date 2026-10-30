@@ -13,6 +13,7 @@ use std::{
 };
 
 use serde_json::{Value as Json, json};
+use worldrunner_unity_serialized::graphics::{MeshFilter, MeshRenderer, SkinnedMeshRenderer};
 use worldrunner_unity_serialized::{
     ClassId,
     camera::Camera,
@@ -33,6 +34,7 @@ use crate::{
     player_scripts::script_fields,
     player_shader_refs::SceneSource,
     player_values::FieldWriter,
+    renderers::{plan_mesh_filter, plan_mesh_renderer, plan_skinned_mesh_renderer},
 };
 
 /// Unity's built-in tags by index; user tags start at [`FIRST_USER_TAG`].
@@ -242,6 +244,9 @@ impl<'t> PlayerPlanner<'t> {
             ClassId::LIGHT,
             ClassId::CANVAS_GROUP,
             ClassId::CANVAS_RENDERER,
+            ClassId::MESH_FILTER,
+            ClassId::MESH_RENDERER,
+            ClassId::SKINNED_MESH_RENDERER,
         ]
         .contains(&class)
         {
@@ -342,8 +347,39 @@ impl<'t> PlayerPlanner<'t> {
                 cull_transparent_mesh: renderer.cull_transparent_mesh,
             });
         }
-        Ok(PlanComponent::Unsupported {
-            class: class.to_string(),
+        self.mesh_component(src, owner, class, component)
+    }
+
+    /// A mesh filter or a renderer of meshes as its plan component, and any other engine class
+    /// as unsupported.
+    fn mesh_component(
+        &mut self,
+        src: &mut impl PlanSource,
+        owner: &str,
+        class: ClassId,
+        component: PPtr,
+    ) -> Result<PlanComponent, PlayerError> {
+        let file = src.files().local(&self.path, component)?;
+        let id = component.path_id;
+        Ok(match class {
+            ClassId::MESH_FILTER => plan_mesh_filter(
+                owner,
+                &file.decode::<MeshFilter>(id)?,
+                &mut self.differences,
+            ),
+            ClassId::MESH_RENDERER => plan_mesh_renderer(
+                owner,
+                &file.decode::<MeshRenderer>(id)?,
+                &mut self.differences,
+            ),
+            ClassId::SKINNED_MESH_RENDERER => plan_skinned_mesh_renderer(
+                owner,
+                &file.decode::<SkinnedMeshRenderer>(id)?,
+                &mut self.differences,
+            ),
+            other => PlanComponent::Unsupported {
+                class: other.to_string(),
+            },
         })
     }
 

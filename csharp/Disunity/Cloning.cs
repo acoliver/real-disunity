@@ -44,6 +44,9 @@ public static partial class DisunityHost
                 NativeComponents.Add(row.target, target);
                 remap[source] = target;
             }
+            var natives = new List<(NativeComponent Source, NativeComponent Target)>();
+            foreach (var row in rows.Where(row => row.kind == 2 && NativeComponents[row.source] is NativeComponent))
+                natives.Add(((NativeComponent)NativeComponents[row.source], (NativeComponent)NativeComponents[row.target]));
             var scripts = new List<(MonoBehaviour Source, MonoBehaviour Target)>();
             foreach (var row in rows.Where(row => row.kind == 1))
             {
@@ -60,6 +63,8 @@ public static partial class DisunityHost
             if (position is { } targetPosition) objects[root].transform.position = targetPosition;
             if (rotation is { } targetRotation) objects[root].transform.rotation = targetRotation;
             var copied = new Dictionary<object, object>(ReferenceEqualityComparer.Instance);
+            foreach (var (source, target) in natives)
+                target.CopyManagedState(source, original => (EngineObject)remap.GetValueOrDefault(original, original));
             foreach (var (source, target) in scripts)
                 foreach (var field in SerializedFields(source.GetType()))
                     field.SetValue(target, CopyField(field.GetValue(source), remap, copied));

@@ -26,6 +26,7 @@ pub mod player_shaders;
 pub mod player_sprites;
 mod player_values;
 pub mod project;
+mod renderers;
 pub mod scene;
 pub mod script_layouts;
 pub mod shader_prep;

@@ -12,6 +12,44 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one identity; zero denotes no explicit asset.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shared_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shared_material_read(ulong world, ulong handle, ulong* output);
+        [DllImport(__DllName, EntryPoint = "disunity_shared_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shared_material_write(ulong world, ulong handle, ulong asset);
+        /// <summary>
+        ///  # Safety
+        ///  Bytes are readable for length; output is writable for one identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_font_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_font_register(ulong world, byte* bytes, uint length, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one component identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_ui_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_ui_create(ulong world, ulong @object, uint kind, ulong font, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  Value is readable for one rectangle record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_rect_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_rect_write(ulong world, ulong handle, DisunityRect* value);
+        /// <summary>
+        ///  # Safety
+        ///  Output is writable for one rectangle record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_rect_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_rect_read(ulong world, ulong handle, DisunityRect* output);
+        /// <summary>
+        ///  # Safety
+        ///  Value is readable for one Canvas record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_write(ulong world, ulong handle, DisunityCanvas* value);
+        /// <summary>
+        ///  # Safety
         ///  Output is writable for one Canvas record.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_canvas_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

@@ -31,6 +31,8 @@ pub enum ComponentKind {
     Body2d,
     Collider2d,
     MeshInstance,
+    MeshRenderer,
+    MeshFilter,
     Renderer,
     Script,
 }
@@ -62,6 +64,8 @@ impl ComponentDesc {
             Self::Body2d(_) => ComponentKind::Body2d,
             Self::Collider2d(_) => ComponentKind::Collider2d,
             Self::MeshInstance(_) => ComponentKind::MeshInstance,
+            Self::MeshRenderer(_) => ComponentKind::MeshRenderer,
+            Self::MeshFilter(_) => ComponentKind::MeshFilter,
             Self::Renderer { .. } => ComponentKind::Renderer,
             Self::Script { .. } => ComponentKind::Script,
         }

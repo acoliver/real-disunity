@@ -41,12 +41,23 @@ impl Default for SceneWaterSunDisk {
     }
 }
 
+/// Addressing of the flow-seed lattice, independent of normal-map repetition.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneWaterSeedCoordinates {
+    #[default]
+    Repeat,
+    /// Samples span both domain endpoints and clamp outside the domain.
+    /// Requires at least two texels on each axis.
+    EndpointClamped,
+}
+
 /// Planar seed coordinates independent of the normal map's world-space repetition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneWaterFlowCoordinates {
     pub origin_millimeters: [i32; 2],
-    /// Positive repetition lengths along east and north.
+    /// Positive domain extents along east and north; periods in Repeat mode.
     pub tile_millimeters: [u32; 2],
+    pub mode: SceneWaterSeedCoordinates,
 }
 
 /// Vertex-sampled planar scene wind, with a spatial and temporal perturbation band.
@@ -118,6 +129,32 @@ pub(super) fn validate(settings: &SceneWaterSettings) -> Result<(), SceneValidat
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn seed_modes_require_flow_and_positive_domain_extents() {
+        assert_eq!(
+            SceneWaterSeedCoordinates::default(),
+            SceneWaterSeedCoordinates::Repeat
+        );
+        for mode in [
+            SceneWaterSeedCoordinates::Repeat,
+            SceneWaterSeedCoordinates::EndpointClamped,
+        ] {
+            for extent in [[0, 1000], [1000, 0], [1000, 1000]] {
+                let mut settings = SceneWaterSettings {
+                    flow_coordinates: Some(SceneWaterFlowCoordinates {
+                        origin_millimeters: [-5000, 1234],
+                        tile_millimeters: extent,
+                        mode,
+                    }),
+                    ..SceneWaterSettings::STOCK
+                };
+                assert!(validate(&settings).is_err());
+                settings.flow = Some(super::super::TextureHandle::from_raw(0));
+                assert_eq!(validate(&settings).is_ok(), !extent.contains(&0));
+            }
+        }
+    }
+
     #[test]
     fn disk_radii_validate_in_microradians() {
         assert_eq!(

@@ -59,9 +59,25 @@ fn bilinear_rg(source: texture_2d<f32>, uv: vec2<f32>) -> vec2<f32> {
         mix(texel_wrapped(source, base + vec2<i32>(0, 1), size),
             texel_wrapped(source, base + vec2<i32>(1, 1), size), fraction.x), fraction.y);
 }
+// Endpoint-centred UVs give texel-space positions t * (N - 1).
+fn endpoint_seed(t: vec2<f32>) -> vec2<f32> {
+    let size = vec2<i32>(textureDimensions(surface_flow));
+    let uv = (clamp(t, vec2<f32>(0.0), vec2<f32>(1.0)) * vec2<f32>(size - 1) + 0.5) / vec2<f32>(size);
+    let coordinate = clamp(uv * vec2<f32>(size) - 0.5, vec2<f32>(0.0), vec2<f32>(size - 1));
+    let base = vec2<i32>(floor(coordinate));
+    let next = min(base + 1, size - 1);
+    let fraction = fract(coordinate);
+    return mix(
+        mix(textureLoad(surface_flow, base, 0).rg, textureLoad(surface_flow, vec2<i32>(next.x, base.y), 0).rg, fraction.x),
+        mix(textureLoad(surface_flow, vec2<i32>(base.x, next.y), 0).rg,
+            textureLoad(surface_flow, next, 0).rg, fraction.x), fraction.y);
+}
 fn flow_velocity(uv: vec2<f32>) -> vec2<f32> {
     // Interpolate velocity in float precision: sampler weight quantization is
     // amplified by the advection period before the normal map is sampled.
+    if (WATER_TERMS & 64u) != 0u && water.composition.z == 2.0 {
+        return endpoint_seed(uv) * 2.0 - 1.0;
+    }
     return bilinear_rg(surface_flow, uv) * 2.0 - 1.0;
 }
 
@@ -102,7 +118,7 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>, depth: f32) -> vec3<f
         flow_uv = (input.world.xy - water.flow_coordinates.xy) * water.flow_coordinates.zw;
     }
     if water.surface.w != 0.0 {
-        if water.absorption.w > 0.0 {
+        if water.absorption.w > 0.0 || ((WATER_TERMS & 64u) != 0u && water.composition.z == 2.0) {
             velocity += flow_velocity(flow_uv) * water.surface.w;
         } else {
             velocity += (textureSampleLevel(surface_flow, surface_sampler, flow_uv, 0.0).rg * 2.0 - 1.0) * water.surface.w;

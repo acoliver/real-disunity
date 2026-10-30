@@ -4,6 +4,8 @@ mod anisotropy_tests;
 mod authored_tests;
 #[path = "bodies_tests.rs"]
 mod bodies_tests;
+#[path = "budget_tests.rs"]
+mod budget_tests;
 #[path = "contracts.rs"]
 mod contracts;
 #[path = "default_tests.rs"]
@@ -26,6 +28,10 @@ mod retained_environment_tests;
 mod review_tests;
 #[path = "screen_tests.rs"]
 mod screen_tests;
+#[path = "seed_geometry_tests.rs"]
+mod seed_geometry_tests;
+#[path = "seed_tests.rs"]
+mod seed_tests;
 #[path = "shoreline_tests.rs"]
 mod shoreline_tests;
 #[path = "terms_tests.rs"]

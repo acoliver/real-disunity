@@ -2,6 +2,42 @@
 use worldrunner_render_plan::{SceneWaterBody, SceneWaterSurface};
 use worldrunner_render_post::FrameError;
 
+pub(crate) fn allocations(
+    body: &SceneWaterBody,
+    set: &mut worldrunner_render_gpu::configuration::AllocationSet,
+) {
+    set.buffer("water staging", super::STAGING_BYTES, 3);
+    set.buffer("water body uniforms", super::UNIFORM_BYTES, 3);
+    let (positions, seeds) = allocation_sizes(body);
+    set.buffer("water surface vertices", positions, 1);
+    if let Some(bytes) = seeds {
+        set.buffer("water endpoint seed coordinates", bytes, 1);
+    }
+}
+
+fn seed_buffer_bytes(vertices: u64) -> u64 {
+    vertices
+        .saturating_mul(std::mem::size_of::<[f32; 2]>() as u64)
+        .max(8)
+}
+
+pub(crate) fn allocation_sizes(body: &SceneWaterBody) -> (u64, Option<u64>) {
+    let vertices = match &body.surface {
+        SceneWaterSurface::Rectangle => 6,
+        SceneWaterSurface::Mesh { indices, .. } => {
+            u64::try_from(indices.len()).expect("bounded geometry")
+        }
+        // Each bed triangle clips to at most two surface triangles.
+        SceneWaterSurface::Basin { columns, rows, .. } => u64::from(columns.saturating_sub(1))
+            .saturating_mul(u64::from(rows.saturating_sub(1)))
+            .saturating_mul(12),
+    };
+    (
+        vertices.saturating_mul(12).max(12),
+        super::endpoint::enabled(body).then(|| seed_buffer_bytes(vertices)),
+    )
+}
+
 pub(super) fn vertices(body: &SceneWaterBody) -> Result<Vec<[f32; 3]>, FrameError> {
     super::validate_settings(body)?;
     let height = super::number(body.height_millimeters);
@@ -46,7 +82,7 @@ pub(super) fn vertices(body: &SceneWaterBody) -> Result<Vec<[f32; 3]>, FrameErro
     }
 }
 
-fn basin(
+pub(super) fn basin(
     bounds: [f32; 4],
     height: f32,
     columns: u32,
@@ -103,4 +139,77 @@ fn clip_triangle(output: &mut Vec<[f32; 3]>, triangle: [([f32; 2], f32); 3], hei
             output.push(point(p[0], p[1]));
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct Body {
+    pub(super) buffer: wgpu::Buffer,
+    pub(super) seed: Option<wgpu::Buffer>,
+    pub(super) vertices: u32,
+    pub(super) uniforms: [wgpu::Buffer; 3],
+}
+impl Body {
+    pub(super) fn new(
+        device: &wgpu::Device,
+        vertices: &[[f32; 3]],
+        seeds: Option<&[[f32; 2]]>,
+    ) -> Self {
+        use wgpu::util::DeviceExt;
+        let bytes: Vec<_> = vertices
+            .iter()
+            .flatten()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        Self {
+            seed: seeds.map(|seeds| {
+                assert_eq!(seeds.len(), vertices.len());
+                let mut bytes: Vec<_> = seeds
+                    .iter()
+                    .flatten()
+                    .flat_map(|v| v.to_le_bytes())
+                    .collect();
+                bytes.resize(
+                    usize::try_from(seed_buffer_bytes(seeds.len() as u64))
+                        .expect("bounded seed buffer"),
+                    0,
+                );
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("water endpoint seed coordinates"),
+                    contents: &bytes,
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
+            }),
+            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("water body surface"),
+                contents: if bytes.is_empty() { &[0; 12] } else { &bytes },
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            vertices: u32::try_from(vertices.len()).expect("bounded water geometry"),
+            uniforms: std::array::from_fn(|_| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("water body frame"),
+                    size: super::UNIFORM_BYTES,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            }),
+        }
+    }
+}
+
+fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
+    wgpu::VertexBufferLayout {
+        array_stride: 12,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &ATTRIBUTES,
+    }
+}
+
+pub(super) fn layouts(endpoint: bool) -> Vec<Option<wgpu::VertexBufferLayout<'static>>> {
+    let mut layouts = vec![Some(vertex_layout())];
+    if endpoint {
+        layouts.push(Some(super::endpoint::layout()));
+    }
+    layouts
 }

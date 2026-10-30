@@ -431,3 +431,16 @@ sampler. The default 1x descriptor preserves trilinear repeat sampling; explicit
 mip-zero normals retain their float-precision bilinear path. The synthetic water
 normal readback test checks minor-axis detail at a grazing angle and compares the
 1x bytes with the original sampler descriptor.
+
+`SceneWaterFlowCoordinates::mode` selects seed addressing independently of normal
+repetition. `SceneWaterSeedCoordinates::Repeat` is the default and preserves existing
+bytes. `EndpointClamped` places the first and last seeds at the domain endpoints,
+using `(clamp(t, 0, 1) * (N - 1) + 0.5) / N` per axis before bilinear filtering.
+The domain uses the descriptor's integer-millimetre origin and positive extent.
+CPU geometry computes domain-relative seed coordinates before narrowing to float32;
+only the endpoint specialization adds their vertex buffer and interpolated varying.
+Renderer and presentation allocation plans count this buffer at eight bytes per
+expanded vertex, with an eight-byte empty placeholder and conservative basin bounds.
+Flow maps need at least two texels per axis in this mode; invalid dimensions fail
+before GPU allocation. Normal coordinates and samplers remain unchanged. See the
+[water contract](../../dev-docs/rendering/scene-materials.md) for sampling and tests.

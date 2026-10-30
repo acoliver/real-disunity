@@ -1,4 +1,5 @@
 //! Planar water reads immutable opaque snapshots and writes surface depth.
+mod endpoint;
 mod geometry;
 mod optics;
 pub(crate) mod planning;
@@ -9,10 +10,12 @@ mod terms;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use geometry::allocations;
 pub(crate) const STAGING_BYTES: u64 = 560 + crate::frame::FRAME_UNIFORM_BYTES as u64;
 pub(crate) const UNIFORM_BYTES: u64 = 768 + crate::frame::FRAME_UNIFORM_BYTES as u64;
 
 use crate::frame::FrameUniform;
+use geometry::Body;
 use snapshots::Snapshots;
 use worldrunner_render_plan::SceneWaterBody;
 use worldrunner_render_post::{
@@ -143,6 +146,7 @@ pub(crate) struct Water {
     pub snapshots: [Snapshots; 3],
     pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
+    endpoint_pipelines: Option<[wgpu::RenderPipeline; 2]>,
     layout: wgpu::BindGroupLayout,
     specializations: std::rc::Rc<
         std::cell::RefCell<std::collections::BTreeMap<[u32; 5], [wgpu::RenderPipeline; 2]>>,
@@ -196,7 +200,14 @@ impl Water {
         let shadow_pipeline = pipeline(device, config.samples, &layout, true, [0; 5]);
         let bodies = geometry
             .into_iter()
-            .map(|vertices| Body::new(device, &vertices))
+            .zip(&settings)
+            .map(|(vertices, settings)| {
+                Body::new(
+                    device,
+                    &vertices,
+                    endpoint::coordinates(settings).as_deref(),
+                )
+            })
             .collect::<Vec<_>>()
             .into();
         Ok(Self {
@@ -218,6 +229,7 @@ impl Water {
             samples: config.samples,
             pipeline: plain_pipeline,
             shadow_pipeline,
+            endpoint_pipelines: None,
             layout,
         })
     }
@@ -248,15 +260,14 @@ impl Water {
             terms::mask(&self.settings),
         ];
         if options != [0; 5] {
-            let mut cache = self.specializations.borrow_mut();
-            let selected = cache.entry(options).or_insert_with(|| {
-                [
-                    pipeline(device, self.samples, &self.layout, false, options),
-                    pipeline(device, self.samples, &self.layout, true, options),
-                ]
-            });
+            let selected = self.specialized_pipelines(device, options);
             water.pipeline = selected[0].clone();
             water.shadow_pipeline = selected[1].clone();
+        }
+        if self.settings.iter().any(endpoint::enabled) {
+            let mut endpoint_options = options;
+            endpoint_options[4] |= endpoint::SPECIALIZATION;
+            water.endpoint_pipelines = Some(self.specialized_pipelines(device, endpoint_options));
         }
         WaterFeature {
             water,
@@ -270,6 +281,34 @@ impl Water {
     }
 }
 impl Water {
+    fn specialized_pipelines(
+        &self,
+        device: &wgpu::Device,
+        options: [u32; 5],
+    ) -> [wgpu::RenderPipeline; 2] {
+        self.specializations
+            .borrow_mut()
+            .entry(options)
+            .or_insert_with(|| {
+                [
+                    pipeline(device, self.samples, &self.layout, false, options),
+                    pipeline(device, self.samples, &self.layout, true, options),
+                ]
+            })
+            .clone()
+    }
+    fn body_pipeline(&self, body: &Body, shadows: bool) -> &wgpu::RenderPipeline {
+        if body.seed.is_some() {
+            &self
+                .endpoint_pipelines
+                .as_ref()
+                .expect("endpoint pipelines")[usize::from(shadows)]
+        } else if shadows {
+            &self.shadow_pipeline
+        } else {
+            &self.pipeline
+        }
+    }
     fn snapshot_group(
         &self,
         device: &wgpu::Device,
@@ -369,9 +408,10 @@ fn pipeline_with_source(
     source: &str,
 ) -> wgpu::RenderPipeline {
     let constants = terms::constants(options);
+    let buffers = geometry::layouts(options[4] & endpoint::SPECIALIZATION != 0);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("planar water"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
+        source: wgpu::ShaderSource::Wgsl(endpoint::specialize(source, options[4])),
     });
     let vertex_constants = terms::vertex_constants(options);
     let shadow_layout = crate::shadows::water_layout(device);
@@ -395,7 +435,7 @@ fn pipeline_with_source(
                 constants: &vertex_constants,
                 ..Default::default()
             },
-            buffers: &[Some(vertex_layout())],
+            buffers: &buffers,
         },
         fragment: Some(wgpu::FragmentState {
             module: &module,
@@ -558,19 +598,17 @@ impl PreparedFeature for WaterFeature {
     ) {
         match context.slot {
             PassSlot::TransparentWater => {
-                pass.set_pipeline(if self.shadow.is_some() {
-                    &self.water.shadow_pipeline
-                } else {
-                    &self.water.pipeline
-                });
-
                 if let Some(shadow) = &self.shadow {
                     pass.set_bind_group(1, shadow, &[]);
                 }
                 for (body, group) in self.water.bodies.iter().zip(&self.groups) {
                     if body.vertices != 0 {
+                        pass.set_pipeline(self.water.body_pipeline(body, self.shadow.is_some()));
                         pass.set_bind_group(0, group, &[]);
                         pass.set_vertex_buffer(0, body.buffer.slice(..));
+                        if let Some(seed) = &body.seed {
+                            pass.set_vertex_buffer(1, seed.slice(..));
+                        }
                         pass.draw(0..body.vertices, 0..1);
                     }
                 }
@@ -586,48 +624,6 @@ fn number(value: i64) -> f32 {
         .parse::<f32>()
         .expect("integer is a finite float")
         / 1000.0
-}
-
-#[derive(Clone, Debug)]
-struct Body {
-    buffer: wgpu::Buffer,
-    vertices: u32,
-    uniforms: [wgpu::Buffer; 3],
-}
-impl Body {
-    fn new(device: &wgpu::Device, vertices: &[[f32; 3]]) -> Self {
-        use wgpu::util::DeviceExt;
-        let bytes: Vec<_> = vertices
-            .iter()
-            .flatten()
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
-        Self {
-            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("water body surface"),
-                contents: if bytes.is_empty() { &[0; 12] } else { &bytes },
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
-            vertices: u32::try_from(vertices.len()).expect("bounded water geometry"),
-            uniforms: std::array::from_fn(|_| {
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("water body frame"),
-                    size: UNIFORM_BYTES,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                })
-            }),
-        }
-    }
-}
-
-fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
-    const ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
-    wgpu::VertexBufferLayout {
-        array_stride: 12,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &ATTRIBUTES,
-    }
 }
 
 fn input_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {

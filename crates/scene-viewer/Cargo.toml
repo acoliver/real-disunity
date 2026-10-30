@@ -14,7 +14,8 @@ worldrunner-render-gpu = { path = "../render-gpu" }
 glam.workspace = true
 pollster.workspace = true
 thiserror.workspace = true
-worldrunner-render-plan = { path = "../render-plan" }
+worldrunner-render-plan = { path = "../render-plan", features = ["simulation"] }
+worldrunner-world-simulation = { path = "../world-simulation" }
 worldrunner-render-scene = { path = "../render-scene" }
 wgpu.workspace = true
 winit.workspace = true

@@ -50,6 +50,7 @@ pub(crate) struct Object {
     pub(crate) parent: Option<ObjectHandle>,
     transform: ComponentHandle,
     pub(crate) renderer: Option<ComponentHandle>,
+    pub(crate) mesh_instance: Option<ComponentHandle>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -141,6 +142,7 @@ impl World {
                 parent: None,
                 transform,
                 renderer: None,
+                mesh_instance: None,
             },
         );
         self.record_change(Change::Created(object));
@@ -246,6 +248,7 @@ impl World {
                     && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
             }),
             ComponentDesc::Renderer { .. } => owner.renderer.is_some(),
+            ComponentDesc::MeshInstance(_) => owner.mesh_instance.is_some(),
             ComponentDesc::ShadowCaster2d
             | ComponentDesc::Script { .. }
             | ComponentDesc::Collider2d(_) => false,
@@ -277,6 +280,12 @@ impl World {
                 .get_mut(object.0)
                 .expect("validated object")
                 .renderer = Some(handle);
+        }
+        if matches!(desc, ComponentDesc::MeshInstance(_)) {
+            self.objects
+                .get_mut(object.0)
+                .expect("validated object")
+                .mesh_instance = Some(handle);
         }
         let script = matches!(desc, ComponentDesc::Script { .. });
         self.components.insert(

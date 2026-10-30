@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use mlua::{Function, Lua, MultiValue, Thread};
+use mlua::{Function, Lua, MultiValue, Thread, Value};
 
 use super::state::{Origin, Scheduler, id};
 
@@ -12,15 +12,20 @@ fn lock(shared: &Shared) -> std::sync::MutexGuard<'_, Scheduler> {
     shared.lock().expect("scheduler")
 }
 
-/// `spawn(f, ...)` on the clock at index `clock`.
-pub(crate) fn spawn(lua: &Lua, shared: &Shared, clock: usize) -> mlua::Result<Function> {
+/// `spawn(f, ...)` on the clock at index `clock`, the new thread carrying `flags`.
+pub(crate) fn spawn(
+    lua: &Lua,
+    shared: &Shared,
+    clock: usize,
+    flags: i64,
+) -> mlua::Result<Function> {
     let shared = Arc::clone(shared);
     lua.create_function(move |lua, (function, args): (Function, MultiValue)| {
         let thread = lua.create_thread(function.clone())?;
         let mut scheduler = lock(&shared);
-        scheduler
-            .origins
-            .insert(id(&thread), Origin::new(Some((function, args.clone()))));
+        let mut origin = Origin::new(Some((function, args.clone())));
+        origin.flags = flags;
+        scheduler.origins.insert(id(&thread), origin);
         let waiting = scheduler.waiting(thread.clone(), args, clock);
         scheduler.add_new(waiting);
         Ok(thread)
@@ -99,4 +104,78 @@ pub(crate) fn adopt(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
             Ok(true)
         },
     )
+}
+
+fn thread_of(value: &Value) -> Option<&Thread> {
+    match value {
+        Value::Thread(thread) => Some(thread),
+        _ => None,
+    }
+}
+
+/// `get(thread)` returns the game's flags on a scheduler thread, nil for any other value.
+pub(crate) fn get_flags(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, thread: Value| {
+        Ok(thread_of(&thread).and_then(|thread| lock(&shared).flags_of(thread)))
+    })
+}
+
+/// `set(thread, flags)` adds bits to a thread's flags; anything else is ignored.
+pub(crate) fn set_flags(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, (thread, flags): (Value, Option<i64>)| {
+        if let Some(thread) = thread_of(&thread) {
+            lock(&shared).add_flags(thread, flags.unwrap_or(0));
+        }
+        Ok(())
+    })
+}
+
+/// `has(thread, mask)` is true for a scheduler thread that carries every bit of `mask`.
+pub(crate) fn has_flags(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, (thread, mask): (Value, Option<i64>)| {
+        let mask = mask.unwrap_or(0);
+        let flags = thread_of(&thread).and_then(|thread| lock(&shared).flags_of(thread));
+        Ok(flags.is_some_and(|flags| flags & mask == mask))
+    })
+}
+
+/// `set_source(thread, name)` tags a scheduler thread; anything else is ignored.
+pub(crate) fn set_source(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, (thread, name): (Value, String)| {
+        if let Some(thread) = thread_of(&thread) {
+            lock(&shared).set_source(thread, &name);
+        }
+        Ok(())
+    })
+}
+
+/// `clock_of(thread)` returns the name of a scheduler thread's clock, nil for any other value.
+pub(crate) fn clock_of(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, thread: Value| {
+        Ok(thread_of(&thread).and_then(|thread| lock(&shared).clock_name_of(thread)))
+    })
+}
+
+/// `set_clock(ms)` sets the clock at index `clock`; nil and negative times are 0.
+pub(crate) fn set_clock(lua: &Lua, shared: &Shared, clock: usize) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, ms: Option<i64>| {
+        let ms = u64::try_from(ms.unwrap_or(0)).unwrap_or(0);
+        lock(&shared).clocks[clock].now = ms;
+        Ok(())
+    })
+}
+
+/// `interrupt()` ends the advance in progress once the running thread yields.
+pub(crate) fn interrupt(lua: &Lua, shared: &Shared) -> mlua::Result<Function> {
+    let shared = Arc::clone(shared);
+    lua.create_function(move |_, ()| {
+        lock(&shared).interrupted = true;
+        Ok(())
+    })
 }

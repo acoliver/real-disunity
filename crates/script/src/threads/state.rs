@@ -124,6 +124,8 @@ pub(crate) struct Scheduler {
     running: Option<Thread>,
     running_clock: usize,
     pub(crate) killed_running: bool,
+    /// Set by the game's interrupt native; ends the advance in progress.
+    pub(crate) interrupted: bool,
     pub(crate) origins: HashMap<usize, Origin>,
 }
 
@@ -160,6 +162,7 @@ impl Scheduler {
             running: None,
             running_clock: 0,
             killed_running: false,
+            interrupted: false,
             origins: HashMap::new(),
         }
     }
@@ -437,6 +440,36 @@ impl Scheduler {
             .is_some()
     }
 
+    /// Adds the bits of `flags` to a scheduler thread's flags. Returns whether it is one.
+    pub(crate) fn add_flags(&mut self, thread: &Thread, flags: i64) -> bool {
+        self.origins
+            .get_mut(&id(thread))
+            .map(|o| o.flags |= flags)
+            .is_some()
+    }
+
+    pub(crate) fn set_source(&mut self, thread: &Thread, source: &str) -> bool {
+        self.origins
+            .get_mut(&id(thread))
+            .map(|o| source.clone_into(&mut o.source))
+            .is_some()
+    }
+
+    /// The name of the clock a scheduler thread belongs to.
+    pub(crate) fn clock_name_of(&self, thread: &Thread) -> Option<String> {
+        let index = if self.is_running_thread(thread) {
+            self.running_clock
+        } else if let Some(&(clock, _)) = self.keys.get(&id(thread)) {
+            clock
+        } else {
+            self.deferred
+                .iter()
+                .find(|waiting| id(&waiting.thread) == id(thread))?
+                .clock
+        };
+        Some(self.clocks[index].name.clone())
+    }
+
     pub(crate) fn flags_of(&self, thread: &Thread) -> Option<i64> {
         self.origins.get(&id(thread)).map(|origin| origin.flags)
     }
@@ -548,6 +581,7 @@ impl Scheduler {
     /// Moves threads waiting for the next advance onto their clocks, due now. Returns the time
     /// of each clock, which the advance measures from.
     pub(crate) fn begin_advance(&mut self, ms: u64) -> Option<Vec<u64>> {
+        self.interrupted = false;
         for waiting in std::mem::take(&mut self.deferred) {
             let now = self.clocks[waiting.clock].now;
             self.schedule(waiting, now);

@@ -28,6 +28,15 @@ internal static class NativeLibrary
         }
     }
 
+    /// <summary>The directory of the configured engine library, or null before configuration.</summary>
+    internal static string? LibraryDirectory
+    {
+        get
+        {
+            lock (Gate) return _path is null ? null : Path.GetDirectoryName(_path);
+        }
+    }
+
     internal static void EnsureLoaded()
     {
         lock (Gate)

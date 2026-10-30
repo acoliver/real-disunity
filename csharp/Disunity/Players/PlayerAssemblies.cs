@@ -10,13 +10,15 @@ namespace Disunity.Hosting;
 /// (<see cref="PlayerManifest.GameAssemblies"/>) resolve to its <c>Managed</c> directory,
 /// whatever their names. Any other name is left to .NET: the player's unlisted DLLs, such as
 /// <c>System.Core</c> and <c>Mono.Security</c>, are class libraries built for Unity's Mono
-/// runtime. A context asks only for names it and .NET could not resolve.
+/// runtime. A context asks only for names it and .NET could not resolve. Each game assembly it
+/// loads also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
 /// </summary>
 public sealed class PlayerAssemblies
 {
     private readonly string _managed;
     private readonly Assembly _engine;
     private readonly HashSet<string> _game;
+    private readonly PlayerNativePlugins? _native;
     private readonly Dictionary<string, Assembly> _facades = new(StringComparer.Ordinal);
     // Resolution can run on any thread that first touches a type; the lock makes each
     // facade build once. Game assemblies need no lock: the context loads each name once.
@@ -29,13 +31,19 @@ public sealed class PlayerAssemblies
     /// context must resolve that name to this assembly, as the default context does.
     /// </param>
     /// <param name="gameAssemblies">The names of the game and package assemblies the player lists.</param>
-    public PlayerAssemblies(string managedDirectory, Assembly engine, IEnumerable<string> gameAssemblies)
+    /// <param name="nativePlugins">
+    /// Resolves the native libraries the game and package assemblies import, or null to leave
+    /// that to .NET. It registers for each assembly this instance loads.
+    /// </param>
+    public PlayerAssemblies(string managedDirectory, Assembly engine, IEnumerable<string> gameAssemblies,
+        PlayerNativePlugins? nativePlugins = null)
     {
         if (!Directory.Exists(managedDirectory))
             throw new DirectoryNotFoundException($"no player Managed directory at {managedDirectory}");
         _managed = managedDirectory;
         _engine = engine;
         _game = new HashSet<string>(gameAssemblies, StringComparer.Ordinal);
+        _native = nativePlugins;
     }
 
     /// <summary>
@@ -67,7 +75,9 @@ public sealed class PlayerAssemblies
         if (!_game.Contains(simple)) return null;
         if (!File.Exists(path))
             throw new FileNotFoundException($"the player lists {simple} but its Managed directory has no {simple}.dll", path);
-        return context.LoadFromAssemblyPath(path);
+        var assembly = context.LoadFromAssemblyPath(path);
+        _native?.Register(assembly);
+        return assembly;
     }
 
     private Assembly Facade(AssemblyLoadContext context, string name, string path)

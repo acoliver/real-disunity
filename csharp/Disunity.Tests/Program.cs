@@ -261,6 +261,8 @@ PendingCloneTests.Run();
 NamedAxisTests.Run();
 DeferredDestroyTests.Run();
 PlayerAssemblyTests.Run();
+PlayerNativePluginTests.Run();
+PlayerNativePluginTests.RunImport();
 RuntimeHookTests.Run();
 EngineEnumTests.Run();
 UnityEventTests.Run();

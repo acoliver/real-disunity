@@ -19,7 +19,11 @@ fn asymmetric_diagonals_have_independently_calculated_centre() {
     // H = 1, V = 1.5 selects X taps of 0.1875, yielding centre RGB 0.15625.
     let expected = [0.15625_f32, 0.15625, 0.15625, 0.25];
     let reference = Image::render(input.size, |uv| fxaa_quality(&input, uv, 1.0, q));
-    assert_eq!(reference.pixels[12], expected);
+    // The CPU reference works on dyadic values, so it reproduces the hand value exactly.
+    assert_eq!(
+        reference.pixels[12].map(f32::to_bits),
+        expected.map(f32::to_bits)
+    );
     // The filter moved the centre from 0.125 by 0.03125, over 100 times the half bound.
     assert!(0.03125 > 100.0 * super::fxaa_tolerance_tests::half_bound(0.15625, 0.625));
     let half = render(

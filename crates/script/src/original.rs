@@ -61,7 +61,11 @@ impl GameScripts {
         lua.set_memory_limit(DEFAULT_MEMORY_LIMIT)?;
         restrict_base(&lua)?;
         let instructions = Arc::new(AtomicU64::new(0));
-        let budget = Budget::new(config.instruction_budget, Arc::clone(&instructions));
+        let budget = Budget::new(
+            config.instruction_budget,
+            config.resume_budget.as_ref(),
+            Arc::clone(&instructions),
+        );
         budget.hook_main(&lua);
         crate::coroutines::install(&lua, &budget)?;
         let loader = SharedLoader::default();

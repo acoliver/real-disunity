@@ -87,6 +87,7 @@ fn in_memory_require_resolves_and_caches() {
 fn budget_exceeded_halts_a_runaway_hook() {
     let config = ScriptConfig {
         instruction_budget: 5_000,
+        resume_budget: None,
         seed: 0,
     };
     let mut host = ScriptHost::new(config).expect("host builds");

@@ -7,7 +7,7 @@
 //! is exact (the half float values read back are equal).
 use crate::taa_reconstruct_test_rig::static_camera;
 use crate::temporal_disocclusion_scene as scene;
-use crate::temporal_scene_rig::{OUTPUT, SceneRig};
+use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
 use crate::{TemporalCamera, gpu_tests};
 
 const RENDER: [u32; 2] = [80, 48];

@@ -14,7 +14,7 @@
 //! every pixel: one constant distance in place of the per-pixel distances of the plane.
 use crate::TemporalCamera;
 use crate::temporal_dolly_scene as scene;
-use crate::temporal_scene_rig::{OUTPUT, SceneRig};
+use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
 
 /// Camera advance per frame in plane units.
 const STEP: f64 = 0.01;

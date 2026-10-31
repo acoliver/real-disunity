@@ -17,7 +17,7 @@
 use crate::RenderScale;
 use crate::taa_reconstruct_test_rig::static_camera;
 use crate::temporal_disocclusion_scene as scene;
-use crate::temporal_scene_rig::{OUTPUT, SceneRig};
+use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
 
 /// Frames rendered: the bar travels `FRAMES * SPEED` pixels, 96, and stays on the canvas.
 const FRAMES: u64 = 48;

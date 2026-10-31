@@ -18,7 +18,7 @@
 use crate::RenderScale;
 use crate::taa_reconstruct_test_rig::static_camera;
 use crate::temporal_depth_motion_scene as scene;
-use crate::temporal_scene_rig::{OUTPUT, SceneRig};
+use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
 
 const FRAMES: u64 = 2 * scene::APPROACH_FRAMES;
 const MEASURED: u64 = 8;

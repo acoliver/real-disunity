@@ -268,6 +268,7 @@ impl Harness {
                         .create_view(&wgpu::TextureViewDescriptor::default()),
                 )?;
                 if let Some((_, image)) = &mut capture {
+                    image.replay(self.context.device(), encoder, &self.resident);
                     image.encode(
                         encoder,
                         &self.output,

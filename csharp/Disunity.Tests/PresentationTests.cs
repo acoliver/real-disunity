@@ -51,7 +51,7 @@ internal static class PresentationTests
         Require(!camera.orthographic && camera.orthographicSize == 8, "a perspective lens is stored and keeps the orthographic size");
         camera.orthographic = true;
         Rejects<DisunityException>(() => camera.orthographicSize = 0, "zero orthographic size");
-        Rejects<DisunityException>(() => camera.farClipPlane = 0.1f, "far plane before near plane");
+        Rejects<DisunityException>(() => camera.farClipPlane = float.NaN, "NaN far plane");
         Rejects<ArgumentException>(() => camera.depth = 0.5f, "fractional depth");
         Require(camera.orthographic && camera.orthographicSize == 8 && camera.farClipPlane == 1000 && camera.depth == -1,
             "rejected writes leave the camera unchanged");

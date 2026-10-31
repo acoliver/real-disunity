@@ -77,7 +77,14 @@ public static partial class DisunityHost
     internal static GameObject Track(GameObject value)
     {
         Tracked.Add(value);
+        TrackedByHandle[value.RawHandle] = value;
         return value;
+    }
+
+    private static void RemoveDestroyedObjects()
+    {
+        foreach (var value in Tracked.Where(value => value.IsDestroyed)) TrackedByHandle.Remove(value.RawHandle);
+        Tracked.RemoveAll(value => value.IsDestroyed);
     }
 
     /// <summary>
@@ -93,6 +100,7 @@ public static partial class DisunityHost
                 NativeComponents.Remove(handle);
             owner.MarkDestroyed();
             Tracked.Remove(owner);
+            TrackedByHandle.Remove(owner.RawHandle);
         }
     }
 }

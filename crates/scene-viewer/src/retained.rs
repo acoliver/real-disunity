@@ -16,7 +16,7 @@ mod event_host;
 pub use event_host::RetainedEventHost;
 mod windowless;
 pub use windowless::WindowlessRetained;
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 pub(crate) use windowless::tests::pages::layered_scene;
 mod input;
 pub use input::{

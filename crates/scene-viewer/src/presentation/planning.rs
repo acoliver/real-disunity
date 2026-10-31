@@ -69,6 +69,7 @@ fn recipe_settings(
     let PresentationCapture::Recipe(recipe) = capture else {
         return Ok(None);
     };
+    recipe.pool_bytes(size)?;
     if !recipe.accumulated() {
         return Ok(None);
     }

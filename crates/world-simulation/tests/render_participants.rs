@@ -3,7 +3,7 @@ use worldrunner_world_simulation::presentation::{
     GlobalLight2d, Light2dType, SpriteLighting, SpriteRenderer, UniversalAdditionalCameraData,
 };
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentError, ObjectDesc, World, WorldError, WorldSettings,
+    ComponentDesc, ComponentError, ObjectDesc, SortingGroup, World, WorldError, WorldSettings,
 };
 
 #[test]
@@ -217,5 +217,65 @@ fn overflowing_light_accumulation_is_a_native_presentation_error() {
         Err(WorldError::InvalidComponent(
             ComponentError::InvalidPresentation
         ))
+    );
+}
+
+#[test]
+fn a_particle_system_is_one_marker_per_object() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let owner = world.create_object(ObjectDesc::default()).unwrap();
+    let particles = world
+        .add_component(owner, ComponentDesc::ParticleSystem)
+        .unwrap();
+    assert_eq!(
+        world.component(particles).unwrap().desc,
+        ComponentDesc::ParticleSystem
+    );
+    assert!(
+        world
+            .add_component(owner, ComponentDesc::ParticleSystem)
+            .is_err()
+    );
+}
+
+#[test]
+fn a_sorting_group_is_enabled_at_layer_zero_and_one_per_object() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let owner = world.create_object(ObjectDesc::default()).unwrap();
+    let group = world
+        .add_component(owner, ComponentDesc::SortingGroup(SortingGroup::default()))
+        .unwrap();
+    assert_eq!(
+        world.component(group).unwrap().desc,
+        ComponentDesc::SortingGroup(SortingGroup {
+            enabled: true,
+            sorting_layer: 0,
+            sorting_order: 0,
+            sort_at_root: false,
+        })
+    );
+    assert!(
+        world
+            .add_component(owner, ComponentDesc::SortingGroup(SortingGroup::default()))
+            .is_err()
+    );
+}
+
+#[test]
+fn a_sorting_group_keeps_the_values_it_is_given() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let owner = world.create_object(ObjectDesc::default()).unwrap();
+    let wanted = SortingGroup {
+        enabled: false,
+        sorting_layer: 7,
+        sorting_order: -40_000,
+        sort_at_root: true,
+    };
+    let group = world
+        .add_component(owner, ComponentDesc::SortingGroup(wanted))
+        .unwrap();
+    assert_eq!(
+        world.component(group).unwrap().desc,
+        ComponentDesc::SortingGroup(wanted)
     );
 }

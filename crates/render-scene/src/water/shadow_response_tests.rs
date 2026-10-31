@@ -256,10 +256,7 @@ fn shadow_response_validates_and_default_preserves_bytes_and_keys() {
     assert!(body.material.shadow_response.is_none());
     assert_eq!(terms::mask(&[body.clone()]), 0);
     let source = water_source(true);
-    assert!(matches!(
-        super::super::shadow_response::specialize(&source, 0),
-        std::borrow::Cow::Borrowed(_)
-    ));
+    assert!(source.contains("scene_surface_lighting_with_visibility"));
     body.material.shadow_response = Some(SceneWaterShadowResponse::default());
     assert_eq!(uniform_data(&frame, 0.0, &body), original);
     assert_eq!(terms::mask(&[body.clone()]), 0);

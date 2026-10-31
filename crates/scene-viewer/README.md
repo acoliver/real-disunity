@@ -4,6 +4,35 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Opaque capture attribution
+
+Retained recipes accept `CaptureOutput::Albedo` and `CaptureOutput::SunVisibility`.
+Read them through `RetainedCaptureProducts::albedo()` and `sun_visibility()`.
+Both return linear `RGBA16Float` decoded images, top-left first, at native raster
+extent. RGB albedo is unitless reflectance after textures, terrain-layer blending,
+contact surfaces and projected decals. Sun visibility is strength-adjusted
+unitless directional visibility in [0, 1], replicated in RGB. Alpha is opaque
+coverage; uncovered pixels are zero. These products precede exposure, fog and
+post-processing and exclude water, transparency, sky and dynamic sprite/UI draws.
+They use a single pixel-centre sample even when forward colour uses MSAA.
+Recipes must have one unjittered sample, no supersampling or advancing clock, and
+no native RCAS accumulation.
+
+Capture-only opaque pipeline permutations replay the existing material shaders
+and directional map without advancing frame state. Depth-fitted captures encode
+these replays in the fitted drawing transaction, preserving its selected terrain
+pages and bindings. This avoids adding targets to ordinary draws and keeps
+material and shadow calculations shared with lit colour.
+Each requested product charges its RGBA16Float colour and Depth32Float replay
+targets (12 bytes per raster pixel), readbacks and decoded storage against the
+shared 256 MiB capture-recipe reservation. Descriptor planning and live admission
+reject requests exceeding that pool with `CaptureRequestError::RecipeBudget`;
+planning wraps it in `ViewerError::Capture`. Live admission also accounts for
+outstanding reservations. With no attribution request, no replay targets or pipelines are
+created and existing presentation allocation totals remain unchanged.
+`DirectDiffuse`, `AmbientDiffuse` and `EnvironmentSpecular` are not available.
+Albedo and visibility alone do not reconstruct the lit radiance.
+
 ## Retained shadow light
 
 Submit `RetainedUpdate::Settings` with effects updated through

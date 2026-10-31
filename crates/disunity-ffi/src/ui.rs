@@ -284,11 +284,7 @@ pub unsafe extern "C" fn disunity_canvas_read(
                 plane_distance,
             } => {
                 v.mode = 1;
-                v.camera = s
-                    .objects
-                    .iter()
-                    .find_map(|(&id, &o)| (o == camera).then_some(id))
-                    .ok_or("camera binding missing")?;
+                v.camera = s.objects.id_of(camera).ok_or("camera binding missing")?;
                 v.orthographic_size = orthographic_size;
                 v.plane_distance = plane_distance;
             }

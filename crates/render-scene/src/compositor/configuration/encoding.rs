@@ -176,6 +176,17 @@ impl FrameEncoding<'_> {
     ) -> Result<Option<crate::shadows::sdsm::AdoptedFit>, crate::shadows::ShadowError> {
         scene.render_depth_fitted_host(context, view, attachments, frame, self.0)
     }
+    /// Captures terms before the fitted frame releases transaction-owned scene state.
+    pub fn render_depth_fitted_terms(
+        &mut self,
+        context: &crate::device::GpuContext,
+        view: &crate::SceneView,
+        attachments: (&AttachmentView, &AttachmentView),
+        frame: (Option<u64>, bool, &[crate::compositor::terms::TermCapture]),
+        scene: &mut crate::shadows::ShadowedScene,
+    ) -> Result<Option<crate::shadows::sdsm::AdoptedFit>, crate::shadows::ShadowError> {
+        scene.render_depth_fitted_host_terms(context, view, attachments, frame, self.0)
+    }
     pub fn encode_shadowed(
         &mut self,
         context: &crate::device::GpuContext,

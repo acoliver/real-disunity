@@ -57,6 +57,10 @@ pub enum ComponentDesc {
     FlareLayer {
         enabled: bool,
     },
+    /// A particle system. Its settings and particles stay in the managed component.
+    ParticleSystem,
+    /// A sorting group; its layer and order sort the object's renderers as one unit.
+    SortingGroup(crate::SortingGroup),
     Tilemap(crate::tilemap::Tilemap),
     Camera(crate::presentation::Camera),
     Light(crate::presentation::Light),
@@ -97,7 +101,11 @@ impl ComponentDesc {
                 ComponentError::UnsupportedField("ShadowCaster2D"),
             )),
             Self::UniversalAdditionalCameraData(value) => value.validate(),
-            Self::AudioListener { .. } | Self::GUILayer { .. } | Self::FlareLayer { .. } => Ok(()),
+            Self::AudioListener { .. }
+            | Self::GUILayer { .. }
+            | Self::FlareLayer { .. }
+            | Self::ParticleSystem
+            | Self::SortingGroup(_) => Ok(()),
             #[cfg(feature = "ui")]
             Self::RectTransform(value) => value.validate().map_err(WorldError::from),
             #[cfg(feature = "ui")]

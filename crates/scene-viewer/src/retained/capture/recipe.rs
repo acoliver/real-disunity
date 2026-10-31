@@ -9,6 +9,10 @@ pub enum CaptureJitter {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CaptureOutput {
+    /// Linear, post-composition opaque reflectance, pixel-centre single sample.
+    Albedo,
+    /// Strength-adjusted sun visibility in [0, 1], opaque receivers only.
+    SunVisibility,
     Srgb8,
     LinearHdr,
     Depth,
@@ -47,6 +51,14 @@ impl RetainedCaptureRecipe {
     ) -> Result<Self, CaptureRequestError> {
         if supersample == 0 || temporal_samples == 0 || outputs.is_empty() || max_bytes == 0 {
             return Err(CaptureRequestError::InvalidRecipe);
+        }
+        if outputs.iter().any(|output| output.term().is_some())
+            && (supersample != 1
+                || temporal_samples != 1
+                || jitter != CaptureJitter::None
+                || advance_clock)
+        {
+            return Err(CaptureRequestError::UnsupportedRecipe);
         }
         u64::from(supersample)
             .checked_pow(2)
@@ -88,6 +100,9 @@ impl RetainedCaptureRecipe {
         mut self,
         settings: crate::NativeRcasSettings,
     ) -> Result<Self, CaptureRequestError> {
+        if self.outputs.iter().any(|output| output.term().is_some()) {
+            return Err(CaptureRequestError::UnsupportedRecipe);
+        }
         settings
             .validate()
             .map_err(|_| CaptureRequestError::InvalidRecipe)?;
@@ -154,6 +169,19 @@ impl RetainedCaptureRecipe {
         ])
     }
 
+    pub(crate) const POOL_BYTES: u64 = 256 * 1024 * 1024;
+
+    pub(crate) fn pool_bytes(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
+        let required = self.storage_bytes(size)?;
+        if required > Self::POOL_BYTES {
+            return Err(CaptureRequestError::RecipeBudget {
+                required,
+                limit: Self::POOL_BYTES,
+            });
+        }
+        Ok(required)
+    }
+
     pub(crate) fn storage_bytes(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
         if size.contains(&0) {
             return Err(CaptureRequestError::InvalidRecipe);
@@ -205,9 +233,19 @@ fn output_storage(
     let (texel_bytes, cpu_bytes) = match output {
         CaptureOutput::Srgb8 => (4, 4),
         CaptureOutput::Specular => (8, 8),
-        CaptureOutput::LinearHdr | CaptureOutput::Normals => (8, 24),
+        CaptureOutput::LinearHdr
+        | CaptureOutput::Normals
+        | CaptureOutput::Albedo
+        | CaptureOutput::SunVisibility => (8, 24),
         CaptureOutput::SsrConfidence => (8, 12),
         CaptureOutput::Depth | CaptureOutput::AmbientOcclusion => (4, 8),
+    };
+    let targets = if output.term().is_some() {
+        worldrunner_render_scene::compositor::RendererConfiguration::capture_term_allocations(size)
+            .validate(&wgpu::Limits::default())
+            .map_err(|_| CaptureRequestError::InvalidRecipe)?
+    } else {
+        0
     };
     let row = width
         .checked_mul(texel_bytes)
@@ -217,6 +255,7 @@ fn output_storage(
         .checked_mul(2)
         .and_then(|n| n.checked_add(width.checked_mul(cpu_bytes)?))
         .and_then(|n| n.checked_mul(u64::from(size[1])))
+        .and_then(|n| n.checked_add(targets))
         .ok_or(CaptureRequestError::InvalidRecipe)
 }
 
@@ -235,6 +274,7 @@ fn radical_inverse(mut index: u32, base: u32) -> f32 {
 /// Feature readbacks currently require one unjittered, non-accumulated frame.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct RetainedCaptureProducts {
+    pub(crate) terms: Option<Box<OpaqueCaptureProducts>>,
     pub srgb8: Option<worldrunner_render_scene::offscreen::RgbaImage>,
     pub linear_hdr: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
     /// Positive pixel-centre view-space metres before water.
@@ -330,6 +370,50 @@ mod native_rcas_tests {
             let selected = recipe.clone().with_native_rcas(settings).unwrap();
             assert_eq!(selected.native_rcas(), Some(settings));
             assert!(selected.accumulated());
+        }
+    }
+}
+
+impl CaptureOutput {
+    pub(crate) fn term(self) -> Option<worldrunner_render_scene::compositor::terms::CaptureTerm> {
+        use worldrunner_render_scene::compositor::terms::CaptureTerm;
+        match self {
+            Self::Albedo => Some(CaptureTerm::Albedo),
+            Self::SunVisibility => Some(CaptureTerm::SunVisibility),
+            _ => None,
+        }
+    }
+}
+
+/// Request-only opaque pixel-centre products. No storage is created for ordinary captures.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub(crate) struct OpaqueCaptureProducts {
+    pub albedo: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    pub sun_visibility: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+}
+impl RetainedCaptureProducts {
+    /// Linear reflectance RGB after material composition; alpha is opaque coverage.
+    pub fn albedo(&self) -> Option<&worldrunner_render_scene::offscreen::LinearRgbaImage> {
+        self.terms.as_ref().and_then(|terms| terms.albedo.as_ref())
+    }
+    /// Strength-adjusted [0, 1] visibility replicated in RGB; alpha is opaque coverage.
+    pub fn sun_visibility(&self) -> Option<&worldrunner_render_scene::offscreen::LinearRgbaImage> {
+        self.terms
+            .as_ref()
+            .and_then(|terms| terms.sun_visibility.as_ref())
+    }
+    pub(crate) fn store_term(
+        &mut self,
+        output: CaptureOutput,
+        image: worldrunner_render_scene::offscreen::LinearRgbaImage,
+    ) {
+        let terms = self
+            .terms
+            .get_or_insert_with(|| Box::new(OpaqueCaptureProducts::default()));
+        match output {
+            CaptureOutput::Albedo => terms.albedo = Some(image),
+            CaptureOutput::SunVisibility => terms.sun_visibility = Some(image),
+            _ => unreachable!("opaque term output"),
         }
     }
 }

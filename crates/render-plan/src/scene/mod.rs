@@ -49,7 +49,7 @@ mod water;
 mod water_optics;
 mod water_settings;
 mod water_shadow;
-pub use water_shadow::{SceneWaterShadowOffset, SceneWaterShadowResponse};
+pub use water_shadow::{SceneWaterShadowFilter, SceneWaterShadowOffset, SceneWaterShadowResponse};
 mod water_terms;
 pub use water::{SceneWaterBody, SceneWaterSurface};
 pub use water_optics::{SceneWaterOptics, SceneWaterShoreline, SceneWaterTint};

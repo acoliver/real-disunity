@@ -164,6 +164,14 @@ fn capture(
     if specular {
         outputs.push(CaptureOutput::Specular);
     }
+    capture_outputs(host, renderer, outputs)
+}
+
+fn capture_outputs(
+    host: &mut RetainedHost,
+    renderer: &mut Renderer,
+    outputs: Vec<CaptureOutput>,
+) -> RetainedCaptureProducts {
     let recipe =
         RetainedCaptureRecipe::new(1, 1, CaptureJitter::None, false, outputs, 1024 * 1024).unwrap();
     host.request_capture_recipe(0, recipe).unwrap();
@@ -309,4 +317,90 @@ fn specular_admission_requires_metadata_and_rejects_accumulation() {
         host.request_capture_recipe(0, recipe),
         Err(crate::CaptureRequestError::UnsupportedRecipe)
     );
+}
+
+#[test]
+fn opaque_terms_use_authored_and_decal_albedo_without_changing_display() {
+    for samples in [1, 4] {
+        for decal in [false, true] {
+            let (mut host, mut renderer) = setup(0, decal, samples);
+            let baseline = capture_outputs(&mut host, &mut renderer, vec![CaptureOutput::Srgb8]);
+            let terms = capture_outputs(
+                &mut host,
+                &mut renderer,
+                vec![
+                    CaptureOutput::Srgb8,
+                    CaptureOutput::Albedo,
+                    CaptureOutput::SunVisibility,
+                ],
+            );
+            assert_eq!(baseline.srgb8, terms.srgb8);
+            let expected = if decal { [1.0, 0.0, 0.0] } else { [1.0; 3] };
+            let mut covered = 0;
+            for (albedo, visibility) in terms
+                .albedo()
+                .unwrap()
+                .pixels
+                .iter()
+                .zip(terms.sun_visibility().unwrap().pixels.iter().copied())
+            {
+                if albedo[3] == 0.0 {
+                    assert_eq!(visibility.map(f32::to_bits), [0; 4]);
+                    continue;
+                }
+                // Linear Rgba8Unorm samples and interpolated tint feed Rgba16Float.
+                // A tiny shader error can round down to 1 - 2^-11 on lavapipe;
+                // allow one binary16 ULP at 1, far below a wrong colour's 1.0 error.
+                for (actual, expected) in albedo[..3].iter().zip(expected) {
+                    assert!((actual - expected).abs() <= 1.0 / 1024.0);
+                }
+                // Unshadowed visibility returns constant 1, without texture sampling.
+                assert_eq!(visibility.map(f32::to_bits), [1.0_f32.to_bits(); 4]);
+                covered += 1;
+            }
+            assert!(covered > 20);
+        }
+    }
+}
+
+#[test]
+fn retained_term_capture_replays_paged_terrain_in_the_fitted_transaction() {
+    let base = crate::retained::layered_scene();
+    let fitting = crate::renderer::sdsm_tests::fitted_scene();
+    let effects = base
+        .effects()
+        .unwrap()
+        .clone()
+        .with_depth_fitting(*fitting.effects().unwrap().depth_fitting().unwrap())
+        .unwrap();
+    let scene = base
+        .with_objects_and_effects(base.geometry().objects().to_vec(), Some(effects))
+        .unwrap();
+    let mut host = RetainedHost::new(
+        scene,
+        crate::ViewerOptions {
+            size: [32, 32],
+            shadows: Some(crate::renderer::retained_tests::shadow_settings()),
+            ..crate::tests::options()
+        },
+    )
+    .unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let products = capture_outputs(
+        &mut host,
+        &mut renderer,
+        vec![CaptureOutput::Albedo, CaptureOutput::SunVisibility],
+    );
+    for image in [
+        products.albedo().unwrap(),
+        products.sun_visibility().unwrap(),
+    ] {
+        assert_eq!([image.viewport.width, image.viewport.height], [32, 32]);
+        assert!(image.pixels.iter().filter(|p| p[3] != 0.0).count() > 20);
+    }
+    let crate::renderer::Resident::Shadowed(scene) = &renderer.resident else {
+        panic!("shadowed resident");
+    };
+    let fit = scene.last_depth_fit().unwrap();
+    assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));
 }

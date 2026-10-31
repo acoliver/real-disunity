@@ -19,12 +19,14 @@ use worldrunner_unity_serialized::{
     mesh::Mesh,
     object::{Layout, decode},
     render_settings::RenderSettings,
+    render_texture::RenderTexture,
     shader::Shader,
     shader_program::PlayerSubProgram,
     shader_records::{
         PlatformProgram, SPIRV_PROGRAM, platform_program_types, platform_programs, vulkan_stages,
     },
     smolv,
+    sorting_group::SortingGroup,
     sprite::{Sprite, SpriteAtlas},
     text_asset::TextAsset,
     ui::{Canvas, CanvasGroup, CanvasRenderer},
@@ -366,7 +368,7 @@ const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
 }
 
 /// The classes with layouts, each with the check [`decode_census`] runs on its objects.
-const LAYOUTS: [(ClassId, Check); 28] = [
+const LAYOUTS: [(ClassId, Check); 30] = [
     layout::<GameObject>(),
     layout::<Transform>(),
     layout::<RectTransform>(),
@@ -377,6 +379,7 @@ const LAYOUTS: [(ClassId, Check); 28] = [
     layout::<SkinnedMeshRenderer>(),
     layout::<Material>(),
     layout::<Texture2D>(),
+    layout::<RenderTexture>(),
     layout::<Mesh>(),
     layout::<Camera>(),
     layout::<Light>(),
@@ -384,6 +387,7 @@ const LAYOUTS: [(ClassId, Check); 28] = [
     layout::<CanvasRenderer>(),
     layout::<Canvas>(),
     layout::<CanvasGroup>(),
+    layout::<SortingGroup>(),
     layout::<TextAsset>(),
     layout::<Sprite>(),
     layout::<SpriteAtlas>(),

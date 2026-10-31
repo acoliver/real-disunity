@@ -443,6 +443,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_sorting_group_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sorting_group_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_object_alive",
       "since": "2.0.0",
       "rets": "DisunityResult"
@@ -665,6 +675,11 @@
     {
       "name": "disunity_tilemap_write",
       "since": "5.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_transform_children",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

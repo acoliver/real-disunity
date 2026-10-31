@@ -8,6 +8,7 @@ fn gpu_water_response_leaves_opaque_receivers_and_refraction_snapshot_identical(
         &context,
         Some(SceneWaterShadowResponse {
             offset: SceneWaterShadowOffset::GeometricNormal,
+            filter: SceneWaterShadowFilter::WeightedPcf5,
             diffuse_floor_micro: 1_000_000,
             ..Default::default()
         }),

@@ -151,3 +151,82 @@ fn verify_recipe_plan(
     };
     assert!(policy.resolve::<()>(required).unwrap().0 >= required + 1024);
 }
+
+#[test]
+fn opaque_capture_planning_uses_the_shared_pool_and_checks_term_storage() {
+    let options = crate::tests::options();
+    let limits = wgpu::Limits::default();
+    let recipe = RetainedCaptureRecipe::new(
+        1,
+        1,
+        CaptureJitter::None,
+        false,
+        vec![CaptureOutput::Albedo, CaptureOutput::SunVisibility],
+        1024 * 1024,
+    )
+    .unwrap();
+    verify_recipe_plan([32, 32], &options, None, &recipe, &limits);
+    let too_small = RetainedCaptureRecipe::new(
+        1,
+        1,
+        CaptureJitter::None,
+        false,
+        vec![CaptureOutput::Albedo],
+        1,
+    )
+    .unwrap();
+    assert!(
+        crate::plan_presentation(
+            [32, 32],
+            &options,
+            None,
+            &limits,
+            wgpu::Features::empty(),
+            crate::PresentationPlanning {
+                capture: PresentationCapture::Recipe(&too_small),
+                retained_effect_history: false,
+            }
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn term_recipe_exceeding_empty_pool_is_rejected_by_planning_and_admission() {
+    let options = crate::ViewerOptions {
+        size: [2048, 2048],
+        ..crate::tests::options()
+    };
+    let recipe = RetainedCaptureRecipe::new(
+        1,
+        1,
+        CaptureJitter::None,
+        false,
+        vec![CaptureOutput::Albedo, CaptureOutput::SunVisibility],
+        512 * 1024 * 1024,
+    )
+    .unwrap();
+    let expected = crate::CaptureRequestError::RecipeBudget {
+        required: 436_207_616,
+        limit: 268_435_456,
+    };
+    let mut host =
+        crate::RetainedHost::new(crate::renderer::retained_tests::source(), options.clone())
+            .unwrap();
+    assert_eq!(
+        host.request_capture_recipe(0, recipe.clone()),
+        Err(expected)
+    );
+    let planned = crate::plan_presentation(
+        options.size,
+        &options,
+        None,
+        &wgpu::Limits::default(),
+        wgpu::Features::empty(),
+        crate::PresentationPlanning {
+            capture: PresentationCapture::Recipe(&recipe),
+            retained_effect_history: false,
+        },
+    );
+    assert!(matches!(planned, Err(crate::ViewerError::Capture(error)) if error == expected));
+}

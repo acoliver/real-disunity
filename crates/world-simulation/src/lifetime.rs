@@ -61,7 +61,9 @@ impl World {
             | ComponentDesc::UniversalAdditionalCameraData(_)
             | ComponentDesc::AudioListener { .. }
             | ComponentDesc::GUILayer { .. }
-            | ComponentDesc::FlareLayer { .. } => {}
+            | ComponentDesc::FlareLayer { .. }
+            | ComponentDesc::ParticleSystem
+            | ComponentDesc::SortingGroup(_) => {}
         }
         self.queue_script_cleanup(handle);
         self.lifetime.components.insert(handle);

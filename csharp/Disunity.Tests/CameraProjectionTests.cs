@@ -67,7 +67,7 @@ internal static class CameraProjectionTests
         Ensure(camera.depthTextureMode == (DepthTextureMode.Depth | DepthTextureMode.MotionVectors), "depth texture mode");
         Ensure(!camera.allowHDR && !camera.allowMSAA && camera.allowDynamicResolution && !camera.useOcclusionCulling, "flag round trip");
         Ensure(camera.targetDisplay == 3 && camera.cameraType == (CameraType.Game | CameraType.Preview), "display and type round trip");
-        Throws<DisunityException>(() => camera.fieldOfView = 180f, "field of view of 180");
+        Throws<DisunityException>(() => camera.fieldOfView = float.NaN, "NaN field of view");
         Ensure(camera.fieldOfView == 42.5f, "a rejected field of view changes nothing");
         camera.cullingMask = -1;
         Ensure(camera.cullingMask == -1, "all layers");

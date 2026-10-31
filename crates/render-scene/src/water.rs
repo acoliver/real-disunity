@@ -4,6 +4,9 @@ mod geometry;
 mod optics;
 pub(crate) mod planning;
 pub(crate) mod receivers;
+pub(crate) mod shadow_filter;
+#[cfg(test)]
+pub(crate) mod shadow_probe;
 mod shadow_response;
 pub(crate) mod snapshots;
 pub(crate) mod surface;
@@ -413,7 +416,7 @@ fn pipeline_with_source(
     source: &str,
 ) -> wgpu::RenderPipeline {
     let buffers = geometry::layouts(options[4] & endpoint::SPECIALIZATION != 0);
-    let source = shadow_response::specialize(source, options[4]);
+    let source = shadow_response::specialize(source, options[4], shadows);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("planar water"),
         source: wgpu::ShaderSource::Wgsl(vertex_seeds::specialize(&source, options[4])),
@@ -491,13 +494,24 @@ pub(crate) fn water_source(shadows: bool) -> String {
         include_str!("shader/lighting.wgsl").replace("@binding(0)", "@binding(3)"),
         include_str!("shader/camera_rays.wgsl"),
         concat!(
+            include_str!("water/ambient_visibility.wgsl"),
+            "\n",
             include_str!("water/optics.wgsl"),
             "\n",
             include_str!("water/water.wgsl"),
             "\n",
             include_str!("water/screen.wgsl"),
             "\n",
-            include_str!("water/terms.wgsl")
+            include_str!("water/terms.wgsl"),
+            "
+",
+            include_str!("water/shadow_lookup.wgsl"),
+            "
+",
+            include_str!("water/shadow_response.wgsl"),
+            "
+",
+            include_str!("water/shadow_visibility.wgsl")
         )
     )
 }

@@ -445,12 +445,24 @@ existing background blend weight at the original, undistorted camera-axis water
 depth. Without tint it uses `clamp(original_distance, 0, 1)`, the existing one-metre
 depth ramp used for refraction. The disk receives this visibility before its
 luminance limit; `disk_raw_visibility` multiplies by strength-adjusted raw
-visibility again after limiting. Both water lighting paths share this response.
-Opaque shading, ambient, environment reflection and immutable refraction snapshots
-are unaffected. The keyed existing water pipeline uses spare uniform lanes, so
-allocation sizes and buffer counts do not change. Filtering remains the scene's
-configured comparison-grid PCF or explicit bilinear depth comparison; there is no
-independent water filter footprint.
+visibility again after limiting. Both water lighting paths consume the same sampled
+visibility and apply the response after sampling. With `filter: ReceiverDefault`,
+zero scene normal bias lets all three offsets reuse the shading-normal lookup,
+including its receiver-plane derivatives. A specialized neutral response therefore
+preserves both raw visibility and output bytes with multisampling and roughness-aware
+occlusion. Shared surface lighting takes explicit visibility inputs.
+
+`SceneWaterShadowFilter::WeightedPcf5` selects nine linear `LessEqual` comparisons
+covering a weighted five-texel footprint. Each axis uses `[1, 3, 4, 3, 1]`, with
+phase-interpolated pairs and total normalization 144. It uses constant receiver-depth
+bias and the selected normal offset, without receiver-plane correction. Sampling
+clamps taps to the map edge; receivers outside the projection remain fully lit.
+Projection, cascade selection, split/coverage blending and strength share the scene
+receiver implementation. The choice is per body, including mixed-filter draws.
+Water's AO input keeps its shading-normal lookup and scene filter in both lighting
+paths. Opaque shading and immutable refraction snapshots are unaffected. The keyed
+existing water pipeline uses spare uniform lanes, so allocation sizes and buffer
+counts do not change.
 
 `SceneWaterSettings::normal_anisotropy` selects validated 1x, 2x, 4x, 8x or 16x
 filtering when `normal_mips` is enabled. Bodies with the same level reuse one

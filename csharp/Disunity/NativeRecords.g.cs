@@ -124,8 +124,8 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer and 1 for a
-    ///  skinned mesh renderer and is fixed when the component is created. The mode fields hold the
+    ///  A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer, 1 for a
+    ///  skinned mesh renderer and 2 for a particle system renderer, and is fixed when the component is created. The mode fields hold the
     ///  numeric value of the script enum: shadow casting 0 to 3, motion vectors 0 to 2, light probe
     ///  usage 0, 1, 2 or 4, reflection probe usage 0 to 3. `material_count` is at most 64. A write
     ///  rejects an out-of-range value, a boolean above 1 or a different kind, and changes nothing.
@@ -148,6 +148,19 @@ namespace Disunity.Native
         public int sorting_layer;
         public int sorting_order;
         public uint material_count;
+    }
+
+    /// <summary>
+    ///  A sorting group's settings; booleans are 0 or 1. A write rejects a boolean above 1 and
+    ///  changes nothing. Sorting layer 0 is the only layer the engine registers.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunitySortingGroup
+    {
+        public uint enabled;
+        public int sorting_layer;
+        public int sorting_order;
+        public uint sort_at_root;
     }
 
     /// <summary>

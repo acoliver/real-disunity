@@ -310,6 +310,11 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityMeshRenderer>("sorting_order").ToInt32() != 52) throw new InvalidOperationException("DisunityMeshRenderer.sorting_order offset");
         if (Marshal.OffsetOf<DisunityMeshRenderer>("material_count").ToInt32() != 56) throw new InvalidOperationException("DisunityMeshRenderer.material_count offset");
         if (Marshal.SizeOf<DisunityMeshRenderer>() != 60 || typeof(DisunityMeshRenderer).GetFields().Length != 15) throw new InvalidOperationException("DisunityMeshRenderer layout");
+        if (Marshal.OffsetOf<DisunitySortingGroup>("enabled").ToInt32() != 0) throw new InvalidOperationException("DisunitySortingGroup.enabled offset");
+        if (Marshal.OffsetOf<DisunitySortingGroup>("sorting_layer").ToInt32() != 4) throw new InvalidOperationException("DisunitySortingGroup.sorting_layer offset");
+        if (Marshal.OffsetOf<DisunitySortingGroup>("sorting_order").ToInt32() != 8) throw new InvalidOperationException("DisunitySortingGroup.sorting_order offset");
+        if (Marshal.OffsetOf<DisunitySortingGroup>("sort_at_root").ToInt32() != 12) throw new InvalidOperationException("DisunitySortingGroup.sort_at_root offset");
+        if (Marshal.SizeOf<DisunitySortingGroup>() != 16 || typeof(DisunitySortingGroup).GetFields().Length != 4) throw new InvalidOperationException("DisunitySortingGroup layout");
         if (Marshal.OffsetOf<DisunityLight>("cookie_texture").ToInt32() != 0) throw new InvalidOperationException("DisunityLight.cookie_texture offset");
         if (Marshal.OffsetOf<DisunityLight>("enabled").ToInt32() != 8) throw new InvalidOperationException("DisunityLight.enabled offset");
         if (Marshal.OffsetOf<DisunityLight>("kind").ToInt32() != 12) throw new InvalidOperationException("DisunityLight.kind offset");

@@ -247,7 +247,9 @@ impl World {
             | ComponentDesc::UniversalAdditionalCameraData(_)
             | ComponentDesc::AudioListener { .. }
             | ComponentDesc::GUILayer { .. }
-            | ComponentDesc::FlareLayer { .. } => self.owns_unretired(owner, desc),
+            | ComponentDesc::FlareLayer { .. }
+            | ComponentDesc::ParticleSystem
+            | ComponentDesc::SortingGroup(_) => self.owns_unretired(owner, desc),
             #[cfg(feature = "ui")]
             ComponentDesc::RectTransform(_)
             | ComponentDesc::Canvas(_)

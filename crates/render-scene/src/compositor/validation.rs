@@ -1,5 +1,5 @@
 use super::FrameRenderer;
-use worldrunner_render_post::FrameError;
+use worldrunner_render_post::{FrameConfig, FrameError, PostError};
 impl FrameRenderer {
     pub(crate) fn validate_ssao(
         &self,
@@ -60,4 +60,43 @@ impl FrameRenderer {
         }
         Ok(())
     }
+}
+
+pub(super) fn validate_clear(color: wgpu::Color) -> Result<(), PostError> {
+    if [color.r, color.g, color.b, color.a]
+        .iter()
+        .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+    {
+        return Err(PostError::UnsupportedProfile(
+            "clear color must be finite linear RGBA in 0..=1",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_reflection_extent(
+    device: &wgpu::Device,
+    config: FrameConfig,
+    settings: Option<&worldrunner_render_plan::SceneSsr>,
+) -> Result<(), FrameError> {
+    if let Some(settings) = settings.filter(|settings| settings.enabled) {
+        crate::ssr::validate_extent(config, settings, &device.limits())?;
+    }
+    Ok(())
+}
+
+pub(super) fn validate_hdr_effects(
+    effects: Option<&worldrunner_render_plan::SceneEffects>,
+) -> Result<(), PostError> {
+    if let Some(effects) = effects {
+        if let Some(settings) = effects.ssao() {
+            crate::ssao::validate_settings(settings)?;
+        }
+        crate::frame::validate_stock_effects(effects)
+            .map_err(|_| PostError::UnsupportedProfile("scene effects"))?;
+    }
+    if let Some(settings) = effects.and_then(|effects| effects.ssr()) {
+        crate::ssr::validate_settings(settings)?;
+    }
+    Ok(())
 }

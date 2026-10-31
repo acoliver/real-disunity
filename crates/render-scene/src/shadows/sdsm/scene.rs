@@ -76,7 +76,7 @@ impl ShadowedScene {
             .depth_fitting
             .take()
             .ok_or(ShadowError::UnsupportedFeature("depth fitting is disabled"))?;
-        let result = self.render_sdsm(context, view, attachments, source_frame, &mut state);
+        let result = self.render_sdsm(context, view, attachments, (source_frame, &[]), &mut state);
         self.scheduler.clear_capture_resources();
         self.gpu.clear_capture_pages();
         self.depth_fitting = Some(state);
@@ -114,6 +114,24 @@ impl ShadowedScene {
         frame: (Option<u64>, bool),
         scheduler: &mut crate::compositor::FrameRenderer,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
+        self.render_depth_fitted_host_terms(
+            context,
+            view,
+            attachments,
+            (frame.0, frame.1, &[]),
+            scheduler,
+        )
+    }
+
+    /// Replays requested opaque terms in the fitted frame's drawing transaction.
+    pub fn render_depth_fitted_host_terms(
+        &mut self,
+        context: &GpuContext,
+        view: &SceneView,
+        attachments: (&AttachmentView, &AttachmentView),
+        frame: (Option<u64>, bool, &[crate::compositor::terms::TermCapture]),
+        scheduler: &mut crate::compositor::FrameRenderer,
+    ) -> Result<Option<AdoptedFit>, ShadowError> {
         let mut state = self
             .depth_fitting
             .take()
@@ -124,7 +142,13 @@ impl ShadowedScene {
         }
         std::mem::swap(&mut self.scheduler, scheduler);
         let source_frame = frame.0.unwrap_or(state.next_frame);
-        let result = self.render_sdsm(context, view, attachments, source_frame, &mut state);
+        let result = self.render_sdsm(
+            context,
+            view,
+            attachments,
+            (source_frame, frame.2),
+            &mut state,
+        );
         self.scheduler.clear_capture_resources();
         self.gpu.clear_capture_pages();
         std::mem::swap(&mut self.scheduler, scheduler);
@@ -138,9 +162,10 @@ impl ShadowedScene {
         context: &GpuContext,
         view: &SceneView,
         attachments: (&AttachmentView, &AttachmentView),
-        source_frame: u64,
+        frame: (u64, &[crate::compositor::terms::TermCapture]),
         state: &mut SceneDepthFitting,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
+        let (source_frame, terms) = frame;
         if source_frame < state.next_frame {
             return Err(SdsmError::FrameIdentity.into());
         }
@@ -165,6 +190,7 @@ impl ShadowedScene {
             source_frame,
             frame,
             metadata,
+            terms,
         };
         let mut fitting = state.fitting.take().expect("fitting installed");
         fitting.set_timing(self.scheduler.timing_state());
@@ -216,6 +242,9 @@ impl ShadowedScene {
             input.attachments.1.texture(),
             self.map.depth.texture(),
         ])?);
+        for term in input.terms {
+            suffix.extend(self.scheduler.capture_texture_keys(&term.textures())?);
+        }
         let mut prefix = scene_keys;
         let metadata = self.scheduler.capture_texture_keys(&[
             &input.metadata.normals,
@@ -277,6 +306,9 @@ impl ShadowedScene {
                     encoder,
                     (fit, state.settings.range),
                 )?;
+                for term in input.terms {
+                    self.encode_term_capture(context.device(), encoder, term);
+                }
                 adopted = Some(fit);
                 Ok::<_, ShadowError>(())
             })
@@ -338,7 +370,11 @@ impl ShadowedScene {
                     input.attachments,
                     encoder,
                     (None, current.map(|fit| (fit.depth, state.settings.range))),
-                )
+                )?;
+                for term in input.terms {
+                    self.encode_term_capture(context.device(), encoder, term);
+                }
+                Ok::<_, ShadowError>(())
             })
             .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
         prepared.submit()?;
@@ -355,6 +391,7 @@ struct RenderInput<'a> {
     source_frame: u64,
     frame: FrameUniform,
     metadata: crate::scene_metadata::SceneMetadata,
+    terms: &'a [crate::compositor::terms::TermCapture],
 }
 impl SceneDepthFitting {
     fn select_time(&mut self, time: Option<std::time::Duration>) {

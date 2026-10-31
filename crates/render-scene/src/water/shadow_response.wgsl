@@ -8,3 +8,7 @@ fn water_shadow_disk(limited: vec3<f32>, raw: f32) -> vec3<f32> {
     if water.disk.w != 0.0 && (u32(water.wind_flags.w) & 2u) != 0u { return limited * raw; }
     return limited;
 }
+fn water_shadow_disk_factor(raw: f32) -> f32 {
+    if water.disk.w != 0.0 && (u32(water.wind_flags.w) & 2u) != 0u { return raw; }
+    return 1.0;
+}

@@ -393,6 +393,7 @@ GraphicsTests.Run();
 CameraRenderTests.Run();
 GraphicsBlitTests.Run();
 ComputeShaderTests.Run();
+GraphicsCopyTests.Run();
 GraphicsFormatUtilityTests.Run();
 ComponentTableTests.Run();
 TemplateSearchTests.Run();

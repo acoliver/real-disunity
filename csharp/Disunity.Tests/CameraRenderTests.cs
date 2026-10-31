@@ -1,5 +1,6 @@
 using Disunity.Hosting;
 using UnityEngine;
+using UnityEngine.Rendering;
 using static GraphicsTestSupport;
 
 /// <summary>Camera.Render and Camera.RenderWithShader complete without drawing until the native draw surface exists.</summary>
@@ -20,6 +21,8 @@ internal static class CameraRenderTests
             Console.WriteLine("PASS: Camera.RenderWithShader validates the shader, returns and notes once");
             DestroyedCameraThrows();
             Console.WriteLine("PASS: Camera.Render and RenderWithShader throw on a destroyed camera");
+            SetTargetBuffersReturns();
+            Console.WriteLine("PASS: Camera.SetTargetBuffers validates, returns, leaves targetTexture unchanged and notes once");
         }
         finally
         {
@@ -86,6 +89,24 @@ internal static class CameraRenderTests
         UnityEngine.Object.DestroyImmediate(camera);
         Expect.That(Catches(() => camera.Render()), "Render on a destroyed camera");
         Expect.That(Catches(() => camera.RenderWithShader(shader, "")), "RenderWithShader on a destroyed camera");
+    }
+
+    private static void SetTargetBuffersReturns()
+    {
+        DisunityHost.UnloadWorld();
+        DisunityHost.LoadWorld();
+        var camera = NewCamera();
+        var target = new RenderTexture(16, 16, 0);
+        camera.targetTexture = target;
+        var depth = new RenderTexture(16, 16, 24).depthBuffer;
+        Expect.Throws<ArgumentNullException>(() => camera.SetTargetBuffers((RenderBuffer[])null!, depth), "null color buffers");
+        using var log = new LogRecorder();
+        camera.SetTargetBuffers(target.colorBuffer, depth);
+        camera.SetTargetBuffers(new[] { target.colorBuffer, target.colorBuffer }, depth);
+        Ensure(camera.targetTexture == target, "targetTexture is unchanged");
+        Ensure(Notes(log, "Camera.SetTargetBuffers") == 1, $"one note across both overloads: {string.Join("|", log.Messages)}");
+        UnityEngine.Object.DestroyImmediate(camera);
+        Expect.That(Catches(() => camera.SetTargetBuffers(target.colorBuffer, depth)), "SetTargetBuffers on a destroyed camera");
     }
 
     private static bool Catches(Action call)

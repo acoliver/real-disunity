@@ -115,8 +115,20 @@ public sealed partial class Camera
         UndrawnCalls.Note("Camera.RenderWithShader");
     }
 
-    public void SetTargetBuffers(RenderBuffer colorBuffer, RenderBuffer depthBuffer) => throw Unsupported(nameof(SetTargetBuffers));
-    public void SetTargetBuffers(RenderBuffer[] colorBuffer, RenderBuffer depthBuffer) => throw Unsupported(nameof(SetTargetBuffers));
+    /// <summary>Completes without drawing until the native draw surface exists (#171): the buffers are not bound and
+    /// <see cref="targetTexture"/> is left as it is. A destroyed camera or a null buffer array throws.</summary>
+    public void SetTargetBuffers(RenderBuffer colorBuffer, RenderBuffer depthBuffer)
+    {
+        ThrowIfDestroyed();
+        UndrawnCalls.Note("Camera.SetTargetBuffers");
+    }
+
+    public void SetTargetBuffers(RenderBuffer[] colorBuffer, RenderBuffer depthBuffer)
+    {
+        ArgumentNullException.ThrowIfNull(colorBuffer);
+        SetTargetBuffers(default(RenderBuffer), depthBuffer);
+    }
+
     private CommandBufferSlots<CameraEvent> CommandBuffers => CommandBufferSlots<CameraEvent>.Of(this);
     public int commandBufferCount => CommandBuffers.Count;
     public void AddCommandBuffer(CameraEvent evt, CommandBuffer buffer) => CommandBuffers.Add(evt, buffer, "Camera.AddCommandBuffer");

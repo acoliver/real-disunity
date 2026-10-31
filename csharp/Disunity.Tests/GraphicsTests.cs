@@ -39,11 +39,11 @@ internal static class GraphicsTests
         }
     }
 
-    /// <summary>The render texture overloads of SetRenderTarget work, and Blit and BlitMultiTap complete without drawing;
-    /// GraphicsTargetTests and GraphicsBlitTests cover them.</summary>
+    /// <summary>The render texture overloads of SetRenderTarget work, and Blit, BlitMultiTap and CopyTexture
+    /// complete without drawing; GraphicsTargetTests and GraphicsBlitTests cover them.</summary>
     private static bool DrawsNothingButSetsTheActiveTexture(MethodInfo method) =>
         (method.Name == "SetRenderTarget" && method.GetParameters()[0].ParameterType == typeof(RenderTexture))
-        || method.Name is "Blit" or "BlitMultiTap";
+        || method.Name is "Blit" or "BlitMultiTap" or "CopyTexture";
 
     private static void EveryOverloadIsCovered(List<(string Member, Action Call)> calls)
     {
@@ -72,15 +72,10 @@ internal static class GraphicsTests
     private static void AddCopies(List<(string, Action)> calls)
     {
         Texture t = null!;
-        RenderTexture rt = null!;
         GraphicsBuffer gb = null!;
         Rect rect = default;
         calls.AddRange(new (string, Action)[]
         {
-            ("CopyTexture", () => Graphics.CopyTexture(t, t)),
-            ("CopyTexture", () => Graphics.CopyTexture(t, 0, t, 0)),
-            ("CopyTexture", () => Graphics.CopyTexture(t, 0, 0, t, 0, 0)),
-            ("CopyTexture", () => Graphics.CopyTexture(t, 0, 0, 0, 0, 1, 1, t, 0, 0, 0, 0)),
             ("ConvertTexture", () => Graphics.ConvertTexture(t, t)),
             ("ConvertTexture", () => Graphics.ConvertTexture(t, 0, t, 0)),
             ("CopyBuffer", () => Graphics.CopyBuffer(gb, gb)),

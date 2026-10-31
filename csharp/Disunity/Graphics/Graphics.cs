@@ -61,6 +61,15 @@ public static partial class Graphics
 
     private static void Undrawn(string member) => UndrawnCalls.Note($"Graphics.{member}");
 
+    private static void Undrawn(string member, Texture? src, Texture? dst)
+    {
+        ArgumentNullException.ThrowIfNull(src);
+        ArgumentNullException.ThrowIfNull(dst);
+        if (!src) throw new ArgumentException("the source texture was destroyed", nameof(src));
+        if (!dst) throw new ArgumentException("the destination texture was destroyed", nameof(dst));
+        Undrawn(member);
+    }
+
     private static void Undrawn(string member, Material? mat, int pass = 0, Vector2[]? offsets = null)
     {
         ArgumentNullException.ThrowIfNull(mat);
@@ -71,14 +80,16 @@ public static partial class Graphics
         Undrawn(member);
     }
 
-    public static void CopyTexture(Texture src, Texture dst) => throw Unsupported(nameof(CopyTexture));
-    public static void CopyTexture(Texture src, int srcElement, Texture dst, int dstElement) => throw Unsupported(nameof(CopyTexture));
+    /// <summary>Completes without copying until the native draw surface exists (#171): the destination keeps its contents.
+    /// A null or destroyed texture throws.</summary>
+    public static void CopyTexture(Texture src, Texture dst) => Undrawn(nameof(CopyTexture), src, dst);
+    public static void CopyTexture(Texture src, int srcElement, Texture dst, int dstElement) => Undrawn(nameof(CopyTexture), src, dst);
 
     public static void CopyTexture(Texture src, int srcElement, int srcMip, Texture dst, int dstElement, int dstMip) =>
-        throw Unsupported(nameof(CopyTexture));
+        Undrawn(nameof(CopyTexture), src, dst);
 
     public static void CopyTexture(Texture src, int srcElement, int srcMip, int srcX, int srcY, int srcWidth, int srcHeight, Texture dst,
-        int dstElement, int dstMip, int dstX, int dstY) => throw Unsupported(nameof(CopyTexture));
+        int dstElement, int dstMip, int dstX, int dstY) => Undrawn(nameof(CopyTexture), src, dst);
 
     public static bool ConvertTexture(Texture src, Texture dst) => throw Unsupported(nameof(ConvertTexture));
     public static bool ConvertTexture(Texture src, int srcElement, Texture dst, int dstElement) => throw Unsupported(nameof(ConvertTexture));

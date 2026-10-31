@@ -82,12 +82,17 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     } else {
         config.size
     };
+    // The history bank is shared by the three slots but belongs to its history key (extents,
+    // mode, samples), not to every generation: a resize builds a new bank while the retiring
+    // generation still holds the old one. A shared entry must keep one descriptor across
+    // generations, so the bank is a plain single entry per generation. When the key is unchanged
+    // and the bank is reused, a retiring generation is counted twice until it retires.
     let colour = crate::taa_gpu::FORMAT;
-    set.shared_texture("taa history", [w, h, 1], colour, [1, 1], 1);
+    set.texture("taa history", [w, h, 1], colour, [1, 1], 1);
     set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
     if !temporal {
         let depth = crate::taa_gpu::DEPTH_FORMAT;
-        set.shared_texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
+        set.texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
         set.texture("taa depth output", [w, h, 1], depth, [1, 1], 3);
     }
 }

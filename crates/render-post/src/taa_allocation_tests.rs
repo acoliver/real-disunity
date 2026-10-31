@@ -71,3 +71,20 @@ fn temporal_taa_counts_output_sized_history_once_without_depth() {
         shared + per_slot
     );
 }
+
+/// A resize keeps the old generation alive beside the new one until its queue work completes,
+/// and each owns a differently sized history bank, so the two allocation sets must combine.
+#[test]
+fn generations_with_differently_sized_taa_banks_validate_together() {
+    let limits = wgpu::Limits::default();
+    for upscale in [None, Some(UpscaleMode::Temporal)] {
+        let resized = FrameConfig::new([12, 8], wgpu::TextureFormat::Rgba16Float, 1)
+            .with_render_extent([6, 4]);
+        let mut generations = post_allocations(config(1), settings(PostResolve::taa(0.9), upscale));
+        generations.extend(post_allocations(
+            resized,
+            settings(PostResolve::taa(0.9), upscale),
+        ));
+        generations.validate(&limits).unwrap();
+    }
+}

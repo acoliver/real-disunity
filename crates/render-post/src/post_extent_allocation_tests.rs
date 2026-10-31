@@ -87,8 +87,10 @@ fn fingerprint(sets: impl Iterator<Item = String>) -> u64 {
 }
 
 /// Captured from the allocation function before the carrier extent existed: 54 configurations,
-/// FNV-1a over the `Debug` text of every allocation set.
-const EXISTING_MODES: (usize, u64) = (54, 0x24e5_e29c_c339_3d38);
+/// FNV-1a over the `Debug` text of every allocation set. Recaptured once when the TAA history
+/// entries changed from shared to per-generation entries (a resize must not reuse a shared
+/// descriptor); no other entry changed.
+const EXISTING_MODES: (usize, u64) = (54, 0xb40a_21c9_3c04_dfd4);
 
 #[test]
 fn every_existing_mode_keeps_its_allocation_set() {

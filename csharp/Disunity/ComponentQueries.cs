@@ -16,14 +16,13 @@ internal static class ComponentQueries
     /// <summary>The object and then its descendants, depth first in sibling order.</summary>
     public static IEnumerable<GameObject> Descendants(GameObject root)
     {
-        var children = DisunityHost.ChildMap();
         var pending = new Stack<GameObject>();
         pending.Push(root);
         while (pending.Count > 0)
         {
             var next = pending.Pop();
             yield return next;
-            if (!children.TryGetValue(next.NativeHandle, out var below)) continue;
+            var below = DisunityHost.ChildrenOf(next.RawHandle);
             for (var i = below.Count - 1; i >= 0; i--) pending.Push(below[i]);
         }
     }

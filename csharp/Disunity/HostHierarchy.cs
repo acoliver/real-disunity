@@ -51,17 +51,4 @@ public static partial class DisunityHost
     }
 
     private const int BufferTooSmall = 2;
-
-    /// <summary>Every live object's children by parent handle, each list in sibling order, from one pass over the world.</summary>
-    internal static Dictionary<ulong, List<GameObject>> ChildMap()
-    {
-        var map = new Dictionary<ulong, List<GameObject>>();
-        foreach (var value in Tracked.Where(value => !value.IsDestroyed).OrderBy(value => value.SiblingKey))
-        {
-            var parent = ParentHandle(value);
-            if (!map.TryGetValue(parent, out var siblings)) map[parent] = siblings = new List<GameObject>();
-            siblings.Add(value);
-        }
-        return map;
-    }
 }

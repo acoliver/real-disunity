@@ -19,9 +19,10 @@
 //! frame). Error rises with pan speed. A vanished line is back within 2/255 display levels after
 //! one frame in every measured case (the neighbourhood clip is the likely cause, not isolated);
 //! the residual error after 64 frames is 0.12 to 0.26 levels.
+use crate::ProjectionJitter;
 use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
 use crate::temporal_thin_feature_scene::{Fixture, ROI_BAND, fixtures};
-use crate::{ProjectionJitter, RenderScale};
+use worldrunner_render_plan::post::RenderScale;
 
 const BORDER: u32 = 4;
 const MEASURED: u64 = 8;

@@ -6,7 +6,8 @@
 use crate::hdr_temporal_build_tests::settings;
 use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
 use crate::temporal_thin_feature_scene::{Fixture, fixtures};
-use crate::{AdaptiveExposure, ExposureMetering, HdrPostSettings, ProjectionJitter, RenderScale};
+use crate::{AdaptiveExposure, ExposureMetering, HdrPostSettings, ProjectionJitter};
+use worldrunner_render_plan::post::RenderScale;
 
 const SWEEP_EV: [i32; 5] = [-6, -3, 0, 3, 6];
 /// Pan per frame in canvas pixels: the history is reprojected, not only copied.

@@ -7,11 +7,27 @@ use crate::taa_reconstruct_gpu::{self, Inputs};
 use crate::{Operation, Resources, StageSet, TemporalCamera};
 use wgpu::util::DeviceExt;
 
+/// A static camera with a standard Z perspective of near 0.1 and far 10: the identity
+/// reprojection and the depth terms `a = far / (far - near)`, `b = -near * far / (far - near)`.
+pub(crate) fn static_camera() -> TemporalCamera {
+    let (near, far) = (0.1_f64, 10.0_f64);
+    let mut reprojection = [[0.0; 4]; 4];
+    for (i, column) in reprojection.iter_mut().enumerate() {
+        column[i] = 1.0;
+    }
+    TemporalCamera {
+        reprojection,
+        depth_terms: [far / (far - near), -near * far / (far - near)],
+        valid: true,
+    }
+}
+
 pub(crate) struct Frame {
     pub(crate) size: [usize; 2],
     pub(crate) depth: Vec<f32>,
     pub(crate) motion: Vec<[f32; 2]>,
     pub(crate) scatter: Vec<u32>,
+    pub(crate) confidence: Vec<f32>,
 }
 
 impl Frame {
@@ -201,6 +217,18 @@ fn tight(bytes: &[u8], (width, height): (usize, usize), texel_words: usize) -> V
         .collect()
 }
 
+fn camera_block(device: &wgpu::Device, camera: TemporalCamera) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("reconstruct camera"),
+        contents: &camera.to_bytes(),
+        usage: wgpu::BufferUsages::UNIFORM,
+    })
+}
+
+fn floats(words: Vec<u32>) -> Vec<f32> {
+    words.into_iter().map(f32::from_bits).collect()
+}
+
 /// Runs the stages on the scene `body` of extent `size` with `camera`.
 pub(crate) fn run(
     gpu: &(wgpu::Device, wgpu::Queue),
@@ -215,11 +243,7 @@ pub(crate) fn run(
         depth.create_view(&wgpu::TextureViewDescriptor::default()),
         motion.create_view(&wgpu::TextureViewDescriptor::default()),
     );
-    let block = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("reconstruct camera"),
-        contents: &camera.to_bytes(),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
+    let block = camera_block(device, camera);
     let mut set = StageSet {
         stages: Vec::new(),
         resources: Resources::default(),
@@ -249,22 +273,24 @@ pub(crate) fn run(
         staging(device, u64::from(pitch(size[0], 4)) * rows),
         staging(device, u64::from(pitch(size[0], 8)) * rows),
         staging(device, cells * 4),
+        staging(device, u64::from(pitch(size[0], 4)) * rows),
     ];
     copy_texture(&mut encoder, &outputs.depth, &buffers[0], 4);
     copy_texture(&mut encoder, &outputs.motion, &buffers[1], 8);
     encoder.copy_buffer_to_buffer(&outputs.scatter, 0, &buffers[2], 0, cells * 4);
+    copy_texture(&mut encoder, &outputs.confidence, &buffers[3], 4);
     queue.submit([encoder.finish()]);
     let extent = (
         usize::try_from(size[0]).unwrap(),
         usize::try_from(size[1]).unwrap(),
     );
-    let to_f32 = |words: Vec<u32>| words.into_iter().map(f32::from_bits).collect::<Vec<_>>();
-    let depth = to_f32(tight(&mapped(device, &buffers[0]), extent, 1));
-    let flow = to_f32(tight(&mapped(device, &buffers[1]), extent, 2));
+    let depth = floats(tight(&mapped(device, &buffers[0]), extent, 1));
+    let flow = floats(tight(&mapped(device, &buffers[1]), extent, 2));
     Frame {
         size: [extent.0, extent.1],
         depth,
         motion: flow.chunks_exact(2).map(|p| [p[0], p[1]]).collect(),
         scatter: words(&mapped(device, &buffers[2])),
+        confidence: floats(tight(&mapped(device, &buffers[3]), extent, 1)),
     }
 }

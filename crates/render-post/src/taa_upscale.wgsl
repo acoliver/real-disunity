@@ -25,6 +25,9 @@ struct Temporal {
 // read at the internal texel nearest q.
 @group(0) @binding(2) var motion: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> temporal: Temporal;
+// Confidence of the history, 1.0 or 0.0, R32Float at R, from the depth clip of
+// taa_reconstruct.wgsl.
+@group(0) @binding(4) var confidence: texture_2d<f32>;
 // Same constant as the native resolve: weight scale 1 - MOTION_K * displacement in output pixels.
 const MOTION_K: f32 = 1.5;
 const HALF_PI: f32 = 1.5707963267948966;
@@ -105,6 +108,18 @@ fn catmull_rom(uv: vec2<f32>) -> vec3<f32> {
     }
     return sum;
 }
+// Least confidence of the 2x2 internal texels around q: history is used only where all four
+// agree that it belongs to the surface.
+fn history_confidence(q: vec2<f32>) -> f32 {
+    let base = vec2<i32>(floor(q));
+    let last = vec2<i32>(textureDimensions(confidence)) - 1;
+    var least = 1.0;
+    for (var i = 0; i < 4; i++) {
+        let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
+        least = min(least, textureLoad(confidence, t, 0).x);
+    }
+    return least;
+}
 @fragment fn taa_upscale(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let in_extent = temporal.extents.xy;
     let out_extent = temporal.extents.zw;
@@ -124,7 +139,8 @@ fn catmull_rom(uv: vec2<f32>) -> vec3<f32> {
             let h = to_ycocg(compress(max(fetched, vec3<f32>(0.0))));
             let clipped = clip_toward_centre(h, bounds[0], temporal.clip_valid.x * bounds[1]);
             let moved = length(flow * out_extent);
-            let wh = temporal.jitter_phase_weight.w * clamp(1.0 - MOTION_K * moved, 0.0, 1.0);
+            let wh = temporal.jitter_phase_weight.w * clamp(1.0 - MOTION_K * moved, 0.0, 1.0)
+                * history_confidence(q);
             rgb = current.rgb * (1.0 - wh) + decompress(from_ycocg(clipped)) * wh;
         }
     }

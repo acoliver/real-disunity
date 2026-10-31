@@ -15,6 +15,7 @@
 //! Errors are mean absolute HDR error against the reference; flicker is the mean absolute
 //! difference of the same pixels between consecutive frames.
 use crate::RenderScale;
+use crate::taa_reconstruct_test_rig::static_camera;
 use crate::temporal_disocclusion_scene as scene;
 use crate::temporal_scene_rig::{OUTPUT, SceneRig};
 
@@ -34,13 +35,21 @@ impl Rig {
 
     /// Frame `index` of the sequence: the bar's left edge is the scene value.
     fn frame(&self, index: u64, history_valid: bool) {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "the bar's left edge is a small canvas coordinate"
-        )]
-        let left = scene::bar_left(index) as f32;
-        self.0
-            .frame(index, history_valid, ([left, 0.0, 0.0, 0.0], None));
+        self.moving(index, history_valid, (scene::bar_left(index), scene::SPEED));
+    }
+
+    /// Frame `index` with the bar's left edge and velocity (canvas pixels per frame) given, under
+    /// a static camera with depth terms.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the bar's left edge and velocity are small canvas coordinates"
+    )]
+    fn moving(&self, index: u64, history_valid: bool, (left, speed): (f64, f64)) {
+        self.0.frame(
+            index,
+            history_valid,
+            ([left as f32, speed as f32, 0.0, 0.0], Some(static_camera())),
+        );
     }
 
     fn image(&self) -> Vec<f64> {
@@ -137,8 +146,11 @@ struct Metrics {
 enum Path {
     /// Accumulated history with the nearest-depth dilation.
     Dilated,
-    /// Accumulated history with every texel's own depth and residual: the PR 2 path.
+    /// Accumulated history with every texel's own depth and residual and every confidence 1: the
+    /// PR 2 path.
     Undilated,
+    /// Accumulated history with the dilation and every confidence 1: before the depth clip.
+    Unclipped,
     /// History reset every frame: the spatial reconstruction only.
     Reset,
 }
@@ -146,6 +158,8 @@ enum Path {
 fn run(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2], path: Path) -> Metrics {
     let _undilated =
         matches!(path, Path::Undilated).then(crate::taa_reconstruct_gpu::WithoutDilation::new);
+    let _unclipped = matches!(path, Path::Unclipped | Path::Undilated)
+        .then(crate::taa_reconstruct_gpu::WithoutClip::new);
     let accumulate = !matches!(path, Path::Reset);
     let rig = Rig::new(gpu, render);
     let plane = plane_pixels();
@@ -176,6 +190,7 @@ fn run(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2], path: Path) -> Metri
 struct Paths {
     pr2: Metrics,
     reset: Metrics,
+    unclipped: Metrics,
     new: Metrics,
 }
 
@@ -188,12 +203,14 @@ fn measure(millionths: u32) -> Paths {
     let paths = Paths {
         pr2: run(&gpu, render, Path::Undilated),
         reset: run(&gpu, render, Path::Reset),
+        unclipped: run(&gpu, render, Path::Unclipped),
         new: run(&gpu, render, Path::Dilated),
     };
     eprintln!(
-        "scale {millionths} R {render:?}: pr2 {:?} | reset {:?} | new {:?} | new over reset {:.4}",
+        "scale {millionths} R {render:?}: pr2 {:?} | reset {:?} | unclipped {:?} | new {:?} | new over reset {:.4}",
         paths.pr2,
         paths.reset,
+        paths.unclipped,
         paths.new,
         paths.new.strip_error / paths.reset.strip_error
     );
@@ -235,8 +252,13 @@ fn measure(millionths: u32) -> Paths {
 /// numbers above are recorded; the test recomputes them on its own device with the dilation
 /// switched off (`WithoutDilation`) and asserts the target against that run.
 fn assert_baseline(paths: &Paths) {
-    let Paths { pr2, reset, new } = *paths;
-    for m in [pr2, reset, new] {
+    let Paths {
+        pr2,
+        reset,
+        unclipped,
+        new,
+    } = *paths;
+    for m in [pr2, reset, unclipped, new] {
         for v in [m.strip_error, m.plane_error, m.plane_flicker] {
             assert!(v.is_finite() && v > 0.0, "{m:?}");
         }
@@ -255,6 +277,91 @@ fn assert_baseline(paths: &Paths) {
         new.plane_flicker <= 0.25 * reset.plane_flicker,
         "{new:?} {reset:?}"
     );
+    // The depth clip must not reject the static plane: its error and flicker stay within 10% of
+    // the run without the clip on the same device, above the 8 to 10% spread between devices
+    // that the recorded numbers carry.
+    assert!(
+        new.plane_error <= 1.1 * unclipped.plane_error,
+        "{new:?} {unclipped:?}"
+    );
+    assert!(
+        new.plane_flicker <= 1.1 * unclipped.plane_flicker,
+        "{new:?} {unclipped:?}"
+    );
+}
+
+/// Frames before the bar jumps.
+const JUMP_AFTER: u64 = 20;
+/// The jump, canvas pixels in one frame: the bar width, so the vacated strip is as wide as the bar.
+const JUMP: f64 = 24.0;
+/// Half of one unit in the last place of a half float at magnitude one: 2^-11. The scene values
+/// are at most 0.8, so no representable difference between two renderings of one value reaches it.
+const HALF_FLOAT: f64 = 1.0 / 2048.0;
+
+/// The image after the bar jumped by `JUMP` with the matching motion, with the history of
+/// `JUMP_AFTER` frames, or with a history that holds nothing.
+fn after_jump(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2], history: bool) -> Vec<f64> {
+    let rig = Rig::new(gpu, render);
+    if history {
+        for frame in 0..JUMP_AFTER {
+            rig.frame(frame, frame > 0);
+        }
+    }
+    let left = scene::bar_left(JUMP_AFTER - 1);
+    rig.moving(JUMP_AFTER, history, (left + JUMP, JUMP));
+    rig.image()
+}
+
+fn assert_converges_in_one_frame(millionths: u32) {
+    let gpu = crate::gpu_tests::gpu();
+    let render = RenderScale::new(millionths)
+        .unwrap()
+        .extent(OUTPUT)
+        .unwrap();
+    let reset = after_jump(&gpu, render, false);
+    let clipped = after_jump(&gpu, render, true);
+    let unclipped = {
+        let _off = crate::taa_reconstruct_gpu::WithoutClip::new();
+        after_jump(&gpu, render, true)
+    };
+    // Strictly inside the vacated strip: past the dilated edge of the bar and the 2x2
+    // confidence gather (10 canvas pixels at the lowest scale, 5 texels), and past the start.
+    let left = scene::bar_left(JUMP_AFTER - 1);
+    let strip = region(
+        left + 3.0..left + JUMP - 10.0,
+        scene::BAR_TOP + 3.0..scene::BAR_TOP + scene::BAR_SIZE[1] - 3.0,
+    );
+    let worst = |image: &[f64]| {
+        strip
+            .iter()
+            .map(|&p| (image[index(p)] - reset[index(p)]).abs())
+            .fold(0.0, f64::max)
+    };
+    eprintln!(
+        "scale {millionths} R {render:?}: {} pixels, max |image - reset| clipped {:e} unclipped {:e}",
+        strip.len(),
+        worst(&clipped),
+        worst(&unclipped)
+    );
+    assert!(!strip.is_empty());
+    assert!(worst(&clipped) < HALF_FLOAT, "{:e}", worst(&clipped));
+    // The region does hold history without the clip: the bar's colour 0.5 against the checker.
+    assert!(worst(&unclipped) > 0.05, "{:e}", worst(&unclipped));
+}
+
+#[test]
+fn half_scale_uncovered_strip_converges_to_the_reset_image_in_one_frame() {
+    assert_converges_in_one_frame(500_000);
+}
+
+#[test]
+fn two_thirds_scale_uncovered_strip_converges_to_the_reset_image_in_one_frame() {
+    assert_converges_in_one_frame(670_000);
+}
+
+#[test]
+fn three_quarters_scale_uncovered_strip_converges_to_the_reset_image_in_one_frame() {
+    assert_converges_in_one_frame(770_000);
 }
 
 #[test]

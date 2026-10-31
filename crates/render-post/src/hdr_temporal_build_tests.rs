@@ -65,6 +65,7 @@ fn temporal_mode_schedules_the_reconstruction_instead_of_the_native_resolve() {
             [
                 "temporal depth clear",
                 "temporal reconstruct dilate",
+                "temporal depth clip",
                 "temporal upscale",
                 "temporal upscale history",
                 "tone"
@@ -83,8 +84,8 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
     for set in &sets {
         assert_eq!(
             set.resources.textures.len(),
-            4,
-            "output, history, dilated depth and dilated motion"
+            5,
+            "output, history, dilated depth, dilated motion and confidence"
         );
         let at_output: Vec<_> = set
             .resources
@@ -109,7 +110,8 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
             assert!(
                 [
                     crate::taa_reconstruct_gpu::DEPTH_FORMAT,
-                    crate::taa_reconstruct_gpu::MOTION_FORMAT
+                    crate::taa_reconstruct_gpu::MOTION_FORMAT,
+                    crate::taa_reconstruct_gpu::CONFIDENCE_FORMAT
                 ]
                 .contains(&texture.format()),
                 "the reconstruction targets are the render extent"
@@ -120,8 +122,8 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
     let outputs: Vec<_> = sets.iter().flat_map(|s| &s.resources.textures).collect();
     assert_eq!(
         outputs.iter().filter(|t| !history.contains(t)).count(),
-        9,
-        "each slot owns its output, dilated depth and dilated motion"
+        12,
+        "each slot owns its output, dilated depth, dilated motion and confidence"
     );
 }
 

@@ -208,6 +208,7 @@ fn append_temporal(
     set.resources.textures.push(history.clone());
     set.resources.textures.push(reconstructed.depth);
     set.resources.textures.push(reconstructed.motion);
+    set.resources.textures.push(reconstructed.confidence);
     set.resources.buffers.push(reconstructed.scatter);
     output_view
 }

@@ -12,7 +12,7 @@
 //! * a static plane of horizontal stripes whose period shrinks with the row, standing for a
 //!   grazing surface, with depth rising from 0.6 to 0.8 down the rows.
 //!
-//! The rasteriser writes the correct backward motion in uv units for the bar (`-SPEED / width`
+//! The rasteriser writes the correct backward motion in uv units for the bar (minus its velocity over the width
 //! in x) and zero elsewhere, which is what the object residual of a real scene would hold for a
 //! static camera.
 
@@ -89,7 +89,8 @@ pub(crate) fn value(p: [f64; 2], left: f64) -> f64 {
 
 /// WGSL that rasterises the scene at the internal extent and the jittered sample position of each
 /// pixel, writing colour, backward motion in uv units and device depth. The uniform holds the
-/// internal extent, the jitter in internal pixels and the bar's left edge in `bar.x`.
+/// internal extent, the jitter in internal pixels, the bar's left edge in `bar.x` and its velocity
+/// in canvas pixels per frame, +x, in `bar.y`.
 pub(crate) fn wgsl() -> String {
     format!(
         "
@@ -112,7 +113,7 @@ fn within(p: vec2<f32>, origin: vec2<f32>, size: vec2<f32>) -> bool {{
     o.motion = vec2<f32>(0.0);
     if within(p, vec2<f32>(frame.bar.x, {BAR_TOP:?}), vec2<f32>({bw:?}, {bh:?})) {{
         o.color = vec4<f32>({BAR_VALUE:?}, {BAR_VALUE:?}, {BAR_VALUE:?}, 1.0);
-        o.motion = vec2<f32>({m:?}, 0.0);
+        o.motion = vec2<f32>(-frame.bar.y / {w:?}, 0.0);
         o.depth = {BAR_DEPTH:?};
         return o;
     }}
@@ -132,7 +133,6 @@ fn within(p: vec2<f32>, origin: vec2<f32>, size: vec2<f32>) -> bool {{
         h = CANVAS[1],
         bw = BAR_SIZE[0],
         bh = BAR_SIZE[1],
-        m = -SPEED / CANVAS[0],
         c0 = CHECKER[0],
         c1 = CHECKER[1],
         p0 = PLANE_VALUES[0],

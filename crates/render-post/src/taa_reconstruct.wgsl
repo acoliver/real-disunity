@@ -12,6 +12,18 @@
 // texel with no valid neighbour writes depth 1 and the total motion of its own residual, and does
 // not scatter. A motion that is not finite writes +infinity in both components, which the resolve
 // treats as unusable history, and does not scatter. Nothing writes NaN.
+//
+// `depth_clip` writes the confidence of the history of every texel, 1 or 0. The texel's dilated
+// depth is compared, in linear view depth (`b / (z - a)` with the camera block's depth terms),
+// with the nearest depth that reached the texel its motion points at, rounded to the nearest
+// texel. A surface that was in front of this one in the previous frame is the nearest and
+// differs by more than the tolerance: the history belongs to it, so the confidence is 0. A
+// surface alone at its own position finds its own depth there, bit for bit. The tolerance is the
+// largest linear depth difference to the 3x3 neighbours of the texel, which the 2x2 scatter
+// footprint can reach across, plus 2^-20 relative to the depth precision of the device depth
+// there. A texel with no valid depth, or without a camera block or depth terms, has
+// confidence 1: nothing says its history is wrong. A motion that points nowhere or at a texel
+// nothing reached has confidence 0.
 struct Camera {
     // Maps (ndc x, ndc y, device depth, 1) of this frame to the previous clip space.
     reprojection: mat4x4<f32>,
@@ -26,10 +38,16 @@ struct Camera {
 @group(0) @binding(4) var out_motion: texture_storage_2d<rg32float, write>;
 // One u32 per internal texel, row major: the nearest depth that reaches it from the current frame.
 @group(0) @binding(5) var<storage, read_write> scatter: array<atomic<u32>>;
+// The outputs of `reconstruct`, read by `depth_clip`, and the confidence it writes.
+@group(0) @binding(6) var dilated_depth: texture_2d<f32>;
+@group(0) @binding(7) var dilated_motion: texture_2d<f32>;
+@group(0) @binding(8) var out_confidence: texture_storage_2d<r32float, write>;
 
 // False only in tests: the stage then keeps every texel's own depth and residual, which is the
 // temporal path before the dilation existed, so a test can measure both on one device.
 override dilate: bool = true;
+// False only in tests: every confidence is 1, the temporal path before the depth clip existed.
+override clip: bool = true;
 
 const INFINITY_BITS: u32 = 0x7f800000u;
 
@@ -115,4 +133,57 @@ fn reconstruct(@builtin(global_invocation_id) id: vec3<u32>) {
     if ok && usable {
         scatter_to(vec2<f32>(s) + flow * vec2<f32>(size), z, size);
     }
+}
+
+// Relative bound on the f32 error of a device depth and its raster interpolation: 2^-20.
+const DEPTH_PRECISION: f32 = 9.5367431640625e-7;
+
+fn linear_depth(z: f32) -> f32 {
+    return camera.flags.w / (z - camera.flags.z);
+}
+// Largest linear depth difference between the dilated depth `z` at `s` and a valid neighbour of
+// its 3x3 neighbourhood, plus the linear depth error of the device depth precision.
+fn depth_tolerance(s: vec2<i32>, size: vec2<i32>, z: f32) -> f32 {
+    let linear = linear_depth(z);
+    var slope = 0.0;
+    for (var i = 0; i < 9; i++) {
+        let t = s + vec2<i32>(i % 3 - 1, i / 3 - 1);
+        if all(t >= vec2<i32>(0)) && all(t < size) {
+            let neighbour = textureLoad(dilated_depth, t, 0).x;
+            if valid_depth(neighbour) {
+                slope = max(slope, abs(linear_depth(neighbour) - linear));
+            }
+        }
+    }
+    return slope + DEPTH_PRECISION * abs(linear / (z - camera.flags.z));
+}
+fn confidence(s: vec2<i32>, size: vec2<i32>) -> f32 {
+    let z = textureLoad(dilated_depth, s, 0).x;
+    if !clip || camera.flags.x < 0.5 || camera.flags.w == 0.0 || !valid_depth(z) {
+        return 1.0;
+    }
+    let flow = textureLoad(dilated_motion, s, 0).xy;
+    if !(finite(flow.x) && finite(flow.y)) {
+        return 0.0;
+    }
+    let t = vec2<i32>(floor(vec2<f32>(s) + flow * vec2<f32>(size) + 0.5));
+    if any(t < vec2<i32>(0)) || any(t >= size) {
+        return 0.0;
+    }
+    let reached = bitcast<f32>(atomicLoad(&scatter[u32(t.y * size.x + t.x)]));
+    if !valid_depth(reached) {
+        return 0.0;
+    }
+    let apart = abs(linear_depth(z) - linear_depth(reached));
+    return select(0.0, 1.0, apart <= depth_tolerance(s, size, z));
+}
+
+@compute @workgroup_size(8, 8)
+fn depth_clip(@builtin(global_invocation_id) id: vec3<u32>) {
+    let size = vec2<i32>(textureDimensions(dilated_depth));
+    let s = vec2<i32>(id.xy);
+    if any(s >= size) {
+        return;
+    }
+    textureStore(out_confidence, s, vec4<f32>(confidence(s, size), 0.0, 0.0, 0.0));
 }

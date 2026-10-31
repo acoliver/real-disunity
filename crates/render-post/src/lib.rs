@@ -104,6 +104,8 @@ mod smaa_tests;
 mod taa;
 #[cfg(test)]
 mod taa_allocation_tests;
+#[cfg(test)]
+mod taa_depth_clip_tests;
 mod taa_gpu;
 #[cfg(test)]
 mod taa_gpu_test_support;

@@ -101,8 +101,8 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     }
 }
 /// What the temporal reconstruction passes write, per slot at the render extent `R`: the dilated
-/// depth, the dilated motion and the buffer the previous-coordinate depth is scattered into
-/// (4 bytes per texel). They are written and read within one frame of a slot, so they are
+/// depth, the dilated motion, the buffer the previous-coordinate depth is scattered into
+/// (4 bytes per texel) and the history confidence plane. They are written and read within one frame of a slot, so they are
 /// per-generation entries with no shared descriptor.
 fn temporal_reconstruction_allocations(set: &mut AllocationSet, [w, h]: [u32; 2]) {
     set.texture(
@@ -122,6 +122,13 @@ fn temporal_reconstruction_allocations(set: &mut AllocationSet, [w, h]: [u32; 2]
     set.buffer(
         "temporal reconstructed depth",
         4 * u64::from(w) * u64::from(h),
+        3,
+    );
+    set.texture(
+        "temporal depth confidence",
+        [w, h, 1],
+        crate::taa_reconstruct_gpu::CONFIDENCE_FORMAT,
+        [1, 1],
         3,
     );
 }

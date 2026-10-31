@@ -95,6 +95,9 @@ pub fn append(
     let motion = reconstructed
         .motion
         .create_view(&wgpu::TextureViewDescriptor::default());
+    let confidence = reconstructed
+        .confidence
+        .create_view(&wgpu::TextureViewDescriptor::default());
     let history = inputs
         .history
         .create_view(&wgpu::TextureViewDescriptor::default());
@@ -121,6 +124,7 @@ pub fn append(
             entry(1, wgpu::BindingResource::TextureView(&history)),
             entry(2, wgpu::BindingResource::TextureView(&motion)),
             entry(3, inputs.uniform.as_entire_binding()),
+            entry(4, wgpu::BindingResource::TextureView(&confidence)),
         ],
     });
     set.stages.push(Stage::fullscreen(

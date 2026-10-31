@@ -69,7 +69,9 @@ fn temporal_taa_counts_output_sized_history_once_and_render_sized_reconstruction
     let dilated_depth = texels(RENDER) * FLOAT_R;
     let dilated_motion = texels(RENDER) * 2 * FLOAT_R;
     let reconstructed_depth = texels(RENDER) * FLOAT_R;
-    let per_slot_reconstruction = (dilated_depth + dilated_motion + reconstructed_depth) * SLOTS;
+    let confidence = texels(RENDER) * FLOAT_R;
+    let per_slot_reconstruction =
+        (dilated_depth + dilated_motion + reconstructed_depth + confidence) * SLOTS;
     assert_eq!(
         taa_bytes(config(1), Some(UpscaleMode::Temporal)),
         shared + per_slot_output + per_slot_reconstruction

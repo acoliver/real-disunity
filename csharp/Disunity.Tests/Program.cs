@@ -369,6 +369,7 @@ RenderEntryPointTests.Run();
 SceneManagerTests.Run();
 SceneSwitchTests.Run();
 SubsystemTests.Run();
+SceneHandleTests.Run();
 XRDisplayTests.Run();
 XRSettingsTests.Run();
 GraphicsTypeTests.Run();

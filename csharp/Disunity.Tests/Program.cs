@@ -312,6 +312,7 @@ JsonUtilityTests.Run();
 CommandBufferTests.Run();
 ObjectModelTests.Run();
 TransformMemberTests.Run();
+HierarchyQueryTests.Run();
 GameObjectMemberTests.Run();
 CoreMemberTests.Run();
 TextureTests.Run();

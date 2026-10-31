@@ -327,6 +327,7 @@ ObjectModelTests.Run();
 TransformMemberTests.Run();
 HierarchyQueryTests.Run();
 GameObjectMemberTests.Run();
+PrimitiveTests.Run();
 CoreMemberTests.Run();
 TextureTests.Run();
 MeshTests.Run();

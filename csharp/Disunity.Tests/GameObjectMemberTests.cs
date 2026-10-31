@@ -52,11 +52,10 @@ internal static class GameObjectMemberTests
             ComponentForwards();
             FindByNameAndTag();
             Messages();
-            Primitives();
         }
         finally { DisunityHost.UnloadWorld(); }
         SceneMembership();
-        Console.WriteLine("PASS: GameObject constructors, component searches, Find, FindWithTag, SendMessage, CreatePrimitive and scene membership");
+        Console.WriteLine("PASS: GameObject constructors, component searches, Find, FindWithTag, SendMessage and scene membership");
     }
 
     private static void Constructors()
@@ -203,9 +202,6 @@ internal static class GameObjectMemberTests
             Ensure(receiver.Calls.Count == 6 && log.Messages.Count == 1, "an inactive object receives nothing");
         }
     }
-
-    private static void Primitives() =>
-        Throws<NotSupportedException>(() => GameObject.CreatePrimitive(PrimitiveType.Cube), "CreatePrimitive", "CreatePrimitive", "not supported yet");
 
     private static void SceneMembership()
     {

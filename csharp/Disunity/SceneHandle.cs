@@ -21,6 +21,9 @@ public readonly struct SceneHandle : IEquatable<SceneHandle>, IComparable<SceneH
     /// <summary>The scene id the handle wraps, for code written against a numeric handle; the default handle is 0.</summary>
     public static implicit operator int(SceneHandle handle) => unchecked((int)handle._value);
 
+    /// <summary>The handle of the scene with id <paramref name="sceneId"/>, for code that stores numeric handles; 0 is the default handle.</summary>
+    public static implicit operator SceneHandle(int sceneId) => Of(sceneId);
+
     public static bool operator ==(SceneHandle lhs, SceneHandle rhs) => lhs._value == rhs._value;
 
     public static bool operator !=(SceneHandle lhs, SceneHandle rhs) => lhs._value != rhs._value;

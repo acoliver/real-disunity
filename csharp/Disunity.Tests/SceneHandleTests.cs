@@ -26,6 +26,9 @@ internal static class SceneHandleTests
         Expect.Equal(0UL, default(SceneHandle).GetRawData(), "the default handle is raw 0");
         int number = one;
         Expect.That(number == 7 && (int)other == 9 && (int)default(SceneHandle) == 0, "a handle converts implicitly to the scene id it wraps");
+        SceneHandle fromNumber = 9;
+        SceneHandle fromZero = 0;
+        Expect.That(fromNumber == other && fromZero == default(SceneHandle) && fromNumber != fromZero, "a scene id converts implicitly to its handle");
     }
 
     private static string Plan(string name) =>

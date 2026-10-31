@@ -36,6 +36,14 @@ public static partial class DisunityHost
         DrainCancelled();
     }
 
+    /// <summary>Stops each running coroutine of this script that was started from <paramref name="iterator"/>; none is not an error.</summary>
+    internal static void StopCoroutine(MonoBehaviour owner, IEnumerator iterator)
+    {
+        ArgumentNullException.ThrowIfNull(iterator);
+        foreach (var routine in Routines.Values.Where(r => ReferenceEquals(r.Owner, owner) && ReferenceEquals(r.Root, iterator)).ToArray())
+            StopCoroutine(owner, routine);
+    }
+
     internal static void StopAllCoroutines(MonoBehaviour owner)
     {
         foreach (var routine in Routines.Values.Where(r => ReferenceEquals(r.Owner, owner)).ToArray()) StopCoroutine(owner, routine);

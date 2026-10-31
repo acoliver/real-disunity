@@ -283,6 +283,7 @@ TextCoreTests.Run();
 FontEngineTests.Run();
 TouchScreenKeyboardTests.Run();
 DefaultCanvasMaterialTests.Run();
+StopCoroutineTests.Run();
 FieldBinderTests.Run();
 SerializedCollectionTests.Run();
 ManagedReferenceTests.Run();

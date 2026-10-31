@@ -10,6 +10,7 @@ use worldrunner_render_scene::{
 pub(in crate::renderer) struct Products {
     pub display: Option<Capture>,
     native: Vec<Native>,
+    terms: Vec<worldrunner_render_scene::compositor::terms::TermCapture>,
     completed: RetainedCaptureProducts,
 }
 struct Native {
@@ -65,13 +66,19 @@ impl Native {
             CaptureOutput::Specular => {
                 products.specular = Some(Rgba16FloatImage { viewport, bytes });
             }
-            CaptureOutput::LinearHdr | CaptureOutput::Normals => {
+            CaptureOutput::LinearHdr
+            | CaptureOutput::Normals
+            | CaptureOutput::Albedo
+            | CaptureOutput::SunVisibility => {
                 let image = LinearRgbaImage::from_native(viewport, format, &bytes)
                     .map_err(|e| ViewerError::Gpu(e.to_string()))?;
-                if self.output == CaptureOutput::LinearHdr {
-                    products.linear_hdr = Some(image);
-                } else {
-                    products.normals = Some(image);
+                match self.output {
+                    CaptureOutput::LinearHdr => products.linear_hdr = Some(image),
+                    CaptureOutput::Normals => products.normals = Some(image),
+                    CaptureOutput::Albedo | CaptureOutput::SunVisibility => {
+                        products.store_term(self.output, image);
+                    }
+                    _ => unreachable!("colour output"),
                 }
             }
             output => {
@@ -116,11 +123,37 @@ impl Products {
                 CaptureOutput::LinearHdr,
             )?);
         }
+        let terms = Self::term_products(device, scene, outputs, &mut native)?;
         Ok(Self {
+            terms,
             display,
             native,
             completed: RetainedCaptureProducts::default(),
         })
+    }
+    fn term_products(
+        device: &wgpu::Device,
+        scene: &wgpu::Texture,
+        outputs: &[CaptureOutput],
+        native: &mut Vec<Native>,
+    ) -> Result<Vec<worldrunner_render_scene::compositor::terms::TermCapture>, ViewerError> {
+        let mut terms = Vec::new();
+        for &output in outputs {
+            if let Some(term) = output.term() {
+                let capture = worldrunner_render_scene::compositor::terms::TermCapture::new(
+                    device,
+                    [scene.width(), scene.height()],
+                    term,
+                );
+                native.push(Native::new(
+                    device,
+                    FeatureCapture::whole(&capture.texture),
+                    output,
+                )?);
+                terms.push(capture);
+            }
+        }
+        Ok(terms)
     }
     pub(in crate::renderer) fn features(
         &mut self,
@@ -196,5 +229,29 @@ impl Products {
             }
         }
         Ok(Some(std::mem::take(&mut self.completed)))
+    }
+}
+
+impl Products {
+    pub(in crate::renderer) fn terms(
+        &self,
+    ) -> &[worldrunner_render_scene::compositor::terms::TermCapture] {
+        &self.terms
+    }
+
+    pub(in crate::renderer) fn replay(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        resident: &super::super::Resident,
+    ) {
+        for term in &self.terms {
+            match resident {
+                super::super::Resident::Plain(plain) => term.encode(device, encoder, &plain.gpu),
+                super::super::Resident::Shadowed(scene) => {
+                    scene.encode_term_capture(device, encoder, term);
+                }
+            }
+        }
     }
 }

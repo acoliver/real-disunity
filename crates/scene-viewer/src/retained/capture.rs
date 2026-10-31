@@ -1,3 +1,6 @@
+#[cfg(test)]
+#[path = "capture/term_tests.rs"]
+mod term_tests;
 use super::{RetainedEvent, RetainedHost};
 mod recipe;
 pub use recipe::{CaptureJitter, CaptureOutput, RetainedCaptureProducts, RetainedCaptureRecipe};
@@ -97,14 +100,14 @@ impl Captures {
         let Some(recipe) = self.recipes.get(&id) else {
             return Ok(());
         };
-        let required = recipe.storage_bytes(size)?;
+        let required = recipe.pool_bytes(size)?;
         let other: u64 = self
             .reservations
             .iter()
             .filter(|(key, _)| **key != id)
             .map(|(_, value)| value)
             .sum();
-        let limit = 256 * 1024 * 1024;
+        let limit = RetainedCaptureRecipe::POOL_BYTES;
         if required > limit - other {
             return Err(CaptureRequestError::RecipeBudget {
                 required: required + other,
@@ -231,9 +234,9 @@ impl RetainedHost {
             | crate::FrameProfile::HdrNativeRcas { samples, .. }
             | crate::FrameProfile::HdrUpscaled { samples, .. } => samples,
         };
-        let required = recipe.storage_bytes(self.size)?;
+        let required = recipe.pool_bytes(self.size)?;
         let reserved: u64 = self.captures.reservations.values().sum();
-        let limit = 256 * 1024 * 1024;
+        let limit = RetainedCaptureRecipe::POOL_BYTES;
         if required > limit - reserved {
             return Err(CaptureRequestError::RecipeBudget {
                 required: required + reserved,
@@ -241,6 +244,9 @@ impl RetainedHost {
             });
         }
         self.validate_capture_features(generation, &recipe)?;
+        if recipe.outputs.iter().any(|output| output.term().is_some()) && recipe.accumulated() {
+            return Err(CaptureRequestError::UnsupportedRecipe);
+        }
         if (recipe.outputs.contains(&CaptureOutput::LinearHdr) || recipe.native_rcas().is_some())
             && matches!(self.options.frame_profile, crate::FrameProfile::Legacy)
         {

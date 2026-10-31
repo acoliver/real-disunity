@@ -204,7 +204,10 @@ impl Presentation {
 
 fn recipe_allocations() -> worldrunner_render_gpu::configuration::AllocationSet {
     let mut allocations = worldrunner_render_gpu::configuration::AllocationSet::default();
-    allocations.shared_cpu("capture recipe storage reservation", 256 * 1024 * 1024);
+    allocations.shared_cpu(
+        "capture recipe storage reservation",
+        crate::RetainedCaptureRecipe::POOL_BYTES,
+    );
     allocations
 }
 

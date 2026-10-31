@@ -31,6 +31,8 @@
 //! # }
 //! ```
 
+mod capture;
+pub(crate) use capture::capture_sources;
 mod cascades;
 mod refresh;
 mod resources;

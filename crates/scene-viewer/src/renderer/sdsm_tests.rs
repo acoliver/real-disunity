@@ -173,7 +173,7 @@ fn render_frame(
                 &view,
                 &presentation.targets,
                 presentation.scheduler.encoding(),
-                frame
+                (frame.0, frame.1, &[])
             )
             .unwrap()
     );

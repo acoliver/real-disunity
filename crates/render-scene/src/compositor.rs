@@ -1,6 +1,7 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod capture;
+pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
 mod configuration;
@@ -14,6 +15,7 @@ pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 use output::FrameOutput;
 pub use output::FrameProfile;
+use validation::{validate_clear, validate_hdr_effects, validate_reflection_extent};
 
 use worldrunner_render_post::{
     AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
@@ -708,18 +710,6 @@ mod scene;
 #[path = "compositor_post_tests.rs"]
 mod post_tests;
 
-pub(super) fn validate_clear(color: wgpu::Color) -> Result<(), PostError> {
-    if [color.r, color.g, color.b, color.a]
-        .iter()
-        .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
-    {
-        return Err(PostError::UnsupportedProfile(
-            "clear color must be finite linear RGBA in 0..=1",
-        ));
-    }
-    Ok(())
-}
-
 fn encode_planned(
     chain: &mut PostChain<FrameOutput>,
     device: &wgpu::Device,
@@ -737,31 +727,4 @@ fn encode_planned(
         },
         features,
     )
-}
-
-fn validate_reflection_extent(
-    device: &wgpu::Device,
-    config: FrameConfig,
-    settings: Option<&worldrunner_render_plan::SceneSsr>,
-) -> Result<(), FrameError> {
-    if let Some(settings) = settings.filter(|settings| settings.enabled) {
-        crate::ssr::validate_extent(config, settings, &device.limits())?;
-    }
-    Ok(())
-}
-
-fn validate_hdr_effects(
-    effects: Option<&worldrunner_render_plan::SceneEffects>,
-) -> Result<(), PostError> {
-    if let Some(effects) = effects {
-        if let Some(settings) = effects.ssao() {
-            crate::ssao::validate_settings(settings)?;
-        }
-        crate::frame::validate_stock_effects(effects)
-            .map_err(|_| PostError::UnsupportedProfile("scene effects"))?;
-    }
-    if let Some(settings) = effects.and_then(|effects| effects.ssr()) {
-        crate::ssr::validate_settings(settings)?;
-    }
-    Ok(())
 }

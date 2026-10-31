@@ -410,6 +410,15 @@ impl SceneGpu {
         self.draw_color(pass, pipelines, Some(shadow))
     }
 
+    pub(crate) fn draw_opaque_capture(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        shadow: Option<&BindGroup>,
+    ) {
+        self.draw_color_pass(pass, pipelines, shadow, false);
+    }
+
     pub(crate) fn draw_color(
         &self,
         pass: &mut RenderPass<'_>,

@@ -129,3 +129,15 @@ fn retired_world_identity_is_not_reused() {
     next.create_object(ObjectDesc::default()).unwrap();
     assert_eq!(next.object(stale), Err(WorldError::WrongWorld));
 }
+
+#[test]
+fn object_alive_names_only_live_objects_of_the_same_world() {
+    let mut first = world();
+    let second = world();
+    let kept = first.create_object(ObjectDesc::default()).unwrap();
+    let removed = first.create_object(ObjectDesc::default()).unwrap();
+    first.destroy_object(removed).unwrap();
+    assert!(first.object_alive(kept));
+    assert!(!first.object_alive(removed));
+    assert!(!second.object_alive(kept));
+}

@@ -390,6 +390,7 @@ XRDisplayTests.Run();
 XRSettingsTests.Run();
 GraphicsTypeTests.Run();
 GraphicsTests.Run();
+CameraRenderTests.Run();
 GraphicsFormatUtilityTests.Run();
 ComponentTableTests.Run();
 TemplateSearchTests.Run();

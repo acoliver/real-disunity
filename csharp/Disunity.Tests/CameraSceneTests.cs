@@ -139,8 +139,6 @@ internal static class CameraSceneTests
         var culling = new ScriptableCullingParameters();
         var members = new (string, Action)[]
         {
-            ("Render", () => camera.Render()),
-            ("RenderWithShader", () => camera.RenderWithShader(null!, "")),
             ("SetTargetBuffers", () => camera.SetTargetBuffers(default(RenderBuffer), default(RenderBuffer))),
             ("TryGetCullingParameters", () => camera.TryGetCullingParameters(ref culling)),
             ("GetStereoNonJitteredProjectionMatrix", () => camera.GetStereoNonJitteredProjectionMatrix(Camera.StereoscopicEye.Left)),

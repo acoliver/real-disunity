@@ -36,6 +36,20 @@ impl HdrPostSettings {
             && config.size != config.output_extent()
     }
 
+    /// The material mip bias a renderer with these settings applies at `config`.
+    ///
+    /// [`material_mip_bias`](crate::material_mip_bias) of the render and output extents while
+    /// [`reconstructs_temporally`](Self::reconstructs_temporally), exactly `+0.0` for every other
+    /// configuration so that non-temporal output is unchanged.
+    #[must_use]
+    pub fn material_mip_bias(self, config: FrameConfig) -> f32 {
+        if self.reconstructs_temporally(config) {
+            crate::material_mip_bias(config.size, config.output_extent())
+        } else {
+            0.0
+        }
+    }
+
     /// The projection jitter a renderer with these settings uses at `config`, given the explicitly
     /// requested one.
     ///

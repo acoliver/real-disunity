@@ -89,6 +89,9 @@ mod history_key_tests;
 mod jitter;
 #[cfg(test)]
 mod jitter_tests;
+mod mip_bias;
+#[cfg(test)]
+mod mip_bias_tests;
 #[cfg(test)]
 mod post_extent_allocation_tests;
 mod post_filters;
@@ -134,6 +137,7 @@ pub use cas::CasSettings;
 pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};
 pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use jitter::ProjectionJitter;
+pub use mip_bias::material_mip_bias;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 pub use taa::{TAA_UNIFORM_BYTES, TaaSettings, TaaUniform};
 pub use temporal_block::{TEMPORAL_BLOCK_BYTES, TemporalBlock};

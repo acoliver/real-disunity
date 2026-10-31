@@ -170,6 +170,18 @@ impl ToneMapOutput {
             .as_ref()
             .map_or(Ok(()), |post| post.prepare_temporal(encoder, slot, block))
     }
+    /// Uploads the camera term of the temporal stage of `slot`. Without effects there is nothing
+    /// to upload to. A slot that never receives one applies the object residual alone.
+    pub fn prepare_temporal_camera(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        camera: crate::TemporalCamera,
+    ) {
+        if let Some(post) = &self.post {
+            post.prepare_temporal_camera(encoder, slot, camera);
+        }
+    }
     #[cfg(test)]
     pub(crate) fn taa_history_size(&self) -> Option<[u32; 2]> {
         self.post

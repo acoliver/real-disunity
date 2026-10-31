@@ -113,7 +113,54 @@ Measured ratios, temporal error over reset-every-frame error (the same pipeline 
 | 0.67 | 0.52 | 0.80 |
 | 0.77 | 0.45 | 0.66 |
 
-The design bound is 0.90, and both tests assert it. The gain sits on edges (edge pixels carry about 90% of the error); on the smooth interior the render-post harness measured temporal worse than reset at 0.67 and 0.77 (ratio 1.12 and 1.32, absolute error about 0.002). A single EASU frame is not beaten at 0.5 in that harness (0.0237 against 0.0250). Nothing here measures motion, disocclusion or colour; the history weight falls with motion as for native TAA, so a moving scene approaches the reset image. The tests are `crates/render-post/src/temporal_quality_tests.rs` and `crates/render-scene/src/compositor/temporal_upscale_end_to_end_tests.rs`.
+The design bound is 0.90, and both tests assert it. The gain sits on edges (edge pixels carry about 90% of the error); on the smooth interior the render-post harness measured temporal worse than reset at 0.67 and 0.77 (ratio 1.12 and 1.32, absolute error about 0.002). A single EASU frame is not beaten at 0.5 in that harness (0.0237 against 0.0250). The table above is static. Motion and disocclusion are measured in [Camera motion, dilation and depth clip](#camera-motion-dilation-and-depth-clip); colour is not measured. The history weight falls with motion as for native TAA. The tests are `crates/render-post/src/temporal_quality_tests.rs` and `crates/render-scene/src/compositor/temporal_upscale_end_to_end_tests.rs`.
+
+#### Camera motion, dilation and depth clip
+
+The temporal stage reprojects history with the total backward motion of each texel: the camera term plus the object residual that `velocity.rs` writes. Three compute stages at the internal extent run ahead of `temporal upscale` in every slot, and `taa_reconstruct.wgsl` holds all of them.
+
+* **Camera term.** `TemporalCamera` (80 bytes, its own per-slot uniform) carries the f64 `previous * inverse(current)` reprojection of the unjittered cameras, the same producer native TAA uses, uploaded as f32. The dilate stage turns the dilated depth of a texel into its position one frame ago. An unusable camera uploads zeros and means "no camera term", which is what a slot holds before its first upload.
+* **Dilation.** Each texel takes the depth and residual of the nearest valid depth in its 3x3 neighbourhood (ties go to the first texel in raster order) and writes them to the dilated depth and dilated motion planes. A moving silhouette therefore hands its motion to the texels one step outside its edge. Valid means `0 < z < 1`: a cleared depth, sky, a negative or a non-finite value is not a candidate.
+* **Depth clip.** The dilate stage also scatters its dilated depth to `s + motion * R` with `atomicMin` over the 2x2 footprint into a reconstructed previous depth buffer. The clip compares the linear depth of a texel with the nearest depth that reached the texel its history position falls on. It writes confidence exactly 0 or 1: 0 when the two differ by more than the largest step to a 3x3 neighbour plus `2^-20` of the linear depth (f32 and raster precision), or when the history position is outside the frame or nothing reached it. `temporal upscale` takes the minimum confidence of the 2x2 texels around its sample position and scales the history weight by it, so confidence 0 gives the current Lanczos2 reconstruction exactly.
+
+A texel without a valid depth (sky, cleared) has confidence 1, and so has every texel when the camera block carries no depth terms: nothing there says the history is wrong, and the YCoCg clip still applies. The residual stays XY only, so a surface that moves along the view axis is reconstructed with its current depth as its previous depth; the clip then costs it history at the edge where its depth changes (see the numbers below) and never accepts the wrong surface for the screen-plane part of the motion.
+
+Resources per slot at the internal extent R: dilated depth (R32Float), dilated motion (Rg32Float), confidence (R32Float) and the reconstructed depth buffer (4R bytes), 20R bytes in all. They are per generation entries of the allocation set, not shared, because a resize builds the new bank while the retiring generation still holds the old one. Rg16Float and R16Float would halve two of the planes, but a single or double channel 16 bit float storage texture is not a core format.
+
+Measured on lavapipe, analytic scenes, static camera with depth terms, mean absolute HDR error against the 4x4 box filtered f64 reference, last 8 of 48 frames. The first scene is a 24x48 bar of colour 0.5 at depth 0.4 moving 2 canvas pixels per frame over a 12 pixel checkerboard (0.3 and 0.7) at depth 0.8, next to a static striped plane with a depth ramp. The strip is the pixels the bar vacated in the last 8 frames.
+
+| Scale | R | Strip error, PR 2 path | Strip error, reset every frame | Strip error, dilation only | Strip error, dilation and clip |
+|---|---|---|---|---|---|
+| 0.50 | 80x48 | 0.06213 | 0.04297 | 0.03772 | 0.03772 |
+| 0.67 | 107x64 | 0.04883 | 0.03194 | 0.02956 | 0.03009 |
+| 0.77 | 123x74 | 0.04816 | 0.03026 | 0.02955 | 0.02904 |
+
+The target was fixed before any of it was implemented. The spatial reconstruction of the strip (reset every frame) is the floor that history rejection can reach, 63 to 69% of the PR 2 error, so a cut of the total by half is out of reach. The target is on the excess over that floor: `new <= reset + 0.5 * (pr2 - reset)` at 0.5, 0.67 and 0.77, with the PR 2 path recomputed on the same device in the same test (`WithoutDilation` and `WithoutClip`, test-only switches). It holds with 25 to 28% margin on lavapipe, and the Radeon 780M passes the same tests. On the Radeon the dilation-only numbers (new over reset) are 0.0377 over 0.0430, 0.0293 over 0.0319 and 0.0296 over 0.0303; the PR 2 baseline there matches lavapipe to 0.1% (0.06214, 0.04891, 0.04817).
+
+The plane (static, depth ramp) is unchanged by dilation and clip to every digit (error 0.0714, 0.0383, 0.0336 and flicker 0.0109, 0.0086, 0.0074 at the three scales, against reset flicker of 0.164, 0.132, 0.122). A bar that jumps its own width in one frame, 20 frames into the sequence, leaves a vacated region whose image after the clip equals the image of a renderer with no history on that frame: maximum difference 0 (bound `2^-11`), against 0.24 without the clip.
+
+**Known trade-off.** At 0.67 the clip makes the strip error 1.8% worse than dilation alone (0.03009 against 0.02956), still below the reset floor and inside the bound. A bar that moves 1 to 1.5 texels per frame is below what the clip resolves: the 3x3 slope term of its tolerance includes the dilated edge, so the texel directly behind the bar keeps confidence 1, and the clip fires only two or more texels away, where the 2x2 minimum gather takes history from a few texels that were still correct. A faster mover converges exactly. The clip was not tuned for this.
+
+A surface that moves along the view axis is a square bar of constant colour whose half size grows by 1 canvas pixel per frame for 24 frames and then shrinks for 24, its depth falling from 0.5 to 0.3 as it grows, with its analytic residual and a static camera. Ring is the pixels swept in the last 8 frames of the approach (newly covered) or of the recession (uncovered); edge is the band within 2 pixels of the edge.
+
+| Scale | Window | Ring, new / PR 2 / reset | Edge, new / PR 2 / reset |
+|---|---|---|---|
+| 0.50 | recession | 0.0302 / 0.0662 / 0.0401 | 0.0460 / 0.0888 / 0.0487 |
+| 0.67 | recession | 0.0223 / 0.0516 / 0.0279 | 0.0339 / 0.0760 / 0.0352 |
+| 0.77 | recession | 0.0239 / 0.0477 / 0.0256 | 0.0365 / 0.0729 / 0.0344 |
+| 0.50 | approach | 0.0290 / 0.0271 / 0.0321 | 0.0456 / 0.0450 / 0.0485 |
+| 0.67 | approach | 0.0199 / 0.0167 / 0.0220 | 0.0353 / 0.0293 / 0.0366 |
+| 0.77 | approach | 0.0185 / 0.0158 / 0.0216 | 0.0356 / 0.0319 / 0.0379 |
+
+Receding, the new path removes more than half of the PR 2 excess over the reset floor in the ring and the edge band (asserted). Approaching, the new path is 1 to 20% worse than the PR 2 path in this scene and better than reset every frame (0.86 to 0.96 times). The PR 2 path is exact there because the bar is a uniform colour inside the checker range, so the YCoCg clip pulls any history inside it to the bar colour, and the new path rejects history at the growing edge where its depth changes, which costs the accumulated edge pixels. The asserted bound for the approach is therefore 1.2 times the reset error, not the PR 2 error: a surface that moves along the view axis gives up history at its changing edge and converges to the spatial reconstruction. A previous-depth or depth-delta channel in `velocity.rs` would remove that loss; it is not part of this change. Two overlapping movers in opposite directions behave as designed: the nearer one's motion fills the overlap and the texels next to it in the dilated motion, the farther one's uncovered texel has confidence 0, and no value is non-finite.
+
+Policy and limits:
+
+* Sky and texels with no valid depth have confidence 1 (see above). The same holds when the camera block has no depth terms.
+* Masks and locks (reactive, transparency and composition masks, thin feature locks) arrive in later PRs of milestone 4. Until then dynamic content that does not write a residual relies on the camera term and the depth clip alone.
+* Motion coverage: terrain writes zero residual, which is correct. Water, dynamic quads, sky and celestial meshes write none, so they carry only the camera term. The depth clip rejects history where a covered surface moves in front of them, and nothing rejects history on a surface that moves in place.
+* The dilate pass does not apply the jitter to the camera term (sub-pixel).
+* All numbers are from static analytic scenes on lavapipe and, where stated, the Radeon 780M. GPU floating point results differ by 8 to 10% between the two, so every bound has a margin above that. The toward and away scene and the end-to-end camera tests were not run on the Radeon at the time of writing.
 
 #### Material mip bias
 

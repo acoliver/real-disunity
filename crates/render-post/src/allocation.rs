@@ -71,7 +71,9 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
 }
 /// The TAA history bank and the slot outputs. The history is shared by the three slots and
 /// counted once. Native TAA works on the render grid and keeps a linear-depth history for the
-/// disocclusion test. Temporal reconstruction works on the output grid and has no depth history.
+/// disocclusion test. Temporal reconstruction keeps its colour history on the output grid and
+/// has no depth history; its dilated depth, dilated motion and reconstructed depth are per slot
+/// at the render grid.
 fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrPostSettings) {
     if settings.resolve.active_taa().is_none() {
         return;
@@ -90,11 +92,45 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     let colour = crate::taa_gpu::FORMAT;
     set.texture("taa history", [w, h, 1], colour, [1, 1], 1);
     set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
-    if !temporal {
+    if temporal {
+        temporal_reconstruction_allocations(set, config.size);
+    } else {
         let depth = crate::taa_gpu::DEPTH_FORMAT;
         set.texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
         set.texture("taa depth output", [w, h, 1], depth, [1, 1], 3);
     }
+}
+/// What the temporal reconstruction passes write, per slot at the render extent `R`: the dilated
+/// depth, the dilated motion, the buffer the previous-coordinate depth is scattered into
+/// (4 bytes per texel) and the history confidence plane. They are written and read within one frame of a slot, so they are
+/// per-generation entries with no shared descriptor.
+fn temporal_reconstruction_allocations(set: &mut AllocationSet, [w, h]: [u32; 2]) {
+    set.texture(
+        "temporal dilated depth",
+        [w, h, 1],
+        crate::taa_reconstruct_gpu::DEPTH_FORMAT,
+        [1, 1],
+        3,
+    );
+    set.texture(
+        "temporal dilated motion",
+        [w, h, 1],
+        crate::taa_reconstruct_gpu::MOTION_FORMAT,
+        [1, 1],
+        3,
+    );
+    set.buffer(
+        "temporal reconstructed depth",
+        4 * u64::from(w) * u64::from(h),
+        3,
+    );
+    set.texture(
+        "temporal depth confidence",
+        [w, h, 1],
+        crate::taa_reconstruct_gpu::CONFIDENCE_FORMAT,
+        [1, 1],
+        3,
+    );
 }
 /// The display-linear intermediates between tone mapping and a spatial resolve or upscale: FXAA
 /// reads an `Rgba16Float` copy, the upscale and native RCAS read `Rgba32Float`.

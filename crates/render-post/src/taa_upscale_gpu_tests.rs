@@ -40,7 +40,8 @@ use crate::taa_upscale_gpu::{self, Inputs};
 use crate::temporal_upscale_reference::Temporal;
 use crate::{
     FrameConfig, FrameTargets, PostChain, PostError, Resources, Stage, StageFactory, StageId,
-    StageSet, StageTarget, TaaSettings, TemporalBlock, VELOCITY_FORMAT, color_texture,
+    StageSet, StageTarget, TaaSettings, TemporalBlock, TemporalCamera, VELOCITY_FORMAT,
+    color_texture,
 };
 
 const U: f64 = 1.0 / 16_777_216.0;
@@ -58,6 +59,7 @@ struct Case {
     history: Image,
     jitter: [f32; 2],
     motion: [f32; 2],
+    camera: TemporalCamera,
     valid: bool,
     weight: f32,
 }
@@ -68,6 +70,7 @@ impl Case {
             history: quantise(history),
             jitter: [0.3125, -0.4375],
             motion: [0.0; 2],
+            camera: TemporalCamera::NONE,
             valid: true,
             weight: 0.9,
         }
@@ -132,7 +135,10 @@ fn bytes16(pixels: &[[f32; 4]]) -> Vec<u8> {
 struct Stage1 {
     color: wgpu::TextureView,
     motion: wgpu::TextureView,
+    depth: wgpu::TextureView,
+    render: [u32; 2],
     uniform: wgpu::Buffer,
+    camera: wgpu::Buffer,
     history: wgpu::Texture,
     output: wgpu::Texture,
 }
@@ -150,7 +156,10 @@ impl StageFactory for Stage1 {
             &Inputs {
                 color: &self.color,
                 motion: &self.motion,
+                depth: &self.depth,
+                render: self.render,
                 uniform: &self.uniform,
+                camera: &self.camera,
                 history: &self.history,
                 output: &self.output,
             },
@@ -187,16 +196,12 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
     let color = sampled(&device, "color", render, taa_upscale_gpu::FORMAT);
     write_texture(&queue, &color, &bytes16(&case.color.pixels), 8);
     let motion = sampled(&device, "motion", render, VELOCITY_FORMAT);
-    let texel: Vec<u8> = case
+    let field: Vec<u8> = case
         .motion
         .iter()
         .flat_map(|v| f16_bits(*v).to_le_bytes())
-        .collect();
-    let field: Vec<u8> = texel
-        .iter()
-        .copied()
         .cycle()
-        .take(texel.len() * case.color.pixels.len())
+        .take(4 * case.color.pixels.len())
         .collect();
     write_texture(&queue, &motion, &field, 4);
     let history = taa_upscale_gpu::history(&device, output);
@@ -214,6 +219,12 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
         contents: &block.to_bytes().unwrap(),
         usage: wgpu::BufferUsages::UNIFORM,
     });
+    let depth = sampled(&device, "depth", render, wgpu::TextureFormat::Depth32Float);
+    let camera = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("temporal camera"),
+        contents: &case.camera.to_bytes(),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
     let target = taa_upscale_gpu::output(&device, output);
     let chain = PostChain::new(
         &device,
@@ -222,7 +233,10 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
         Stage1 {
             color: view(&color),
             motion: view(&motion),
+            depth: view(&depth),
+            render,
             uniform,
+            camera,
             history,
             output: target.clone(),
         },

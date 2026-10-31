@@ -104,6 +104,8 @@ mod smaa_tests;
 mod taa;
 #[cfg(test)]
 mod taa_allocation_tests;
+#[cfg(test)]
+mod taa_depth_clip_tests;
 mod taa_gpu;
 #[cfg(test)]
 mod taa_gpu_test_support;
@@ -111,6 +113,13 @@ mod taa_gpu_test_support;
 mod taa_gpu_tests;
 #[cfg(test)]
 mod taa_history_reference;
+#[cfg(test)]
+mod taa_overlapping_movers_tests;
+mod taa_reconstruct_gpu;
+#[cfg(test)]
+mod taa_reconstruct_gpu_tests;
+#[cfg(test)]
+mod taa_reconstruct_test_rig;
 #[cfg(test)]
 mod taa_reference;
 #[cfg(test)]
@@ -123,10 +132,31 @@ mod taa_velocity;
 mod temporal_block;
 #[cfg(test)]
 mod temporal_block_tests;
+mod temporal_camera;
+#[cfg(test)]
+mod temporal_camera_gpu_tests;
+#[cfg(test)]
+mod temporal_camera_tests;
+#[cfg(test)]
+mod temporal_depth_motion_scene;
+#[cfg(test)]
+mod temporal_depth_motion_tests;
+#[cfg(test)]
+mod temporal_disocclusion_scene;
+#[cfg(test)]
+mod temporal_disocclusion_tests;
+#[cfg(test)]
+mod temporal_dolly_scene;
+#[cfg(test)]
+mod temporal_dolly_tests;
 #[cfg(test)]
 mod temporal_quality_scene;
 #[cfg(test)]
 mod temporal_quality_tests;
+#[cfg(test)]
+mod temporal_reset_state_tests;
+#[cfg(test)]
+mod temporal_scene_test_rig;
 #[cfg(test)]
 mod temporal_upscale_reference;
 #[cfg(test)]
@@ -139,6 +169,7 @@ pub use jitter::ProjectionJitter;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 pub use taa::{TAA_UNIFORM_BYTES, TaaSettings, TaaUniform};
 pub use temporal_block::{TEMPORAL_BLOCK_BYTES, TemporalBlock};
+pub use temporal_camera::{TEMPORAL_CAMERA_BYTES, TemporalCamera};
 mod native_rcas;
 mod tone_map;
 pub use native_rcas::{NativeRcasSettings, RcasDomain};

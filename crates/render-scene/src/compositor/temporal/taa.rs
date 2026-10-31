@@ -11,7 +11,7 @@ use crate::compositor::FrameRenderer;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use worldrunner_render_post::{
     AttachmentView, FrameError, PostError, ResourceRef, TAA_UNIFORM_BYTES, TaaUniform,
-    ToneMapOutput,
+    TemporalCamera, ToneMapOutput,
 };
 
 /// The `(a, b)` of the linear view depth `b / (z - a)` of device depth `z`, read off the
@@ -68,7 +68,9 @@ impl FrameRenderer {
         let view = frame.and_then(|frame| frame.temporal.as_ref());
         let temporal = self.temporal_block(view);
         let mut history = self.temporal.borrow_mut();
-        history.pending_taa = view.map(|view| uniform(view).to_bytes());
+        let native = view.map(uniform);
+        history.pending_taa = native.map(TaaUniform::to_bytes);
+        history.pending_camera = native.as_ref().map(TemporalCamera::from);
         history.pending_temporal = temporal;
     }
 
@@ -145,6 +147,14 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), PostError> {
         if let Some(block) = self.pending_temporal_block() {
+            let camera = self.temporal.borrow().pending_camera;
+            #[cfg(test)]
+            let camera = camera.filter(|_| !self.temporal.borrow().camera_term_disabled);
+            factory.prepare_temporal_camera(
+                encoder,
+                self.frame_slot,
+                camera.unwrap_or(TemporalCamera::NONE),
+            );
             return factory.prepare_temporal(encoder, self.frame_slot, &block);
         }
         if self.taa_resident() {

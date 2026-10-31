@@ -88,11 +88,18 @@ impl<'a> Rig<'a> {
     }
 
     fn render_in_slot(&mut self, slot: usize) -> Vec<u8> {
+        self.render_from(slot, 0)
+    }
+
+    /// One frame in `slot` from a camera at `eye_x` millimetres.
+    fn render_from(&mut self, slot: usize, eye_x: i64) -> Vec<u8> {
         let device = self.context.device();
         let renderer = self.renderer.renderer_mut();
         renderer.select_frame_slot(slot);
         self.submitted += 1;
-        let prepared = renderer.prepare_uniform(frame(0, self.render[0])).unwrap();
+        let prepared = renderer
+            .prepare_uniform(frame(eye_x, self.render[0]))
+            .unwrap();
         let view = self
             .output
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -220,3 +227,93 @@ fn the_static_error_against_reset_every_frame_meets_the_design_ratio_at_each_sca
         );
     }
 }
+
+/// How a pan run treats the history.
+#[derive(Clone, Copy)]
+enum PanRun {
+    /// History kept, camera term uploaded.
+    WithCamera,
+    /// History kept, the camera upload forced to "no camera" (the object residual only).
+    WithoutCamera,
+    /// History reset before each frame: the spatial reconstruction alone.
+    ResetEachFrame,
+}
+
+/// Mean error over the frames after `WARM_FRAMES`, to the reference of each frame's camera, of a
+/// camera that moves `step_mm` per frame, for [`PanRun`] with the camera term, without it and
+/// with the history reset before each frame. All three run on the same device.
+fn pan_errors(context: &GpuContext, scale: u32, step_mm: i64) -> [f64; 3] {
+    let eyes: Vec<i64> = (0..PAN_FRAMES)
+        .map(|index| i64::try_from(index).unwrap() * step_mm)
+        .collect();
+    let references: Vec<Image> = eyes.iter().map(|&eye| supersampled(context, eye)).collect();
+    let run = |mode: PanRun| {
+        let mut rig = Rig::new(context, scale);
+        rig.renderer
+            .renderer_mut()
+            .force_no_camera_term(matches!(mode, PanRun::WithoutCamera));
+        let errors: Vec<f64> = eyes
+            .iter()
+            .zip(&references)
+            .map(|(&eye, reference)| {
+                if matches!(mode, PanRun::ResetEachFrame) {
+                    rig.renderer.reset_temporal_history();
+                }
+                let slot = rig.submitted % SLOTS;
+                error(&rig.render_from(slot, eye), reference)
+            })
+            .collect();
+        let late = &errors[WARM_FRAMES..];
+        late.iter().sum::<f64>() / f64::from(u32::try_from(late.len()).unwrap())
+    };
+    [
+        run(PanRun::WithCamera),
+        run(PanRun::WithoutCamera),
+        run(PanRun::ResetEachFrame),
+    ]
+}
+
+const PAN_FRAMES: usize = 40;
+const WARM_FRAMES: usize = 24;
+/// Camera steps per frame in millimetres, both directions. At this distance and field of view
+/// one output pixel is about 180 mm, so a step of 60 mm is about a third of a pixel, where the
+/// history of the wrong (zero) motion is visibly misaligned.
+const PAN_STEPS: [i64; 2] = [60, -60];
+/// With the camera term the error is at most this fraction of the error without it.
+const CAMERA_OVER_NONE_BOUND: f64 = 0.95;
+
+/// A camera pan with the temporal stage stays aligned with the native-resolution reference: the
+/// error with the camera term is clearly below the error of the same renderer with the camera
+/// upload forced to none, on one device, and no worse than the spatial reconstruction alone.
+///
+/// Measured on lavapipe at 60 mm steps, both signs, three scales: with over without 0.72 to
+/// 0.84, with over reset 0.62 to 0.81. With the upload forced to none in the with-camera run too
+/// the ratio is 1.000 and the test fails. The 0.95 limit leaves 0.11 over the worst measured
+/// ratio, more than the 8 to 10% platform spread. Larger steps (90 mm) do not widen the gap, the
+/// motion weight then discards the history.
+#[test]
+fn a_camera_pan_stays_aligned_with_the_native_resolution_reference() {
+    let context = context();
+    for scale in SCALES {
+        for step in PAN_STEPS {
+            let [with, without, reset] = pan_errors(&context, scale, step);
+            println!(
+                "scale {scale} step {step}: with {with:.5} without {without:.5} reset {reset:.5} \
+                 with/without {:.3} with/reset {:.3}",
+                with / without,
+                with / reset
+            );
+            assert!(with.is_finite() && without.is_finite() && reset.is_finite());
+            assert!(
+                with <= CAMERA_OVER_NONE_BOUND * without,
+                "{scale} {step}: with {with} without {without}"
+            );
+            assert!(
+                with <= PAN_RATIO_BOUND * reset,
+                "{scale} {step}: with {with} reset {reset}"
+            );
+        }
+    }
+}
+
+const PAN_RATIO_BOUND: f64 = 1.0;

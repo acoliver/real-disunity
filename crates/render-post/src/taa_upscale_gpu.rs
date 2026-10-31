@@ -1,9 +1,10 @@
 //! Schedules the temporal reconstruction stage. The shader is `taa_upscale.wgsl` after the shared
-//! `taa_common.wgsl` helpers.
+//! `taa_common.wgsl` helpers, after the reconstruction stages of `taa_reconstruct_gpu`.
 //!
 //! It reads the jittered current color at the internal extent `R` and writes the output extent
-//! `O`, then copies its result into the history. The uniform block is a [`crate::TemporalBlock`].
-use crate::{Stage, StageId, StageSet, StageTarget};
+//! `O`, then copies its result into the history. The uniform block is a [`crate::TemporalBlock`], the camera block, read by the reconstruction,
+//! a [`crate::TemporalCamera`].
+use crate::{Stage, StageId, StageSet, StageTarget, taa_reconstruct_gpu};
 
 /// Stage names, in execution order. Identities are stable for timing.
 pub const STAGES: [&str; 2] = ["temporal upscale", "temporal upscale history"];
@@ -57,18 +58,46 @@ fn texture(
 pub struct Inputs<'a> {
     /// Jittered scene color at `R`, [`FORMAT`].
     pub color: &'a wgpu::TextureView,
-    /// Total backward motion in uv units at `R`, [`crate::VELOCITY_FORMAT`].
+    /// Object residual of the backward motion in uv units at `R`, [`crate::VELOCITY_FORMAT`].
     pub motion: &'a wgpu::TextureView,
+    /// Single-sample device depth at `R`, standard Z.
+    pub depth: &'a wgpu::TextureView,
+    /// The internal extent `R`.
+    pub render: [u32; 2],
     pub uniform: &'a wgpu::Buffer,
+    /// A [`crate::TemporalCamera`] block.
+    pub camera: &'a wgpu::Buffer,
     /// [`history`] at `O`.
     pub history: &'a wgpu::Texture,
     /// [`output`] at `O`.
     pub output: &'a wgpu::Texture,
 }
 
-/// Appends "temporal upscale", which writes `inputs.output`, then "temporal upscale history",
-/// a texture copy of it into `inputs.history`.
-pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) {
+/// Appends the stages of [`taa_reconstruct_gpu`], "temporal upscale", which writes
+/// `inputs.output` from the total motion they produce, then "temporal upscale history", a texture
+/// copy of it into `inputs.history`. Returns the resources of the reconstruction stages, which the
+/// caller keeps alive with the set.
+pub fn append(
+    device: &wgpu::Device,
+    set: &mut StageSet,
+    inputs: &Inputs<'_>,
+) -> taa_reconstruct_gpu::Outputs {
+    let reconstructed = taa_reconstruct_gpu::append(
+        device,
+        set,
+        &taa_reconstruct_gpu::Inputs {
+            depth: inputs.depth,
+            motion: inputs.motion,
+            camera: inputs.camera,
+            size: inputs.render,
+        },
+    );
+    let motion = reconstructed
+        .motion
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let confidence = reconstructed
+        .confidence
+        .create_view(&wgpu::TextureViewDescriptor::default());
     let history = inputs
         .history
         .create_view(&wgpu::TextureViewDescriptor::default());
@@ -93,8 +122,9 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) {
         entries: &[
             entry(0, wgpu::BindingResource::TextureView(inputs.color)),
             entry(1, wgpu::BindingResource::TextureView(&history)),
-            entry(2, wgpu::BindingResource::TextureView(inputs.motion)),
+            entry(2, wgpu::BindingResource::TextureView(&motion)),
             entry(3, inputs.uniform.as_entire_binding()),
+            entry(4, wgpu::BindingResource::TextureView(&confidence)),
         ],
     });
     set.stages.push(Stage::fullscreen(
@@ -108,6 +138,7 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) {
         inputs.output,
         inputs.history,
     ));
+    reconstructed
 }
 
 fn pipeline(device: &wgpu::Device, module: &wgpu::ShaderModule) -> wgpu::RenderPipeline {

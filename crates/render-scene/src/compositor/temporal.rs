@@ -34,15 +34,21 @@ pub(crate) struct TemporalHistory {
     pending_taa: Option<[u8; worldrunner_render_post::TAA_UNIFORM_BYTES]>,
     /// Temporal block of the last encoded frame under reduced temporal reconstruction.
     pending_temporal: Option<worldrunner_render_post::TemporalBlock>,
+    /// Camera term of the last encoded frame, the same reprojection as `pending_taa`.
+    pending_camera: Option<worldrunner_render_post::TemporalCamera>,
     /// Test harnesses compare a configuration against the same one with the bias forced.
     #[cfg(test)]
     mip_bias_override: Option<f32>,
+    /// Test harnesses compare a configuration against the same one without the camera term.
+    #[cfg(test)]
+    camera_term_disabled: bool,
 }
 
 impl TemporalHistory {
     fn reset(&mut self) {
         self.previous = None;
         self.pending_temporal = None;
+        self.pending_camera = None;
         self.frame_index = 0;
         self.epoch += 1;
     }
@@ -99,6 +105,11 @@ impl FrameRenderer {
     #[cfg(test)]
     pub(crate) fn force_material_mip_bias(&self, bias: Option<f32>) {
         self.temporal.borrow_mut().mip_bias_override = bias;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn force_no_camera_term(&self, disabled: bool) {
+        self.temporal.borrow_mut().camera_term_disabled = disabled;
     }
 
     /// Discards the previous-frame camera, for camera cuts and capture restarts.

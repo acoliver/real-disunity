@@ -62,7 +62,14 @@ fn temporal_mode_schedules_the_reconstruction_instead_of_the_native_resolve() {
         let names: Vec<_> = set.stages.iter().map(|s| s.id.name).collect();
         assert_eq!(
             names,
-            ["temporal upscale", "temporal upscale history", "tone"]
+            [
+                "temporal depth clear",
+                "temporal reconstruct dilate",
+                "temporal depth clip",
+                "temporal upscale",
+                "temporal upscale history",
+                "tone"
+            ]
         );
     }
 }
@@ -75,17 +82,48 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
     let history = shared(&sets);
     assert_eq!(history.len(), 1, "one colour history, no depth history");
     for set in &sets {
-        assert_eq!(set.resources.textures.len(), 2, "output and history only");
-        for texture in &set.resources.textures {
+        assert_eq!(
+            set.resources.textures.len(),
+            5,
+            "output, history, dilated depth, dilated motion and confidence"
+        );
+        let at_output: Vec<_> = set
+            .resources
+            .textures
+            .iter()
+            .filter(|t| (t.width(), t.height()) == (16, 16))
+            .collect();
+        assert_eq!(
+            at_output.len(),
+            2,
+            "output and history are the output extent"
+        );
+        for texture in at_output {
             assert_eq!(texture.format(), crate::taa_upscale_gpu::FORMAT);
-            assert_eq!((texture.width(), texture.height()), (16, 16));
         }
+        for texture in set
+            .resources
+            .textures
+            .iter()
+            .filter(|t| (t.width(), t.height()) == (10, 10))
+        {
+            assert!(
+                [
+                    crate::taa_reconstruct_gpu::DEPTH_FORMAT,
+                    crate::taa_reconstruct_gpu::MOTION_FORMAT,
+                    crate::taa_reconstruct_gpu::CONFIDENCE_FORMAT
+                ]
+                .contains(&texture.format()),
+                "the reconstruction targets are the render extent"
+            );
+        }
+        assert_eq!(set.resources.buffers.len(), 1, "the reconstructed depth");
     }
     let outputs: Vec<_> = sets.iter().flat_map(|s| &s.resources.textures).collect();
     assert_eq!(
         outputs.iter().filter(|t| !history.contains(t)).count(),
-        3,
-        "each slot owns its output"
+        12,
+        "each slot owns its output, dilated depth, dilated motion and confidence"
     );
 }
 
@@ -283,11 +321,11 @@ fn every_stage_of_a_temporal_chain_is_sized_by_the_output_extent() {
             })
             .expect("a metering dispatch");
         assert_eq!(histogram, [3, 3, 1], "ceil(24 / 8), not ceil(14 / 8) = 2");
-        // Reconstruction output and history, the display-linear input of RCAS, CAS input and the
+        // The reconstruction targets at the render extent 14, reconstruction output and history, the display-linear input of RCAS, CAS input and the
         // first bloom level are full size; the other bloom levels halve from 24, never from 14.
         for texture in &set.resources.textures {
             let side = texture.width();
-            assert!([24, 12, 6].contains(&side), "a texture of side {side}");
+            assert!([24, 14, 12, 6].contains(&side), "a texture of side {side}");
         }
         assert!(
             set.resources

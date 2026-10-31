@@ -19,17 +19,17 @@ use crate::temporal_quality_scene as scene;
 use crate::upscale_tests::reference::Image;
 use crate::{
     FrameConfig, FrameTargets, PostChain, PostError, ProjectionJitter, RenderScale, Resources,
-    StageFactory, StageSet, TaaSettings, TemporalBlock, ToneMapOutput,
+    StageFactory, StageSet, TaaSettings, TemporalBlock, TemporalCamera, ToneMapOutput,
 };
 
-const OUTPUT: [u32; 2] = [160, 96];
+pub(crate) const OUTPUT: [u32; 2] = [160, 96];
 const BORDER: usize = 2;
 const EDGE_BAND: f64 = 2.0;
 
 /// The public factory, which also keeps the reconstruction output of slot 0 so the test can read HDR.
-struct Recording {
-    inner: ToneMapOutput,
-    output: Arc<Mutex<Option<wgpu::Texture>>>,
+pub(crate) struct Recording {
+    pub(crate) inner: ToneMapOutput,
+    pub(crate) output: Arc<Mutex<Option<wgpu::Texture>>>,
 }
 
 impl StageFactory for Recording {
@@ -70,7 +70,7 @@ impl StageFactory for Recording {
     }
 }
 
-struct Rig {
+pub(crate) struct Rig {
     device: wgpu::Device,
     queue: wgpu::Queue,
     chain: PostChain<Recording>,
@@ -78,11 +78,11 @@ struct Rig {
     sink: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
     render: [u32; 2],
-    jitter: ProjectionJitter,
+    pub(crate) jitter: ProjectionJitter,
 }
 
 impl Rig {
-    fn new(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2]) -> Self {
+    pub(crate) fn new(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2]) -> Self {
         let (device, queue) = gpu.clone();
         let config = FrameConfig::new(OUTPUT, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
@@ -162,7 +162,24 @@ impl Rig {
 
     /// Runs frame `index` of the jitter sequence. Motion is the zero-initialised velocity target.
     fn frame(&self, index: u64, history_valid: bool) {
+        self.frame_panned(index, history_valid, ([0.0; 2], None));
+    }
+
+    /// Frame `index` with the image content shifted by `pan` canvas pixels, +x right and +y down,
+    /// as a camera pan would: the content at output position `p` is the scene at `p + pan`. The
+    /// camera term is uploaded when given, otherwise the slot keeps the zeroed block of a stage
+    /// that never heard of one.
+    pub(crate) fn frame_panned(
+        &self,
+        index: u64,
+        history_valid: bool,
+        (pan, camera): ([f64; 2], Option<TemporalCamera>),
+    ) {
         let offset = self.jitter.offset_pixels(index);
+        let per_canvas = |axis: usize| f64::from(self.render[axis]) / scene::CANVAS[axis];
+        #[expect(clippy::cast_possible_truncation, reason = "the GPU block is f32")]
+        let painted =
+            [0, 1].map(|axis| (f64::from(offset[axis]) - pan[axis] * per_canvas(axis)) as f32);
         let block = TemporalBlock {
             render: self.render,
             output: OUTPUT,
@@ -174,8 +191,11 @@ impl Rig {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.paint(&mut encoder, offset);
+        self.paint(&mut encoder, painted);
         let factory = &self.chain.factory().inner;
+        if let Some(camera) = camera {
+            factory.prepare_temporal_camera(&mut encoder, 0, camera);
+        }
         factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
         factory
             .prepare_effects(&mut encoder, 0, 0.031, true)
@@ -188,7 +208,7 @@ impl Rig {
     }
 
     /// The HDR reconstruction of the last frame, mean of the three colour channels per pixel.
-    fn image(&self) -> Vec<f64> {
+    pub(crate) fn image(&self) -> Vec<f64> {
         read((&self.device, &self.queue), &self.hdr)
             .iter()
             .map(|p| (p[0] + p[1] + p[2]) / 3.0)
@@ -197,12 +217,17 @@ impl Rig {
 }
 
 /// Box filtered truth at the output grid and the pixels that sit near a discontinuity.
-struct Truth {
+pub(crate) struct Truth {
     value: Vec<f64>,
     near_edge: Vec<bool>,
 }
 
 fn truth() -> Truth {
+    truth_panned([0.0; 2])
+}
+
+/// The box filtered image of the scene shifted by `pan` canvas pixels.
+pub(crate) fn truth_panned(pan: [f64; 2]) -> Truth {
     const SUB: u32 = 4;
     let (mut value, mut near_edge) = (Vec::new(), Vec::new());
     for y in 0..OUTPUT[1] {
@@ -211,11 +236,11 @@ fn truth() -> Truth {
             for j in 0..SUB {
                 for i in 0..SUB {
                     let at = |pixel: u32, sub: u32| f64::from(pixel) + (f64::from(sub) + 0.5) / 4.0;
-                    sum += scene::value([at(x, i), at(y, j)]);
+                    sum += scene::value([at(x, i) + pan[0], at(y, j) + pan[1]]);
                 }
             }
             value.push(sum / f64::from(SUB * SUB));
-            let centre = [f64::from(x) + 0.5, f64::from(y) + 0.5];
+            let centre = [f64::from(x) + 0.5 + pan[0], f64::from(y) + 0.5 + pan[1]];
             near_edge.push(scene::edge_distance(centre) <= EDGE_BAND);
         }
     }
@@ -224,13 +249,13 @@ fn truth() -> Truth {
 
 /// Mean absolute error over the region of interest, split by distance to an edge.
 #[derive(Clone, Copy, Debug, Default)]
-struct Errors {
-    all: f64,
-    edges: f64,
-    interior: f64,
+pub(crate) struct Errors {
+    pub(crate) all: f64,
+    pub(crate) edges: f64,
+    pub(crate) interior: f64,
 }
 
-fn errors(truth: &Truth, image: &[f64]) -> Errors {
+pub(crate) fn errors(truth: &Truth, image: &[f64]) -> Errors {
     let width = usize::try_from(OUTPUT[0]).unwrap();
     let height = usize::try_from(OUTPUT[1]).unwrap();
     let mut sums = [(0.0, 0_u32); 2];

@@ -367,7 +367,7 @@ impl World {
             .mutations
             .keys()
             .copied()
-            .filter(|id| !self.lifecycle.unpublished.contains_key(id))
+            .filter(|&id| !self.lifecycle.unpublished.contains_key(id))
             .collect();
         let batches: Vec<_> = ready
             .into_iter()

@@ -25,9 +25,7 @@ impl World {
     pub fn begin_construction(&mut self) -> Result<Construction, WorldError> {
         self.ensure_allocation_allowed()?;
         let mutation = self.reserve_mutation()?;
-        self.lifecycle
-            .unpublished
-            .insert(mutation.sequence, Vec::new());
+        self.lifecycle.unpublished.open(mutation.sequence);
         Ok(Construction(mutation))
     }
 
@@ -39,11 +37,11 @@ impl World {
     ) -> Result<ObjectHandle, WorldError> {
         self.open_construction(construction)?;
         let object = self.create_object(desc)?;
-        self.lifecycle
+        let pushed = self
+            .lifecycle
             .unpublished
-            .get_mut(&construction.0.sequence)
-            .expect("validated construction")
-            .push(object);
+            .push(construction.0.sequence, object);
+        debug_assert!(pushed, "validated construction");
         Ok(object)
     }
 
@@ -54,7 +52,7 @@ impl World {
         let nodes = self
             .lifecycle
             .unpublished
-            .remove(&construction.0.sequence)
+            .remove(construction.0.sequence)
             .expect("validated construction");
         let live: Vec<_> = nodes
             .into_iter()
@@ -91,7 +89,7 @@ impl World {
         if started {
             return Err(WorldError::NotReady);
         }
-        self.lifecycle.unpublished.remove(&construction.0.sequence);
+        self.lifecycle.unpublished.remove(construction.0.sequence);
         self.lifecycle.mutations.remove(&construction.0.sequence);
         for object in nodes {
             self.retire_subtree(object);
@@ -105,8 +103,7 @@ impl World {
         }
         self.lifecycle
             .unpublished
-            .get(&construction.0.sequence)
-            .map(Vec::as_slice)
+            .get(construction.0.sequence)
             .ok_or(WorldError::WrongMutation)
     }
 }

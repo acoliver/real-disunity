@@ -486,6 +486,10 @@ impl ConfiguredFrameRenderer {
             history,
         })
     }
+    #[cfg(test)]
+    pub(super) fn renderer_mut(&mut self) -> &mut FrameRenderer {
+        self.state.current_mut()
+    }
     pub fn configuration(&self) -> &RendererConfiguration {
         &self.settings
     }

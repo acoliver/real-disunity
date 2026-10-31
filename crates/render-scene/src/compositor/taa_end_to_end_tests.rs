@@ -21,19 +21,19 @@ use worldrunner_render_post::{
     SmaaPreset, TaaSettings, ToneMap,
 };
 
-const SIZE: u32 = 64;
+pub(super) const SIZE: u32 = 64;
 const SCALE: u32 = 4;
 const WIDTH: usize = 64;
 const FACTOR: usize = 4;
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-const OUTPUT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub(super) const OUTPUT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// Frames submitted before the converged image is read.
 const FRAMES: usize = 32;
 /// Camera travel per frame, in millimetres: about 0.27 px on the triangle (8 m away), 0.11 px on the wall.
 const STEP_MM: i64 = 41;
 const SLOTS: usize = 3;
 
-type Image = Vec<[f64; 3]>;
+pub(super) type Image = Vec<[f64; 3]>;
 
 /// World space is x right, y forward, z up. The wall is 20 m from the camera, the triangle 8 m.
 const SCENE_SHADER: &str = "
@@ -58,7 +58,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) colour: vec3<f
 @fragment fn fs(in: Out) -> @location(0) vec4<f32> { return vec4(in.colour, 1.0); }
 ";
 
-fn context() -> GpuContext {
+pub(super) fn context() -> GpuContext {
     pollster::block_on(GpuContext::request()).unwrap()
 }
 
@@ -75,7 +75,7 @@ fn supported(context: &GpuContext, samples: MsaaSamples) -> bool {
 }
 
 /// A camera at `eye_x` looking along +y; the target moves with the eye so the view only translates.
-fn frame(eye_x: i64, size: u32) -> FrameUniform {
+pub(super) fn frame(eye_x: i64, size: u32) -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [eye_x, -10_000, 1_700],
@@ -95,18 +95,18 @@ fn frame(eye_x: i64, size: u32) -> FrameUniform {
     FrameUniform::unlit(&view)
 }
 
-struct Scene {
+pub(super) struct Scene {
     pipeline: wgpu::RenderPipeline,
 }
 
-struct Target<'a> {
-    color: &'a wgpu::TextureView,
-    resolve: Option<&'a wgpu::TextureView>,
-    depth: &'a wgpu::TextureView,
+pub(super) struct Target<'a> {
+    pub(super) color: &'a wgpu::TextureView,
+    pub(super) resolve: Option<&'a wgpu::TextureView>,
+    pub(super) depth: &'a wgpu::TextureView,
 }
 
 impl Scene {
-    fn new(device: &wgpu::Device, samples: u32) -> Self {
+    pub(super) fn new(device: &wgpu::Device, samples: u32) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("taa end to end scene"),
             source: wgpu::ShaderSource::Wgsl(SCENE_SHADER.into()),
@@ -144,7 +144,7 @@ impl Scene {
         Self { pipeline }
     }
 
-    fn draw(
+    pub(super) fn draw(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
@@ -211,7 +211,7 @@ fn half_to_f32(bits: u16) -> f32 {
     }
 }
 
-fn decode_output(bytes: &[u8]) -> Image {
+pub(super) fn decode_output(bytes: &[u8]) -> Image {
     bytes
         .chunks_exact(4)
         .map(|texel| [0, 1, 2].map(|lane| f64::from(texel[lane]) / 255.0))
@@ -232,7 +232,11 @@ fn decode_hdr(bytes: &[u8]) -> Image {
         .collect()
 }
 
-fn texture(device: &wgpu::Device, size: u32, format: wgpu::TextureFormat) -> wgpu::Texture {
+pub(super) fn texture(
+    device: &wgpu::Device,
+    size: u32,
+    format: wgpu::TextureFormat,
+) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("taa end to end texture"),
         size: wgpu::Extent3d {
@@ -349,7 +353,7 @@ fn tone_map(image: Image) -> Image {
 }
 
 /// The scene at `SCALE` times the resolution, unjittered, box-averaged in HDR and tone mapped.
-fn supersampled(context: &GpuContext, eye_x: i64) -> Image {
+pub(super) fn supersampled(context: &GpuContext, eye_x: i64) -> Image {
     let device = context.device();
     let big = SIZE * SCALE;
     let color = texture(device, big, HDR);
@@ -391,7 +395,7 @@ fn count(n: usize) -> f64 {
     f64::from(u32::try_from(n).unwrap())
 }
 
-fn mean_abs_error(a: &Image, b: &Image) -> f64 {
+pub(super) fn mean_abs_error(a: &Image, b: &Image) -> f64 {
     assert_eq!(a.len(), b.len());
     let total: f64 = a
         .iter()

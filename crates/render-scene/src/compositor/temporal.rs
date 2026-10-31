@@ -192,3 +192,7 @@ mod tests;
 #[cfg(test)]
 #[path = "taa_end_to_end_tests.rs"]
 mod taa_end_to_end_tests;
+
+#[cfg(test)]
+#[path = "temporal_upscale_end_to_end_tests.rs"]
+mod temporal_upscale_end_to_end_tests;

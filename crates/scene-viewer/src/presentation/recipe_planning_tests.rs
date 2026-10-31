@@ -3,8 +3,10 @@ use worldrunner_render_gpu::configuration::AllocationBudgetPolicy;
 
 #[test]
 fn endpoint_seed_storage_reaches_presentation_plan_and_derived_budget() {
+    use SceneWaterSeedCoordinates::{EndpointClamped, Repeat};
+    use SceneWaterSeedSampling::{Fragment, Vertex};
     use worldrunner_render_plan::{
-        SceneWaterFlowCoordinates, SceneWaterSeedCoordinates, TextureHandle,
+        SceneWaterFlowCoordinates, SceneWaterSeedCoordinates, SceneWaterSeedSampling, TextureHandle,
     };
     let scene = crate::tests::scene(true);
     let effects = scene.effects().unwrap();
@@ -24,10 +26,13 @@ fn endpoint_seed_storage_reaches_presentation_plan_and_derived_budget() {
         cap_bytes: None,
     };
     let mut totals = Vec::new();
-    for mode in [
-        SceneWaterSeedCoordinates::Repeat,
-        SceneWaterSeedCoordinates::EndpointClamped,
+    for (mode, stage) in [
+        (Repeat, Fragment),
+        (EndpointClamped, Fragment),
+        (Repeat, Vertex),
+        (EndpointClamped, Vertex),
     ] {
+        body.material.flow_seed_sampling = stage;
         body.material.flow_coordinates = Some(SceneWaterFlowCoordinates {
             origin_millimeters: [0; 2],
             tile_millimeters: [1000; 2],
@@ -54,6 +59,7 @@ fn endpoint_seed_storage_reaches_presentation_plan_and_derived_budget() {
         totals.push(required);
     }
     assert_eq!(totals[1], totals[0] + 48);
+    assert_eq!(&totals[..2], &totals[2..]);
 }
 
 #[test]

@@ -36,6 +36,10 @@ mod seed_tests;
 mod shoreline_tests;
 #[path = "terms_tests.rs"]
 mod terms_tests;
+#[path = "vertex_seed_gpu_tests.rs"]
+mod vertex_seed_gpu_tests;
+#[path = "vertex_seed_tests.rs"]
+mod vertex_seed_tests;
 #[path = "wind_clock_tests.rs"]
 mod wind_clock_tests;
 

@@ -51,6 +51,15 @@ pub enum SceneWaterSeedCoordinates {
     EndpointClamped,
 }
 
+/// Stage at which raw unorm flow seeds are sampled, before fragment shaping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneWaterSeedSampling {
+    #[default]
+    Fragment,
+    /// Sample mip zero at mesh vertices and perspective-interpolate raw values.
+    Vertex,
+}
+
 /// Planar seed coordinates independent of the normal map's world-space repetition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneWaterFlowCoordinates {
@@ -98,13 +107,7 @@ pub(super) fn validate(settings: &SceneWaterSettings) -> Result<(), SceneValidat
             10_000_000,
         )?;
     }
-    if let Some(coordinates) = settings.flow_coordinates
-        && (coordinates.tile_millimeters.contains(&0) || settings.flow.is_none())
-    {
-        return Err(SceneValidationError::UnsupportedInput {
-            part: "water flow coordinates require positive tiles and a flow map",
-        });
-    }
+    validate_seeds(settings)?;
     if let Some(wind) = settings.wind {
         require_range(
             "water wind amplitude",
@@ -126,9 +129,61 @@ pub(super) fn validate(settings: &SceneWaterSettings) -> Result<(), SceneValidat
     Ok(())
 }
 
+fn validate_seeds(settings: &SceneWaterSettings) -> Result<(), SceneValidationError> {
+    if settings.flow_seed_sampling == super::SceneWaterSeedSampling::Vertex
+        && settings.flow.is_none()
+    {
+        return Err(SceneValidationError::UnsupportedInput {
+            part: "vertex water seeds require a flow map",
+        });
+    }
+    if let Some(coordinates) = settings.flow_coordinates
+        && (coordinates.tile_millimeters.contains(&0) || settings.flow.is_none())
+    {
+        return Err(SceneValidationError::UnsupportedInput {
+            part: "water flow coordinates require positive tiles and a flow map",
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn seed_sampling_stage_defaults_to_fragment_and_vertex_requires_flow() {
+        use super::super::{SceneWaterSeedSampling, TextureHandle};
+        let mut settings = SceneWaterSettings::STOCK;
+        assert_eq!(
+            settings.flow_seed_sampling,
+            SceneWaterSeedSampling::Fragment
+        );
+        assert_eq!(
+            SceneWaterSeedSampling::default(),
+            SceneWaterSeedSampling::Fragment
+        );
+        settings.flow_seed_sampling = SceneWaterSeedSampling::Vertex;
+        assert!(matches!(
+            validate(&settings),
+            Err(SceneValidationError::UnsupportedInput {
+                part: "vertex water seeds require a flow map",
+            })
+        ));
+        settings.flow = Some(TextureHandle::from_raw(0));
+        assert!(validate(&settings).is_ok());
+        for mode in [
+            SceneWaterSeedCoordinates::Repeat,
+            SceneWaterSeedCoordinates::EndpointClamped,
+        ] {
+            settings.flow_coordinates = Some(SceneWaterFlowCoordinates {
+                origin_millimeters: [0; 2],
+                tile_millimeters: [10_000; 2],
+                mode,
+            });
+            assert!(validate(&settings).is_ok());
+        }
+    }
+
     #[test]
     fn seed_modes_require_flow_and_positive_domain_extents() {
         assert_eq!(

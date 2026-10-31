@@ -82,3 +82,23 @@ fn endpoint_budget_counts_empty_seed_placeholder() {
     body.material.flow_coordinates.as_mut().unwrap().mode = SceneWaterSeedCoordinates::Repeat;
     assert_eq!(endpoint, required(&configuration(body), &context) + 8);
 }
+
+#[test]
+fn vertex_seed_budget_matches_allocated_bytes_for_both_address_modes() {
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    for mode in [
+        SceneWaterSeedCoordinates::Repeat,
+        SceneWaterSeedCoordinates::EndpointClamped,
+    ] {
+        let mut body = seed_tests::body(mode);
+        let fragment = required(&configuration(body.clone()), &context);
+        body.material.flow_seed_sampling = worldrunner_render_plan::SceneWaterSeedSampling::Vertex;
+        let vertices = geometry::vertices(&body).unwrap();
+        let coordinates = endpoint::coordinates(&body);
+        let allocated = Body::new(context.device(), &vertices, coordinates.as_deref());
+        let (positions, seeds) = geometry::allocation_sizes(&body);
+        assert_eq!(positions, allocated.buffer.size());
+        assert_eq!(seeds, allocated.seed.as_ref().map(wgpu::Buffer::size));
+        assert_eq!(required(&configuration(body), &context), fragment);
+    }
+}

@@ -1,6 +1,6 @@
 //! Schedules "temporal create locks", the compute pass at the internal extent `R` that marks
-//! thin-feature candidates, see `taa_thin.wgsl`. Only tests build it until the lock state at the
-//! output extent exists to consume the field.
+//! thin-feature candidates, see `taa_thin.wgsl`. The temporal upscale pass gathers the field to the
+//! output extent.
 use crate::{Operation, Stage, StageId};
 
 /// Stage name.

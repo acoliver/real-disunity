@@ -310,3 +310,72 @@ fn radiance_scale_keeps_outputs_sane() {
         }
     }
 }
+
+/// Lock-on image of the frame after `warm` warm-up frames of a 0.1 px per frame pan, then either
+/// the next valid frame (`reset` false) or a reset frame (`reset` true), then one more valid frame.
+/// Returns the images of the frame at `warm` and of the frame at `warm + 1`.
+fn after_warmup(
+    gpu: &(wgpu::Device, wgpu::Queue),
+    fixture: &Fixture,
+    reset: bool,
+) -> [Vec<f64>; 2] {
+    let _on = crate::taa_upscale_gpu::WithLocks::new();
+    let rig = rig_at(gpu, 670_000, fixture);
+    let warm = 2 * u64::from(rig.jitter.length());
+    for index in 0..warm {
+        frame(&rig, index, index > 0, 0.1, 1.0);
+    }
+    frame(&rig, warm, !reset, 0.1, 1.0);
+    let first = rig.image();
+    frame(&rig, warm + 1, true, 0.1, 1.0);
+    [first, rig.image()]
+}
+
+/// A reset discards the lock bank and the reference luma it carries: the first frame after the
+/// reset equals the first frame of a fresh chain, and so does the next one, which reads the lock
+/// state the reset frame wrote. Byte identity of two runs of the same code on one device. The
+/// comparison is not vacuous: without the reset the same frames differ from the fresh chain.
+#[test]
+fn a_reset_clears_the_lock_and_reference_luma_state() {
+    let gpu = crate::gpu_tests::gpu();
+    for fixture in fixtures()
+        .into_iter()
+        .filter(|f| f.name == "wire 45" || f.name == "grid")
+    {
+        let continued = after_warmup(&gpu, &fixture, false);
+        let reset = after_warmup(&gpu, &fixture, true);
+        let _on = crate::taa_upscale_gpu::WithLocks::new();
+        let fresh_rig = rig_at(&gpu, 670_000, &fixture);
+        let warm = 2 * u64::from(fresh_rig.jitter.length());
+        frame(&fresh_rig, warm, false, 0.1, 1.0);
+        let first = fresh_rig.image();
+        frame(&fresh_rig, warm + 1, true, 0.1, 1.0);
+        let second = fresh_rig.image();
+        assert_eq!(reset[0], first, "{}: reset frame", fixture.name);
+        assert_eq!(reset[1], second, "{}: frame after the reset", fixture.name);
+        assert_ne!(continued[0], first, "{}: history matters", fixture.name);
+        assert_ne!(continued[1], second, "{}: lock state matters", fixture.name);
+    }
+}
+
+/// The locks change the image of a warmed chain: the lock-on and lock-off pipelines differ after
+/// the same frames on the same device, so the lock path is live, not a copy of the PR 4 path.
+#[test]
+fn locks_change_the_accumulated_image_of_a_thin_feature() {
+    let gpu = crate::gpu_tests::gpu();
+    let fixture = fixtures()
+        .into_iter()
+        .find(|f| f.name == "wire 45")
+        .unwrap();
+    let locked = after_warmup(&gpu, &fixture, false);
+    let unlocked = {
+        let _off = crate::taa_upscale_gpu::WithoutLocks::new();
+        let rig = rig_at(&gpu, 670_000, &fixture);
+        let warm = 2 * u64::from(rig.jitter.length());
+        for index in 0..=warm {
+            frame(&rig, index, index > 0, 0.1, 1.0);
+        }
+        rig.image()
+    };
+    assert_ne!(locked[0], unlocked);
+}

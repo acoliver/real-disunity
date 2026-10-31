@@ -448,11 +448,31 @@ Passes of a temporal slot, in order (each a `StageSet` stage):
 3. `temporal depth clip`: compares the linear depth (`b / (z - a)` from `TemporalCamera::depth_terms`)
    of each texel with the nearest depth that reached its history position; confidence exactly 0 or 1.
    No valid depth (sky, cleared) or no depth terms: 1. History outside the frame or unreached: 0.
-4. `temporal upscale`: reads the dilated motion and the minimum confidence of the 2x2 texels around its sample
-   position, which scales the history weight.
-5. `temporal upscale history`: the shared history copy.
+4. `temporal create locks` (`taa_thin.wgsl`, compute at R): marks one texel thin features, texels whose
+   luminance (`y / (1 + y)` of the Rec. 709 sum) differs from both neighbours of one of four axes by at
+   least 1/16 while the two neighbours agree within a quarter of the smaller contrast. `Rg32Float`
+   (strength, luminance), 8R bytes per slot; the one texel border writes 0.
+5. `temporal upscale`: reads the dilated motion and the minimum confidence of the 2x2 texels around its sample
+   position, which scales the history weight. It also gathers the strongest candidate of those 2x2 texels
+   (0 at confidence 0, which includes failed depth, and at nonfinite motion), reprojects the lock bank with
+   the total motion (exact texel load), and writes the new lock bank next to the colour (two colour
+   attachments). A lock is killed by an unusable history (reset, outside the frame), confidence 0, or a
+   one frame jump of the 3x3 neighbourhood luminance larger than the contrast stored with the lock; it
+   lives one jitter cycle (`phase_count` frames) after its last candidate. A locked texel halves the share
+   of the new sample (`w` becomes `1 - (1 - w) / 2`); `history_weight == 0` stays 0. The `Rgba16Float` lock
+   bank holds frames left, reference luminance, contrast and one unused lane, 8O bytes per image (two 16
+   bit float channels are not a core storage format).
+6. `temporal upscale history` and `temporal lock history`: the shared history copies of colour and locks.
 
-The test-only switches `taa_reconstruct_gpu::WithoutDilation` and `WithoutClip` (thread-local guards over
+Lock state costs, measured by `taa_allocation_tests`: candidates 8R per slot, lock bank 8O per slot and one
+shared lock history 8O, so 24R + 32O bytes with three slots (the design counted 16O for two 16 bit channels).
+
+**The locks ship off** (`taa_upscale_gpu::LOCKS_DEFAULT` is `false`, the `locks` pipeline override of the
+shader). The first measurement did not meet rule 1 of the coordinator (lock-on ROI error at most 0.90
+times the lock-off error on the 18 designated cases): the ratios were 0.95 to 1.02. Rules 2 and 3 held.
+The plumbing, allocation, reset behaviour and tests ship; the feature stays off until it is re-measured.
+
+The test-only switches `taa_upscale_gpu::WithLocks`, `WithoutLocks`, `taa_reconstruct_gpu::WithoutDilation` and `WithoutClip` (thread-local guards over
 pipeline-overridable constants; production passes the defaults) recompute the PR 2 path on the same device
 for the comparison tests. Third-party material: nothing is ported; the stages follow the design text only.
 

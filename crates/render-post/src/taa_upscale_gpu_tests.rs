@@ -141,6 +141,8 @@ struct Stage1 {
     camera: wgpu::Buffer,
     history: wgpu::Texture,
     output: wgpu::Texture,
+    lock_history: wgpu::Texture,
+    lock_bank: wgpu::Texture,
 }
 impl StageFactory for Stage1 {
     fn build(
@@ -162,6 +164,8 @@ impl StageFactory for Stage1 {
                 camera: &self.camera,
                 history: &self.history,
                 output: &self.output,
+                lock_history: &self.lock_history,
+                lock_bank: &self.lock_bank,
             },
         );
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -239,6 +243,8 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
             camera,
             history,
             output: target.clone(),
+            lock_history: taa_upscale_gpu::lock_history(&device, output),
+            lock_bank: taa_upscale_gpu::lock_bank(&device, output),
         },
     )
     .unwrap();

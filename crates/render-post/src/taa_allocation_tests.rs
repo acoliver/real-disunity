@@ -62,6 +62,16 @@ fn native_taa_history_is_single_sampled_with_msaa_scene_targets() {
     assert_eq!(taa_bytes(config(4), None), taa_bytes(config(1), None));
 }
 
+/// The thin-feature lock state, measured: `Rg32Float` candidates at `R` per slot (8R), an
+/// `Rgba16Float` lock bank at `O` per slot (8O) and one shared lock history (8O). The bank and the history
+/// are 8O each, 32O with three slots, not the 16O the design counted for two 16 bit channels.
+fn lock_bytes() -> u64 {
+    let candidates = texels(RENDER) * 2 * FLOAT_R * SLOTS;
+    let bank = texels(OUTPUT) * HALF_RGBA * SLOTS;
+    let history = texels(OUTPUT) * HALF_RGBA;
+    candidates + bank + history
+}
+
 #[test]
 fn temporal_taa_counts_output_sized_history_once_and_render_sized_reconstruction_per_slot() {
     let shared = texels(OUTPUT) * HALF_RGBA;
@@ -74,7 +84,7 @@ fn temporal_taa_counts_output_sized_history_once_and_render_sized_reconstruction
         (dilated_depth + dilated_motion + reconstructed_depth + confidence) * SLOTS;
     assert_eq!(
         taa_bytes(config(1), Some(UpscaleMode::Temporal)),
-        shared + per_slot_output + per_slot_reconstruction
+        shared + per_slot_output + per_slot_reconstruction + lock_bytes()
     );
 }
 

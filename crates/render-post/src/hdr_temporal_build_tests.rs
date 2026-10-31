@@ -66,8 +66,10 @@ fn temporal_mode_schedules_the_reconstruction_instead_of_the_native_resolve() {
                 "temporal depth clear",
                 "temporal reconstruct dilate",
                 "temporal depth clip",
+                "temporal create locks",
                 "temporal upscale",
                 "temporal upscale history",
+                "temporal lock history",
                 "tone"
             ]
         );
@@ -80,12 +82,16 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
     let post = HdrPost::new(&device, &settings()).unwrap();
     let sets = slots(&post, &device, &targets(&device, [10, 10], [16, 16]));
     let history = shared(&sets);
-    assert_eq!(history.len(), 1, "one colour history, no depth history");
+    assert_eq!(
+        history.len(),
+        2,
+        "one colour history and one lock history, no depth history"
+    );
     for set in &sets {
         assert_eq!(
             set.resources.textures.len(),
-            5,
-            "output, history, dilated depth, dilated motion and confidence"
+            8,
+            "output, history, dilated depth, dilated motion, confidence, candidates, lock bank and lock history"
         );
         let at_output: Vec<_> = set
             .resources
@@ -95,8 +101,8 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
             .collect();
         assert_eq!(
             at_output.len(),
-            2,
-            "output and history are the output extent"
+            4,
+            "output, history, lock bank and lock history are the output extent"
         );
         for texture in at_output {
             assert_eq!(texture.format(), crate::taa_upscale_gpu::FORMAT);
@@ -111,7 +117,8 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
                 [
                     crate::taa_reconstruct_gpu::DEPTH_FORMAT,
                     crate::taa_reconstruct_gpu::MOTION_FORMAT,
-                    crate::taa_reconstruct_gpu::CONFIDENCE_FORMAT
+                    crate::taa_reconstruct_gpu::CONFIDENCE_FORMAT,
+                    crate::taa_thin_gpu::CANDIDATE_FORMAT
                 ]
                 .contains(&texture.format()),
                 "the reconstruction targets are the render extent"
@@ -122,8 +129,8 @@ fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output
     let outputs: Vec<_> = sets.iter().flat_map(|s| &s.resources.textures).collect();
     assert_eq!(
         outputs.iter().filter(|t| !history.contains(t)).count(),
-        12,
-        "each slot owns its output, dilated depth, dilated motion and confidence"
+        18,
+        "each slot owns its output, dilated depth, dilated motion, confidence, candidates and lock bank"
     );
 }
 

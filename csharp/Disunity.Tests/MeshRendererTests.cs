@@ -160,9 +160,9 @@ internal static class MeshRendererTests
         {"scene":"level0","assets":[],"sprites":[],"textures":[],"fonts":[],"axes":[],"differences":[],"objects":[
         {"name":"Mesh","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[
         {"type":"MeshFilter"},
-        {"type":"MeshRenderer","enabled":false,"receive_shadows":false,"dynamic_occludee":false,"static_shadow_caster":true,"shadow_casting_mode":3,"motion_vector_mode":2,"light_probe_usage":2,"reflection_probe_usage":3,"rendering_layer_mask":4294967295,"renderer_priority":-4,"sorting_layer_id":0,"sorting_order":7,"material_count":2}]},
+        {"type":"MeshRenderer","enabled":false,"receive_shadows":false,"dynamic_occludee":false,"static_shadow_caster":true,"shadow_casting_mode":3,"motion_vector_mode":2,"light_probe_usage":2,"reflection_probe_usage":3,"rendering_layer_mask":4294967295,"renderer_priority":-4,"sorting_layer_id":0,"sorting_order":7,"materials":[null,null]}]},
         {"name":"Skin","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[
-        {"type":"SkinnedMeshRenderer","enabled":true,"receive_shadows":true,"dynamic_occludee":true,"static_shadow_caster":false,"shadow_casting_mode":1,"motion_vector_mode":1,"light_probe_usage":1,"reflection_probe_usage":1,"rendering_layer_mask":1,"renderer_priority":0,"sorting_layer_id":0,"sorting_order":0,"material_count":1,"quality":4,"update_when_offscreen":true}]}]}
+        {"type":"SkinnedMeshRenderer","enabled":true,"receive_shadows":true,"dynamic_occludee":true,"static_shadow_caster":false,"shadow_casting_mode":1,"motion_vector_mode":1,"light_probe_usage":1,"reflection_probe_usage":1,"rendering_layer_mask":1,"renderer_priority":0,"sorting_layer_id":0,"sorting_order":0,"materials":[null],"quality":4,"update_when_offscreen":true}]}]}
         """;
 
     private static void Loaded()

@@ -1,6 +1,7 @@
 //! Scene-local instance identity and deterministic sparse placement storage.
 
 pub(crate) mod batch;
+pub(crate) mod slot_bounds;
 #[cfg(test)]
 mod tests;
 
@@ -73,6 +74,7 @@ pub(crate) struct Instances {
     pub(crate) pipelines: Vec<usize>,
     /// Whether velocity pipelines draw, so batches keep previous-frame transforms.
     pub track_previous: bool,
+    // Per-material tables, fixed after construction. Cached placement bounds depend on them.
     pub wind_extents: Vec<glam::Vec3>,
     pub curved_wind: Vec<Option<glam::Vec3>>,
     pub impostor_extents: Vec<[f32; 3]>,

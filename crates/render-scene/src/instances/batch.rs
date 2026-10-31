@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use worldrunner_render_plan::{SceneObject, SceneTransform};
 
+use super::slot_bounds::SlotBounds;
 use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_object};
 
 #[derive(Debug, Default)]
@@ -22,6 +23,8 @@ pub(crate) struct InstanceBatch {
     stale: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
     /// The previous-frame transform of every slot, same layout as `buffer`; velocity draws only.
     pub previous: Option<wgpu::Buffer>,
+    /// View-independent world bounds per slot, filled during selection.
+    pub bounds: std::cell::RefCell<SlotBounds>,
 }
 
 impl InstanceBatch {
@@ -38,6 +41,7 @@ impl InstanceBatch {
             position
         });
         self.placements[position] = Some((object, visible));
+        self.bounds.get_mut().invalidate(position);
         self.fresh.borrow_mut().insert(position);
         self.pack(position);
         position
@@ -49,6 +53,7 @@ impl InstanceBatch {
 
     pub fn remove(&mut self, position: usize) {
         self.placements[position] = None;
+        self.bounds.get_mut().invalidate(position);
         self.free.insert(position);
         self.dirty.remove(&position);
         self.stale.borrow_mut().remove(&position);
@@ -61,6 +66,7 @@ impl InstanceBatch {
 
     pub fn set_object(&mut self, position: usize, object: SceneObject) {
         self.placements[position].as_mut().expect("live instance").0 = object;
+        self.bounds.get_mut().invalidate(position);
         self.pack(position);
     }
 

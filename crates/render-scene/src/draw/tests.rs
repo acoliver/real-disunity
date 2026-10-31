@@ -51,6 +51,7 @@ mod layered_terrain;
 mod lod;
 mod lod_material;
 mod lod_scale;
+mod mask_mip_bias;
 mod material_factors;
 mod mip_bias;
 mod mip_rig;

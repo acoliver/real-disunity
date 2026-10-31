@@ -39,6 +39,10 @@ pub(super) fn mipped_texture() -> SceneTexture {
 }
 
 fn plain_scene() -> RenderScene {
+    masked_scene(mipped_texture())
+}
+
+pub(super) fn masked_scene(albedo: SceneTexture) -> RenderScene {
     let surface = SceneMaterial::new(SceneMaterialParts {
         albedo: TextureHandle::from_raw(0),
         normal: None,
@@ -54,7 +58,7 @@ fn plain_scene() -> RenderScene {
     })
     .unwrap();
     RenderScene::new(SceneParts {
-        resources: SceneResources::new(vec![mipped_texture()], vec![surface]).unwrap(),
+        resources: SceneResources::new(vec![albedo], vec![surface]).unwrap(),
         geometry: SceneGeometry::new(
             vec![card(None)],
             vec![SceneObject::new(

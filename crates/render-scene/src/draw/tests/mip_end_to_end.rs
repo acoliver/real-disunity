@@ -14,9 +14,9 @@ use super::mip_textures::{smooth, stripes};
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_plan::post::{RenderScale, UpscaleMode, UpscaleSettings};
 use worldrunner_render_post::{
-    AttachmentView, FrameConfig, HdrPostSettings, PostResolve, Readback, RenderScale, ResourceRef,
-    ToneMap, UpscaleMode, UpscaleSettings,
+    AttachmentView, FrameConfig, HdrPostSettings, PostResolve, Readback, ResourceRef, ToneMap,
 };
 
 const OUTPUT: u32 = 64;

@@ -1,5 +1,6 @@
 use crate::upscale_tests::{fixture, paint};
 use crate::*;
+use worldrunner_render_plan::post::RenderScale;
 
 fn factory(device: &wgpu::Device, sharpness: Option<f32>) -> ToneMapOutput {
     ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)

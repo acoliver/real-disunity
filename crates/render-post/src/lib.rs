@@ -61,8 +61,8 @@ pub use exposure_policy::{
     percentile_luminance,
 };
 pub use gaussian::{
-    BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS,
-    MAX_GAUSSIAN_RADIUS, gaussian_extents, gaussian_extents_with_terminal, gaussian_weights,
+    BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS, gaussian_extents,
+    gaussian_extents_with_terminal, gaussian_weights,
 };
 mod aces;
 mod display_grading;
@@ -179,7 +179,8 @@ pub use hdr_post::{
     AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,
 };
 pub use tone_map::{ToneMap, ToneMapOutput};
-pub use upscale::{RenderScale, SpatialUpscale, UpscaleMode, UpscaleSettings};
+pub use upscale::SpatialUpscale;
+use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 mod frame;
 #[cfg(test)]
 mod frame_tests;
@@ -251,6 +252,16 @@ pub enum PostError {
     Dispatch([u32; 3]),
     #[error("post readback source does not match its target contract")]
     ReadbackSource,
+}
+impl From<worldrunner_render_plan::post::PostContractError> for PostError {
+    fn from(error: worldrunner_render_plan::post::PostContractError) -> Self {
+        match error {
+            worldrunner_render_plan::post::PostContractError::UnsupportedProfile(message) => {
+                Self::UnsupportedProfile(message)
+            }
+            worldrunner_render_plan::post::PostContractError::EmptyExtent => Self::EmptyExtent,
+        }
+    }
 }
 #[cfg(test)]
 mod chain_tests;

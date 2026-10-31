@@ -126,9 +126,9 @@ fn retained_settings_present(event_loop: &EventLoop<()>, window: &Arc<Window>) {
 
 fn retained_settings_profiles(event_loop: &EventLoop<()>, window: &Arc<Window>) {
     use crate::{FrameProfile, RetainedHost, ToneMap};
-    let scale = crate::RenderScale::new(500_000).unwrap();
-    let upscale = crate::UpscaleSettings {
-        mode: crate::UpscaleMode::Easu,
+    let scale = worldrunner_render_plan::post::RenderScale::new(500_000).unwrap();
+    let upscale = worldrunner_render_plan::post::UpscaleSettings {
+        mode: worldrunner_render_plan::post::UpscaleMode::Easu,
         sharpness: Some(0.0),
     };
     let scene = super::retained_tests::terrain_source();

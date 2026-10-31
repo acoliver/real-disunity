@@ -7,9 +7,9 @@ use super::mip_bias::LEVELS;
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 use worldrunner_render_post::{
     AttachmentView, FrameConfig, HdrPostSettings, PostResolve, Readback, ResourceRef, ToneMap,
-    UpscaleMode, UpscaleSettings,
 };
 
 pub(super) const RENDER: u32 = 32;

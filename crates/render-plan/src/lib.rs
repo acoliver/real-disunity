@@ -29,6 +29,7 @@ mod limits;
 mod plan;
 mod plan_closure;
 mod plan_scene;
+pub mod post;
 mod scene;
 pub mod world_schema;
 

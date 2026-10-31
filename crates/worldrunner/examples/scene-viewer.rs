@@ -1,3 +1,4 @@
+use worldrunner::scene::plan::post::{RenderScale, UpscaleMode, UpscaleSettings};
 use worldrunner::scene::{
     gpu::{
         CameraPose,
@@ -290,9 +291,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn frame_profile() -> worldrunner::scene::viewer::FrameProfile {
-    use worldrunner::scene::viewer::{
-        FrameProfile, RenderScale, ToneMap, UpscaleMode, UpscaleSettings,
-    };
+    use worldrunner::scene::viewer::{FrameProfile, ToneMap};
     let samples = if std::env::args().any(|arg| arg == "--msaa") {
         4
     } else {

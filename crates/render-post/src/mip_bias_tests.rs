@@ -1,6 +1,7 @@
 //! The shipped material mip bias is exactly positive zero in every mode. The sampling plumbing
 //! stays (the frame lane and every biased site), so a later change can switch a policy on.
-use crate::{FrameConfig, HdrPostSettings, PostResolve, RenderScale, UpscaleMode, UpscaleSettings};
+use crate::{FrameConfig, HdrPostSettings, PostResolve, UpscaleMode, UpscaleSettings};
+use worldrunner_render_plan::post::RenderScale;
 
 const OUTPUTS: [[u32; 2]; 2] = [[1920, 1080], [1452, 921]];
 const SCALES: [u32; 3] = [500_000, 670_000, 770_000];

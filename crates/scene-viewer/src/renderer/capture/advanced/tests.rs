@@ -312,9 +312,9 @@ fn hdr_upscaled_accumulation_uses_full_resolution_and_restores_plain_render_scal
     host.options.frame_profile = crate::FrameProfile::HdrUpscaled {
         samples: 4,
         tone_map: crate::ToneMap::Reinhard,
-        scale: crate::RenderScale::new(500_000).unwrap(),
-        upscale: crate::UpscaleSettings {
-            mode: crate::UpscaleMode::Easu,
+        scale: worldrunner_render_plan::post::RenderScale::new(500_000).unwrap(),
+        upscale: worldrunner_render_plan::post::UpscaleSettings {
+            mode: worldrunner_render_plan::post::UpscaleMode::Easu,
             sharpness: None,
         },
     };

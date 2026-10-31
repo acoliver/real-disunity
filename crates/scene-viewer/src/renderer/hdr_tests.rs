@@ -76,13 +76,13 @@ fn hdr_encoder(context: &GpuContext) -> worldrunner_render_gpu::submission::Reco
 fn viewer_reduced_resolution_reconfigures_scene_and_output_together() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let source = super::retained_tests::terrain_source();
-    let scale = crate::RenderScale::new(770_000).unwrap();
+    let scale = worldrunner_render_plan::post::RenderScale::new(770_000).unwrap();
     let profile = FrameProfile::HdrUpscaled {
         samples: 4,
         tone_map: ToneMap::Reinhard,
         scale,
-        upscale: crate::UpscaleSettings {
-            mode: crate::UpscaleMode::Easu,
+        upscale: worldrunner_render_plan::post::UpscaleSettings {
+            mode: worldrunner_render_plan::post::UpscaleMode::Easu,
             sharpness: Some(0.0),
         },
     };

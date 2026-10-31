@@ -74,6 +74,8 @@ internal static class RequireComponentTests
             Console.WriteLine("PASS: an abstract required type with no match logs an error naming both types and the script is still added");
             Cycle();
             Console.WriteLine("PASS: requirements that name each other add both once");
+            UnresolvableRequirements();
+            Console.WriteLine("PASS: a RequireComponent attribute that cannot be read logs one error for its level, and the other levels' requirements and the script are still added");
             Expect.Equal(0, new GameObject("plain").GetComponents<Component>().Length - 1, "a plain object has only its transform");
         }
         finally { DisunityHost.UnloadWorld(); }
@@ -183,5 +185,29 @@ internal static class RequireComponentTests
         owner.AddComponent<CycleA>();
         Expect.Equal(1, owner.GetComponents<CycleA>().Length, "one A");
         Expect.Equal(1, owner.GetComponents<CycleB>().Length, "one B");
+    }
+
+    private static void UnresolvableRequirements()
+    {
+        UnresolvableRequirementTypes.Build();
+        var errors = new List<string>();
+        void Collect(string condition, string stack, LogType type) { if (type == LogType.Error) errors.Add(condition); }
+        Application.logMessageReceived += Collect;
+        GameObject own, inherited;
+        try
+        {
+            own = new GameObject("own");
+            own.AddComponent(UnresolvableRequirementTypes.BrokenOverGood);
+            inherited = new GameObject("inherited");
+            inherited.AddComponent(UnresolvableRequirementTypes.GoodOverBroken);
+        }
+        finally { Application.logMessageReceived -= Collect; }
+        Expect.Equal(2, errors.Count, $"one error per unreadable level: {string.Join(" | ", errors)}");
+        Expect.That(errors[0].StartsWith("BrokenOverGood ") && errors[0].Contains("on BrokenOverGood (") && errors[0].Contains("FileNotFoundException") && errors[0].Contains("Missing.Assembly.NotDeployed"), $"the error names the type and the cause: {errors[0]}");
+        Expect.That(errors[1].StartsWith("GoodOverBroken ") && errors[1].Contains("on Broken (TypeLoadException"), $"the error names the level and the requesting type: {errors[1]}");
+        Expect.Equal(1, own.GetComponents(UnresolvableRequirementTypes.BrokenOverGood).Length, "the script with an unreadable attribute was added");
+        Expect.Equal(1, own.GetComponents<Camera>().Length, "the base level's requirement was still added");
+        Expect.Equal(1, inherited.GetComponents(UnresolvableRequirementTypes.GoodOverBroken).Length, "the script over an unreadable base was added");
+        Expect.Equal(1, inherited.GetComponents<Camera>().Length, "the script's own requirement was still added");
     }
 }

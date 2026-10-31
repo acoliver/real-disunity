@@ -79,6 +79,7 @@ classes! {
     PARTICLE_SYSTEM = 198 => "ParticleSystem",
     PARTICLE_SYSTEM_RENDERER = 199 => "ParticleSystemRenderer",
     LOD_GROUP = 205 => "LODGroup",
+    SORTING_GROUP = 210 => "SortingGroup",
     SPRITE_RENDERER = 212 => "SpriteRenderer",
     SPRITE = 213 => "Sprite",
     ANIMATOR_OVERRIDE_CONTROLLER = 221 => "AnimatorOverrideController",

@@ -24,6 +24,7 @@ use worldrunner_unity_serialized::{
     managers::TagManager,
     object::PPtr,
     script_data::ScriptLayouts,
+    sorting_group::SortingGroup,
     ui::{CanvasGroup, CanvasRenderer},
 };
 
@@ -35,6 +36,7 @@ use crate::{
     player_graphics::{plan_camera, plan_canvas_group, plan_light},
     player_scripts::script_fields,
     player_shader_refs::SceneSource,
+    player_sorting::plan_sorting_group,
     player_values::FieldWriter,
     renderers::{
         plan_material_slots, plan_mesh_filter, plan_mesh_renderer, plan_skinned_mesh_renderer,
@@ -256,6 +258,7 @@ impl<'t> PlayerPlanner<'t> {
             ClassId::LIGHT,
             ClassId::CANVAS_GROUP,
             ClassId::CANVAS_RENDERER,
+            ClassId::SORTING_GROUP,
             ClassId::MESH_FILTER,
             ClassId::MESH_RENDERER,
             ClassId::SKINNED_MESH_RENDERER,
@@ -349,6 +352,13 @@ impl<'t> PlayerPlanner<'t> {
                 .local(&path, component)?
                 .decode(component.path_id)?;
             return Ok(plan_canvas_group(&group));
+        }
+        if class == ClassId::SORTING_GROUP {
+            let group = src
+                .files()
+                .local(&path, component)?
+                .decode::<SortingGroup>(component.path_id);
+            return plan_sorting_group(owner, group, &mut self.differences);
         }
         if class == ClassId::CANVAS_RENDERER {
             let renderer: CanvasRenderer = src

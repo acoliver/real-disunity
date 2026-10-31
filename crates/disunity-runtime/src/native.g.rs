@@ -104,6 +104,15 @@ pub struct DisunityMeshRenderer {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunitySortingGroup {
+    pub enabled: u32,
+    pub sorting_layer: i32,
+    pub sorting_order: i32,
+    pub sort_at_root: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityLight {
     pub cookie_texture: u64,

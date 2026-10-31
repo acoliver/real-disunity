@@ -15,7 +15,7 @@ public static partial class DisunityHost
         ulong handle;
         if (NativeBehaviourState.IsNative(value))
         {
-            uint kind = value switch { UnityEngine.Rendering.Universal.Light2D => 114, UnityEngine.Rendering.Universal.UniversalAdditionalCameraData => 115, AudioListener => 81, GUILayer => 92, FlareLayer => 124, _ => throw new NotSupportedException($"component {typeof(T)}") };
+            uint kind = value switch { UnityEngine.Rendering.Universal.Light2D => 114, UnityEngine.Rendering.Universal.UniversalAdditionalCameraData => 115, AudioListener => 81, GUILayer => 92, FlareLayer => 124, UnityEngine.Rendering.SortingGroup => 210, _ => throw new NotSupportedException($"component {typeof(T)}") };
             ThrowIfError(NativeBindings.disunity_camera_layer_create(WorldHandle, owner.NativeHandle, kind, &handle));
         }
         else if (value is Camera)

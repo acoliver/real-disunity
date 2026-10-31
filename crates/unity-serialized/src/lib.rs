@@ -35,6 +35,7 @@ pub mod shader_program;
 pub mod shader_records;
 pub mod shader_state;
 pub mod smolv;
+pub mod sorting_group;
 pub mod sprite;
 pub mod text_asset;
 mod type_tree;

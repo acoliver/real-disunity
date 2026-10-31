@@ -443,6 +443,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_sorting_group_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_sorting_group_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_object_alive",
       "since": "2.0.0",
       "rets": "DisunityResult"

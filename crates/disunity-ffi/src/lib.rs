@@ -37,6 +37,7 @@ pub mod physics_materials;
 mod physics_tests;
 pub mod presentation;
 pub mod scheduling;
+pub mod sorting_group;
 pub mod sprites;
 mod store;
 pub mod text_style;

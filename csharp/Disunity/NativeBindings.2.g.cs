@@ -12,6 +12,18 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one collider identity, zero for no overlap.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_overlap_circle", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_overlap_circle(ulong world, float x, float y, float radius, uint layers, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one material identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_material_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_material_create(ulong world, ulong* output);
+        /// <summary>
+        ///  # Safety
         ///  `output` is writable for one material record.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_physics_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

@@ -23,6 +23,7 @@ internal sealed partial class SceneLoader
         "GraphicRaycaster" or "EventSystem" or "StandaloneInputModule" => Unbuilt(where),
         "Light2D" => Light(owner, value),
         "Light" => Light3D(owner, value),
+        "SortingGroup" => SortingGroup(owner, value),
         "CanvasGroup" => CanvasGroup(owner, value),
         "CanvasRenderer" => CanvasRenderer(owner, value),
         "MeshFilter" => MeshFilter(owner),

@@ -35,6 +35,7 @@ mod journal;
 mod mesh_instance;
 mod mesh_renderer;
 pub mod physics2d;
+mod sorting_group;
 mod spatial;
 pub mod tilemap;
 mod ui_error;
@@ -49,6 +50,7 @@ pub use mesh_instance::{
 pub use mesh_renderer::{
     MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
 };
+pub use sorting_group::SortingGroup;
 mod clone;
 mod construction;
 mod fields;

@@ -317,6 +317,19 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_mesh_filter_write(ulong world, ulong handle, ulong mesh);
         /// <summary>
         ///  # Safety
+        ///  Output is writable for one SortingGroup record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sorting_group_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sorting_group_read(ulong world, ulong handle, DisunitySortingGroup* output);
+        /// <summary>
+        ///  Validates every setting before changing the group; a rejected write changes nothing.
+        ///  # Safety
+        ///  Value is readable for one SortingGroup record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_sorting_group_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_sorting_group_write(ulong world, ulong handle, DisunitySortingGroup* value);
+        /// <summary>
+        ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_camera_layer_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -729,17 +742,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_physics_raycast", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_physics_raycast(ulong world, float x, float y, float dx, float dy, float distance, uint layers, DisunityRayHit* output);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one collider identity, zero for no overlap.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_physics_overlap_circle", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_physics_overlap_circle(ulong world, float x, float y, float radius, uint layers, ulong* output);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one material identity.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_physics_material_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_physics_material_create(ulong world, ulong* output);
     }
 }

@@ -1,5 +1,5 @@
 //! Layouts of the project-wide managers a player loads at startup: `BuildSettings`,
-//! `TagManager`, `ResourceManager` and `PreloadData`.
+//! `TagManager`, `ResourceManager`, `PreloadData`, `QualitySettings` and `InputManager`.
 
 use crate::{
     ClassId, SerializedError,
@@ -236,6 +236,85 @@ impl Layout for QualitySettings {
             current,
             names,
             render_pipelines,
+        })
+    }
+}
+
+/// Bytes of one input axis with empty strings: seven string lengths, three floats, the two
+/// flags padded to four bytes and three integers.
+const INPUT_AXIS_MIN_LEN: usize = 7 * LENGTH_MIN + 3 * 4 + 4 + 3 * 4;
+
+/// One legacy input axis as the project's input manager stores it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputAxisSettings {
+    pub name: String,
+    pub negative_button: String,
+    pub positive_button: String,
+    pub alt_negative_button: String,
+    pub alt_positive_button: String,
+    pub gravity: f32,
+    pub dead: f32,
+    pub sensitivity: f32,
+    pub snap: bool,
+    pub invert: bool,
+    /// The device the axis reads: 0 key or mouse button, 1 mouse movement, 2 joystick axis.
+    pub kind: i32,
+    /// Which mouse or joystick axis a movement or joystick axis reads, 0 for the first.
+    pub axis: i32,
+    pub joystick: i32,
+}
+
+/// The project's legacy input axes in the order the input manager lists them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputManager {
+    pub axes: Vec<InputAxisSettings>,
+    /// Whether key buttons name physical key positions, not layout characters. The Old World
+    /// player stores it as 0, and the value is padded to four bytes.
+    pub use_physical_keys: bool,
+}
+
+fn input_axis(r: &mut ObjectReader<'_>) -> Result<InputAxisSettings, SerializedError> {
+    let name = r.string()?;
+    // The descriptive names only label the axis in the editor.
+    r.string()?;
+    r.string()?;
+    let negative_button = r.string()?;
+    let positive_button = r.string()?;
+    let alt_negative_button = r.string()?;
+    let alt_positive_button = r.string()?;
+    let gravity = r.f32()?;
+    let dead = r.f32()?;
+    let sensitivity = r.f32()?;
+    let snap = r.bool()?;
+    let invert = r.bool()?;
+    r.align()?;
+    Ok(InputAxisSettings {
+        name,
+        negative_button,
+        positive_button,
+        alt_negative_button,
+        alt_positive_button,
+        gravity,
+        dead,
+        sensitivity,
+        snap,
+        invert,
+        kind: r.i32()?,
+        axis: r.i32()?,
+        joystick: r.i32()?,
+    })
+}
+
+impl Layout for InputManager {
+    const CLASS: ClassId = ClassId::INPUT_MANAGER;
+
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        let axes = r.array("input axis", INPUT_AXIS_MIN_LEN, input_axis)?;
+        let use_physical_keys = r.bool()?;
+        r.align()?;
+        Ok(Self {
+            axes,
+            use_physical_keys,
         })
     }
 }

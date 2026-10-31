@@ -185,8 +185,13 @@ public sealed class GameObject : Object, IDisposable
         ArgumentNullException.ThrowIfNull(componentType);
         if (!typeof(Component).IsAssignableFrom(componentType) || componentType.IsAbstract)
             throw new ArgumentException($"{componentType} is not a Component class that can be added", nameof(componentType));
-        return DisunityHost.AttachComponent(this, (Component)Activator.CreateInstance(componentType, nonPublic: true)!);
+        RequiredComponents.Satisfy(this, componentType);
+        return AttachNew(componentType);
     }
+
+    /// <summary>Creates and attaches a <paramref name="componentType"/> without applying its requirements.</summary>
+    internal Component AttachNew(Type componentType) =>
+        DisunityHost.AttachComponent(this, (Component)Activator.CreateInstance(componentType, nonPublic: true)!);
 
     public Component[] GetComponents(Type type) => ComponentQueries.On(this, type).ToArray();
     public T[] GetComponents<T>() => ComponentQueries.On(this, typeof(T)).Cast<T>().ToArray();

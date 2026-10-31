@@ -297,6 +297,7 @@ AnimationCurveTests.Run();
 CurveEditingTests.Run();
 GradientTests.Run();
 UnityAttributeTests.Run();
+RequireComponentTests.Run();
 
 AssetBundleTests.Run();
 WebRequestTests.Run();

@@ -75,8 +75,8 @@ pub enum FrameProfile {
     HdrUpscaled {
         samples: u32,
         tone_map: worldrunner_render_post::ToneMap,
-        scale: worldrunner_render_post::RenderScale,
-        upscale: worldrunner_render_post::UpscaleSettings,
+        scale: worldrunner_render_plan::post::RenderScale,
+        upscale: worldrunner_render_plan::post::UpscaleSettings,
     },
 }
 impl FrameProfile {

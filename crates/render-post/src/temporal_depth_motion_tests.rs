@@ -15,10 +15,10 @@
 //! * the edge band: pixel centres within two pixels of the bar's edge, where the mover is.
 //!
 //! Errors are mean absolute HDR error against the 4x4 box filtered f64 reference.
-use crate::RenderScale;
 use crate::taa_reconstruct_test_rig::static_camera;
 use crate::temporal_depth_motion_scene as scene;
 use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
+use worldrunner_render_plan::post::RenderScale;
 
 const FRAMES: u64 = 2 * scene::APPROACH_FRAMES;
 const MEASURED: u64 = 8;

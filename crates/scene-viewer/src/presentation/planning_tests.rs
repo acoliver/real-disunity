@@ -105,9 +105,9 @@ fn profiles() -> [FrameProfile; 5] {
         FrameProfile::HdrUpscaled {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,
-            scale: crate::RenderScale::new(500_000).unwrap(),
-            upscale: crate::UpscaleSettings {
-                mode: crate::UpscaleMode::Easu,
+            scale: worldrunner_render_plan::post::RenderScale::new(500_000).unwrap(),
+            upscale: worldrunner_render_plan::post::UpscaleSettings {
+                mode: worldrunner_render_plan::post::UpscaleMode::Easu,
                 sharpness: None,
             },
         },

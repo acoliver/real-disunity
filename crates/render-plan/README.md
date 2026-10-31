@@ -155,3 +155,16 @@ convention, including `SceneDirectDiffuse::LambertianPrepared` for prepared sun
 colours. Per-body `sun_disk` controls remain independent of the scene surface disk.
 
 `SceneSsao.receiver` selects nearest filtered-AO lookup by default, or a depth-aware four-tap gather. Both enum choices are valid with every supported kernel/filter pair. See [ambient occlusion](../../dev-docs/rendering/ambient-occlusion.md#full-resolution-receivers) for metre weighting and composition.
+
+## Post-processing admission
+
+`worldrunner_render_plan::post` owns `RenderScale`, `UpscaleMode`,
+`UpscaleSettings`, `PostContractError` and `MAX_GAUSSIAN_RADIUS`. These CPU contracts
+are shared with `render-post` without a GPU dependency or forwarding aliases.
+`RenderScale::new` accepts integer millionths in `500_000..=1_000_000`;
+`extent` rejects zero dimensions and rounds to nearest, with ties upward, using
+64-bit integer arithmetic. `UpscaleSettings::validate` accepts absent RCAS or
+finite sharpness in `0..=2` stops. The Gaussian support radius bound is 64 texels.
+Admission failures use `UnsupportedProfile(&'static str)` or `EmptyExtent`.
+The CPU-consumer integration tests cover the contracts, and `cargo xtask policy`
+rejects GPU dependencies anywhere in this crate's transitive closure.

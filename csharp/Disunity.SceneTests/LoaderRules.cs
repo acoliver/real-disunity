@@ -162,17 +162,21 @@ internal static class LoaderRules
              {"name": "Fire", "kind": "KeyOrMouseButton", "negative": "", "positive": "left ctrl", "alt_negative": "", "alt_positive": "mouse 0",
               "gravity": 1000, "dead": 0.001, "sensitivity": 1000, "snap": false, "invert": false},
              {"name": "Mouse X", "kind": "MouseMovement", "negative": "", "positive": "", "alt_negative": "", "alt_positive": "",
-              "gravity": 0, "dead": 0, "sensitivity": 0.1, "snap": false, "invert": false}]
+              "gravity": 0, "dead": 0, "sensitivity": 0.1, "snap": false, "invert": false},
+             {"name": "Pad", "kind": "JoystickAxis", "negative": "", "positive": "", "alt_negative": "", "alt_positive": "",
+              "gravity": 0, "dead": 0.19, "sensitivity": 1, "snap": false, "invert": false}]
             """;
         using var scene = DisunityHost.LoadScene(Plan("{}", axes), Options);
         Require(scene.UnregisteredAxes.SequenceEqual(["Fire: no key for `left ctrl`, `mouse 0`",
-            "Mouse X: MouseMovement axes read a device the engine has no input for"]), string.Join("; ", scene.UnregisteredAxes));
+            "Pad: JoystickAxis axes read a device the engine has no input for"]), string.Join("; ", scene.UnregisteredAxes));
+        Require(Input.GetAxisRaw("Mouse X") == 0, "Mouse X registers and reads zero because the engine's mouse never moves");
         Key(KeyCode.Space, true);
         Steps(1);
         Require(Input.GetAxisRaw("Jump") == 1, "Jump reads space");
         Key(KeyCode.Space, false);
         Steps(1);
         Expect(() => Input.GetAxisRaw("Fire"), "not registered");
+        Expect(() => Input.GetAxisRaw("Pad"), "not registered");
     }
 
     private static void FailuresNameTheFieldAndLeaveNothingBehind()

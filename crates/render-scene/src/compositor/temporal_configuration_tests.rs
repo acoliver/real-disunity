@@ -6,9 +6,9 @@ use crate::{
     device::GpuContext,
 };
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_plan::post::{RenderScale, UpscaleMode, UpscaleSettings};
 use worldrunner_render_post::{
-    FrameConfig, HdrPostSettings, PostResolve, ProjectionJitter, RenderScale, ToneMap, UpscaleMode,
-    UpscaleSettings,
+    FrameConfig, HdrPostSettings, PostResolve, ProjectionJitter, ToneMap,
 };
 
 const OUTPUT_EXTENT: [u32; 2] = [64, 64];

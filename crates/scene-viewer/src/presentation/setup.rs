@@ -9,7 +9,7 @@ pub(super) fn configuration(
 ) -> Result<
     (
         RendererConfiguration,
-        Option<worldrunner_render_post::RenderScale>,
+        Option<worldrunner_render_plan::post::RenderScale>,
     ),
     ViewerError,
 > {
@@ -22,9 +22,11 @@ pub(super) fn configuration(
 
     let scale = if let crate::FrameProfile::HdrUpscaled { scale, upscale, .. } = profile {
         settings.post.upscale = Some(upscale);
-        settings.frame = settings
-            .frame
-            .with_render_extent(scale.extent([size.width, size.height])?);
+        settings.frame = settings.frame.with_render_extent(
+            scale
+                .extent([size.width, size.height])
+                .map_err(worldrunner_render_post::PostError::from)?,
+        );
         Some(scale)
     } else {
         None

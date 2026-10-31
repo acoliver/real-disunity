@@ -39,10 +39,14 @@ internal static class GraphicsTests
         }
     }
 
+    /// <summary>The render texture overloads of SetRenderTarget work; GraphicsTargetTests covers them.</summary>
+    private static bool DrawsNothingButSetsTheActiveTexture(MethodInfo method) =>
+        method.Name == "SetRenderTarget" && method.GetParameters()[0].ParameterType == typeof(RenderTexture);
+
     private static void EveryOverloadIsCovered(List<(string Member, Action Call)> calls)
     {
         var declared = typeof(Graphics).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
-            .Where(m => !m.IsSpecialName)
+            .Where(m => !m.IsSpecialName && !DrawsNothingButSetsTheActiveTexture(m))
             .GroupBy(m => m.Name)
             .ToDictionary(g => g.Key, g => g.Count());
         var tested = calls.GroupBy(c => c.Member).ToDictionary(g => g.Key, g => g.Count());
@@ -106,8 +110,10 @@ internal static class GraphicsTests
         CommandBuffer commands = null!;
         calls.AddRange(new (string, Action)[]
         {
-            ("SetRenderTarget", () => Graphics.SetRenderTarget(rt, 1, CubemapFace.PositiveX, 2)),
             ("SetRenderTarget", () => Graphics.SetRenderTarget(color, color)),
+            ("SetRenderTarget", () => Graphics.SetRenderTarget(color, color, 1)),
+            ("SetRenderTarget", () => Graphics.SetRenderTarget(color, color, 1, CubemapFace.PositiveX)),
+            ("SetRenderTarget", () => Graphics.SetRenderTarget(color, color, 1, CubemapFace.PositiveX, 2)),
             ("SetRenderTarget", () => Graphics.SetRenderTarget(new[] { color }, color)),
             ("SetRenderTarget", () => Graphics.SetRenderTarget(new RenderTargetSetup(color, color))),
             ("SetRandomWriteTarget", () => Graphics.SetRandomWriteTarget(1, rt)),

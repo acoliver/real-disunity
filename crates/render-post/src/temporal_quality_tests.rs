@@ -10,6 +10,7 @@
 //! Lanczos2 only) and a single unjittered internal frame through the EASU f64 reference (HDR
 //! values here, so it is a filter comparison and not the display-referred production path).
 use std::sync::{Arc, Mutex};
+use worldrunner_render_plan::post::RenderScale;
 
 use wgpu::util::DeviceExt;
 
@@ -18,8 +19,8 @@ use crate::taa_gpu_test_support::{passthrough_pipeline, read};
 use crate::temporal_quality_scene as scene;
 use crate::upscale_tests::reference::Image;
 use crate::{
-    FrameConfig, FrameTargets, PostChain, PostError, ProjectionJitter, RenderScale, Resources,
-    StageFactory, StageSet, TaaSettings, TemporalBlock, TemporalCamera, ToneMapOutput,
+    FrameConfig, FrameTargets, PostChain, PostError, ProjectionJitter, Resources, StageFactory,
+    StageSet, TaaSettings, TemporalBlock, TemporalCamera, ToneMapOutput,
 };
 
 pub(crate) const OUTPUT: [u32; 2] = [160, 96];

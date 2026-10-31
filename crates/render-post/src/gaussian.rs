@@ -1,7 +1,7 @@
 //! CPU-generated normalized Gaussian taps and separable bloom policy.
 use crate::PostError;
 
-pub const MAX_GAUSSIAN_RADIUS: u32 = 64;
+use worldrunner_render_plan::post::MAX_GAUSSIAN_RADIUS;
 pub const MAX_BLOOM_LEVELS: usize = 8;
 // WGSL storage ABI: centre plus 32 adjacent-tap pairs.
 pub(crate) const GAUSSIAN_TAP_CAPACITY: usize = 33;

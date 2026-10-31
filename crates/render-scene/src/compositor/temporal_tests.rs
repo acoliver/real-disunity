@@ -665,8 +665,8 @@ fn reduced_temporal_renderer(context: &GpuContext) -> ConfiguredFrameRenderer {
     settings.hdr = Some((1.0, post::ToneMap::Reinhard));
     settings.post = post::HdrPostSettings {
         resolve: post::PostResolve::taa(0.9),
-        upscale: Some(post::UpscaleSettings {
-            mode: post::UpscaleMode::Temporal,
+        upscale: Some(worldrunner_render_plan::post::UpscaleSettings {
+            mode: worldrunner_render_plan::post::UpscaleMode::Temporal,
             sharpness: None,
         }),
         ..post::HdrPostSettings::default()

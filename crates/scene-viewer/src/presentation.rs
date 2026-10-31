@@ -71,7 +71,7 @@ pub(super) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrg
 pub(super) struct Presentation {
     pub scheduler: ConfiguredFrameRenderer,
     pub targets: Targets,
-    scale: Option<worldrunner_render_post::RenderScale>,
+    scale: Option<worldrunner_render_plan::post::RenderScale>,
     capture_size: Viewport,
     capture_pool: Option<u64>,
     native_rcas: Option<crate::NativeRcasSettings>,
@@ -198,12 +198,14 @@ impl Presentation {
         &mut self,
         context: &worldrunner_render_scene::device::GpuContext,
         [size, capture_size]: [Viewport; 2],
-        scale: Option<worldrunner_render_post::RenderScale>,
+        scale: Option<worldrunner_render_plan::post::RenderScale>,
         rcas: Option<crate::NativeRcasSettings>,
     ) -> Result<(), ViewerError> {
         self.scheduler.collect();
         let extent = [size.width, size.height];
-        let render = scale.map_or(Ok(extent), |scale| scale.extent(extent))?;
+        let render = scale
+            .map_or(Ok(extent), |scale| scale.extent(extent))
+            .map_err(worldrunner_render_post::PostError::from)?;
         if self.scheduler.configuration().frame.output_extent() != extent
             || self.scheduler.configuration().frame.size != render
             || self.capture_size != capture_size
@@ -214,9 +216,11 @@ impl Presentation {
             settings.frame.size = [size.width, size.height];
             settings.frame.output_size = None;
             if let Some(scale) = scale {
-                settings.frame = settings
-                    .frame
-                    .with_render_extent(scale.extent([size.width, size.height])?);
+                settings.frame = settings.frame.with_render_extent(
+                    scale
+                        .extent([size.width, size.height])
+                        .map_err(worldrunner_render_post::PostError::from)?,
+                );
             }
             settings.additional = planning::additional(capture_size, self.capture_pool);
             self.scheduler.reconfigure(context, settings)?;

@@ -62,7 +62,7 @@ impl ProjectionJitter {
     /// [`PostError::EmptyExtent`] when either extent has a zero side,
     /// [`PostError::RenderExtent`] when `render` exceeds `output` on an axis, and
     /// [`PostError::UnsupportedProfile`] when `render` is below half of `output` on an axis
-    /// (the limit of `RenderScale`) or the length would exceed [`Self::MAX_LENGTH`].
+    /// (the limit of `worldrunner_render_plan::post::RenderScale`) or the length would exceed [`Self::MAX_LENGTH`].
     pub fn for_extents(render: [u32; 2], output: [u32; 2]) -> Result<Self, PostError> {
         if render.contains(&0) || output.contains(&0) {
             return Err(PostError::EmptyExtent);

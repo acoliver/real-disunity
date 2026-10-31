@@ -43,9 +43,7 @@ pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_ch
 pub use camera::{OrbitCamera, OrbitLimits};
 pub use wgpu::PresentMode;
 use worldrunner_render_plan::{RenderScene, SceneCamera};
-pub use worldrunner_render_post::{
-    NativeRcasSettings, RcasDomain, RenderScale, ToneMap, UpscaleMode, UpscaleSettings,
-};
+pub use worldrunner_render_post::{NativeRcasSettings, RcasDomain, ToneMap};
 pub use worldrunner_render_scene::compositor::FrameProfile;
 use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 

@@ -97,7 +97,7 @@ impl SceneBloomRecipe {
             return invalid("bloom level selection");
         }
         for level in self.levels {
-            if level.radius > 64
+            if level.radius > crate::post::MAX_GAUSSIAN_RADIUS
                 || level
                     .tint_micro
                     .into_iter()

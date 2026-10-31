@@ -4,9 +4,10 @@
 //! carries the reprojection of that pan: for a pan of `d` canvas pixels the content at output
 //! position `p` was at `p + d` in the previous frame, which in NDC (+y up) is a translation of
 //! `(2 dx / W, -2 dy / H)`. The reference is the box filtered scene shifted by the total pan.
+use crate::TemporalCamera;
 use crate::temporal_quality_scene as scene;
 use crate::temporal_quality_tests::{Errors, OUTPUT, Rig, errors, truth_panned};
-use crate::{RenderScale, TemporalCamera};
+use worldrunner_render_plan::post::RenderScale;
 
 /// Last frames averaged, after two full jitter cycles.
 const MEASURED: u64 = 8;

@@ -1,4 +1,5 @@
-use crate::{PostError, ProjectionJitter, RenderScale};
+use crate::{PostError, ProjectionJitter};
+use worldrunner_render_plan::post::RenderScale;
 
 fn bits(offset: [f32; 2]) -> [u32; 2] {
     offset.map(f32::to_bits)

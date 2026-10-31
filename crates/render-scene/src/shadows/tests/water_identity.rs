@@ -3,6 +3,58 @@ use super::*;
 mod baseline;
 
 #[test]
+fn gpu_water_pcf5_keeps_ambient_shadow_input_byte_identical() {
+    let context = context();
+    let source = crate::water::water_source(true).replace(
+        "vec4<f32>(color, 1.0)",
+        "vec4<f32>(vec3<f32>(ambient_visibility), 1.0)",
+    );
+    for scene_path in [false, true] {
+        let baseline = capture_source(&context, None, scene_path, false, Some(&source));
+        let response = SceneWaterShadowResponse {
+            filter: SceneWaterShadowFilter::WeightedPcf5,
+            ..Default::default()
+        };
+        let actual = capture_source(&context, Some(response), scene_path, false, Some(&source));
+        assert_eq!(
+            actual, baseline,
+            "scene={scene_path}: ambient input changed"
+        );
+    }
+}
+
+#[test]
+fn gpu_water_pcf5_reduces_fine_scale_visibility_variance_in_both_paths() {
+    let context = context();
+    for scene_path in [false, true] {
+        let baseline = capture(&context, None, scene_path, true);
+        let response = SceneWaterShadowResponse {
+            filter: SceneWaterShadowFilter::WeightedPcf5,
+            ..Default::default()
+        };
+        let filtered = capture(&context, Some(response), scene_path, true);
+        let before = visibility_energy(&baseline);
+        let after = visibility_energy(&filtered);
+        println!("scene={scene_path}, fine-scale energy: {before} -> {after}");
+        assert!(before > 0.0 && after < before);
+    }
+}
+
+fn visibility_energy(bytes: &[u8]) -> f64 {
+    let values = bytes
+        .chunks_exact(8)
+        .map(|pixel| half::f16::from_le_bytes([pixel[0], pixel[1]]).to_f64())
+        .collect::<Vec<_>>();
+    (1..255)
+        .flat_map(|y| (1..255).map(move |x| y * 256 + x))
+        .map(|i| {
+            (4.0 * values[i] - values[i - 1] - values[i + 1] - values[i - 256] - values[i + 256])
+                .powi(2)
+        })
+        .sum()
+}
+
+#[test]
 fn gpu_water_absent_response_preserves_base_colour_bytes() {
     let context = context();
     let original = baseline::source();
@@ -124,6 +176,17 @@ fn capture_source(
     raw: bool,
     shader: Option<&str>,
 ) -> Vec<u8> {
+    capture_shadow(context, response, scene_path, raw, shader, None)
+}
+
+pub(super) fn capture_shadow(
+    context: &GpuContext,
+    response: Option<SceneWaterShadowResponse>,
+    scene_path: bool,
+    raw: bool,
+    shader: Option<&str>,
+    shadow: Option<&wgpu::BindGroup>,
+) -> Vec<u8> {
     use worldrunner_render_post::{FrameConfig, Readback, ToneMap};
     let source = source(response, scene_path);
     let view = view(&source);
@@ -143,7 +206,7 @@ fn capture_source(
         raw,
         shader.map_or_else(|| crate::water::water_source(true), str::to_owned),
     );
-    submit(context, &source, &view, &mut frame);
+    submit(context, &source, &view, &mut frame, shadow);
     Readback::new(
         context.device(),
         FrameConfig::new([256, 256], wgpu::TextureFormat::Rgba16Float, 1),
@@ -178,6 +241,7 @@ fn submit(
     source: &RenderScene,
     view: &SceneView,
     frame: &mut crate::compositor::FrameRenderer,
+    shadow: Option<&wgpu::BindGroup>,
 ) {
     let mut renderer = ShadowedScene::with_target(
         context,
@@ -202,9 +266,56 @@ fn submit(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    renderer
-        .encode_with(context, view, (&color, &depth), &mut encoder, Some(frame))
-        .unwrap();
+    if let Some(shadow) = shadow {
+        submit_binary(context, &renderer, view, frame, &mut encoder, shadow);
+    } else {
+        renderer
+            .encode_with(context, view, (&color, &depth), &mut encoder, Some(frame))
+            .unwrap();
+    }
     frame.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
+}
+
+fn submit_binary(
+    context: &GpuContext,
+    renderer: &ShadowedScene,
+    view: &SceneView,
+    frame: &mut crate::compositor::FrameRenderer,
+    encoder: &mut wgpu::CommandEncoder,
+    shadow: &wgpu::BindGroup,
+) {
+    use worldrunner_render_post::{AttachmentLoad, PassDeclaration, PassSlot};
+    let color = AttachmentView::new(
+        ResourceRef::new("scene color"),
+        frame.targets().scene().texture(),
+    )
+    .unwrap();
+    let depth = AttachmentView::new(
+        ResourceRef::new("scene depth"),
+        frame.targets().depth().texture(),
+    )
+    .unwrap();
+    let mut pass = PassDeclaration::new(PassSlot::Opaque);
+    let mut attachment = crate::compositor::attachment(color.resource(), &color, false);
+    attachment.load = AttachmentLoad::ClearColor(wgpu::Color::BLACK);
+    pass.color = Some(attachment);
+    pass.depth = Some(crate::compositor::attachment(
+        depth.resource(),
+        &depth,
+        true,
+    ));
+    frame.bind_water_inputs(&renderer.gpu.water_inputs);
+    let uniform = frame
+        .prepare_uniform(crate::frame::FrameUniform::new(view, Some(&renderer.effects)).unwrap())
+        .unwrap();
+    frame
+        .encode_frame(
+            context.device(),
+            encoder,
+            (&[pass], &[color, depth]),
+            &mut [],
+            (uniform, Some(shadow)),
+        )
+        .unwrap();
 }

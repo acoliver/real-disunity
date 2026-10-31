@@ -25,14 +25,26 @@ FrameRenderer::set_water_environment and ConfiguredFrameRenderer::set_water_envi
 `SceneWaterShadowResponse::default()` also leaves shader source, uniforms, cache
 keys and output bytes unchanged. Non-neutral responses select a variant in the
 existing water pipeline cache. No buffers or textures are added: `disk.w` stores
-the lookup selector, and `wind_flags.zw` store the floor and relief/disk flags.
+the lookup selector, and `wind_flags.zw` store the floor and relief/disk/filter flags.
 These lanes are independent of wind and the disk's radius and amplitude.
 
 `SceneWaterShadowOffset` controls the normal passed to the shared shadow sampler:
 `ShadingNormal` uses the final lighting normal, `GeometricNormal` uses planar
-positive Z, and `None` uses zero. Projection, receiver derivatives, cascades,
-strength and the configured grid PCF or bilinear filter stay shared. Water does
-not expose an independent filter footprint.
+positive Z, and `None` uses zero. `SceneWaterShadowFilter` is an exhaustive typed
+choice: `ReceiverDefault` keeps the scene's grid PCF or bilinear comparisons and
+receiver-plane correction. `WeightedPcf5` uses nine bilinear `LessEqual` comparisons
+of the phase-interpolated `[1, 3, 4, 3, 1]` kernel in each axis, normalized by 144,
+without receiver-plane correction. Constant depth bias and normal offset still
+apply. Taps clamp at texture edges; out-of-projection receivers remain lit.
+Projection, cascade selection, coverage/camera split blending and strength use the
+shared receiver implementation. Only opted-in water bodies use the wider kernel;
+water's ambient shadow input and opaque receivers keep the scene filter.
+CPU tests expand the paired weights across 1,001 phases. GPU tests compare binary
+map sampling against a 36-coefficient oracle, including clamped edges, and check
+cascade boundaries, neutral byte identity, snapshot isolation and reduced fine-scale
+visibility variance with rippling normals. Binary-map readback allows 0.012 linear
+error for two 8-bit interpolation fractions plus sRGB8 quantization on downlevel
+software samplers.
 
 For strength-adjusted visibility `s`, diffuse uses `max(s, floor)`. The floor is
 validated in integer millionths from zero through one million. `depth_relief`

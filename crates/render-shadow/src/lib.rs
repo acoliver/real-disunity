@@ -21,6 +21,8 @@ pub const WGSL: &str = crate::shadow_wgsl!();
 mod map;
 mod pipeline;
 mod receiver;
+/// Optional normalized nine-comparison filter, without receiver-plane correction.
+pub const WEIGHTED_PCF5_WGSL: &str = include_str!("weighted_pcf5.wgsl");
 
 pub use map::{DepthMap, DepthMapBudget, DepthMapDescriptor, DepthMapError, DepthReadback};
 pub use pipeline::{DepthFragmentState, DepthPipelineDescriptor, create_depth_pipeline};

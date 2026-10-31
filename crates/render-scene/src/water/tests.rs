@@ -20,6 +20,8 @@ mod numerical;
 mod optical_render_tests;
 #[path = "optics_tests.rs"]
 mod optics_tests;
+#[path = "pcf5_tests.rs"]
+mod pcf5_tests;
 #[path = "regressions.rs"]
 mod regressions;
 #[path = "retained_environment_tests.rs"]

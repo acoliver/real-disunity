@@ -19,6 +19,7 @@ mod terrain;
 mod timing_probe;
 mod validation;
 mod water_identity;
+mod water_pcf5;
 mod water_response;
 
 use glam::{Vec3, Vec4};
@@ -534,3 +535,5 @@ fn unsupported_water_body() -> SceneWaterBody {
 }
 
 mod impostor;
+
+mod water_integrated;

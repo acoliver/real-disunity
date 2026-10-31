@@ -1,3 +1,5 @@
+#[path = "terrain_terms.rs"]
+mod term_tests;
 use super::*;
 use crate::offscreen::capture_scene;
 

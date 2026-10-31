@@ -15,6 +15,7 @@ mod selection;
 mod ssao;
 mod streaming;
 mod subresources;
+mod terms;
 mod terrain;
 mod timing_probe;
 mod validation;

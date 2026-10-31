@@ -250,6 +250,7 @@ impl Renderer {
             (
                 Some(self.streaming.captures.next_frame()),
                 capture.is_some() || retained.is_some(),
+                retained.as_deref().map_or(&[], capture::Products::terms),
             ),
         )?;
         self.context
@@ -273,6 +274,9 @@ impl Renderer {
                     capture.encode(encoder, self.presentation.targets.color.texture())?;
                 }
                 if let Some(retained) = &mut retained {
+                    if !fitted {
+                        retained.replay(self.context.device(), encoder, &self.resident);
+                    }
                     retained.encode(
                         encoder,
                         output.texture(),
@@ -477,7 +481,11 @@ impl Resident {
         view: &SceneView,
         targets: &crate::presentation::Targets,
         mut scheduler: worldrunner_render_scene::compositor::FrameEncoding<'_>,
-        frame: (Option<u64>, bool),
+        frame: (
+            Option<u64>,
+            bool,
+            &[worldrunner_render_scene::compositor::terms::TermCapture],
+        ),
     ) -> Result<bool, ViewerError> {
         let Self::Shadowed(scene) = self else {
             return Ok(false);
@@ -495,7 +503,7 @@ impl Resident {
             targets.depth.texture(),
         )
         .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        scheduler.render_depth_fitted(context, view, (&color, &depth), frame, scene)?;
+        scheduler.render_depth_fitted_terms(context, view, (&color, &depth), frame, scene)?;
         Ok(true)
     }
     fn render(

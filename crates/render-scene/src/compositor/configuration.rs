@@ -29,6 +29,11 @@ pub struct RendererConfiguration {
     pub additional: AllocationSet,
 }
 impl RendererConfiguration {
+    /// Request-owned replay targets, charged to the host capture reservation.
+    pub fn capture_term_allocations(size: [u32; 2]) -> AllocationSet {
+        super::terms::TermCapture::allocations(size)
+    }
+
     pub fn legacy(size: [u32; 2], output_format: wgpu::TextureFormat) -> Self {
         Self {
             frame: FrameConfig::new(size, wgpu::TextureFormat::Rgba8UnormSrgb, 1),

@@ -326,8 +326,8 @@ pub unsafe extern "C" fn disunity_script_retained(
         let pending = s
             .dispatch
             .scripts
-            .iter()
-            .any(|(&script, &id)| id == identity && s.native.script_retained(script));
+            .handle_of(identity)
+            .is_some_and(|script| s.native.script_retained(script));
         unsafe { *retained = u32::from(pending) };
         Ok(())
     })
@@ -375,8 +375,7 @@ pub extern "C" fn disunity_script_destroy(world: u64, identity: u64) -> Disunity
         let handle = s
             .dispatch
             .scripts
-            .iter()
-            .find_map(|(&handle, &id)| (id == identity).then_some(handle))
+            .handle_of(identity)
             .ok_or("script binding missing")?;
         s.native
             .destroy_component(handle)

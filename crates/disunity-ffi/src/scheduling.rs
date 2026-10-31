@@ -53,7 +53,7 @@ static NEXT_TICKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 
 #[derive(Default)]
 pub(crate) struct Dispatch {
-    pub scripts: std::collections::BTreeMap<ComponentHandle, u64>,
+    pub scripts: crate::script_bindings::ScriptBindings,
     pub tickets: std::collections::BTreeMap<u64, CallbackTicket>,
     pub payloads: std::collections::BTreeMap<u64, crate::callbacks::DisunityCallback>,
     pub waits: std::collections::BTreeMap<u64, worldrunner_world_simulation::WaitCondition>,
@@ -183,7 +183,7 @@ pub(crate) fn call(
                 session
                     .dispatch
                     .scripts
-                    .retain(|handle, _| session.native.component(*handle).is_ok());
+                    .retain(|handle| session.native.component(*handle).is_ok());
                 session
                     .dispatch
                     .components
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn disunity_script_register(
     let result = {
         let mut store = lock_store();
         store.session_mut(world).and_then(|session| {
-            if session.dispatch.scripts.values().any(|&id| id == identity) {
+            if session.dispatch.scripts.contains_identity(identity) {
                 return Err("duplicate script identity".into());
             }
             let object = session.object(object)?;

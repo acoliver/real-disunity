@@ -218,7 +218,7 @@ pub extern "C" fn disunity_clone_bind(
     let result = (|| {
         let mut store = lock_store();
         let session = store.session_mut(world)?;
-        if identity == 0 || session.dispatch.scripts.values().any(|&id| id == identity) {
+        if identity == 0 || session.dispatch.scripts.contains_identity(identity) {
             return Err("duplicate or zero script identity".into());
         }
         let clone = session.clones.get_mut(&root).ok_or("unknown clone")?;

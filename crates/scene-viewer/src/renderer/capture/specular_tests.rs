@@ -348,7 +348,13 @@ fn opaque_terms_use_authored_and_decal_albedo_without_changing_display() {
                     assert_eq!(visibility.map(f32::to_bits), [0; 4]);
                     continue;
                 }
-                assert_eq!(&albedo[..3], &expected);
+                // Linear Rgba8Unorm samples and interpolated tint feed Rgba16Float.
+                // A tiny shader error can round down to 1 - 2^-11 on lavapipe;
+                // allow one binary16 ULP at 1, far below a wrong colour's 1.0 error.
+                for (actual, expected) in albedo[..3].iter().zip(expected) {
+                    assert!((actual - expected).abs() <= 1.0 / 1024.0);
+                }
+                // Unshadowed visibility returns constant 1, without texture sampling.
                 assert_eq!(visibility.map(f32::to_bits), [1.0_f32.to_bits(); 4]);
                 covered += 1;
             }

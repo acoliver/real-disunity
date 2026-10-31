@@ -36,7 +36,7 @@ pub use retained::{
     RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, SceneObjectEdit,
     WheelDelta, WindowlessRetained,
 };
-pub use world_edits::{ObjectIdMap, edits_from_world_changes};
+pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 
 pub use camera::{OrbitCamera, OrbitLimits};
 pub use wgpu::PresentMode;

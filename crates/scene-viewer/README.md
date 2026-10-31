@@ -25,6 +25,27 @@ fails the whole batch. A failing batch leaves the host unchanged and the error
 names the edit (`object edit 3: unknown object ID`). An empty batch is accepted
 and takes no slot. The single-object variants keep their behavior.
 
+## Retained scenes from a world
+
+`edits_from_world_changes` turns one drain of `World` changes into a `Vec<SceneObjectEdit>`,
+using a `MeshResolver` from `worldrunner_render_plan::simulation::mesh_instances` and an
+`ObjectIdMap`. A resolver that only maps handles builds default scene objects with the
+instance's tint. A resolver that overrides `resolve_template` returns
+`MeshTemplate::Objects`, the scene objects the host draws for the instance with every field it
+sets (LOD distance scale, fade, tint, shadow flag). Extraction replaces only each object's
+transform with the instance's world transform.
+
+One world object may resolve to several scene objects, such as LOD levels or impostor cards.
+`ObjectIdMap::from_initial` takes one world handle per retained scene object in the initial
+scene's order and gives a handle that appears several times its ids in that order; `get_all`
+returns them. Edits add, replace and remove all of an object's ids together. When the resolver
+returns more objects than the object has ids, the extra ones are added under fresh ids; when it
+returns fewer, the surplus ids are removed. Ids are never reused.
+
+`MeshExtractOptions::with_millimeters_per_unit` sets the world unit (default 1000.0, meters) for
+`edits_from_world_changes_with` and `extract_mesh_instances_with`. It applies to translation
+only; scale stays a ratio. Whole world units are exact up to 2^24 because positions are `f32`.
+
 ## Presentation settings
 
 Set `present_mode` explicitly to `PresentMode::Fifo`, `FifoRelaxed`, `Mailbox` or

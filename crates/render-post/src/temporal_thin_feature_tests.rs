@@ -252,3 +252,61 @@ fn vanished_line_staleness() {
         }
     }
 }
+
+/// Radiance scales of the normaliser tests as powers of two: 2^-10 (about 1e-3), 1, 2^10 (about
+/// 1e3) and 2^13. The scene is stored in `Rgba16Float`, whose largest finite value is 65504, and the
+/// brightest texel is 2.7 (gradient plus a line), so 2^13 (22,000) is the largest power of two
+/// that is not clipped; the design's 1e6 does not fit the internal format.
+const SCALES_EV: [f64; 4] = [-10.0, 0.0, 10.0, 13.0];
+
+/// ROI error divided by the radiance scale, and whether every output texel of the measured
+/// frames is finite and nonnegative, for a pan at `speed` with the scene scaled by `2^ev`.
+fn scaled_error(rig: &SceneRig, fixture: &Fixture, speed: f64, ev: f64) -> (f64, bool) {
+    let scale = ev.exp2();
+    let total = 2 * u64::from(rig.jitter.length());
+    let first = total - MEASURED;
+    let (mut sum, mut sane) = (0.0, true);
+    for index in 0..total {
+        let pan = pan_of(speed, index);
+        #[expect(clippy::cast_possible_truncation, reason = "the GPU block is f32")]
+        let tail = [pan as f32, speed as f32, 1.0, ev as f32];
+        rig.frame(index, index > 0, (tail, None));
+        if index >= first {
+            let image = rig.image();
+            sane &= image.iter().all(|v| v.is_finite() && *v >= 0.0);
+            let relative: Vec<f64> = image.iter().map(|v| v / scale).collect();
+            sum += roi(fixture, pan, 1.0).error(&relative, hdr);
+        }
+    }
+    (sum / f64::from(u32::try_from(MEASURED).unwrap()), sane)
+}
+
+/// The relative ROI error at every scale stays within 1.10 times the unscaled one and every
+/// output texel is finite and nonnegative. 1.10 is the coordinator's no-regression margin, above
+/// the 8 to 10% lavapipe to Radeon spread; on lavapipe the measured ratios are 0.97 to 1.02, so
+/// the path already holds this before a luminance normaliser exists, and the normaliser must
+/// keep it. The error is the temporal path's own, so the bound is one sided: a lower error passes.
+#[test]
+fn radiance_scale_keeps_outputs_sane() {
+    let gpu = crate::gpu_tests::gpu();
+    for fixture in fixtures()
+        .into_iter()
+        .filter(|f| f.name == "wire 45" || f.name == "grid")
+    {
+        let rig = rig_at(&gpu, 670_000, &fixture);
+        let (unscaled, _) = scaled_error(&rig, &fixture, 0.1, 0.0);
+        assert!(unscaled > 0.0);
+        for ev in SCALES_EV {
+            let (error, sane) = scaled_error(&rig, &fixture, 0.1, ev);
+            eprintln!(
+                "radiance {} ev {ev}: relative ROI error {error:.5} sane {sane}",
+                fixture.name
+            );
+            assert!(sane && error.is_finite());
+            assert!(
+                error <= 1.10 * unscaled,
+                "ev {ev}: {error} against {unscaled}"
+            );
+        }
+    }
+}

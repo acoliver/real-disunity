@@ -108,7 +108,7 @@ impl Fixture {
 
     /// WGSL that rasterises the scene at the internal extent and the jittered sample position of
     /// each pixel, writing colour, backward motion in uv units and a constant device depth.
-    /// `tail.x` is the total pan, `tail.y` the pan of this frame and `tail.z` the line gain.
+    /// `tail.x` is the total pan, `tail.y` the pan of this frame and `tail.z` the line gain and `tail.w` the radiance scale as a power of two (0 leaves the scene).
     pub(crate) fn wgsl(&self) -> String {
         let mut hits = String::new();
         for f in &self.families {
@@ -145,6 +145,7 @@ struct Out {{
     var hit = false;
 {hits}    var v = {BASE:?} + {sx:?} * p.x / {w:?} + {sy:?} * p.y / {h:?};
     if hit {{ v += frame.tail.z * {LINE_STEP:?}; }}
+    v = v * exp2(frame.tail.w);
     var o: Out;
     o.color = vec4<f32>(v, v, v, 1.0);
     o.motion = vec2<f32>(frame.tail.y / {w:?}, 0.0);

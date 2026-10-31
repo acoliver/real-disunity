@@ -190,8 +190,11 @@ pub enum PlanComponent {
     CanvasRenderer {
         cull_transparent_mesh: bool,
     },
-    /// A mesh filter of a player scene. A Mesh asset cannot be planned yet, so it has no mesh.
-    MeshFilter {},
+    /// A mesh filter of a player scene or prefab: the asset index of its planned mesh, or `None`
+    /// when it has none or the plan cannot hold it.
+    MeshFilter {
+        mesh: Option<usize>,
+    },
     /// A mesh renderer of a player scene.
     MeshRenderer {
         #[serde(flatten)]

@@ -63,12 +63,16 @@ fn native_taa_history_is_single_sampled_with_msaa_scene_targets() {
 }
 
 #[test]
-fn temporal_taa_counts_output_sized_history_once_without_depth() {
+fn temporal_taa_counts_output_sized_history_once_and_render_sized_reconstruction_per_slot() {
     let shared = texels(OUTPUT) * HALF_RGBA;
-    let per_slot = texels(OUTPUT) * HALF_RGBA * SLOTS;
+    let per_slot_output = texels(OUTPUT) * HALF_RGBA * SLOTS;
+    let dilated_depth = texels(RENDER) * FLOAT_R;
+    let dilated_motion = texels(RENDER) * 2 * FLOAT_R;
+    let reconstructed_depth = texels(RENDER) * FLOAT_R;
+    let per_slot_reconstruction = (dilated_depth + dilated_motion + reconstructed_depth) * SLOTS;
     assert_eq!(
         taa_bytes(config(1), Some(UpscaleMode::Temporal)),
-        shared + per_slot
+        shared + per_slot_output + per_slot_reconstruction
     );
 }
 
@@ -86,5 +90,49 @@ fn generations_with_differently_sized_taa_banks_validate_together() {
             settings(PostResolve::taa(0.9), upscale),
         ));
         generations.validate(&limits).unwrap();
+    }
+}
+
+/// The bytes the stage sets of a real temporal build hold: every distinct texture and buffer
+/// once, so the shared colour history counts once and each slot's own resources three times.
+fn built_temporal_bytes(render: [u32; 2], output: [u32; 2]) -> u64 {
+    use crate::hdr_temporal_build_tests as build;
+    let (device, _) = crate::gpu_tests::gpu();
+    let post = crate::hdr_post::HdrPost::new(&device, &build::settings()).unwrap();
+    let sets = build::slots(&post, &device, &build::targets(&device, render, output));
+    let mut textures: Vec<&wgpu::Texture> = Vec::new();
+    let mut bytes = 0;
+    for set in &sets {
+        for texture in &set.resources.textures {
+            if !textures.contains(&texture) {
+                textures.push(texture);
+                let texel = u64::from(texture.format().block_copy_size(None).unwrap());
+                bytes += u64::from(texture.width()) * u64::from(texture.height()) * texel;
+            }
+        }
+        bytes += set
+            .resources
+            .buffers
+            .iter()
+            .map(wgpu::Buffer::size)
+            .sum::<u64>();
+    }
+    bytes
+}
+
+/// The allocation declaration must match what the build allocates, including the dilated depth,
+/// the dilated motion and the reconstructed depth buffer, which are per slot and at the
+/// internal extent, not shared.
+#[test]
+fn temporal_allocations_equal_the_bytes_of_the_real_stage_sets() {
+    for (render, output) in [([10, 10], [16, 16]), ([11, 9], [17, 13]), ([3, 5], [9, 7])] {
+        let config = FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1)
+            .with_render_extent(render);
+        let declared = taa_bytes(config, Some(UpscaleMode::Temporal));
+        assert_eq!(
+            declared,
+            built_temporal_bytes(render, output),
+            "render {render:?} output {output:?}"
+        );
     }
 }

@@ -130,8 +130,9 @@ fn ids_of(edits: &[SceneObjectEdit]) -> Vec<ObjectId> {
     edits
         .iter()
         .map(|edit| match edit {
-            SceneObjectEdit::Add { id, .. } | SceneObjectEdit::Replace { id, .. } => *id,
-            SceneObjectEdit::Remove(id) => *id,
+            SceneObjectEdit::Add { id, .. }
+            | SceneObjectEdit::Replace { id, .. }
+            | SceneObjectEdit::Remove(id) => *id,
         })
         .collect()
 }

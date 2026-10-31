@@ -22,7 +22,7 @@ pub(crate) struct Session {
     pub clones: BTreeMap<u64, crate::cloning::PendingClone>,
     pub constructions: BTreeMap<u64, crate::construction::PendingConstruction>,
     pub dispatch: crate::scheduling::Dispatch,
-    pub objects: BTreeMap<u64, ObjectHandle>,
+    pub objects: crate::object_ids::ObjectIds,
     pub pending_commands: Vec<DisunityCommand>,
     pub last_error: Option<String>,
 }
@@ -115,7 +115,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             clones: BTreeMap::new(),
             constructions: BTreeMap::new(),
             dispatch: Default::default(),
-            objects: BTreeMap::new(),
+            objects: crate::object_ids::ObjectIds::default(),
             pending_commands: Vec::new(),
             last_error: None,
         },

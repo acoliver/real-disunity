@@ -619,6 +619,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_script_set_enabled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_set_enabled(ulong world, ulong identity, uint enabled, DisunityAdvance* output);
         /// <summary>
+        ///  Writes the identities of the children of `object` to `buffer`, in no particular order.
+        ///  `written` receives the number of children. When `capacity` is smaller the call returns
+        ///  BUDGET and writes no identities, so the caller can retry with a buffer of that size.
+        ///  Children without an ABI identity (objects still being constructed) are not listed.
+        ///
+        ///  # Safety
+        ///  `buffer` is writable for `capacity` identities and `written` for one count.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_transform_children", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_transform_children(ulong world, ulong @object, ulong* buffer, uint capacity, uint* written);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one callback record.
         /// </summary>
@@ -730,17 +741,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_physics_material_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_physics_material_create(ulong world, ulong* output);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one material record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_physics_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_physics_material_read(ulong world, ulong handle, DisunityPhysicsMaterial2d* output);
-        /// <summary>
-        ///  # Safety
-        ///  `value` points to one readable material record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_physics_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_physics_material_write(ulong world, ulong handle, DisunityPhysicsMaterial2d* value);
     }
 }

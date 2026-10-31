@@ -12,6 +12,7 @@ public static partial class DisunityHost
 {
     private static readonly List<NativeCommand> Pending = new();
     private static readonly List<GameObject> Tracked = new();
+    private static readonly Dictionary<ulong, GameObject> TrackedByHandle = new();
     private static readonly Dictionary<ulong, MonoBehaviour> Scripts = new();
     private static ulong _nextScript = 1;
     private static bool _faulted;
@@ -132,11 +133,12 @@ public static partial class DisunityHost
 
     public static void ReportFault() => _faulted = true;
 
-    public static Vector3 ObjectPosition(ulong handle) => Tracked.Where(o => !o.IsDestroyed).Single(o => o.NativeHandle == handle).Transform.position;
+    public static Vector3 ObjectPosition(ulong handle) => ResolveObject(handle).Transform.position;
 
     internal static GameObject ResolveObject(ulong handle) =>
-        Tracked.FirstOrDefault(value => value.RawHandle == handle && !value.IsDestroyed)
-        ?? throw new InvalidOperationException("no live object has that native handle");
+        TrackedByHandle.TryGetValue(handle, out var value) && !value.IsDestroyed
+            ? value
+            : throw new InvalidOperationException("no live object has that native handle");
 
     internal static unsafe void Drain(DisunityAdvance work)
     {
@@ -167,14 +169,14 @@ public static partial class DisunityHost
             if (retained == 0) Scripts.Remove(pair.Key);
         }
         foreach (var handle in NativeComponents.Where(pair => pair.Value.gameObject.IsDestroyed).Select(pair => pair.Key).ToArray()) NativeComponents.Remove(handle);
-        Tracked.RemoveAll(value => value.IsDestroyed);
+        RemoveDestroyedObjects();
     }
 
     private static void PruneRetired()
     {
         foreach (var identity in Scripts.Where(pair => pair.Value.gameObject.IsDestroyed).Select(pair => pair.Key).ToArray()) Scripts.Remove(identity);
         foreach (var handle in NativeComponents.Where(pair => pair.Value.gameObject.IsDestroyed).Select(pair => pair.Key).ToArray()) NativeComponents.Remove(handle);
-        Tracked.RemoveAll(value => value.IsDestroyed);
+        RemoveDestroyedObjects();
     }
 
     internal static unsafe void SubmitPending()
@@ -208,7 +210,7 @@ public static partial class DisunityHost
             finally
             {
                 foreach (var value in Tracked) value.MarkDestroyed();
-                CurrentScene = null; LoadedScenes.Clear(); UnloadingScenes.Clear(); AxisDefinitions.Clear(); Tracked.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
+                CurrentScene = null; LoadedScenes.Clear(); UnloadingScenes.Clear(); AxisDefinitions.Clear(); Tracked.Clear(); TrackedByHandle.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
                 var world = WorldHandle;
                 WorldHandle = 0;
                 _listenerDiagnostic = null;

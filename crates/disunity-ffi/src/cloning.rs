@@ -266,7 +266,7 @@ fn check_identities(
 ) -> Result<(), crate::errors::AbiError> {
     let mut pending = vec![root];
     while let Some(object) = pending.pop() {
-        if !session.objects.values().any(|&value| value == object) {
+        if session.objects.id_of(object).is_none() {
             return Err("source object has no ABI identity".into());
         }
         pending.extend(

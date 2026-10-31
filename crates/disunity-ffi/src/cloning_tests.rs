@@ -28,7 +28,7 @@ fn assert_teardown(world: u64, reservations: usize) {
     let session = store.session(world).unwrap();
     assert_eq!(session.native.storage_counts(), (0, 0));
     assert_eq!(session.clones.len(), reservations);
-    assert!(session.objects.is_empty());
+    assert_eq!(session.objects.len(), 0);
     assert!(session.dispatch.tickets.is_empty());
     assert!(session.dispatch.payloads.is_empty());
     assert!(session.dispatch.waits.is_empty());

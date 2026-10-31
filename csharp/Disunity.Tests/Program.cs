@@ -89,6 +89,7 @@ CheckImport("disunity_clone_copy", u64, u64, AbiType("DisunityCloneRow").MakePoi
 CheckImport("disunity_clone_bind", u64, u64, u64, u64);
 CheckImport("disunity_transform_parent", u64, u64, u64, u32, advance.MakePointerType());
 CheckImport("disunity_transform_get_parent", u64, u64, u64.MakePointerType());
+CheckImport("disunity_transform_children", u64, u64, u64.MakePointerType(), u32, u32.MakePointerType());
 CheckImport("disunity_gameobject_set_active", u64, u64, u32, advance.MakePointerType());
 CheckImport("disunity_clone_abort", u64, u64);
 CheckImport("disunity_clone_activate", u64, u64, advance.MakePointerType());
@@ -312,6 +313,7 @@ JsonUtilityTests.Run();
 CommandBufferTests.Run();
 ObjectModelTests.Run();
 TransformMemberTests.Run();
+HierarchyQueryTests.Run();
 GameObjectMemberTests.Run();
 CoreMemberTests.Run();
 TextureTests.Run();

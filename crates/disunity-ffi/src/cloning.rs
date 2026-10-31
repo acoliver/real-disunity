@@ -94,9 +94,7 @@ fn encode_clone(
     for (&old, &new) in &clone.objects {
         let source = session
             .objects
-            .iter()
-            .find(|(_, value)| **value == old)
-            .map(|(&id, _)| id)
+            .id_of(old)
             .ok_or("source object has no ABI identity")?;
         let target = handles.next().expect("reserved identities");
         session.objects.insert(target, new);

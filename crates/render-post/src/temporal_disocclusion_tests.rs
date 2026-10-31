@@ -14,17 +14,10 @@
 //! plus the static plane. Both are averaged over the last `MEASURED` frames of the sequence.
 //! Errors are mean absolute HDR error against the reference; flicker is the mean absolute
 //! difference of the same pixels between consecutive frames.
-use crate::hdr_temporal_build_tests::{public_factory, settings};
-use crate::taa_gpu_test_support::read;
+use crate::RenderScale;
 use crate::temporal_disocclusion_scene as scene;
-use crate::temporal_quality_tests::Recording;
-use crate::{
-    FrameConfig, PostChain, ProjectionJitter, RenderScale, Resources, TaaSettings, TemporalBlock,
-};
-use std::sync::{Arc, Mutex};
-use wgpu::util::DeviceExt;
+use crate::temporal_scene_rig::{OUTPUT, SceneRig};
 
-const OUTPUT: [u32; 2] = [160, 96];
 /// Frames rendered: the bar travels `FRAMES * SPEED` pixels, 96, and stays on the canvas.
 const FRAMES: u64 = 48;
 /// The last frames over which the metrics are averaged.
@@ -32,174 +25,26 @@ const MEASURED: u64 = 8;
 /// Frames of vacated background that count as newly uncovered.
 const UNCOVERED_FRAMES: u64 = 8;
 
-struct Rig {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    chain: PostChain<Recording>,
-    hdr: wgpu::Texture,
-    sink: wgpu::Texture,
-    pipeline: wgpu::RenderPipeline,
-    render: [u32; 2],
-    jitter: ProjectionJitter,
-}
-
-fn pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline {
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("disocclusion scene"),
-        source: wgpu::ShaderSource::Wgsl(scene::wgsl().into()),
-    });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("disocclusion scene"),
-        layout: None,
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vertex"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            buffers: &[],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some("paint"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &[
-                Some(wgpu::TextureFormat::Rgba16Float.into()),
-                Some(crate::VELOCITY_FORMAT.into()),
-            ],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Always),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState::default(),
-        multiview_mask: None,
-        cache: None,
-    })
-}
+struct Rig(SceneRig);
 
 impl Rig {
     fn new(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2]) -> Self {
-        let (device, queue) = gpu.clone();
-        let config = FrameConfig::new(OUTPUT, wgpu::TextureFormat::Rgba16Float, 1)
-            .with_render_extent(render);
-        let output = Arc::new(Mutex::new(None));
-        let factory = Recording {
-            inner: public_factory(&device, &settings()),
-            output: output.clone(),
-        };
-        let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
-        let hdr = output.lock().unwrap().take().expect("slot 0 was built");
-        let sink =
-            crate::color_texture(&device, "sink", OUTPUT, wgpu::TextureFormat::Rgba8UnormSrgb);
-        Self {
-            pipeline: pipeline(&device),
-            device,
-            queue,
-            chain,
-            hdr,
-            sink,
-            render,
-            jitter: ProjectionJitter::for_extents(render, OUTPUT).unwrap(),
-        }
+        Self(SceneRig::new(gpu, render, scene::wgsl()))
     }
 
-    /// Rasterises the scene of `frame` into colour, velocity and depth at the internal extent.
-    fn paint(&self, encoder: &mut wgpu::CommandEncoder, offset: [f32; 2], frame: u64) {
-        let [rw, rh] = self
-            .render
-            .map(|side| f32::from(u16::try_from(side).unwrap()));
+    /// Frame `index` of the sequence: the bar's left edge is the scene value.
+    fn frame(&self, index: u64, history_valid: bool) {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "the bar's left edge is a small canvas coordinate"
         )]
-        let left = scene::bar_left(frame) as f32;
-        let values = [rw, rh, offset[0], offset[1], left, 0.0, 0.0, 0.0];
-        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
-        let uniform = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("scene frame"),
-                contents: &bytes,
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.pipeline.get_bind_group_layout(0),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform.as_entire_binding(),
-            }],
-        });
-        let targets = self.chain.targets();
-        let clear = |color| wgpu::Operations {
-            load: wgpu::LoadOp::Clear(color),
-            store: wgpu::StoreOp::Store,
-        };
-        let far = wgpu::Operations {
-            load: wgpu::LoadOp::Clear(1.0),
-            store: wgpu::StoreOp::Store,
-        };
-        let attachment = |view| {
-            Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: clear(wgpu::Color::BLACK),
-            })
-        };
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("disocclusion scene"),
-            color_attachments: &[
-                attachment(targets.resolved()),
-                attachment(targets.velocity().expect("temporal needs velocity")),
-            ],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: targets.depth(),
-                depth_ops: Some(far),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &group, &[]);
-        pass.draw(0..3, 0..1);
+        let left = scene::bar_left(index) as f32;
+        self.0
+            .frame(index, history_valid, ([left, 0.0, 0.0, 0.0], None));
     }
 
-    fn frame(&self, index: u64, history_valid: bool) {
-        let offset = self.jitter.offset_pixels(index);
-        let block = TemporalBlock {
-            render: self.render,
-            output: OUTPUT,
-            jitter: offset,
-            phase_count: self.jitter.length(),
-            settings: TaaSettings::new(0.9),
-            history_valid,
-        };
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.paint(&mut encoder, offset, index);
-        let factory = &self.chain.factory().inner;
-        factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
-        factory
-            .prepare_effects(&mut encoder, 0, 0.031, true)
-            .unwrap();
-        let view = self
-            .sink
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        self.chain.encode(&mut encoder, &view);
-        self.queue.submit([encoder.finish()]);
-    }
-
-    /// The HDR reconstruction of the last frame, mean of the colour channels, row major.
     fn image(&self) -> Vec<f64> {
-        read((&self.device, &self.queue), &self.hdr)
-            .iter()
-            .map(|p| (p[0] + p[1] + p[2]) / 3.0)
-            .collect()
+        self.0.image()
     }
 }
 

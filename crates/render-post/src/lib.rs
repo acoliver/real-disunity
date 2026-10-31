@@ -133,9 +133,15 @@ mod temporal_disocclusion_scene;
 #[cfg(test)]
 mod temporal_disocclusion_tests;
 #[cfg(test)]
+mod temporal_dolly_scene;
+#[cfg(test)]
+mod temporal_dolly_tests;
+#[cfg(test)]
 mod temporal_quality_scene;
 #[cfg(test)]
 mod temporal_quality_tests;
+#[cfg(test)]
+mod temporal_scene_rig;
 #[cfg(test)]
 mod temporal_upscale_reference;
 #[cfg(test)]

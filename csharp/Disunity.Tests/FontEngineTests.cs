@@ -39,7 +39,7 @@ internal static class FontEngineTests
             ("path, size", FontEngine.LoadFontFace("a.ttf", 90)),
             ("path, size, index", FontEngine.LoadFontFace("a.ttf", 90, 1)),
             ("family, style", FontEngine.LoadFontFace("Arial", "Bold")),
-            ("family, style, size", FontEngine.LoadFontFace("Arial", "Bold", 90)),
+            ("family, style, size", FontEngine.LoadFontFace("Arial", "Bold", 90.5f)),
             ("bytes", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 })),
             ("bytes, size", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 }, 90)),
             ("bytes, size, index", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 }, 90, 1)),

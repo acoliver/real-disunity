@@ -44,7 +44,7 @@ public static class FontEngine
 
     public static FontEngineError LoadFontFace(string familyName, string styleName) => UnusableFile;
 
-    public static FontEngineError LoadFontFace(string familyName, string styleName, int pointSize) => UnusableFile;
+    public static FontEngineError LoadFontFace(string familyName, string styleName, float pointSize) => UnusableFile;
 
     public static FontEngineError LoadFontFace(byte[] sourceFontFile) => UnusableFile;
 

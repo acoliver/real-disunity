@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{
     ClassId, graphics::Material, managers::ResourceManager, object::PPtr,
-    script_data::ScriptLayouts, text_asset::TextAsset,
+    render_texture::RenderTexture, script_data::ScriptLayouts, text_asset::TextAsset,
 };
 
 use crate::{
@@ -34,6 +34,9 @@ use crate::{
     player_pipeline::{GraphicsAssets, admit_graphics_assets},
     player_plan::{PlanSource, tag_manager_names},
     player_prefabs::{is_root, plan_prefab, prefab_name},
+    player_render_textures::{
+        decode_render_texture, plan_render_texture, unplanned_reference as unplanned_render_texture,
+    },
     player_scripts::script_fields,
     player_shader_refs::{ShaderDecl, decode_shader, unplanned_reference},
     player_sprites::{self, AssetRef, TextureData},
@@ -143,6 +146,27 @@ pub enum ResourceAsset {
     },
     /// A material the planner could not decode, with the reason loading it reports.
     UnplannedMaterial { error: String },
+    /// A texture a camera or script draws into. `depth_format` is the `GraphicsFormat` of the
+    /// depth buffer (0 for none) and `color_format` that of the color buffer; `dimension`,
+    /// `filter_mode` and the wrap modes are the engine's enum values.
+    RenderTexture {
+        name: String,
+        width: i32,
+        height: i32,
+        depth_format: i32,
+        color_format: i32,
+        anti_aliasing: i32,
+        mip_maps: bool,
+        generate_mips: bool,
+        dimension: i32,
+        filter_mode: i32,
+        aniso_level: i32,
+        wrap_u: i32,
+        wrap_v: i32,
+        wrap_w: i32,
+    },
+    /// A render texture the planner could not decode, with the reason loading it reports.
+    UnplannedRenderTexture { error: String },
 }
 
 /// An object of a player file, by file path and path ID.
@@ -227,6 +251,7 @@ fn referenced_on_demand(class: ClassId) -> bool {
         || class == ClassId::SPRITE_ATLAS
         || class == ClassId::SHADER
         || class == ClassId::MATERIAL
+        || class == ClassId::RENDER_TEXTURE
         || class == ClassId::GAME_OBJECT
 }
 
@@ -260,6 +285,8 @@ pub(crate) struct Registry {
     shaders: BTreeMap<ObjectKey, Result<ShaderDecl, String>>,
     /// Each admitted material as decoded, or why it did not.
     materials: BTreeMap<ObjectKey, Result<Material, String>>,
+    /// Each admitted render texture as decoded, or why it did not.
+    render_textures: BTreeMap<ObjectKey, Result<RenderTexture, String>>,
     /// Differences found while admitting and while planning textures, sprites and atlases.
     pub(crate) notes: Vec<String>,
 }
@@ -273,6 +300,7 @@ impl Registry {
             rejected: BTreeSet::new(),
             shaders: BTreeMap::new(),
             materials: BTreeMap::new(),
+            render_textures: BTreeMap::new(),
             notes: Vec::new(),
         }
     }
@@ -317,6 +345,10 @@ impl Registry {
             let decoded = decode_material(&mut self.files, key);
             self.materials.insert(key.clone(), decoded);
         }
+        if class == ClassId::RENDER_TEXTURE {
+            let decoded = decode_render_texture(&mut self.files, key);
+            self.render_textures.insert(key.clone(), decoded);
+        }
         self.planned.insert(key.clone(), self.queue.len());
         self.queue.push((key.clone(), class));
         Ok(Some(self.queue.len() - 1))
@@ -357,9 +389,12 @@ impl Registry {
         }
     }
 
-    /// The asset index of an admitted object, unless it is a shader or material that did not
-    /// decode.
+    /// The asset index of an admitted object, unless it is a shader, material or render texture
+    /// that did not decode.
     fn usable(&self, key: &ObjectKey, index: usize, pptr: PPtr) -> Result<usize, String> {
+        if let Some(Err(cause)) = self.render_textures.get(key) {
+            return Err(unplanned_render_texture(pptr, cause));
+        }
         match (self.shaders.get(key), self.materials.get(key)) {
             (Some(Err(cause)), _) => Err(unplanned_reference(pptr, cause)),
             (_, Some(Err(cause))) => Err(unplanned_material(pptr, cause)),
@@ -408,6 +443,7 @@ impl ResourcePlanner {
             ClassId::GAME_OBJECT => self.prefab(key, layouts),
             ClassId::SHADER => Ok(self.shader(key)),
             ClassId::MATERIAL => Ok(self.material(key)),
+            ClassId::RENDER_TEXTURE => Ok(self.render_texture(key)),
             _ => self.script_asset(key, layouts),
         }
     }
@@ -432,6 +468,14 @@ impl ResourcePlanner {
                 ResourceAsset::UnplannedShader { error }
             }
         }
+    }
+
+    /// The render texture `key` as admitted: its settings, or an error entry that names why it
+    /// did not decode.
+    fn render_texture(&mut self, key: &ObjectKey) -> ResourceAsset {
+        let decoded = (self.registry.render_textures.get(key).cloned())
+            .unwrap_or_else(|| Err("it was not admitted".to_owned()));
+        plan_render_texture(key, decoded, &mut self.differences)
     }
 
     /// The material `key` as admitted, with its shader and textures planned as assets, or an

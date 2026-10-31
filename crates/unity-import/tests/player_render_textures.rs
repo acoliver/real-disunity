@@ -70,13 +70,14 @@ fn write_file(dir: &std::path::Path, name: &str, objects: Vec<ObjectData>, exter
     std::fs::write(dir.join(name), contents.write().unwrap()).unwrap();
 }
 
-/// A 512x256 render texture with a 16-bit depth buffer, 4 samples, mips on, bilinear, repeat.
+/// A 512x256 render texture with a 16-bit depth buffer, 4 samples, generated but unused mips,
+/// bilinear, wrap modes 0, 1 and 2.
 fn render_texture(name: &str) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string(name).unwrap().align();
     w.i32(0).i32(512).i32(256).i32(4).i32(-1).i32(90).i32(8);
-    w.bytes(&[1, 1, 0, 0, 0, 0, 1, 0]);
-    w.i32(1).i32(8).f32(0.0).i32(0).i32(0).i32(0);
+    w.bytes(&[0, 1, 0, 0, 0, 0, 1, 0]);
+    w.i32(1).i32(8).f32(0.0).i32(0).i32(1).i32(2);
     w.i32(2).i32(1).i32(2);
     w.finish()
 }
@@ -119,7 +120,7 @@ fn layouts() -> ScriptLayouts {
     ScriptLayouts::new(vec![ScriptType {
         key: "Example.Game:Example.Config".to_owned(),
         value_type: false,
-        fields: ["first", "second"]
+        fields: ["first", "second", "broken"]
             .iter()
             .map(|name| ScriptField {
                 name: (*name).to_owned(),
@@ -148,7 +149,8 @@ fn resource_manager() -> Vec<u8> {
 }
 
 /// A container listing a render texture, one that does not decode and a script asset whose fields
-/// name the first and a third the container does not list, and a listed material naming the first.
+/// name the first, a third the container does not list and the broken one, and a listed material
+/// naming the first.
 fn plan() -> (tempfile::TempDir, ResourcesPlan) {
     let dir = tempfile::tempdir().unwrap();
     write_file(
@@ -166,7 +168,11 @@ fn plan() -> (tempfile::TempDir, ResourcesPlan) {
             object(3, ClassId::RENDER_TEXTURE, broken),
             object(4, ClassId::RENDER_TEXTURE, render_texture("Unlisted")),
             object(5, ClassId::MONO_SCRIPT, script()),
-            object(6, ClassId::MONO_BEHAVIOUR, behaviour(&[ptr(2), ptr(4)])),
+            object(
+                6,
+                ClassId::MONO_BEHAVIOUR,
+                behaviour(&[ptr(2), ptr(4), ptr(3)]),
+            ),
             object(7, ClassId::MATERIAL, material(ptr(2))),
         ],
         &[],
@@ -201,9 +207,9 @@ fn plans_a_container_render_texture_with_its_allocation_and_sampler() {
         as_json(&plan, index),
         json!({
             "type": "RenderTexture", "name": "Target", "width": 512, "height": 256,
-            "depth_format": 90, "color_format": 8, "anti_aliasing": 4, "mip_maps": true,
+            "depth_format": 90, "color_format": 8, "anti_aliasing": 4, "mip_maps": false,
             "generate_mips": true, "dimension": 2, "filter_mode": 1, "aniso_level": 8,
-            "wrap_u": 0, "wrap_v": 0, "wrap_w": 0,
+            "wrap_u": 0, "wrap_v": 1, "wrap_w": 2,
         })
     );
 }
@@ -214,9 +220,9 @@ fn every_reference_meets_the_one_planned_render_texture() {
     let index = plan.entries[0].asset.unwrap();
     let written = fields(&dir, &plan);
     assert_eq!(written["first"], json!({"$asset": index}));
-    let unlisted = written["second"]["$asset"].as_u64().unwrap();
-    assert_ne!(unlisted, index as u64);
-    assert_eq!(as_json(&plan, unlisted as usize)["name"], "Unlisted");
+    let unlisted = usize::try_from(written["second"]["$asset"].as_u64().unwrap()).unwrap();
+    assert_ne!(unlisted, index);
+    assert_eq!(as_json(&plan, unlisted)["name"], "Unlisted");
     let materials: Vec<_> = (0..plan.assets.len())
         .map(|i| as_json(&plan, i))
         .filter(|asset| asset["type"] == "Material")
@@ -243,6 +249,18 @@ fn a_render_texture_that_does_not_decode_is_an_error_entry_naming_the_cause() {
         plan.differences
             .iter()
             .any(|line| line.starts_with("render texture did not plan: render texture object 3")),
+        "{:?}",
+        plan.differences
+    );
+}
+
+#[test]
+fn a_reference_to_a_render_texture_that_did_not_decode_binds_null_and_says_why() {
+    let (dir, plan) = plan();
+    assert_eq!(fields(&dir, &plan)["broken"], Json::Null);
+    assert!(
+        plan.differences.iter().any(|line| line
+            .contains("references render texture object 3 of file 0, which did not plan")),
         "{:?}",
         plan.differences
     );

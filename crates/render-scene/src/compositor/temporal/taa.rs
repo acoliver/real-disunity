@@ -148,6 +148,8 @@ impl FrameRenderer {
     ) -> Result<(), PostError> {
         if let Some(block) = self.pending_temporal_block() {
             let camera = self.temporal.borrow().pending_camera;
+            #[cfg(test)]
+            let camera = camera.filter(|_| !self.temporal.borrow().camera_term_disabled);
             factory.prepare_temporal_camera(
                 encoder,
                 self.frame_slot,

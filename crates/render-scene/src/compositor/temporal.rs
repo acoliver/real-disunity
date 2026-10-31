@@ -39,6 +39,9 @@ pub(crate) struct TemporalHistory {
     /// Test harnesses compare a configuration against the same one with the bias forced.
     #[cfg(test)]
     mip_bias_override: Option<f32>,
+    /// Test harnesses compare a configuration against the same one without the camera term.
+    #[cfg(test)]
+    camera_term_disabled: bool,
 }
 
 impl TemporalHistory {
@@ -102,6 +105,11 @@ impl FrameRenderer {
     #[cfg(test)]
     pub(crate) fn force_material_mip_bias(&self, bias: Option<f32>) {
         self.temporal.borrow_mut().mip_bias_override = bias;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn force_no_camera_term(&self, disabled: bool) {
+        self.temporal.borrow_mut().camera_term_disabled = disabled;
     }
 
     /// Discards the previous-frame camera, for camera cuts and capture restarts.

@@ -26,5 +26,6 @@ public abstract class MonoBehaviour : Behaviour
 
     public Coroutine StartCoroutine(System.Collections.IEnumerator iterator) => Disunity.Hosting.DisunityHost.StartCoroutine(this, iterator);
     public void StopCoroutine(Coroutine routine) => Disunity.Hosting.DisunityHost.StopCoroutine(this, routine);
+    public void StopCoroutine(System.Collections.IEnumerator iterator) => Disunity.Hosting.DisunityHost.StopCoroutine(this, iterator);
     public void StopAllCoroutines() => Disunity.Hosting.DisunityHost.StopAllCoroutines(this);
 }

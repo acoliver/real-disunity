@@ -31,11 +31,13 @@ public sealed class WaitForEndOfFrame : YieldInstruction;
 public sealed class Coroutine : YieldInstruction
 {
     internal readonly Stack<IEnumerator> Iterators = new();
+    /// <summary>The enumerator <c>StartCoroutine</c> was given, which <c>StopCoroutine(IEnumerator)</c> looks for.</summary>
+    internal readonly IEnumerator Root;
     internal readonly MonoBehaviour Owner;
     internal ulong Identity;
     internal bool Completed;
     internal bool Executing;
     /// <summary>The unfinished operation the coroutine waits on, polled once a frame.</summary>
     internal AsyncOperation? Waiting;
-    internal Coroutine(MonoBehaviour owner, IEnumerator iterator) { Owner = owner; Iterators.Push(iterator); }
+    internal Coroutine(MonoBehaviour owner, IEnumerator iterator) { Owner = owner; Root = iterator; Iterators.Push(iterator); }
 }

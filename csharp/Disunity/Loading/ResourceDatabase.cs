@@ -29,6 +29,8 @@ internal sealed partial class ResourceDatabase
     private readonly string _directory;
     // The plan's graphics section, absent from plans of projects without player settings.
     private readonly JsonElement? _graphics;
+    // The player's input axes, absent from plans of projects without an input manager.
+    private readonly JsonElement? _axes;
     private readonly Func<string, Assembly> _assemblies;
     private readonly Dictionary<int, Object> _built = new();
     // Script assets created by the load in progress, in creation order, waiting to activate.
@@ -47,6 +49,7 @@ internal sealed partial class ResourceDatabase
         }
         foreach (var asset in plan.RootElement.GetProperty("assets").EnumerateArray()) _assets.Add(asset.Clone());
         if (plan.RootElement.TryGetProperty("graphics", out var graphics)) _graphics = graphics.Clone();
+        if (plan.RootElement.TryGetProperty("axes", out var axes)) _axes = axes.Clone();
     }
 
     /// <summary>What the engine left out of the resources it built, one line each. Each is also logged as a

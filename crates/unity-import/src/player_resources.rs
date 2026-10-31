@@ -28,7 +28,9 @@ use worldrunner_unity_serialized::{
 
 use crate::{
     PlayerError,
+    input::InputAxis,
     player_files::PlayerFiles,
+    player_input::plan_player_axes,
     player_materials::{
         PlanMaterial, decode_material, plan_material, unplanned_reference as unplanned_material,
     },
@@ -54,6 +56,8 @@ pub struct ResourcesPlan {
     pub assets: Vec<ResourceAsset>,
     /// The render pipeline assets of the graphics and quality settings, by asset index.
     pub graphics: GraphicsAssets,
+    /// The player's input axes in `InputManager` order, as a project scene plan carries them.
+    pub axes: Vec<InputAxis>,
     pub differences: Vec<String>,
 }
 
@@ -241,6 +245,8 @@ pub fn plan_player_resources(
         });
     }
     let graphics = admit_graphics_assets(&mut planner.registry, &managers)?;
+    let (axes, mut axis_notes) = plan_player_axes(&mut planner.registry.files, &managers)?;
+    planner.differences.append(&mut axis_notes);
     // Objects an asset references join the queue while it is planned, so the queue grows
     // as it is walked and asset `i` is always `queue[i]`.
     let mut next = 0;
@@ -260,6 +266,7 @@ pub fn plan_player_resources(
         entries,
         assets: planner.assets,
         graphics,
+        axes,
         differences: planner.differences,
     })
 }

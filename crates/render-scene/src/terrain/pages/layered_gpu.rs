@@ -52,6 +52,9 @@ use worldrunner_render_post::{
 pub const LAYERED_WGSL: &str = concat!(
     include_str!("footprint.wgsl"),
     include_str!("layered_gpu.wgsl"),
+    // Page footprints are world-space, not screen footprints, so the frame's material mip bias
+    // never applies to a bake.
+    "fn layered_gradient_scale() -> f32 { return 1.0; }\n",
     include_str!("layered_bake.wgsl")
 );
 

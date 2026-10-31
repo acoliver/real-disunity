@@ -90,6 +90,8 @@ mod jitter;
 #[cfg(test)]
 mod jitter_tests;
 #[cfg(test)]
+mod mip_bias_tests;
+#[cfg(test)]
 mod post_extent_allocation_tests;
 mod post_filters;
 mod smaa;

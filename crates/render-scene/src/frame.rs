@@ -129,6 +129,12 @@ pub struct FrameUniform {
     ///
     /// Not encoded in [`to_bytes`](Self::to_bytes). See [`temporal`] for the separate block.
     pub temporal: Option<temporal::TemporalView>,
+    /// Mip levels added to every implicit-derivative material sample; negative while temporal
+    /// reconstruction rasterises below the output extent, exactly `+0.0` otherwise.
+    ///
+    /// Encoded in `lighting_options.w`, the last lane of the block, which was always zero.
+    /// Derive it with `HdrPostSettings::material_mip_bias`; it is policy, not an authored value.
+    pub material_mip_bias: f32,
 }
 
 impl FrameUniform {
@@ -212,6 +218,7 @@ impl FrameUniform {
             unlit: false,
             animation_time_milliseconds: 0,
             temporal: None,
+            material_mip_bias: 0.0,
         })
     }
 
@@ -237,6 +244,7 @@ impl FrameUniform {
             unlit: true,
             animation_time_milliseconds: 0,
             temporal: None,
+            material_mip_bias: 0.0,
         }
     }
 
@@ -317,7 +325,7 @@ impl FrameUniform {
         let [sun_intensity, tinted] = self
             .sun_ao_intensity
             .map_or([0.0, 0.0], |intensity| [intensity, 1.0]);
-        for value in [enabled, sun_intensity, tinted, 0.0] {
+        for value in [enabled, sun_intensity, tinted, self.material_mip_bias] {
             write_f32(bytes, offset, value);
         }
     }
@@ -434,5 +442,7 @@ fn micro_component(value: i64) -> f32 {
     value as f32 / ROTATION_MICRO_SCALE as f32
 }
 
+#[cfg(test)]
+mod mip_bias_tests;
 #[cfg(test)]
 mod tests;

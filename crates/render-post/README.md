@@ -437,6 +437,13 @@ explicit sequence is chosen, and `validate_jitter` rejects a shorter one. The al
 counts one shared history and three outputs at the output extent. Measured static error ratios
 against reset-every-frame are in [docs/rendering.md](../../docs/rendering.md#temporal-upscaling).
 
+`HdrPostSettings::material_mip_bias(config)` returns exactly `+0.0` in every mode, including
+`Temporal` at 0.5, 0.67 and 0.77. The render-scene sampling sites take the bias from the frame
+block, so a policy can be switched on in that one function. None ships: on the AMD Radeon 780M no
+nonzero candidate stayed within 1.10 times the native TAA shimmer at scale 0.5. The
+measurements on lavapipe and the Radeon, the decision rule and what remains before a bias can be
+enabled are in [docs/rendering.md](../../docs/rendering.md#material-mip-bias).
+
 ### Native-resolution RCAS
 
 `HdrPostSettings::native_rcas: Option<NativeRcasSettings>` schedules one `rcas`

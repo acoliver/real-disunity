@@ -66,6 +66,17 @@ gutter-safe page lookup. See the
 [terrain source contract](../../dev-docs/rendering/terrain-pages.md#portable-source-anisotropy) and the
 [sampling contract](../../dev-docs/rendering/2d.md#texture-sampling).
 
+`FrameUniform::material_mip_bias` (the last f32 of the frame block, bytes 316 to 320) is the mip
+bias of the scene's texture sampling, and `FrameRenderer::jitter_frame` sets it from
+`HdrPostSettings::material_mip_bias`, which returns exactly `+0.0` in every mode, so no bias is
+active and every frame keeps its bytes. The sites that use the lane are the implicit-derivative
+atlas samples, impostor and relief mip-enabled gradients, decal and terrain gradients and layered
+terrain gradients; tests force a bias to prove that each selects the finer level. Explicit LOD 0
+samples, control fields, environment roughness LOD, water normals and the sky are unbiased, and
+shadow caster frames carry exactly 0. See
+[docs/rendering.md](../../docs/rendering.md#material-mip-bias) for the measurement on two devices,
+the decision and what remains before a policy can be enabled.
+
 ## Masked alpha-to-coverage
 
 `SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA

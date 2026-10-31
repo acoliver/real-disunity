@@ -123,6 +123,10 @@ impl ConfiguredFrameRenderer {
     pub fn projection_jitter(&self) -> Option<worldrunner_render_post::ProjectionJitter> {
         self.state.current().projection_jitter()
     }
+    #[cfg(test)]
+    pub(crate) fn force_material_mip_bias(&self, bias: Option<f32>) {
+        self.state.current().force_material_mip_bias(bias);
+    }
     /// Discards the previous-frame camera, for camera cuts; the jitter sequence restarts.
     pub fn reset_temporal_history(&self) {
         self.state.current().reset_temporal_history();

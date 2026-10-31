@@ -93,6 +93,7 @@ fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32
     var result = SceneDecalSurface(albedo, properties, normal);
     let world_dx = dpdx(position);
     let world_dy = dpdy(position);
+    let gradient_scale = exp2(frame.lighting_options.w);
     for (var i = 0u; i < scene_decals.count.x; i++) {
         let decal = scene_decals.volumes[i];
         if (decal.selection.x & receiver) == 0u { continue; }
@@ -104,8 +105,8 @@ fn scene_project_decals(position: vec3<f32>, geometric: vec3<f32>, receiver: u32
         if angle_fade == 0.0 { continue; }
         if decal.direction_edge.w > 0.0 { weight *= clamp(edge / decal.direction_edge.w, 0.0, 1.0); }
         let uv = (scene_decal_uv(local, decal.selection.z) + 0.5) * decal.uv_transform.xy + decal.uv_transform.zw;
-        let dx = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dx, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
-        let dy = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dy, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy;
+        let dx = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dx, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy * gradient_scale;
+        let dy = scene_decal_uv((decal.local_from_world * vec4<f32>(world_dy, 0.0)).xyz, decal.selection.z) * decal.uv_transform.xy * gradient_scale;
         var sample = textureSampleGrad(scene_decal_albedo, scene_decal_sampler, uv, i32(decal.selection.y), dx, dy);
         sample.a *= angle_fade;
         if (decal.selection.x & 4194304u) != 0u {

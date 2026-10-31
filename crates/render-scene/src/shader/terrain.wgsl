@@ -143,8 +143,9 @@ fn sample_surface(
     let uv_scale = terrain.origin_and_spacing.w;
 
     let uv = rotate(world_xy, cosine, sine) * uv_scale;
-    let uv_dx = rotate(world_xy_dx, cosine, sine) * uv_scale;
-    let uv_dy = rotate(world_xy_dy, cosine, sine) * uv_scale;
+    let gradient_scale = exp2(frame.lighting_options.w);
+    let uv_dx = rotate(world_xy_dx, cosine, sine) * uv_scale * gradient_scale;
+    let uv_dy = rotate(world_xy_dy, cosine, sine) * uv_scale * gradient_scale;
 
     let albedo_sample = textureSampleGrad(albedo_array, terrain_sampler, uv, layer, uv_dx, uv_dy);
     let normal_sample = textureSampleGrad(normal_array, terrain_sampler, uv, layer, uv_dx, uv_dy);

@@ -1,6 +1,7 @@
 mod admission;
 mod array_layers;
 mod capture;
+mod mip_bias;
 mod normal_basis;
 mod shared_source_arrays;
 use super::*;

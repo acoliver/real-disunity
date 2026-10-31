@@ -67,7 +67,11 @@ fn layered_source(source: &str) -> String {
         &source[..start],
         &source[end..]
     );
-    format!("{source}\n{shared}")
+    // The frame's material mip bias finer-selects the screen-space gradients. The page bake
+    // defines the same function as 1.0 because its footprints are not screen footprints.
+    format!(
+        "{source}\nfn layered_gradient_scale() -> f32 {{ return exp2(frame.lighting_options.w); }}\n{shared}"
+    )
 }
 
 #[derive(Clone, Debug)]

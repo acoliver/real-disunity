@@ -36,18 +36,21 @@ impl HdrPostSettings {
             && config.size != config.output_extent()
     }
 
-    /// The material mip bias a renderer with these settings applies at `config`.
+    /// The material mip bias a renderer with these settings applies at `config`: exactly `+0.0`
+    /// in every mode.
     ///
-    /// [`material_mip_bias`](crate::material_mip_bias) of the render and output extents while
-    /// [`reconstructs_temporally`](Self::reconstructs_temporally), exactly `+0.0` for every other
-    /// configuration so that non-temporal output is unchanged.
+    /// The sampling plumbing exists (the frame lane and every biased site), but no nonzero
+    /// policy ships. The candidates `log2(s) - 1`, `log2(s) - 0.5` and `log2(s)`, with
+    /// `s = min(Rw / Ow, Rh / Oh)`, lowered the detail error at every tested scale. On the AMD
+    /// Radeon 780M at render scale 0.5 every one of them exceeded 1.10 times the native TAA
+    /// shimmer (1.239, 1.181 and 1.159 on the stripe fixture). The decision rule required a
+    /// candidate to pass at every scale on every tested device, so the policy is 0. The tables
+    /// and the rule are in the "Material mip bias" section of docs/rendering.md. A later change
+    /// can switch a policy on after the accumulation work (locks, reactive masks), measured
+    /// again on both devices.
     #[must_use]
-    pub fn material_mip_bias(self, config: FrameConfig) -> f32 {
-        if self.reconstructs_temporally(config) {
-            crate::material_mip_bias(config.size, config.output_extent())
-        } else {
-            0.0
-        }
+    pub fn material_mip_bias(self, _config: FrameConfig) -> f32 {
+        0.0
     }
 
     /// The projection jitter a renderer with these settings uses at `config`, given the explicitly

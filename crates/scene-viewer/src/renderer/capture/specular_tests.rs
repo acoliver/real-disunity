@@ -57,7 +57,7 @@ fn assert_stored_roughness(scene: RenderScene, expected: f32) {
     assert!(covered > 20);
 }
 
-fn source(metalness: u32, decal: bool) -> RenderScene {
+pub(super) fn source(metalness: u32, decal: bool) -> RenderScene {
     source_with_roughness(metalness, decal, [500_000, 250_000])
 }
 
@@ -127,7 +127,7 @@ fn setup(metalness: u32, decal: bool, samples: u32) -> (RetainedHost, Renderer) 
     setup_scene(source(metalness, decal), samples)
 }
 
-fn setup_scene(scene: RenderScene, samples: u32) -> (RetainedHost, Renderer) {
+pub(super) fn setup_scene(scene: RenderScene, samples: u32) -> (RetainedHost, Renderer) {
     let host = RetainedHost::new(
         scene,
         crate::ViewerOptions {
@@ -167,7 +167,7 @@ fn capture(
     capture_outputs(host, renderer, outputs)
 }
 
-fn capture_outputs(
+pub(super) fn capture_outputs(
     host: &mut RetainedHost,
     renderer: &mut Renderer,
     outputs: Vec<CaptureOutput>,
@@ -332,6 +332,10 @@ fn opaque_terms_use_authored_and_decal_albedo_without_changing_display() {
                     CaptureOutput::Srgb8,
                     CaptureOutput::Albedo,
                     CaptureOutput::SunVisibility,
+                    CaptureOutput::DirectDiffuse,
+                    CaptureOutput::AmbientDiffuse,
+                    CaptureOutput::EnvironmentSpecular,
+                    CaptureOutput::SunSpecular,
                 ],
             );
             assert_eq!(baseline.srgb8, terms.srgb8);
@@ -389,11 +393,22 @@ fn retained_term_capture_replays_paged_terrain_in_the_fitted_transaction() {
     let products = capture_outputs(
         &mut host,
         &mut renderer,
-        vec![CaptureOutput::Albedo, CaptureOutput::SunVisibility],
+        vec![
+            CaptureOutput::Albedo,
+            CaptureOutput::SunVisibility,
+            CaptureOutput::DirectDiffuse,
+            CaptureOutput::AmbientDiffuse,
+            CaptureOutput::EnvironmentSpecular,
+            CaptureOutput::SunSpecular,
+        ],
     );
     for image in [
         products.albedo().unwrap(),
         products.sun_visibility().unwrap(),
+        products.direct_diffuse().unwrap(),
+        products.ambient_diffuse().unwrap(),
+        products.environment_specular().unwrap(),
+        products.sun_specular().unwrap(),
     ] {
         assert_eq!([image.viewport.width, image.viewport.height], [32, 32]);
         assert!(image.pixels.iter().filter(|p| p[3] != 0.0).count() > 20);

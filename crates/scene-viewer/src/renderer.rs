@@ -275,7 +275,12 @@ impl Renderer {
                 }
                 if let Some(retained) = &mut retained {
                     if !fitted {
-                        retained.replay(self.context.device(), encoder, &self.resident);
+                        retained.replay(
+                            self.context.device(),
+                            encoder,
+                            &self.resident,
+                            &self.presentation.scheduler,
+                        );
                     }
                     retained.encode(
                         encoder,

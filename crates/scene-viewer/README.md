@@ -6,9 +6,10 @@ window system presents it.
 
 ## Opaque capture attribution
 
-Retained recipes accept `CaptureOutput::Albedo` and `CaptureOutput::SunVisibility`.
-Read them through `RetainedCaptureProducts::albedo()` and `sun_visibility()`.
-Both return linear `RGBA16Float` decoded images, top-left first, at native raster
+Retained recipes accept `CaptureOutput::Albedo`, `SunVisibility`, `DirectDiffuse`,
+`AmbientDiffuse`, `EnvironmentSpecular` and `SunSpecular`. Read them through the
+matching `RetainedCaptureProducts` accessors (`direct_diffuse()`, for example).
+All return linear `RGBA16Float` decoded images, top-left first, at native raster
 extent. RGB albedo is unitless reflectance after textures, terrain-layer blending,
 contact surfaces and projected decals. Sun visibility is strength-adjusted
 unitless directional visibility in [0, 1], replicated in RGB. Alpha is opaque
@@ -30,8 +31,23 @@ reject requests exceeding that pool with `CaptureRequestError::RecipeBudget`;
 planning wraps it in `ViewerError::Capture`. Live admission also accounts for
 outstanding reservations. With no attribution request, no replay targets or pipelines are
 created and existing presentation allocation totals remain unchanged.
-`DirectDiffuse`, `AmbientDiffuse` and `EnvironmentSpecular` are not available.
-Albedo and visibility alone do not reconstruct the lit radiance.
+`DirectDiffuse` is the sun diffuse lobe after directional shadow visibility and
+any diffuse AO selected by the specular convention. `LambertianPrepared` uses
+albedo times (1 - metalness), N dot L, and sun irradiance; the default convention
+also applies Fresnel energy conservation and division by pi. `AmbientDiffuse`
+contains hemisphere or SH diffuse after material and screen AO. `EnvironmentSpecular`
+is the forward environment reflection radiance, including its split-sum factor and
+specular AO, before SSR replacement. `SunSpecular` contains the directional specular
+lobe, or the clipped disk when configured. Radiance uses the same linear scene units
+as `LinearHdr`, without camera exposure.
+
+The four radiance products reconstruct opaque surface lighting within RGBA16Float
+rounding. Mesh emission (including packed-atlas emission), masked backlighting and
+translucency are excluded. Terrain has none of those terms. Neither mesh nor terrain
+surface lighting currently adds local lights. Fog, exposure, SSR replacement,
+water, transparency, sky and post-processing are outside this sum. Compare against
+`LinearHdr` only where those operations are absent, with unit exposure and one
+forward sample. Unlit surfaces publish albedo as ambient and zero other radiance.
 
 ## Retained shadow light
 

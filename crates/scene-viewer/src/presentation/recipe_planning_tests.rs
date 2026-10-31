@@ -161,7 +161,14 @@ fn opaque_capture_planning_uses_the_shared_pool_and_checks_term_storage() {
         1,
         CaptureJitter::None,
         false,
-        vec![CaptureOutput::Albedo, CaptureOutput::SunVisibility],
+        vec![
+            CaptureOutput::Albedo,
+            CaptureOutput::SunVisibility,
+            CaptureOutput::DirectDiffuse,
+            CaptureOutput::AmbientDiffuse,
+            CaptureOutput::EnvironmentSpecular,
+            CaptureOutput::SunSpecular,
+        ],
         1024 * 1024,
     )
     .unwrap();

@@ -88,15 +88,14 @@ fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
     albedo_sample = vec4<f32>(projected.albedo, albedo_sample.a);
     roughness = projected.properties.x;
     metalness = projected.properties.y;
-    var colour = surface_lighting(
+    let lighting = scene_surface_lighting(
         input.world_position,
         normal,
         albedo_sample.rgb,
-        roughness,
-        metalness,
-        ambient_occlusion,
+        vec3<f32>(roughness, metalness, ambient_occlusion), DIELECTRIC_F0,
     );
 
+    var colour = lighting.color;
     if material.scattering_mode.y != 0.0 && frame.grading.y == 0.0 {
         let toward_sun = rd_toward_light(frame.sun_direction.xyz, false);
         let ray = normalize(input.world_position - scene_ray_origin(input.world_position));

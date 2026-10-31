@@ -15,11 +15,29 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         capture: &crate::compositor::terms::TermCapture,
     ) {
-        capture.encode_with_shadow(
+        capture.encode_with_frame(
             device,
             encoder,
             &self.gpu,
-            Some((&self.shadow_layout, &self.map.group)),
+            (
+                Some((&self.shadow_layout, &self.map.group)),
+                Some(&self.scheduler),
+            ),
+        );
+    }
+    /// Replays against a host's selected frame products instead of the internal scheduler.
+    pub fn encode_term_capture_with(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        capture: &crate::compositor::terms::TermCapture,
+        scheduler: &crate::compositor::ConfiguredFrameRenderer,
+    ) {
+        scheduler.encode_term_capture(
+            device,
+            encoder,
+            capture,
+            (&self.gpu, Some((&self.shadow_layout, &self.map.group))),
         );
     }
 }

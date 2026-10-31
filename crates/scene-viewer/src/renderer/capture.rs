@@ -175,3 +175,6 @@ mod feature_tests;
 
 #[cfg(test)]
 mod specular_tests;
+
+#[cfg(test)]
+mod lighting_term_tests;

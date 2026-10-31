@@ -393,13 +393,11 @@ pub unsafe extern "C" fn disunity_ui_rect(
         return DisunityResult::invalid_argument();
     }
     mutate(world, |s| {
-        let layout = s
+        let r = s
             .native
-            .ui_layout(UVec2::new(width, height))
-            .map_err(crate::errors::AbiError::from)?;
-        let r = layout
-            .rect(s.object(object)?)
-            .ok_or("UI rectangle has no visible Canvas")?;
+            .ui_extent(UVec2::new(width, height), s.object(object)?)
+            .map_err(crate::errors::AbiError::from)?
+            .ok_or("UI rectangle needs a RectTransform")?;
         unsafe {
             *output = DisunityRect {
                 size_x: r.size.x,

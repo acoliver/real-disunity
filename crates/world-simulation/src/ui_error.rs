@@ -14,8 +14,6 @@ pub enum UiError {
     InvalidCanvasRenderer,
     #[error("invalid viewport")]
     InvalidViewport,
-    #[error("screen Canvas must be an object root")]
-    ScreenCanvasParent,
     #[error("camera must be outside a Canvas and have a nonsingular rigid transform")]
     InvalidCamera,
     #[error("UI requires a RectTransform and Canvas ancestor")]

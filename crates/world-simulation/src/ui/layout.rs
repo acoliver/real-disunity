@@ -30,6 +30,20 @@ impl UiLayout {
     }
 }
 
+/// The size and pivot of a resolved rectangle, which scripts read whether or not the rectangle is
+/// drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RectExtent {
+    pub size: Vec2,
+    pub pivot: Vec2,
+}
+
+type UiParts = (
+    BTreeMap<ObjectHandle, RectTransform>,
+    BTreeMap<ObjectHandle, Canvas>,
+    BTreeMap<ObjectHandle, Resolved>,
+);
+
 #[derive(Clone, Copy)]
 struct Resolved {
     size: Vec2,
@@ -42,6 +56,29 @@ struct Resolved {
 impl World {
     /// Resolves completed live state without mutating serialized local transforms.
     pub fn ui_layout(&self, viewport: UVec2) -> Result<UiLayout, WorldError> {
+        let (rects, canvases, resolved) = self.resolve_ui(viewport)?;
+        Ok(UiLayout {
+            viewport,
+            rects: self.ui_rects(&rects, &canvases, &resolved, viewport)?,
+        })
+    }
+
+    /// The size and pivot of an object's rectangle, as a script reads them. Every rectangle has
+    /// one, including one that is inactive, hidden or under no canvas, which has the size its own
+    /// values and any parent rectangle give it. `None` when the object has no RectTransform.
+    pub fn ui_extent(
+        &self,
+        viewport: UVec2,
+        object: ObjectHandle,
+    ) -> Result<Option<RectExtent>, WorldError> {
+        let (_, _, resolved) = self.resolve_ui(viewport)?;
+        Ok(resolved.get(&object).map(|r| RectExtent {
+            size: r.size,
+            pivot: r.pivot,
+        }))
+    }
+
+    fn resolve_ui(&self, viewport: UVec2) -> Result<UiParts, WorldError> {
         if viewport.min_element() == 0 || viewport.max_element() > 16384 {
             return Err(UiError::InvalidViewport.into());
         }
@@ -83,10 +120,7 @@ impl World {
                 resolved.insert(node, value);
             }
         }
-        Ok(UiLayout {
-            viewport,
-            rects: self.ui_rects(&rects, &canvases, &resolved, viewport)?,
-        })
+        Ok((rects, canvases, resolved))
     }
 
     fn ui_rects(
@@ -172,14 +206,18 @@ impl World {
             local.translation.y = xy.y;
         }
         let mut matrix = parent.map_or(Mat4::IDENTITY, |p| p.matrix) * local.matrix();
-        if let Some(c) = canvas {
+        let outer = parent.and_then(|p| p.canvas);
+        let mut canvas = canvas;
+        if let Some(c) = canvas.as_mut() {
             if rect.is_none() {
                 return Err(UiError::MissingLayout.into());
             }
-            if c.mode != CanvasMode::WorldSpace {
-                if self.parent(object)?.is_some() {
-                    return Err(UiError::ScreenCanvasParent.into());
-                }
+            if let Some((_, root)) = outer {
+                // A canvas inside another canvas is nested: it is laid out as a rectangle of its
+                // parent and drawn the way its root canvas is.
+                c.mode = root.mode;
+            } else if c.mode != CanvasMode::WorldSpace {
+                // A screen canvas fills the screen wherever it sits in the hierarchy.
                 let factor = c.scale.factor(viewport)?;
                 size = viewport.as_vec2() / factor;
                 matrix = self.screen_matrix(c.mode, pivot, viewport, factor, canvases)?;

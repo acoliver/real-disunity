@@ -113,6 +113,8 @@ mod taa_gpu_test_support;
 mod taa_gpu_tests;
 #[cfg(test)]
 mod taa_history_reference;
+#[cfg(test)]
+mod taa_overlapping_movers_tests;
 mod taa_reconstruct_gpu;
 #[cfg(test)]
 mod taa_reconstruct_gpu_tests;
@@ -135,6 +137,10 @@ mod temporal_camera;
 mod temporal_camera_gpu_tests;
 #[cfg(test)]
 mod temporal_camera_tests;
+#[cfg(test)]
+mod temporal_depth_motion_scene;
+#[cfg(test)]
+mod temporal_depth_motion_tests;
 #[cfg(test)]
 mod temporal_disocclusion_scene;
 #[cfg(test)]

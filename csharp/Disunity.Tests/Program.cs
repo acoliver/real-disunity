@@ -287,6 +287,7 @@ ResourceTests.Run();
 PrefabResourceTests.Run();
 PlayerShaderTests.Run();
 PlayerMaterialTests.Run();
+PlayerMeshTests.Run();
 PlayerRenderTextureTests.Run();
 TextCoreTests.Run();
 FontEngineTests.Run();

@@ -118,6 +118,7 @@ internal sealed partial class ResourceDatabase
         "Prefab" or "UnplannedPrefab" => typeof(GameObject),
         "Shader" or "UnplannedShader" => typeof(Shader),
         "Material" or "UnplannedMaterial" => typeof(Material),
+        "Mesh" => typeof(Mesh),
         "RenderTexture" or "UnplannedRenderTexture" => typeof(RenderTexture),
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
@@ -177,6 +178,7 @@ internal sealed partial class ResourceDatabase
             "RenderTexture" => _built[index] = PlayerRenderTexture(asset),
             "UnplannedShader" or "UnplannedMaterial" or "UnplannedRenderTexture" => throw new InvalidOperationException($"Resources: {asset.Str("error")}"),
             "Material" => _built[index] = PlayerMaterials.Build(asset, Asset),
+            "Mesh" => _built[index] = PlayerMeshes.Build(asset, _directory),
             _ => Script(index, asset),
         };
     }

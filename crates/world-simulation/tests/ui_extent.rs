@@ -3,7 +3,8 @@
 use glam::{UVec2, Vec2, Vec3};
 use worldrunner_world_simulation::ui::*;
 use worldrunner_world_simulation::{
-    ComponentDesc, LocalTransform, ObjectDesc, ObjectHandle, ParentSpace, World, WorldSettings,
+    ComponentDesc, DestroyWhen, LocalTransform, ObjectDesc, ObjectHandle, ParentSpace, World,
+    WorldSettings,
 };
 
 fn world() -> World {
@@ -189,4 +190,123 @@ fn any_finite_anchors_and_pivot_are_a_rectangle() {
             assert!(w.add_component(o, ComponentDesc::RectTransform(r)).is_err());
         }
     }
+}
+
+fn anchored(min: Vec2, max: Vec2, delta: Vec2, pivot: Vec2) -> RectTransform {
+    RectTransform {
+        anchor_min: min,
+        anchor_max: max,
+        size_delta: delta,
+        pivot,
+        anchored_position: Vec2::new(7., -3.),
+    }
+}
+
+fn camera_canvas(w: &mut World, camera: ObjectHandle) -> ObjectHandle {
+    let root = rect(w, None, RectTransform::default());
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceCamera {
+                camera,
+                orthographic_size: 5.,
+                plane_distance: 10.,
+            },
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    root
+}
+
+#[test]
+fn each_extent_matches_the_full_layout() {
+    let mut w = world();
+    let root = screen_canvas(&mut w, None);
+    let panel = rect(
+        &mut w,
+        Some(root),
+        anchored(
+            Vec2::new(0.1, 0.2),
+            Vec2::new(0.6, 0.9),
+            Vec2::new(-4., 6.),
+            Vec2::new(0.3, 0.7),
+        ),
+    );
+    let nested = rect(&mut w, Some(panel), stretched(3.));
+    w.add_component(nested, ComponentDesc::Canvas(Canvas::default()))
+        .unwrap();
+    let label = rect(
+        &mut w,
+        Some(nested),
+        anchored(
+            Vec2::ZERO,
+            Vec2::new(0.5, 1.),
+            Vec2::new(10., -2.),
+            Vec2::splat(0.5),
+        ),
+    );
+    let camera = w.create_object(ObjectDesc::default()).unwrap();
+    let other = camera_canvas(&mut w, camera);
+    let item = rect(
+        &mut w,
+        Some(other),
+        anchored(Vec2::splat(0.25), Vec2::splat(0.75), Vec2::ZERO, Vec2::ONE),
+    );
+    let layout = w.ui_layout(viewport()).unwrap();
+    for object in [root, panel, nested, label, other, item] {
+        let drawn = layout.rect(object).unwrap();
+        let extent = w.ui_extent(viewport(), object).unwrap().unwrap();
+        assert_eq!(
+            (extent.size, extent.pivot),
+            (drawn.size, drawn.pivot),
+            "{object:?}"
+        );
+    }
+}
+
+#[test]
+fn an_extent_through_a_camera_inside_a_canvas_fails_like_the_layout() {
+    let mut w = world();
+    let holder = screen_canvas(&mut w, None);
+    let camera = w.create_object(ObjectDesc::default()).unwrap();
+    w.set_parent(camera, Some(holder), ParentSpace::KeepLocal)
+        .unwrap();
+    let root = camera_canvas(&mut w, camera);
+    let item = rect(&mut w, Some(root), stretched(1.));
+    assert!(w.ui_layout(viewport()).is_err());
+    assert!(w.ui_extent(viewport(), item).is_err());
+}
+
+#[test]
+fn an_object_without_a_rectangle_above_rectangles_has_no_extent() {
+    let mut w = world();
+    let holder = w.create_object(ObjectDesc::default()).unwrap();
+    let inner = rect(&mut w, Some(holder), RectTransform::default());
+    assert!(w.ui_extent(viewport(), holder).unwrap().is_none());
+    assert!(w.ui_extent(viewport(), inner).unwrap().is_some());
+}
+
+#[test]
+fn a_canvas_awaiting_destruction_no_longer_lays_out_its_children() {
+    let mut w = world();
+    let root = rect(&mut w, None, RectTransform::default());
+    let canvas = w
+        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .unwrap();
+    let child = rect(&mut w, Some(root), stretched(10.));
+    let before = w.ui_extent(viewport(), child).unwrap().unwrap();
+    assert_eq!(before.size, Vec2::new(780., 580.));
+    w.destroy_component(canvas).unwrap();
+    let after = w.ui_extent(viewport(), child).unwrap().unwrap();
+    assert_eq!(after.size, Vec2::new(80., 80.));
+}
+
+#[test]
+fn an_object_awaiting_destruction_has_no_extent() {
+    let mut w = world();
+    let root = screen_canvas(&mut w, None);
+    let child = rect(&mut w, Some(root), stretched(10.));
+    w.destroy(root, DestroyWhen::EndOfFrame).unwrap();
+    assert!(w.ui_extent(viewport(), child).unwrap().is_none());
 }

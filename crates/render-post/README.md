@@ -418,6 +418,25 @@ Use `PostChain::resize_extents` to replace both extents and their dependent
 bindings transactionally. `resize` changes the internal extent; an explicit
 presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
 
+### Temporal upscaling
+
+`UpscaleMode::Temporal` is not a `SpatialUpscale` pass (`SpatialUpscale::validate_config` rejects it).
+With a TAA resolve, one sample per pixel and a render extent of at least half the output,
+`hdr_taa::append` builds a temporal bank instead of the native one: the `temporal upscale` stage
+(`taa_upscale.wgsl`) reads the render-extent frame, the velocity target and a shared `Rgba16Float`
+history at the output extent, writes three per-slot outputs at the output extent and keeps no depth
+history. A `TemporalBlock` (48 bytes: both extents, jitter, phase count, history weight, clip scale,
+`history_valid`) is uploaded per frame with `ToneMapOutput::prepare_temporal`; there is no all-zero
+block, a reset is a real block with `history_valid: false`. Metering, bloom, Gaussian, CAS, tone
+mapping and RCAS use the colour extent of the chain (`Scene::extent`, the output extent here), and
+`UpscaleSettings::sharpness` becomes a display-linear RCAS after the stage. The history bank is
+keyed by render extent, output extent, mode and sample count and replaced transactionally: a
+rejected configuration keeps the committed bank (`StageFactory::settle_build`).
+`HdrPostSettings::effective_jitter` gives `ProjectionJitter::for_extents(render, output)` when no
+explicit sequence is chosen, and `validate_jitter` rejects a shorter one. The allocation budget
+counts one shared history and three outputs at the output extent. Measured static error ratios
+against reset-every-frame are in [docs/rendering.md](../../docs/rendering.md#temporal-upscaling).
+
 ### Native-resolution RCAS
 
 `HdrPostSettings::native_rcas: Option<NativeRcasSettings>` schedules one `rcas`

@@ -62,7 +62,7 @@ fn scene_atlas_plane_uv(cell: vec2<f32>, grid: vec2<f32>, eye: vec3<f32>, point:
 }
 
 fn scene_atlas_sample(map: texture_2d<f32>, input: VertexOutput) -> vec4<f32> {
-    let stock = textureSample(map, material_sampler, input.texcoord);
+    let stock = textureSampleBias(map, material_sampler, input.texcoord, frame.lighting_options.w);
     if input.atlas_eye.w == 0.0 {
         return stock;
     }

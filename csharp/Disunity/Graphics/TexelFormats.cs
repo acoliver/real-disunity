@@ -6,7 +6,7 @@ namespace UnityEngine;
 /// Byte sizes of texture mip levels and the pixel codecs of the uncompressed formats the engine
 /// reads and writes. Every other format keeps raw bytes only.
 /// </summary>
-internal static class TexelFormats
+internal static partial class TexelFormats
 {
     private readonly record struct Block(int Width, int Height, int Bytes, int MinBlocks);
 

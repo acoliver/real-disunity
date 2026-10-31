@@ -406,3 +406,77 @@ impl Layout for Texture2D {
         })
     }
 }
+
+/// Whether a texture ignores the quality limit on its mip levels, and its limit group.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MipLimit {
+    pub ignore: bool,
+    pub group: String,
+}
+
+/// A stack of equally sized slices that a shader samples by index.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Texture2DArray {
+    pub name: String,
+    pub color_space: i32,
+    pub is_alpha_channel_optional: bool,
+    /// The `GraphicsFormat` value of every pixel, for example 52 for four 32-bit floats.
+    pub format: i32,
+    pub width: i32,
+    pub height: i32,
+    /// The number of slices.
+    pub depth: i32,
+    pub mip_count: i32,
+    pub stripped_mips: i32,
+    /// Bytes of image data for all slices and mip levels.
+    pub data_size: u32,
+    pub settings: TextureSettings,
+    pub lightmap_format: i32,
+    pub is_readable: bool,
+    pub is_pre_processed: bool,
+    pub mip_limit: MipLimit,
+    /// Byte range of inline image data within the object; empty when the data is streamed.
+    pub image_data: Range<usize>,
+    pub stream: StreamingInfo,
+}
+
+impl Layout for Texture2DArray {
+    const CLASS: ClassId = ClassId::TEXTURE_2D_ARRAY;
+
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        let name = r.string()?;
+        let color_space = r.i32()?;
+        let is_alpha_channel_optional = r.bool()?;
+        r.align()?;
+        let [format, width, height, depth, mip_count] =
+            [r.i32()?, r.i32()?, r.i32()?, r.i32()?, r.i32()?];
+        let stripped_mips = r.i32()?;
+        let data_size = r.u32()?;
+        let settings = TextureSettings::read(r)?;
+        let lightmap_format = r.i32()?;
+        let [is_readable, is_pre_processed, ignore] = [r.bool()?, r.bool()?, r.bool()?];
+        r.align()?;
+        Ok(Self {
+            name,
+            color_space,
+            is_alpha_channel_optional,
+            format,
+            width,
+            height,
+            depth,
+            mip_count,
+            stripped_mips,
+            data_size,
+            settings,
+            lightmap_format,
+            is_readable,
+            is_pre_processed,
+            mip_limit: MipLimit {
+                ignore,
+                group: r.string()?,
+            },
+            image_data: r.byte_range("image data byte")?,
+            stream: StreamingInfo::read(r)?,
+        })
+    }
+}

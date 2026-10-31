@@ -5,7 +5,7 @@
 //! assets: a `TextAsset` names the byte range of its contents in the player's file, and a
 //! script asset (a `ScriptableObject`) has its decoded fields written to a file beside the
 //! plan, with references to other planned resources as `{"$asset": i}`, since a few hold
-//! tables of many megabytes. Textures, sprites and sprite atlases are planned too, along
+//! tables of many megabytes. Textures, texture arrays (see [`crate::player_texture_arrays`]), sprites and sprite atlases are planned too, along
 //! with the ones such an object references even when the container does not list them (see
 //! [`crate::player_sprites`]), and so are shaders (see [`crate::player_shader_refs`]) and materials
 //! (see [`crate::player_materials`]); a `MeshFilter` plans the meshes it references, with their data in
@@ -42,6 +42,7 @@ use crate::{
     player_scripts::script_fields,
     player_shader_refs::{ShaderDecl, decode_shader, unplanned_reference},
     player_sprites::{self, AssetRef, TextureData},
+    player_texture_arrays::plan_texture_array,
     player_values::{FieldWriter, not_held},
 };
 
@@ -95,6 +96,25 @@ pub enum ResourceAsset {
         width: i32,
         height: i32,
         format: i32,
+        mip_count: i32,
+        readable: bool,
+        color_space: i32,
+        filter_mode: i32,
+        wrap_u: i32,
+        wrap_v: i32,
+        wrap_w: i32,
+        aniso_level: i32,
+        mip_bias: f32,
+        data: TextureData,
+    },
+    /// A stack of equally sized slices. `graphics_format` is the `GraphicsFormat` value of the
+    /// pixels, `depth` the number of slices; the other fields are those of `Texture2D`.
+    Texture2DArray {
+        name: String,
+        width: i32,
+        height: i32,
+        depth: i32,
+        graphics_format: i32,
         mip_count: i32,
         readable: bool,
         color_space: i32,
@@ -255,6 +275,7 @@ fn buildable(class: ClassId) -> bool {
 /// Classes a reference plans even when the container does not list the object.
 fn referenced_on_demand(class: ClassId) -> bool {
     class == ClassId::TEXTURE_2D
+        || class == ClassId::TEXTURE_2D_ARRAY
         || class == ClassId::SPRITE
         || class == ClassId::SPRITE_ATLAS
         || class == ClassId::SHADER
@@ -474,6 +495,9 @@ impl ResourcePlanner {
             ClassId::TEXT_ASSET => self.text_asset(file, *path_id),
             ClassId::TEXTURE_2D => {
                 player_sprites::plan_texture(&mut self.registry, key, &self.output, index)
+            }
+            ClassId::TEXTURE_2D_ARRAY => {
+                plan_texture_array(&mut self.registry, key, &self.output, index)
             }
             ClassId::SPRITE => player_sprites::plan_sprite(&mut self.registry, key),
             ClassId::SPRITE_ATLAS => player_sprites::plan_atlas(&mut self.registry, key),

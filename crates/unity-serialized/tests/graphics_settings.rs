@@ -59,6 +59,7 @@ fn decodes_the_pipeline_and_the_global_settings() {
         assert_eq!(
             decode_graphics(bytes, big_endian).unwrap(),
             GraphicsSettings {
+                always_included_shaders: (0..48).map(|i| external(100 + i)).collect(),
                 render_pipeline: external(4988),
                 global_settings: external(4990),
             }

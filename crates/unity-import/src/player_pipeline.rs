@@ -28,6 +28,9 @@ pub struct GraphicsAssets {
     /// The pipeline asset of each quality level in level order; `None` for a level that names
     /// none.
     pub quality_pipelines: Vec<Option<usize>>,
+    /// The shaders every build keeps, which `Shader.Find` finds by name, in settings order. A
+    /// reference that does not plan is a difference and has no entry.
+    pub always_included_shaders: Vec<usize>,
 }
 
 /// Admits the pipeline assets that `globalgamemanagers` names to `registry`.
@@ -53,6 +56,11 @@ pub(crate) fn admit_graphics_assets(
             graphics.global_settings,
             "render pipeline global settings asset",
         );
+        assets.always_included_shaders = graphics
+            .always_included_shaders
+            .iter()
+            .filter_map(|&shader| admit(registry, managers, shader, "always included shader"))
+            .collect();
     }
     if let Some(quality) = decode_manager::<QualitySettings>(registry, managers)? {
         for pipeline in quality.render_pipelines {

@@ -21,9 +21,11 @@ const SETTINGS_BETWEEN_LEN: usize = 132;
 /// Bytes after the global settings reference, all zero in the Old World player.
 const TRAILER_LEN: usize = 12;
 
-/// The render pipeline assets `GraphicsSettings` names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The render pipeline assets and the always included shaders `GraphicsSettings` names.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphicsSettings {
+    /// The shaders every build keeps, which `Shader.Find` can return by name.
+    pub always_included_shaders: Vec<PPtr>,
     /// The render pipeline asset used when no quality level names one, or null.
     pub render_pipeline: PPtr,
     /// The settings asset of the pipeline package, or null.
@@ -39,7 +41,7 @@ impl Layout for GraphicsSettings {
         }
         // The video shaders include mode.
         r.i32()?;
-        r.pptrs("always included shader")?;
+        let always_included_shaders = r.pptrs("always included shader")?;
         r.pptrs("preloaded shader")?;
         r.i32()?;
         let _sprites_default_material = r.pptr()?;
@@ -53,6 +55,7 @@ impl Layout for GraphicsSettings {
         let global_settings = r.pptr()?;
         r.bytes::<TRAILER_LEN>()?;
         Ok(Self {
+            always_included_shaders,
             render_pipeline,
             global_settings,
         })

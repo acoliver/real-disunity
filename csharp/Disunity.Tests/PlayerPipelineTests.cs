@@ -39,13 +39,31 @@ internal static class PlayerPipelineTests
         AFailingAssetLeavesThePipelineNullAndLogsTheCause();
         APlanWithoutGraphicsChangesNothing();
         QualityLevelAssets();
+        AlwaysIncludedShadersAreFoundByName();
         Console.WriteLine("PASS: player pipeline assets are set before the first scene, a failing asset is logged and left null, quality levels hold their own assets");
     }
 
     private static string AssemblyName => typeof(PlayerPipelineTests).Assembly.GetName().Name!;
 
+    private const string AlwaysIncluded = "PlayerPipelineTests/AlwaysIncluded";
+
+    private static void AlwaysIncludedShadersAreFoundByName()
+    {
+        var graphics = Graphics(null, null);
+        Expect.That(Shader.Find(AlwaysIncluded) == null, "no shader of that name before the plan is applied");
+        graphics["always_included_shaders"] = new JsonArray(5, 2);
+        With(graphics, [], log =>
+        {
+            var found = Shader.Find(AlwaysIncluded);
+            Expect.That(found != null && found.name == AlwaysIncluded, "Shader.Find returns an always included shader that nothing references");
+            Expect.Equal(2450, found!.renderQueue, "with its planned render queue");
+            Expect.That(log.Any(line => line.Contains("always included shader Low") && line.Contains("not a Shader")), $"an asset that is not a shader is logged: {string.Join(" | ", log)}");
+        });
+    }
+
     /// <summary>Writes a plan whose assets are a High pipeline (0), the global settings (1), a Low pipeline (2) and an
-    /// asset of a class that does not exist (3), an asset whose constructor throws (4), with <paramref name="graphics"/> as its graphics section.</summary>
+    /// asset of a class that does not exist (3), an asset whose constructor throws (4) and a shader that only the always
+    /// included list names (5), with <paramref name="graphics"/> as its graphics section.</summary>
     private static string WritePlan(string directory, JsonNode? graphics)
     {
         var assets = new JsonArray();
@@ -57,6 +75,7 @@ internal static class PlayerPipelineTests
             File.WriteAllText(Path.Combine(directory, $"{i}.json"), classes[i].Item3);
             assets.Add(new JsonObject { ["type"] = "Script", ["class"] = classes[i].Item2, ["assembly"] = AssemblyName, ["name"] = classes[i].Item1, ["fields"] = $"{i}.json" });
         }
+        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = AlwaysIncluded, ["render_queue"] = 2450, ["pass_count"] = 2, ["subshader_count"] = 1 });
         var plan = new JsonObject { ["entries"] = new JsonArray(), ["assets"] = assets, ["differences"] = new JsonArray() };
         if (graphics is not null) plan["graphics"] = graphics;
         var path = Path.Combine(directory, "resources.json");

@@ -161,9 +161,16 @@ public sealed class GameObject : Object, IDisposable
 
     public static GameObject[] FindGameObjectsWithTag(string tag) => DisunityHost.ActiveObjects().Where(value => value.tag == tag).ToArray();
 
-    /// <summary>The engine has no 3D meshes yet, so no primitive can be built.</summary>
-    public static GameObject CreatePrimitive(PrimitiveType type) =>
-        throw new NotSupportedException($"GameObject.CreatePrimitive({type}) is not supported yet: the engine has no 3D meshes");
+    /// <summary>Makes an object named after the primitive with a <see cref="MeshFilter"/> naming the shared mesh of that shape and a
+    /// <see cref="MeshRenderer"/> with no material, since the engine has no default one. The engine cannot attach 3D colliders yet
+    /// (see <see cref="UnsupportedComponents"/>), so the object gets none.</summary>
+    public static GameObject CreatePrimitive(PrimitiveType type)
+    {
+        var mesh = PrimitiveMeshes.Of(type);
+        var primitive = new GameObject(type.ToString(), typeof(MeshFilter), typeof(MeshRenderer));
+        primitive.GetComponent<MeshFilter>()!.sharedMesh = mesh;
+        return primitive;
+    }
 
 
     public Component? GetComponent(Type type) => ComponentQueries.On(this, type).FirstOrDefault();

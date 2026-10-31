@@ -107,9 +107,7 @@ public sealed partial class Texture2D : Texture
         var empty = width == 0 || height == 0;
         var full = empty ? 1 : TexelFormats.FullChain(width, height);
         var mips = mipCount == GenerateAllMips ? full : Math.Min(mipCount, full);
-        var offsets = new long[mips + 1];
-        for (var level = 0; level < mips && !empty; level++)
-            offsets[level + 1] = offsets[level] + TexelFormats.LevelSize(format, Math.Max(1, width >> level), Math.Max(1, height >> level));
+        var offsets = TexelFormats.ChainOffsets(format, width, height, mips);
         if (offsets[mips] > Array.MaxLength) throw new NotSupportedException($"Texture2D of {offsets[mips]} bytes is too large");
         if (_viewed && _data.Length > 0) (_retired ??= []).Add(_data);
         _viewed = false;

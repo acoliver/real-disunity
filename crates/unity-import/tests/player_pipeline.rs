@@ -3,6 +3,9 @@
 
 use std::path::Path;
 
+#[path = "support/shader_bytes.rs"]
+mod shader_bytes;
+
 use serde_json::json;
 use worldrunner_unity_import::player_resources::{
     ResourceAsset, ResourcesPlan, plan_player_resources,
@@ -35,12 +38,13 @@ const fn assets(path_id: i64) -> PPtr {
     }
 }
 
-const TYPES: [ClassId; 5] = [
+const TYPES: [ClassId; 6] = [
     ClassId::GRAPHICS_SETTINGS,
     ClassId::QUALITY_SETTINGS,
     ClassId::MONO_BEHAVIOUR,
     ClassId::MONO_SCRIPT,
     ClassId::LIGHT,
+    ClassId::SHADER,
 ];
 
 fn object(path_id: i64, class_id: ClassId, data: Vec<u8>) -> ObjectData {
@@ -88,11 +92,16 @@ fn write_file(dir: &Path, name: &str, objects: Vec<ObjectData>, externals: &[&st
 
 /// A `GraphicsSettings` in the layout of the Old World player, naming the two assets.
 fn graphics_settings(pipeline: PPtr, global_settings: PPtr) -> Vec<u8> {
+    graphics_settings_with(pipeline, global_settings, &[])
+}
+
+/// A `GraphicsSettings` naming the two assets and the always included `shaders`.
+fn graphics_settings_with(pipeline: PPtr, global_settings: PPtr, shaders: &[PPtr]) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     for mode in 0..7 {
         w.i32(mode).pptr(NONE);
     }
-    w.i32(2).pptrs(&[]).unwrap().pptrs(&[]).unwrap();
+    w.i32(2).pptrs(shaders).unwrap().pptrs(&[]).unwrap();
     w.i32(-1).pptr(NONE).pptr(pipeline);
     w.i32(0).floats(&[0.0, 0.0, 1.0]).i32(1).i32(1);
     w.bytes(&[0; 132]);
@@ -278,6 +287,56 @@ fn an_asset_of_a_class_the_engine_does_not_build_is_a_difference_not_a_pipeline(
         plan.differences
             .iter()
             .any(|line| line == "the render pipeline asset, object 15 of file 1, is a Light, which the engine does not build"),
+        "{:?}",
+        plan.differences
+    );
+}
+
+/// The always included shaders plan as shader assets in settings order; a null reference is
+/// skipped and an object the engine does not build is a difference.
+#[test]
+fn always_included_shaders_plan_as_shaders_in_settings_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let shaders = [assets(17), NONE, assets(15), assets(16)];
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![object(
+            1,
+            ClassId::GRAPHICS_SETTINGS,
+            graphics_settings_with(NONE, NONE, &shaders),
+        )],
+        &["globalgamemanagers.assets"],
+    );
+    write_file(
+        dir.path(),
+        "globalgamemanagers.assets",
+        vec![
+            object(15, ClassId::LIGHT, Vec::new()),
+            object(16, ClassId::SHADER, shader_bytes::lit()),
+            object(
+                17,
+                ClassId::SHADER,
+                shader_bytes::shader("Mohawk/Packed", None, &[2]),
+            ),
+        ],
+        &[],
+    );
+    let plan = plan_player_resources(dir.path(), &layouts(), &dir.path().join("out")).unwrap();
+    let names: Vec<String> = plan
+        .graphics
+        .always_included_shaders
+        .iter()
+        .map(|&index| match &plan.assets[index] {
+            ResourceAsset::Shader { name, .. } => name.clone(),
+            other => panic!("not a shader: {other:?}"),
+        })
+        .collect();
+    assert_eq!(names, ["Mohawk/Packed", "Test/Lit"]);
+    assert!(
+        plan.differences
+            .iter()
+            .any(|line| line.contains("always included shader") && line.contains("Light")),
         "{:?}",
         plan.differences
     );

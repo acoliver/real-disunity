@@ -124,6 +124,10 @@ mod taa_reconstruct_test_rig;
 mod taa_reference;
 #[cfg(test)]
 mod taa_tests;
+#[cfg(test)]
+mod taa_thin_gpu;
+#[cfg(test)]
+mod taa_thin_tests;
 mod taa_upscale_gpu;
 #[cfg(test)]
 mod taa_upscale_gpu_tests;

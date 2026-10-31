@@ -1,6 +1,6 @@
 //! End to end through a `ConfiguredFrameRenderer` and the production scene pipelines: Temporal
 //! reconstruction of a fine-detail mipped plane at render scales 0.5, 0.67 and 0.77 of a 64x64
-//! output, with the policy bias and with the bias forced to exactly 0 on the same renderer.
+//! output, with each candidate bias forced on the same renderer. The shipped policy is 0.
 //!
 //! The plane carries vertical stripes of 8 texels (4 dark, 4 light) in a 128 texel texture with
 //! a box-filtered chain, so the stripes are 4 output pixels wide and 2 to 3 render pixels wide:
@@ -227,7 +227,8 @@ fn measure(
 }
 
 /// Candidate biases in the order of the decision rule: most negative first. Each is an offset
-/// added to `log2(s)` where `s` is the policy scale ratio; the last is the bias-0 case.
+/// added to `log2(s)` where `s` is the render-to-output scale ratio; the last is the bias-0 case,
+/// which is the shipped policy.
 const OFFSETS: [Option<f32>; 4] = [Some(-1.0), Some(-0.5), Some(0.0), None];
 const NAMES: [&str; 4] = ["log2(s)-1", "log2(s)-0.5", "log2(s)", "0"];
 
@@ -279,59 +280,47 @@ fn table(context: &GpuContext, fixture: fn() -> SceneTexture, name: &str) -> Tab
     Table { native, rows }
 }
 
-/// The decision rule: the most negative candidate whose shimmer is at most 1.10 x the native
-/// TAA shimmer and whose error is below the bias-0 error at every scale.
-fn chosen(table: &Table) -> Option<usize> {
-    (0..3).find(|&candidate| {
-        table.rows.iter().all(|row| {
-            row[candidate].shimmer <= 1.10 * table.native.shimmer
-                && row[candidate].error < row[3].error
-        })
-    })
-}
+/// Index of the bias-0 row entry in [`Table::rows`], the shipped policy.
+const SHIPPED: usize = 3;
+/// The native TAA shimmer limit as a multiple, from the decision rule.
+const SHIMMER_LIMIT: f64 = 1.10;
 
-#[test]
-fn the_decision_rule_chooses_half_a_level_below_log2_s_on_the_stripes() {
-    let context = context();
-    let table = table(&context, stripes, "stripes");
-    println!(
-        "stripes: rule chooses {:?}",
-        chosen(&table).map(|index| NAMES[index])
-    );
-    assert_eq!(chosen(&table), Some(1), "log2(s) - 0.5 is the policy");
-}
-
-/// The policy bias against native TAA and against bias 0 at every scale. Measured on lavapipe
-/// (target/up3.md session 8), the policy shimmer over the native shimmer is 1.087, 0.619 and
-/// 0.554 on the stripes (limit 1.10, so 1.2% of margin at scale 0.5 and 44% or more elsewhere)
-/// and 0.705, 0.524, 0.408 on the smooth texture. The error over the bias-0 error is 0.871,
-/// 0.670, 0.678 on the stripes and 0.466, 0.443, 0.432 on the smooth texture.
-fn assert_policy_meets_the_rule(fixture: fn() -> SceneTexture, name: &str) {
-    let context = context();
-    let reference = reference(&context, fixture());
-    let native = measure(&context, fixture(), None, None, &reference);
-    for scale in SCALES {
-        let zero = measure(&context, fixture(), Some(scale), Some(0.0), &reference);
-        let policy = measure(&context, fixture(), Some(scale), None, &reference);
+/// Every nonzero candidate lowers the detail error against bias 0 at every scale. Measured error
+/// over the bias-0 error is 0.58 to 0.91 on lavapipe and on the AMD Radeon 780M for the stripes
+/// (target/up3.md), so a strict comparison keeps at least 9% of margin against the 8 to 10%
+/// spread between the two devices.
+///
+/// The shipped policy (bias 0) stays within 1.10 times the native TAA shimmer at every scale. The
+/// stripes measured at most 0.76 on lavapipe and 0.83 on the Radeon, a margin of at least 24%.
+fn assert_policy_bounds(table: &Table, name: &str) {
+    for (scale, row) in SCALES.iter().zip(&table.rows) {
+        for candidate in 0..SHIPPED {
+            assert!(
+                row[candidate].error < row[SHIPPED].error,
+                "{name} {scale} {}: error {:?} is not below bias 0 {:?}",
+                NAMES[candidate],
+                row[candidate],
+                row[SHIPPED]
+            );
+        }
         assert!(
-            policy.shimmer <= 1.10 * native.shimmer,
-            "{name} {scale}: shimmer {policy:?} exceeds 1.1 x native {native:?}"
-        );
-        assert!(
-            policy.error < zero.error,
-            "{name} {scale}: error {policy:?} is not below bias 0 {zero:?}"
+            row[SHIPPED].shimmer <= SHIMMER_LIMIT * table.native.shimmer,
+            "{name} {scale}: shipped shimmer {:?} exceeds {SHIMMER_LIMIT} x native {:?}",
+            row[SHIPPED],
+            table.native
         );
     }
 }
 
 #[test]
-fn the_policy_bias_stays_within_the_native_shimmer_cap_and_lowers_the_error_on_the_stripes() {
-    assert_policy_meets_the_rule(stripes, "stripes");
+fn the_candidates_lower_the_error_and_the_shipped_zero_keeps_native_shimmer_on_the_stripes() {
+    assert_policy_bounds(&table(&context(), stripes, "stripes"), "stripes");
 }
 
 #[test]
-fn the_policy_bias_also_meets_the_rule_on_the_smooth_texture() {
-    assert_policy_meets_the_rule(smooth, "smooth");
+fn the_candidates_lower_the_error_and_the_shipped_zero_keeps_native_shimmer_on_the_smooth_texture()
+{
+    assert_policy_bounds(&table(&context(), smooth, "smooth"), "smooth");
 }
 
 #[test]

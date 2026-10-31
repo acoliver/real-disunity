@@ -95,7 +95,11 @@ fn a_small_buffer_reports_the_size_needed_and_writes_nothing() {
     let (result, _, written) = children(world, top, 0);
     assert_eq!((result.code, written), (result_code::BUDGET, 3));
     let (result, buffer, written) = children(world, top, 3);
-    assert_eq!((result.code, written), (result_code::OK, 3), "an exact fit succeeds");
+    assert_eq!(
+        (result.code, written),
+        (result_code::OK, 3),
+        "an exact fit succeeds"
+    );
     assert!(buffer.iter().all(|&id| id != 0xa5a5));
 }
 

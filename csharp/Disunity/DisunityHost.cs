@@ -63,7 +63,7 @@ public static partial class DisunityHost
     }
 
     internal static IEnumerable<Component> Components(GameObject owner) =>
-        Scripts.Values.Where(script => ReferenceEquals(script.gameObject, owner)).Cast<Component>().Concat(NativeComponents.Values.Where(c => ReferenceEquals(c.gameObject, owner))).Prepend(owner.transform);
+        Scripts.Values.Where(script => ReferenceEquals(script.gameObject, owner)).Cast<Component>().Concat(NativeComponents.Values.Where(c => ReferenceEquals(c.gameObject, owner))).Where(c => c.Life < ComponentLife.Hidden).Prepend(owner.transform);
 
     internal static unsafe T Attach<T>(GameObject owner, T behaviour) where T : MonoBehaviour
     {
@@ -174,6 +174,7 @@ public static partial class DisunityHost
 
     private static void PruneRetired()
     {
+        RetirePendingComponents();
         foreach (var identity in Scripts.Where(pair => pair.Value.gameObject.IsDestroyed).Select(pair => pair.Key).ToArray()) Scripts.Remove(identity);
         foreach (var handle in NativeComponents.Where(pair => pair.Value.gameObject.IsDestroyed).Select(pair => pair.Key).ToArray()) NativeComponents.Remove(handle);
         RemoveDestroyedObjects();
@@ -210,7 +211,7 @@ public static partial class DisunityHost
             finally
             {
                 foreach (var value in Tracked) value.MarkDestroyed();
-                CurrentScene = null; LoadedScenes.Clear(); UnloadingScenes.Clear(); AxisDefinitions.Clear(); Tracked.Clear(); TrackedByHandle.Clear(); Scripts.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
+                CurrentScene = null; LoadedScenes.Clear(); UnloadingScenes.Clear(); AxisDefinitions.Clear(); Tracked.Clear(); TrackedByHandle.Clear(); Scripts.Clear(); PendingComponents.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear();
                 var world = WorldHandle;
                 WorldHandle = 0;
                 _listenerDiagnostic = null;

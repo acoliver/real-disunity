@@ -36,16 +36,16 @@ internal static class FontEngineTests
         var loads = new (string Overload, FontEngineError Result)[]
         {
             ("path", FontEngine.LoadFontFace("a.ttf")),
-            ("path, size", FontEngine.LoadFontFace("a.ttf", 90)),
-            ("path, size, index", FontEngine.LoadFontFace("a.ttf", 90, 1)),
+            ("path, size", FontEngine.LoadFontFace("a.ttf", 90.5f)),
+            ("path, size, index", FontEngine.LoadFontFace("a.ttf", 90.5f, 1)),
             ("family, style", FontEngine.LoadFontFace("Arial", "Bold")),
             ("family, style, size", FontEngine.LoadFontFace("Arial", "Bold", 90.5f)),
             ("bytes", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 })),
-            ("bytes, size", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 }, 90)),
-            ("bytes, size, index", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 }, 90, 1)),
+            ("bytes, size", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 }, 90.5f)),
+            ("bytes, size, index", FontEngine.LoadFontFace(new byte[] { 0, 1, 0, 0 }, 90.5f, 1)),
             ("font", FontEngine.LoadFontFace(font)),
-            ("font, size", FontEngine.LoadFontFace(font, 90)),
-            ("font, size, index", FontEngine.LoadFontFace(font, 90, 1)),
+            ("font, size", FontEngine.LoadFontFace(font, 90.5f)),
+            ("font, size, index", FontEngine.LoadFontFace(font, 90.5f, 1)),
         };
         foreach (var (overload, result) in loads)
             Expect.Equal(unusable, result, "LoadFontFace(" + overload + ")");

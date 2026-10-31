@@ -38,9 +38,9 @@ public static class FontEngine
 
     public static FontEngineError LoadFontFace(string filePath) => UnusableFile;
 
-    public static FontEngineError LoadFontFace(string filePath, int pointSize) => UnusableFile;
+    public static FontEngineError LoadFontFace(string filePath, float pointSize) => UnusableFile;
 
-    public static FontEngineError LoadFontFace(string filePath, int pointSize, int faceIndex) => UnusableFile;
+    public static FontEngineError LoadFontFace(string filePath, float pointSize, int faceIndex) => UnusableFile;
 
     public static FontEngineError LoadFontFace(string familyName, string styleName) => UnusableFile;
 
@@ -48,15 +48,15 @@ public static class FontEngine
 
     public static FontEngineError LoadFontFace(byte[] sourceFontFile) => UnusableFile;
 
-    public static FontEngineError LoadFontFace(byte[] sourceFontFile, int pointSize) => UnusableFile;
+    public static FontEngineError LoadFontFace(byte[] sourceFontFile, float pointSize) => UnusableFile;
 
-    public static FontEngineError LoadFontFace(byte[] sourceFontFile, int pointSize, int faceIndex) => UnusableFile;
+    public static FontEngineError LoadFontFace(byte[] sourceFontFile, float pointSize, int faceIndex) => UnusableFile;
 
     public static FontEngineError LoadFontFace(Font font) => UnusableFile;
 
-    public static FontEngineError LoadFontFace(Font font, int pointSize) => UnusableFile;
+    public static FontEngineError LoadFontFace(Font font, float pointSize) => UnusableFile;
 
-    public static FontEngineError LoadFontFace(Font font, int pointSize, int faceIndex) => UnusableFile;
+    public static FontEngineError LoadFontFace(Font font, float pointSize, int faceIndex) => UnusableFile;
 
     public static FontEngineError SetFaceSize(int pointSize) => NoFace;
 

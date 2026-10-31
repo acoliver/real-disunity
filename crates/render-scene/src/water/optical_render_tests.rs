@@ -225,7 +225,10 @@ fn use_stock_shader(
             include_str!("water.wgsl"),
             include_str!("stock_reference.wgsl"),
         )
-        .replace(include_str!("terms.wgsl"), "");
+        .replace(include_str!("terms.wgsl"), "")
+        .replace(include_str!("shadow_lookup.wgsl"), "")
+        .replace(include_str!("shadow_response.wgsl"), "")
+        .replace(include_str!("shadow_visibility.wgsl"), "");
     let water = renderer.water.as_mut().unwrap();
     water.pipeline = pipeline_with_source(
         context.device(),

@@ -195,7 +195,10 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>, depth: f32) -> vec3<f
         normal = vec3<f32>(0.0, 0.0, 1.0);
         if dot(adjusted, adjusted) > 0.0 { normal = normalize(adjusted); }
     }
-    let visibility = sunlight_visibility(input.world, normal);
+    let ambient_visibility = raw_sunlight_visibility(input.world, normal);
+    let raw_visibility = water_shadow_visibility(input.world, normal, ambient_visibility);
+    let adjusted_visibility = direct_sunlight_visibility(raw_visibility);
+    let visibility = water_shadow_response(adjusted_visibility, water_shadow_depth(original_distance));
     let light = rd_toward_light(select(water.sun_direction.xyz, vec3<f32>(0.0, 0.0, 1.0), frame.grading.y != 0.0), false);
     let ambient = scene_diffuse_environment(normal, frame.ambient_ground.xyz, water.ambient.xyz);
     let lighting = ambient + water.sun_radiance.xyz * max(dot(normal, light), 0.0) * visibility;
@@ -227,13 +230,14 @@ fn two_phase_normal(world: vec2<f32>, velocity: vec2<f32>, depth: f32) -> vec3<f
     }
     var specular = environment_specular;
     if (SCENE_ROUGHNESS_REMAP != 0u || SCENE_SPECULAR_VISIBILITY != 0u || SCENE_SPECULAR_OCCLUSION != 0u || SCENE_DIRECT_DIFFUSE != 0u) && frame.grading.y == 0.0 {
-        let lit = scene_surface_lighting(input.world, normal, base_color,
-            vec3<f32>(roughness, water.terms.z, 1.0), lighting_f0);
+        let lit = scene_surface_lighting_with_visibility(input.world, normal, base_color,
+            vec3<f32>(roughness, water.terms.z, 1.0), lighting_f0,
+            SceneSurfaceVisibility(raw_visibility, ambient_visibility, visibility, water_shadow_disk_factor(adjusted_visibility)));
         scattering = lit.diffuse;
         if (WATER_TERMS & 32u) == 0u || water.composition.w == 0.0 { specular += lit.specular; }
     }
     if (WATER_TERMS & 32u) != 0u && water.composition.w != 0.0 && frame.grading.y == 0.0 {
-        specular += water_disk_highlight(normal, view, light, material_f0, roughness, visibility);
+        specular += water_shadow_disk(water_disk_highlight(normal, view, light, material_f0, roughness, visibility), adjusted_visibility);
     }
     var reflection_gain = 1.0;
     if water.optics.z != 0.0 {

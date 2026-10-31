@@ -424,8 +424,9 @@ presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
 With a TAA resolve, one sample per pixel and a render extent of at least half the output,
 `hdr_taa::append` builds a temporal bank instead of the native one: the `temporal upscale` stage
 (`taa_upscale.wgsl`) reads the render-extent frame, the velocity target and a shared `Rgba16Float`
-history at the output extent, writes three per-slot outputs at the output extent and keeps no depth
-history. A `TemporalBlock` (48 bytes: both extents, jitter, phase count, history weight, clip scale,
+history at the output extent and writes three per-slot outputs at the output extent. Three compute
+stages at the render extent (`taa_reconstruct.wgsl`, scheduled by `taa_reconstruct_gpu::append`) run
+ahead of it, listed below. A `TemporalBlock` (48 bytes: both extents, jitter, phase count, history weight, clip scale,
 `history_valid`) is uploaded per frame with `ToneMapOutput::prepare_temporal`; there is no all-zero
 block, a reset is a real block with `history_valid: false`. Metering, bloom, Gaussian, CAS, tone
 mapping and RCAS use the colour extent of the chain (`Scene::extent`, the output extent here), and
@@ -434,8 +435,26 @@ keyed by render extent, output extent, mode and sample count and replaced transa
 rejected configuration keeps the committed bank (`StageFactory::settle_build`).
 `HdrPostSettings::effective_jitter` gives `ProjectionJitter::for_extents(render, output)` when no
 explicit sequence is chosen, and `validate_jitter` rejects a shorter one. The allocation budget
-counts one shared history and three outputs at the output extent. Measured static error ratios
+counts one shared history and three outputs at the output extent, plus per slot the dilated depth (R32Float), dilated motion (Rg32Float), depth confidence (R32Float) and reconstructed depth buffer at the render extent (20R bytes), each a per-generation entry (a shared entry would need one descriptor across generations, #399). Measured static error ratios
 against reset-every-frame are in [docs/rendering.md](../../docs/rendering.md#temporal-upscaling).
+
+Passes of a temporal slot, in order (each a `StageSet` stage):
+
+1. `temporal depth clear`: fills the reconstructed depth buffer (`array<atomic<u32>>`, 4R bytes) with the bits of +inf.
+2. `temporal reconstruct dilate`: per texel, the nearest valid depth (`0 < z < 1`) of the 3x3 neighbourhood
+   (ties: first in raster order), its residual plus the camera term (`TemporalCamera`, 80 bytes, binding in
+   this pass, uploaded with `ToneMapOutput::prepare_temporal_camera`) as total backward motion in uv, written
+   to the dilated depth and motion planes, and scattered with `atomicMin` over the 2x2 footprint at `s + motion * R`.
+3. `temporal depth clip`: compares the linear depth (`b / (z - a)` from `TemporalCamera::depth_terms`)
+   of each texel with the nearest depth that reached its history position; confidence exactly 0 or 1.
+   No valid depth (sky, cleared) or no depth terms: 1. History outside the frame or unreached: 0.
+4. `temporal upscale`: reads the dilated motion and the minimum confidence of the 2x2 texels around its sample
+   position, which scales the history weight.
+5. `temporal upscale history`: the shared history copy.
+
+The test-only switches `taa_reconstruct_gpu::WithoutDilation` and `WithoutClip` (thread-local guards over
+pipeline-overridable constants; production passes the defaults) recompute the PR 2 path on the same device
+for the comparison tests. Third-party material: nothing is ported; the stages follow the design text only.
 
 `HdrPostSettings::material_mip_bias(config)` returns exactly `+0.0` in every mode, including
 `Temporal` at 0.5, 0.67 and 0.77. The render-scene sampling sites take the bias from the frame

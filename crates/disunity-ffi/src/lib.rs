@@ -28,6 +28,7 @@ pub mod input_axes;
 pub mod light;
 pub mod mesh_renderer;
 pub mod object_api;
+mod object_ids;
 pub mod physics;
 #[cfg(test)]
 mod physics_material_tests;

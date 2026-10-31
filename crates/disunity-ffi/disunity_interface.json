@@ -668,6 +668,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_transform_children",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_transform_get_parent",
       "since": "2.0.0",
       "rets": "DisunityResult"

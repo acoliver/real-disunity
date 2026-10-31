@@ -61,9 +61,7 @@ pub unsafe extern "C" fn disunity_transform_get_parent(
             None => Ok(0),
             Some(parent) => session
                 .objects
-                .iter()
-                .find(|(_, value)| **value == parent)
-                .map(|(&id, _)| id)
+                .id_of(parent)
                 .ok_or_else(|| "parent has no ABI identity".into()),
         }
     })();
@@ -157,4 +155,52 @@ pub unsafe extern "C" fn disunity_script_set_enabled(
             .next_lifecycle(mutation)
             .map_err(crate::errors::AbiError::from)
     })
+}
+
+/// Writes the identities of the children of `object` to `buffer`, in no particular order.
+/// `written` receives the number of children. When `capacity` is smaller the call returns
+/// BUDGET and writes no identities, so the caller can retry with a buffer of that size.
+/// Children without an ABI identity (objects still being constructed) are not listed.
+///
+/// # Safety
+/// `buffer` is writable for `capacity` identities and `written` for one count.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_transform_children(
+    world: u64,
+    object: u64,
+    buffer: *mut u64,
+    capacity: u32,
+    written: *mut u32,
+) -> DisunityResult {
+    if written.is_null() || (buffer.is_null() && capacity != 0) {
+        return DisunityResult::invalid_argument();
+    }
+    let result: Result<Vec<u64>, crate::errors::AbiError> = (|| {
+        let store = lock_store();
+        let session = store.session(world)?;
+        let children = session
+            .native
+            .children(session.object(object)?)
+            .map_err(crate::errors::AbiError::from)?;
+        Ok(children
+            .into_iter()
+            .filter_map(|child| session.objects.id_of(child))
+            .collect())
+    })();
+    match result {
+        Ok(ids) => {
+            unsafe { *written = ids.len() as u32 };
+            if ids.len() > capacity as usize {
+                return DisunityResult {
+                    code: crate::abi::result_code::BUDGET,
+                    detail: 0,
+                };
+            }
+            if !ids.is_empty() {
+                unsafe { std::ptr::copy_nonoverlapping(ids.as_ptr(), buffer, ids.len()) };
+            }
+            DisunityResult::ok()
+        }
+        Err(error) => crate::abi::translate_error(Some(world), &error),
+    }
 }

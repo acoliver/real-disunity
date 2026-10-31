@@ -12,6 +12,18 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one material record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_material_read(ulong world, ulong handle, DisunityPhysicsMaterial2d* output);
+        /// <summary>
+        ///  # Safety
+        ///  `value` points to one readable material record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_material_write(ulong world, ulong handle, DisunityPhysicsMaterial2d* value);
+        /// <summary>
+        ///  # Safety
         ///  `output` is writable for one identity; zero denotes no explicit asset.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_shared_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

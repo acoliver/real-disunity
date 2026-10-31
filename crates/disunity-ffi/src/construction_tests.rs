@@ -91,7 +91,7 @@ fn state(world: u64) -> State {
     State {
         storage: session.native.storage_counts(),
         published: session.native.snapshot().objects.len(),
-        objects: session.objects.keys().copied().collect(),
+        objects: session.objects.iter().map(|(&id, _)| id).collect(),
         scripts: session.dispatch.scripts.len(),
         components: session.dispatch.components.len(),
         constructions: session.constructions.len(),

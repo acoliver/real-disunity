@@ -16,6 +16,7 @@ internal static class FontEngineTests
         GlyphQueries();
         AtlasAdditions();
         LayoutRecords();
+        ResetsAtlas();
         Enums();
         Console.WriteLine("PASS: FontEngine loads no face and answers every query as for an unloaded face");
     }
@@ -95,6 +96,15 @@ internal static class FontEngineTests
         Expect.Equal(0, FontEngine.GetMarkToBaseAdjustmentRecords(36).Length, "mark to base records");
         Expect.Equal(0, FontEngine.GetMarkToMarkAdjustmentRecords(36).Length, "mark to mark records");
         Expect.Equal(0, FontEngine.GetLigatureSubstitutionRecords(36).Length, "ligature records");
+    }
+
+    private static void ResetsAtlas()
+    {
+        var texture = new Texture2D(2, 2);
+        texture.SetPixel(1, 1, Color.red);
+        FontEngine.ResetAtlasTexture(texture);
+        Expect.That(texture.GetPixel(1, 1) == Color.red, "ResetAtlasTexture leaves a texture nothing was drawn into as it is");
+        Expect.Catch<ArgumentNullException>(() => FontEngine.ResetAtlasTexture(null!), "ResetAtlasTexture(null)");
     }
 
     private static void Enums()

@@ -62,6 +62,13 @@ public static class FontEngine
 
     public static FaceInfo GetFaceInfo() => default;
 
+    /// <summary>
+    /// Clears an atlas texture to transparent before glyphs are drawn into it. Nothing is ever drawn
+    /// with no face, and a font asset asks for this only for an atlas that has no pixels, so the
+    /// texture is left as it is, which is the engine's choice.
+    /// </summary>
+    public static void ResetAtlasTexture(Texture2D texture) => ArgumentNullException.ThrowIfNull(texture);
+
     public static string[] GetSystemFontNames() => [];
 
     public static FontReference[] GetSystemFontReferences() => [];

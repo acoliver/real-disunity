@@ -385,3 +385,4 @@ GraphicsTests.Run();
 GraphicsFormatUtilityTests.Run();
 ComponentTableTests.Run();
 TemplateSearchTests.Run();
+CurveCloneTests.Run();

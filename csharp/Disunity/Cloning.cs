@@ -90,12 +90,23 @@ public static partial class DisunityHost
                     && (field.IsPublic || field.IsDefined(typeof(SerializeField)) || field.IsDefined(typeof(SerializeReference)))) yield return field;
     }
 
+    // A curve and a gradient keep their keys in readonly lists, which the field walk skips, so they copy through their
+    // public keys like any other value the game set.
+    private static Gradient CopyGradient(Gradient gradient)
+    {
+        var copy = new Gradient { mode = gradient.mode, colorSpace = gradient.colorSpace };
+        copy.SetKeys(gradient.colorKeys, gradient.alphaKeys);
+        return copy;
+    }
+
     private static object? CopyField(object? value, Dictionary<object, object> remap, Dictionary<object, object> copied)
     {
         if (value == null) return null;
         if (value is Sprite or Font or Material) return value;
         if (value is EngineObject) return remap.GetValueOrDefault(value, value);
         if (value is RectOffset offset) return new RectOffset(offset.left, offset.right, offset.top, offset.bottom);
+        if (value is AnimationCurve curve) return new AnimationCurve(curve.keys) { preWrapMode = curve.preWrapMode, postWrapMode = curve.postWrapMode };
+        if (value is Gradient gradient) return CopyGradient(gradient);
         var type = value.GetType();
         if (value is Vector3 or Vector2 or Vector4 or Vector2Int or Vector3Int or Quaternion or Rect or RectInt or Color or Color32 or Bounds or BoundsInt or Matrix4x4 or Plane or Ray || type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)) return value;
         if (copied.TryGetValue(value, out var known)) return known;

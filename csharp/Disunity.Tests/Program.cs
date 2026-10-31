@@ -384,3 +384,4 @@ GraphicsTypeTests.Run();
 GraphicsTests.Run();
 GraphicsFormatUtilityTests.Run();
 ComponentTableTests.Run();
+TemplateSearchTests.Run();

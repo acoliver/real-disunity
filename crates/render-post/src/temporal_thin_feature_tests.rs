@@ -379,3 +379,60 @@ fn locks_change_the_accumulated_image_of_a_thin_feature() {
     };
     assert_ne!(locked[0], unlocked);
 }
+
+/// Display-domain ROI error of a static scene, after a global radiance step of `2^ev` that lands
+/// after two warm-up cycles, at the first and the second submitted frame after the step. The truth is
+/// the line scene at the new scale.
+fn after_shading_change(rig: &SceneRig, fixture: &Fixture, ev: f64) -> [f64; 2] {
+    let warm = 2 * u64::from(rig.jitter.length());
+    for index in 0..warm {
+        frame(rig, index, index > 0, 0.0, 1.0);
+    }
+    let mut truth = roi(fixture, 0.0, 1.0);
+    let scale = ev.exp2();
+    truth.truth.iter_mut().for_each(|t| *t *= scale);
+    [0, 1].map(|k| {
+        #[expect(clippy::cast_possible_truncation, reason = "the GPU block is f32")]
+        let tail = [0.0, 0.0, 1.0, ev as f32];
+        rig.frame(warm + k, true, (tail, None));
+        truth.error(&rig.image(), display)
+    })
+}
+
+/// Step 5: an abrupt global shading change (radiance x4 and x0.25) on a locked thin feature leaves
+/// no stale colour. Within two submitted frames the display-domain ROI error, in levels of 255, is at
+/// most 2 above the error of the same chain without locks. The excess over the lock-off chain is the
+/// staleness the locks add: the remaining error of a thin feature that is still sampled is the
+/// reconstruction's own and is the same in both chains.
+#[test]
+fn a_shading_change_leaves_no_stale_colour_beyond_two_frames() {
+    let gpu = crate::gpu_tests::gpu();
+    for fixture in fixtures()
+        .into_iter()
+        .filter(|f| f.name == "wire 45" || f.name == "grid")
+    {
+        let locked = {
+            let _on = crate::taa_upscale_gpu::WithLocks::new();
+            rig_at(&gpu, 670_000, &fixture)
+        };
+        let unlocked = {
+            let _off = crate::taa_upscale_gpu::WithoutLocks::new();
+            rig_at(&gpu, 670_000, &fixture)
+        };
+        for ev in [2.0, -2.0] {
+            let on = after_shading_change(&locked, &fixture, ev);
+            let off = after_shading_change(&unlocked, &fixture, ev);
+            eprintln!(
+                "shading {} ev {ev}: locks on {on:.3?} off {off:.3?} levels",
+                fixture.name
+            );
+            assert!(
+                on[1] <= off[1] + 2.0,
+                "{} ev {ev}: stale colour {} against {}",
+                fixture.name,
+                on[1],
+                off[1]
+            );
+        }
+    }
+}

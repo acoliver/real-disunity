@@ -1,13 +1,12 @@
-//! The temporal reconstruction stage on lavapipe, compared with `temporal_upscale_reference`.
+//! The temporal reconstruction stage on the GPU, compared with `temporal_upscale_reference`.
 //!
 //! The stage reads `Rgba16Float` color and history and writes `Rgba16Float`, so the reference
 //! gets the f16-quantised inputs exactly as the GPU loads them. Per output channel the bound is
 //! the sum of these terms, each derived here (u = 2^-24 is the f32 unit roundoff):
 //!
-//! * Half store, `HALF_REL * |reference| + 2^-24`: the GPU result is rounded to nearest f16,
-//!   at most 2^-11 relative. The f32 value can differ from the reference by the stage terms
-//!   below and fall either side of a rounding boundary, so 2^-10 relative is allowed in either
-//!   direction. Subnormal f16 spacing is 2^-24 absolute.
+//! * Half store, `HALF_REL * |reference| + 2^-24`: Vulkan lets the f32 to f16 store round to
+//!   nearest or toward zero (RADV truncates), so a stored value is within one f16 step, 2^-10
+//!   relative, in either direction. Subnormal f16 spacing is 2^-24 absolute.
 //! * The 16-tap weighted sum in f32, `gamma_16 * sum|w c| / |sum w|` with
 //!   `gamma_16 = 16u / (1 - 16u)`, plus one division rounding `u |result|`.
 //! * The Lanczos2 weights. The shader evaluates them without builtin transcendentals as
@@ -332,7 +331,10 @@ fn a_constant_field_is_reproduced_at_the_output_extent() {
     let out = assert_matches_reference(&case, "constant");
     assert_eq!(out.len(), 220);
     for pixel in out {
-        assert!((pixel[0] - 0.5).abs() <= HALF_REL * 0.5 + 1e-6 && (pixel[3] - 0.5).abs() <= 1e-6);
+        // Red and alpha both come from a normalised f32 sum that can land just below 0.5, and a
+        // truncating half store then reads one f16 step low, so both get the half-store bound.
+        let bound = HALF_REL * 0.5 + 1e-6;
+        assert!((pixel[0] - 0.5).abs() <= bound && (pixel[3] - 0.5).abs() <= bound);
     }
 }
 

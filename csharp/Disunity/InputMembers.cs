@@ -27,7 +27,21 @@ public struct Touch
 /// </summary>
 public static partial class Input
 {
-    private static readonly KeyCode[] AllKeys = Enum.GetValues<KeyCode>().Where(key => key != KeyCode.None).ToArray();
+    /// <summary>The keys the desktop host delivers, which <c>anyKey</c> scans. The keypad, mouse and joystick buttons are
+    /// left out: nothing here presses them, and each key costs one native read per call.</summary>
+    private static readonly KeyCode[] AllKeys =
+    [
+        .. KeyRange(KeyCode.A, KeyCode.Z), .. KeyRange(KeyCode.Alpha0, KeyCode.Alpha9), .. KeyRange(KeyCode.F1, KeyCode.F12),
+        KeyCode.Space, KeyCode.Return, KeyCode.Escape, KeyCode.Backspace, KeyCode.Tab, KeyCode.Delete, KeyCode.Insert,
+        KeyCode.Home, KeyCode.End, KeyCode.PageUp, KeyCode.PageDown,
+        KeyCode.UpArrow, KeyCode.DownArrow, KeyCode.LeftArrow, KeyCode.RightArrow,
+        KeyCode.LeftShift, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.CapsLock, KeyCode.Numlock, KeyCode.ScrollLock, KeyCode.Pause,
+        KeyCode.Minus, KeyCode.Equals, KeyCode.LeftBracket, KeyCode.RightBracket, KeyCode.Backslash, KeyCode.Semicolon,
+        KeyCode.Quote, KeyCode.Comma, KeyCode.Period, KeyCode.Slash, KeyCode.BackQuote,
+    ];
+
+    private static IEnumerable<KeyCode> KeyRange(KeyCode first, KeyCode last) =>
+        Enumerable.Range((int)first, (int)last - (int)first + 1).Cast<KeyCode>();
 
     private static InputAxisDefinition Axis(string buttonName)
     {

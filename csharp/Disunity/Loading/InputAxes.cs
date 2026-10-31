@@ -3,11 +3,11 @@ using UnityEngine;
 
 namespace Disunity.Hosting;
 
-/// <summary>Registers a plan's input axes. A key axis is registered only when the engine can
-/// deliver every key it names, so reading any other fails as an unregistered axis does
-/// instead of reading zero forever. A mouse movement axis registers with no keys and reads
-/// zero, because the engine's mouse never moves; a joystick axis is not registered, because the
-/// engine has no joystick that could be at rest.</summary>
+/// <summary>Registers a plan's input axes. A key axis is registered when the engine knows every key name it
+/// uses, so a misspelt or unknown name fails as an unregistered axis does instead of reading zero forever. A
+/// joystick or mouse button registers and reads never pressed, and a mouse movement axis registers with no keys
+/// and reads zero, because nothing here moves a mouse or presses a joystick; a joystick axis is not registered,
+/// because the engine has no joystick that could be at rest.</summary>
 internal static class InputAxes
 {
     private static readonly string[] Buttons = ["negative", "positive", "alt_negative", "alt_positive"];
@@ -48,19 +48,7 @@ internal static class InputAxes
 
     private static KeyCode Bound(JsonElement axis, string button) => Key(axis.Str(button)) ?? KeyCode.None;
 
-    /// <summary>The key a Unity input manager button name names, for the keys the engine
-    /// delivers. "enter" is the keypad key in Unity, which the engine does not deliver.</summary>
-    public static KeyCode? Key(string name) => name switch
-    {
-        "" => KeyCode.None,
-        "space" => KeyCode.Space,
-        "up" => KeyCode.UpArrow,
-        "down" => KeyCode.DownArrow,
-        "left" => KeyCode.LeftArrow,
-        "right" => KeyCode.RightArrow,
-        "return" => KeyCode.Return,
-        "escape" => KeyCode.Escape,
-        [var letter and >= 'a' and <= 'z'] => Enum.Parse<KeyCode>(letter.ToString().ToUpperInvariant()),
-        _ => null,
-    };
+    /// <summary>The key an input manager button name names, or null when the engine does not know the name.
+    /// The empty name is no key.</summary>
+    public static KeyCode? Key(string name) => name == "" ? KeyCode.None : InputKeyNames.Find(name);
 }

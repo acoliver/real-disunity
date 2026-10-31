@@ -273,6 +273,7 @@ CameraDataTests.Run();
 PendingCloneTests.Run();
 
 NamedAxisTests.Run();
+KeyCodeTests.Run();
 DeferredDestroyTests.Run();
 ComponentDestroyTests.Run();
 PlayerAssemblyTests.Run();

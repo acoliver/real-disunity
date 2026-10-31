@@ -63,11 +63,11 @@ internal static class PlayerInputTests
 
     private static void AnAxisTheEngineCannotReadIsLoggedAndStaysUnregistered()
     {
-        var axes = new JsonArray(Axis("Submit", "KeyOrMouseButton", "return"), Axis("Submit", "KeyOrMouseButton", "return", "enter"),
+        var axes = new JsonArray(Axis("Submit", "KeyOrMouseButton", "return"), Axis("Submit", "KeyOrMouseButton", "return", "banana"),
             Axis("Pad", "JoystickAxis"));
         With(axes, log =>
         {
-            Expect.Sequence(["input axis not registered: Submit: no key for `enter`", "input axis not registered: Pad: JoystickAxis axes read a device the engine has no input for"], log, "the log names each axis and why");
+            Expect.Sequence(["input axis not registered: Submit: no key for `banana`", "input axis not registered: Pad: JoystickAxis axes read a device the engine has no input for"], log, "the log names each axis and why");
             Expect.That(!Input.GetButton("Submit"), "the first Submit entry still registers");
             Expect.Throws<ArgumentException>(() => Input.GetAxis("Pad"), "a joystick axis stays unregistered");
         });

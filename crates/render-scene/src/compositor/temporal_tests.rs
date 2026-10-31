@@ -1,11 +1,13 @@
 //! Behavioural checks of projection jitter and previous-frame state on the compositor.
 use super::FrameRenderer;
 use crate::{
+    compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     frame::FrameUniform,
     view::{CameraPose, SceneView, Viewport},
 };
 use glam::Mat4;
+use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::SceneCamera;
 use worldrunner_render_post::ProjectionJitter;
 
@@ -652,21 +654,16 @@ fn a_ratio_aware_sequence_shifts_the_projection_by_the_offset_over_the_internal_
     }
 }
 
-/// A renderer whose post settings request reduced temporal reconstruction. The gate on reduced
-/// Temporal stands for public construction, so the settings are installed on a renderer built at
-/// the reduced extent; the jitter contract only reads the settings and the frame configuration.
-fn reduced_temporal_renderer(context: &GpuContext) -> FrameRenderer {
+/// A configured renderer whose post settings request reduced temporal reconstruction at 43x32
+/// of a 64x48 output, built through the public configuration path.
+fn reduced_temporal_renderer(context: &GpuContext) -> ConfiguredFrameRenderer {
     use worldrunner_render_post as post;
-    let config =
-        post::FrameConfig::new([64, 48], crate::offscreen::OffscreenTarget::COLOR_FORMAT, 1)
-            .with_render_extent([43, 32]);
-    let mut renderer = FrameRenderer::with_output(
-        context.device(),
-        config,
-        crate::offscreen::OffscreenTarget::COLOR_FORMAT,
-    )
-    .unwrap();
-    renderer.post_requested = post::HdrPostSettings {
+    let mut settings =
+        RendererConfiguration::legacy([64, 48], crate::offscreen::OffscreenTarget::COLOR_FORMAT);
+    settings.frame = post::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1)
+        .with_render_extent([43, 32]);
+    settings.hdr = Some((1.0, post::ToneMap::Reinhard));
+    settings.post = post::HdrPostSettings {
         resolve: post::PostResolve::taa(0.9),
         upscale: Some(post::UpscaleSettings {
             mode: post::UpscaleMode::Temporal,
@@ -674,7 +671,7 @@ fn reduced_temporal_renderer(context: &GpuContext) -> FrameRenderer {
         }),
         ..post::HdrPostSettings::default()
     };
-    renderer
+    ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap()
 }
 
 #[test]
@@ -682,11 +679,14 @@ fn a_jitter_sequence_shorter_than_the_derived_one_is_rejected_and_the_selection_
     let context = context();
     let mut renderer = reduced_temporal_renderer(&context);
     let derived = ProjectionJitter::for_extents([43, 32], [64, 48]).unwrap();
+    assert_eq!(renderer.projection_jitter(), Some(derived));
     let short = ProjectionJitter::new(derived.length() - 1).unwrap();
-    assert!(renderer.set_projection_jitter(Some(short)).is_err());
-    assert_eq!(renderer.projection_jitter(), None);
-    renderer.set_projection_jitter(Some(derived)).unwrap();
-    assert_eq!(renderer.projection_jitter(), Some(derived));
-    assert!(renderer.set_projection_jitter(Some(short)).is_err());
-    assert_eq!(renderer.projection_jitter(), Some(derived));
+    let low_level = renderer.renderer_mut();
+    assert!(low_level.set_projection_jitter(Some(short)).is_err());
+    assert_eq!(low_level.projection_jitter(), Some(derived));
+    assert!(low_level.set_projection_jitter(None).is_err());
+    assert_eq!(low_level.projection_jitter(), Some(derived));
+    let longer = ProjectionJitter::new(derived.length() + 1).unwrap();
+    low_level.set_projection_jitter(Some(longer)).unwrap();
+    assert_eq!(renderer.projection_jitter(), Some(longer));
 }

@@ -59,6 +59,20 @@ fn a_new_renderer_has_the_engine_defaults() {
     );
     let (world, _, skinned) = renderer_of_kind(1);
     assert_eq!(read(world, skinned).kind, 1);
+    let (world, _, particle) = renderer_of_kind(2);
+    assert_eq!(
+        fields(&read(world, particle)),
+        [2, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn a_particle_renderer_keeps_its_kind() {
+    let (world, _, particle) = renderer_of_kind(2);
+    let mut value = read(world, particle);
+    value.kind = 0;
+    assert_ne!(write(world, particle, &value).code, 0);
+    assert_eq!(read(world, particle).kind, 2);
 }
 
 #[test]
@@ -176,7 +190,7 @@ fn null_pointers_unknown_kinds_and_other_components_are_rejected() {
     let (world, object) = world_and_object();
     let mut made = 0;
     assert_ne!(
-        unsafe { disunity_mesh_renderer_create(world, object, 2, &mut made) }.code,
+        unsafe { disunity_mesh_renderer_create(world, object, 3, &mut made) }.code,
         0
     );
 }

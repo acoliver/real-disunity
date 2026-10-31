@@ -5,8 +5,8 @@ use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
 };
 
-/// A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer and 1 for a
-/// skinned mesh renderer and is fixed when the component is created. The mode fields hold the
+/// A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer, 1 for a
+/// skinned mesh renderer and 2 for a particle system renderer, and is fixed when the component is created. The mode fields hold the
 /// numeric value of the script enum: shadow casting 0 to 3, motion vectors 0 to 2, light probe
 /// usage 0, 1, 2 or 4, reflection probe usage 0 to 3. `material_count` is at most 64. A write
 /// rejects an out-of-range value, a boolean above 1 or a different kind, and changes nothing.
@@ -36,6 +36,7 @@ impl DisunityMeshRenderer {
             kind: match renderer.kind {
                 RendererKind::Mesh => 0,
                 RendererKind::Skinned => 1,
+                RendererKind::Particle => 2,
             },
             enabled: u32::from(renderer.switches.enabled),
             force_rendering_off: u32::from(renderer.switches.force_rendering_off),
@@ -123,7 +124,7 @@ fn created(world: u64, object: u64, desc: ComponentDesc, output: *mut u64) -> Di
 }
 
 /// Creates a renderer with the engine's default settings on a live object. `kind` is 0 for a
-/// mesh renderer and 1 for a skinned mesh renderer.
+/// mesh renderer, 1 for a skinned mesh renderer and 2 for a particle system renderer.
 /// # Safety
 /// Output is writable for one component identity.
 #[unsafe(no_mangle)]
@@ -136,6 +137,7 @@ pub unsafe extern "C" fn disunity_mesh_renderer_create(
     let kind = match kind {
         0 => RendererKind::Mesh,
         1 => RendererKind::Skinned,
+        2 => RendererKind::Particle,
         _ => return DisunityResult::invalid_argument(),
     };
     if output.is_null() {

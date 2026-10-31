@@ -22,6 +22,7 @@ fn description(kind: u32, enabled: bool) -> Option<ComponentDesc> {
         81 => Some(ComponentDesc::AudioListener { enabled }),
         92 => Some(ComponentDesc::GUILayer { enabled }),
         124 => Some(ComponentDesc::FlareLayer { enabled }),
+        198 => Some(ComponentDesc::ParticleSystem),
         _ => None,
     }
 }

@@ -95,6 +95,7 @@ public static partial class DisunityHost
         if (value == null) return null;
         if (value is Sprite or Font or Material) return value;
         if (value is EngineObject) return remap.GetValueOrDefault(value, value);
+        if (value is RectOffset offset) return new RectOffset(offset.left, offset.right, offset.top, offset.bottom);
         var type = value.GetType();
         if (value is Vector3 or Vector2 or Vector4 or Vector2Int or Vector3Int or Quaternion or Rect or RectInt or Color or Color32 or Bounds or BoundsInt or Matrix4x4 or Plane or Ray || type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)) return value;
         if (copied.TryGetValue(value, out var known)) return known;

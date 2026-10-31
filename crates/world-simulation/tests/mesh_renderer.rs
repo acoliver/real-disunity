@@ -86,6 +86,10 @@ fn a_new_renderer_is_enabled_shadowed_and_has_no_material() {
         MeshRenderer::of_kind(RendererKind::Skinned).kind,
         RendererKind::Skinned
     );
+    assert_eq!(
+        MeshRenderer::of_kind(RendererKind::Particle).kind,
+        RendererKind::Particle
+    );
     assert_eq!(MeshFilter::default().mesh, 0);
 }
 

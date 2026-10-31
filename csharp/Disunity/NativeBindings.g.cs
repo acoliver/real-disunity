@@ -277,7 +277,7 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_canvas_renderer_inherited_alpha(ulong world, ulong handle, float* output);
         /// <summary>
         ///  Creates a renderer with the engine's default settings on a live object. `kind` is 0 for a
-        ///  mesh renderer and 1 for a skinned mesh renderer.
+        ///  mesh renderer, 1 for a skinned mesh renderer and 2 for a particle system renderer.
         ///  # Safety
         ///  Output is writable for one component identity.
         /// </summary>

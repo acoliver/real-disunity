@@ -26,8 +26,10 @@ public static partial class DisunityHost
             ThrowIfError(NativeBindings.disunity_canvas_group_create(WorldHandle, owner.NativeHandle, &handle));
         else if (value is CanvasRenderer)
             ThrowIfError(NativeBindings.disunity_canvas_renderer_create(WorldHandle, owner.NativeHandle, &handle));
-        else if (value is MeshRenderer or SkinnedMeshRenderer)
-            ThrowIfError(NativeBindings.disunity_mesh_renderer_create(WorldHandle, owner.NativeHandle, value is SkinnedMeshRenderer ? 1u : 0u, &handle));
+        else if (value is ParticleSystem)
+            ThrowIfError(NativeBindings.disunity_camera_layer_create(WorldHandle, owner.NativeHandle, 198, &handle));
+        else if (value is MeshRenderer or SkinnedMeshRenderer or ParticleSystemRenderer)
+            ThrowIfError(NativeBindings.disunity_mesh_renderer_create(WorldHandle, owner.NativeHandle, value switch { SkinnedMeshRenderer => 1u, ParticleSystemRenderer => 2u, _ => 0u }, &handle));
         else if (value is MeshFilter)
             ThrowIfError(NativeBindings.disunity_mesh_filter_create(WorldHandle, owner.NativeHandle, &handle));
         else if (value is SpriteRenderer)

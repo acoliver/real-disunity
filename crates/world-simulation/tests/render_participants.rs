@@ -219,3 +219,21 @@ fn overflowing_light_accumulation_is_a_native_presentation_error() {
         ))
     );
 }
+
+#[test]
+fn a_particle_system_is_one_marker_per_object() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let owner = world.create_object(ObjectDesc::default()).unwrap();
+    let particles = world
+        .add_component(owner, ComponentDesc::ParticleSystem)
+        .unwrap();
+    assert_eq!(
+        world.component(particles).unwrap().desc,
+        ComponentDesc::ParticleSystem
+    );
+    assert!(
+        world
+            .add_component(owner, ComponentDesc::ParticleSystem)
+            .is_err()
+    );
+}

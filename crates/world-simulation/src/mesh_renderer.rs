@@ -13,6 +13,9 @@ pub enum RendererKind {
     #[default]
     Mesh,
     Skinned,
+    /// The renderer of a particle system. It holds the common renderer settings; the particle
+    /// specific ones stay in the managed component.
+    Particle,
 }
 
 /// The three drawing switches of a renderer.

@@ -339,6 +339,7 @@ CanvasRendererTests.Run();
 CanvasRendererStreamTests.Run();
 RendererTests.Run();
 MeshRendererTests.Run();
+ParticleSystemTests.Run();
 CommandBufferAttachmentTests.Run();
 BaselibTests.Run();
 ScreenTests.Run();

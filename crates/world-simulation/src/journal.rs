@@ -18,6 +18,7 @@ pub enum ComponentKind {
     AudioListener,
     GuiLayer,
     FlareLayer,
+    ParticleSystem,
     #[cfg(feature = "ui")]
     RectTransform,
     #[cfg(feature = "ui")]
@@ -51,6 +52,7 @@ impl ComponentDesc {
             Self::AudioListener { .. } => ComponentKind::AudioListener,
             Self::GUILayer { .. } => ComponentKind::GuiLayer,
             Self::FlareLayer { .. } => ComponentKind::FlareLayer,
+            Self::ParticleSystem => ComponentKind::ParticleSystem,
             #[cfg(feature = "ui")]
             Self::RectTransform(_) => ComponentKind::RectTransform,
             #[cfg(feature = "ui")]

@@ -280,6 +280,7 @@ ResourceTests.Run();
 PrefabResourceTests.Run();
 PlayerShaderTests.Run();
 PlayerMaterialTests.Run();
+PlayerRenderTextureTests.Run();
 TextCoreTests.Run();
 FontEngineTests.Run();
 TouchScreenKeyboardTests.Run();

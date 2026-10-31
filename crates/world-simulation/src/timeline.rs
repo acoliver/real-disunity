@@ -228,6 +228,16 @@ impl World {
         self.check_lifecycle_scope()?;
         self.open_lifecycle(mutation)
     }
+    /// Opens a child scope that runs the `OnDisable` and `OnDestroy` messages queued by destruction so
+    /// far, instead of leaving them for the frame's cleanup. Like `next_lifecycle`, the host drains it
+    /// through resume until `LifecycleComplete`; each message runs once.
+    pub fn flush_cleanup(&mut self) -> Result<Advance, WorldError> {
+        self.check_lifecycle_scope()?;
+        let mutation = self.reserve_mutation()?;
+        let work = self.take_cleanup();
+        self.lifecycle.mutations.insert(mutation.sequence, work);
+        self.open_lifecycle(mutation)
+    }
     /// A lifecycle scope may open at top level or inside a script callback.
     pub(crate) fn check_lifecycle_scope(&self) -> Result<(), WorldError> {
         if self.scheduler.faulted {

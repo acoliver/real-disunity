@@ -18,6 +18,8 @@ pub mod cloning;
 #[cfg(test)]
 mod cloning_tests;
 mod commands;
+#[cfg(test)]
+mod component_destroy_tests;
 pub mod construction;
 #[cfg(test)]
 mod construction_tests;

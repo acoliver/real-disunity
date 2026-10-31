@@ -284,11 +284,15 @@ fn gpu_linear_depth_is_view_metres_not_device_or_radial_depth() {
         &[&screen.depth],
     );
     draw(&context, &pipeline, &group, &output);
-    assert_eq!(
-        read(&context, &output)
-            .iter()
-            .map(|v| v.to_bits())
-            .collect::<Vec<_>>(),
-        [2.0f32.to_bits(); 3]
-    );
+    // Reconstruction is a matrix product and a divide in f32 (Vulkan allows 2.5 ULP for the
+    // divide); the bound is the shared arithmetic allowance at range 2 plus one f32 ULP, not
+    // bit identity, and is absolute against the view-space depth 2.
+    for (index, depth) in read(&context, &output).into_iter().enumerate() {
+        let bound =
+            worldrunner_render_gpu::tolerance_test_support::ARITHMETIC * 2.0 + 2.0_f64.powi(-23);
+        assert!(
+            (f64::from(depth) - 2.0).abs() <= bound,
+            "pixel {index}: {depth} versus 2, bound {bound}"
+        );
+    }
 }

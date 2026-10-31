@@ -43,6 +43,9 @@ public sealed class Sprite : Object
     /// <summary>The texture the sprite is drawn from, or null for a sprite of the scene, whose texture the engine does not hold as an object.</summary>
     public Texture2D? texture => _texture ?? DisunityHost.PlayerTexture(Description.texture);
 
+    /// <summary>The texture holding the alpha of a sprite whose colour and alpha are split. The engine has no split textures, so this is null.</summary>
+    public Texture2D? associatedAlphaSplitTexture => null;
+
     /// <summary>Where the sprite's pixels are in <see cref="texture"/>.</summary>
     public Rect textureRect => Details?.TextureRect ?? NativeRect;
 

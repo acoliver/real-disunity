@@ -1,4 +1,5 @@
 use super::*;
+use crate::tolerance_tests::assert_half_pixel;
 use crate::{
     frame::FrameUniform,
     view::{CameraPose, SceneView, Viewport},
@@ -25,10 +26,11 @@ pub(crate) fn settings() -> SceneAtmosphere {
 #[test]
 fn hdr_sky_has_one_exposure_and_does_not_write_depth() {
     let (color, depth) = render(&settings(), 2.0, 1.0);
-    assert_eq!(&color[..8], &[0, 0x44, 0, 0x44, 0, 0x44, 0, 0x3c]);
+    assert_half_pixel(&color, [4.0, 4.0, 4.0, 1.0], "radiance 2 at exposure 2");
     assert_eq!(depth.to_bits(), 1.0f32.to_bits());
     let (color, depth) = render(&settings(), 2.0, 0.5);
-    assert_eq!(&color[..8], &[0, 0, 0, 0, 0, 0, 0, 0x3c]);
+    // Depth testing against the cleared 0.5 rejects the sky, leaving the cleared colour.
+    assert_half_pixel(&color, [0.0, 0.0, 0.0, 1.0], "sky behind depth 0.5");
     assert_eq!(depth.to_bits(), 0.5f32.to_bits());
 }
 #[test]
@@ -36,7 +38,7 @@ fn solar_disc_uses_frame_sun_direction() {
     let mut settings = settings();
     settings.sun_angular_radius_millidegrees = 45_000;
     let (color, _) = render(&settings, 1.0, 1.0);
-    assert_eq!(&color[..8], &[0, 0x48, 0, 0x48, 0, 0x48, 0, 0x3c]);
+    assert_half_pixel(&color, [8.0, 8.0, 8.0, 1.0], "solar disc");
 }
 pub(crate) fn test_frame(exposure: f32) -> FrameUniform {
     let view = SceneView::new(
@@ -241,14 +243,16 @@ fn celestial_discs_cover_the_background_only_in_their_angular_extent() {
         texture: None,
         radiance_micro: [8_000_000; 3],
     });
-    assert_eq!(
-        &render(&sky, 1.0, 1.0).0[..8],
-        &[0, 0x48, 0, 0x48, 0, 0x48, 0, 0x3c]
+    assert_half_pixel(
+        &render(&sky, 1.0, 1.0).0,
+        [8.0, 8.0, 8.0, 1.0],
+        "inside disc",
     );
     sky.discs[0].direction = SceneDirection::new([0, -1_000_000, 0]).unwrap();
-    assert_eq!(
-        &render(&sky, 1.0, 1.0).0[..8],
-        &[0, 0x40, 0, 0x40, 0, 0x40, 0, 0x3c]
+    assert_half_pixel(
+        &render(&sky, 1.0, 1.0).0,
+        [2.0, 2.0, 2.0, 1.0],
+        "outside disc",
     );
 }
 #[test]
@@ -262,9 +266,10 @@ fn fog_is_linear_hdr_and_uses_the_shared_exposure() {
         start_distance_millimeters: 0,
         radiance_micro: [4_000_000; 3],
     });
-    assert_eq!(
-        &render(&sky, 2.0, 1.0).0[..8],
-        &[0, 0x48, 0, 0x48, 0, 0x48, 0, 0x3c]
+    assert_half_pixel(
+        &render(&sky, 2.0, 1.0).0,
+        [8.0, 8.0, 8.0, 1.0],
+        "fog 4 at exposure 2",
     );
 }
 
@@ -274,8 +279,9 @@ fn orthographic_sky_covers_an_off_center_camera_extent() {
     camera.view_projection =
         glam::camera::rh::proj::directx::orthographic(5.0, 15.0, 5.0, 15.0, 0.1, 1000.0)
             * glam::camera::rh::view::look_at_mat4(Vec3::ZERO, Vec3::Y, Vec3::Z);
-    assert_eq!(
-        &render_frame(&settings(), &camera, 1.0).0[..8],
-        &[0, 0x40, 0, 0x40, 0, 0x40, 0, 0x3c]
+    assert_half_pixel(
+        &render_frame(&settings(), &camera, 1.0).0,
+        [2.0, 2.0, 2.0, 1.0],
+        "orthographic sky",
     );
 }

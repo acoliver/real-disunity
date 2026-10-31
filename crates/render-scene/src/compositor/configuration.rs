@@ -92,9 +92,7 @@ impl RendererConfiguration {
                 );
             }
             for water in &self.water {
-                set.buffer("water staging", crate::water::STAGING_BYTES, 3);
-                set.buffer("water body uniforms", crate::water::UNIFORM_BYTES, 3);
-                set.buffer("water surface vertices", water_vertex_bytes(water), 1);
+                crate::water::allocations(water, &mut set);
             }
         }
         if self.timing != TimingMode::Disabled {
@@ -667,21 +665,6 @@ fn build(
 #[cfg(test)]
 #[path = "configuration_tests.rs"]
 mod tests;
-
-fn water_vertex_bytes(body: &worldrunner_render_plan::SceneWaterBody) -> u64 {
-    use worldrunner_render_plan::SceneWaterSurface;
-    let vertices = match &body.surface {
-        SceneWaterSurface::Rectangle => 6,
-        SceneWaterSurface::Mesh { indices, .. } => {
-            u64::try_from(indices.len()).expect("bounded geometry")
-        }
-        // Each bed triangle clips to at most two surface triangles.
-        SceneWaterSurface::Basin { columns, rows, .. } => u64::from(columns.saturating_sub(1))
-            .saturating_mul(u64::from(rows.saturating_sub(1)))
-            .saturating_mul(12),
-    };
-    vertices.saturating_mul(12).max(12)
-}
 
 fn retain_water_inputs(next: &mut FrameRenderer, previous: Option<&crate::water::Water>) {
     if let (Some(next), Some(previous)) = (&mut next.water, previous) {

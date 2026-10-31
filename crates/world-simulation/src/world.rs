@@ -1,4 +1,5 @@
 use crate::handles::{Arena, next_world};
+use crate::journal::Change;
 use crate::{
     ComponentDesc, ComponentError, ComponentHandle, LimitKind, LocalTransform, ObjectHandle,
     WorldError,
@@ -47,8 +48,18 @@ pub(crate) struct Object {
     layer: u8,
     pub(crate) active: bool,
     pub(crate) parent: Option<ObjectHandle>,
-    transform: ComponentHandle,
+    /// Live objects whose `parent` is this object, kept equal to a scan of all objects.
+    /// Handle order is slot order within a world, which is the order `children` reports.
+    pub(crate) children: std::collections::BTreeSet<ObjectHandle>,
+    /// Every stored component owned by this object, including the transform.
+    pub(crate) components: Vec<ComponentHandle>,
+    pub(crate) transform: ComponentHandle,
+    /// The object whose translation changes this object copies. See `World::set_follow_target`.
+    pub(crate) follow: Option<ObjectHandle>,
+    /// Live objects whose `follow` is this object, kept equal to a scan of all objects.
+    pub(crate) followers: std::collections::BTreeSet<ObjectHandle>,
     pub(crate) renderer: Option<ComponentHandle>,
+    pub(crate) mesh_instance: Option<ComponentHandle>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -90,6 +101,9 @@ pub struct World {
     pub(crate) lifetime: crate::lifetime::Lifetime,
     pub(crate) lifecycle: crate::lifecycle::Lifecycle,
     pub(crate) components: Arena<ComponentSnapshot>,
+    pub(crate) journal: crate::journal::Journal,
+    pub(crate) spatial: Option<crate::spatial::SpatialIndex>,
+    pub(crate) staging: Option<crate::edits::Staging>,
 }
 
 impl World {
@@ -107,6 +121,9 @@ impl World {
             lifecycle: crate::lifecycle::Lifecycle::default(),
             objects: Arena::new(settings.max_objects, LimitKind::Objects),
             components: Arena::new(settings.max_components, LimitKind::Components),
+            journal: crate::journal::Journal::default(),
+            spatial: None,
+            staging: None,
         })
     }
 
@@ -134,10 +151,16 @@ impl World {
                 layer: desc.layer,
                 active: desc.active,
                 parent: None,
+                children: std::collections::BTreeSet::new(),
+                components: vec![transform],
                 transform,
+                follow: None,
+                followers: std::collections::BTreeSet::new(),
                 renderer: None,
+                mesh_instance: None,
             },
         );
+        self.record_change(Change::Created(object));
         Ok(object)
     }
 
@@ -173,6 +196,7 @@ impl World {
             .get_mut(handle.0)
             .expect("validated object")
             .layer = layer;
+        self.record_change(Change::Properties(handle));
         Ok(())
     }
 
@@ -192,6 +216,7 @@ impl World {
         } else {
             object.name = text;
         }
+        self.record_change(Change::Properties(handle));
         Ok(())
     }
 
@@ -213,6 +238,8 @@ impl World {
         Ok(match desc {
             ComponentDesc::Transform(_) => true,
             ComponentDesc::Sprite(_)
+            | ComponentDesc::MeshRenderer(_)
+            | ComponentDesc::MeshFilter(_)
             | ComponentDesc::Tilemap(_)
             | ComponentDesc::Camera(_)
             | ComponentDesc::Light(_)
@@ -220,32 +247,30 @@ impl World {
             | ComponentDesc::UniversalAdditionalCameraData(_)
             | ComponentDesc::AudioListener { .. }
             | ComponentDesc::GUILayer { .. }
-            | ComponentDesc::FlareLayer { .. } => {
-                self.components.iter(self.identity).any(|(_, c)| {
-                    c.object == object
-                        && !self.lifetime.components.contains(&c.handle)
-                        && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
-                })
-            }
+            | ComponentDesc::FlareLayer { .. } => self.owns_unretired(owner, desc),
             #[cfg(feature = "ui")]
             ComponentDesc::RectTransform(_)
             | ComponentDesc::Canvas(_)
             | ComponentDesc::CanvasGroup(_)
             | ComponentDesc::CanvasRenderer(_)
-            | ComponentDesc::Text(_) => self.components.iter(self.identity).any(|(_, c)| {
-                c.object == object
-                    && !self.lifetime.components.contains(&c.handle)
-                    && std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
-            }),
+            | ComponentDesc::Text(_) => self.owns_unretired(owner, desc),
             ComponentDesc::Renderer { .. } => owner.renderer.is_some(),
+            ComponentDesc::MeshInstance(_) => owner.mesh_instance.is_some(),
             ComponentDesc::ShadowCaster2d
             | ComponentDesc::Script { .. }
             | ComponentDesc::Collider2d(_) => false,
-            ComponentDesc::Body2d(_) => self.components.iter(self.identity).any(|(_, c)| {
-                c.object == object
-                    && !self.lifetime.components.contains(&c.handle)
-                    && matches!(c.desc, ComponentDesc::Body2d(_))
-            }),
+            ComponentDesc::Body2d(_) => self.owns_unretired(owner, desc),
+        })
+    }
+
+    /// Whether `owner` has a component of `desc`'s kind that is not already retiring. Walks the
+    /// owner's own components, so the cost does not depend on the size of the world.
+    fn owns_unretired(&self, owner: &Object, desc: &ComponentDesc) -> bool {
+        owner.components.iter().any(|handle| {
+            !self.lifetime.components.contains(handle)
+                && self.components.get(handle.0).is_some_and(|c| {
+                    std::mem::discriminant(&c.desc) == std::mem::discriminant(desc)
+                })
         })
     }
 
@@ -270,7 +295,18 @@ impl World {
                 .expect("validated object")
                 .renderer = Some(handle);
         }
+        if matches!(desc, ComponentDesc::MeshInstance(_)) {
+            self.objects
+                .get_mut(object.0)
+                .expect("validated object")
+                .mesh_instance = Some(handle);
+        }
         let script = matches!(desc, ComponentDesc::Script { .. });
+        self.objects
+            .get_mut(object.0)
+            .expect("validated object")
+            .components
+            .push(handle);
         self.components.insert(
             handle.0,
             ComponentSnapshot {
@@ -280,6 +316,7 @@ impl World {
             },
         );
         self.register_component_lifetime(handle, object, script);
+        self.note_component_added(handle);
         Ok(handle)
     }
 
@@ -311,11 +348,21 @@ impl World {
         if std::mem::discriminant(&old.desc) != std::mem::discriminant(&desc) {
             return Err(WorldError::InvalidComponent(ComponentError::KindMismatch));
         }
-        self.components
-            .get_mut(handle.0)
-            .expect("validated component")
-            .desc = desc;
+        let shifts = self.follow_shifts(handle, &desc)?;
+        self.replace_component(handle, desc);
+        for (transform, value) in shifts {
+            self.replace_component(transform, ComponentDesc::Transform(value));
+        }
         Ok(())
+    }
+
+    fn replace_component(&mut self, handle: ComponentHandle, desc: ComponentDesc) {
+        let slot = self
+            .components
+            .get_mut(handle.0)
+            .expect("validated component");
+        let previous = std::mem::replace(&mut slot.desc, desc);
+        self.note_component_replaced(handle, previous);
     }
 
     /// Removes and retires only the requested component.
@@ -344,6 +391,11 @@ impl World {
         Ok(value)
     }
 
+    /// Replaces the object's local transform. When the translation changes, every object that
+    /// follows this object, directly or transitively, is shifted by the resulting change of this
+    /// object's world translation (see [`World::set_follow_target`]). All transform writes,
+    /// including [`World::set_world_position`], edits and physics steps, take this path. The write
+    /// and the shifts succeed or fail together.
     pub fn set_local_transform(
         &mut self,
         object: ObjectHandle,

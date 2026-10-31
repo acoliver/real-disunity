@@ -22,6 +22,11 @@ pub struct TerrainPageSource {
     pub slots: u32,
     /// Combined allocation ceiling for pages, upload scratch and draw tables.
     pub budget: AllocationBudget,
+    /// Samples global normalized terrain U/V, including gutters outside [0, 1].
+    /// Increasing source texel column and row follow increasing U and V with no
+    /// vertical flip. Decode normalized normal channels as `2 * value - 1`.
+    /// Returned [`LayerSample::normal`] directions must already be inverse-rotated
+    /// into the common east/north material frame; page composition does not rotate them.
     pub sample: Box<dyn Fn([f64; 2]) -> Vec<LayerSample>>,
 }
 

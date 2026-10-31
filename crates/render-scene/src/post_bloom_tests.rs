@@ -267,6 +267,37 @@ fn direct_pixels(context: &GpuContext, settings: &p::HdrPostSettings) -> Vec<u8>
     })
 }
 
+/// Asserts every pixel is the display value of uniform half radiance plus
+/// `Reinhard(0.5) * tint 0.5 * intensity`, within the rounding bound and the half stores.
+///
+/// The pipeline stores to `Rgba16Float` at most once per pass: extraction, downsample, two blur
+/// passes and the composite per level for two levels is under eight stores. Seven of them hold
+/// the extracted bloom value Reinhard(0.5) = 1/3 (the blurs are convex, so their errors add),
+/// each off by at most 2^-10 of it, and the bloom scale `0.5 * intensity` applies once afterwards.
+/// The composite store errs by 2^-10 of the sum. Reinhard divides a sum error by `(1 + sum)^2`,
+/// and the steepest slope of the encoding below `linear` is found as a difference. At intensity
+/// 0.75 (sum 0.625) the bound is about 0.74 codes; at intensity 2 (sum 0.833) it is about 0.77
+/// while a 10% intensity error moves the code by about 1.9.
+fn assert_uniform_bloom(pixels: &[u8], intensity: f64) {
+    let sum = 0.5 + 0.5 * intensity / 3.0;
+    let linear = sum / (1.0 + sum);
+    let encoded_at = worldrunner_render_gpu::tolerance_test_support::encoded_steps;
+    let sum_error = 0.5 * intensity * 7.0 / 3.0 / 1024.0 + sum / 1024.0;
+    let linear_error = sum_error / ((1.0 + sum) * (1.0 + sum));
+    let stores = encoded_at(linear, true) - encoded_at(linear - linear_error, true);
+    for pixel in pixels.chunks_exact(4) {
+        for &code in &pixel[..3] {
+            worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+                code,
+                encoded_at(linear, true),
+                stores,
+                &format!("uniform bloom recipe, intensity {intensity}"),
+            );
+        }
+        assert_eq!(pixel[3], 255, "alpha");
+    }
+}
+
 #[test]
 fn gpu_scene_recipe_matches_direct_and_omission_preserves_tent_bytes() {
     let context = pollster::block_on(GpuContext::request()).unwrap();
@@ -280,12 +311,17 @@ fn gpu_scene_recipe_matches_direct_and_omission_preserves_tent_bytes() {
             ..Default::default()
         },
     );
+    // The scene recipe translates to the same post settings as the direct ones, so both renders run
+    // the same shader code on the same device and stay byte identical.
     assert_eq!(actual, expected);
-    // Uniform half radiance plus (Reinhard(0.5) * tint 0.5 * intensity 0.75).
-    let linear: f64 = 0.625 / 1.625;
-    let encoded = (1.055 * linear.powf(1.0 / 2.4) - 0.055) * 255.0;
-    assert!((encoded - (encoded.floor() + 0.5)).abs() > 0.1);
-    assert!(actual.chunks_exact(4).all(|p| p == [167, 167, 167, 255]));
+    assert_uniform_bloom(&actual, 0.75);
+    // At 0.75 the bloom term is a fifth of the sum, so a 10% intensity error moves the code by
+    // less than the rounding bound; intensity 2 makes the same error exceed the derived bound.
+    let strong = s::SceneBloom {
+        intensity_micro: 2_000_000,
+        ..bloom()
+    };
+    assert_uniform_bloom(&scene_pixels(&context, &effects(strong)), 2.0);
     let omitted = s::SceneBloom {
         recipe: None,
         ..bloom()

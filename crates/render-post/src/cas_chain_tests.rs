@@ -168,15 +168,22 @@ fn a_soft_edge_is_sharpened_after_every_resolve_and_flat_areas_are_untouched() {
         };
         assert!(moved(&plain, &soft) >= 1, "{resolve:?}");
         assert!(moved(&plain, &hard) > moved(&plain, &soft), "{resolve:?}");
+        // CAS adds a half intermediate and two divisions on flat colour (a few operations of
+        // `2^-24`, inside the 64-operation arithmetic term of `OUTPUT_STEPS`), so flat columns
+        // agree within `PATH_STEPS`; sharpening the edge moves it by more than that.
         for x in (0..5).chain(18..24) {
             for channel in 0..4 {
-                assert_eq!(
-                    column(&plain, size[0], x, channel),
-                    column(&hard, size[0], x, channel),
-                    "{resolve:?} x={x}"
+                crate::fxaa_tolerance_tests::assert_paths_agree(
+                    &[column(&plain, size[0], x, channel)],
+                    &[column(&hard, size[0], x, channel)],
+                    &format!("{resolve:?} x={x}"),
                 );
             }
         }
+        assert!(
+            f64::from(moved(&plain, &hard)) > crate::fxaa_tolerance_tests::PATH_STEPS,
+            "{resolve:?}: sharpening must move the edge beyond the flat-area bound"
+        );
     }
 }
 
@@ -188,7 +195,11 @@ fn constant_frames_alpha_and_odd_extents_survive_every_resolve_and_sharpness() {
             let plain = rig.render(&with(resolve, None), size, FLAT);
             for sharpness in [0.0, 0.5, 1.0] {
                 let sharp = rig.render(&with(resolve, Some(sharpness)), size, FLAT);
-                assert_eq!(plain, sharp, "{resolve:?} {size:?} sharpness {sharpness}");
+                crate::fxaa_tolerance_tests::assert_paths_agree(
+                    &plain,
+                    &sharp,
+                    &format!("{resolve:?} {size:?} sharpness {sharpness}"),
+                );
             }
             let edge = rig.render(&with(resolve, Some(1.0)), size, SOFT_EDGE);
             let unsharp = rig.render(&with(resolve, None), size, SOFT_EDGE);

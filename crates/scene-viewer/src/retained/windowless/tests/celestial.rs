@@ -146,15 +146,24 @@ fn celestial_free_same_frame_capture_is_byte_identical() {
     let first = capture(&mut run, &events);
     // Empty geometry leaves constant radiance 2; Reinhard maps it to 2/3.
     // Compute sRGB bytes independently, away from a quantization boundary.
-    let encoded = (1.055 * (2.0_f64 / 3.0).powf(1.0 / 2.4) - 0.055) * 255.0;
-    let green = (0_u8..=255)
-        .find(|&byte| (f64::from(byte) - encoded).abs() < 0.5)
-        .unwrap();
-    let expected = [0, green, 0, 255].repeat(8 * 8);
+    let encoded = worldrunner_render_gpu::tolerance_test_support::encoded_steps(2.0 / 3.0, true);
     assert_eq!(first.0, Duration::ZERO);
     assert_eq!(first.1.viewport.width, 8);
     assert_eq!(first.1.viewport.height, 8);
-    assert_eq!(first.1.pixels, expected);
+    assert_eq!(first.1.pixels.len(), 8 * 8 * 4);
+    // The HDR target stores half before tone mapping and the sRGB attachment quantises: the
+    // display code is within the shared output bound plus one half intermediate of the
+    // unquantised code, on any driver.
+    for pixel in first.1.pixels.chunks_exact(4) {
+        assert_eq!([pixel[0], pixel[2], pixel[3]], [0, 0, 255]);
+        worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+            pixel[1],
+            encoded,
+            worldrunner_render_gpu::tolerance_test_support::HALF_INTERMEDIATE_STEPS,
+            "constant sky green",
+        );
+    }
+    // The same code on the same device repeats exactly.
     assert_eq!(first, capture(&mut run, &events));
     run.shutdown().unwrap();
 }

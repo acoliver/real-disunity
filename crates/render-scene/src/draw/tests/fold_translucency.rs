@@ -72,21 +72,26 @@ fn folded_directions_match_forward_and_both_metadata_passes() {
         let codes = expected
             .to_array()
             .map(|channel| srgb(0.202 + channel * 0.2) * 255.0);
-        for code in codes {
-            assert!((code.fract() - 0.5).abs() >= 0.1);
-        }
-        let mut reference = None;
+        let mut reference: Option<Vec<u8>> = None;
         for source in sources {
             let image = pass_color(&context, &gpu, &layouts, &source, "fs_opaque");
             let center = (32 * TARGET as usize + 32) * 4;
             for (actual, expected) in image[center..center + 3].iter().zip(codes) {
-                assert!(
-                    (f32::from(*actual) - expected).abs() < 0.5,
-                    "height={height}"
+                worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+                    *actual,
+                    f64::from(expected),
+                    0.0,
+                    &format!("height={height}"),
                 );
             }
+            // The three passes compute the folded normal in separate compiled shaders: the same
+            // ideal value, possibly one code apart.
             if let Some(reference) = &reference {
-                assert_eq!(&image, reference);
+                worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+                    &image,
+                    reference,
+                    &format!("height={height} pass versus forward"),
+                );
             } else {
                 reference = Some(image);
             }
@@ -156,12 +161,18 @@ fn metalness_mask_is_removed_from_forward_and_reflection_materials() {
         &format!("return {diagnostic};"),
     );
     let code = srgb(0.202) * 255.0;
-    assert!((code.fract() - 0.5).abs() >= 0.1);
     let first = pass_color(&context, &gpu, &layouts, &forward, "fs_opaque");
-    assert!((f32::from(first[(32 * TARGET as usize + 32) * 4]) - code).abs() < 0.5);
-    assert_eq!(
-        first,
-        pass_color(&context, &gpu, &layouts, &metadata, "fs_opaque")
+    worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+        first[(32 * TARGET as usize + 32) * 4],
+        f64::from(code),
+        0.0,
+        "forward metalness diagnostic",
+    );
+    // Forward and metadata shaders read the same material metalness, which the mask zeroes.
+    worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+        &first,
+        &pass_color(&context, &gpu, &layouts, &metadata, "fs_opaque"),
+        "forward versus metadata metalness diagnostic",
     );
 }
 
@@ -241,8 +252,12 @@ fn mapped_mask_combines_texture_vertex_and_material_ao_once() {
         let vertex = if vertex_ao == 300_000 { 0.3f32 } else { 0.7 };
         let packed = vertex.min(132.0 / 255.0);
         let code = srgb(0.21 + 0.8 * packed * packed * 0.6 * 0.2) * 255.0;
-        assert!((code.fract() - 0.5).abs() >= 0.1);
-        assert!((f32::from(image[(32 * TARGET as usize + 32) * 4]) - code).abs() < 0.5);
+        worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+            image[(32 * TARGET as usize + 32) * 4],
+            f64::from(code),
+            0.0,
+            &format!("vertex ao {vertex_ao}"),
+        );
     }
 }
 

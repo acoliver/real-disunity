@@ -167,6 +167,7 @@ fn phased_scene(field: bool, shore: bool) -> (Vec<SceneWaterBody>, RenderScene) 
                 Some(worldrunner_render_plan::SceneWaterFlowCoordinates {
                     origin_millimeters: [1000, 0],
                     tile_millimeters: [3000, 2000],
+                    mode: worldrunner_render_plan::SceneWaterSeedCoordinates::Repeat,
                 });
         }
     }

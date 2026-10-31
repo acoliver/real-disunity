@@ -9,6 +9,90 @@ use worldrunner_render_plan::{
     TextureColorSpace, TextureHandle,
 };
 
+fn rotated_fixture(rotation: u32) -> (SceneTerrain, SceneResources) {
+    let (terrain, resources) = fixture(TerrainSplatFilter::Bilinear);
+    let surfaces = terrain
+        .surfaces()
+        .iter()
+        .map(|surface| {
+            let mut appearance = surface.appearance();
+            appearance.rotation_arcminutes = rotation;
+            SceneTerrainSurface::new(surface.material(), appearance)
+        })
+        .collect();
+    let rotated = SceneTerrain::new(SceneTerrainParts {
+        columns: 2,
+        rows: 2,
+        origin_east_millimeters: 0,
+        origin_north_millimeters: 0,
+        sample_spacing_millimeters: 1000,
+        heights_millimeters: vec![0; 4],
+        surface_indices: terrain.surface_indices().to_vec(),
+        surfaces,
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap()
+    .with_layered_source(terrain.layered_source().unwrap().clone())
+    .unwrap();
+    let mut textures = resources.textures().to_vec();
+    textures[1] = SceneTexture::Texels {
+        format: TexelFormat::Rgba8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 2,
+        height: 1,
+        mips: 1,
+        bytes: vec![255, 128, 128, 100, 128, 255, 128, 180].into_boxed_slice(),
+    };
+    (rotated, SceneResources::new(textures, vec![]).unwrap())
+}
+
+#[test]
+fn ordinary_rotations_preserve_cpu_product_bytes() {
+    for rotation in [0_u16, 1700, 2700, 5400, 10_800, 21_599] {
+        let (terrain, resources) = rotated_fixture(u32::from(rotation));
+        let reference = LayeredReference::new(&terrain, &resources).unwrap();
+        let uv_angle = f32::from(rotation) * std::f32::consts::PI / 10_800.0;
+        let (sine, cosine) = uv_angle.sin_cos();
+        let normal_angle = f32::from(rotation) / 21_600.0 * std::f32::consts::TAU;
+        for world in [[0.1, 0.3], [1.25, 0.75], [8.0, 4.0]] {
+            let uv = [
+                world[0] * cosine - world[1] * sine,
+                world[0] * sine + world[1] * cosine,
+            ];
+            let samples: Vec<_> = terrain
+                .surfaces()
+                .iter()
+                .enumerate()
+                .map(|(index, surface)| {
+                    let appearance = surface.appearance();
+                    let coverage = reference.coverage(
+                        u8::try_from(index).unwrap(),
+                        world,
+                        appearance.blur_radius_millimeters,
+                    );
+                    reference
+                        .material_sample(
+                            &appearance,
+                            uv,
+                            [[0.0; 2]; 2],
+                            coverage,
+                            normal_angle.sin_cos(),
+                        )
+                        .unwrap()
+                })
+                .collect();
+            let previous =
+                compose_height_layers(&samples, TerrainSplatFilter::Bilinear, [1.0; 3], 0.0)
+                    .unwrap();
+            assert_eq!(
+                reference.sample(world).unwrap().pack(),
+                previous.pack(),
+                "rotation {rotation}, world {world:?}"
+            );
+        }
+    }
+}
+
 fn layer(color: [f32; 3], height: f32, coverage: f32) -> HeightLayerSample {
     HeightLayerSample {
         albedo: color,
@@ -72,6 +156,7 @@ fn asymmetric_spiral_coverage_matches_independent_tent_integrals() {
     let (terrain, resources) = fixture(TerrainSplatFilter::Spiral14);
     let terrain = terrain
         .with_layered_source(TerrainLayeredSource {
+            anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
             channel_map: None,
             type_grid: TerrainTypeGrid::new([3, 3], [0; 2], 1000, vec![0, 1, 0, 1, 0, 1, 1, 1, 0])
                 .unwrap(),
@@ -216,6 +301,7 @@ fn fixture(filter: TerrainSplatFilter) -> (SceneTerrain, SceneResources) {
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
+        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0, 1, 0, 1]).unwrap(),
         filter,
@@ -269,6 +355,7 @@ fn texture_colorization_uses_declared_channels() {
     let (terrain, resources) = fixture(TerrainSplatFilter::Spiral14);
     let terrain = terrain
         .with_layered_source(TerrainLayeredSource {
+            anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
             channel_map: None,
             type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0, 1, 0, 1]).unwrap(),
             filter: TerrainSplatFilter::Spiral14,
@@ -293,6 +380,7 @@ fn texture_colorization_uses_declared_channels() {
 fn layered_descriptors_reject_missing_layers_and_zero_mapping_extent() {
     let (terrain, _) = fixture(TerrainSplatFilter::Spiral14);
     let source = TerrainLayeredSource {
+        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2, 2], [0; 2], 1000, vec![0, 1, 0, 1]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
@@ -408,6 +496,7 @@ fn type_grid_resolution_and_world_mapping_are_independent_of_geometry() {
     let (terrain, resources) = fixture(TerrainSplatFilter::Bilinear);
     let terrain = terrain
         .with_layered_source(TerrainLayeredSource {
+            anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
             channel_map: None,
             type_grid: TerrainTypeGrid::new([3, 1], [2000, 3000], 500, vec![1, 0, 1]).unwrap(),
             filter: TerrainSplatFilter::Bilinear,

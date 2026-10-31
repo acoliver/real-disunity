@@ -36,6 +36,10 @@ internal static class ScriptLayoutTests
 
     public class Plain { public int Lost = 1; }
 
+    [Serializable] public class SerialMap<TKey, TValue> : Dictionary<TKey, TValue> where TKey : notnull { [SerializeField] List<TKey> m_Keys = new(); [SerializeField] List<TValue> m_Values = new(); }
+
+    [Serializable] public class SerialTable : Dictionary<string, int> { public List<string> names = new(); }
+
     [Serializable] public class Box<T> { public T Item = default!; }
 
     public class Base : MonoBehaviour { [SerializeField] protected int baseValue = 1; }
@@ -61,6 +65,9 @@ internal static class ScriptLayoutTests
         public List<Pair> pairs = new();
         public List<int[]> nested = new();
         public Dictionary<int, int> map = new();
+        public SerialMap<int, Vector3> serialMap = new();
+        public SerialTable table = new();
+        public HashSet<int> set = new();
         public Node tree = new();
         public Plain plain = new();
         public AbstractValue? abstractValue;
@@ -109,7 +116,7 @@ internal static class ScriptLayoutTests
     {
         var fields = layouts.Types[key].Fields;
         Require(string.Join(" ", fields.Select(field => field.Name))
-            == "baseValue number flag small day letter position target numbers pairs tree boxed shape shapes any fromGeneric",
+            == "baseValue number flag small day letter position target numbers pairs serialMap table tree boxed shape shapes any fromGeneric",
             $"serialized fields: {string.Join(" ", fields.Select(field => field.Name))}");
         Require(Type(fields, "flag") == new ScriptPrimitive("bool"), "a [SerializeField] bool");
         Require(Type(fields, "small") == new ScriptPrimitive("UInt8"), "an enum is its underlying type");
@@ -122,6 +129,20 @@ internal static class ScriptLayoutTests
         Require(Type(fields, "pairs") == new ScriptArray(new ScriptComposite(Nested("Pair"))), "a list of structs");
         Require(Type(fields, "shape") == new ScriptReference(typeof(IShape).FullName!.Replace('+', '/')), "a reference");
         Require(Type(fields, "shapes") is ScriptArray { Element: ScriptReference }, "a list of references");
+        DescribesCollectionSubclasses(layouts, fields);
+    }
+
+    /// <summary>A class deriving from a collection is described by its own fields; the collection's are not
+    /// serialized, and a bare collection has no layout.</summary>
+    private static void DescribesCollectionSubclasses(ScriptLayouts layouts, IReadOnlyList<ScriptField> fields)
+    {
+        var map = Type(fields, "serialMap") as ScriptComposite ?? throw new InvalidOperationException("a dictionary subclass has a layout");
+        var mapFields = layouts.Types[map.Key].Fields;
+        Require(mapFields.Select(f => f.Name).SequenceEqual(new[] { "m_Keys", "m_Values" })
+            && mapFields[0].Type == new ScriptArray(new ScriptPrimitive("int")) && mapFields[1].Type == new ScriptArray(new ScriptBuiltin("UnityEngine.Vector3")),
+            "a generic dictionary subclass lists its key and value lists with the type arguments applied");
+        var table = Type(fields, "table") as ScriptComposite ?? throw new InvalidOperationException("a dictionary subclass has a layout");
+        Require(layouts.Types[table.Key].Fields.Select(f => f.Name).SequenceEqual(new[] { "names" }), "a dictionary subclass keeps its own fields only");
     }
 
     private static void DescribesNestedAndGenericTypes(ScriptLayouts layouts)

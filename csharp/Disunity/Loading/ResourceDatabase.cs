@@ -24,6 +24,7 @@ internal sealed partial class ResourceDatabase
     private readonly record struct Entry(string Path, string Class, int? Asset);
 
     private readonly List<Entry> _entries = new();
+    private readonly List<string> _differences = new();
     private readonly List<JsonElement> _assets = new();
     private readonly string _directory;
     // The plan's graphics section, absent from plans of projects without player settings.
@@ -46,6 +47,16 @@ internal sealed partial class ResourceDatabase
         }
         foreach (var asset in plan.RootElement.GetProperty("assets").EnumerateArray()) _assets.Add(asset.Clone());
         if (plan.RootElement.TryGetProperty("graphics", out var graphics)) _graphics = graphics.Clone();
+    }
+
+    /// <summary>What the engine left out of the resources it built, one line each. Each is also logged as a
+    /// warning when it is recorded, so a player run reports it.</summary>
+    public IReadOnlyList<string> Differences => _differences;
+
+    private void Difference(string line)
+    {
+        _differences.Add(line);
+        Debug.LogWarning($"not reproduced: {line}");
     }
 
     /// <summary>Forgets the built assets, which belong to the world being unloaded.</summary>
@@ -105,15 +116,18 @@ internal sealed partial class ResourceDatabase
         "SpriteAtlas" => typeof(UnityEngine.U2D.SpriteAtlas),
         "Script" => ScriptType(asset),
         "Prefab" or "UnplannedPrefab" => typeof(GameObject),
+        "Shader" or "UnplannedShader" => typeof(Shader),
+        "Material" or "UnplannedMaterial" => typeof(Material),
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
+
+    private Assembly ResolveAssembly(string name) => name == "UnityEngine.CoreModule" ? typeof(Object).Assembly : _assemblies(name);
 
     private Type ScriptType(JsonElement asset)
     {
         var assembly = asset.Str("assembly");
         var name = asset.Str("class");
-        var source = assembly == "UnityEngine.CoreModule" ? typeof(Object).Assembly : _assemblies(assembly);
-        var type = source.GetType(name.Replace('/', '+'), throwOnError: false);
+        var type = ResolveAssembly(assembly).GetType(name.Replace('/', '+'), throwOnError: false);
         if (type is null || !typeof(ScriptableObject).IsAssignableFrom(type) || type.IsAbstract)
             throw new InvalidDataException($"resource {asset.Str("name")}: {assembly} has no ScriptableObject class {name}");
         return type;
@@ -158,6 +172,9 @@ internal sealed partial class ResourceDatabase
             "SpriteAtlas" => _built[index] = Atlas(asset),
             "Prefab" => _built[index] = Prefab(index, asset),
             "UnplannedPrefab" => throw new InvalidOperationException($"Resources: prefab {asset.Str("name")} did not plan: {asset.Str("error")}"),
+            "Shader" => _built[index] = PlayerShaders.Build(asset, Difference),
+            "UnplannedShader" or "UnplannedMaterial" => throw new InvalidOperationException($"Resources: {asset.Str("error")}"),
+            "Material" => _built[index] = PlayerMaterials.Build(asset, Asset),
             _ => Script(index, asset),
         };
     }
@@ -192,7 +209,7 @@ internal sealed partial class ResourceDatabase
         _built[index] = instance;
         _binding.Add((index, instance));
         using var fields = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(_directory, asset.Str("fields"))));
-        new FieldBinder(Resolve).Bind(instance, fields.RootElement, $"resource {instance.name}");
+        new FieldBinder(Resolve, assemblies: ResolveAssembly).Bind(instance, fields.RootElement, $"resource {instance.name}");
         return instance;
     }
 

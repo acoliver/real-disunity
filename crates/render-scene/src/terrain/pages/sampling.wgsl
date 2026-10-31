@@ -50,9 +50,15 @@ fn lookup_page(global: vec2<f32>, footprint: f32) -> PageLookup {
 }
 
 fn cached_surface(world: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> BlendedSurface {
+    if page_table.counts.w != 0u { return cached_anisotropic(world, dx, dy); }
     let global = clamp((world - page_table.bounds.xy) / page_table.bounds.zw, vec2<f32>(0.0), vec2<f32>(1.0));
     let interior = vec2<f32>(page_table.shape.xy);
     let footprint = max(length(dx / page_table.bounds.zw * interior), length(dy / page_table.bounds.zw * interior));
+    return cached_at(global, footprint);
+}
+
+fn cached_at(global: vec2<f32>, footprint: f32) -> BlendedSurface {
+    let interior = vec2<f32>(page_table.shape.xy);
     let result = lookup_page(global, footprint);
     let chosen = result.chosen;
     let lod = result.lod;
@@ -67,4 +73,41 @@ fn cached_surface(world: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> BlendedSurf
 fn page_coordinate(global: vec2<f32>, depth: u32) -> vec2<u32> {
     let cells = 1u << depth;
     return min(vec2<u32>(floor(global * f32(cells))), vec2<u32>(cells - 1u));
+}
+
+fn cached_anisotropic(world: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> BlendedSurface {
+    let size = vec2<f32>(page_table.shape.xy);
+    let global = (world - page_table.bounds.xy) / page_table.bounds.zw;
+    let center = clamp(global, vec2<f32>(0.0), vec2<f32>(1.0));
+    let scale = exp2(f32(lookup_page(center, 0.0).chosen.z));
+    // Convert texels per world unit, not extreme derivatives divided by small bounds.
+    let axes = layered_principal_axes(dx, dy, size * scale / page_table.bounds.zw);
+    let footprint = layered_axis_footprint(axes, size * scale, min(f32(page_table.counts.w + 1u), 16.0));
+    let radius = max(axes.z / footprint.z, axes.w) / scale;
+    let count = u32(footprint.z);
+    if count == 1u { return cached_at(center, radius); }
+    var color = vec3<f32>(0.0);
+    var normal = vec3<f32>(0.0);
+    var first_normal = vec3<f32>(0.0);
+    var roughness = 0.0;
+    var metalness = 0.0;
+    for (var tap = 0u; tap < count; tap++) {
+        let offset = (f32(tap) + 0.5) / f32(count) - 0.5;
+        // Every tap chooses its own resident page and safe mip, including across boundaries.
+        let position = clamp(global + footprint.xy * offset, vec2<f32>(0.0), vec2<f32>(1.0));
+        let value = cached_at(position, radius);
+        color += value.albedo;
+        if tap == 0u { first_normal = value.normal; }
+        normal += value.normal;
+        roughness += value.roughness;
+        metalness += value.metalness;
+    }
+    let direction = cached_normal_direction(normal, first_normal);
+    return BlendedSurface(color / f32(count), direction, roughness / f32(count), metalness / f32(count));
+}
+
+fn cached_normal_direction(sum: vec3<f32>, first: vec3<f32>) -> vec3<f32> {
+    // Exact antipodal ties preserve the first tap, as in mip reduction.
+    if dot(sum, sum) > 0.0 { return normalize(sum); }
+    return first;
 }

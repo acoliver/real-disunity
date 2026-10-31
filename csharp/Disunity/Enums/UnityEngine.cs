@@ -210,6 +210,11 @@ namespace UnityEngine
         None = 0, Supported = 1, RuntimeSwitchable = 2, AutomaticTonemapping = 4,
     }
 
+    public enum SkinQuality
+    {
+        Auto = 0, Bone1 = 1, Bone2 = 2, Bone4 = 4,
+    }
+
     public enum MotionVectorGenerationMode
     {
         Camera = 0, Object = 1, ForceNoMotion = 2,

@@ -31,16 +31,28 @@ pub use timeline::{
 mod components;
 mod edits;
 mod handles;
+mod journal;
+mod mesh_instance;
+mod mesh_renderer;
 pub mod physics2d;
+mod spatial;
 pub mod tilemap;
 mod ui_error;
 pub use ui_error::{FontId, UiError};
 #[cfg(feature = "ui")]
 pub mod ui;
 pub use edits::ObjectEdit;
+pub use journal::{ComponentChange, ComponentChangeEntry, ComponentKind, WorldChanges};
+pub use mesh_instance::{
+    MAX_INSTANCE_LODS, MAX_INSTANCE_MATERIALS, MAX_TINT_CHANNEL, MaterialId, MeshId, MeshInstance,
+};
+pub use mesh_renderer::{
+    MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
+};
 mod clone;
 mod construction;
 mod fields;
+mod follow;
 mod hierarchy;
 mod lifecycle;
 mod lifetime;
@@ -81,6 +93,10 @@ pub enum ComponentError {
     InvalidTransform,
     #[error("script assembly and type must contain 1..1024 bytes")]
     InvalidScript,
+    #[error("mesh instance needs 1..=64 materials, at most 8 LODs and tint channels in 0..=4")]
+    InvalidMeshInstance,
+    #[error("mesh renderer modes out of range or more than 64 materials")]
+    InvalidMeshRenderer,
     #[error("component kind cannot be changed")]
     KindMismatch,
 }
@@ -123,6 +139,8 @@ pub enum WorldError {
     InvalidObject,
     #[error("parenting would create a hierarchy cycle")]
     HierarchyCycle,
+    #[error("an object cannot follow itself")]
+    FollowSelf,
     #[error("parent matrix is singular")]
     SingularParent,
     #[error("local matrix cannot be represented as TRS")]
@@ -133,6 +151,10 @@ pub enum WorldError {
     NotScript,
     #[error("lifecycle mutation does not belong to this world")]
     WrongMutation,
+    #[error("the spatial index is not enabled")]
+    SpatialIndexDisabled,
+    #[error("invalid spatial index argument: expected finite values and a positive cell size")]
+    InvalidSpatialArgument,
     #[error("physics: {0}")]
     Physics(#[from] physics2d::PhysicsError),
 }

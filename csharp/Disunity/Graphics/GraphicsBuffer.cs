@@ -12,27 +12,56 @@ namespace UnityEngine;
 /// </summary>
 public sealed class GraphicsBuffer : IDisposable
 {
-    /// <summary>What the buffer is used for. The engine accepts only the targets the games it runs use.</summary>
+    /// <summary>What the buffer is used for. The contents are managed memory whatever the target, so every
+    /// target is accepted; the targets matter once a renderer reads the buffer.</summary>
     [Flags]
     public enum Target
     {
+        Vertex = 1,
+        Index = 2,
+        CopySource = 4,
+        CopyDestination = 8,
+        Structured = 16,
         Raw = 32,
+        Append = 64,
+        Counter = 128,
+        IndirectArguments = 256,
+        Constant = 512,
     }
 
-    private const Target Supported = Target.Raw;
+    /// <summary>How the buffer's contents are updated. Stored; the managed contents behave the same either way.</summary>
+    [Flags]
+    public enum UsageFlags
+    {
+        None = 0,
+        LockBufferForWrite = 1,
+    }
+
+    private const Target Supported = (Target)1023;
 
     private static readonly ConcurrentDictionary<uint, WeakReference<GraphicsBuffer>> Live = new();
     private static long s_lastHandle;
 
+    private readonly Target _target;
+    private readonly UsageFlags _usage;
     private readonly int _count;
     private readonly int _stride;
     private readonly GraphicsBufferHandle _handle;
     private byte[]? _contents;
 
     public GraphicsBuffer(Target target, int count, int stride)
+        : this(target, UsageFlags.None, count, stride)
+    {
+    }
+
+    public GraphicsBuffer(Target target, UsageFlags usageFlags, int count, int stride)
     {
         if (target == 0 || (target & ~Supported) != 0)
-            throw new ArgumentException($"GraphicsBuffer target {(int)target} is not supported; the engine supports Target.Raw", nameof(target));
+            throw new ArgumentException($"GraphicsBuffer target {(int)target} is not a combination of the defined targets", nameof(target));
+        if ((usageFlags & ~UsageFlags.LockBufferForWrite) != 0)
+            throw new ArgumentException($"GraphicsBuffer usage flags {(int)usageFlags} are not defined", nameof(usageFlags));
+        _target = target;
+        _usage = usageFlags;
         if (count <= 0) throw new ArgumentException($"GraphicsBuffer count must be positive, got {count}", nameof(count));
         if (stride <= 0) throw new ArgumentException($"GraphicsBuffer stride must be positive, got {stride}", nameof(stride));
         var bytes = (long)count * stride;
@@ -50,6 +79,14 @@ public sealed class GraphicsBuffer : IDisposable
     public int count => WhileLive(_count);
     public int stride => WhileLive(_stride);
     public GraphicsBufferHandle bufferHandle => WhileLive(_handle);
+    public Target target => WhileLive(_target);
+    public UsageFlags usageFlags => WhileLive(_usage);
+
+    /// <summary>A name for tools and logs. It can be read and set after release, as it describes the object.</summary>
+    public string name { get; set; } = "";
+
+    /// <summary>True until the buffer is released.</summary>
+    public bool IsValid() => _contents != null;
 
     /// <summary>The buffer's bytes, for a renderer. Throws once the buffer is released.</summary>
     internal ReadOnlySpan<byte> Contents => Storage();
@@ -70,10 +107,64 @@ public sealed class GraphicsBuffer : IDisposable
         var size = ElementSize(data.GetType().GetElementType()!);
         CheckRange(data.Length, contents.Length, size, managedBufferStartIndex, graphicsBufferStartIndex, count);
         if (count == 0) return;
-        ref var first = ref MemoryMarshal.GetArrayDataReference(data);
-        var source = MemoryMarshal.CreateReadOnlySpan(ref Unsafe.Add(ref first, (nint)managedBufferStartIndex * size), count * size);
-        source.CopyTo(contents.AsSpan(graphicsBufferStartIndex * size, count * size));
+        ArrayBytes(data, size).Slice(managedBufferStartIndex * size, count * size).CopyTo(contents.AsSpan(graphicsBufferStartIndex * size, count * size));
     }
+
+    /// <summary>Copies the whole array to the start of the buffer.</summary>
+    public void SetData(Array data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        SetData(data, 0, 0, data.Length);
+    }
+
+    public void SetData<T>(List<T> data) where T : struct
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        SetData(data, 0, 0, data.Count);
+    }
+
+    public void SetData<T>(List<T> data, int managedBufferStartIndex, int graphicsBufferStartIndex, int count) where T : struct
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        CopyIn<T>(CollectionsMarshal.AsSpan(data), managedBufferStartIndex, graphicsBufferStartIndex, count);
+    }
+
+    public void SetData<T>(Unity.Collections.NativeArray<T> data) where T : struct =>
+        SetData(data, 0, 0, data.Length);
+
+    public void SetData<T>(Unity.Collections.NativeArray<T> data, int nativeBufferStartIndex, int graphicsBufferStartIndex, int count) where T : struct =>
+        CopyIn<T>(data.AsReadOnlySpan(), nativeBufferStartIndex, graphicsBufferStartIndex, count);
+
+    /// <summary>Copies the start of the buffer into the whole array.</summary>
+    public void GetData(Array data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        GetData(data, 0, 0, data.Length);
+    }
+
+    /// <summary>Copies <paramref name="count"/> elements from the buffer into <paramref name="data"/>; the buffer
+    /// index counts elements of the array's own type, as <see cref="SetData(Array, int, int, int)"/> does.</summary>
+    public void GetData(Array data, int managedBufferStartIndex, int computeBufferStartIndex, int count)
+    {
+        var contents = Storage();
+        ArgumentNullException.ThrowIfNull(data);
+        var size = ElementSize(data.GetType().GetElementType()!);
+        CheckRange(data.Length, contents.Length, size, managedBufferStartIndex, computeBufferStartIndex, count);
+        if (count == 0) return;
+        contents.AsSpan(computeBufferStartIndex * size, count * size).CopyTo(ArrayBytes(data, size).Slice(managedBufferStartIndex * size, count * size));
+    }
+
+    private void CopyIn<T>(ReadOnlySpan<T> data, int managedStart, int bufferStart, int count) where T : struct
+    {
+        var contents = Storage();
+        var size = ElementSize(typeof(T));
+        CheckRange(data.Length, contents.Length, size, managedStart, bufferStart, count);
+        if (count == 0) return;
+        MemoryMarshal.AsBytes(data.Slice(managedStart, count)).CopyTo(contents.AsSpan(bufferStart * size, count * size));
+    }
+
+    private static Span<byte> ArrayBytes(Array data, int size) =>
+        MemoryMarshal.CreateSpan(ref MemoryMarshal.GetArrayDataReference(data), data.Length * size);
 
     public void Release()
     {

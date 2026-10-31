@@ -55,8 +55,54 @@ fn scalar_pipelines(context: &GpuContext, renderer: &ShadowedScene) -> ScenePipe
     )
 }
 
+/// The production receiver and the substituted scalar receiver evaluate the same expression, so
+/// they differ only where a rounding difference flips a shadow-map depth comparison. Away from
+/// such a flip both renders hold the same unquantised value and differ by at most two display
+/// roundings (`2 * OUTPUT_STEPS`, one code). A flip changes a pixel's lit fraction by whole
+/// comparison weights, so it is allowed only where the shadow map has a visibility transition:
+/// the pixel's neighbourhood holds both a lit pixel (within one code of the unshadowed render)
+/// and a shadowed pixel (further than that from it).
+fn disagreeing_pixels(actual: &RgbaImage, expected: &RgbaImage) -> Vec<usize> {
+    let bound = 2.0 * worldrunner_render_gpu::tolerance_test_support::OUTPUT_STEPS;
+    actual
+        .pixels
+        .chunks_exact(4)
+        .zip(expected.pixels.chunks_exact(4))
+        .enumerate()
+        .filter(|(_, (a, b))| {
+            a.iter()
+                .zip(*b)
+                .any(|(a, b)| f64::from(a.abs_diff(*b)) > bound)
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+const EDGE_RADIUS: usize = 2;
+
+fn on_shadow_edge(shadowed: &RgbaImage, lit: &RgbaImage, index: usize) -> bool {
+    let bound = 2.0 * worldrunner_render_gpu::tolerance_test_support::OUTPUT_STEPS;
+    let [width, height] = [shadowed.viewport.width, shadowed.viewport.height].map(|v| v as usize);
+    let (x, y) = (index % width, index / width);
+    let (mut has_lit, mut has_shadow) = (false, false);
+    for ny in y.saturating_sub(EDGE_RADIUS)..=(y + EDGE_RADIUS).min(height - 1) {
+        for nx in x.saturating_sub(EDGE_RADIUS)..=(x + EDGE_RADIUS).min(width - 1) {
+            let at = (ny * width + nx) * 4;
+            let darker = (0..3)
+                .map(|c| f64::from(lit.pixels[at + c].abs_diff(shadowed.pixels[at + c])))
+                .fold(0.0, f64::max);
+            if darker > bound {
+                has_shadow = true;
+            } else {
+                has_lit = true;
+            }
+        }
+    }
+    has_lit && has_shadow
+}
+
 #[test]
-fn gpu_single_map_receiver_matches_scalar_reference_exactly() {
+fn gpu_single_map_receiver_matches_scalar_reference_except_at_shadow_edges() {
     let context = context();
     let source = receiver_scene();
     let fit = DirectionalShadowSettings {
@@ -69,6 +115,7 @@ fn gpu_single_map_receiver_matches_scalar_reference_exactly() {
     let mut renderer = ShadowedScene::new(&context, &source, fit).unwrap();
     let mut reference = scalar_pipelines(&context, &renderer);
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let mut edge_pixels = 0;
     for offset in 0..32 {
         let camera = SceneView::new(
             crate::CameraPose {
@@ -85,12 +132,24 @@ fn gpu_single_map_receiver_matches_scalar_reference_exactly() {
         render_target(&mut renderer, &context, &camera, &target).unwrap();
         let expected = target.read_rgba8(&context).unwrap();
         std::mem::swap(&mut renderer.pipelines, &mut reference);
-        let changed = actual
-            .pixels
-            .chunks_exact(4)
-            .zip(expected.pixels.chunks_exact(4))
-            .filter(|(a, b)| a != b)
+        let lit = capture_scene(&context, &source, &camera).unwrap();
+        let flipped = disagreeing_pixels(&actual, &expected);
+        for &index in &flipped {
+            assert!(
+                on_shadow_edge(&expected, &lit, index),
+                "view {offset}: pixel {index} differs away from any shadow edge"
+            );
+        }
+        // Flips are rare events at depth-comparison ties, not a systematic shift of the shadow.
+        let pixels = actual.pixels.len() / 4;
+        assert!(
+            flipped.len() * 200 <= pixels,
+            "view {offset}: {} of {pixels} pixels differ",
+            flipped.len()
+        );
+        edge_pixels += (0..pixels)
+            .filter(|&index| on_shadow_edge(&expected, &lit, index))
             .count();
-        assert_eq!(changed, 0, "single-map receiver differs at view {offset}");
     }
+    assert!(edge_pixels > 0, "the fixture must contain shadow edges");
 }

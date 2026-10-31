@@ -1,9 +1,17 @@
+#[path = "anisotropy_tests.rs"]
+mod anisotropy_tests;
 #[path = "authored_tests.rs"]
 mod authored_tests;
 #[path = "bodies_tests.rs"]
 mod bodies_tests;
+#[path = "budget_tests.rs"]
+mod budget_tests;
 #[path = "contracts.rs"]
 mod contracts;
+#[path = "default_tests.rs"]
+mod default_tests;
+#[path = "diffuse_tests.rs"]
+mod diffuse_tests;
 #[path = "lighting_tests.rs"]
 mod lighting_tests;
 #[path = "numerical.rs"]
@@ -20,10 +28,18 @@ mod retained_environment_tests;
 mod review_tests;
 #[path = "screen_tests.rs"]
 mod screen_tests;
+#[path = "seed_geometry_tests.rs"]
+mod seed_geometry_tests;
+#[path = "seed_tests.rs"]
+mod seed_tests;
 #[path = "shoreline_tests.rs"]
 mod shoreline_tests;
 #[path = "terms_tests.rs"]
 mod terms_tests;
+#[path = "vertex_seed_gpu_tests.rs"]
+mod vertex_seed_gpu_tests;
+#[path = "vertex_seed_tests.rs"]
+mod vertex_seed_tests;
 #[path = "wind_clock_tests.rs"]
 mod wind_clock_tests;
 

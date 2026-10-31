@@ -164,7 +164,18 @@ fn gpu_fxaa_matches_scalar_reference_within_the_derived_bounds() {
 }
 
 #[test]
-fn gpu_bloom_entries_exactly_match_scalar_reference() {
+fn gpu_bloom_entries_match_scalar_reference_within_the_derived_bounds() {
+    // Bound: `fxaa_tolerance_tests::half_bound`, a half store (`2^-10 |v|`, covering rounding
+    // toward zero) plus the f32 arithmetic, 64 operations of `2^-24 R` on each of GPU and CPU.
+    // The fixtures are texels up to R = 0.625 with every weight in 0..=1, so errors do not
+    // amplify. Operation counts: prefilter is under 10 operations with two divisions (2.5 ulp
+    // each, relative to a result at most R); a tent tap is a 3-mix bilinear load (at most 9
+    // operations) times a weight, nine taps accumulated (9 additions), plus a coordinate error
+    // of about `8 * 2^-24` texels times the contrast 0.625 (about 5 operations of R); the
+    // upsample adds one load and one mix. All stay under 40, inside the budget of 64. The
+    // bloom entries use integer loads with explicit mixes, so native filter precision does not
+    // apply. Thresholds compare exact dyadic values (peak 0.625 or 0.125 against 0, 0.5, 1),
+    // so no branch sits on a decision boundary.
     let (device, queue) = crate::gpu_tests::gpu();
     let input = fixture([8, 8]);
     for (threshold, knee) in [(0.0, 0.0), (0.5, 0.5), (1.0, 0.0)] {
@@ -176,7 +187,7 @@ fn gpu_bloom_entries_exactly_match_scalar_reference() {
                 .map(|&c| prefilter(c, threshold, knee))
                 .collect(),
         };
-        run(
+        super::fxaa_tolerance_tests::run_within(
             (&device, &queue),
             "prefilter",
             (&input, None),
@@ -186,7 +197,7 @@ fn gpu_bloom_entries_exactly_match_scalar_reference() {
         );
     }
     let down = Image::render([4, 4], |uv| tent(&input, uv));
-    run(
+    super::fxaa_tolerance_tests::run_within(
         (&device, &queue),
         "downsample",
         (&input, None),
@@ -196,7 +207,7 @@ fn gpu_bloom_entries_exactly_match_scalar_reference() {
     );
     let low = fixture([4, 4]);
     let up = Image::render(input.size, |uv| upsample(&input, &low, uv));
-    run(
+    super::fxaa_tolerance_tests::run_within(
         (&device, &queue),
         "upsample",
         (&input, Some(&low)),

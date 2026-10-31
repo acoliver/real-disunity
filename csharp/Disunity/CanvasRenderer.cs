@@ -12,8 +12,8 @@ namespace UnityEngine;
 /// does not batch UI, so <see cref="absoluteDepth"/> and <see cref="relativeDepth"/> are always -1.
 /// The material count is 0 through <see cref="MaxMaterials"/>; a larger count throws. The native side rejects a
 /// NaN alpha with a <see cref="DisunityException"/> and keeps any other alpha as given. The engine does not
-/// raise <see cref="onRequestRebuild"/>. A <c>RequireComponent</c> attribute on a script is not honoured by
-/// <c>AddComponent</c> yet, so a graphic needs its renderer added by hand.
+/// raise <see cref="onRequestRebuild"/>. A <c>RequireComponent</c> attribute naming this type makes
+/// <c>AddComponent</c> add the renderer first; scene loading adds it only when the plan lists it.
 /// </summary>
 public sealed partial class CanvasRenderer : NativeComponent
 {
@@ -116,13 +116,13 @@ public sealed partial class CanvasRenderer : NativeComponent
     internal Texture? MainTexture => Find<Texture>(Read().texture);
     internal Texture? AlphaTexture => Find<Texture>(Read().alpha_texture);
 
-    private static ulong IdOf(Object? value, string name)
+    internal static ulong IdOf(Object? value, string name)
     {
         if (value is null) return 0;
         if (!value) throw new ArgumentException($"the {name} was destroyed", name);
         return unchecked((ulong)(uint)value.GetInstanceID());
     }
 
-    private static T? Find<T>(ulong id) where T : Object =>
+    internal static T? Find<T>(ulong id) where T : Object =>
         id == 0 ? null : ObjectRegistry.Find(unchecked((int)(uint)id)) as T;
 }

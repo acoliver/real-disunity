@@ -28,13 +28,15 @@ pub use presentation::planning::{PresentationCapture, PresentationPlanning, plan
 pub use window_size::WindowSizeUnit;
 mod renderer;
 mod retained;
+mod world_edits;
 pub use retained::{
     CaptureJitter, CaptureOutput, CaptureRequestError, CursorError, CursorGrabMode, KeyCode,
     LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureOutcome,
     RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent,
-    RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, WheelDelta,
-    WindowlessRetained,
+    RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, SceneObjectEdit,
+    WheelDelta, WindowlessRetained,
 };
+pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 
 pub use camera::{OrbitCamera, OrbitLimits};
 pub use wgpu::PresentMode;

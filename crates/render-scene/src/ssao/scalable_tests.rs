@@ -242,6 +242,10 @@ fn gpu_scalable_hierarchy_odd_sizes_and_single_pixel_axes() {
     let pipeline = pipeline(context.device(), include_str!("mean_depth.wgsl"));
     let group = group(context.device(), &pipeline, None, &[&source]);
     draw(&context, &pipeline, &group, &output);
+    // Exact on every conforming device: the inputs are even integers below 2^24, so each
+    // four-texel sum is an integer and multiplying by 0.25 gives a multiple of 0.25. All of
+    // them are representable, so correctly rounded addition and multiplication return them
+    // unchanged; R32Float readback is a transfer.
     assert_eq!(read(&context, &output), [6.0, 10.0, 13.0, 21.0, 25.0, 28.0]);
 }
 

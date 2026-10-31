@@ -347,13 +347,7 @@ fn maps_user_tags_and_writes_every_value_kind_as_the_loader_reads_it() {
             "shape": Json::Null,
         })
     );
-    assert_eq!(
-        plan.differences,
-        [
-            "Root.Example.Spinner.shape: [SerializeReference] values are not built",
-            "Child: tag 20005 is not defined",
-        ]
-    );
+    assert_eq!(plan.differences, ["Child: tag 20005 is not defined"]);
 }
 
 /// A camera as the player serializes it: perspective, with the viewport, mask, display and

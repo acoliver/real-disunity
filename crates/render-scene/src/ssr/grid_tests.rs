@@ -584,16 +584,19 @@ fn gpu_default_trace_bytes_match_pre_grid_shader() {
     assert!(!old.contains("grid_reflection"));
     for scale in [1.0, 10.0] {
         for occluder in [false, true] {
-            assert_eq!(
-                controls_tests::capture_with_shader(&context, settings(), scale, occluder, None),
-                controls_tests::capture_with_shader(
-                    &context,
-                    settings(),
-                    scale,
-                    occluder,
-                    Some(&old)
-                )
+            let current =
+                controls_tests::capture_with_shader(&context, settings(), scale, occluder, None);
+            let retired = controls_tests::capture_with_shader(
+                &context,
+                settings(),
+                scale,
+                occluder,
+                Some(&old),
             );
+            let case = format!("scale {scale} occluder {occluder}");
+            controls_tests::assert_traces_agree(&current, &retired, &case);
+            controls_tests::assert_centre_matches_model(&current, !occluder, &case);
+            controls_tests::assert_centre_matches_model(&retired, !occluder, &case);
         }
     }
 }

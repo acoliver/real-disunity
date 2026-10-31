@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{LimitKind, WorldError};
@@ -38,9 +39,17 @@ pub(crate) struct Slot<T> {
     value: Option<T>,
 }
 
+/// Slot storage with generation checked handles.
+///
+/// `free` holds exactly the indices of slots whose value is `None`. Allocation takes the lowest
+/// free index, so handle sequences match a first-vacancy scan, and costs O(log n) instead of a
+/// walk over every slot. A sorted set is used rather than a LIFO stack because rollback of a
+/// staged edit must put an index back and see the same next handle; with an ordered set the
+/// contents alone decide the next slot, whatever order frees and unwinds happened in.
 #[derive(Clone)]
 pub(crate) struct Arena<T> {
     slots: Vec<Slot<T>>,
+    free: BTreeSet<u32>,
     limit: u32,
     kind: LimitKind,
 }
@@ -49,22 +58,21 @@ impl<T> Arena<T> {
     pub const fn new(limit: u32, kind: LimitKind) -> Self {
         Self {
             slots: Vec::new(),
+            free: BTreeSet::new(),
             limit,
             kind,
         }
     }
 
     pub fn check_additional(&self, count: usize) -> Result<(), WorldError> {
-        let free: Vec<_> = self
-            .slots
-            .iter()
-            .filter(|slot| slot.value.is_none())
-            .take(count)
-            .collect();
-        if free.iter().any(|slot| slot.generation == u32::MAX) {
-            return Err(WorldError::CapacityExceeded(LimitKind::Generation));
+        let mut reused = 0;
+        for &index in self.free.iter().take(count) {
+            if self.slots[index as usize].generation == u32::MAX {
+                return Err(WorldError::CapacityExceeded(LimitKind::Generation));
+            }
+            reused += 1;
         }
-        let append = count - free.len();
+        let append = count - reused;
         if append > (self.limit as usize).saturating_sub(self.slots.len()) {
             return Err(WorldError::CapacityExceeded(self.kind));
         }
@@ -72,13 +80,12 @@ impl<T> Arena<T> {
     }
 
     pub fn vacancy(&self, world: u64) -> Result<Identity, WorldError> {
-        let index = self.slots.iter().position(|slot| slot.value.is_none());
-        let (slot, generation) = if let Some(index) = index {
-            let generation = self.slots[index]
+        let (slot, generation) = if let Some(&index) = self.free.first() {
+            let generation = self.slots[index as usize]
                 .generation
                 .checked_add(1)
                 .ok_or(WorldError::CapacityExceeded(LimitKind::Generation))?;
-            (index, generation)
+            (index as usize, generation)
         } else {
             if self.slots.len() >= self.limit as usize {
                 return Err(WorldError::CapacityExceeded(self.kind));
@@ -101,6 +108,7 @@ impl<T> Arena<T> {
             self.slots.push(slot);
         } else {
             self.slots[id.slot as usize] = slot;
+            self.free.remove(&id.slot);
         }
     }
 
@@ -121,7 +129,21 @@ impl<T> Arena<T> {
     }
 
     pub fn remove(&mut self, id: Identity) {
-        self.slots[id.slot as usize].value = None;
+        if self.slots[id.slot as usize].value.take().is_some() {
+            self.free.insert(id.slot);
+        }
+    }
+
+    /// Reverses the latest `insert` of `id` so the slot's next vacancy repeats `id`'s identity.
+    pub fn unwind_insert(&mut self, id: Identity) {
+        if id.generation == 1 {
+            self.slots.pop();
+        } else {
+            let slot = &mut self.slots[id.slot as usize];
+            slot.generation = id.generation - 1;
+            slot.value = None;
+            self.free.insert(id.slot);
+        }
     }
 
     pub fn iter(&self, world: u64) -> impl Iterator<Item = (Identity, &T)> {
@@ -219,6 +241,7 @@ mod tests {
             generation: u32::MAX,
             value: None,
         });
+        arena.free.insert(0);
         assert_eq!(
             arena.vacancy(1),
             Err(WorldError::CapacityExceeded(LimitKind::Generation))

@@ -13,6 +13,20 @@ internal static class GraphicsSettingsTests
 
     private sealed class Pipeline : RenderPipeline { }
 
+    private sealed class TypedAsset : RenderPipelineAsset<Pipeline> { }
+
+    private sealed class HoldingSettings : RenderPipelineGlobalSettings
+    {
+        [SerializeField] private RenderPipelineGraphicsSettingsCollection m_Settings = new();
+
+        public RenderPipelineGraphicsSettingsCollection Collection => m_Settings;
+    }
+
+    private sealed class LightingSettings : IRenderPipelineGraphicsSettings
+    {
+        public int version => 5;
+    }
+
     private sealed class CloudSettings : IRenderPipelineGraphicsSettings
     {
         public int version => 3;
@@ -33,13 +47,14 @@ internal static class GraphicsSettingsTests
             ShaderModes();
             Pipelines();
             Registries();
+            CurrentGlobalSettings();
         }
         finally
         {
             DisunityHost.SetRenderPipeline(null, null);
             DisunityHost.UnloadWorld();
         }
-        Console.WriteLine("PASS: GraphicsSettings defaults, round trips, shader modes, pipeline assets and settings registries");
+        Console.WriteLine("PASS: GraphicsSettings defaults, round trips, shader modes, pipeline assets, settings registries and the current pipeline's global settings");
     }
 
     private static void Defaults()
@@ -113,7 +128,7 @@ internal static class GraphicsSettingsTests
         Expect.That(GraphicsSettings.defaultRenderPipeline == quality, "renderPipelineAsset sets the default");
         DisunityHost.SetRenderPipeline(null, null);
         Expect.That(GraphicsSettings.currentRenderPipeline == null && GraphicsSettings.allConfiguredRenderPipelines.Length == 0, "assets are cleared");
-        Expect.Throws<NotSupportedException>(() => GraphicsSettings.TryGetCurrentRenderPipelineGlobalSettings(out _), "the current pipeline's type is not known yet");
+        Expect.That(!GraphicsSettings.TryGetCurrentRenderPipelineGlobalSettings(out var none) && none == null && GraphicsSettings.currentRenderPipelineGlobalSettings == null, "no pipeline has no current global settings");
     }
 
     private static void Registries()
@@ -138,5 +153,36 @@ internal static class GraphicsSettingsTests
         Expect.That(GraphicsSettings.GetSettingsForRenderPipeline<Pipeline>() == settings, "UpdateGraphicsSettings registers");
         GraphicsSettings.UnregisterRenderPipelineSettings(typeof(Pipeline));
         Expect.Throws<ArgumentNullException>(() => GraphicsSettings.RegisterRenderPipelineSettings(typeof(Pipeline), null!), "null settings");
+    }
+
+    private static void CurrentGlobalSettings()
+    {
+        var settings = ScriptableObject.CreateInstance<HoldingSettings>();
+        Expect.That(!GraphicsSettings.TrySetCurrentRenderPipelineGlobalSettings(settings), "nothing is set without a current pipeline");
+        var untyped = ScriptableObject.CreateInstance<PipelineAsset>();
+        DisunityHost.SetRenderPipeline(untyped, null);
+        Expect.That(!GraphicsSettings.TrySetCurrentRenderPipelineGlobalSettings(settings) && !GraphicsSettings.TryGetCurrentRenderPipelineGlobalSettings(out _), "an asset that names no pipeline type has no global settings");
+
+        var typed = ScriptableObject.CreateInstance<TypedAsset>();
+        DisunityHost.SetRenderPipeline(typed, null);
+        Expect.That(!GraphicsSettings.TryGetCurrentRenderPipelineGlobalSettings(out _) && !GraphicsSettings.TryGetRenderPipelineSettings<LightingSettings>(out _), "nothing is registered for the pipeline yet");
+        Expect.That(GraphicsSettings.TrySetCurrentRenderPipelineGlobalSettings(settings), "settings are set for the current pipeline");
+        Expect.That(GraphicsSettings.TryGetCurrentRenderPipelineGlobalSettings(out var current) && current == settings && GraphicsSettings.currentRenderPipelineGlobalSettings == settings, "and found as its current settings");
+        Expect.That(GraphicsSettings.GetSettingsForRenderPipeline<Pipeline>() == settings, "they are registered under the pipeline type of the asset's base");
+
+        Expect.That(GraphicsSettings.GetRenderPipelineSettings<LightingSettings>() == null, "a group the settings do not hold is absent");
+        var lighting = new LightingSettings();
+        settings.Collection.settingsList.Add(null!);
+        settings.Collection.settingsList.Add(lighting);
+        Expect.That(GraphicsSettings.GetRenderPipelineSettings<LightingSettings>() == lighting && GraphicsSettings.TryGetRenderPipelineSettings<LightingSettings>(out var found) && found == lighting,
+            "a group in the current global settings is found, skipping empty entries");
+        var registered = new LightingSettings();
+        DisunityHost.RegisterPipelineSettings(registered);
+        Expect.That(GraphicsSettings.GetRenderPipelineSettings<LightingSettings>() == registered, "a group the host registered wins over the settings asset's");
+
+        DisunityHost.SetRenderPipeline(typed, null);
+        GraphicsSettings.UnregisterRenderPipelineSettings<Pipeline>();
+        Expect.That(!GraphicsSettings.TryGetCurrentRenderPipelineGlobalSettings(out _), "unregistering the settings clears the current ones");
+        DisunityHost.SetRenderPipeline(null, null);
     }
 }

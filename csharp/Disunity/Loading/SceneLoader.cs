@@ -102,6 +102,8 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             {
                 "PhysicsMaterial2D" => Material(asset),
                 "Script" => Asset(asset),
+                "Shader" => PlayerShaders.Build(asset, differences.Add),
+                "Material" => PlayerMaterials.Build(asset, PlannedAsset),
                 var other => throw new SceneLoadException($"asset type {other} is not supported"),
             });
     }
@@ -241,7 +243,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
 
     private void BindFields()
     {
-        var binder = new FieldBinder(Resolve, differences.Add);
+        var binder = new FieldBinder(Resolve, differences.Add, options.Assemblies);
         foreach (var (script, fields, where) in scripts) binder.Bind(script, fields, where);
         var planned = plan.GetProperty("assets").EnumerateArray().ToList();
         for (var i = 0; i < planned.Count; i++)
@@ -255,11 +257,14 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         "$object" => objects[reference.Value.GetInt32()],
         "$transform" => objects[reference.Value.GetInt32()].transform,
         "$component" => ComponentReference(reference.Value[0].GetInt32(), reference.Value[1].GetInt32()),
-        "$asset" => options.ResourceAsset is { } resource ? resource(reference.Value.GetInt32()) : assets[reference.Value.GetInt32()],
+        "$asset" => PlannedAsset(reference.Value.GetInt32()),
         "$sprite" => sprites[reference.Value.GetInt32()],
         "$font" => Font(reference.Value.GetString() ?? ""),
         var other => throw new SceneLoadException($"references {other}, which scripts cannot hold"),
     };
+
+    /// <summary>The object built for a planned asset: a resource when this plan is a prefab's, else one of the plan's own assets.</summary>
+    private object PlannedAsset(int index) => options.ResourceAsset is { } resource ? resource(index) : assets[index];
 
     /// <summary>A built component, or for one the player's plan marks Unsupported, a stand-in
     /// the binder turns into a null reference with a difference. Other unbuilt components, such as

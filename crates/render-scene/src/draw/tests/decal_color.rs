@@ -123,7 +123,13 @@ fn default_modifier_preserves_rendered_bytes_against_unmodified_shader() {
                 SceneGpu::upload(context.device(), context.submission(), &scene, &original)
                     .unwrap();
             let expected = capture_gpu(&context, &mut gpu, &original, samples, true);
-            assert_eq!(expected, capture(&context, &scene, samples));
+            // The default modifier multiplies by one in a different compiled shader, so the two
+            // renders hold the same ideal value and may round one code apart.
+            worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+                &expected,
+                &capture(&context, &scene, samples),
+                &format!("default modifier, samples={samples} terrain={terrain_receiver}"),
+            );
         }
     }
 }
@@ -153,9 +159,13 @@ fn modifier_blends_before_forward_lighting_and_material_metadata_like_baked_texe
         d.color_modifier = SceneDecalColorModifier::default();
         let expected = with_texel([128, 64, 100, 64]).with_decals(vec![d]).unwrap();
         for samples in [1, 4] {
-            assert_eq!(
-                capture(&context, &actual, samples),
-                capture(&context, &expected, samples)
+            // The modifier scales the texel by dyadic or near-dyadic factors that equal the baked
+            // texel in exact arithmetic; the f32 products can differ by an ulp, so the renders hold
+            // the same ideal value and may round one code apart.
+            worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+                &capture(&context, &actual, samples),
+                &capture(&context, &expected, samples),
+                &format!("modifier versus baked texel, samples={samples} terrain={terrain}"),
             );
         }
         let pipelines = material_metadata_pipelines(&context);
@@ -168,10 +178,43 @@ fn modifier_blends_before_forward_lighting_and_material_metadata_like_baked_texe
             &pipelines,
         )
         .unwrap();
-        assert_eq!(
-            capture_gpu(&context, &mut actual_gpu, &pipelines, 1, true),
-            capture_gpu(&context, &mut expected_gpu, &pipelines, 1, true)
+        worldrunner_render_gpu::tolerance_test_support::assert_paths_agree(
+            &capture_gpu(&context, &mut actual_gpu, &pipelines, 1, true),
+            &capture_gpu(&context, &mut expected_gpu, &pipelines, 1, true),
+            &format!("modifier versus baked material metadata, terrain={terrain}"),
         );
+        // The comparisons above hold for any error common to both paths (a colour scale applied
+        // after the modifier reaches the baked texel too), so the decal albedo is also checked
+        // against the ideal blend: base (51, 102, 153) lerped to the modified texel (128, 64, 100)
+        // at weight 128/255 * 0.5. Each channel moves by at least 1.2 codes under a 10% colour
+        // error, above the 0.625 code store bound, and the albedo-only metadata output has no
+        // lighting or half intermediate between the blend and the store.
+        let albedo = &channel_pipelines(&context)[0];
+        let mut gpu =
+            SceneGpu::upload(context.device(), context.submission(), &actual, albedo).unwrap();
+        assert_interior_within_store(
+            &capture_gpu(&context, &mut gpu, albedo, 1, true),
+            Vec3::new(51.0, 102.0, 153.0).lerp(Vec3::new(128.0, 64.0, 100.0), 128.0 / 255.0 * 0.5)
+                / 255.0,
+            &format!("modifier albedo, terrain={terrain}"),
+        );
+    }
+}
+
+fn assert_interior_within_store(pixels: &[u8], expected: Vec3, context: &str) {
+    for (x, y) in [(30, 30), (32, 32), (34, 34)] {
+        let offset = (y * 64 + x) * 4;
+        for (code, linear) in pixels[offset..offset + 3].iter().zip(expected.to_array()) {
+            worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+                *code,
+                worldrunner_render_gpu::tolerance_test_support::encoded_steps(
+                    f64::from(linear),
+                    true,
+                ),
+                0.0,
+                &format!("{context} pixel={x},{y}"),
+            );
+        }
     }
 }
 

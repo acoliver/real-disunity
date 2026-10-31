@@ -40,6 +40,8 @@ pub use worldrunner_render_post as executor;
 pub use view::{CameraPose, OrthographicLens, SceneView, ViewError, Viewport};
 
 #[cfg(test)]
+mod lit_model_tests;
+#[cfg(test)]
 mod msaa_tests;
 mod post;
 mod post_bloom;

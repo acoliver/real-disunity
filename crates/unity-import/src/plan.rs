@@ -172,6 +172,20 @@ pub enum PlanComponent {
     CanvasRenderer {
         cull_transparent_mesh: bool,
     },
+    /// A mesh filter of a player scene. A Mesh asset cannot be planned yet, so it has no mesh.
+    MeshFilter {},
+    /// A mesh renderer of a player scene.
+    MeshRenderer {
+        #[serde(flatten)]
+        renderer: crate::renderers::PlanRenderer,
+    },
+    /// A skinned mesh renderer of a player scene. It has no mesh.
+    SkinnedMeshRenderer {
+        #[serde(flatten)]
+        renderer: crate::renderers::PlanRenderer,
+        quality: i32,
+        update_when_offscreen: bool,
+    },
     /// A 3D light of a player scene.
     Light {
         enabled: bool,
@@ -208,6 +222,19 @@ pub enum PlanAsset {
         name: String,
         #[serde(flatten)]
         material: PhysicsMaterial,
+    },
+    /// A shader of a player, as [`crate::player_resources::ResourceAsset::Shader`].
+    Shader {
+        name: String,
+        render_queue: i32,
+        pass_count: usize,
+        subshader_count: usize,
+    },
+    /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. Its
+    /// texture slots are empty: scene plans hold no textures.
+    Material {
+        #[serde(flatten)]
+        material: crate::player_materials::PlanMaterial,
     },
 }
 

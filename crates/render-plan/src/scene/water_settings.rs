@@ -11,6 +11,8 @@ pub struct SceneWaterSettings {
     /// Signed RG flow at unit encoding speed, added to constant body velocity.
     pub flow_speed_millimeters_per_second: u32,
     pub flow: Option<TextureHandle>,
+    /// Sampling stage for raw flow seeds; Vertex requires a flow map.
+    pub flow_seed_sampling: super::SceneWaterSeedSampling,
     /// Two-phase normal advection period. `None` preserves continuous scrolling.
     /// Requires a normal map and a positive period. Positive velocity advances
     /// sampling coordinates; the displacement per cycle is velocity times period.
@@ -31,6 +33,8 @@ pub struct SceneWaterSettings {
     pub metallic_micro: Option<u32>,
     /// Use derivative-selected normal mip levels instead of explicit level zero.
     pub normal_mips: bool,
+    /// Maximum footprint ratio for derivative-selected normal sampling (1, 2, 4, 8, 16).
+    pub normal_anisotropy: super::TextureAnisotropy,
     /// Independent reflected environment amplitude and shoreline attenuation.
     pub environment: Option<super::SceneWaterEnvironment>,
     /// Compose the lit surface directly, without Beer-weighting it as medium scattering.
@@ -52,12 +56,14 @@ impl SceneWaterSettings {
         tile_millimeters: [1000; 2],
         flow_speed_millimeters_per_second: 1000,
         flow: None,
+        flow_seed_sampling: super::SceneWaterSeedSampling::Fragment,
         flow_period_milliseconds: None,
         refraction_millimeters: None,
         screen_refraction_micro: None,
         lighting_normal_micro: None,
         metallic_micro: None,
         normal_mips: false,
+        normal_anisotropy: super::TextureAnisotropy::ISOTROPIC,
         environment: None,
         direct_surface: false,
         sun_disk: None,
@@ -165,5 +171,20 @@ mod tests {
         assert!(authored.validate().is_ok());
         authored.material.flow_period_milliseconds = Some(u32::MAX);
         assert!(authored.validate().is_ok());
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn water_normal_anisotropy_uses_validated_sampler_levels() {
+    assert_eq!(SceneWaterSettings::STOCK.normal_anisotropy.level(), 1);
+    for level in [1, 2, 4, 8, 16] {
+        let mut surface = SceneWaterSettings::STOCK;
+        surface.normal_anisotropy = super::TextureAnisotropy::new(level).unwrap();
+        assert_eq!(surface.normal_anisotropy.level(), level);
+        assert!(surface.validate_refraction().is_ok());
+    }
+    for level in [0, 3, 7, 17, u16::MAX] {
+        assert!(super::TextureAnisotropy::new(level).is_err());
     }
 }

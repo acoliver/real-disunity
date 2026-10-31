@@ -112,9 +112,9 @@ pub use scene::{
 };
 
 pub use scene::{
-    SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterOptics, SceneWaterSettings,
-    SceneWaterShoreline, SceneWaterSunDisk, SceneWaterTint, SceneWaterWind,
-    SceneWaterZeroFrequency,
+    SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterOptics, SceneWaterSeedCoordinates,
+    SceneWaterSeedSampling, SceneWaterSettings, SceneWaterShoreline, SceneWaterSunDisk,
+    SceneWaterTint, SceneWaterWind, SceneWaterZeroFrequency,
 };
 
 #[cfg(feature = "ui")]

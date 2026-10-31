@@ -4,9 +4,10 @@ struct TerrainSurface {
     // is the blur radius already converted from world distance into grid
     // texels, because this shader walks the grid in texels.
     tint_and_blur: vec4<f32>,
-    // The authored rotation resolved to its cosine and sine on the CPU, the
-    // palette layer this surface samples, and one word of padding.
-    rotation_and_layer: vec4<f32>,
+    // Authored cosine, sine and palette layer. Surface zero also stores
+    // terrain-wide strength bits XOR 1.0 bits, preserving neutral-zero padding.
+    rotation_and_layer: vec3<f32>,
+    normal_strength_bits: u32,
 }
 
 struct Terrain {
@@ -157,7 +158,7 @@ fn sample_surface(
 
     var sample: SurfaceSample;
     sample.albedo = albedo_sample.rgb * record.tint_and_blur.rgb;
-    sample.normal = vec3<f32>(normal_xy, normal_z);
+    sample.normal = vec3<f32>(rotate(normal_xy, cosine, -sine), normal_z);
     sample.roughness = rough_metal.g;
     sample.metalness = rough_metal.b;
     return sample;
@@ -309,21 +310,20 @@ fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
 
     let blended = blend_surfaces(grid, world_xy, world_xy_dx, world_xy_dy, centre_surface);
 
-    // The blended normal is tangent-space, and terrain's tangent frame is
-    // derived from the geometric normal rather than from UV derivatives: the
-    // terrain UV is the world position itself, so its tangent frame is the world
-    // frame, and asking `cotangent_frame` for it would be a longer way to
-    // compute what the heightfield normal already states.
+    // Layer normals have already been unrotated into the shared east/north
+    // frame before blending or page storage. Follow east along the heightfield;
+    // the right-handed bitangent then follows north on flat ground.
     let geometric = normalize(input.world_normal);
-    let tangent = normalize(cross(select(
-        vec3<f32>(0.0, 0.0, 1.0),
-        vec3<f32>(1.0, 0.0, 0.0),
-        abs(geometric.z) > 0.999,
-    ), geometric));
+    let tangent = normalize(vec3<f32>(geometric.z, 0.0, -geometric.x));
     let bitangent = cross(geometric, tangent);
-    let normal = normalize(
-        tangent * blended.normal.x + bitangent * blended.normal.y + geometric * blended.normal.z,
-    );
+    let strength = bitcast<f32>(terrain.surfaces[0].normal_strength_bits ^ 0x3f800000u);
+    var normal = geometric;
+    if strength != 0.0 {
+        normal = normalize(
+            (tangent * blended.normal.x + bitangent * blended.normal.y) * strength
+                + geometric * blended.normal.z,
+        );
+    }
 
     // Terrain has neither an ambient occlusion map nor a screen-space
     // occlusion pass, so its ambient contribution remains unoccluded.

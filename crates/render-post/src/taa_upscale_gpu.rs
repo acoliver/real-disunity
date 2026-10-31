@@ -141,6 +141,46 @@ pub fn append(
     reconstructed
 }
 
+/// The fragment shader's `locks` override: 1 in production.
+#[cfg(not(test))]
+const fn overrides() -> [(&'static str, f64); 1] {
+    [("locks", 1.0)]
+}
+
+#[cfg(test)]
+thread_local! {
+    static LOCKING: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+#[cfg(test)]
+fn overrides() -> [(&'static str, f64); 1] {
+    [(
+        "locks",
+        f64::from(u8::from(LOCKING.with(std::cell::Cell::get))),
+    )]
+}
+
+/// While alive, stages built on this thread run with the thin-feature locks off: the path of PR 4.
+/// A test measures it next to the lock path on the same device. Until the locks exist the shader
+/// does not read the override, so both paths are the same code.
+#[cfg(test)]
+pub(crate) struct WithoutLocks;
+
+#[cfg(test)]
+impl WithoutLocks {
+    pub(crate) fn new() -> Self {
+        LOCKING.with(|d| d.set(false));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for WithoutLocks {
+    fn drop(&mut self) {
+        LOCKING.with(|d| d.set(true));
+    }
+}
+
 fn pipeline(device: &wgpu::Device, module: &wgpu::ShaderModule) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("taa_upscale"),
@@ -154,7 +194,10 @@ fn pipeline(device: &wgpu::Device, module: &wgpu::ShaderModule) -> wgpu::RenderP
         fragment: Some(wgpu::FragmentState {
             module,
             entry_point: Some("taa_upscale"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &overrides(),
+                ..Default::default()
+            },
             targets: &[Some(FORMAT.into())],
         }),
         primitive: wgpu::PrimitiveState::default(),

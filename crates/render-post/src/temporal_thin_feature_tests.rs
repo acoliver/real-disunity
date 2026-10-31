@@ -115,22 +115,70 @@ fn rig_at(gpu: &(wgpu::Device, wgpu::Queue), millionths: u32, fixture: &Fixture)
     SceneRig::new(gpu, render, fixture.wgsl())
 }
 
+/// The bound of a lock-on ROI error relative to the lock-off one on the same device, fixed by the
+/// coordinator before any lock code: at most 0.90 on the designated fixtures (the grid, wire 45
+/// and wire 90, static and at 0.3 px per frame), at most 1.10 on every other fixture and speed.
+/// Both numbers exceed the 8 to 10% lavapipe to Radeon spread of a ratio of two same-device runs.
+fn lock_ratio_bound(name: &str, speed: f64) -> f64 {
+    let designated = matches!(name, "grid" | "wire 45" | "wire 90")
+        && (speed.abs() < 1e-9 || (speed - 0.3).abs() < 1e-9);
+    if designated { 0.90 } else { 1.10 }
+}
+
+/// Whether the lock-on error `on` meets the bound against the lock-off error `off`.
+fn lock_rule_holds(name: &str, speed: f64, on: f64, off: f64) -> bool {
+    on <= lock_ratio_bound(name, speed) * off
+}
+
 fn sweep(millionths: u32) {
     let gpu = crate::gpu_tests::gpu();
     for fixture in fixtures() {
         let rig = rig_at(&gpu, millionths, &fixture);
+        let unlocked = {
+            let _off = crate::taa_upscale_gpu::WithoutLocks::new();
+            rig_at(&gpu, millionths, &fixture)
+        };
         for speed in SPEEDS {
             let temporal = measure(&rig, &fixture, speed, true);
             let reset = measure(&rig, &fixture, speed, false);
+            let off = measure(&unlocked, &fixture, speed, true);
             eprintln!(
-                "thin scale {millionths} {} speed {speed}: temporal {temporal:.5} reset {reset:.5} ratio {:.3}",
+                "thin scale {millionths} {} speed {speed}: temporal {temporal:.5} reset {reset:.5} ratio {:.3} locks off {off:.5} on/off {:.3}",
                 fixture.name,
-                temporal / reset
+                temporal / reset,
+                temporal / off
             );
             assert!(temporal.is_finite() && reset.is_finite());
             assert!(temporal > 0.0 && reset > 0.0);
+            // Without locks in the shader the two pipelines are the same code on one device, so
+            // the numbers agree to the bit. This becomes the comparison of `lock_rule_holds`.
+            assert_eq!(temporal.to_bits(), off.to_bits());
         }
     }
+}
+
+/// 6 designated cases per scale (3 fixtures at 2 speeds), 18 over the three scales.
+#[test]
+fn lock_bound_designates_eighteen_cases() {
+    let designated = |name: &str, speed| lock_ratio_bound(name, speed) < 1.0;
+    let per_scale = fixtures()
+        .iter()
+        .flat_map(|f| SPEEDS.map(|s| (f.name, s)))
+        .filter(|&(name, speed)| designated(name, speed))
+        .count();
+    assert_eq!(per_scale * 3, 18);
+    assert!(designated("grid", 0.3) && designated("wire 90", 0.0));
+    assert!(!designated("wire 0", 0.3) && !designated("wire 30", 0.0));
+    assert!(!designated("grid", 0.1) && !designated("wire 45", 0.1));
+}
+
+#[test]
+fn lock_rule_margins() {
+    assert!(lock_rule_holds("grid", 0.3, 0.90, 1.0));
+    assert!(!lock_rule_holds("grid", 0.3, 0.91, 1.0));
+    assert!(!lock_rule_holds("wire 45", 0.0, 1.0, 1.0));
+    assert!(lock_rule_holds("wire 0", 0.1, 1.10, 1.0));
+    assert!(!lock_rule_holds("wire 0", 0.1, 1.11, 1.0));
 }
 
 #[test]

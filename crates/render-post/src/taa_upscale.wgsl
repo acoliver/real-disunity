@@ -28,6 +28,8 @@ struct Temporal {
 // Confidence of the history, 1.0 or 0.0, R32Float at R, from the depth clip of
 // taa_reconstruct.wgsl.
 @group(0) @binding(4) var confidence: texture_2d<f32>;
+// 1 enables the thin-feature locks, 0 is the path before them (a test switch, 1 in production).
+override locks: f32 = 1.0;
 // Same constant as the native resolve: weight scale 1 - MOTION_K * displacement in output pixels.
 const MOTION_K: f32 = 1.5;
 const HALF_PI: f32 = 1.5707963267948966;

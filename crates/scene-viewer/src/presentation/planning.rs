@@ -69,6 +69,8 @@ fn recipe_settings(
     let PresentationCapture::Recipe(recipe) = capture else {
         return Ok(None);
     };
+    let mut recipe = recipe.clone();
+    recipe.set_ssao(settings.ssao);
     recipe.pool_bytes(size)?;
     if !recipe.accumulated() {
         return Ok(None);

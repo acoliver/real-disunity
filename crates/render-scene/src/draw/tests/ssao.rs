@@ -1,3 +1,31 @@
+#[test]
+fn gpu_depth_gather_runs_in_mesh_and_terrain_forward_draws() {
+    use worldrunner_render_plan::SceneSsaoReceiver;
+    let context = context();
+    for base in [source(2_000_000, true, 255), terrain_scene(1)] {
+        let mut effects = effect_parts();
+        effects.sun.irradiance_micro = 0;
+        effects.ssao = Some(SceneSsao {
+            receiver: SceneSsaoReceiver::DepthAwareGather,
+            ..settings(2_000_000)
+        });
+        let source = RenderScene::new(SceneParts {
+            resources: base.resources().clone(),
+            geometry: base.geometry().clone(),
+            terrain: base.terrain().cloned(),
+            effects: Some(SceneEffects::new(effects).unwrap()),
+        })
+        .unwrap();
+        let (pixels, normals, ao) = capture(&context, &source, 1);
+        assert!(pixels.iter().any(|byte| *byte != 0));
+        assert!(normals.iter().any(|byte| *byte != 0));
+        assert!(
+            ao.iter()
+                .all(|value| value.is_finite() && *value >= 0.0 && *value <= 1.000_001)
+        );
+    }
+}
+
 use super::*;
 use crate::compositor::{FrameRenderer, encode_scene};
 use worldrunner_render_plan::{SceneSsao, TexelFormat};
@@ -84,6 +112,7 @@ fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
 
 fn settings(intensity: u64) -> SceneSsao {
     SceneSsao {
+        receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
         depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
         kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
         filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
@@ -231,9 +260,14 @@ fn read_ao(context: &GpuContext, filtered: &wgpu::Texture) -> Vec<f32> {
             })
             .collect()
     } else {
+        let stride = if filtered.format() == wgpu::TextureFormat::Rg32Float {
+            8
+        } else {
+            4
+        };
         bytes
-            .chunks_exact(4)
-            .map(|pixel| f32::from_le_bytes(pixel.try_into().unwrap()))
+            .chunks_exact(stride)
+            .map(|pixel| f32::from_le_bytes(pixel[..4].try_into().unwrap()))
             .collect()
     }
 }

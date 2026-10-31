@@ -68,6 +68,7 @@ fn baked_effects() -> Vec<SceneEffects> {
         post: vec![],
         anti_alias: *base.anti_alias(),
         ssao: Some(SceneSsao {
+            receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
             depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
             kernel: SceneSsaoKernel::Hemisphere,
             filter: SceneSsaoFilter::DepthAwareBox,

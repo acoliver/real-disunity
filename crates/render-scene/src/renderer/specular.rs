@@ -40,6 +40,7 @@ pub(super) struct Specialization {
     screen: Option<wgpu::BindGroupLayout>,
     options: ([u32; 7], wgpu::FrontFace),
     cache: Rc<RefCell<BTreeMap<RasterKey, ScenePipelines>>>,
+    gather: Rc<RefCell<Option<ScenePipelines>>>,
 }
 impl Specialization {
     pub fn new(
@@ -58,10 +59,46 @@ impl Specialization {
             screen: screen.cloned(),
             options,
             cache: Rc::default(),
+            gather: Rc::default(),
         }
     }
 }
 impl ScenePipelines {
+    pub(crate) fn for_receiver(
+        &self,
+        receiver: worldrunner_render_plan::SceneSsaoReceiver,
+    ) -> Self {
+        let spec = &self.specialization;
+        if !crate::ssao::receiver::gathers(receiver)
+            || !spec.source.contains("fn screen_ao(")
+            || spec.source.contains("fn receiver_gather(")
+        {
+            return self.clone();
+        }
+        spec.gather
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                let source = crate::ssao::receiver::source(&spec.source, receiver);
+                let terrain = crate::ssao::receiver::source(&spec.terrain, receiver);
+                let layout = if spec.source.contains("fn forward_reflection") {
+                    crate::ssr::forward::receiver_layout(&spec.device, receiver)
+                } else {
+                    crate::ssao::receiver::layout(&spec.device)
+                };
+                let mut selected = Self::with_constants(
+                    &spec.device,
+                    (self.color_format, self.samples),
+                    (&source, &terrain),
+                    spec.shadow.as_ref(),
+                    Some(&layout),
+                    spec.options,
+                );
+                selected.ssao = self.ssao;
+                selected
+            })
+            .clone()
+    }
+
     pub(crate) fn sky_targets(&self) -> (bool, bool) {
         (
             self.writes_velocity(),

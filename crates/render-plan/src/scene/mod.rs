@@ -44,7 +44,7 @@ pub use lighting::{
     SceneDiffuseEnvironment, SceneDirectDiffuse, SceneRoughnessRemap, SceneSh9,
     SceneSpecularConvention, SceneSpecularOcclusion, SceneSpecularVisibility, SceneSurfaceDisk,
 };
-pub use obscurance::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel};
+pub use obscurance::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver};
 mod water;
 mod water_optics;
 mod water_settings;
@@ -452,6 +452,7 @@ mod tests {
             shadows: SceneShadowCascades::new(vec![8_000, 32_000], 10_000)
                 .expect("synthetic cascades validate"),
             ssao: Some(SceneSsao {
+                receiver: crate::SceneSsaoReceiver::Nearest,
                 depth_footprint: crate::SceneSsaoDepthFootprint::default(),
                 kernel: crate::SceneSsaoKernel::Hemisphere,
                 filter: crate::SceneSsaoFilter::DepthAwareBox,

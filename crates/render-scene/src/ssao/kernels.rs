@@ -98,7 +98,30 @@ pub(super) fn append(
         target: raw.clone(),
         reads,
     });
-    append_filter(device, uniform, &depth, raw, settings.filter, stages)
+    let depth = filter_depth(depth, settings, stages);
+    append_filter(
+        device,
+        uniform,
+        &depth,
+        raw,
+        (settings.filter, settings.receiver),
+        stages,
+    )
+}
+
+fn filter_depth(depth: wgpu::Texture, settings: SceneSsao, stages: &[ScreenPass]) -> wgpu::Texture {
+    if settings.kernel == SceneSsaoKernel::Spiral
+        && super::super::receiver::gathers(settings.receiver)
+    {
+        stages
+            .iter()
+            .find(|stage| stage.slot == PassSlot::OcclusionMetadata(0))
+            .unwrap()
+            .target
+            .clone()
+    } else {
+        depth
+    }
 }
 
 pub(super) fn append_filter(
@@ -106,9 +129,10 @@ pub(super) fn append_filter(
     uniform: &wgpu::Buffer,
     depth: &wgpu::Texture,
     raw: wgpu::Texture,
-    filter: SceneSsaoFilter,
+    policy: (SceneSsaoFilter, worldrunner_render_plan::SceneSsaoReceiver),
     stages: &mut Vec<ScreenPass>,
 ) -> wgpu::Texture {
+    let (filter, receiver) = policy;
     let axes: &[[i32; 2]] = match filter {
         SceneSsaoFilter::DepthAwareBox => &[[0, 0]],
         SceneSsaoFilter::SeparableBilateral | SceneSsaoFilter::ScalableBilateral { .. } => {
@@ -130,12 +154,11 @@ pub(super) fn append_filter(
         } else {
             crate::ssao::bilateral::source(axis)
         };
+        let metadata = depth.format() == wgpu::TextureFormat::Rgba16Float;
         let scalable = matches!(filter, SceneSsaoFilter::ScalableBilateral { .. });
-        let format = if scalable {
-            wgpu::TextureFormat::Rg16Float
-        } else {
-            wgpu::TextureFormat::R32Float
-        };
+        let gather = slot == PassSlot::SsaoBlur && crate::ssao::receiver::gathers(receiver);
+        let (shader, format) = crate::ssao::receiver::filter_target(shader, scalable, gather);
+        let shader = super::super::receiver::filter_depth(shader, metadata);
         let pipeline = pipeline_format(device, &shader, format);
         let group = group(
             device,
@@ -152,6 +175,8 @@ pub(super) fn append_filter(
             reads: vec![
                 if scalable {
                     FrameProduct::averaged_depth(0).resource()
+                } else if metadata {
+                    FrameProduct::occlusion_metadata(0).resource()
                 } else {
                     level(0)
                 },

@@ -51,6 +51,7 @@ fn surface(albedo: u32, smooth: bool, mode: SceneAlphaMode) -> SceneMaterial {
 
 fn ssao_settings() -> SceneSsao {
     SceneSsao {
+        receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
         depth_footprint: SceneSsaoDepthFootprint::default(),
         kernel: SceneSsaoKernel::Hemisphere,
         filter: SceneSsaoFilter::DepthAwareBox,

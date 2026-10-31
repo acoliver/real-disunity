@@ -212,6 +212,7 @@ impl RetainedHost {
                 ready: 0,
                 published: 0,
                 capture_features: capture::features(scene.effects()),
+                capture_ao_format: capture::ao_format(scene.effects()),
                 pages_enabled: scene
                     .terrain()
                     .and_then(worldrunner_render_plan::SceneTerrain::page_policy)

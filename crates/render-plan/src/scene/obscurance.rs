@@ -40,9 +40,21 @@ pub enum SceneSsaoFilter {
     },
 }
 
+/// Full-resolution reconstruction of the filtered screen AO buffer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneSsaoReceiver {
+    /// Load the nearest AO texel without changing material composition.
+    #[default]
+    Nearest,
+    /// Four taps weighted by positive view-depth differences in metres.
+    DepthAwareGather,
+}
+
 /// Screen-space ambient occlusion parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneSsao {
+    /// Receiver reconstruction, independent of the AO kernel and filter.
+    pub receiver: SceneSsaoReceiver,
     /// Sampled depth chain for the scalable kernel; other kernels require the default.
     pub depth_footprint: super::SceneSsaoDepthFootprint,
     /// Sampling algorithm and its metadata reduction contract.
@@ -176,6 +188,7 @@ mod tests {
     }
     fn settings() -> SceneSsao {
         SceneSsao {
+            receiver: crate::SceneSsaoReceiver::Nearest,
             depth_footprint: crate::SceneSsaoDepthFootprint::default(),
             kernel: SceneSsaoKernel::Scalable {
                 turns_micro: 7_000_000,

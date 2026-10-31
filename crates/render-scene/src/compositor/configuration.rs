@@ -228,6 +228,9 @@ fn occlusion_allocations(settings: &RendererConfiguration, set: &mut AllocationS
     } else {
         [w, h, 1]
     };
+    let gather = settings
+        .ssao
+        .is_some_and(|ao| crate::ssao::receiver::gathers(ao.receiver));
     set.texture(
         "AO intermediates",
         size,
@@ -237,7 +240,7 @@ fn occlusion_allocations(settings: &RendererConfiguration, set: &mut AllocationS
             wgpu::TextureFormat::R32Float
         },
         [1, 1],
-        if settings.ssao.is_some_and(|ao| {
+        (if settings.ssao.is_some_and(|ao| {
             !matches!(
                 ao.filter,
                 worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox
@@ -246,8 +249,17 @@ fn occlusion_allocations(settings: &RendererConfiguration, set: &mut AllocationS
             3
         } else {
             2
-        },
+        }) - u32::from(gather),
     );
+    if gather {
+        set.texture(
+            "AO receiver visibility and depth",
+            size,
+            wgpu::TextureFormat::Rg32Float,
+            [1, 1],
+            1,
+        );
+    }
     if scalable {
         for extent in footprint.expect("scalable settings").extents([w, h]) {
             set.texture(

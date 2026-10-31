@@ -5,7 +5,10 @@ pub(super) fn resolve_pipelines(
     device: &wgpu::Device,
     config: FrameConfig,
     settings: &SceneSsr,
-    packed_depth: bool,
+    ao_input: (
+        worldrunner_render_plan::SceneSsaoReceiver,
+        wgpu::TextureFormat,
+    ),
 ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
     let extents = settings.radiance_extents(config.size);
     super::gpu::resolve_pipelines(
@@ -13,7 +16,7 @@ pub(super) fn resolve_pipelines(
         config.samples,
         extents.len(),
         settings.depth_relative_ao,
-        packed_depth,
+        ao_input,
         shared(settings).then_some(extents.as_slice()),
     )
 }

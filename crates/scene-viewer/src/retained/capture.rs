@@ -167,6 +167,27 @@ pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) 
     [ao || ssr, ao || ssr, ao || ssr, ssr, ssr]
 }
 
+pub(crate) fn ao_format(
+    effects: Option<&worldrunner_render_plan::SceneEffects>,
+) -> wgpu::TextureFormat {
+    ao_format_from_settings(effects.and_then(|e| e.ssao()).copied())
+}
+
+pub(crate) fn ao_format_from_settings(
+    settings: Option<worldrunner_render_plan::SceneSsao>,
+) -> wgpu::TextureFormat {
+    use worldrunner_render_plan::{SceneSsaoKernel, SceneSsaoReceiver};
+    match settings {
+        Some(ao) if ao.receiver == SceneSsaoReceiver::DepthAwareGather => {
+            wgpu::TextureFormat::Rg32Float
+        }
+        Some(ao) if matches!(ao.kernel, SceneSsaoKernel::Scalable { .. }) => {
+            wgpu::TextureFormat::Rg16Float
+        }
+        _ => wgpu::TextureFormat::R32Float,
+    }
+}
+
 impl RetainedHost {
     pub(crate) fn capture_ready(&self, request: &(u64, u64, bool), pages: bool) -> bool {
         request.1 == self.ready_generation()
@@ -180,7 +201,7 @@ impl RetainedHost {
         &self,
         generation: u64,
         recipe: &RetainedCaptureRecipe,
-    ) -> Result<(), CaptureRequestError> {
+    ) -> Result<wgpu::TextureFormat, CaptureRequestError> {
         if generation > self.accepted_generation() {
             return Err(CaptureRequestError::UnknownGeneration { generation });
         }
@@ -190,15 +211,19 @@ impl RetainedHost {
                 ready: self.readiness.published,
             });
         }
-        let available = if generation == self.readiness.published {
-            self.readiness.capture_features
+        let (available, format) = if generation == self.readiness.published {
+            (
+                self.readiness.capture_features,
+                self.readiness.capture_ao_format,
+            )
         } else {
-            self.readiness
+            let pending = self
+                .readiness
                 .queue
                 .iter()
                 .find(|p| p.generation == generation)
-                .expect("accepted generation")
-                .capture_features
+                .expect("accepted generation");
+            (pending.capture_features, pending.capture_ao_format)
         };
         for (index, output) in [
             CaptureOutput::Depth,
@@ -219,7 +244,7 @@ impl RetainedHost {
                 }
             }
         }
-        Ok(())
+        Ok(format)
     }
 
     /// Admits typed output requests without allocating GPU or image storage.
@@ -234,6 +259,7 @@ impl RetainedHost {
             | crate::FrameProfile::HdrNativeRcas { samples, .. }
             | crate::FrameProfile::HdrUpscaled { samples, .. } => samples,
         };
+        recipe.ao_format = self.validate_capture_features(generation, &recipe)?;
         let required = recipe.pool_bytes(self.size)?;
         let reserved: u64 = self.captures.reservations.values().sum();
         let limit = RetainedCaptureRecipe::POOL_BYTES;
@@ -243,7 +269,6 @@ impl RetainedHost {
                 limit,
             });
         }
-        self.validate_capture_features(generation, &recipe)?;
         if recipe.outputs.iter().any(|output| output.term().is_some()) && recipe.accumulated() {
             return Err(CaptureRequestError::UnsupportedRecipe);
         }

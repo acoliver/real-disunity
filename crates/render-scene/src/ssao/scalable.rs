@@ -83,7 +83,14 @@ pub(super) fn append(
         target: target.clone(),
         reads,
     });
-    super::kernels::append_filter(device, uniform, &levels[0], target, settings.filter, stages)
+    super::kernels::append_filter(
+        device,
+        uniform,
+        &levels[0],
+        target,
+        (settings.filter, settings.receiver),
+        stages,
+    )
 }
 
 pub(super) fn blur_source(filter: SceneSsaoFilter, axis: [i32; 2]) -> String {

@@ -190,7 +190,7 @@ pub fn plan_player_resources(
     let mut planner = ResourcePlanner {
         registry: Registry::new(files),
         output: output.to_owned(),
-        tags: tag_manager_names(data_dir)?.0,
+        tags: tag_manager_names(data_dir)?.tags,
         assets: Vec::new(),
         differences: Vec::new(),
         unplanned_prefabs: 0,

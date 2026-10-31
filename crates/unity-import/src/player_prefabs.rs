@@ -81,6 +81,7 @@ pub(crate) fn plan_prefab(
         fonts: Vec::new(),
         axes: Vec::new(),
         layers: Vec::new(),
+        sorting_layers: Vec::new(),
         differences: planner.differences,
     })
 }

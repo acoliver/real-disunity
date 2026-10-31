@@ -48,8 +48,8 @@ pub use guid::{Guid, ObjectRef, ReferenceError};
 pub use input::{AxisKind, InputAxis, input_axes};
 pub use package::{PackageAsset, PackageFont, PackageMaterial, PackageScript, PackageSprite};
 pub use plan::{
-    PlanAsset, PlanCollider, PlanComponent, PlanError, PlanObject, PlanSprite, PlanTexture,
-    ScenePlan, plan_scene,
+    PlanAsset, PlanCollider, PlanComponent, PlanError, PlanObject, PlanSortingLayer, PlanSprite,
+    PlanTexture, ScenePlan, plan_scene,
 };
 pub use player::{PlayerError, PlayerFile, is_serialized_name, read_metadata, read_player};
 pub use project::{Asset, ImportError, Project};

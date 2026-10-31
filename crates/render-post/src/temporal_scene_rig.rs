@@ -22,6 +22,8 @@ pub(crate) struct SceneRig {
     sink: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
     render: [u32; 2],
+    output: [u32; 2],
+    slot_output: Arc<Mutex<Option<wgpu::Texture>>>,
     pub(crate) jitter: ProjectionJitter,
 }
 
@@ -68,18 +70,32 @@ impl SceneRig {
         render: [u32; 2],
         scene_wgsl: String,
     ) -> Self {
+        Self::with_output(gpu, render, OUTPUT, scene_wgsl)
+    }
+
+    /// A chain at the given render and output extents.
+    pub(crate) fn with_output(
+        gpu: &(wgpu::Device, wgpu::Queue),
+        render: [u32; 2],
+        output: [u32; 2],
+        scene_wgsl: String,
+    ) -> Self {
         let (device, queue) = gpu.clone();
-        let config = FrameConfig::new(OUTPUT, wgpu::TextureFormat::Rgba16Float, 1)
+        let config = FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
-        let output = Arc::new(Mutex::new(None));
+        let slot_output = Arc::new(Mutex::new(None));
         let factory = Recording {
             inner: public_factory(&device, &settings()),
-            output: output.clone(),
+            output: slot_output.clone(),
         };
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
-        let hdr = output.lock().unwrap().take().expect("slot 0 was built");
+        let hdr = slot_output
+            .lock()
+            .unwrap()
+            .take()
+            .expect("slot 0 was built");
         let sink =
-            crate::color_texture(&device, "sink", OUTPUT, wgpu::TextureFormat::Rgba8UnormSrgb);
+            crate::color_texture(&device, "sink", output, wgpu::TextureFormat::Rgba8UnormSrgb);
         Self {
             pipeline: pipeline(&device, scene_wgsl),
             device,
@@ -88,8 +104,32 @@ impl SceneRig {
             hdr,
             sink,
             render,
-            jitter: ProjectionJitter::for_extents(render, OUTPUT).unwrap(),
+            output,
+            slot_output,
+            jitter: ProjectionJitter::for_extents(render, output).unwrap(),
         }
+    }
+
+    /// Replaces both extents of the chain; the next frame must reset the history.
+    pub(crate) fn resize(&mut self, render: [u32; 2], output: [u32; 2]) {
+        self.chain
+            .resize_extents(&self.device, render, output)
+            .unwrap();
+        self.hdr = self
+            .slot_output
+            .lock()
+            .unwrap()
+            .take()
+            .expect("slot 0 was rebuilt");
+        self.sink = crate::color_texture(
+            &self.device,
+            "sink",
+            output,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
+        self.render = render;
+        self.output = output;
+        self.jitter = ProjectionJitter::for_extents(render, output).unwrap();
     }
 
     /// Rasterises the scene into colour, velocity and depth at the internal extent.
@@ -157,10 +197,31 @@ impl SceneRig {
         history_valid: bool,
         (tail, camera): ([f32; 4], Option<TemporalCamera>),
     ) {
+        let commands = self.record(index, history_valid, tail, camera);
+        self.queue.submit([commands]);
+    }
+
+    /// A frame of the object bar scene recorded and dropped without submission.
+    pub(crate) fn cancelled_frame(&self, index: u64, history_valid: bool, tail: [f32; 4]) {
+        drop(self.record(
+            index,
+            history_valid,
+            tail,
+            Some(crate::taa_reconstruct_test_rig::static_camera()),
+        ));
+    }
+
+    fn record(
+        &self,
+        index: u64,
+        history_valid: bool,
+        tail: [f32; 4],
+        camera: Option<TemporalCamera>,
+    ) -> wgpu::CommandBuffer {
         let offset = self.jitter.offset_pixels(index);
         let block = TemporalBlock {
             render: self.render,
-            output: OUTPUT,
+            output: self.output,
             jitter: offset,
             phase_count: self.jitter.length(),
             settings: TaaSettings::new(0.9),
@@ -182,7 +243,7 @@ impl SceneRig {
             .sink
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.chain.encode(&mut encoder, &view);
-        self.queue.submit([encoder.finish()]);
+        encoder.finish()
     }
 
     /// The HDR reconstruction of the last frame, mean of the colour channels, row major.

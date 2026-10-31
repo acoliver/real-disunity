@@ -76,12 +76,13 @@ pub(super) fn masked_scene(albedo: SceneTexture) -> RenderScene {
 
 /// Camera distance in millimeters at which the 2 m card spans `64 / 2^level` pixels of the 64
 /// pixel target under the 60 degree vertical field of view: `2^level / tan(30 degrees)` meters,
-/// 3464.10 and 6928.20, rounded to a millimeter. The LOD moves by under 5e-5.
+/// 1732.05, 3464.10 and 6928.20, rounded to a millimeter. The LOD moves by under 5e-5.
 pub(super) fn distance_for(level: u32) -> i64 {
     match level {
+        0 => 1732,
         1 => 3464,
         2 => 6928,
-        _ => unreachable!("only levels 1 and 2 have a fixture distance"),
+        _ => unreachable!("only levels 0 to 2 have a fixture distance"),
     }
 }
 

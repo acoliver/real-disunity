@@ -8,12 +8,20 @@ use super::*;
 use worldrunner_render_plan::{SceneAtlasSampling, SceneImpostor, SceneImpostorLayout};
 
 fn atlas_scene(sampling: SceneAtlasSampling) -> RenderScene {
+    atlas_scene_with_normal(sampling, None)
+}
+
+/// The same card with an optional relief normal atlas as texture 1.
+pub(super) fn atlas_scene_with_normal(
+    sampling: SceneAtlasSampling,
+    normal: Option<SceneTexture>,
+) -> RenderScene {
     let impostor = SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false)
         .unwrap()
         .with_sampling(sampling);
     let surface = SceneMaterial::new(SceneMaterialParts {
         albedo: TextureHandle::from_raw(0),
-        normal: None,
+        normal: normal.as_ref().map(|_| TextureHandle::from_raw(1)),
         roughness_metallic: None,
         ambient_occlusion: None,
         self_illumination: None,
@@ -26,8 +34,9 @@ fn atlas_scene(sampling: SceneAtlasSampling) -> RenderScene {
     })
     .unwrap()
     .with_impostor(impostor);
+    let textures = std::iter::once(mipped_texture()).chain(normal).collect();
     RenderScene::new(SceneParts {
-        resources: SceneResources::new(vec![mipped_texture()], vec![surface]).unwrap(),
+        resources: SceneResources::new(textures, vec![surface]).unwrap(),
         geometry: SceneGeometry::new(
             vec![card(Some(BillboardPolicy::YawLocked))],
             vec![SceneObject::new(

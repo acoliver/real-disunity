@@ -694,13 +694,15 @@ impl From<std::convert::Infallible> for ShadowError {
 }
 
 /// The uniform a shadow caster pass draws with: the light's own matrix and nothing of the
-/// viewer's sub-pixel jitter, which would make cascade edges move with the camera.
+/// viewer's sub-pixel jitter, which would make cascade edges move with the camera. The material
+/// mip bias is a screen-space policy for the reconstructed view, so a light-view raster uses 0.
 fn light_frame(frame: &FrameUniform, matrix: glam::Mat4) -> FrameUniform {
     FrameUniform {
         // Directional light fits use right-handed views independently of the viewer.
         view_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         view_projection: matrix,
         temporal: None,
+        material_mip_bias: 0.0,
         ..*frame
     }
 }

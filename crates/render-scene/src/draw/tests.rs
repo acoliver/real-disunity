@@ -56,6 +56,7 @@ mod material_factors;
 mod mip_bias;
 mod mip_rig;
 mod normal_frames;
+mod relief_mip_bias;
 mod resident_sampling;
 mod retained;
 mod ssao;

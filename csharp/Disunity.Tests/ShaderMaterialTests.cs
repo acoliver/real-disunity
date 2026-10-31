@@ -505,7 +505,6 @@ internal static class ShaderMaterialTests
         NotSupported(() => material.SetPass(0), "SetPass", "Material.SetPass");
         NotSupported(() => material.FindPass("Forward"), "FindPass", "Material.FindPass");
         NotSupported(() => material.GetPassName(0), "GetPassName", "Material.GetPassName");
-        NotSupported(() => material.ComputeCRC(), "ComputeCRC", "Material.ComputeCRC");
         var obsolete = typeof(Material);
         NotSupported(() => Invoke(obsolete.GetConstructor([typeof(string)])!, "Shader \"X\" {}"), "Material(string)", "Material(string)");
         NotSupported(() => Invoke(obsolete.GetMethod("Create", [typeof(string)])!, "Shader \"X\" {}"), "Material.Create", "Material.Create");

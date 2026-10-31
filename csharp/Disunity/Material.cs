@@ -222,9 +222,6 @@ public partial class Material : Object
     /// <summary>Choosing the properties both shaders declare needs the shaders' declarations.</summary>
     public void CopyMatchingPropertiesFromMaterial(Material mat) => throw Unsupported(nameof(CopyMatchingPropertiesFromMaterial));
 
-    /// <summary>Unity's hash cannot be reproduced.</summary>
-    public int ComputeCRC() => throw Unsupported(nameof(ComputeCRC));
-
     /// <summary>
     /// Sets each float and color or vector property that both materials have to the interpolation of
     /// their values, with <paramref name="t"/> kept between 0 and 1. Properties only one has are left alone.

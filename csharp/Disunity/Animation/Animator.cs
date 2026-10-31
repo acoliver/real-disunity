@@ -1,4 +1,5 @@
 using System.Text;
+using Disunity.Hosting;
 
 namespace UnityEngine;
 
@@ -80,13 +81,7 @@ public partial class Animator : Behaviour
     public static int StringToHash(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-        var crc = 0xFFFFFFFFu;
-        foreach (var value in Encoding.UTF8.GetBytes(name))
-        {
-            crc ^= value;
-            for (var bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
-        }
-        return unchecked((int)~crc);
+        return unchecked((int)Crc32.Of(Encoding.UTF8.GetBytes(name)));
     }
 
     public string GetLayerName(int layerIndex) => "";

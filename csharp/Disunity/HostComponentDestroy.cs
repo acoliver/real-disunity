@@ -55,8 +55,7 @@ public static partial class DisunityHost
     private static unsafe void RequestDestruction(Component component)
     {
         EnsureWorld();
-        var identity = Scripts.FirstOrDefault(pair => ReferenceEquals(pair.Value, component)).Key;
-        if (identity != 0) ThrowIfError(NativeBindings.disunity_script_destroy(WorldHandle, identity));
+        if (component is MonoBehaviour script && Scripts.TryKeyOf(script, out var identity)) ThrowIfError(NativeBindings.disunity_script_destroy(WorldHandle, identity));
         else if (NativeComponents.ContainsKey(component.Handle)) ThrowIfError(NativeBindings.disunity_component_destroy(WorldHandle, component.Handle));
         else throw new NotSupportedException($"destroying a {component.GetType().Name} that is not attached to a GameObject");
         component.Life = ComponentLife.Pending;

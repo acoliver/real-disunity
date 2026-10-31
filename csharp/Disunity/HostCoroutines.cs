@@ -7,7 +7,8 @@ namespace Disunity.Hosting;
 public static partial class DisunityHost
 {
     private static readonly Dictionary<ulong, Coroutine> Routines = new();
-    internal static ulong ScriptIdentity(MonoBehaviour owner) => Scripts.Single(entry => ReferenceEquals(entry.Value, owner)).Key;
+    internal static ulong ScriptIdentity(MonoBehaviour owner) =>
+        Scripts.TryKeyOf(owner, out var identity) ? identity : throw new InvalidOperationException($"the script {owner.GetType().Name} is not registered with the world");
 
     internal static unsafe Coroutine StartCoroutine(MonoBehaviour owner, IEnumerator iterator)
     {

@@ -70,11 +70,14 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
     }
 
     /// <summary>A plan that carries layer names replaces every layer name with them, so scripts that look a
-    /// layer up in Awake find it. A plan without them (a project plan) leaves what the host set.</summary>
+    /// layer up in Awake find it. A plan that carries sorting layers replaces the sorting layer table. A plan
+    /// without them (a project plan) leaves what the host set.</summary>
     private void ApplyLayerNames()
     {
-        if (!plan.TryGetProperty("layers", out var layers)) return;
-        DisunityHost.SetLayerNames(layers.EnumerateArray().Select(name => name.GetString() ?? "").ToList());
+        if (plan.TryGetProperty("layers", out var layers))
+            DisunityHost.SetLayerNames(layers.EnumerateArray().Select(name => name.GetString() ?? "").ToList());
+        if (plan.TryGetProperty("sorting_layers", out var sorting))
+            DisunityHost.SetSortingLayers(sorting.EnumerateArray().Select(layer => (layer.Str("name"), layer.Int("id"))).ToList());
     }
 
     private List<SceneTexture> Textures() => plan.GetProperty("textures").EnumerateArray()

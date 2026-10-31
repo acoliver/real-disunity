@@ -13,6 +13,8 @@ public sealed class SpriteRenderer : Renderer
 {
     private DisunityMeshRenderer _other = Defaults();
     private Material? _material;
+    private Vector2 _size;
+    private SpriteDrawMode _drawMode;
 
     /// <summary>A sprite casts no shadow, receives none and uses no probes.</summary>
     private static DisunityMeshRenderer Defaults() => new()
@@ -73,6 +75,8 @@ public sealed class SpriteRenderer : Renderer
         var sprite = (SpriteRenderer)source;
         _other = sprite._other;
         _material = sprite._material;
+        _size = sprite._size;
+        _drawMode = sprite._drawMode;
     }
 
     public Sprite? sprite
@@ -93,6 +97,11 @@ public sealed class SpriteRenderer : Renderer
     public Color color { get { var v = Read(); return new(v.r, v.g, v.b, v.a); } set { var v = Read(); v.r = value.r; v.g = value.g; v.b = value.b; v.a = value.a; Write(v); } }
     public bool flipX { get => Read().flip_x == 1; set { var v = Read(); v.flip_x = value ? 1u : 0u; Write(v); } }
     public bool flipY { get => Read().flip_y == 1; set { var v = Read(); v.flip_y = value ? 1u : 0u; Write(v); } }
+    /// <summary>How the sprite is drawn. Stored and read back; nothing draws a sliced or tiled sprite yet, so every mode draws as simple.</summary>
+    public SpriteDrawMode drawMode { get => _drawMode; set => _drawMode = value; }
+
+    /// <summary>The size a sliced or tiled sprite is drawn at. Stored and read back; it starts at zero and nothing reads it yet.</summary>
+    public Vector2 size { get => _size; set => _size = value; }
     public int sortingLayer { get => sortingLayerID; set => sortingLayerID = value; }
     public override unsafe Bounds bounds
     {

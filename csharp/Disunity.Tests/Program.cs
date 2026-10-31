@@ -346,6 +346,7 @@ BehaviourTypeTests.Run();
 AdaptivePerformanceTests.Run();
 CanvasRendererTests.Run();
 SpriteMaterialTests.Run();
+SpriteDrawModeTests.Run();
 CanvasRendererStreamTests.Run();
 CanvasSecondaryTextureTests.Run();
 RendererTests.Run();

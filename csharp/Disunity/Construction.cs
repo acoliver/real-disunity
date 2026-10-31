@@ -94,10 +94,10 @@ public static partial class DisunityHost
     {
         foreach (var owner in owners)
         {
-            foreach (var identity in Scripts.Where(pair => ReferenceEquals(pair.Value.gameObject, owner)).Select(pair => pair.Key).ToArray())
-                Scripts.Remove(identity);
-            foreach (var handle in NativeComponents.Where(pair => ReferenceEquals(pair.Value.gameObject, owner)).Select(pair => pair.Key).ToArray())
-                NativeComponents.Remove(handle);
+            foreach (var script in Scripts.Of(owner).ToArray())
+                if (Scripts.TryKeyOf(script, out var identity)) Scripts.Remove(identity);
+            foreach (var component in NativeComponents.Of(owner).ToArray())
+                if (NativeComponents.TryKeyOf(component, out var handle)) NativeComponents.Remove(handle);
             owner.MarkDestroyed();
             Tracked.Remove(owner);
             TrackedByHandle.Remove(owner.RawHandle);

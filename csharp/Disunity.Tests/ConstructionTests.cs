@@ -21,9 +21,11 @@ internal static class ConstructionTests
     /// <summary>Sizes of the host's managed tables, which must return to their prior sizes.</summary>
     private static (int Objects, int Scripts, int Components) HostTables()
     {
-        int Count(string name) => ((System.Collections.ICollection)typeof(DisunityHost)
-            .GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
-            .GetValue(null)!).Count;
+        int Count(string name)
+        {
+            var table = typeof(DisunityHost).GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+            return (int)table.GetType().GetProperty("Count")!.GetValue(table)!;
+        }
         return (Count("Tracked"), Count("Scripts"), Count("NativeComponents"));
     }
 

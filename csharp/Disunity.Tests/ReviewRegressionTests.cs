@@ -169,8 +169,9 @@ internal static class ReviewRegressionTests
         Require(reserved is not null && !tracked.Contains(reserved), "B3 rollback removes reserved wrapper");
         foreach (var registry in new[] { "Scripts", "NativeComponents" })
         {
-            var roots = (System.Collections.IDictionary)typeof(DisunityHost).GetField(registry, System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
-            Require(!roots.Values.Cast<Component>().Any(value => ReferenceEquals(value.gameObject, reserved)), "B3 rollback releases all reserved script and native component wrappers");
+            var table = typeof(DisunityHost).GetField(registry, System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+            var values = (System.Collections.IEnumerable)table.GetType().GetProperty("Values")!.GetValue(table)!;
+            Require(!values.Cast<Component>().Any(value => ReferenceEquals(value.gameObject, reserved)), "B3 rollback releases all reserved script and native component wrappers");
         }
         Require(Reentrant.Awakes == awakes && Reentrant.Disables == disables + 2 && Reentrant.Destroys == destroys + 2 && nestedDestroyed == 1, "B3 only entered scripts receive cleanup and teardown completes");
         Require(UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None).Length == 0, "B3 failure removes published world objects");

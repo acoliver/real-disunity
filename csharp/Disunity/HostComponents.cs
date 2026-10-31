@@ -5,7 +5,7 @@ namespace Disunity.Hosting;
 
 public static partial class DisunityHost
 {
-    private static readonly Dictionary<ulong, Component> NativeComponents = new();
+    private static readonly ComponentTable<Component> NativeComponents = new();
     internal static Collider2D ResolveCollider(ulong handle) => (Collider2D)NativeComponents[handle];
     internal static unsafe T AttachComponent<T>(GameObject owner, T value) where T : Component
     {

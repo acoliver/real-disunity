@@ -407,7 +407,13 @@ impl<'t> PlayerPlanner<'t> {
         Ok(match class {
             ClassId::MESH_FILTER => {
                 let filter: MeshFilter = src.files().local(&self.path, component)?.decode(id)?;
-                plan_mesh_filter(owner, &filter, &mut self.differences)
+                let path = &self.path;
+                plan_mesh_filter(
+                    owner,
+                    &filter,
+                    |pptr| src.asset(path, pptr),
+                    &mut self.differences,
+                )
             }
             ClassId::MESH_RENDERER => {
                 let renderer: MeshRenderer =

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use worldrunner_unity_serialized::{
-    graphics::Texture2D,
+    graphics::{StreamingInfo, Texture2D},
     object::PPtr,
     sprite::{Sprite, SpriteAtlas},
 };
@@ -131,17 +131,25 @@ pub(crate) fn plan_texture(
     })
 }
 
-/// The pixels a texture keeps in a `.resS` file beside its serialized `file`. The path the
-/// texture names ends in the file's name, after any `archive:/` prefix or directories.
+/// The pixels a texture keeps in a `.resS` file beside its serialized `file`.
 fn streamed_data(file: &Path, texture: &Texture2D) -> Result<TextureData, PlayerError> {
-    let stream = &texture.stream;
+    locate_stream(file, &texture.stream, &format!("texture {}", texture.name))
+}
+
+/// The bytes the object `what` keeps in a `.resS` file beside its serialized `file`. The path
+/// the object names ends in the file's name, after any `archive:/` prefix or directories.
+pub(crate) fn locate_stream(
+    file: &Path,
+    stream: &StreamingInfo,
+    what: &str,
+) -> Result<TextureData, PlayerError> {
     let name = stream.path.rsplit(['/', '\\']).next().unwrap_or_default();
     let missing = |why: &str| {
         invalid(
             file,
             format!(
-                "texture {}: its data in {} ({why}) cannot be found",
-                texture.name, stream.path
+                "{what}: its data in {} ({why}) cannot be found",
+                stream.path
             ),
         )
     };

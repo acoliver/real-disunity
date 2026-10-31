@@ -23,6 +23,7 @@ public sealed partial class Texture2D
     private Color Fetch(int x, int y, int level)
     {
         var (w, h) = (LevelWidth(level), LevelHeight(level));
+        if (w == 0 || h == 0) throw new InvalidOperationException("Texture2D: an empty texture has no pixel to read");
         var index = Wrap(y, h, wrapModeV) * w + Wrap(x, w, wrapModeU);
         var bytes = TexelFormats.BytesPerPixel(_format);
         return TexelFormats.Read(_format, LevelBytes(level).Slice(index * bytes, bytes));
@@ -31,6 +32,7 @@ public sealed partial class Texture2D
     private void Store(int x, int y, int level, Color color)
     {
         var (w, h) = (LevelWidth(level), LevelHeight(level));
+        if (w == 0 || h == 0) throw new InvalidOperationException("Texture2D: an empty texture has no pixel to write");
         var bytes = TexelFormats.BytesPerPixel(_format);
         var index = Wrap(y, h, wrapModeV) * w + Wrap(x, w, wrapModeU);
         TexelFormats.Write(_format, LevelBytes(level).Slice(index * bytes, bytes), color);

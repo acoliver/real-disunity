@@ -346,6 +346,8 @@ AdaptivePerformanceTests.Run();
 CanvasRendererTests.Run();
 CanvasRendererStreamTests.Run();
 SpriteMaterialTests.Run();
+CanvasRendererStreamTests.Run();
+CanvasSecondaryTextureTests.Run();
 RendererTests.Run();
 MeshRendererTests.Run();
 ParticleSystemTests.Run();

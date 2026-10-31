@@ -147,7 +147,7 @@ fn typed_atlas_pixels_fonts_and_invalid_rect_errors() {
         w.add_component(
             invalid,
             ComponentDesc::RectTransform(RectTransform {
-                pivot: Vec2::splat(2.),
+                pivot: Vec2::new(0.5, f32::INFINITY),
                 ..Default::default()
             })
         )

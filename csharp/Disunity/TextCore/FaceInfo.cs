@@ -10,7 +10,7 @@ public struct FaceInfo
     [SerializeField] private int m_FaceIndex;
     [SerializeField] private string m_FamilyName;
     [SerializeField] private string m_StyleName;
-    [SerializeField] private int m_PointSize;
+    [SerializeField] private float m_PointSize;
     [SerializeField] private float m_Scale;
     [SerializeField] private int m_UnitsPerEM;
     [SerializeField] private float m_LineHeight;
@@ -31,7 +31,7 @@ public struct FaceInfo
     public int faceIndex { get => m_FaceIndex; set => m_FaceIndex = value; }
     public string familyName { get => m_FamilyName; set => m_FamilyName = value; }
     public string styleName { get => m_StyleName; set => m_StyleName = value; }
-    public int pointSize { get => m_PointSize; set => m_PointSize = value; }
+    public float pointSize { get => m_PointSize; set => m_PointSize = value; }
     public float scale { get => m_Scale; set => m_Scale = value; }
     public int unitsPerEM { get => m_UnitsPerEM; set => m_UnitsPerEM = value; }
     public float lineHeight { get => m_LineHeight; set => m_LineHeight = value; }

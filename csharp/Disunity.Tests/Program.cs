@@ -280,6 +280,7 @@ PrefabResourceTests.Run();
 PlayerShaderTests.Run();
 PlayerMaterialTests.Run();
 TextCoreTests.Run();
+FontEngineTests.Run();
 FieldBinderTests.Run();
 SerializedCollectionTests.Run();
 ManagedReferenceTests.Run();

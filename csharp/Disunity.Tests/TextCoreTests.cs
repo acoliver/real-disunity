@@ -19,7 +19,7 @@ internal static class TextCoreTests
     }
 
     private const string Face = """
-        {"m_FaceIndex": "1", "m_FamilyName": "Sans", "m_StyleName": "Bold", "m_PointSize": "90", "m_Scale": "1.5",
+        {"m_FaceIndex": "1", "m_FamilyName": "Sans", "m_StyleName": "Bold", "m_PointSize": "90.5", "m_Scale": "1.5",
          "m_UnitsPerEM": "2048", "m_LineHeight": "104", "m_AscentLine": "80", "m_CapLine": "70", "m_MeanLine": "50",
          "m_Baseline": "0", "m_DescentLine": "-24", "m_SuperscriptOffset": "60", "m_SuperscriptSize": "0.5",
          "m_SubscriptOffset": "-10", "m_SubscriptSize": "0.25", "m_UnderlineOffset": "-12", "m_UnderlineThickness": "6",
@@ -66,7 +66,7 @@ internal static class TextCoreTests
 
     private static void LoadsFaceInfo(FaceInfo face)
     {
-        Expect.That(face is { faceIndex: 1, familyName: "Sans", styleName: "Bold", pointSize: 90, unitsPerEM: 2048 }, "face identity fields");
+        Expect.That(face is { faceIndex: 1, familyName: "Sans", styleName: "Bold", pointSize: 90.5f, unitsPerEM: 2048 }, "face identity fields; the point size is a float");
         Expect.That(face.scale == 1.5f && face.lineHeight == 104 && face.ascentLine == 80 && face.capLine == 70 && face.meanLine == 50
             && face.baseline == 0 && face.descentLine == -24, "face vertical metrics");
         Expect.That(face.superscriptOffset == 60 && face.superscriptSize == 0.5f && face.subscriptOffset == -10 && face.subscriptSize == 0.25f,

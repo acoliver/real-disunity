@@ -122,6 +122,10 @@ mod temporal_block;
 #[cfg(test)]
 mod temporal_block_tests;
 #[cfg(test)]
+mod temporal_quality_scene;
+#[cfg(test)]
+mod temporal_quality_tests;
+#[cfg(test)]
 mod temporal_upscale_reference;
 #[cfg(test)]
 mod temporal_upscale_reference_tests;

@@ -159,8 +159,8 @@ fn config() -> p::FrameConfig {
 fn reduced_temporal() -> (p::HdrPostSettings, p::FrameConfig) {
     let settings = p::HdrPostSettings {
         resolve: p::PostResolve::taa(0.9),
-        upscale: Some(p::UpscaleSettings {
-            mode: p::UpscaleMode::Temporal,
+        upscale: Some(worldrunner_render_plan::post::UpscaleSettings {
+            mode: worldrunner_render_plan::post::UpscaleMode::Temporal,
             sharpness: None,
         }),
         ..p::HdrPostSettings::default()

@@ -387,6 +387,22 @@ The CAS pass costs about 0.4 to 0.5 ms. The run-to-run noise on this adapter is 
 (the FXAA and SMAA blend passes moved by more than the CAS pass between runs), so read the
 stage figure as a bound rather than a precise cost.
 
+## CPU admission contracts
+
+CPU-only consumers use `worldrunner_render_plan::post::{RenderScale, UpscaleMode,
+UpscaleSettings, PostContractError, MAX_GAUSSIAN_RADIUS}`. These definitions belong
+in the CPU planning boundary; `render-post` depends on that implementation using
+the permitted Graphics-to-Bridge edge. Neither crate forwards aliases for these
+names. The facade exposes them through `worldrunner::scene::plan::post` or
+`worldrunner::world::worldrunner_render_plan::post` with the CPU-only `world` feature.
+
+`RenderScale::new`, `RenderScale::extent` and `UpscaleSettings::validate` return
+`PostContractError::UnsupportedProfile` or `PostContractError::EmptyExtent`, keeping
+the admission messages and rounding below. GPU entry points convert these errors
+to the corresponding `PostError` variants. `MAX_GAUSSIAN_RADIUS` is 64.
+The existing xtask CPU dependency guard checks the complete `render-plan` closure,
+including build and development dependencies, for GPU backends.
+
 ## Reduced internal resolution
 
 `FrameConfig::size` is the internal scene extent. Construct a configuration with

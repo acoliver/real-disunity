@@ -5,9 +5,8 @@
 use super::taa_end_to_end_tests::{OUTPUT, SIZE, context, frame};
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_post::{
-    FrameConfig, HdrPostSettings, PostResolve, RenderScale, ToneMap, UpscaleMode, UpscaleSettings,
-};
+use worldrunner_render_plan::post::{RenderScale, UpscaleMode, UpscaleSettings};
+use worldrunner_render_post::{FrameConfig, HdrPostSettings, PostResolve, ToneMap};
 
 const OUTPUT_EXTENT: [u32; 2] = [SIZE, SIZE];
 const SCALES: [u32; 3] = [500_000, 670_000, 770_000];

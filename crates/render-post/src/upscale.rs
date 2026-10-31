@@ -1,60 +1,7 @@
-use crate::{FrameTargets, PostError, Resources, StageFactory, StageSet, StageTarget};
-
-/// Internal/output ratio in millionths, from 0.5 through 1.0 inclusive.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RenderScale(u32);
-impl RenderScale {
-    pub fn new(millionths: u32) -> Result<Self, PostError> {
-        if !(500_000..=1_000_000).contains(&millionths) {
-            return Err(PostError::UnsupportedProfile(
-                "render scale must be 500000..=1000000 millionths",
-            ));
-        }
-        Ok(Self(millionths))
-    }
-    /// Round to nearest integer, with halfway values rounded up.
-    pub fn extent(self, output: [u32; 2]) -> Result<[u32; 2], PostError> {
-        if output.contains(&0) {
-            return Err(PostError::EmptyExtent);
-        }
-        Ok(output.map(|side| {
-            u32::try_from((u64::from(side) * u64::from(self.0) + 500_000) / 1_000_000)
-                .expect("validated scale cannot exceed the output extent")
-        }))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UpscaleMode {
-    Bilinear,
-    Easu,
-    /// Temporal reconstruction onto the output grid, with TAA as the only accumulator.
-    ///
-    /// It needs the scene HDR profile, a TAA resolve and one sample per pixel; see
-    /// [`crate::HdrPostSettings::validate_frame`]. At equal extents it is the native TAA path.
-    Temporal,
-}
-
-/// Spatial reconstruction of display-referred RGB. `None` disables RCAS exactly.
-/// RCAS sharpness is in stops: zero is maximum; the supported range is 0..=2.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct UpscaleSettings {
-    pub mode: UpscaleMode,
-    pub sharpness: Option<f32>,
-}
-impl UpscaleSettings {
-    pub fn validate(self) -> Result<(), PostError> {
-        if self
-            .sharpness
-            .is_some_and(|v| !v.is_finite() || !(0.0..=2.0).contains(&v))
-        {
-            return Err(PostError::UnsupportedProfile(
-                "RCAS sharpness must be finite and within 0..=2 stops",
-            ));
-        }
-        Ok(())
-    }
-}
+use crate::{
+    FrameTargets, PostError, Resources, StageFactory, StageSet, StageTarget, UpscaleMode,
+    UpscaleSettings,
+};
 
 /// Standalone factory for an already tone-mapped source. HDR callers use `HdrPostSettings`.
 #[derive(Clone, Debug)]
@@ -261,50 +208,20 @@ pub(crate) fn source_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGro
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::PostError;
+    use worldrunner_render_plan::post::PostContractError;
+
     #[test]
-    fn scale_rounding_and_rejections() {
-        for scale in [0, 499_999, 1_000_001, u32::MAX] {
-            assert!(RenderScale::new(scale).is_err());
-        }
-        assert_eq!(
-            RenderScale::new(500_000).unwrap().extent([1, 1]),
-            Ok([1, 1])
-        );
-        assert_eq!(
-            RenderScale::new(770_000).unwrap().extent([50, 26]),
-            Ok([39, 20])
-        );
-        assert_eq!(
-            RenderScale::new(1_000_000).unwrap().extent([33, 17]),
-            Ok([33, 17])
-        );
-        assert_eq!(
-            RenderScale::new(500_000).unwrap().extent([0, 1]),
-            Err(PostError::EmptyExtent)
-        );
-    }
-    #[test]
-    fn sharpness_validation() {
-        for sharpness in [f32::NAN, f32::INFINITY, -0.01, 2.01] {
-            assert!(
-                UpscaleSettings {
-                    mode: UpscaleMode::Easu,
-                    sharpness: Some(sharpness)
-                }
-                .validate()
-                .is_err()
-            );
-        }
-        for sharpness in [None, Some(0.0), Some(2.0)] {
-            assert!(
-                UpscaleSettings {
-                    mode: UpscaleMode::Easu,
-                    sharpness
-                }
-                .validate()
-                .is_ok()
-            );
+    fn cpu_contract_errors_keep_gpu_variants_and_messages() {
+        for (cpu, gpu) in [
+            (PostContractError::EmptyExtent, PostError::EmptyExtent),
+            (
+                PostContractError::UnsupportedProfile("invalid setting"),
+                PostError::UnsupportedProfile("invalid setting"),
+            ),
+        ] {
+            assert_eq!(cpu.to_string(), gpu.to_string());
+            assert_eq!(PostError::from(cpu), gpu);
         }
     }
 }

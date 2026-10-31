@@ -14,10 +14,10 @@
 //! plus the static plane. Both are averaged over the last `MEASURED` frames of the sequence.
 //! Errors are mean absolute HDR error against the reference; flicker is the mean absolute
 //! difference of the same pixels between consecutive frames.
-use crate::RenderScale;
 use crate::taa_reconstruct_test_rig::static_camera;
 use crate::temporal_disocclusion_scene as scene;
 use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
+use worldrunner_render_plan::post::RenderScale;
 
 /// Frames rendered: the bar travels `FRAMES * SPEED` pixels, 96, and stays on the canvas.
 const FRAMES: u64 = 48;

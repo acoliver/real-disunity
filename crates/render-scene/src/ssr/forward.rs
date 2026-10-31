@@ -5,16 +5,7 @@ use worldrunner_render_post::{
 };
 
 pub(crate) fn source(source: &str, terrain: bool) -> String {
-    let source = source.replace("vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
-        "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion);");
-    let source = if terrain {
-        source
-    } else {
-        source.replace(
-            "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
-            "forward_reflection(world_position, scene_environment_normal(normal), f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
-        ) + "\nfn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { if material.contact_surface.z > 0.0 { return reflection_normal(normal); } return normal; }"
-    };
+    let source = lighting_source(source, terrain);
     let source = if terrain {
         source.replace(
             "@fragment\nfn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>",
@@ -259,4 +250,34 @@ pub(super) fn application_metadata(shader: String, enabled: bool) -> String {
             "vec4<f32>(published_factor, 1.0)",
             "vec4<f32>(published_factor, published_self_ao)",
         )
+}
+
+fn lighting_source(source: &str, terrain: bool) -> String {
+    let source = source.replace("vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
+        "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion);");
+    if terrain {
+        source
+    } else {
+        source.replace(
+            "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
+            "forward_reflection(world_position, scene_environment_normal(normal), f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
+        ) + "\nfn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { if material.contact_surface.z > 0.0 { return reflection_normal(normal); } return normal; }"
+    }
+}
+
+pub(crate) fn replay_source(source: &str, terrain: bool) -> String {
+    let forward = include_str!("forward.wgsl");
+    let declarations = forward.split("struct ReflectionOutput").next().unwrap();
+    let function = forward
+        .split("fn forward_reflection")
+        .nth(1)
+        .unwrap()
+        .split("fn reflection_output")
+        .next()
+        .unwrap();
+    format!(
+        "{}\n{}\n{declarations}\nfn forward_reflection{function}",
+        lighting_source(source, terrain),
+        include_str!("normal.wgsl")
+    )
 }

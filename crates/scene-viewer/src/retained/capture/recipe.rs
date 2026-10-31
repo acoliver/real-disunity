@@ -13,6 +13,14 @@ pub enum CaptureOutput {
     Albedo,
     /// Strength-adjusted sun visibility in [0, 1], opaque receivers only.
     SunVisibility,
+    /// Sun diffuse radiance after directional visibility and configured diffuse AO.
+    DirectDiffuse,
+    /// Hemisphere or SH diffuse radiance after material and screen AO.
+    AmbientDiffuse,
+    /// Environment specular radiance, before exposure, fog and SSR replacement.
+    EnvironmentSpecular,
+    /// Directional specular radiance, including the configured clipped sun disk.
+    SunSpecular,
     Srgb8,
     LinearHdr,
     Depth,
@@ -236,7 +244,11 @@ fn output_storage(
         CaptureOutput::LinearHdr
         | CaptureOutput::Normals
         | CaptureOutput::Albedo
-        | CaptureOutput::SunVisibility => (8, 24),
+        | CaptureOutput::SunVisibility
+        | CaptureOutput::DirectDiffuse
+        | CaptureOutput::AmbientDiffuse
+        | CaptureOutput::EnvironmentSpecular
+        | CaptureOutput::SunSpecular => (8, 24),
         CaptureOutput::SsrConfidence => (8, 12),
         CaptureOutput::Depth | CaptureOutput::AmbientOcclusion => (4, 8),
     };
@@ -379,6 +391,10 @@ impl CaptureOutput {
         use worldrunner_render_scene::compositor::terms::CaptureTerm;
         match self {
             Self::Albedo => Some(CaptureTerm::Albedo),
+            Self::DirectDiffuse => Some(CaptureTerm::DirectDiffuse),
+            Self::AmbientDiffuse => Some(CaptureTerm::AmbientDiffuse),
+            Self::EnvironmentSpecular => Some(CaptureTerm::EnvironmentSpecular),
+            Self::SunSpecular => Some(CaptureTerm::SunSpecular),
             Self::SunVisibility => Some(CaptureTerm::SunVisibility),
             _ => None,
         }
@@ -389,6 +405,10 @@ impl CaptureOutput {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub(crate) struct OpaqueCaptureProducts {
     pub albedo: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    pub direct_diffuse: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    pub ambient_diffuse: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    pub environment_specular: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
+    pub sun_specular: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
     pub sun_visibility: Option<worldrunner_render_scene::offscreen::LinearRgbaImage>,
 }
 impl RetainedCaptureProducts {
@@ -402,6 +422,32 @@ impl RetainedCaptureProducts {
             .as_ref()
             .and_then(|terms| terms.sun_visibility.as_ref())
     }
+    /// Linear pre-exposure opaque radiance; alpha is coverage. See the capture contract.
+    pub fn direct_diffuse(&self) -> Option<&worldrunner_render_scene::offscreen::LinearRgbaImage> {
+        self.terms
+            .as_ref()
+            .and_then(|terms| terms.direct_diffuse.as_ref())
+    }
+    /// Linear pre-exposure opaque radiance; alpha is coverage. See the capture contract.
+    pub fn ambient_diffuse(&self) -> Option<&worldrunner_render_scene::offscreen::LinearRgbaImage> {
+        self.terms
+            .as_ref()
+            .and_then(|terms| terms.ambient_diffuse.as_ref())
+    }
+    /// Linear pre-exposure opaque radiance; alpha is coverage. See the capture contract.
+    pub fn environment_specular(
+        &self,
+    ) -> Option<&worldrunner_render_scene::offscreen::LinearRgbaImage> {
+        self.terms
+            .as_ref()
+            .and_then(|terms| terms.environment_specular.as_ref())
+    }
+    /// Linear pre-exposure opaque radiance; alpha is coverage. See the capture contract.
+    pub fn sun_specular(&self) -> Option<&worldrunner_render_scene::offscreen::LinearRgbaImage> {
+        self.terms
+            .as_ref()
+            .and_then(|terms| terms.sun_specular.as_ref())
+    }
     pub(crate) fn store_term(
         &mut self,
         output: CaptureOutput,
@@ -412,6 +458,10 @@ impl RetainedCaptureProducts {
             .get_or_insert_with(|| Box::new(OpaqueCaptureProducts::default()));
         match output {
             CaptureOutput::Albedo => terms.albedo = Some(image),
+            CaptureOutput::DirectDiffuse => terms.direct_diffuse = Some(image),
+            CaptureOutput::AmbientDiffuse => terms.ambient_diffuse = Some(image),
+            CaptureOutput::EnvironmentSpecular => terms.environment_specular = Some(image),
+            CaptureOutput::SunSpecular => terms.sun_specular = Some(image),
             CaptureOutput::SunVisibility => terms.sun_visibility = Some(image),
             _ => unreachable!("opaque term output"),
         }

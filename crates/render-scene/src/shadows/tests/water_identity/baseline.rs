@@ -5,6 +5,12 @@
 // are portable across shader compilers and GPU architectures.
 pub(super) fn source() -> String {
     let mut source = crate::water::water_source(true);
+    let start = source.find("struct SceneSurfaceLight {").unwrap();
+    let end = start + source[start..].find('}').unwrap() + 1;
+    source.replace_range(
+        start..end,
+        "struct SceneSurfaceLight { color: vec3<f32>, diffuse: vec3<f32>, specular: vec3<f32>, }",
+    );
     let start = source.find("fn scene_surface_lighting(").unwrap();
     let end = source.find("\nfn apply_exposure").unwrap();
     source.replace_range(start..end, include_str!("base_surface.wgsl"));

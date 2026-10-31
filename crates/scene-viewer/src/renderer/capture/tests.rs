@@ -234,17 +234,7 @@ impl Harness {
     fn frame(&mut self) -> CompletionTicket {
         self.publish();
         let admission = self.flight.try_acquire().unwrap();
-        let mut capture = self
-            .streaming
-            .captures
-            .prepare(
-                self.context.device(),
-                &mut self.host,
-                &self.output,
-                &self.presentation.scheduler,
-                false,
-            )
-            .unwrap();
+        let mut capture = self.prepare_capture();
         let view = self.host.view().unwrap().unwrap();
         self.resident.select_frame_slot(admission.slot());
         self.presentation
@@ -268,7 +258,12 @@ impl Harness {
                         .create_view(&wgpu::TextureViewDescriptor::default()),
                 )?;
                 if let Some((_, image)) = &mut capture {
-                    image.replay(self.context.device(), encoder, &self.resident);
+                    image.replay(
+                        self.context.device(),
+                        encoder,
+                        &self.resident,
+                        &self.presentation.scheduler,
+                    );
                     image.encode(
                         encoder,
                         &self.output,
@@ -289,6 +284,18 @@ impl Harness {
             )
             .unwrap();
         ticket
+    }
+    fn prepare_capture(&mut self) -> Option<(u64, super::Products)> {
+        self.streaming
+            .captures
+            .prepare(
+                self.context.device(),
+                &mut self.host,
+                &self.output,
+                &self.presentation.scheduler,
+                false,
+            )
+            .unwrap()
     }
     fn poll(&mut self) {
         self.context.device().poll(wgpu::PollType::Poll).unwrap();

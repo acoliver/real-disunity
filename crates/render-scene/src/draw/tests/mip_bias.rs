@@ -6,7 +6,7 @@ use super::foliage::pass_color;
 use super::*;
 use worldrunner_render_plan::TexelFormat;
 
-const LEVELS: [[u8; 3]; 7] = [
+pub(super) const LEVELS: [[u8; 3]; 7] = [
     [230, 40, 40],
     [40, 230, 40],
     [40, 40, 230],
@@ -20,7 +20,7 @@ const LEVELS: [[u8; 3]; 7] = [
 /// between these colours, 0.55) and 0.95 of margin for the sRGB encode: 2 of 255.
 const BOUND: f64 = 2.0;
 
-fn mipped_texture() -> SceneTexture {
+pub(super) fn mipped_texture() -> SceneTexture {
     let mut bytes = Vec::new();
     for (level, color) in LEVELS.iter().enumerate() {
         let size = 64_usize >> level;
@@ -73,7 +73,7 @@ fn plain_scene() -> RenderScene {
 /// Camera distance in millimeters at which the 2 m card spans `64 / 2^level` pixels of the 64
 /// pixel target under the 60 degree vertical field of view: `2^level / tan(30 degrees)` meters,
 /// 3464.10 and 6928.20, rounded to a millimeter. The LOD moves by under 5e-5.
-fn distance_for(level: u32) -> i64 {
+pub(super) fn distance_for(level: u32) -> i64 {
     match level {
         1 => 3464,
         2 => 6928,
@@ -116,7 +116,7 @@ fn encoded(color: [u8; 3]) -> [f64; 3] {
     })
 }
 
-fn assert_level(actual: [u8; 3], level: usize, what: &str) {
+pub(super) fn assert_level(actual: [u8; 3], level: usize, what: &str) {
     for (got, wanted) in actual.iter().zip(encoded(LEVELS[level])) {
         assert!(
             (f64::from(*got) - wanted).abs() <= BOUND,

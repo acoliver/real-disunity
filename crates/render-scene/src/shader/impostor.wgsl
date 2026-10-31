@@ -79,8 +79,8 @@ fn scene_atlas_sample(map: texture_2d<f32>, input: VertexOutput) -> vec4<f32> {
             uv = coordinates[i];
         }
         let atlas_uv = scene_atlas_uv(uv, selected.cells[i], grid, inset);
-        let dx = dpdx(atlas_uv);
-        let dy = dpdy(atlas_uv);
+        let dx = dpdx(atlas_uv) * exp2(frame.lighting_options.w);
+        let dy = dpdy(atlas_uv) * exp2(frame.lighting_options.w);
         if selected.weights[i] > 0.0 {
             var sampled = textureSampleLevel(map, material_sampler, atlas_uv, 0.0);
             if (material.wind_clock.z & 4u) != 0u { sampled = textureSampleGrad(map, material_sampler, atlas_uv, dx, dy); }
@@ -130,8 +130,8 @@ fn scene_relief_normal(input: VertexOutput) -> vec3<f32> {
     var normal = vec3<f32>(0.0);
     for (var i=0u; i<4u; i++) {
         let uv = scene_atlas_uv(coordinates[i],selected.cells[i],grid,inset);
-        let dx = dpdx(uv);
-        let dy = dpdy(uv);
+        let dx = dpdx(uv) * exp2(frame.lighting_options.w);
+        let dy = dpdy(uv) * exp2(frame.lighting_options.w);
         if selected.weights[i] > 0.0 {
             var sampled = textureSampleLevel(normal_texture,material_sampler,uv,0.0);
             if (material.wind_clock.z & 4u) != 0u { sampled = textureSampleGrad(normal_texture,material_sampler,uv,dx,dy); }
@@ -188,7 +188,7 @@ fn scene_atlas_first(map: texture_2d<f32>, input: VertexOutput) -> vec4<f32> {
     let grid = material.impostor_grid.xy;
     let inset = scene_atlas_inset(vec2<f32>(textureDimensions(map)));
     let coord = scene_atlas_uv(uv, selected.cells[0], grid, inset);
-    let sampled = textureSample(map, material_sampler, coord);
+    let sampled = textureSampleBias(map, material_sampler, coord, frame.lighting_options.w);
     if (material.wind_clock.z & 4u) != 0u { return sampled; }
     return textureSampleLevel(map, material_sampler, coord, 0.0);
 }

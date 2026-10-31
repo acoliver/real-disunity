@@ -41,8 +41,9 @@ fn presentation(context: &GpuContext, options: &crate::ViewerOptions) -> Present
         [SIZE, SIZE],
         options.frame_profile,
         None,
-        PresentationPolicy {
+        &PresentationPolicy {
             budget: options.presentation_budget,
+            capture_pool: crate::CapturePoolPolicy::default(),
             recipes: true,
         },
     )
@@ -118,7 +119,7 @@ fn replace_profile(
         None,
     )
     .unwrap();
-    settings.additional = planning::additional(SIZE, true);
+    settings.additional = planning::additional(SIZE, Some(256 * 1024 * 1024));
     presentation
         .scheduler
         .reconfigure(context, settings)

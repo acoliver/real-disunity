@@ -57,6 +57,7 @@ impl Captures {
             return Ok(None);
         };
         let scene = scheduler.targets().texture();
+        let pool = host.capture_pool_bytes();
         host.captures
             .resize_reservation(
                 id,
@@ -64,6 +65,7 @@ impl Captures {
                     texture.width().max(scene.width()),
                     texture.height().max(scene.height()),
                 ],
+                pool,
             )
             .map_err(|error| ViewerError::Driver(error.to_string()))?;
         let outputs = host

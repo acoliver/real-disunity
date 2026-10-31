@@ -24,6 +24,7 @@ pub use input::{
     WheelDelta,
 };
 mod capture;
+pub(crate) use capture::ao_format_from_settings;
 pub use capture::{
     CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureOutcome,
     RetainedCaptureProducts, RetainedCaptureRecipe,
@@ -170,6 +171,7 @@ pub struct RetainedHost {
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
+    capture_pool: u64,
     pub(crate) scene: RenderScene,
     pub(crate) initial_scene: RenderScene,
     pub(crate) readiness: readiness::Readiness,
@@ -204,6 +206,10 @@ impl RetainedHost {
                 GpuTiming::Disabled
             },
             captures: capture::Captures::default(),
+            capture_pool: options.capture_pool.effective_bytes(
+                options.frame_profile.target().1,
+                capture::ao_format(scene.effects()),
+            )?,
             initial_scene: scene.clone(),
             readiness: readiness::Readiness {
                 queue: std::collections::VecDeque::new(),

@@ -85,9 +85,10 @@ impl Renderer {
             else {
                 return Ok(None);
             };
+            let pool = host.capture_pool_bytes();
             host.captures
-                .resize_reservation(id, host.size())
-                .map_err(|e| ViewerError::Driver(e.to_string()))?;
+                .resize_reservation(id, host.size(), pool)
+                .map_err(|error| ViewerError::Driver(error.to_string()))?;
             let size = Viewport {
                 width: host.size()[0],
                 height: host.size()[1],

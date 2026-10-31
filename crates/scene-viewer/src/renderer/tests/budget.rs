@@ -5,6 +5,7 @@ pub(super) fn retained_budget(event_loop: &EventLoop<()>, window: &Arc<Window>) 
     let viewport = window.inner_size();
     let options = crate::ViewerOptions {
         presentation_budget: crate::PresentationBudget(300 * 1024 * 1024).into(),
+        capture_pool: crate::CapturePoolPolicy::default(),
         size: [viewport.width, viewport.height],
         ..crate::tests::options()
     };

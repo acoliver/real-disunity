@@ -14,7 +14,9 @@ fn default_budget_preserves_ordinary_scene_admission() {
         width: 800,
         height: 600,
     });
-    settings.additional.extend(recipe_allocations());
+    settings
+        .additional
+        .extend(recipe_allocations(256 * 1024 * 1024));
     settings
         .allocations()
         .validate_budget::<std::convert::Infallible>(
@@ -80,10 +82,11 @@ fn synthetic_inventory(size: Viewport, options: &crate::ViewerOptions) -> Result
     let startup = crate::renderer::Startup::from(options);
     let policy = PresentationPolicy {
         budget: startup.presentation_budget,
+        capture_pool: crate::CapturePoolPolicy::default(),
         recipes: true,
     };
     let limits = wgpu::Limits::default();
-    let settings = policy.inventory(settings, size, &limits)?;
+    let (settings, _) = policy.inventory(settings, size, &limits)?;
     Ok(settings.allocations().validate(&limits).unwrap())
 }
 
@@ -112,8 +115,9 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         [size, size],
         crate::FrameProfile::Legacy,
         None,
-        PresentationPolicy {
+        &PresentationPolicy {
             budget: crate::PresentationBudget(300 * 1024 * 1024).into(),
+            capture_pool: crate::CapturePoolPolicy::default(),
             recipes: true,
         },
     )
@@ -124,9 +128,9 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         height: 8,
     };
     presentation.resize(&context, next, next).unwrap();
-    assert!(presentation.recipe_capacity);
+    assert!(presentation.capture_pool.is_some());
     let mut expected = capture_allocations(next);
-    expected.extend(recipe_allocations());
+    expected.extend(recipe_allocations(256 * 1024 * 1024));
     assert_eq!(
         presentation
             .scheduler
@@ -148,11 +152,12 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
     };
     let policy = PresentationPolicy {
         budget: crate::PresentationBudget(1).into(),
+        capture_pool: crate::CapturePoolPolicy::default(),
         recipes: false,
     };
     assert!(
         matches!(Presentation::with_settings(&context, COLOR, [size, size],
-        crate::FrameProfile::Legacy, None, policy),
+        crate::FrameProfile::Legacy, None, &policy),
         Err(ViewerError::Configuration(ConfigurationError::Budget { required, budget: 1 }))
             if required > 1)
     );
@@ -162,8 +167,9 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         [size, size],
         crate::FrameProfile::Legacy,
         None,
-        PresentationPolicy {
+        &PresentationPolicy {
             budget: crate::PresentationBudget(50_000).into(),
+            capture_pool: crate::CapturePoolPolicy::default(),
             recipes: false,
         },
     )

@@ -19,8 +19,9 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
             tone_map: crate::ToneMap::Reinhard,
         },
         None,
-        PresentationPolicy {
+        &PresentationPolicy {
             budget: crate::PresentationBudget::default().into(),
+            capture_pool: crate::CapturePoolPolicy::default(),
             recipes: false,
         },
     )
@@ -38,7 +39,7 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
                 .validate(&context.device().limits())
                 .unwrap()
         );
-        assert!(!presentation.recipe_capacity);
+        assert!(presentation.capture_pool.is_none());
     }
 }
 
@@ -109,18 +110,14 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
         [first.render, first.surface],
         crate::FrameProfile::Legacy,
         None,
-        PresentationPolicy {
+        &PresentationPolicy {
             budget: crate::PresentationBudget::default().into(),
+            capture_pool: crate::CapturePoolPolicy::default(),
             recipes: false,
         },
     )
     .unwrap();
-    let before = presentation
-        .scheduler
-        .configuration()
-        .additional
-        .validate(&context.device().limits())
-        .unwrap();
+    let before = additional_bytes(&presentation, &context);
     presentation
         .resize(&context, next.render, next.surface)
         .unwrap();
@@ -129,12 +126,7 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
         presentation.scheduler.configuration().frame.output_extent(),
         [8, 8]
     );
-    let after = presentation
-        .scheduler
-        .configuration()
-        .additional
-        .validate(&context.device().limits())
-        .unwrap();
+    let after = additional_bytes(&presentation, &context);
     assert!(after > before);
     assert_eq!(
         after,
@@ -168,4 +160,16 @@ fn tiny_extents([width, height]: [u32; 2]) -> Extents {
         },
         surface: Viewport { width, height },
     }
+}
+
+fn additional_bytes(
+    presentation: &Presentation,
+    context: &worldrunner_render_scene::device::GpuContext,
+) -> u64 {
+    presentation
+        .scheduler
+        .configuration()
+        .additional
+        .validate(&context.device().limits())
+        .unwrap()
 }

@@ -10,7 +10,7 @@ use worldrunner_render_plan::{
 };
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, MaterialId, MeshId, MeshInstance, ObjectDesc, ObjectHandle,
-    World, WorldSettings,
+    ParentSpace, World, WorldSettings,
 };
 
 use super::*;
@@ -81,9 +81,25 @@ fn placed(world: &mut World, mesh: u64, lods: u64, local: LocalTransform) -> Obj
     object
 }
 
-fn edits(world: &mut World, ids: &mut ObjectIdMap) -> Vec<SceneObjectEdit> {
+/// A comparable image of [`SceneObjectEdit`], which has no equality of its own.
+#[derive(Debug, PartialEq)]
+enum Edit {
+    Add(ObjectId, SceneObject),
+    Replace(ObjectId, SceneObject),
+    Remove(ObjectId),
+}
+
+fn edits(world: &mut World, ids: &mut ObjectIdMap) -> Vec<Edit> {
     let changes = world.drain_changes();
-    edits_from_world_changes(&changes, world, &Placer, ids).unwrap()
+    edits_from_world_changes(&changes, world, &Placer, ids)
+        .unwrap()
+        .into_iter()
+        .map(|edit| match edit {
+            SceneObjectEdit::Add { id, object } => Edit::Add(id, object),
+            SceneObjectEdit::Replace { id, object } => Edit::Replace(id, object),
+            SceneObjectEdit::Remove(id) => Edit::Remove(id),
+        })
+        .collect()
 }
 
 fn wanted(mesh: u64, count: i64) -> Vec<SceneObject> {
@@ -99,10 +115,7 @@ fn creating_adds_the_host_objects_unchanged_under_fresh_ids() {
     let expected: Vec<_> = wanted(3, 3)
         .into_iter()
         .zip(0..)
-        .map(|(object, id)| SceneObjectEdit::Add {
-            id: ObjectId(id),
-            object,
-        })
+        .map(|(object, id)| Edit::Add(ObjectId(id), object))
         .collect();
     assert_eq!(batch, expected);
     assert_eq!(ids.get_all(object), [ObjectId(0), ObjectId(1), ObjectId(2)]);
@@ -121,10 +134,7 @@ fn a_world_transform_change_replaces_every_id_with_the_unchanged_host_objects() 
     let expected: Vec<_> = wanted(3, 2)
         .into_iter()
         .zip(0..)
-        .map(|(object, id)| SceneObjectEdit::Replace {
-            id: ObjectId(id),
-            object,
-        })
+        .map(|(object, id)| Edit::Replace(ObjectId(id), object))
         .collect();
     assert_eq!(batch, expected);
 }
@@ -134,11 +144,9 @@ fn moving_a_parent_replaces_its_placed_descendants() {
     let mut world = tracked_world();
     let mut ids = ObjectIdMap::default();
     let parent = world.create_object(ObjectDesc::default()).unwrap();
-    let child = world
-        .create_object(ObjectDesc {
-            parent: Some(parent),
-            ..ObjectDesc::default()
-        })
+    let child = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .set_parent(child, Some(parent), ParentSpace::KeepLocal)
         .unwrap();
     world
         .add_component(
@@ -152,10 +160,7 @@ fn moving_a_parent_replaces_its_placed_descendants() {
     let batch = edits(&mut world, &mut ids);
     assert_eq!(
         batch,
-        [SceneObjectEdit::Replace {
-            id: ids.get(child).unwrap(),
-            object: placement(5, 0),
-        }]
+        [Edit::Replace(ids.get(child).unwrap(), placement(5, 0))]
     );
 }
 
@@ -171,22 +176,16 @@ fn destroying_removes_every_id_and_never_reuses_them() {
     assert_eq!(
         batch,
         [
-            SceneObjectEdit::Remove(ObjectId(0)),
-            SceneObjectEdit::Remove(ObjectId(1)),
-            SceneObjectEdit::Remove(ObjectId(2)),
+            Edit::Remove(ObjectId(0)),
+            Edit::Remove(ObjectId(1)),
+            Edit::Remove(ObjectId(2)),
         ]
     );
     assert!(ids.is_empty());
 
     placed(&mut world, 6, 0, at(3.0));
     let batch = edits(&mut world, &mut ids);
-    assert_eq!(
-        batch,
-        [SceneObjectEdit::Add {
-            id: ObjectId(3),
-            object: placement(6, 0),
-        }]
-    );
+    assert_eq!(batch, [Edit::Add(ObjectId(3), placement(6, 0))]);
 }
 
 #[test]
@@ -197,16 +196,10 @@ fn deactivating_removes_and_reactivating_adds_the_placed_objects() {
     edits(&mut world, &mut ids);
 
     world.set_active(object, false).unwrap();
-    assert_eq!(
-        edits(&mut world, &mut ids),
-        [SceneObjectEdit::Remove(ObjectId(0))]
-    );
+    assert_eq!(edits(&mut world, &mut ids), [Edit::Remove(ObjectId(0))]);
     world.set_active(object, true).unwrap();
     assert_eq!(
         edits(&mut world, &mut ids),
-        [SceneObjectEdit::Add {
-            id: ObjectId(1),
-            object: placement(3, 0),
-        }]
+        [Edit::Add(ObjectId(1), placement(3, 0))]
     );
 }

@@ -77,7 +77,7 @@ internal static class LoaderRules
         try
         {
             FieldsBindAsUnityDeserializesThem();
-            AxesRegisterOnlyWhenTheEngineHasTheirKeys();
+            AxesRegisterWhenTheEngineKnowsTheirKeys();
             FailuresNameTheFieldAndLeaveNothingBehind();
             PlayerPlansNameScriptsByAssembly();
             ValueFieldRules.Check();
@@ -154,12 +154,14 @@ internal static class LoaderRules
         Require(b.received == 7 && a.changed.GetPersistentEventCount() == 1, "RemoveAllListeners keeps persistent calls, as in Unity");
     }
 
-    private static void AxesRegisterOnlyWhenTheEngineHasTheirKeys()
+    private static void AxesRegisterWhenTheEngineKnowsTheirKeys()
     {
         const string axes = """
             [{"name": "Jump", "kind": "KeyOrMouseButton", "negative": "", "positive": "space", "alt_negative": "", "alt_positive": "",
               "gravity": 1000, "dead": 0.001, "sensitivity": 1000, "snap": false, "invert": false},
              {"name": "Fire", "kind": "KeyOrMouseButton", "negative": "", "positive": "left ctrl", "alt_negative": "", "alt_positive": "mouse 0",
+              "gravity": 1000, "dead": 0.001, "sensitivity": 1000, "snap": false, "invert": false},
+             {"name": "Typo", "kind": "KeyOrMouseButton", "negative": "", "positive": "banana", "alt_negative": "", "alt_positive": "",
               "gravity": 1000, "dead": 0.001, "sensitivity": 1000, "snap": false, "invert": false},
              {"name": "Mouse X", "kind": "MouseMovement", "negative": "", "positive": "", "alt_negative": "", "alt_positive": "",
               "gravity": 0, "dead": 0, "sensitivity": 0.1, "snap": false, "invert": false},
@@ -167,7 +169,7 @@ internal static class LoaderRules
               "gravity": 0, "dead": 0.19, "sensitivity": 1, "snap": false, "invert": false}]
             """;
         using var scene = DisunityHost.LoadScene(Plan("{}", axes), Options);
-        Require(scene.UnregisteredAxes.SequenceEqual(["Fire: no key for `left ctrl`, `mouse 0`",
+        Require(scene.UnregisteredAxes.SequenceEqual(["Typo: no key for `banana`",
             "Pad: JoystickAxis axes read a device the engine has no input for"]), string.Join("; ", scene.UnregisteredAxes));
         Require(Input.GetAxisRaw("Mouse X") == 0, "Mouse X registers and reads zero because the engine's mouse never moves");
         Key(KeyCode.Space, true);
@@ -175,7 +177,8 @@ internal static class LoaderRules
         Require(Input.GetAxisRaw("Jump") == 1, "Jump reads space");
         Key(KeyCode.Space, false);
         Steps(1);
-        Expect(() => Input.GetAxisRaw("Fire"), "not registered");
+        Require(Input.GetAxisRaw("Fire") == 0 && !Input.GetButton("Fire"), "Fire registers with its control key and mouse button, which nothing presses");
+        Expect(() => Input.GetAxisRaw("Typo"), "not registered");
         Expect(() => Input.GetAxisRaw("Pad"), "not registered");
     }
 

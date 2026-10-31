@@ -26,6 +26,15 @@ internal sealed partial class ResourceDatabase
         if (quality.Length > 0) QualitySettings.SetPipelines(quality);
         if (pipeline) log($"render pipeline asset: {pipeline!.name} ({pipeline.GetType().FullName})");
         RegisterGlobalSettings(pipeline, global, log);
+        DeclareAlwaysIncludedShaders(graphics, log);
+    }
+
+    /// <summary>Builds the shaders every build keeps, which declares each by name so <see cref="Shader.Find"/>
+    /// returns it before anything references it. A shader that cannot be built is logged and left out.</summary>
+    private void DeclareAlwaysIncludedShaders(System.Text.Json.JsonElement graphics, Action<string> log)
+    {
+        if (!graphics.TryGetProperty("always_included_shaders", out var shaders)) return;
+        foreach (var index in shaders.EnumerateArray()) BuildGraphicsAsset<Shader>(index.GetInt32(), "always included shader", log);
     }
 
     private static int? Planned(System.Text.Json.JsonElement graphics, string name) =>

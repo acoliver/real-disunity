@@ -66,6 +66,15 @@ gutter-safe page lookup. See the
 [terrain source contract](../../dev-docs/rendering/terrain-pages.md#portable-source-anisotropy) and the
 [sampling contract](../../dev-docs/rendering/2d.md#texture-sampling).
 
+While `UpscaleMode::Temporal` reconstructs below the output extent, `FrameRenderer::jitter_frame`
+sets `FrameUniform::material_mip_bias` (the last f32 of the frame block, bytes 316 to 320) to
+`log2(s) - 0.5`, and implicit-derivative atlas samples, impostor and relief mip-enabled gradients,
+decal and terrain gradients and layered terrain gradients use it. Explicit LOD 0 samples, control
+fields, environment roughness LOD, water normals and the sky stay unbiased, shadow caster frames
+carry exactly 0, and the bias cannot add terrain pages that are not resident. Every other
+configuration carries `+0.0` and keeps its bytes. See
+[docs/rendering.md](../../docs/rendering.md#material-mip-bias) for the table and the measurement.
+
 ## Masked alpha-to-coverage
 
 `SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA

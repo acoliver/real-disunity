@@ -115,6 +115,29 @@ Measured ratios, temporal error over reset-every-frame error (the same pipeline 
 
 The design bound is 0.90, and both tests assert it. The gain sits on edges (edge pixels carry about 90% of the error); on the smooth interior the render-post harness measured temporal worse than reset at 0.67 and 0.77 (ratio 1.12 and 1.32, absolute error about 0.002). A single EASU frame is not beaten at 0.5 in that harness (0.0237 against 0.0250). Nothing here measures motion, disocclusion or colour; the history weight falls with motion as for native TAA, so a moving scene approaches the reset image. The tests are `crates/render-post/src/temporal_quality_tests.rs` and `crates/render-scene/src/compositor/temporal_upscale_end_to_end_tests.rs`.
 
+#### Material mip bias
+
+While `Temporal` reconstructs below the output extent, scene materials sample with a mip bias of `log2(s) - 0.5`, where `s = min(Rw / Ow, Rh / Oh)` from the rounded integer extents. It is derived from the configuration and has no setter. At 1920x1080 the render scales 0.5, 0.67 and 0.77 give -1.500, -1.078 and -0.877. Every other configuration (no upscale, `Easu`, `Bilinear`, native TAA, `Temporal` at equal extents) carries exactly +0.0 and renders the same bytes as before. The bias sharpens the stock atlas sample, impostor and relief atlases with mips, decal and terrain gradients and layered terrain gradients. It does not touch explicit LOD 0 sampling, control fields (wind, flow), the BRDF lookup and environment roughness LOD, or the sky. Water normals stay unbiased: they are animated, and a finer mip mainly adds shimmer there. Shadow casters are drawn with a bias of exactly 0 (the light view is not reconstructed). The bias cannot add terrain pages that are not resident; a page that was not streamed at the finer level stays at the coarser level.
+
+How the formula was chosen. The first candidate, `log2(s) - 1`, raised the shimmer above the original cap of 10% over the bias-0 case at all three scales. That cap compared against a reduced render that is blurrier than native by construction, so it measured the wrong thing. The bar was therefore changed after that first measurement, and this paragraph states so. The bias exists to restore native-resolution detail, so the baseline is native-resolution TAA (scale 1.0, bias 0) on the same scene. The rule was fixed before the second measurement: among `log2(s) - 1`, `log2(s) - 0.5`, `log2(s)` and 0, take the most negative bias whose shimmer is at most 1.10 times the native TAA shimmer and whose detail error is below the bias-0 error, at every scale. If none qualified the policy would be 0. Measured on lavapipe with a static scene, a 64x64 output, TAA history weight 0.9, the central 32x32, one jitter cycle after one warm-up cycle, against a 4x supersampled reference. The stripe fixture (4 dark and 4 light output pixels per period, which is at the render Nyquist) is the worst case and decides; the smooth fixture (five sinusoids with periods of 64 to 11 texels) is reported for context. Native TAA stripes: error 0.0324, shimmer 0.00919.
+
+| Scale | Candidate | Bias | Stripes error | Stripes shimmer / native | Stripes error / bias-0 error | Smooth shimmer / native | Smooth error / bias-0 error |
+|---|---|---|---|---|---|---|---|
+| 0.50 | log2(s) - 1 | -2.000 | 0.1483 | 1.147 | 0.839 | 0.858 | 0.434 |
+| 0.50 | log2(s) - 0.5 | -1.500 | 0.1538 | 1.087 | 0.871 | 0.705 | 0.466 |
+| 0.50 | log2(s) | -1.000 | 0.1604 | 1.053 | 0.908 | 0.509 | 0.522 |
+| 0.50 | 0 | 0.000 | 0.1766 | 0.760 | 1.000 | 0.426 | 1.000 |
+| 0.67 | log2(s) - 1 | -1.574 | 0.0736 | 0.801 | 0.615 | 0.564 | 0.361 |
+| 0.67 | log2(s) - 0.5 | -1.074 | 0.0802 | 0.619 | 0.670 | 0.524 | 0.443 |
+| 0.67 | log2(s) | -0.574 | 0.0925 | 0.512 | 0.773 | 0.340 | 0.571 |
+| 0.67 | 0 | 0.000 | 0.1197 | 0.430 | 1.000 | 0.273 | 1.000 |
+| 0.77 | log2(s) - 1 | -1.385 | 0.0541 | 0.751 | 0.595 | 0.392 | 0.324 |
+| 0.77 | log2(s) - 0.5 | -0.885 | 0.0615 | 0.554 | 0.678 | 0.408 | 0.432 |
+| 0.77 | log2(s) | -0.385 | 0.0706 | 0.407 | 0.777 | 0.329 | 0.648 |
+| 0.77 | 0 | 0.000 | 0.0908 | 0.268 | 1.000 | 0.221 | 1.000 |
+
+`log2(s) - 1` fails at 0.5 (1.147 against 1.10), `log2(s) - 0.5` qualifies at every scale, so it is the policy. The margin at 0.5 is small (1.087 against 1.10). The scope is a static scene on lavapipe; nothing here measures motion, disocclusion or other drivers, and GPU float results are not bit-exact across drivers. Locks and reactive masks for moving content are later work.
+
 Migration: `UpscaleMode` gained the variant `Temporal` and is not `#[non_exhaustive]`, so an exhaustive `match` over it needs a new arm. A `match` that maps `Bilinear` and `Easu` to a spatial pass should send `Temporal` to the TAA path, or reject it where no TAA is configured; the engine's own `SpatialUpscale::validate_config` rejects it. Nothing else changes: existing settings and outputs are byte-identical.
 
 ## Windows, headless rendering and capture

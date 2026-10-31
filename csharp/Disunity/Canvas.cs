@@ -51,6 +51,17 @@ public sealed class Font
     internal readonly ulong Handle;
     internal readonly ulong World;
     internal Font(ulong handle, ulong world) { Handle = handle; World = world; }
+
+    private static readonly object RebuildLock = new();
+    private static Action<Font>? _textureRebuilt;
+
+    /// <summary>Raised when a dynamic font's atlas is rebuilt. The engine rebuilds no atlas, so it never raises this; UI
+    /// text still adds and removes its handler as it tracks the font.</summary>
+    public static event Action<Font>? textureRebuilt
+    {
+        add { lock (RebuildLock) _textureRebuilt += value; }
+        remove { lock (RebuildLock) _textureRebuilt -= value; }
+    }
 }
 
 /// <summary>A UI element that decides whether a screen point inside its rectangle counts as a hit. The engine sends

@@ -144,7 +144,7 @@ impl World {
                 for (_, value) in &mut state.fields {
                     value.remap(objects, remap);
                 }
-                self.lifecycle.scripts.insert(remap[&old.handle], state);
+                self.lifecycle.register(remap[&old.handle], state);
             }
         }
         Ok(())

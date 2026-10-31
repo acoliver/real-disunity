@@ -157,6 +157,80 @@ fn sweep(millionths: u32) {
     }
 }
 
+/// One row of the acceptance table: a fixture and speed at one scale, the ROI error of the chain
+/// with locks on (`WithLocks`) and off (`WithoutLocks`) and whether `lock_rule_holds`.
+struct RuleRow {
+    millionths: u32,
+    name: &'static str,
+    speed: f64,
+    on: f64,
+    off: f64,
+    holds: bool,
+}
+
+/// The rule table of one scale: 15 cases, on-rig against off-rig on this device.
+fn rule_table(millionths: u32) -> Vec<RuleRow> {
+    let gpu = crate::gpu_tests::gpu();
+    let mut rows = Vec::new();
+    for fixture in fixtures() {
+        let locked = {
+            let _on = crate::taa_upscale_gpu::WithLocks::new();
+            rig_at(&gpu, millionths, &fixture)
+        };
+        let unlocked = {
+            let _off = crate::taa_upscale_gpu::WithoutLocks::new();
+            rig_at(&gpu, millionths, &fixture)
+        };
+        for speed in SPEEDS {
+            let on = measure(&locked, &fixture, speed, true);
+            let off = measure(&unlocked, &fixture, speed, true);
+            let holds = lock_rule_holds(fixture.name, speed, on, off);
+            rows.push(RuleRow {
+                millionths,
+                name: fixture.name,
+                speed,
+                on,
+                off,
+                holds,
+            });
+        }
+    }
+    rows
+}
+
+/// Prints the acceptance rules of the locks over all 45 cases (5 fixtures, 3 speeds, scales 0.5,
+/// 0.67 and 0.77): ROI error with locks on and off, their ratio, the bound and whether
+/// `lock_rule_holds`. Locks ship off (`LOCKS_DEFAULT = false`) because the rules do not hold on
+/// lavapipe (see `docs/rendering.md` and issue #436), so this test records the table and asserts
+/// only that every error is finite and positive and that the rule was evaluated for each case.
+/// Enabling locks requires changing it to assert `lock_rule_holds` on every row, on both
+/// lavapipe and the Radeon, plus the staleness rule (`frames_to_clear` within two frames).
+#[test]
+fn lock_rule_measurement() {
+    let mut rows = Vec::new();
+    for millionths in [500_000, 670_000, 770_000] {
+        rows.extend(rule_table(millionths));
+    }
+    for r in &rows {
+        eprintln!(
+            "lock rule scale {} {} speed {}: on {:.5} off {:.5} ratio {:.3} bound {:.2} holds {}",
+            r.millionths,
+            r.name,
+            r.speed,
+            r.on,
+            r.off,
+            r.on / r.off,
+            lock_ratio_bound(r.name, r.speed),
+            r.holds
+        );
+        assert!(r.on.is_finite() && r.off.is_finite());
+        assert!(r.on > 0.0 && r.off > 0.0);
+    }
+    let holding = rows.iter().filter(|r| r.holds).count();
+    eprintln!("lock rule holds on {holding} of {} cases", rows.len());
+    assert_eq!(rows.len(), 45);
+}
+
 /// 6 designated cases per scale (3 fixtures at 2 speeds), 18 over the three scales.
 #[test]
 fn lock_bound_designates_eighteen_cases() {

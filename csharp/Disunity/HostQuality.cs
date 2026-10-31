@@ -18,6 +18,8 @@ public static partial class DisunityHost
 
     /// <summary>The hotspot a script gave <see cref="Cursor.SetCursor"/>.</summary>
     public static Vector2 CursorHotspot => Cursor.Hotspot;
+    /// <summary>The texture a script gave <see cref="Cursor.SetCursor"/>, or null for the default cursor.</summary>
+    public static Texture2D? CursorTexture => Cursor.Texture;
 
     /// <summary>The cursor mode a script gave <see cref="Cursor.SetCursor"/>.</summary>
     public static CursorMode CursorMode => Cursor.Mode;

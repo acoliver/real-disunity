@@ -12,6 +12,7 @@ public static class Cursor
     private static CursorLockMode _lockState = CursorLockMode.None;
     private static Vector2 _hotspot;
     private static CursorMode _mode = CursorMode.Auto;
+    private static Texture2D? _texture;
 
     public static bool visible
     {
@@ -29,13 +30,17 @@ public static class Cursor
         }
     }
 
-    /// <summary>A null texture restores the default cursor and records the hotspot and mode. The engine
-    /// cannot show a custom cursor image.</summary>
+    /// <summary>Records the texture, hotspot and mode, and a null texture restores the default cursor. The
+    /// engine draws no cursor image; a presentation host reads <c>DisunityHost.CursorTexture</c> and applies it.</summary>
     public static void SetCursor(Texture2D texture, Vector2 hotspot, CursorMode cursorMode)
     {
-        if (texture) throw new NotSupportedException("Cursor.SetCursor: custom cursor textures are not supported yet");
         if (!Enum.IsDefined(cursorMode)) throw new ArgumentOutOfRangeException(nameof(cursorMode), cursorMode, "unknown cursor mode");
-        lock (Gate) (_hotspot, _mode) = (hotspot, cursorMode);
+        lock (Gate) (_hotspot, _mode, _texture) = (hotspot, cursorMode, texture ? texture : null);
+    }
+
+    internal static Texture2D? Texture
+    {
+        get { lock (Gate) return _texture is { } value && value ? value : null; }
     }
 
     internal static Vector2 Hotspot
@@ -50,6 +55,6 @@ public static class Cursor
 
     internal static void Reset()
     {
-        lock (Gate) (_visible, _lockState, _hotspot, _mode) = (true, CursorLockMode.None, default, CursorMode.Auto);
+        lock (Gate) (_visible, _lockState, _hotspot, _mode, _texture) = (true, CursorLockMode.None, default, CursorMode.Auto, null);
     }
 }

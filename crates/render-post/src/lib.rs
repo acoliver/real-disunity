@@ -111,6 +111,11 @@ mod taa_gpu_test_support;
 mod taa_gpu_tests;
 #[cfg(test)]
 mod taa_history_reference;
+mod taa_reconstruct_gpu;
+#[cfg(test)]
+mod taa_reconstruct_gpu_tests;
+#[cfg(test)]
+mod taa_reconstruct_test_rig;
 #[cfg(test)]
 mod taa_reference;
 #[cfg(test)]

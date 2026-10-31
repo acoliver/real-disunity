@@ -136,6 +136,7 @@ struct Stage1 {
     color: wgpu::TextureView,
     motion: wgpu::TextureView,
     depth: wgpu::TextureView,
+    render: [u32; 2],
     uniform: wgpu::Buffer,
     camera: wgpu::Buffer,
     history: wgpu::Texture,
@@ -156,6 +157,7 @@ impl StageFactory for Stage1 {
                 color: &self.color,
                 motion: &self.motion,
                 depth: &self.depth,
+                render: self.render,
                 uniform: &self.uniform,
                 camera: &self.camera,
                 history: &self.history,
@@ -194,16 +196,12 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
     let color = sampled(&device, "color", render, taa_upscale_gpu::FORMAT);
     write_texture(&queue, &color, &bytes16(&case.color.pixels), 8);
     let motion = sampled(&device, "motion", render, VELOCITY_FORMAT);
-    let texel: Vec<u8> = case
+    let field: Vec<u8> = case
         .motion
         .iter()
         .flat_map(|v| f16_bits(*v).to_le_bytes())
-        .collect();
-    let field: Vec<u8> = texel
-        .iter()
-        .copied()
         .cycle()
-        .take(texel.len() * case.color.pixels.len())
+        .take(4 * case.color.pixels.len())
         .collect();
     write_texture(&queue, &motion, &field, 4);
     let history = taa_upscale_gpu::history(&device, output);
@@ -236,6 +234,7 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
             color: view(&color),
             motion: view(&motion),
             depth: view(&depth),
+            render,
             uniform,
             camera,
             history,

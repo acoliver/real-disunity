@@ -190,10 +190,21 @@ fn measure(millionths: u32) -> (Metrics, Metrics) {
 /// that floor at 0.5 (0.0430) and at 0.67 and 0.77. The reduction to assert is on the excess of
 /// the strip error over the reset error: 0.0191, 0.0169 and 0.0179 today.
 ///
-/// Only properties that hold today are asserted. Every number is finite and positive; the trail
-/// exists with more margin than the 8 to 10% platform spread (temporal strip error at least
-/// 1.15 times the reset one); and the static plane is stable under accumulation (flicker at most
-/// a quarter of the reset flicker, measured at less than a tenth).
+/// Measured with the dilated depth and motion (session 4, lavapipe and nothing else changed):
+///
+/// | scale | strip error, temporal | strip error, reset | temporal over reset |
+/// |---|---|---|---|
+/// | 0.50 | 0.0377 | 0.0430 | 0.878 |
+/// | 0.67 | 0.0296 | 0.0319 | 0.925 |
+/// | 0.77 | 0.0296 | 0.0303 | 0.977 |
+///
+/// The nearest-depth dilation hands the bar's motion to the texels one step outside its edge,
+/// where the old stage read zero motion and kept history of the wrong surface. That alone moves
+/// the strip error from 1.45 to 1.59 times the reset error to at most the reset error; the plane
+/// numbers are unchanged. The step 4 target is half of the PR 2 excess over the reset floor, a
+/// ratio of 1.225 at the 1.45 of 0.5 scale; the assertion is that ratio, measured at under 1.
+/// Every number is finite and positive, and the static plane is stable under accumulation
+/// (flicker at most a quarter of the reset flicker, measured at less than a tenth).
 fn assert_baseline((temporal, reset): (Metrics, Metrics)) {
     for m in [temporal, reset] {
         for v in [m.strip_error, m.plane_error, m.plane_flicker] {
@@ -201,7 +212,7 @@ fn assert_baseline((temporal, reset): (Metrics, Metrics)) {
         }
     }
     assert!(
-        temporal.strip_error >= 1.15 * reset.strip_error,
+        temporal.strip_error <= 1.225 * reset.strip_error,
         "{temporal:?} {reset:?}"
     );
     assert!(

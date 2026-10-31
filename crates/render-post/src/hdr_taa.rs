@@ -188,7 +188,7 @@ fn append_temporal(
 ) -> wgpu::TextureView {
     let output = taa_upscale_gpu::output(device, output_extent);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
-    taa_upscale_gpu::append(
+    let reconstructed = taa_upscale_gpu::append(
         device,
         set,
         &taa_upscale_gpu::Inputs {
@@ -197,6 +197,7 @@ fn append_temporal(
                 .velocity()
                 .expect("temporal reconstruction needs the velocity attachment"),
             depth: targets.depth(),
+            render: targets.config().size,
             uniform,
             camera,
             history,
@@ -205,6 +206,9 @@ fn append_temporal(
     );
     set.resources.textures.push(output);
     set.resources.textures.push(history.clone());
+    set.resources.textures.push(reconstructed.depth);
+    set.resources.textures.push(reconstructed.motion);
+    set.resources.buffers.push(reconstructed.scatter);
     output_view
 }
 

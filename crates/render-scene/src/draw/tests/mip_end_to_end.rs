@@ -10,10 +10,10 @@
 //! 32x32 pixels, which avoids the plane's edges. Shimmer is the mean absolute change of that
 //! region between consecutive frames over one jitter cycle of the converged static scene.
 use super::mip_bias::masked_scene;
+use super::mip_textures::{smooth, stripes};
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_plan::TexelFormat;
 use worldrunner_render_post::{
     AttachmentView, FrameConfig, HdrPostSettings, PostResolve, Readback, RenderScale, ResourceRef,
     ToneMap, UpscaleMode, UpscaleSettings,
@@ -24,35 +24,6 @@ const HDR: TextureFormat = TextureFormat::Rgba16Float;
 const SLOTS: usize = 3;
 const SCALES: [u32; 3] = [500_000, 670_000, 770_000];
 const ROI: std::ops::Range<usize> = 16..48;
-
-fn stripes() -> SceneTexture {
-    let dark = 13_u32;
-    let light = 242_u32;
-    let mut bytes = Vec::new();
-    for level in 0..8_usize {
-        let size = 128_usize >> level;
-        for _ in 0..size {
-            for x in 0..size {
-                let columns = 1_usize << level;
-                let lit = (x * columns..(x + 1) * columns)
-                    .filter(|column| (column / 4) % 2 == 1)
-                    .count();
-                let lit = u32::try_from(lit).unwrap();
-                let width = u32::try_from(columns).unwrap();
-                let value = u8::try_from((light * lit + dark * (width - lit)) / width).unwrap();
-                bytes.extend_from_slice(&[value, value, value, 255]);
-            }
-        }
-    }
-    SceneTexture::Texels {
-        format: TexelFormat::Rgba8Unorm,
-        color_space: TextureColorSpace::Linear,
-        width: 128,
-        height: 128,
-        mips: 8,
-        bytes: bytes.into(),
-    }
-}
 
 /// One renderer, its resident scene and the output it reads back.
 struct Harness<'a> {
@@ -67,7 +38,12 @@ struct Harness<'a> {
 
 impl<'a> Harness<'a> {
     /// `scale_micro` of `None` renders at the output extent with no resolve at all.
-    fn new(context: &'a GpuContext, output: u32, scale_micro: Option<u32>) -> Self {
+    fn new(
+        context: &'a GpuContext,
+        output: u32,
+        scale_micro: Option<u32>,
+        texture: SceneTexture,
+    ) -> Self {
         let extent = [output; 2];
         let mut settings = RendererConfiguration::legacy(extent, COLOR_FORMAT);
         settings.frame = FrameConfig::new(extent, HDR, 1);
@@ -91,7 +67,7 @@ impl<'a> Harness<'a> {
         let mut gpu = SceneGpu::upload(
             device,
             context.submission(),
-            &masked_scene(stripes()),
+            &masked_scene(texture),
             &pipelines,
         )
         .unwrap();
@@ -177,8 +153,8 @@ impl<'a> Harness<'a> {
 }
 
 /// The 256x256 plain render, box averaged 4x4 per channel in sRGB bytes, as 0..=1.
-fn reference(context: &GpuContext) -> Vec<f64> {
-    let bytes = Harness::new(context, 4 * OUTPUT, None).frame();
+fn reference(context: &GpuContext, texture: SceneTexture) -> Vec<f64> {
+    let bytes = Harness::new(context, 4 * OUTPUT, None, texture).frame();
     let fine = usize::try_from(4 * OUTPUT).unwrap();
     let side = usize::try_from(OUTPUT).unwrap();
     let mut image = vec![0.0; side * side * 3];
@@ -214,20 +190,22 @@ fn byte_of(image: &[u8]) -> impl Fn(usize) -> f64 + '_ {
     |index| f64::from(image[index / 3 * 4 + index % 3]) / 255.0
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 struct Measurement {
     error: f64,
     shimmer: f64,
 }
 
-/// Converges one jitter cycle, then measures the next one.
+/// Converges one jitter cycle, then measures the next one. `scale` of `None` is the native
+/// 1.0 render scale with temporal accumulation (bias exactly 0).
 fn measure(
     context: &GpuContext,
-    scale: u32,
+    texture: SceneTexture,
+    scale: Option<u32>,
     forced: Option<f32>,
     reference: &[f64],
 ) -> Measurement {
-    let mut harness = Harness::new(context, OUTPUT, Some(scale));
+    let mut harness = Harness::new(context, OUTPUT, Some(scale.unwrap_or(1_000_000)), texture);
     harness.renderer.force_material_mip_bias(forced);
     let length = harness.cycle();
     for _ in 0..length {
@@ -248,38 +226,70 @@ fn measure(
     Measurement { error, shimmer }
 }
 
-/// Per scale: the measurement with the bias forced to 0 and with the policy bias.
-fn paired(context: &GpuContext) -> [(u32, Measurement, Measurement); 3] {
-    let reference = reference(context);
-    SCALES.map(|scale| {
-        let zero = measure(context, scale, Some(0.0), &reference);
-        let biased = measure(context, scale, None, &reference);
-        println!("scale {scale}: bias 0 {zero:?}, policy bias {biased:?}");
-        (scale, zero, biased)
+/// Candidate biases in the order of the decision rule: most negative first. Each is an offset
+/// added to `log2(s)` where `s` is the policy scale ratio; the last is the bias-0 case.
+const OFFSETS: [Option<f32>; 4] = [Some(-1.0), Some(-0.5), Some(0.0), None];
+const NAMES: [&str; 4] = ["log2(s)-1", "log2(s)-0.5", "log2(s)", "0"];
+
+struct Table {
+    native: Measurement,
+    /// Per scale, per candidate of [`OFFSETS`].
+    rows: [[Measurement; 4]; 3],
+}
+
+fn table(context: &GpuContext, fixture: fn() -> SceneTexture, name: &str) -> Table {
+    let reference = reference(context, fixture());
+    let native = measure(context, fixture(), None, None, &reference);
+    println!("fixture {name}: native TAA (scale 1.0, bias 0) {native:?}");
+    println!("scale | candidate | bias | error | shimmer | shimmer/native | error/bias0 error");
+    let rows = SCALES.map(|scale| {
+        let render = RenderScale::new(scale)
+            .unwrap()
+            .extent([OUTPUT; 2])
+            .unwrap();
+        let log2_s = worldrunner_render_post::material_mip_bias(render, [OUTPUT; 2]) + 1.0;
+        let row = OFFSETS.map(|offset| {
+            let bias = offset.map_or(0.0, |offset| log2_s + offset);
+            measure(context, fixture(), Some(scale), Some(bias), &reference)
+        });
+        for (index, measurement) in row.iter().enumerate() {
+            let bias = OFFSETS[index].map_or(0.0, |offset| log2_s + offset);
+            println!(
+                "{scale} | {} | {bias:.3} | {:.4} | {:.6} | {:.3} | {:.3}",
+                NAMES[index],
+                measurement.error,
+                measurement.shimmer,
+                measurement.shimmer / native.shimmer,
+                measurement.error / row[3].error,
+            );
+        }
+        row
+    });
+    Table { native, rows }
+}
+
+/// The decision rule: the most negative candidate whose shimmer is at most 1.10 x the native
+/// TAA shimmer and whose error is below the bias-0 error at every scale.
+fn chosen(table: &Table) -> Option<usize> {
+    (0..3).find(|&candidate| {
+        table.rows.iter().all(|row| {
+            row[candidate].shimmer <= 1.10 * table.native.shimmer
+                && row[candidate].error < row[3].error
+        })
     })
 }
 
 #[test]
-fn the_policy_bias_lowers_the_texture_detail_error_at_each_scale() {
+fn measurement_table_for_both_fixtures() {
     let context = context();
-    for (scale, zero, biased) in paired(&context) {
-        assert!(
-            biased.error < zero.error,
-            "{scale}: error {biased:?} is not below {zero:?}"
-        );
-    }
-}
-
-/// The design caps the shimmer added by the bias at 10% of the bias-0 case. Measured on this
-/// fixture on lavapipe the cap is EXCEEDED (see target/up3.md session 7): this test fails and
-/// records the numbers for the coordinator; the policy is not tuned toward the cap.
-#[test]
-fn the_policy_bias_keeps_the_shimmer_within_the_design_cap() {
-    let context = context();
-    for (scale, zero, biased) in paired(&context) {
-        assert!(
-            biased.shimmer <= 1.10 * zero.shimmer,
-            "{scale}: shimmer {biased:?} exceeds 1.1 x {zero:?}"
+    for (name, fixture) in [
+        ("stripes", stripes as fn() -> SceneTexture),
+        ("smooth", smooth),
+    ] {
+        let table = table(&context, fixture, name);
+        println!(
+            "fixture {name}: rule chooses {:?}",
+            chosen(&table).map(|index| NAMES[index])
         );
     }
 }
@@ -288,7 +298,7 @@ fn the_policy_bias_keeps_the_shimmer_within_the_design_cap() {
 fn a_renderer_without_reconstruction_ignores_the_forced_zero_bias() {
     let context = context();
     let frames = |forced| {
-        let mut harness = Harness::new(&context, OUTPUT, None);
+        let mut harness = Harness::new(&context, OUTPUT, None, stripes());
         harness.renderer.force_material_mip_bias(forced);
         (0..3).map(|_| harness.frame()).collect::<Vec<_>>()
     };

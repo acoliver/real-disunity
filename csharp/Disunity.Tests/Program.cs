@@ -281,6 +281,7 @@ PlayerShaderTests.Run();
 PlayerMaterialTests.Run();
 TextCoreTests.Run();
 FontEngineTests.Run();
+TouchScreenKeyboardTests.Run();
 FieldBinderTests.Run();
 SerializedCollectionTests.Run();
 ManagedReferenceTests.Run();

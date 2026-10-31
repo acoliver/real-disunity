@@ -88,14 +88,8 @@ impl Renderer {
                 recipes: startup.recipes,
             },
         )?;
-        let mut resident = Resident::new(&context, scene, shadows, profile)?;
-        environment::install(
-            &context,
-            &mut resident,
-            &mut presentation,
-            scene.effects(),
-            false,
-        )?;
+        let resident =
+            environment::new_resident(&context, scene, shadows, profile, &mut presentation)?;
         #[cfg(all(test, target_os = "linux"))]
         let test_instance = instance.clone();
         let execution = execution::SurfaceExecution::new(

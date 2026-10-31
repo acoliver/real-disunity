@@ -13,12 +13,16 @@ pub use decal::{
 };
 mod atmosphere;
 mod specular_cube;
+mod specular_preparation;
 pub use specular_cube::{SceneSpecularCube, SceneSpecularCubeFormat};
+pub use specular_preparation::SceneSpecularPreparation;
 mod celestial_lighting;
 pub use celestial_lighting::SceneCelestialLighting;
 mod fog_density;
 pub use fog_density::SceneFogDensity;
 mod scattering;
+#[cfg(test)]
+mod specular_preparation_tests;
 pub use atmosphere::{
     SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition, SceneCelestialDisc,
     SceneCelestialMesh, SceneFogDensityPolicy, SceneHeightFog,

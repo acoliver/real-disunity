@@ -4,6 +4,7 @@ pub mod abi;
 #[cfg(test)]
 mod allocation;
 pub mod assets;
+mod bindings;
 pub mod buffers;
 #[cfg(test)]
 mod callback_tests;

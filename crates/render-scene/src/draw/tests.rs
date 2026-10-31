@@ -61,6 +61,7 @@ mod normal_frames;
 mod relief_mip_bias;
 mod resident_sampling;
 mod retained;
+mod source_environment;
 mod ssao;
 mod ssr;
 mod ssr_acceptance;

@@ -29,3 +29,20 @@ pub(super) fn install(
         .set_scene_environment(context.device(), &maps, environment.consumers)?;
     Ok(())
 }
+
+pub(super) fn new_resident(
+    context: &GpuContext,
+    scene: &worldrunner_render_plan::RenderScene,
+    shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
+    profile: crate::FrameProfile,
+    presentation: &mut Presentation,
+) -> Result<Resident, ViewerError> {
+    let reservation = presentation.prepare_scene(context, scene)?;
+    let mut resident = Resident::new(context, scene, shadows, profile)?;
+    resident
+        .scene_mut()
+        .retain_resource_reservation(reservation.resident);
+    install(context, &mut resident, presentation, scene.effects(), false)?;
+    drop(reservation.transient);
+    Ok(resident)
+}

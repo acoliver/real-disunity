@@ -1,4 +1,7 @@
 #[cfg(test)]
+pub(crate) mod preparation_tests;
+
+#[cfg(test)]
 mod capture_pool_tests;
 #[cfg(test)]
 mod history_planning_tests;
@@ -74,6 +77,11 @@ pub(super) struct Presentation {
     native_rcas: Option<crate::NativeRcasSettings>,
 }
 
+pub(crate) struct SceneReservations {
+    pub transient: worldrunner_render_gpu::configuration::AllocationReservation,
+    pub resident: worldrunner_render_gpu::configuration::AllocationReservation,
+}
+
 pub(super) struct Targets {
     pub color: wgpu::TextureView,
     pub depth: wgpu::TextureView,
@@ -146,6 +154,25 @@ impl Presentation {
             capture_size,
             capture_pool,
             native_rcas,
+        })
+    }
+
+    /// Admit pending work and scene storage without touching the active frame graph.
+    pub(crate) fn prepare_scene(
+        &mut self,
+        context: &worldrunner_render_scene::device::GpuContext,
+        scene: &worldrunner_render_plan::RenderScene,
+    ) -> Result<SceneReservations, ViewerError> {
+        use worldrunner_render_scene::draw::source_environment;
+        let transient = self
+            .scheduler
+            .reserve(context, source_environment::transient_allocations(scene)?)?;
+        let resident = self
+            .scheduler
+            .reserve(context, source_environment::resident_allocations(scene))?;
+        Ok(SceneReservations {
+            transient,
+            resident,
         })
     }
 

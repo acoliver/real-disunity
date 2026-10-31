@@ -513,6 +513,24 @@ impl ConfiguredFrameRenderer {
     pub fn budget(&self) -> AllocationBudget {
         self.state.budget()
     }
+    /// Admits independently owned work without replacing targets or temporal history.
+    pub fn reserve(
+        &mut self,
+        context: &GpuContext,
+        allocations: AllocationSet,
+    ) -> Result<
+        worldrunner_render_gpu::configuration::AllocationReservation,
+        ConfigurationError<PostError>,
+    > {
+        if !self.state.uses_authority(context.submission()) {
+            return Err(ConfigurationError::ForeignDevice);
+        }
+        self.state.reserve(&context.device().limits(), allocations)
+    }
+    /// Complete live target and independently reserved storage.
+    pub fn resident_bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
+        self.state.resident_bytes(limits)
+    }
     pub fn generation(&self) -> u64 {
         self.state.generation()
     }

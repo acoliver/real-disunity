@@ -66,8 +66,7 @@ pub(crate) fn identity(
     session
         .dispatch
         .components
-        .iter()
-        .find_map(|(&id, &c)| (c == native).then_some(id))
+        .identity_of(native)
         .ok_or_else(|| "component has no managed identity".into())
 }
 pub(crate) fn create(

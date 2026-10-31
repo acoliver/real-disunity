@@ -1,6 +1,8 @@
 //! Allocation preflight and atomic replacement at a queue admission boundary.
 use crate::submission::{SubmissionAuthority, SubmitError};
 mod budget;
+mod reservation;
+pub use reservation::AllocationReservation;
 mod errors;
 pub use budget::AllocationBudgetPolicy;
 pub use errors::{AllocationScope, DriverAllocationError};
@@ -287,6 +289,7 @@ pub struct Configuration<T> {
     budget: AllocationBudget,
     policy: AllocationBudgetPolicy,
     authority: SubmissionAuthority,
+    reservations: Vec<std::sync::Weak<AllocationSet>>,
 }
 impl<T> Configuration<T> {
     pub fn new(
@@ -312,6 +315,7 @@ impl<T> Configuration<T> {
         Ok(Self {
             current,
             allocations,
+            reservations: Vec::new(),
             retired: Vec::new(),
             generation: 0,
             budget,
@@ -342,6 +346,7 @@ impl<T> Configuration<T> {
         self.budget
     }
     pub fn collect(&mut self) {
+        self.reservations.retain(|entry| entry.strong_count() != 0);
         let complete = self.authority.completed_serial();
         self.retired.retain(|old| {
             let _ = &old.value;
@@ -349,9 +354,15 @@ impl<T> Configuration<T> {
         });
     }
     pub fn resident_bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
+        let reservations: Vec<_> = self
+            .reservations
+            .iter()
+            .filter_map(std::sync::Weak::upgrade)
+            .collect();
         total(
             std::iter::once(&self.allocations)
-                .chain(self.retired.iter().map(|old| &old.allocations)),
+                .chain(self.retired.iter().map(|old| &old.allocations))
+                .chain(reservations.iter().map(AsRef::as_ref)),
             limits,
         )
     }
@@ -363,10 +374,16 @@ impl<T> Configuration<T> {
     ) -> Result<(), ConfigurationError<E>> {
         let _guard = self.authority.try_replacement()?;
         self.collect();
+        let reservations: Vec<_> = self
+            .reservations
+            .iter()
+            .filter_map(std::sync::Weak::upgrade)
+            .collect();
         let required = total(
             std::iter::once(&allocations)
                 .chain(std::iter::once(&self.allocations))
-                .chain(self.retired.iter().map(|old| &old.allocations)),
+                .chain(self.retired.iter().map(|old| &old.allocations))
+                .chain(reservations.iter().map(AsRef::as_ref)),
             limits,
         )
         .map_err(ConfigurationError::Invalid)?;

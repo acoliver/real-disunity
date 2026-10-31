@@ -1,3 +1,5 @@
+mod preparation;
+
 #[test]
 fn ssr_misses_use_uploaded_environment_radiance() {
     let (scene, mut environment) = source(false);

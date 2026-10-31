@@ -140,8 +140,9 @@ atmosphere change leaves water rendering untouched.
 `sky::preparation::encode` records GGX environment filtering and a split-sum
 BRDF lookup integration into the current authority-owned encoder. Call it
 inside `SubmissionAuthority::prepare`. It does not submit a queue or open a
-window. The source must be a square, filterable linear `Rgba16Float` cube view
-with six layers. The caller owns its storage and upload accounting.
+window. The source must be a square, filterable linear `Rgba16Float` or
+`Bc6hRgbUfloat` cube view with six layers. BC6H requires the device
+`TEXTURE_COMPRESSION_BC` feature; unavailable support returns `PreparationError::Source`. The caller owns its storage and upload accounting.
 
 `EnvironmentPreparation::allocations` declares the output mip chain, LUT and
 per-dispatch uniform storage. The preparation call validates that plan against

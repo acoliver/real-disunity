@@ -107,7 +107,7 @@ pub enum TextureColorSpace {
 /// One owned texture as either an explicit texel grid or one exact encoded payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SceneTexture {
-    /// Validated linear prefiltered radiance cube.
+    /// Validated linear radiance cube, prefiltered or carrying a preparation request.
     SpecularCube(super::SceneSpecularCube),
     /// Per-texture sampling with an unchanged owned payload.
     Sampled {

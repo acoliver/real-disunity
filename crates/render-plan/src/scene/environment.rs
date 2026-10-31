@@ -58,8 +58,14 @@ impl SceneEnvironment {
         }
         let cube = lookup(resources, self.cube)?;
         let lut = lookup(resources, self.brdf_lut)?;
-        if !matches!(cube.payload(), SceneTexture::SpecularCube(_)) {
+        let SceneTexture::SpecularCube(cube) = cube.payload() else {
             return Err(invalid("environment cube format"));
+        };
+        if cube.preparation().is_some_and(|settings| {
+            settings.convention.roughness != self.convention.roughness
+                || settings.convention.visibility != self.convention.visibility
+        }) {
+            return Err(invalid("environment preparation convention mismatch"));
         }
         if !matches!(lut.payload(), SceneTexture::Texels {
             format: TexelFormat::Rg16Float | TexelFormat::Rgba16Float,

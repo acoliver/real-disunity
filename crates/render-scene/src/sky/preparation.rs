@@ -155,16 +155,7 @@ pub fn encode(
     if required > budget.0 {
         return Err(PreparationError::Budget);
     }
-    if source.texture().width() != source.texture().height()
-        || source.texture().depth_or_array_layers() != 6
-        || !matches!(source.texture().format(), wgpu::TextureFormat::Rgba16Float)
-        || !source
-            .texture()
-            .usage()
-            .contains(wgpu::TextureUsages::TEXTURE_BINDING)
-    {
-        return Err(PreparationError::Source);
-    }
+    validate_source(device, source)?;
     let cube = texture(device, settings.cube_size, 6, settings.mip_count);
     let lut = texture(device, settings.lut_size, 1, 1);
     let job = Integration::new(device, source, settings.specular_intensity_micro);
@@ -189,6 +180,48 @@ pub fn encode(
         baked_specular_intensity_micro: settings.specular_intensity_micro,
         specular_intensity_micro: 1_000_000,
     })
+}
+fn validate_source(
+    device: &wgpu::Device,
+    source: &wgpu::TextureView,
+) -> Result<(), PreparationError> {
+    let texture = source.texture();
+    let format = texture.format();
+    if texture.width() != texture.height()
+        || texture.depth_or_array_layers() != 6
+        || texture.dimension() != wgpu::TextureDimension::D2
+        || texture.sample_count() != 1
+        || !matches!(
+            format,
+            wgpu::TextureFormat::Rgba16Float | wgpu::TextureFormat::Bc6hRgbUfloat
+        )
+        || !texture
+            .usage()
+            .contains(wgpu::TextureUsages::TEXTURE_BINDING)
+    {
+        return Err(PreparationError::Source);
+    }
+    if format == wgpu::TextureFormat::Bc6hRgbUfloat
+        && !device
+            .features()
+            .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+    {
+        return Err(PreparationError::Source);
+    }
+    Ok(())
+}
+impl From<worldrunner_render_plan::SceneSpecularPreparation> for EnvironmentPreparation {
+    fn from(value: worldrunner_render_plan::SceneSpecularPreparation) -> Self {
+        Self {
+            convention: value.convention,
+            cube_size: value.cube_size,
+            mip_count: value.mip_count,
+            samples: value.samples,
+            source_lod_tail: value.source_lod_tail,
+            lut_size: 1,
+            specular_intensity_micro: 1_000_000,
+        }
+    }
 }
 struct Integration<'a> {
     device: &'a wgpu::Device,

@@ -431,7 +431,16 @@ impl PreparedTexture<'_> {
     pub(crate) fn payload_bytes(&self) -> u64 {
         self.cube.map_or_else(
             || self.mips.iter().map(|m| m.bytes.len() as u64).sum(),
-            |cube| cube.bytes().len() as u64,
+            |cube| {
+                cube.preparation().map_or_else(
+                    || cube.bytes().len() as u64,
+                    |request| {
+                        (0..request.mip_count)
+                            .map(|mip| u64::from(request.cube_size >> mip).pow(2) * 6 * 8)
+                            .sum()
+                    },
+                )
+            },
         )
     }
     pub(crate) fn cube(&self) -> Option<&worldrunner_render_plan::SceneSpecularCube> {

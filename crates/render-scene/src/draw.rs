@@ -282,7 +282,7 @@ impl SceneGpu {
         validate_profile(scene, pipelines)?;
         prepared.validate_device(device, pipelines)?;
         let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
-        let (textures, views) = upload_textures(device, queue, &prepared.textures)?;
+        let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let placeholder = placeholder_texture(device, queue);
         let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());
         let sampler = material_sampler(device);
@@ -644,6 +644,7 @@ use resources::{upload_meshes, upload_textures};
 mod environment;
 mod prepared;
 mod resources;
+pub mod source_environment;
 pub use prepared::PreparedScene;
 
 #[cfg(test)]

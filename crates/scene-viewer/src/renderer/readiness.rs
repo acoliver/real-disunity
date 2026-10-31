@@ -95,10 +95,10 @@ impl Streaming {
             return Ok(());
         };
         let serial = context.submission().submitted_serial();
-        if !self.advance_preparation(context, resident, front)? {
+        if !self.advance_preparation(context, resident, presentation, front)? {
             return Ok(());
         }
-        if let Some((mut next_resident, scene)) = self.preparing.take() {
+        if let Some((mut next_resident, scene, _reservation)) = self.preparing.take() {
             next_resident.scene_mut().finish_retained_terrain();
             let decals = next_resident.scene_mut().decal_placements();
             next_resident.scene_mut().set_decal_placements(
@@ -144,6 +144,7 @@ impl Streaming {
         &mut self,
         context: &super::GpuContext,
         resident: &mut Resident,
+        presentation: &mut Presentation,
         front: &crate::retained::readiness::Preparation,
     ) -> Result<bool, ViewerError> {
         let scene = if self.preparing.is_some() {
@@ -163,10 +164,13 @@ impl Streaming {
         };
         if let Some(prepared) = scene {
             let source = prepared.scene().clone();
-            let next = self.prepare_retained_scene(context, prepared, resident.scene_mut())?;
-            self.preparing = Some((next, source));
+            let reservation = presentation.prepare_scene(context, &source)?;
+            let mut next = self.prepare_retained_scene(context, prepared, resident.scene_mut())?;
+            next.scene_mut()
+                .retain_resource_reservation(reservation.resident);
+            self.preparing = Some((next, source, reservation.transient));
         }
-        if let Some((next, _)) = &mut self.preparing {
+        if let Some((next, _, _)) = &mut self.preparing {
             if next.scene_mut().retained_terrain_ready() {
                 return Ok(true);
             }
@@ -227,7 +231,11 @@ pub(super) struct Streaming {
     pub retired: std::collections::VecDeque<(u64, Resident)>,
     pub shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
     pub profile: crate::FrameProfile,
-    preparing: Option<(Resident, worldrunner_render_plan::RenderScene)>,
+    preparing: Option<(
+        Resident,
+        worldrunner_render_plan::RenderScene,
+        worldrunner_render_gpu::configuration::AllocationReservation,
+    )>,
 }
 impl Streaming {
     pub fn new(
@@ -247,3 +255,6 @@ impl Streaming {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod preparation_tests;

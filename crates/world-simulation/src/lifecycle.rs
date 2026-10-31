@@ -71,7 +71,7 @@ pub(crate) struct Lifecycle {
     pub(crate) added: Vec<ComponentHandle>,
     pub(crate) mutations: BTreeMap<usize, Vec<LifecycleWork>>,
     next_sequence: usize,
-    pub(crate) unpublished: BTreeMap<usize, Vec<ObjectHandle>>,
+    pub(crate) unpublished: crate::unpublished::Unpublished,
     pub cleanup: Vec<LifecycleWork>,
 }
 
@@ -85,10 +85,7 @@ impl Lifecycle {
 
 impl World {
     pub(crate) fn is_unpublished(&self, object: ObjectHandle) -> bool {
-        self.lifecycle
-            .unpublished
-            .values()
-            .any(|nodes| nodes.contains(&object))
+        self.lifecycle.unpublished.contains_object(object)
     }
 
     /// Immediate native ordering data. E4 invokes managed work before returning a clone.

@@ -80,11 +80,15 @@ public static partial class Graphics
     public static void DrawTexture(Rect screenRect, Texture texture, Rect sourceRect, int leftBorder, int rightBorder, int topBorder,
         int bottomBorder, Color color, Material? mat = null, int pass = -1) => throw Unsupported(nameof(DrawTexture));
 
-    public static void SetRenderTarget(RenderTexture rt, int mipLevel = 0, CubemapFace face = CubemapFace.Unknown, int depthSlice = 0) =>
+    public static void SetRenderTarget(RenderBuffer colorBuffer, RenderBuffer depthBuffer) => throw Unsupported(nameof(SetRenderTarget));
+
+    public static void SetRenderTarget(RenderBuffer colorBuffer, RenderBuffer depthBuffer, int mipLevel) => throw Unsupported(nameof(SetRenderTarget));
+
+    public static void SetRenderTarget(RenderBuffer colorBuffer, RenderBuffer depthBuffer, int mipLevel, CubemapFace face) =>
         throw Unsupported(nameof(SetRenderTarget));
 
-    public static void SetRenderTarget(RenderBuffer colorBuffer, RenderBuffer depthBuffer, int mipLevel = 0,
-        CubemapFace face = CubemapFace.Unknown, int depthSlice = 0) => throw Unsupported(nameof(SetRenderTarget));
+    public static void SetRenderTarget(RenderBuffer colorBuffer, RenderBuffer depthBuffer, int mipLevel, CubemapFace face, int depthSlice) =>
+        throw Unsupported(nameof(SetRenderTarget));
 
     public static void SetRenderTarget(RenderBuffer[] colorBuffers, RenderBuffer depthBuffer) => throw Unsupported(nameof(SetRenderTarget));
     public static void SetRenderTarget(RenderTargetSetup setup) => throw Unsupported(nameof(SetRenderTarget));

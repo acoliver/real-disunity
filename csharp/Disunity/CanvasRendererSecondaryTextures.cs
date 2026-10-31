@@ -18,7 +18,7 @@ public sealed partial class CanvasRenderer
     }
 
     /// <summary>Sets slot <paramref name="index"/>, which must be below the count, to a property name and a texture. A null texture empties the slot's texture.</summary>
-    public void SetSecondaryTexture(int index, string name, Texture? texture)
+    public void SetSecondaryTexture(int index, string name, Texture2D? texture)
     {
         if (index < 0 || index >= _secondary.Count)
             throw new ArgumentOutOfRangeException(nameof(index), index, $"the canvas renderer has {_secondary.Count} secondary texture slots");

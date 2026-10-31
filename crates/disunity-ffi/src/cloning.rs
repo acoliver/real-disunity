@@ -147,8 +147,8 @@ fn encode_components(
                 session
                     .dispatch
                     .components
-                    .iter()
-                    .find_map(|(&id, &c)| (c == old).then_some((id, 2)))
+                    .identity_of(old)
+                    .map(|id| (id, 2))
             });
         if let Some((source, kind)) = binding {
             let target = handles.next().expect("reserved identities");

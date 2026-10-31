@@ -4,6 +4,7 @@ pub mod abi;
 #[cfg(test)]
 mod allocation;
 pub mod assets;
+mod bindings;
 pub mod buffers;
 #[cfg(test)]
 mod callback_tests;
@@ -39,7 +40,6 @@ pub mod physics_materials;
 mod physics_tests;
 pub mod presentation;
 pub mod scheduling;
-mod script_bindings;
 pub mod sorting_group;
 pub mod sprites;
 mod store;

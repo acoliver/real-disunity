@@ -120,8 +120,7 @@ fn contact_payload(
         session
             .dispatch
             .components
-            .iter()
-            .find_map(|(&handle, &component)| (component == native).then_some(handle))
+            .identity_of(native)
             .ok_or("contact component has no managed binding")
     };
     value.collider = handle(this)?;

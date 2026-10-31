@@ -1,7 +1,6 @@
 //! Owned scheduler work over the shared native world. No foreign callback runs here.
 use worldrunner_world_simulation::{
-    Advance, CallbackOutcome, CallbackTicket, ComponentDesc, ComponentHandle, ScriptFailure,
-    ScriptMessage, TimeSpan,
+    Advance, CallbackOutcome, CallbackTicket, ComponentDesc, ScriptFailure, ScriptMessage, TimeSpan,
 };
 
 use crate::abi::DisunityResult;
@@ -53,7 +52,7 @@ static NEXT_TICKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 
 #[derive(Default)]
 pub(crate) struct Dispatch {
-    pub scripts: crate::script_bindings::ScriptBindings,
+    pub scripts: crate::bindings::ScriptBindings,
     pub tickets: std::collections::BTreeMap<u64, CallbackTicket>,
     pub payloads: std::collections::BTreeMap<u64, crate::callbacks::DisunityCallback>,
     pub waits: std::collections::BTreeMap<u64, worldrunner_world_simulation::WaitCondition>,
@@ -61,7 +60,7 @@ pub(crate) struct Dispatch {
         std::collections::BTreeMap<u64, (worldrunner_world_simulation::CoroutineId, bool)>,
     pub next_routine: u64,
     pub cancelled: std::collections::VecDeque<u64>,
-    pub components: std::collections::BTreeMap<u64, ComponentHandle>,
+    pub components: crate::bindings::ComponentBindings,
 }
 
 fn encode(
@@ -187,7 +186,7 @@ pub(crate) fn call(
                 session
                     .dispatch
                     .components
-                    .retain(|_, handle| session.native.component(*handle).is_ok());
+                    .retain(|handle| session.native.component(*handle).is_ok());
             }
             encode(session, advance)
         })

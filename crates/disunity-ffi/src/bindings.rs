@@ -1,8 +1,9 @@
-//! The managed identities of a world's scripts, kept in both directions.
+//! The managed identities of a world's scripts and native components, kept in both directions.
 //!
-//! The host names a script by the identity it registered it with, and native work names it by
-//! its component handle. Calls such as `disunity_script_enabled` come once per managed
-//! `enabled` read, so finding the handle of an identity must not walk every script.
+//! The host names a script or component by the identity it registered it with, and native work
+//! names it by its component handle. Calls such as `disunity_script_enabled` come once per
+//! managed `enabled` read, and a clone looks up each component it copies, so finding one side
+//! from the other must not walk every binding.
 
 use std::collections::{BTreeMap, HashMap, btree_map};
 
@@ -73,6 +74,67 @@ impl ScriptBindings {
     }
 }
 
+/// Native component bindings by managed identity, in identity order, and by component handle.
+/// Each handle has at most one identity.
+#[derive(Debug, Default)]
+pub(crate) struct ComponentBindings {
+    by_identity: BTreeMap<u64, ComponentHandle>,
+    by_handle: HashMap<ComponentHandle, u64>,
+}
+
+impl ComponentBindings {
+    /// Binds `identity` to `component`, replacing any earlier binding of either.
+    pub fn insert(&mut self, identity: u64, component: ComponentHandle) {
+        if let Some(old) = self.by_identity.insert(identity, component) {
+            self.by_handle.remove(&old);
+        }
+        if let Some(previous) = self.by_handle.insert(component, identity)
+            && previous != identity
+        {
+            self.by_identity.remove(&previous);
+        }
+    }
+
+    /// Removes the binding of `identity` and returns its component.
+    pub fn remove(&mut self, identity: &u64) -> Option<ComponentHandle> {
+        let component = self.by_identity.remove(identity)?;
+        self.by_handle.remove(&component);
+        Some(component)
+    }
+
+    /// The component `identity` names.
+    pub fn get(&self, identity: &u64) -> Option<&ComponentHandle> {
+        self.by_identity.get(identity)
+    }
+
+    /// The identity `component` is bound to.
+    pub fn identity_of(&self, component: ComponentHandle) -> Option<u64> {
+        self.by_handle.get(&component).copied()
+    }
+
+    /// The bindings in identity order.
+    pub fn iter(&self) -> btree_map::Iter<'_, u64, ComponentHandle> {
+        self.by_identity.iter()
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.by_identity.len()
+    }
+
+    /// Keeps the bindings whose component `keep` accepts.
+    pub fn retain(&mut self, mut keep: impl FnMut(&ComponentHandle) -> bool) {
+        let by_handle = &mut self.by_handle;
+        self.by_identity.retain(|_, component| {
+            let kept = keep(component);
+            if !kept {
+                by_handle.remove(component);
+            }
+            kept
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +198,29 @@ mod tests {
         assert_eq!(bindings.handle_of(2), None);
         assert_eq!(bindings.handle_of(3), Some(c));
         assert_eq!(bindings.keys().copied().collect::<Vec<_>>(), [a, c]);
+    }
+
+    #[test]
+    fn component_bindings_agree_in_both_directions() {
+        let [a, b, c] = scripts(3)[..] else { panic!() };
+        let mut bindings = ComponentBindings::default();
+        bindings.insert(7, a);
+        bindings.insert(3, b);
+        assert_eq!(bindings.identity_of(b), Some(3));
+        assert_eq!(bindings.get(&7), Some(&a));
+        bindings.insert(7, c);
+        assert_eq!(
+            (bindings.identity_of(a), bindings.identity_of(c)),
+            (None, Some(7))
+        );
+        bindings.insert(9, b);
+        assert_eq!((bindings.get(&3), bindings.identity_of(b)), (None, Some(9)));
+        assert_eq!(bindings.remove(&9), Some(b));
+        assert_eq!(bindings.identity_of(b), None);
+        bindings.insert(1, a);
+        bindings.retain(|component| *component != c);
+        assert_eq!(bindings.identity_of(c), None);
+        assert_eq!(bindings.iter().map(|(&id, _)| id).collect::<Vec<_>>(), [1]);
+        assert_eq!(bindings.len(), 1);
     }
 }

@@ -1,0 +1,206 @@
+//! Thin-feature measurement of the temporal reconstruction before any luminance lock exists, on
+//! lavapipe. The scenes are the subpixel wires and the masked line grid of
+//! `temporal_thin_feature_scene`, rasterised at the internal extent with the jitter of
+//! `ProjectionJitter::for_extents`, static and panning along +x at 0.1 and 0.3 canvas pixels per
+//! frame (the backward motion is the residual, the camera term is absent).
+//!
+//! The region of interest is the set of output pixels whose centre is within `ROI_BAND` pixels of a
+//! line centre, at least `BORDER` pixels from the frame border. The error is the mean absolute
+//! HDR error (mean of the colour channels) against the 8 x 8 box filtered f64 scene of the same
+//! frame, averaged over the last `MEASURED` frames of two full jitter cycles. "Reset" is the same
+//! pipeline with the history discarded before each frame, the floor a lock must beat.
+//!
+//! These tests assert only what holds without locks (finite numbers); the numbers they print are
+//! the PR 4 baseline for the lock work.
+//!
+//! Measured on lavapipe (160 x 96 canvas, scales 0.5, 0.67 and 0.77): the temporal ROI error is
+//! 0.12 to 0.26 and the reset floor 0.23 to 0.45, so the ratio of the two is 0.43 to 0.78 (worst
+//! cases: 0.775 for the grid at 0.5 and 0.3 px per frame, 0.757 for wire 0 at 0.5 and 0.3 px per
+//! frame). Error rises with pan speed. A vanished line is back within 2/255 display levels after
+//! one frame in every measured case (the neighbourhood clip is the likely cause, not isolated);
+//! the residual error after 64 frames is 0.12 to 0.26 levels.
+use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
+use crate::temporal_thin_feature_scene::{Fixture, ROI_BAND, fixtures};
+use crate::{ProjectionJitter, RenderScale};
+
+const BORDER: u32 = 4;
+const MEASURED: u64 = 8;
+const SUB: u32 = 8;
+const SPEEDS: [f64; 3] = [0.0, 0.1, 0.3];
+
+/// Pixels of the region of interest with the box filtered truth of one frame.
+struct Roi {
+    index: Vec<usize>,
+    truth: Vec<f64>,
+}
+
+fn roi(fixture: &Fixture, pan: f64, gain: f64) -> Roi {
+    let width = usize::try_from(OUTPUT[0]).unwrap();
+    let (mut index, mut truth) = (Vec::new(), Vec::new());
+    for y in BORDER..OUTPUT[1] - BORDER {
+        for x in BORDER..OUTPUT[0] - BORDER {
+            let centre = [f64::from(x) + 0.5 + pan, f64::from(y) + 0.5];
+            if fixture.line_distance(centre) > ROI_BAND {
+                continue;
+            }
+            let at =
+                |pixel: u32, sub: u32| f64::from(pixel) + (f64::from(sub) + 0.5) / f64::from(SUB);
+            let mut sum = 0.0;
+            for j in 0..SUB {
+                for i in 0..SUB {
+                    sum += fixture.value([at(x, i) + pan, at(y, j)], gain);
+                }
+            }
+            index.push(usize::try_from(y).unwrap() * width + usize::try_from(x).unwrap());
+            truth.push(sum / f64::from(SUB * SUB));
+        }
+    }
+    Roi { index, truth }
+}
+
+fn count(n: usize) -> f64 {
+    f64::from(u32::try_from(n).unwrap())
+}
+
+impl Roi {
+    /// Mean absolute error of `image`, after mapping both through `map`.
+    fn error(&self, image: &[f64], map: fn(f64) -> f64) -> f64 {
+        let sum: f64 = self
+            .index
+            .iter()
+            .zip(&self.truth)
+            .map(|(&i, &t)| (map(image[i]) - map(t)).abs())
+            .sum();
+        sum / count(self.index.len())
+    }
+}
+
+fn hdr(v: f64) -> f64 {
+    v
+}
+
+/// Frame `index` of a pan at `speed` canvas pixels per frame with the lines at `gain`.
+fn frame(rig: &SceneRig, index: u64, valid: bool, speed: f64, gain: f32) {
+    let pan = speed * f64::from(u32::try_from(index).unwrap());
+    #[expect(clippy::cast_possible_truncation, reason = "the GPU block is f32")]
+    let tail = [pan as f32, speed as f32, gain, 0.0];
+    rig.frame(index, valid, (tail, None));
+}
+
+fn pan_of(speed: f64, index: u64) -> f64 {
+    speed * f64::from(u32::try_from(index).unwrap())
+}
+
+/// Mean ROI error over the last `MEASURED` frames of two cycles, accumulating or reset each frame.
+fn measure(rig: &SceneRig, fixture: &Fixture, speed: f64, accumulate: bool) -> f64 {
+    let total = 2 * u64::from(rig.jitter.length());
+    let first = total - MEASURED;
+    let start = if accumulate { 0 } else { first };
+    let mut sum = 0.0;
+    for index in start..total {
+        frame(rig, index, accumulate && index > 0, speed, 1.0);
+        if index >= first {
+            sum += roi(fixture, pan_of(speed, index), 1.0).error(&rig.image(), hdr);
+        }
+    }
+    sum / f64::from(u32::try_from(MEASURED).unwrap())
+}
+
+fn rig_at(gpu: &(wgpu::Device, wgpu::Queue), millionths: u32, fixture: &Fixture) -> SceneRig {
+    let render = RenderScale::new(millionths)
+        .unwrap()
+        .extent(OUTPUT)
+        .unwrap();
+    assert!(ProjectionJitter::for_extents(render, OUTPUT).is_ok());
+    SceneRig::new(gpu, render, fixture.wgsl())
+}
+
+fn sweep(millionths: u32) {
+    let gpu = crate::gpu_tests::gpu();
+    for fixture in fixtures() {
+        let rig = rig_at(&gpu, millionths, &fixture);
+        for speed in SPEEDS {
+            let temporal = measure(&rig, &fixture, speed, true);
+            let reset = measure(&rig, &fixture, speed, false);
+            eprintln!(
+                "thin scale {millionths} {} speed {speed}: temporal {temporal:.5} reset {reset:.5} ratio {:.3}",
+                fixture.name,
+                temporal / reset
+            );
+            assert!(temporal.is_finite() && reset.is_finite());
+            assert!(temporal > 0.0 && reset > 0.0);
+        }
+    }
+}
+
+#[test]
+fn thin_features_half_scale() {
+    sweep(500_000);
+}
+
+#[test]
+fn thin_features_two_thirds_scale() {
+    sweep(670_000);
+}
+
+#[test]
+fn thin_features_three_quarters_scale() {
+    sweep(770_000);
+}
+
+/// sRGB encoding of a clamped HDR value on a 0 to 255 scale, the display domain of the bound.
+fn display(v: f64) -> f64 {
+    let v = v.clamp(0.0, 1.0);
+    let encoded = if v <= 0.003_130_8 {
+        12.92 * v
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    };
+    encoded * 255.0
+}
+
+/// Frames after a line vanishes until the ROI is within `limit` display levels of the line-free
+/// truth, or `None` within `CAP` frames.
+fn frames_to_clear(rig: &SceneRig, fixture: &Fixture, limit: f64) -> (Option<u64>, f64, f64) {
+    const CAP: u64 = 64;
+    let warm = 2 * u64::from(rig.jitter.length());
+    for index in 0..warm {
+        frame(rig, index, index > 0, 0.0, 1.0);
+    }
+    let truth = roi(fixture, 0.0, 0.0);
+    let (mut first, mut cleared) = (f64::NAN, None);
+    let mut last = f64::NAN;
+    for k in 1..=CAP {
+        frame(rig, warm + k - 1, true, 0.0, 0.0);
+        last = truth.error(&rig.image(), display);
+        if k == 1 {
+            first = last;
+        }
+        if cleared.is_none() && last <= limit {
+            cleared = Some(k);
+        }
+    }
+    (cleared, first, last)
+}
+
+/// Staleness of a vanished line without locks. Recorded on lavapipe (see `target/up5.md`): the
+/// frame count and the display-domain ROI error (0 to 255 levels) after the first and the last
+/// frame of the window. The bound of the later lock work is two submitted frames at 2/255.
+#[test]
+fn vanished_line_staleness() {
+    let gpu = crate::gpu_tests::gpu();
+    for millionths in [500_000, 670_000, 770_000] {
+        for fixture in fixtures()
+            .into_iter()
+            .filter(|f| f.name == "wire 30" || f.name == "grid")
+        {
+            let rig = rig_at(&gpu, millionths, &fixture);
+            let (cleared, first, last) = frames_to_clear(&rig, &fixture, 2.0);
+            eprintln!(
+                "stale scale {millionths} {}: within 2/255 after {cleared:?} frames, error after 1 frame {first:.3}, after 64 frames {last:.3}",
+                fixture.name
+            );
+            assert!(first.is_finite() && last.is_finite());
+        }
+    }
+}

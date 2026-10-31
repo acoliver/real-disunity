@@ -158,6 +158,10 @@ mod temporal_reset_state_tests;
 #[cfg(test)]
 mod temporal_scene_test_rig;
 #[cfg(test)]
+mod temporal_thin_feature_scene;
+#[cfg(test)]
+mod temporal_thin_feature_tests;
+#[cfg(test)]
 mod temporal_upscale_reference;
 #[cfg(test)]
 mod temporal_upscale_reference_tests;

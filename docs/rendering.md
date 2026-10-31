@@ -117,9 +117,13 @@ The design bound is 0.90, and both tests assert it. The gain sits on edges (edge
 
 #### Material mip bias
 
-While `Temporal` reconstructs below the output extent, scene materials sample with a mip bias of `log2(s) - 0.5`, where `s = min(Rw / Ow, Rh / Oh)` from the rounded integer extents. It is derived from the configuration and has no setter. At 1920x1080 the render scales 0.5, 0.67 and 0.77 give -1.500, -1.078 and -0.877. Every other configuration (no upscale, `Easu`, `Bilinear`, native TAA, `Temporal` at equal extents) carries exactly +0.0 and renders the same bytes as before. The bias sharpens the stock atlas sample, impostor and relief atlases with mips, decal and terrain gradients and layered terrain gradients. It does not touch explicit LOD 0 sampling, control fields (wind, flow), the BRDF lookup and environment roughness LOD, or the sky. Water normals stay unbiased: they are animated, and a finer mip mainly adds shimmer there. Shadow casters are drawn with a bias of exactly 0 (the light view is not reconstructed). The bias cannot add terrain pages that are not resident; a page that was not streamed at the finer level stays at the coarser level.
+The shipped material mip bias is exactly +0.0 in every mode, `Temporal` included. `HdrPostSettings::material_mip_bias(config)` returns +0.0, and the frame block carries it in its last f32 lane (bytes 316 to 320). The sampling sites are in place and tested, so a policy can be switched on with one change in `material_mip_bias`; none is active. The sites are the stock atlas sample, impostor and relief atlases with mips, decal and terrain gradients and layered terrain gradients. A nonzero bias would not touch explicit LOD 0 sampling, control fields (wind, flow), the BRDF lookup and environment roughness LOD, or the sky. Water normals stay unbiased: they are animated, and a finer mip mainly adds shimmer there. Shadow casters are drawn with a bias of exactly 0 (the light view is not reconstructed). A bias could not add terrain pages that are not resident; a page that was not streamed at the finer level would stay at the coarser level.
 
-How the formula was chosen. The first candidate, `log2(s) - 1`, raised the shimmer above the original cap of 10% over the bias-0 case at all three scales. That cap compared against a reduced render that is blurrier than native by construction, so it measured the wrong thing. The bar was therefore changed after that first measurement, and this paragraph states so. The bias exists to restore native-resolution detail, so the baseline is native-resolution TAA (scale 1.0, bias 0) on the same scene. The rule was fixed before the second measurement: among `log2(s) - 1`, `log2(s) - 0.5`, `log2(s)` and 0, take the most negative bias whose shimmer is at most 1.10 times the native TAA shimmer and whose detail error is below the bias-0 error, at every scale. If none qualified the policy would be 0. Measured on lavapipe with a static scene, a 64x64 output, TAA history weight 0.9, the central 32x32, one jitter cycle after one warm-up cycle, against a 4x supersampled reference. The stripe fixture (4 dark and 4 light output pixels per period, which is at the render Nyquist) is the worst case and decides; the smooth fixture (five sinusoids with periods of 64 to 11 texels) is reported for context. Native TAA stripes: error 0.0324, shimmer 0.00919.
+Why the policy is 0. The candidates were `log2(s) - 1`, `log2(s) - 0.5` and `log2(s)` with `s = min(Rw / Ow, Rh / Oh)` from the rounded integer extents. The first measurement, on lavapipe, compared each against the bias-0 reduced render and exceeded the original cap of 10% over its shimmer at all three scales. That cap compared against a render that is blurrier than native by construction, so the bar was changed after that first measurement to the shimmer of native-resolution TAA (scale 1.0, bias 0) on the same scene. The rule was then fixed before the second measurement: choose the most negative candidate whose shimmer is at most 1.10 times the native TAA shimmer and whose detail error is below the bias-0 error, at every scale 0.5, 0.67 and 0.77. A production quality claim has to hold on every tested device, and the rule is not changed a second time. On lavapipe `log2(s) - 0.5` passed. On the AMD Radeon 780M (RADV) no nonzero candidate passes at scale 0.5, so the policy is 0.
+
+Setup for both tables: a static scene, a 64x64 output, TAA history weight 0.9, the central 32x32, one jitter cycle after one warm-up cycle, against a 4x supersampled reference. The stripe fixture (4 dark and 4 light output pixels per period, at the render Nyquist) is the worst case and is the one measured on both devices. The smooth fixture (five sinusoids with periods of 64 to 11 texels) was measured on lavapipe only. Error is the mean absolute difference of sRGB bytes scaled to 0..1.
+
+Lavapipe, native TAA stripes: error 0.0324, shimmer 0.00919.
 
 | Scale | Candidate | Bias | Stripes error | Stripes shimmer / native | Stripes error / bias-0 error | Smooth shimmer / native | Smooth error / bias-0 error |
 |---|---|---|---|---|---|---|---|
@@ -136,7 +140,26 @@ How the formula was chosen. The first candidate, `log2(s) - 1`, raised the shimm
 | 0.77 | log2(s) | -0.385 | 0.0706 | 0.407 | 0.777 | 0.329 | 0.648 |
 | 0.77 | 0 | 0.000 | 0.0908 | 0.268 | 1.000 | 0.221 | 1.000 |
 
-`log2(s) - 1` fails at 0.5 (1.147 against 1.10), `log2(s) - 0.5` qualifies at every scale, so it is the policy. The margin at 0.5 is small (1.087 against 1.10). The scope is a static scene on lavapipe; nothing here measures motion, disocclusion or other drivers, and GPU float results are not bit-exact across drivers. Locks and reactive masks for moving content are later work.
+AMD Radeon 780M (RADV), native TAA stripes: error 0.0320, shimmer 0.00846.
+
+| Scale | Candidate | Bias | Stripes error | Stripes shimmer / native | Stripes error / bias-0 error |
+|---|---|---|---|---|---|
+| 0.50 | log2(s) - 1 | -2.000 | 0.1481 | 1.239 | 0.837 |
+| 0.50 | log2(s) - 0.5 | -1.500 | 0.1540 | 1.181 | 0.871 |
+| 0.50 | log2(s) | -1.000 | 0.1605 | 1.159 | 0.907 |
+| 0.50 | 0 | 0.000 | 0.1769 | 0.833 | 1.000 |
+| 0.67 | log2(s) - 1 | -1.574 | 0.0733 | 0.864 | 0.605 |
+| 0.67 | log2(s) - 0.5 | -1.074 | 0.0802 | 0.679 | 0.662 |
+| 0.67 | log2(s) | -0.574 | 0.0933 | 0.576 | 0.771 |
+| 0.67 | 0 | 0.000 | 0.1211 | 0.462 | 1.000 |
+| 0.77 | log2(s) - 1 | -1.385 | 0.0538 | 0.822 | 0.581 |
+| 0.77 | log2(s) - 0.5 | -0.885 | 0.0617 | 0.581 | 0.667 |
+| 0.77 | log2(s) | -0.385 | 0.0712 | 0.439 | 0.769 |
+| 0.77 | 0 | 0.000 | 0.0926 | 0.274 | 1.000 |
+
+Outcome. Every nonzero candidate lowers the detail error at every scale on both devices (error ratios 0.58 to 0.91). At 0.67 and 0.77 every candidate also passes the shimmer limit with wide margins on both. At 0.5 on the Radeon the shimmer ratios are 1.239, 1.181 and 1.159, all above 1.10, while lavapipe gives 1.147, 1.087 and 1.053. The two devices differ by about 8 to 10%. Bias 0 stays within the limit on both (stripes 0.760 on lavapipe and 0.833 on the Radeon at 0.5).
+
+Enabling a bias needs the accumulation work first: locks and reactive masks, which are later pull requests. A policy is then switched on in `material_mip_bias`, measured again with this harness (`crates/render-scene/src/draw/tests/mip_end_to_end.rs`, which prints the table) on both devices. A per-scale rule may be declared at that point, before measuring. The scope here is a static scene; nothing measures motion, disocclusion or other drivers, and GPU float results are not bit-exact across drivers.
 
 Migration: `UpscaleMode` gained the variant `Temporal` and is not `#[non_exhaustive]`, so an exhaustive `match` over it needs a new arm. A `match` that maps `Bilinear` and `Easu` to a spatial pass should send `Temporal` to the TAA path, or reject it where no TAA is configured; the engine's own `SpatialUpscale::validate_config` rejects it. Nothing else changes: existing settings and outputs are byte-identical.
 

@@ -53,7 +53,11 @@ pub(crate) struct Object {
     pub(crate) children: std::collections::BTreeSet<ObjectHandle>,
     /// Every stored component owned by this object, including the transform.
     pub(crate) components: Vec<ComponentHandle>,
-    transform: ComponentHandle,
+    pub(crate) transform: ComponentHandle,
+    /// The object whose translation changes this object copies. See `World::set_follow_target`.
+    pub(crate) follow: Option<ObjectHandle>,
+    /// Live objects whose `follow` is this object, kept equal to a scan of all objects.
+    pub(crate) followers: std::collections::BTreeSet<ObjectHandle>,
     pub(crate) renderer: Option<ComponentHandle>,
     pub(crate) mesh_instance: Option<ComponentHandle>,
 }
@@ -150,6 +154,8 @@ impl World {
                 children: std::collections::BTreeSet::new(),
                 components: vec![transform],
                 transform,
+                follow: None,
+                followers: std::collections::BTreeSet::new(),
                 renderer: None,
                 mesh_instance: None,
             },
@@ -342,13 +348,21 @@ impl World {
         if std::mem::discriminant(&old.desc) != std::mem::discriminant(&desc) {
             return Err(WorldError::InvalidComponent(ComponentError::KindMismatch));
         }
+        let shifts = self.follow_shifts(handle, &desc)?;
+        self.replace_component(handle, desc);
+        for (transform, value) in shifts {
+            self.replace_component(transform, ComponentDesc::Transform(value));
+        }
+        Ok(())
+    }
+
+    fn replace_component(&mut self, handle: ComponentHandle, desc: ComponentDesc) {
         let slot = self
             .components
             .get_mut(handle.0)
             .expect("validated component");
         let previous = std::mem::replace(&mut slot.desc, desc);
         self.note_component_replaced(handle, previous);
-        Ok(())
     }
 
     /// Removes and retires only the requested component.
@@ -377,6 +391,11 @@ impl World {
         Ok(value)
     }
 
+    /// Replaces the object's local transform. When the translation changes, every object that
+    /// follows this object, directly or transitively, is shifted by the resulting change of this
+    /// object's world translation (see [`World::set_follow_target`]). All transform writes,
+    /// including [`World::set_world_position`], edits and physics steps, take this path. The write
+    /// and the shifts succeed or fail together.
     pub fn set_local_transform(
         &mut self,
         object: ObjectHandle,

@@ -9,14 +9,14 @@ internal sealed partial class SceneLoader
     /// <summary>A mesh filter of a player plan. The plan holds no mesh asset yet, so the filter has no mesh.</summary>
     private static MeshFilter MeshFilter(GameObject owner) => owner.AddComponent<MeshFilter>();
 
-    private static MeshRenderer MeshRenderer(GameObject owner, JsonElement value)
+    private MeshRenderer MeshRenderer(GameObject owner, JsonElement value)
     {
         var renderer = owner.AddComponent<MeshRenderer>();
         ApplyRenderer(renderer, value);
         return renderer;
     }
 
-    private static SkinnedMeshRenderer SkinnedMeshRenderer(GameObject owner, JsonElement value)
+    private SkinnedMeshRenderer SkinnedMeshRenderer(GameObject owner, JsonElement value)
     {
         var renderer = owner.AddComponent<SkinnedMeshRenderer>();
         ApplyRenderer(renderer, value);
@@ -25,8 +25,8 @@ internal sealed partial class SceneLoader
         return renderer;
     }
 
-    /// <summary>Sets the renderer settings of a plan. The plan holds no material asset yet, so every material slot is empty.</summary>
-    private static void ApplyRenderer(Renderer renderer, JsonElement value)
+    /// <summary>Sets the renderer settings of a plan. Each material slot is the planned material, or empty where the plan holds none.</summary>
+    private void ApplyRenderer(Renderer renderer, JsonElement value)
     {
         renderer.enabled = value.Bool("enabled");
         renderer.receiveShadows = value.Bool("receive_shadows");
@@ -40,6 +40,8 @@ internal sealed partial class SceneLoader
         renderer.rendererPriority = value.Int("renderer_priority");
         renderer.sortingLayerID = value.Int("sorting_layer_id");
         renderer.sortingOrder = value.Int("sorting_order");
-        renderer.sharedMaterials = new Material?[value.Int("material_count")];
+        renderer.sharedMaterials = value.GetProperty("materials").EnumerateArray()
+            .Select(slot => slot.ValueKind == JsonValueKind.Number ? (UnityEngine.Material)PlannedAsset(slot.GetInt32()) : null)
+            .ToArray();
     }
 }

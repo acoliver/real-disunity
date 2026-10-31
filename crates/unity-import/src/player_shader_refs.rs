@@ -1,4 +1,5 @@
-//! Shaders that script fields and the resource container reference, as plan assets.
+//! Shaders that script fields and the resource container reference, as plan assets, and the
+//! shaders and materials a scene references (see [`crate::player_materials`]).
 //!
 //! A shader plans as its declared name, render queue and the counts of sub-shaders and of
 //! passes in the first sub-shader. Its programs are not planned: the engine builds the shader
@@ -8,12 +9,17 @@
 
 use std::path::Path;
 
-use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{ClassId, object::PPtr, shader::Shader};
 
 use crate::{
-    plan::PlanAsset, player_files::PlayerFiles, player_plan::PlanSource,
-    player_resources::ObjectKey, player_values::not_held,
+    plan::PlanAsset,
+    player_files::PlayerFiles,
+    player_materials::{
+        decode_material, plan_material, unplanned_reference as unplanned_material_reference,
+    },
+    player_plan::PlanSource,
+    player_resources::ObjectKey,
+    player_values::not_held,
 };
 
 /// What the plan holds of a shader.
@@ -127,12 +133,15 @@ pub(crate) fn class_of(files: &mut PlayerFiles, key: &ObjectKey) -> Option<Class
         .map(|object| object.class_id)
 }
 
-/// The source of a scene: the player's files, and the shaders its script fields reference,
-/// which become the scene plan's assets in the order they are first referenced.
+/// The source of a scene: the player's files, and the shaders and materials its script fields
+/// and renderers reference, which become the scene plan's assets in the order they are first
+/// referenced. A material's shader is planned before it.
 pub(crate) struct SceneSource {
     files: PlayerFiles,
     pub(crate) assets: Vec<PlanAsset>,
     planned: Vec<(ObjectKey, usize)>,
+    /// What the planned materials could not hold.
+    pub(crate) differences: Vec<String>,
 }
 
 impl SceneSource {
@@ -141,11 +150,35 @@ impl SceneSource {
             files,
             assets: Vec::new(),
             planned: Vec::new(),
+            differences: Vec::new(),
         }
     }
 
     pub(crate) fn files_mut(&mut self) -> &mut PlayerFiles {
         &mut self.files
+    }
+
+    fn plan_asset(
+        &mut self,
+        key: &ObjectKey,
+        class: ClassId,
+        pptr: PPtr,
+    ) -> Result<PlanAsset, String> {
+        if class == ClassId::SHADER {
+            let decl = decode_shader(&mut self.files, key)
+                .map_err(|cause| unplanned_reference(pptr, &cause))?;
+            return Ok(decl.into_asset());
+        }
+        let material = decode_material(&mut self.files, key)
+            .map_err(|cause| unplanned_material_reference(pptr, &cause))?;
+        let mut found = Vec::new();
+        let planned = plan_material(
+            &material,
+            |reference| self.asset(&key.0, reference),
+            &mut found,
+        );
+        self.differences.append(&mut found);
+        Ok(PlanAsset::Material { material: planned })
     }
 }
 
@@ -154,22 +187,28 @@ impl PlanSource for SceneSource {
         &mut self.files
     }
 
-    fn outside(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
+    fn asset(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
         let file = self
             .files
             .referenced_file(owner, pptr)
             .map_err(|_| not_held(pptr))?;
         let key = (file, pptr.path_id);
-        if class_of(&mut self.files, &key) != Some(ClassId::SHADER) {
-            return Err(not_held(pptr));
+        let class = class_of(&mut self.files, &key);
+        if class == Some(ClassId::TEXTURE_2D) {
+            return Err(format!(
+                "references Texture2D object {} of file {}, which scene plans do not hold",
+                pptr.path_id, pptr.file_id
+            ));
         }
+        let class = class
+            .filter(|&class| class == ClassId::SHADER || class == ClassId::MATERIAL)
+            .ok_or_else(|| not_held(pptr))?;
         if let Some((_, index)) = self.planned.iter().find(|(known, _)| *known == key) {
-            return Ok(json!({ "$asset": index }));
+            return Ok(*index);
         }
-        let decl =
-            decode_shader(&mut self.files, &key).map_err(|c| unplanned_reference(pptr, &c))?;
-        self.assets.push(decl.into_asset());
+        let asset = self.plan_asset(&key, class, pptr)?;
+        self.assets.push(asset);
         self.planned.push((key, self.assets.len() - 1));
-        Ok(json!({ "$asset": self.assets.len() - 1 }))
+        Ok(self.assets.len() - 1)
     }
 }

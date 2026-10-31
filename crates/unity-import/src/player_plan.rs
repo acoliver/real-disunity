@@ -13,7 +13,9 @@ use std::{
 };
 
 use serde_json::{Value as Json, json};
-use worldrunner_unity_serialized::graphics::{MeshFilter, MeshRenderer, SkinnedMeshRenderer};
+use worldrunner_unity_serialized::graphics::{
+    MeshFilter, MeshRenderer, Renderer, SkinnedMeshRenderer,
+};
 use worldrunner_unity_serialized::{
     ClassId,
     camera::Camera,
@@ -34,7 +36,9 @@ use crate::{
     player_scripts::script_fields,
     player_shader_refs::SceneSource,
     player_values::FieldWriter,
-    renderers::{plan_mesh_filter, plan_mesh_renderer, plan_skinned_mesh_renderer},
+    renderers::{
+        plan_material_slots, plan_mesh_filter, plan_mesh_renderer, plan_skinned_mesh_renderer,
+    },
 };
 
 /// Unity's built-in tags by index; user tags start at [`FIRST_USER_TAG`].
@@ -69,6 +73,7 @@ pub fn plan_player_scene(
         planner.add_object(&mut source, root, None)?;
     }
     let objects = planner.plan_objects(&mut source, layouts)?;
+    planner.differences.append(&mut source.differences);
     Ok(ScenePlan {
         scene: scene.to_owned(),
         objects,
@@ -142,9 +147,16 @@ enum Target {
 pub(crate) trait PlanSource {
     fn files(&mut self) -> &mut PlayerFiles;
 
+    /// The index of the asset a reference from `owner` to an object outside the planned
+    /// hierarchy names, or why there is none.
+    fn asset(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String>;
+
     /// The plan reference for a reference from `owner` to an object outside the planned
     /// hierarchy, or why there is none.
-    fn outside(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String>;
+    fn outside(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
+        self.asset(owner, pptr)
+            .map(|index| json!({ "$asset": index }))
+    }
 }
 
 /// Plans the object hierarchies that start at the transforms it is given, in one player file.
@@ -359,28 +371,47 @@ impl<'t> PlayerPlanner<'t> {
         class: ClassId,
         component: PPtr,
     ) -> Result<PlanComponent, PlayerError> {
-        let file = src.files().local(&self.path, component)?;
         let id = component.path_id;
         Ok(match class {
-            ClassId::MESH_FILTER => plan_mesh_filter(
-                owner,
-                &file.decode::<MeshFilter>(id)?,
-                &mut self.differences,
-            ),
-            ClassId::MESH_RENDERER => plan_mesh_renderer(
-                owner,
-                &file.decode::<MeshRenderer>(id)?,
-                &mut self.differences,
-            ),
-            ClassId::SKINNED_MESH_RENDERER => plan_skinned_mesh_renderer(
-                owner,
-                &file.decode::<SkinnedMeshRenderer>(id)?,
-                &mut self.differences,
-            ),
+            ClassId::MESH_FILTER => {
+                let filter: MeshFilter = src.files().local(&self.path, component)?.decode(id)?;
+                plan_mesh_filter(owner, &filter, &mut self.differences)
+            }
+            ClassId::MESH_RENDERER => {
+                let renderer: MeshRenderer =
+                    src.files().local(&self.path, component)?.decode(id)?;
+                let slots = self.material_slots(src, owner, "MeshRenderer", &renderer.renderer);
+                plan_mesh_renderer(owner, &renderer, slots, &mut self.differences)
+            }
+            ClassId::SKINNED_MESH_RENDERER => {
+                let skinned: SkinnedMeshRenderer =
+                    src.files().local(&self.path, component)?.decode(id)?;
+                let slots =
+                    self.material_slots(src, owner, "SkinnedMeshRenderer", &skinned.renderer);
+                plan_skinned_mesh_renderer(owner, &skinned, slots, &mut self.differences)
+            }
             other => PlanComponent::Unsupported {
                 class: other.to_string(),
             },
         })
+    }
+
+    /// The asset index of each material slot of a renderer; a slot that holds no material, or
+    /// one the plan cannot hold (listed in the differences), is `None`.
+    fn material_slots(
+        &mut self,
+        src: &mut impl PlanSource,
+        owner: &str,
+        class: &str,
+        renderer: &Renderer,
+    ) -> Vec<Option<usize>> {
+        plan_material_slots(
+            owner,
+            class,
+            &renderer.materials,
+            |pptr| src.asset(&self.path, pptr),
+            &mut self.differences,
+        )
     }
 
     fn component(

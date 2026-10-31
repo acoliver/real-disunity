@@ -1,12 +1,14 @@
 //! Mesh filters, mesh renderers and skinned mesh renderers of a player as plan components.
 //!
-//! A Mesh or Material asset cannot be planned yet, so a reference to one binds null: the filter
-//! has no mesh and a renderer has empty material slots, one per serialized slot. Each such
-//! reference is listed once per component.
+//! A Mesh asset cannot be planned yet, so a reference to one binds null and is listed once per
+//! component. A renderer plans one material slot per serialized slot (see
+//! [`crate::player_materials`]): the asset index of the planned material, or null for an empty
+//! slot or a material the plan cannot hold, which is listed.
 
 use serde::Serialize;
-use worldrunner_unity_serialized::graphics::{
-    MeshFilter, MeshRenderer, Renderer, SkinnedMeshRenderer,
+use worldrunner_unity_serialized::{
+    graphics::{MeshFilter, MeshRenderer, Renderer, SkinnedMeshRenderer},
+    object::PPtr,
 };
 
 use crate::plan::PlanComponent;
@@ -24,8 +26,8 @@ pub struct PlanShadowing {
 }
 
 /// The renderer settings every renderer plan carries. The mode fields hold the script enum
-/// values the managed renderer reads; `material_count` is the number of material slots.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// values the managed renderer reads; `materials` holds one entry per material slot.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PlanRenderer {
     pub enabled: bool,
     pub receive_shadows: bool,
@@ -38,7 +40,7 @@ pub struct PlanRenderer {
     pub renderer_priority: i32,
     pub sorting_layer_id: i32,
     pub sorting_order: i32,
-    pub material_count: usize,
+    pub materials: Vec<Option<usize>>,
 }
 
 /// The plan filter for a decoded one; a mesh reference is listed in `differences`.
@@ -61,10 +63,17 @@ pub(crate) fn plan_mesh_filter(
 pub(crate) fn plan_mesh_renderer(
     owner: &str,
     renderer: &MeshRenderer,
+    materials: Vec<Option<usize>>,
     differences: &mut Vec<String>,
 ) -> PlanComponent {
     PlanComponent::MeshRenderer {
-        renderer: plan_renderer(owner, "MeshRenderer", &renderer.renderer, differences),
+        renderer: plan_renderer(
+            owner,
+            "MeshRenderer",
+            &renderer.renderer,
+            materials,
+            differences,
+        ),
     }
 }
 
@@ -72,6 +81,7 @@ pub(crate) fn plan_mesh_renderer(
 pub(crate) fn plan_skinned_mesh_renderer(
     owner: &str,
     skinned: &SkinnedMeshRenderer,
+    materials: Vec<Option<usize>>,
     differences: &mut Vec<String>,
 ) -> PlanComponent {
     if !skinned.mesh.is_null() {
@@ -82,7 +92,13 @@ pub(crate) fn plan_skinned_mesh_renderer(
         ));
     }
     PlanComponent::SkinnedMeshRenderer {
-        renderer: plan_renderer(owner, "SkinnedMeshRenderer", &skinned.renderer, differences),
+        renderer: plan_renderer(
+            owner,
+            "SkinnedMeshRenderer",
+            &skinned.renderer,
+            materials,
+            differences,
+        ),
         quality: skinned.quality,
         update_when_offscreen: skinned.update_when_offscreen,
     }
@@ -92,23 +108,40 @@ fn unplanned(owner: &str, class: &str, what: &str) -> String {
     format!("{owner}: {class} {what}, which plans cannot build yet")
 }
 
+/// The asset index `resolve` gives for each material slot, in the first [`MAX_MATERIALS`]
+/// slots. A reference it cannot resolve is `None` and listed in `differences`; an empty slot
+/// is `None` and not.
+pub(crate) fn plan_material_slots(
+    owner: &str,
+    class: &str,
+    materials: &[PPtr],
+    mut resolve: impl FnMut(PPtr) -> Result<usize, String>,
+    differences: &mut Vec<String>,
+) -> Vec<Option<usize>> {
+    materials
+        .iter()
+        .take(MAX_MATERIALS)
+        .enumerate()
+        .map(|(slot, &material)| {
+            if material.is_null() {
+                return None;
+            }
+            resolve(material)
+                .map_err(|cause| {
+                    differences.push(format!("{owner}: {class} material {slot} {cause}"));
+                })
+                .ok()
+        })
+        .collect()
+}
+
 fn plan_renderer(
     owner: &str,
     class: &str,
     renderer: &Renderer,
+    materials: Vec<Option<usize>>,
     differences: &mut Vec<String>,
 ) -> PlanRenderer {
-    if renderer
-        .materials
-        .iter()
-        .any(|material| !material.is_null())
-    {
-        differences.push(unplanned(
-            owner,
-            class,
-            "materials reference Material assets",
-        ));
-    }
     let settings = renderer.settings;
     let mut mode = |name: &str, value: u8, allowed: &[u8]| {
         if allowed.contains(&value) {
@@ -138,6 +171,6 @@ fn plan_renderer(
         renderer_priority: renderer.renderer_priority,
         sorting_layer_id: renderer.sorting_layer_id,
         sorting_order: renderer.sorting_order.into(),
-        material_count: renderer.materials.len().min(MAX_MATERIALS),
+        materials,
     }
 }

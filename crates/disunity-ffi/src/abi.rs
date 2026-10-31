@@ -119,6 +119,7 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
             | WorldError::InvalidContact
             | WorldError::SpatialIndexDisabled
             | WorldError::InvalidSpatialArgument
+            | WorldError::FollowSelf
             | WorldError::NotReady
             | WorldError::CallbackFailed(_)
             | WorldError::Faulted,

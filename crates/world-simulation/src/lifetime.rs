@@ -172,6 +172,7 @@ impl World {
         self.lifetime.delayed.remove(&object);
         self.lifetime.objects.remove(&object);
         self.note_object_removed(object);
+        self.clear_follow_links(object);
         let parent = self.objects.get(object.0).and_then(|stored| stored.parent);
         self.relink_child(object, parent, None);
         self.objects.remove(object.0);

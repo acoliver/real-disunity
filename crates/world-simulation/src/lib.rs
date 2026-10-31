@@ -52,6 +52,7 @@ pub use mesh_renderer::{
 mod clone;
 mod construction;
 mod fields;
+mod follow;
 mod hierarchy;
 mod lifecycle;
 mod lifetime;
@@ -138,6 +139,8 @@ pub enum WorldError {
     InvalidObject,
     #[error("parenting would create a hierarchy cycle")]
     HierarchyCycle,
+    #[error("an object cannot follow itself")]
+    FollowSelf,
     #[error("parent matrix is singular")]
     SingularParent,
     #[error("local matrix cannot be represented as TRS")]

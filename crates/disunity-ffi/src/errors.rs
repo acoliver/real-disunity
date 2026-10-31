@@ -40,7 +40,8 @@ impl AbiError {
                 | W::InvalidInput
                 | W::InvalidContact
                 | W::SpatialIndexDisabled
-                | W::InvalidSpatialArgument => crate::abi::DisunityErrorReason::InvalidArgument,
+                | W::InvalidSpatialArgument
+                | W::FollowSelf => crate::abi::DisunityErrorReason::InvalidArgument,
             },
         }
     }

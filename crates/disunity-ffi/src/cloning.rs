@@ -147,8 +147,8 @@ fn encode_components(
                 session
                     .dispatch
                     .components
-                    .iter()
-                    .find_map(|(&id, &c)| (c == old).then_some((id, 2)))
+                    .identity_of(old)
+                    .map(|id| (id, 2))
             });
         if let Some((source, kind)) = binding {
             let target = handles.next().expect("reserved identities");
@@ -218,7 +218,7 @@ pub extern "C" fn disunity_clone_bind(
     let result = (|| {
         let mut store = lock_store();
         let session = store.session_mut(world)?;
-        if identity == 0 || session.dispatch.scripts.values().any(|&id| id == identity) {
+        if identity == 0 || session.dispatch.scripts.contains_identity(identity) {
             return Err("duplicate or zero script identity".into());
         }
         let clone = session.clones.get_mut(&root).ok_or("unknown clone")?;

@@ -116,8 +116,7 @@ pub unsafe extern "C" fn disunity_script_enabled(
         let script = s
             .dispatch
             .scripts
-            .iter()
-            .find_map(|(&handle, &id)| (id == identity).then_some(handle))
+            .handle_of(identity)
             .ok_or("script binding missing")?;
         let value = s
             .native
@@ -144,8 +143,7 @@ pub unsafe extern "C" fn disunity_script_set_enabled(
         let script = s
             .dispatch
             .scripts
-            .iter()
-            .find_map(|(&handle, &id)| (id == identity).then_some(handle))
+            .handle_of(identity)
             .ok_or("script binding missing")?;
         let mutation = s
             .native

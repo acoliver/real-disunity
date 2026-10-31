@@ -120,8 +120,7 @@ fn contact_payload(
         session
             .dispatch
             .components
-            .iter()
-            .find_map(|(&handle, &component)| (component == native).then_some(handle))
+            .identity_of(native)
             .ok_or("contact component has no managed binding")
     };
     value.collider = handle(this)?;
@@ -209,8 +208,7 @@ pub unsafe extern "C" fn disunity_coroutine_start(
         let script = session
             .dispatch
             .scripts
-            .iter()
-            .find_map(|(&native, &id)| (id == script).then_some(native))
+            .handle_of(script)
             .ok_or("script binding missing")?;
         let identity = session
             .dispatch
@@ -277,8 +275,7 @@ pub extern "C" fn disunity_coroutine_ready(world: u64, identity: u64) -> Disunit
         let script = s
             .dispatch
             .scripts
-            .iter()
-            .find_map(|(&handle, &id)| (id == identity).then_some(handle))
+            .handle_of(identity)
             .ok_or("script binding missing")?;
         if !s.native.coroutine_eligible(script) {
             return Err("script is not ready for coroutine execution".into());

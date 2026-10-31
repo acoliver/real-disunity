@@ -68,3 +68,39 @@ fn failed_nested_awake_releases_unbound_reservation_after_native_teardown() {
         assert_eq!(disunity_world_destroy(world).code, 0);
     }
 }
+
+/// A template's natively bound component gets a component row for its copy, naming the
+/// template's identity, and the copy is bound under the new identity.
+#[test]
+fn a_bound_native_component_is_copied_with_a_component_row() {
+    unsafe {
+        let mut world = 0;
+        assert_eq!(disunity_world_create(&mut world).code, 0);
+        let template = scene(world, 0);
+        let source = 5_000_001;
+        {
+            let mut store = lock_store();
+            let session = store.session_mut(world).unwrap();
+            let handle = session.object(template).unwrap();
+            let transform = session.native.object(handle).unwrap().transform;
+            session.dispatch.components.insert(source, transform);
+        }
+        let (mut root, mut count) = (0, 0);
+        assert_eq!(
+            disunity_clone_create(world, template, 0, &mut root, &mut count).code,
+            0
+        );
+        let mut rows = vec![DisunityCloneRow::default(); count as usize];
+        let mut written = 0;
+        let copied = disunity_clone_copy(world, root, rows.as_mut_ptr(), count, &mut written);
+        assert_eq!(copied.code, 0);
+        let components: Vec<_> = rows.iter().filter(|row| row.kind == 2).collect();
+        assert_eq!(components.len(), 1, "{rows:?}");
+        assert_eq!(components[0].source, source);
+        let target = components[0].target;
+        let store = lock_store();
+        let session = store.session(world).unwrap();
+        let copy = *session.dispatch.components.get(&target).unwrap();
+        assert_eq!(session.dispatch.components.identity_of(copy), Some(target));
+    }
+}

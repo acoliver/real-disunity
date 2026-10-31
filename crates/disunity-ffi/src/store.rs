@@ -168,9 +168,7 @@ pub(crate) fn destroy_object(
             worldrunner_world_simulation::DestroyWhen::EndOfFrame,
         )
         .map_err(crate::errors::AbiError::from)?;
-    session
-        .objects
-        .retain(|_, handle| session.native.object_alive(*handle));
+    session.objects.prune(&session.native);
     Ok(())
 }
 

@@ -41,6 +41,17 @@ pub enum MeshTemplate {
     /// every field and replaces each object's transform with the instance's world transform.
     /// The transforms the host puts here are placeholders. An empty list draws nothing.
     Objects(Vec<SceneObject>),
+    /// The scene objects the host draws for the instance, with transforms the host already
+    /// computed. Extraction returns them unchanged, transform included, and does not read the
+    /// world transform, so a world transform a scene object cannot hold is not an error here.
+    ///
+    /// A host uses this when its own placement policy produces the scene transform, such as a
+    /// quantized saved orientation, axis conventions or a per-entity scale, which a unit factor
+    /// on the world transform cannot express. The resolver runs that policy on the object's
+    /// current state. The world still decides which objects are drawn and which changed, so the
+    /// host must write every input of the placement (transform, parent, active state, mesh
+    /// instance) to the world for the journal to report it. An empty list draws nothing.
+    Placed(Vec<SceneObject>),
 }
 
 /// Maps a world mesh instance to scene table handles. The host owns the tables, so it also
@@ -201,21 +212,36 @@ pub fn extract_mesh_objects(
     let template = resolver
         .resolve_template(instance)
         .ok_or(MeshExtractError::Unresolved(object))?;
-    let transform = scene_transform(world.world_matrix(object)?, object, options)?;
-    let scene_error = |source| MeshExtractError::Scene { object, source };
-    transform.validate().map_err(scene_error)?;
     match template {
+        MeshTemplate::Placed(placed) => Ok(placed),
         MeshTemplate::Handles(handles) => {
-            let tint = scene_tint(instance.tint).map_err(scene_error)?;
+            let transform = world_scene_transform(world, object, options)?;
+            let tint = scene_tint(instance.tint)
+                .map_err(|source| MeshExtractError::Scene { object, source })?;
             Ok(vec![
                 SceneObject::new(transform, handles.mesh, handles.material).with_tint(tint),
             ])
         }
-        MeshTemplate::Objects(templates) => Ok(templates
-            .into_iter()
-            .map(|template| template.with_transform(transform))
-            .collect()),
+        MeshTemplate::Objects(templates) => {
+            let transform = world_scene_transform(world, object, options)?;
+            Ok(templates
+                .into_iter()
+                .map(|template| template.with_transform(transform))
+                .collect())
+        }
     }
+}
+
+fn world_scene_transform(
+    world: &World,
+    object: ObjectHandle,
+    options: MeshExtractOptions,
+) -> Result<SceneTransform, MeshExtractError> {
+    let transform = scene_transform(world.world_matrix(object)?, object, options)?;
+    transform
+        .validate()
+        .map_err(|source| MeshExtractError::Scene { object, source })?;
+    Ok(transform)
 }
 
 fn scene_tint(tint: [f32; 3]) -> Result<SceneTint, SceneValidationError> {

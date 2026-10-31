@@ -35,6 +35,12 @@ instance's tint. A resolver that overrides `resolve_template` returns
 sets (LOD distance scale, fade, tint, shadow flag). Extraction replaces only each object's
 transform with the instance's world transform.
 
+A host whose own placement policy computes the scene transform (quantized saved orientation,
+axis conventions, per-entity scale) returns `MeshTemplate::Placed` instead. Extraction returns
+those objects unchanged, transform included, and does not read the world transform. The journal
+still decides which objects are extracted again, so the host writes every input of its
+placement to the `World`.
+
 One world object may resolve to several scene objects, such as LOD levels or impostor cards.
 `ObjectIdMap::from_initial` takes one world handle per retained scene object in the initial
 scene's order and gives a handle that appears several times its ids in that order; `get_all`

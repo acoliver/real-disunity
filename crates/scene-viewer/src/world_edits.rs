@@ -185,6 +185,8 @@ fn affected_objects(changes: &WorldChanges, world: &World) -> BTreeSet<ObjectHan
 }
 
 #[cfg(test)]
+mod placed_tests;
+#[cfg(test)]
 mod template_tests;
 #[cfg(test)]
 mod tests;

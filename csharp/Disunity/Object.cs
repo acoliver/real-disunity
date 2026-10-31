@@ -14,10 +14,14 @@ public enum FindObjectsSortMode { None, InstanceID }
 
 /// <summary>
 /// The base of everything Unity code can hold a reference to. A scene object (GameObject or Component) is
-/// alive while its GameObject is; the native world destroys it, and destroys a ScriptableObject, when
-/// Destroy asks (DestroyImmediate is not supported for them). Every other object is a managed asset, which
-/// stays alive until Destroy or DestroyImmediate marks it destroyed. A destroyed object compares equal to null
-/// and converts to false. Searches (FindObjectsByType and the others) find scene objects only.
+/// alive while its GameObject is (and, for a Component, until Destroy retires it); the native world destroys
+/// it, and destroys a ScriptableObject, when Destroy asks. Destroy leaves a GameObject or Component found
+/// by searches until the frame ends, then retires it and runs its OnDisable and OnDestroy messages in the
+/// frame's cleanup. DestroyImmediate hides a GameObject (with its descendants) or Component from searches and
+/// reads it as null at once, and runs those messages before it returns; a ScriptableObject refuses it. A
+/// Transform cannot be destroyed: Destroy and DestroyImmediate log an error and change nothing. Every other
+/// object is a managed asset, which stays alive until Destroy or DestroyImmediate marks it destroyed. A
+/// destroyed object compares equal to null and converts to false. Searches (FindObjectsByType and the others) find scene objects only.
 /// </summary>
 public partial class Object
 {
@@ -87,7 +91,7 @@ public partial class Object
         {
             case ScriptableObject asset: DisunityHost.DestroyAsset(asset); break;
             case GameObject owner: owner.Destroy(); break;
-            case Component: throw new NotSupportedException("component destruction is not exposed yet");
+            case Component component: DisunityHost.DestroyComponent(component, false); break;
             default: target.MarkAssetDestroyed(); break;
         }
     }
@@ -97,7 +101,7 @@ public partial class Object
         if (!float.IsFinite(delay)) throw new ArgumentOutOfRangeException(nameof(delay));
         if (delay <= 0) { Destroy(target); return; }
         if (target is null || target.Destroyed) return;
-        if (target is not GameObject owner) throw new NotSupportedException("delayed destruction is not supported yet for assets; it needs a scene object");
+        if (target is not GameObject owner) throw new NotSupportedException("delayed destruction is not supported yet for components and assets; it needs a scene object");
         var nanos = checked((ulong)Math.Round((double)delay * 1_000_000_000));
         DisunityHost.ThrowIfError(Disunity.Native.NativeBindings.disunity_gameobject_destroy_after(
             DisunityHost.WorldHandle, owner.NativeHandle, nanos, 1_000_000_000));
@@ -112,17 +116,23 @@ public partial class Object
     public static void DestroyImmediate(Object? obj) => DestroyImmediate(obj, false);
 
     /// <summary>
-    /// Destroys a managed asset at once. Scene objects and script assets are destroyed by the native
-    /// world, which runs their OnDestroy messages in its next step, so destroying them immediately is
-    /// not supported. The player has no asset files to protect, so <paramref name="allowDestroyingAssets"/>
+    /// Destroys a managed asset at once. A scene object or component also drops out of searches and reads as
+    /// null at once, and its OnDisable and OnDestroy messages run before this returns (the engine's choice
+    /// for a native world that retires storage at the end of the frame, where the retirement still happens).
+    /// A script asset keeps the rule that the native world destroys it, so destroying it immediately is not
+    /// supported. The player has no asset files to protect, so <paramref name="allowDestroyingAssets"/>
     /// changes nothing.
     /// </summary>
     public static void DestroyImmediate(Object? obj, bool allowDestroyingAssets)
     {
         if (obj is null || obj.Destroyed) return;
-        if (obj is GameObject or Component or ScriptableObject)
-            throw new NotSupportedException("Object.DestroyImmediate is not supported yet for scene objects and script assets; use Object.Destroy");
-        obj.MarkAssetDestroyed();
+        switch (obj)
+        {
+            case ScriptableObject: throw new NotSupportedException("Object.DestroyImmediate is not supported yet for script assets; use Object.Destroy");
+            case GameObject owner: DisunityHost.DestroyObjectNow(owner); break;
+            case Component component: DisunityHost.DestroyComponent(component, true); break;
+            default: obj.MarkAssetDestroyed(); break;
+        }
     }
 
     /// <summary>
@@ -160,7 +170,8 @@ public abstract partial class Component : Object
     internal ulong Handle;
     public GameObject gameObject { get; internal set; } = null!;
     internal override GameObject Owner => gameObject;
-    internal override bool Destroyed => gameObject is { } owner && owner.IsDestroyed;
+    internal override bool Destroyed => Life >= Disunity.Hosting.ComponentLife.Hidden || (gameObject is { } owner && owner.IsDestroyed);
+    internal Disunity.Hosting.ComponentLife Life;
     internal override string ReadName() => gameObject is { } owner ? owner.name : "";
 
     internal override void WriteName(string value)

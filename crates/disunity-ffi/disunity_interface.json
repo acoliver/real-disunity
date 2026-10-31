@@ -223,6 +223,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_cleanup_flush",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_component_destroy",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_canvas_write",
       "since": "5.0.0",
       "rets": "DisunityResult"
@@ -555,6 +565,11 @@
     {
       "name": "disunity_script_enabled",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_script_destroy",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

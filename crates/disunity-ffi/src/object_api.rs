@@ -354,3 +354,32 @@ pub extern "C" fn disunity_gameobject_destroy_after(
             .map_err(crate::errors::AbiError::from)
     })
 }
+
+/// Marks a native component pending: it stays usable until the frame ends. A transform is refused
+/// and a retired or unknown component is an error; destroying a pending component again is fine.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_component_destroy(world: u64, component: u64) -> DisunityResult {
+    mutate(world, |s| {
+        let handle = crate::physics::component(s, component)?;
+        s.native
+            .destroy_component(handle)
+            .map_err(crate::errors::AbiError::from)
+    })
+}
+
+/// Marks a script component pending, queuing its `OnDisable` and `OnDestroy` messages for the frame's
+/// cleanup (or `disunity_cleanup_flush`), with the same rules as `disunity_component_destroy`.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_script_destroy(world: u64, identity: u64) -> DisunityResult {
+    mutate(world, |s| {
+        let handle = s
+            .dispatch
+            .scripts
+            .iter()
+            .find_map(|(&handle, &id)| (id == identity).then_some(handle))
+            .ok_or("script binding missing")?;
+        s.native
+            .destroy_component(handle)
+            .map_err(crate::errors::AbiError::from)
+    })
+}

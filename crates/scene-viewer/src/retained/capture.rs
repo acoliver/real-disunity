@@ -96,24 +96,18 @@ impl Captures {
         &mut self,
         id: u64,
         size: [u32; 2],
+        limit: u64,
     ) -> Result<(), CaptureRequestError> {
         let Some(recipe) = self.recipes.get(&id) else {
             return Ok(());
         };
-        let required = recipe.pool_bytes(size)?;
         let other: u64 = self
             .reservations
             .iter()
             .filter(|(key, _)| **key != id)
             .map(|(_, value)| value)
             .sum();
-        let limit = RetainedCaptureRecipe::POOL_BYTES;
-        if required > limit - other {
-            return Err(CaptureRequestError::RecipeBudget {
-                required: required + other,
-                limit,
-            });
-        }
+        let required = recipe.pool_bytes(size, limit, other)?;
         self.reservations.insert(id, required);
         Ok(())
     }
@@ -189,6 +183,10 @@ pub(crate) fn ao_format_from_settings(
 }
 
 impl RetainedHost {
+    pub(crate) fn capture_pool_bytes(&self) -> u64 {
+        self.capture_pool
+    }
+
     pub(crate) fn capture_ready(&self, request: &(u64, u64, bool), pages: bool) -> bool {
         request.1 == self.ready_generation()
             && !self.readiness.page_wait
@@ -260,15 +258,13 @@ impl RetainedHost {
             | crate::FrameProfile::HdrUpscaled { samples, .. } => samples,
         };
         recipe.ao_format = self.validate_capture_features(generation, &recipe)?;
-        let required = recipe.pool_bytes(self.size)?;
         let reserved: u64 = self.captures.reservations.values().sum();
-        let limit = RetainedCaptureRecipe::POOL_BYTES;
-        if required > limit - reserved {
-            return Err(CaptureRequestError::RecipeBudget {
-                required: required + reserved,
-                limit,
-            });
-        }
+        let limit = self.capture_pool;
+        // Queued recipes can begin at any extent within the declared maximum.
+        let required = self
+            .options
+            .capture_pool
+            .reservation_bytes(&recipe, self.size, limit, reserved)?;
         if recipe.outputs.iter().any(|output| output.term().is_some()) && recipe.accumulated() {
             return Err(CaptureRequestError::UnsupportedRecipe);
         }

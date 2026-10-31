@@ -26,7 +26,7 @@ pages and bindings. This avoids adding targets to ordinary draws and keeps
 material and shadow calculations shared with lit colour.
 Each requested product charges its RGBA16Float colour and Depth32Float replay
 targets (12 bytes per raster pixel), readbacks and decoded storage against the
-shared 256 MiB capture-recipe reservation. Descriptor planning and live admission
+shared capture-recipe reservation (256 MiB by default). Descriptor planning and live admission
 reject requests exceeding that pool with `CaptureRequestError::RecipeBudget`;
 planning wraps it in `ViewerError::Capture`. Live admission also accounts for
 outstanding reservations. With no attribution request, no replay targets or pipelines are
@@ -142,7 +142,7 @@ policy. Rejections remain typed as `ViewerError::Configuration(ConfigurationErro
 required, budget })`. The required bytes include renderer generations that
 coexist during replacement. No rendering quality is reduced to fit the budget.
 
-Desktop and windowless retained hosts reserve the 256 MiB capture-recipe pool in
+Desktop and windowless retained hosts reserve the configured capture-recipe pool in
 the initial inventory, reducing the headroom available to renderer targets even
 when no capture is requested. This host-wide pool is counted once across renderer
 generations. Admitting a recipe reserves storage without replacing targets.
@@ -151,6 +151,43 @@ RCAS selection; restoring ordinary presentation uses the same admission policy.
 Ordinary desktop and live presentation do not reserve that pool. Attachment
 replacement creates targets while previous generations remain alive, so the full
 replacement peak must fit.
+
+### Capture pool policy
+
+`ViewerOptions::capture_pool` defaults to `CapturePoolPolicy::Fixed(256 * 1024 * 1024)`.
+Choose a positive fixed capacity or `CapturePoolPolicy::Derived { recipes,
+max_extent, headroom_bytes, granularity_bytes, cap_bytes }`. Supply a nonempty
+recipe set and a nonzero maximum physical surface extent. At host creation, the
+largest declared recipe's storage requirement at `max_extent` gets the same
+checked headroom, rounding and optional cap as the presentation budget. Recipe
+storage includes staging, decoded products and accumulation storage. The initial
+frame samples and AO format determine the derived capacity.
+
+The pool stays constant for the host's lifetime, including physical resize,
+effect reconfiguration and temporary supersampled raster extents. Replacement
+inventories count the same shared CPU descriptor once, while target allocations
+count every unretired generation. The pool reserves descriptor bytes without
+eagerly allocating its capacity. `RetainedFrameStatistics::capture_pool_bytes`
+reports that constant capacity.
+
+A declaration sizes capacity, rather than restricting which requests are legal.
+Concurrent requests must fit together. Derived-policy queued requests reserve
+the larger of current-extent storage and storage at `max_extent`, so resizing
+within that extent cannot overcommit the pool. The recipe's own `max_bytes` is
+checked only at the current extent, not at the hypothetical maximum. Execution
+updates each reservation to its frozen extent and checks `max_bytes` again;
+active and undelivered results keep their charge until delivery. Requests above
+the declared extent are accepted only if their storage fits the constant pool.
+Growth beyond the declared extent or the recipe's own byte limit after admission
+can still fail execution with `ViewerError::Driver`, as with a fixed pool.
+
+Requests exceeding the pool or their own `max_bytes` fail synchronously with
+`CaptureRequestError::RecipeBudget { required, limit }`; planning returns the same
+error wrapped in `ViewerError::Capture`. Runtime reservation failures remain
+`ViewerError::Driver`. A low cap allows host startup but rejects recipes that
+exceed it. Zero capacities, maximum-extent dimensions, granularity or caps, and
+empty recipe declarations fail option validation. Storage arithmetic overflow
+fails with `CaptureRequestError::InvalidRecipe`.
 
 `plan_presentation` returns an `AllocationSet` without a device or backing storage.
 Pass the physical extent, viewer settings, effective scene effects, selected device
@@ -162,6 +199,9 @@ post-processing or restoring ordinary presentation after a native-RCAS recipe.
 Recipe plans include their supersampled raster footprint and native RCAS override. Call `validate(limits)` to obtain descriptor bytes. To plan a
 replacement peak, extend one inventory with each live generation before validating;
 shared entries are counted once. The planner does not allocate or reduce quality.
+A derived plan describes startup sizing with the supplied effects. When planning
+replacement effects for an existing host, pass `CapturePoolPolicy::Fixed` with
+that host's `capture_pool_bytes` statistic to preserve its lifetime capacity.
 
 ## Selected adapter
 

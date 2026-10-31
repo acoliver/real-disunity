@@ -132,6 +132,7 @@ impl Content for Session<'_> {
     fn source(&self) -> SceneSource<'_> {
         let mut startup = crate::renderer::Startup::from(&self.host.options);
         startup.recipes = true;
+        startup.capture_pool = self.host.capture_pool;
         SceneSource::Static {
             scene: &self.host.initial_scene,
             shadows: self.host.options.shadows,
@@ -171,6 +172,7 @@ impl Content for Session<'_> {
                 generation: self.host.readiness.published,
                 scene: renderer.take_statistics(),
                 presentation_budget_bytes: renderer.presentation_budget_bytes(),
+                capture_pool_bytes: renderer.capture_pool_bytes(),
             });
             self.notify(&RetainedEvent::Presented { frame: self.frame })
                 .map_err(ViewerError::Driver)?;

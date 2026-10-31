@@ -82,6 +82,10 @@ fn apply_edit(
 }
 
 impl Renderer {
+    pub(crate) fn capture_pool_bytes(&self) -> u64 {
+        self.presentation.capture_pool_bytes()
+    }
+
     pub(crate) fn presentation_budget_bytes(&self) -> u64 {
         self.presentation.scheduler.budget().0
     }

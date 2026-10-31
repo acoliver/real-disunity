@@ -183,20 +183,47 @@ impl RetainedCaptureRecipe {
         ])
     }
 
-    pub(crate) const POOL_BYTES: u64 = 256 * 1024 * 1024;
+    pub(crate) fn pool_bytes(
+        &self,
+        size: [u32; 2],
+        limit: u64,
+        reserved: u64,
+    ) -> Result<u64, CaptureRequestError> {
+        Self::pool_reservation_bytes(self.storage_bytes(size)?, limit, reserved)
+    }
 
-    pub(crate) fn pool_bytes(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
-        let required = self.storage_bytes(size)?;
-        if required > Self::POOL_BYTES {
+    pub(crate) fn pool_reservation_bytes(
+        bytes: u64,
+        limit: u64,
+        reserved: u64,
+    ) -> Result<u64, CaptureRequestError> {
+        if bytes > limit {
             return Err(CaptureRequestError::RecipeBudget {
-                required,
-                limit: Self::POOL_BYTES,
+                required: bytes,
+                limit,
             });
         }
-        Ok(required)
+        let required = bytes
+            .checked_add(reserved)
+            .ok_or(CaptureRequestError::InvalidRecipe)?;
+        if required > limit {
+            return Err(CaptureRequestError::RecipeBudget { required, limit });
+        }
+        Ok(bytes)
     }
 
     pub(crate) fn storage_bytes(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
+        let bytes = self.storage_requirement(size)?;
+        if bytes > self.max_bytes {
+            return Err(CaptureRequestError::RecipeBudget {
+                required: bytes,
+                limit: self.max_bytes,
+            });
+        }
+        Ok(bytes)
+    }
+
+    pub(crate) fn storage_requirement(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
         if size.contains(&0) {
             return Err(CaptureRequestError::InvalidRecipe);
         }
@@ -226,12 +253,6 @@ impl RetainedCaptureRecipe {
                 .checked_add(offscreen)
                 .and_then(|n| n.checked_add(accumulation))
                 .ok_or(CaptureRequestError::InvalidRecipe)?;
-        }
-        if bytes > self.max_bytes {
-            return Err(CaptureRequestError::RecipeBudget {
-                required: bytes,
-                limit: self.max_bytes,
-            });
         }
         Ok(bytes)
     }

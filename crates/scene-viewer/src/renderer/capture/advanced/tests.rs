@@ -1,4 +1,5 @@
 mod native_rcas;
+mod pool;
 
 #[test]
 fn depth_fitted_recipe_then_ordinary_frame_and_plain_capture_keep_frame_identity() {

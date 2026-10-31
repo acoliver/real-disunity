@@ -9,7 +9,7 @@ use worldrunner_render_scene::{Viewport, compositor::RendererConfiguration};
 pub enum PresentationCapture<'a> {
     /// Ordinary desktop or live presentation, without a retained recipe pool.
     Ordinary,
-    /// Retained presentation, including the shared 256 MiB recipe pool.
+    /// Retained presentation, including the configured shared recipe pool.
     Retained,
     /// Retained recipe execution, including supersampling and native RCAS.
     Recipe(&'a RetainedCaptureRecipe),
@@ -47,12 +47,23 @@ pub fn plan_presentation(
         options.frame_profile,
         effects,
     )?;
-    let capture_size =
-        recipe_settings(size, &mut settings, capture, limits)?.unwrap_or(extents.surface);
-    settings.additional = additional(
-        capture_size,
-        !matches!(capture, PresentationCapture::Ordinary),
-    );
+    options.capture_pool.validate()?;
+    let policy = super::PresentationPolicy {
+        budget: options.presentation_budget,
+        recipes: !matches!(capture, PresentationCapture::Ordinary),
+        capture_pool: options.capture_pool.clone(),
+    };
+    let pool = policy.pool_bytes(&settings)?;
+    let capture_size = recipe_settings(
+        size,
+        &mut settings,
+        capture,
+        limits,
+        &options.capture_pool,
+        pool.unwrap_or(0),
+    )?
+    .unwrap_or(extents.surface);
+    settings.additional = additional(capture_size, pool);
     let allocations = settings.allocations_with_history(planning.retained_effect_history);
     allocations
         .validate(limits)
@@ -65,13 +76,16 @@ fn recipe_settings(
     settings: &mut RendererConfiguration,
     capture: PresentationCapture<'_>,
     limits: &wgpu::Limits,
+    pool_policy: &crate::CapturePoolPolicy,
+    pool: u64,
 ) -> Result<Option<Viewport>, ViewerError> {
     let PresentationCapture::Recipe(recipe) = capture else {
         return Ok(None);
     };
     let mut recipe = recipe.clone();
     recipe.set_ssao(settings.ssao);
-    recipe.pool_bytes(size)?;
+    recipe.frame_samples = settings.frame.samples;
+    pool_policy.reservation_bytes(&recipe, size, pool, 0)?;
     if !recipe.accumulated() {
         return Ok(None);
     }
@@ -86,10 +100,10 @@ fn recipe_settings(
     Ok(Some(extents.surface))
 }
 
-pub(super) fn additional(size: Viewport, recipes: bool) -> AllocationSet {
+pub(super) fn additional(size: Viewport, pool: Option<u64>) -> AllocationSet {
     let mut allocations = capture_allocations(size);
-    if recipes {
-        allocations.extend(recipe_allocations());
+    if let Some(bytes) = pool {
+        allocations.extend(recipe_allocations(bytes));
     }
     allocations
 }

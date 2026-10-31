@@ -279,7 +279,7 @@ Sprite and SpriteRenderer now use native immutable content identities and render
 state. Camera exposes its orthographic lens, clip planes, clear flags, background
 colour, depth and enabled state; perspective projection is unsupported. Missing
 surface includes
-object constructors, component destruction, body forces, broader
+object constructors, delayed component destruction, body forces, broader
 colliders/queries, materials/resources, script tile/grid APIs, application/scene controls,
 the CanvasScaler component, bold/italic text, rich text markup, best fit and generic
 AddComponent<Text>. The three pinned game script trees compile unchanged against

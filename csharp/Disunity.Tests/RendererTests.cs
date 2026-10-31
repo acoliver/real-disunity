@@ -80,9 +80,10 @@ internal static class RendererTests
         var r = NewRenderer();
         r.sortingLayerName = "Default";
         Ensure(r.sortingLayerID == 0, "Default is layer 0");
-        Throws<NotSupportedException>(() => r.sortingLayerName = "Other", "an unregistered layer name", "sorting layer");
+        r.sortingLayerName = "Other";
+        Ensure(r.sortingLayerID == 0, "an unregistered name keeps the layer");
         r.sortingLayerID = 5;
-        Throws<NotSupportedException>(() => _ = r.sortingLayerName, "the name of an unregistered id", "sorting layer");
+        Ensure(r.sortingLayerName == "", "an unregistered id has no name");
     }
 
     private static void Matrices()

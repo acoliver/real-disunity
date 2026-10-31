@@ -13,7 +13,7 @@ internal static class CanvasMemberTests
             Settings();
             Console.WriteLine("PASS: Canvas stores overrideSorting, sortingLayerID, targetDisplay, additionalShaderChannels and referencePixelsPerUnit");
             SortingLayerName();
-            Console.WriteLine("PASS: Canvas.sortingLayerName maps the Default layer and rejects other names");
+            Console.WriteLine("PASS: Canvas.sortingLayerName maps the Default layer and keeps the layer for an unregistered name");
             RootCanvas();
             Console.WriteLine("PASS: isRootCanvas and rootCanvas follow the enabled canvases above");
             PixelRect();
@@ -65,10 +65,12 @@ internal static class CanvasMemberTests
         var canvas = NewCanvas();
         Expect.Equal("Default", canvas.sortingLayerName, "default layer name");
         canvas.sortingLayerID = 3;
-        Expect.Throws<NotSupportedException>(() => _ = canvas.sortingLayerName, "unnamed layer");
+        Expect.Equal("", canvas.sortingLayerName, "unregistered id has no name");
         canvas.sortingLayerName = "Default";
         Expect.Equal(0, canvas.sortingLayerID, "named Default");
-        Expect.Throws<NotSupportedException>(() => canvas.sortingLayerName = "UI", "other name");
+        canvas.sortingLayerID = 3;
+        canvas.sortingLayerName = "UI";
+        Expect.Equal(3, canvas.sortingLayerID, "an unregistered name keeps the layer");
     }
 
     private static void RootCanvas()

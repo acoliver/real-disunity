@@ -166,6 +166,18 @@ fn cancelled_primary_force_keeps_independent_radial_response() {
     assert_eq!(&actual[1..], &[0.0, 2.0, 0.0]);
 }
 
+/// Coverage is a subtract and a divide in f32 on values up to 5 (Vulkan allows 2.5 ULP for the
+/// divide), so it is within the shared arithmetic allowance at range 5 plus one ULP of the
+/// exact dyadic value, not bit identical on every driver.
+fn assert_coverage(actual: f32, expected: f64) {
+    let bound =
+        worldrunner_render_gpu::tolerance_test_support::ARITHMETIC * 5.0 + 2.0_f64.powi(-23);
+    assert!(
+        (f64::from(actual) - expected).abs() <= bound,
+        "coverage {actual} versus {expected}, bound {bound}"
+    );
+}
+
 #[test]
 fn terminal_fade_matches_independent_linear_coverage() {
     let context = context();
@@ -183,13 +195,15 @@ fn terminal_fade_matches_independent_linear_coverage() {
                 "result[0]=vec4(scene_distance_coverage({distance},vec2(2.0,-4.0)),0.0,0.0,0.0);"
             ),
         );
-        assert_eq!(actual[0].to_bits(), f32::to_bits(expected));
+        assert_coverage(actual[0], expected);
     }
     let actual = run(
         &context,
         "result[0]=vec4(scene_distance_coverage(2.0,vec2(2.0,-2.5)),scene_distance_coverage(2.25,vec2(2.0,-2.5)),scene_distance_coverage(2.5,vec2(2.0,-2.5)),scene_distance_coverage(3.0,vec2(2.0,-2.5)));",
     );
-    assert_eq!(actual, [1.0, 0.25, 0.0, 0.0]);
+    for (actual, expected) in actual.into_iter().zip([1.0, 0.25, 0.0, 0.0]) {
+        assert_coverage(actual, expected);
+    }
 }
 
 #[test]

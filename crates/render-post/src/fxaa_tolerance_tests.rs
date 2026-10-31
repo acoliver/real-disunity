@@ -24,12 +24,9 @@
 //! bound is `0.5 + 0.1 + 0.025 = 0.625` steps.
 use super::filter_reference::Image;
 use crate::tone_map_gpu_tests::half;
-
-/// Rounding to nearest (0.5), implementation sRGB transfer precision (0.1), f32 arithmetic
-/// before the conversion (0.025), in 8-bit output steps.
-pub(super) const OUTPUT_STEPS: f64 = 0.625;
-/// Unit roundoff of f32 (`2^-24`) times a conservative 64 operations, twice (GPU and CPU).
-const ARITHMETIC: f64 = 2.0 * 64.0 / 16_777_216.0;
+pub(super) use worldrunner_render_gpu::tolerance_test_support::{
+    OUTPUT_STEPS, PATH_STEPS, assert_code_within, assert_paths_agree, encoded_steps, half_bound,
+};
 
 /// Largest absolute colour texel of an image, the scale of its f32 arithmetic error. Alpha is
 /// copied, not computed, so it does not enter the arithmetic term.
@@ -40,11 +37,6 @@ pub(super) fn range(image: &Image) -> f64 {
         .flat_map(|pixel| &pixel[..3])
         .map(|&v| f64::from(v).abs())
         .fold(0.0, f64::max)
-}
-
-/// Largest error of a half-float store of `reference` computed from texels up to `range`.
-pub(super) fn half_bound(reference: f64, range: f64) -> f64 {
-    reference.abs() / 1024.0 + 2.0_f64.powi(-24) + ARITHMETIC * range
 }
 
 pub(super) fn decode_half(bytes: &[u8]) -> Vec<f64> {
@@ -80,55 +72,6 @@ pub(super) fn assert_half_close(actual: &[u8], expected: &Image, range: f64, con
 /// Encoded value in output steps, unquantised.
 pub(super) fn steps(value: f32, srgb_color: bool) -> f64 {
     encoded_steps(f64::from(value), srgb_color)
-}
-
-/// Unquantised encoded value of a display value, in output steps.
-pub(super) fn encoded_steps(value: f64, srgb_color: bool) -> f64 {
-    255.0
-        * if !srgb_color {
-            value
-        } else if value <= 0.003_130_8 {
-            12.92 * value
-        } else {
-            1.055 * value.powf(1.0 / 2.4) - 0.055
-        }
-}
-
-/// Largest error, in output steps, of storing a display value once as `Rgba16Float` before the
-/// sRGB attachment encodes it. The store errs by at most `2^-10 d` for a value `d` (a whole unit
-/// in the last place, see the module comment). The encoding's steepest `d * ds/dd` is at `d = 1`
-/// in the power segment: `255 * 1.055 / 2.4 * 1 = 112.1` steps, so the error is at most
-/// `112.1 / 1024 = 0.1095`. The toe (`d <= 0.0031308`, slope `12.92 * 255`) gives only 0.01.
-pub(super) const HALF_INTERMEDIATE_STEPS: f64 = 255.0 * 1.055 / 2.4 / 1024.0;
-
-/// Largest difference, in output steps, between two 8-bit renders of the same display value
-/// where one passes the plain tone path and the other an extra half intermediate (SMAA, CMAA2,
-/// CAS). Each render is within [`OUTPUT_STEPS`] of the unquantised value; the second adds
-/// [`HALF_INTERMEDIATE_STEPS`] for its extra store. Integer codes then differ by at most
-/// `floor(0.625 + 0.625 + 0.1095) = 1`.
-pub(super) const PATH_STEPS: f64 = 2.0 * OUTPUT_STEPS + HALF_INTERMEDIATE_STEPS;
-
-/// Asserts two 8-bit readbacks of the same scene from different shader paths agree within
-/// [`PATH_STEPS`] in every channel. Byte identity is not required: the paths round and store
-/// differently.
-pub(super) fn assert_paths_agree(plain: &[u8], other: &[u8], context: &str) {
-    assert_eq!(plain.len(), other.len(), "{context}");
-    for (index, (&a, &b)) in plain.iter().zip(other).enumerate() {
-        assert!(
-            f64::from(a.abs_diff(b)) <= PATH_STEPS,
-            "{context}: channel {index}, {a} versus {b}, allowed {PATH_STEPS}"
-        );
-    }
-}
-
-/// Asserts an 8-bit `code` is within [`OUTPUT_STEPS`] plus `extra` of an unquantised reference
-/// in output steps.
-pub(super) fn assert_code_within(code: u8, reference: f64, extra: f64, context: &str) {
-    let bound = OUTPUT_STEPS + extra;
-    assert!(
-        (f64::from(code) - reference).abs() <= bound,
-        "{context}: got {code}, want {reference}, bound {bound}"
-    );
 }
 
 /// Asserts 8-bit `actual` is within [`OUTPUT_STEPS`] of the unquantised reference.

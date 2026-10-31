@@ -169,13 +169,21 @@ fn gpu_average_normals_coverage_and_both_odd_edges_are_exact_half_float() {
         .collect();
     // Means: (0,1/4,1/4,4), (0,0,0,2), (0,0,0,6),
     // (0,0,0,6), uncovered, (0,1,0,2).
-    assert_eq!(
-        actual,
-        [
-            0, 0x3400, 0x3400, 0x4400, 0, 0, 0, 0x4000, 0, 0, 0, 0x4600, 0, 0, 0, 0x4600, 0, 0, 0,
-            0, 0, 0x3c00, 0, 0x4000
-        ]
-    );
+    // The shader divides the sum of the covered texels by their count (1, 2 or 4) in f32 and
+    // stores half, so each word is within the shared half store bound of the mean (range 32,
+    // the largest sum).
+    let want = [
+        0.0, 0.25, 0.25, 4.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0, 6.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0, 0.0, 2.0,
+    ];
+    for (index, (word, want)) in actual.iter().zip(want).enumerate() {
+        crate::tolerance_tests::assert_half_value(
+            f64::from(::half::f16::from_bits(*word).to_f32()),
+            want,
+            32.0,
+            &format!("averaged word {index}"),
+        );
+    }
 }
 
 #[test]

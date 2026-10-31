@@ -28,6 +28,7 @@ pollster.workspace = true
 # Only for tests: naga is the shader front end wgpu itself uses, so validating
 # the WGSL here fails a build rather than a frame on a machine with a GPU.
 [dev-dependencies]
+worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 worldrunner-render-plan = { path = "../render-plan", features = ["ui"] }
 worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"] }
 naga = { version = "30.0.0", features = ["wgsl-in"] }

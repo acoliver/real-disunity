@@ -39,3 +39,31 @@ pub(crate) fn max_byte_codes(actual: &[u8], expected: &[u8]) -> u32 {
         .max()
         .unwrap_or(0)
 }
+
+/// Asserts a half-float `actual` is within the derived store bound of `want`, where the f32
+/// arithmetic before the store worked on values up to `range` (see
+/// `worldrunner_render_gpu::tolerance_test_support::half_bound`).
+pub(crate) fn assert_half_value(actual: f64, want: f64, range: f64, context: &str) {
+    let bound = worldrunner_render_gpu::tolerance_test_support::half_bound(want, range);
+    assert!(
+        (actual - want).abs() <= bound,
+        "{context}: got {actual}, want {want}, bound {bound}"
+    );
+}
+
+/// Asserts the first `Rgba16Float` pixel of `bytes` is within the derived store bound of `want`.
+/// Colour channels share the range of the largest expected colour. Alpha is stored, not
+/// computed, so its arithmetic range is zero.
+pub(crate) fn assert_half_pixel(bytes: &[u8], want: [f64; 4], context: &str) {
+    let range = want[..3].iter().copied().fold(0.0, f64::max);
+    for (channel, (word, want)) in bytes.chunks_exact(2).zip(want).enumerate() {
+        let actual = f64::from(half::f16::from_le_bytes([word[0], word[1]]).to_f32());
+        let range = if channel == 3 { 0.0 } else { range };
+        assert_half_value(
+            actual,
+            want,
+            range,
+            &format!("{context}, channel {channel}"),
+        );
+    }
+}

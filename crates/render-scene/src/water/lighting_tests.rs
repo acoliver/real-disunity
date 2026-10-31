@@ -67,9 +67,11 @@ fn water_fog_composes_only_the_camera_segment_at_every_supported_sample_count() 
             .unwrap();
         let output = read(&context, renderer.targets().texture());
         let center = (16 * 32 + 16) * 8;
-        assert_eq!(
+        // Opaque absorption leaves the fog colour 0.25 (mix of f32 values stored as half).
+        crate::tolerance_tests::assert_half_pixel(
             &output[center..center + 8],
-            &[0, 0x34, 0, 0x34, 0, 0x34, 0, 0x3c]
+            [0.25, 0.25, 0.25, 1.0],
+            &format!("samples={samples} water fog"),
         );
         let (normal, material, specular) = renderer.water_receivers().unwrap();
         for view in [normal, material, specular] {

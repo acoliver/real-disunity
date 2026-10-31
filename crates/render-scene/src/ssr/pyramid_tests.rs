@@ -330,7 +330,15 @@ fn gpu_full_chain_resolve_lod_matches_independent_oracle() {
         for (index, pixel) in read(&context, &target).chunks_exact(8).enumerate() {
             let oracle =
                 expected[index % 6] + gpu::scalar(u32::try_from(index / 6).unwrap()) * 16.0;
-            assert_eq!(&pixel[..2], &half(oracle).to_le_bytes());
+            // The shader blends two stored levels with the fractional LOD in f32 and stores
+            // half, so each word is within the shared half store bound of the oracle (range
+            // 57, the largest tagged level value).
+            crate::tolerance_tests::assert_half_value(
+                f64::from(::half::f16::from_le_bytes([pixel[0], pixel[1]]).to_f32()),
+                f64::from(oracle),
+                57.0,
+                &format!("mapping {mapping} downsample {downsample} pixel {index}"),
+            );
         }
     }
     for samples in crate::msaa_tests::supported_samples(&context) {

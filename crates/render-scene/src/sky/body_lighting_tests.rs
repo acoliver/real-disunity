@@ -42,10 +42,14 @@ fn world_anchored_body_parallax_tracks_camera_translation() {
         follow.rgb(4).map(f32::to_bits),
         origin.rgb(4).map(f32::to_bits)
     );
-    assert_eq!(
-        moved.rgb(4).map(f32::to_bits),
-        [0.0_f32, 0.0, 2.0].map(f32::to_bits)
-    );
+    for (channel, (actual, want)) in moved.rgb(4).into_iter().zip([0.0, 0.0, 2.0]).enumerate() {
+        crate::tolerance_tests::assert_half_value(
+            f64::from(actual),
+            want,
+            2.0,
+            &format!("moved body background, channel {channel}"),
+        );
+    }
 }
 
 #[test]

@@ -66,13 +66,19 @@ fn atlas_blending_interpolates_linear_color_on_a_card() {
         "fs_opaque",
     );
     let center = ((TARGET / 2 * TARGET + TARGET / 2) * 4) as usize;
-    // A 45-degree view mixes linearized sRGB(200) equally. The result
-    // encodes to 146.313, more than 0.1 from either rounding boundary.
-    for (actual, expected) in pixels[center..center + 3].iter().zip([146, 146, 0]) {
-        assert!(
-            i32::from(*actual) == expected,
-            "{:?}",
-            &pixels[center..center + 4]
+    // A 45-degree view mixes linearized sRGB(200) equally with black. Each atlas cell holds one
+    // colour (constant texels), so the filter returns the cell colour for any weights.
+    let linear_200 = ((200.0_f64 / 255.0 + 0.055) / 1.055).powf(2.4);
+    for (channel, (&actual, linear)) in pixels[center..center + 3]
+        .iter()
+        .zip([0.5 * linear_200, 0.5 * linear_200, 0.0])
+        .enumerate()
+    {
+        worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+            actual,
+            worldrunner_render_gpu::tolerance_test_support::encoded_steps(linear, true),
+            0.0,
+            &format!("atlas blend, channel {channel}"),
         );
     }
 }
@@ -463,10 +469,13 @@ fn metadata_contact_uses_relief_height_against_flat_ground_oracle() {
     let card_encoded = (1.055 * (1.0 - (card.z + 0.5) / 3.0).powf(1.0 / 2.4) - 0.055) * 255.0;
     assert!((card_encoded - encoded).abs() > 2.0);
     let center = ((pixel * TARGET + pixel) * 4) as usize;
-    assert!(
-        (f32::from(pixels[center]) - encoded).abs() <= 1.0,
-        "{} vs {encoded}",
-        pixels[center]
+    // The relief texel is constant, so the oracle's only differences from the shader are f32
+    // arithmetic on world positions of a few metres, far below an output step.
+    worldrunner_render_gpu::tolerance_test_support::assert_code_within(
+        pixels[center],
+        f64::from(encoded),
+        0.0,
+        "contact weight with relief height",
     );
 }
 

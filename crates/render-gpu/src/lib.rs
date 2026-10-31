@@ -15,6 +15,8 @@ pub mod submission;
 mod submission_tests;
 pub mod surface;
 pub mod texture;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tolerance_test_support;
 
 pub mod store;
 pub use store::CanonicalTextureStore;

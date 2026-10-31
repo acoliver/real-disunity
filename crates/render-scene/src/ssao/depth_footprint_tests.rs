@@ -65,6 +65,10 @@ fn gpu_floor_footprint_has_requested_levels_and_literal_reduction() {
         .iter()
         .find(|s| s.slot == PassSlot::OcclusionMetadata(1))
         .unwrap();
+    // Exact on every conforming device: `mean_depth.wgsl` loads integer-addressed texels, adds
+    // four values and multiplies by 0.25. Each stored value is a multiple of 0.25 far below 2^24,
+    // so every sum and product is representable and correctly rounded arithmetic returns it
+    // unchanged; R32Float readback is a transfer.
     assert_eq!(read(&context, &last.target), [15.0, 19.0]);
     assert!(scalable::source(2).contains("- 3, 0, 1)"));
 }

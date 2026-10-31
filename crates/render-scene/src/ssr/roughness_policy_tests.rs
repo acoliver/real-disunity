@@ -98,7 +98,14 @@ fn disabled_cutoff_resolves_rough_surfaces_without_fading() {
                 ..settings()
             },
         );
-        assert_eq!(&bytes[32..34], &half(0.75).to_le_bytes());
+        // The resolved red is 0.75 for scene colour up to 1, so the f32 arithmetic range is 1;
+        // `assert_half_value` adds the half store bound.
+        crate::tolerance_tests::assert_half_value(
+            f64::from(::half::f16::from_le_bytes([bytes[32], bytes[33]]).to_f32()),
+            0.75,
+            1.0,
+            &format!("resolved red at roughness {roughness}"),
+        );
     }
 }
 
@@ -109,28 +116,35 @@ fn default_trace_matches_prior_shader_bytes() {
         "(camera.settings.z > 0.0 && roughness >= camera.settings.z)",
         "roughness >= camera.settings.z",
     );
-    assert_eq!(
-        super::controls_tests::capture_material(&context, settings(), 1.0, false, None, 0.5),
-        super::controls_tests::capture_material(
-            &context,
-            settings(),
-            1.0,
-            false,
-            Some(&source),
-            0.5
-        ),
+    let current =
+        super::controls_tests::capture_material(&context, settings(), 1.0, false, None, 0.5);
+    let retired = super::controls_tests::capture_material(
+        &context,
+        settings(),
+        1.0,
+        false,
+        Some(&source),
+        0.5,
     );
+    super::controls_tests::assert_traces_agree(&current, &retired, "prior cutoff shader");
+    // Roughness 0.5 is below the cutoff 0.6, so the surface reflects; both traces share
+    // `trace.wgsl`, hence the absolute model.
+    super::controls_tests::assert_centre_matches_model(&current, true, "current trace");
+    super::controls_tests::assert_centre_matches_model(&retired, true, "prior cutoff trace");
     assert_eq!(
         gpu::roughness_cutoff(&settings()).to_bits(),
         0.6f32.to_bits()
     );
-    let expected: Vec<_> = [0.75, 0.625, 0.5625, 1.0]
-        .repeat(9)
-        .into_iter()
-        .flat_map(|value| half(value).to_le_bytes())
-        .collect();
-    assert_eq!(
-        super::numerical::resolve_capture(&context, 1.0, 0.0, false),
-        expected
-    );
+    // Resolve arithmetic on colours up to 1 and a half store: the shared bound with range 1.
+    let resolved = super::numerical::resolve_capture(&context, 1.0, 0.0, false);
+    for (index, want) in [0.75, 0.625, 0.5625, 1.0].repeat(9).into_iter().enumerate() {
+        crate::tolerance_tests::assert_half_value(
+            f64::from(
+                ::half::f16::from_le_bytes([resolved[2 * index], resolved[2 * index + 1]]).to_f32(),
+            ),
+            want,
+            1.0,
+            &format!("resolved word {index}"),
+        );
+    }
 }

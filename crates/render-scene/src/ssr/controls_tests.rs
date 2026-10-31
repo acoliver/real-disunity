@@ -46,6 +46,38 @@ pub(super) fn capture_material(
     upload(context, &opaque, &colors);
     draw_trace(context, &ssr, &frame, &opaque)
 }
+/// Absolute f64 model of the centre pixel of the mirror fixture: the reflected ray meets the red
+/// disc at uv (0.65, 0.35) from origin uv (0.5, 0.7), both far from the edge fade (edge distance
+/// 0.35 and 0.3 against 0.08), within the step budget (the hit comes well before 204 of 256 steps)
+/// and within half the thickness of the surface, so every fade is 1 and the pixel is
+/// `(hit * 1, 1)` = red 1 with confidence 1. With an occluder in front the ray is rejected
+/// and the pixel is transparent black. The values are at most 1, so the arithmetic range is 1.
+pub(super) fn assert_centre_matches_model(bytes: &[u8], hit: bool, context: &str) {
+    let offset = (45 * 65 + 32) * 8;
+    let want = if hit { [1.0, 0.0, 0.0, 1.0] } else { [0.0; 4] };
+    crate::tolerance_tests::assert_half_pixel(&bytes[offset..offset + 8], want, context);
+}
+/// Two traces of the same hit decisions: every half word agrees within twice the store bound
+/// (range 1), except at words where a hit decision may flip when the compared code is not
+/// compiled identically; those are bounded to 0.5% of the words.
+pub(super) fn assert_traces_agree(actual: &[u8], expected: &[u8], context: &str) {
+    assert_eq!(actual.len(), expected.len(), "{context}: lengths");
+    let word = |bytes: &[u8], i: usize| {
+        f64::from(::half::f16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]).to_f32())
+    };
+    let words = actual.len() / 2;
+    let differing = (0..words)
+        .filter(|&i| {
+            let (a, e) = (word(actual, i), word(expected, i));
+            let bound = 2.0 * worldrunner_render_gpu::tolerance_test_support::half_bound(e, 1.0);
+            (a - e).abs() > bound
+        })
+        .count();
+    assert!(
+        differing * 200 <= words,
+        "{context}: {differing} of {words} words differ by more than the store bound"
+    );
+}
 pub(super) fn center_red(bytes: &[u8]) -> u16 {
     let offset = (45 * 65 + 32) * 8;
     u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap())
@@ -218,11 +250,23 @@ fn gpu_depth_scaled_thickness_matches_linear_depth_at_two_depths() {
         &[],
     );
     encoder.finish().submit().unwrap();
-    let expected: Vec<_> = [0.5, 0.0, 0.0, 1.0, 1.25, 0.0, 0.0, 1.0]
+    // `base + depth * slope` is one multiply and one add, 0.25 + 8 * 0.03125 and 0.25 + 32 * 0.03125,
+    // each exact in f32; the bound is still the shared half store bound with range equal to the
+    // result, because contraction and the half conversion are implementation-defined.
+    let bytes = read(&context, &target);
+    for (index, want) in [0.5, 0.0, 0.0, 1.0, 1.25, 0.0, 0.0, 1.0]
         .into_iter()
-        .flat_map(|value| half(value).to_le_bytes())
-        .collect();
-    assert_eq!(read(&context, &target), expected);
+        .enumerate()
+    {
+        crate::tolerance_tests::assert_half_value(
+            f64::from(
+                ::half::f16::from_le_bytes([bytes[2 * index], bytes[2 * index + 1]]).to_f32(),
+            ),
+            want,
+            want,
+            &format!("thickness word {index}"),
+        );
+    }
 }
 #[test]
 fn gpu_default_trace_bytes_match_fixed_traversal() {
@@ -245,10 +289,14 @@ fn gpu_default_trace_bytes_match_fixed_traversal() {
         );
     for scale in [1.0, 10.0] {
         for occluder in [false, true] {
-            assert_eq!(
-                capture(&context, settings(), scale, occluder),
-                capture_with_shader(&context, settings(), scale, occluder, Some(&fixed))
-            );
+            let current = capture(&context, settings(), scale, occluder);
+            let retired = capture_with_shader(&context, settings(), scale, occluder, Some(&fixed));
+            let case = format!("scale {scale} occluder {occluder}");
+            assert_traces_agree(&current, &retired, &case);
+            // Both traces share `trace.wgsl`, so agreement cannot see an error in it; the
+            // absolute model of the centre pixel can.
+            assert_centre_matches_model(&current, !occluder, &case);
+            assert_centre_matches_model(&retired, !occluder, &case);
         }
     }
 }

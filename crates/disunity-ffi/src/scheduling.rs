@@ -161,9 +161,7 @@ pub(crate) fn call(
         let mut store = lock_store();
         store.session_mut(world).and_then(|session| {
             let result = f(session);
-            session
-                .objects
-                .retain(|_, handle| session.native.object_alive(*handle));
+            session.objects.prune(&session.native);
             let retired: Vec<_> = session
                 .dispatch
                 .tickets

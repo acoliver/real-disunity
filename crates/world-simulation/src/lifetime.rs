@@ -15,9 +15,18 @@ pub(crate) struct Lifetime {
     pub delayed: BTreeMap<ObjectHandle, crate::TimeSpan>,
     pub objects: BTreeSet<ObjectHandle>,
     pub components: BTreeSet<ComponentHandle>,
+    /// How many objects the world has removed, ever.
+    pub removed: u64,
 }
 
 impl World {
+    /// How many objects this world has removed since it was made. An object handle that was
+    /// live stays live until this count changes, so a caller that keeps handles can skip
+    /// checking them while it holds still.
+    pub fn removed_objects(&self) -> u64 {
+        self.lifetime.removed
+    }
+
     pub fn destroy_component(&mut self, handle: ComponentHandle) -> Result<(), WorldError> {
         if self.lifetime.components.contains(&handle) {
             return Ok(());
@@ -178,6 +187,7 @@ impl World {
         let parent = self.objects.get(object.0).and_then(|stored| stored.parent);
         self.relink_child(object, parent, None);
         self.objects.remove(object.0);
+        self.lifetime.removed += 1;
     }
 
     pub(crate) fn retire_subtree(&mut self, root: ObjectHandle) {

@@ -61,6 +61,7 @@ pub(crate) fn differing_settings(base: SceneSsao) -> [SceneSsao; 7] {
 
 pub(super) fn settings() -> SceneSsao {
     SceneSsao {
+        receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
         depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
         kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
         filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,

@@ -97,15 +97,18 @@ public sealed partial class Texture2D : Texture
 
     private void Initialize(int width, int height, TextureFormat format, GraphicsFormat graphics, int mipCount)
     {
-        if (width <= 0 || height <= 0 || width > MaxSize || height > MaxSize)
-            throw new ArgumentException($"Texture2D size {width}x{height} is outside 1 to {MaxSize}");
+        if (width < 0 || height < 0 || width > MaxSize || height > MaxSize)
+            throw new ArgumentException($"Texture2D size {width}x{height} is outside 0 to {MaxSize}");
         if (TexelFormats.IsCrunched(format) || !TexelFormats.CanAllocate(format))
             throw new NotSupportedException($"Texture2D cannot be created in TextureFormat.{format} yet");
-        var full = TexelFormats.FullChain(width, height);
         if (mipCount != GenerateAllMips && mipCount < 1) throw new ArgumentException($"mipCount {mipCount} must be 1 or more, or Texture.GenerateAllMips");
+        // Games create a 0x0 texture as a placeholder key; as the engine's choice it is an empty texture with one level
+        // and no texels.
+        var empty = width == 0 || height == 0;
+        var full = empty ? 1 : TexelFormats.FullChain(width, height);
         var mips = mipCount == GenerateAllMips ? full : Math.Min(mipCount, full);
         var offsets = new long[mips + 1];
-        for (var level = 0; level < mips; level++)
+        for (var level = 0; level < mips && !empty; level++)
             offsets[level + 1] = offsets[level] + TexelFormats.LevelSize(format, Math.Max(1, width >> level), Math.Max(1, height >> level));
         if (offsets[mips] > Array.MaxLength) throw new NotSupportedException($"Texture2D of {offsets[mips]} bytes is too large");
         if (_viewed && _data.Length > 0) (_retired ??= []).Add(_data);
@@ -167,8 +170,8 @@ public sealed partial class Texture2D : Texture
     /// <summary>The bytes of mip level <paramref name="level"/>, which must exist.</summary>
     private Span<byte> LevelBytes(int level) => _data.AsSpan((int)_offsets[level], (int)(_offsets[level + 1] - _offsets[level]));
 
-    private int LevelWidth(int level) => Math.Max(1, _width >> level);
-    private int LevelHeight(int level) => Math.Max(1, _height >> level);
+    private int LevelWidth(int level) => _width == 0 ? 0 : Math.Max(1, _width >> level);
+    private int LevelHeight(int level) => _height == 0 ? 0 : Math.Max(1, _height >> level);
 
     private int CheckLevel(int level, string member)
     {

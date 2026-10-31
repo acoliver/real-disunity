@@ -44,9 +44,13 @@ internal static class CursorTests
         Expect.That(DisunityHost.CursorHotspot == new Vector2(3, 4), "the hotspot is stored");
         Expect.Equal(CursorMode.ForceSoftware, DisunityHost.CursorMode, "the mode is stored");
         var texture = new Texture2D(2, 2);
-        var error = Expect.Catch<NotSupportedException>(() => Cursor.SetCursor(texture, Vector2.zero, CursorMode.Auto), "custom cursor texture");
-        Expect.That(error.Message.Contains("custom cursor textures are not supported yet"), error.Message);
-        Expect.That(DisunityHost.CursorHotspot == new Vector2(3, 4), "a refused texture changes nothing");
+        Cursor.SetCursor(texture, new Vector2(1, 2), CursorMode.Auto);
+        Expect.That(ReferenceEquals(DisunityHost.CursorTexture, texture), "the cursor texture is stored for a presentation host");
+        Expect.That(DisunityHost.CursorHotspot == new Vector2(1, 2), "its hotspot is stored");
+        Expect.Throws<ArgumentOutOfRangeException>(() => Cursor.SetCursor(texture, Vector2.zero, (CursorMode)9), "undefined cursor mode");
+        Expect.That(DisunityHost.CursorHotspot == new Vector2(1, 2), "a rejected mode changes nothing");
+        Cursor.SetCursor(null!, Vector2.zero, CursorMode.Auto);
+        Expect.That(DisunityHost.CursorTexture is null, "a null texture restores the default cursor");
     }
 
     private static void ResetsWhenAWorldLoads()
@@ -60,6 +64,7 @@ internal static class CursorTests
             Expect.Equal(CursorLockMode.None, Cursor.lockState, "lockState reset");
             Expect.That(DisunityHost.CursorHotspot == Vector2.zero, "hotspot reset");
             Expect.Equal(CursorMode.Auto, DisunityHost.CursorMode, "mode reset");
+            Expect.That(DisunityHost.CursorTexture is null, "texture reset");
         }
         finally { DisunityHost.UnloadWorld(); }
     }

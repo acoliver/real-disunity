@@ -37,9 +37,25 @@ retained effect-history state exposed by `ConfiguredFrameRenderer::has_effect_hi
 Planning and live replacement share `RendererConfiguration::allocations_with_history`,
 which retains exposure storage after effects are disabled or a recipe is restored.
 Budget errors retain `required` and `budget` through `ViewerError::Configuration`.
-Retained desktop and windowless hosts include their 256 MiB capture-recipe pool
-in the initial inventory, declared with `AllocationSet::shared_cpu` so the single
-host-wide reservation is counted once across replacements. Recipe admission does
+Retained desktop and windowless hosts include `ViewerOptions::capture_pool`
+in the initial inventory, defaulting to a fixed 256 MiB. `CapturePoolPolicy::Derived`
+evaluates the largest declared recipe once at host creation, at the policy's
+nonzero `max_extent`, using initial frame samples and AO format. It uses the
+presentation budget's checked headroom, granularity and optional cap rule.
+Capacity stays constant across resize, effect reconfiguration and capture raster
+overrides. The inventory uses `AllocationSet::shared_cpu` with the same descriptor
+across replacements, counting the host pool once even after GPU retirement.
+Planning and request admission share the recipe storage and pool checks, returning
+`CaptureRequestError::RecipeBudget` on excess. Queued derived-policy reservations
+cover the larger of current and `max_extent` storage, without checking the
+recipe's own `max_bytes` at the hypothetical extent. Admission checks that limit
+at the current extent; execution checks it again at the execution extent and
+charges the frozen capture extent until result delivery. Larger extents are
+accepted only when they fit. Growth beyond the declared maximum or the recipe's
+own byte limit after admission can fail execution. Runtime reservation failures
+remain `ViewerError::Driver`, including with the default fixed pool.
+Constant capacity is exposed as `RetainedFrameStatistics::capture_pool_bytes`.
+Recipe admission does
 not reconfigure targets. Actual
 attachment replacement still counts the old and new generations because the
 allocator constructs new targets before publishing and retiring the old ones.

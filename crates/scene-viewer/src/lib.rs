@@ -20,8 +20,10 @@ pub use live::{
 mod clock;
 pub use clock::RenderClock;
 mod camera;
+mod capture_pool;
 mod presentation;
 mod presentation_budget;
+pub use capture_pool::CapturePoolPolicy;
 pub use presentation_budget::{PresentationBudget, PresentationBudgetPolicy};
 mod window_size;
 pub use presentation::planning::{PresentationCapture, PresentationPlanning, plan_presentation};
@@ -52,6 +54,8 @@ use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 pub struct ViewerOptions {
     /// Presentation descriptor-byte limit, including replacement overlap. Default: 1 GiB.
     pub presentation_budget: PresentationBudgetPolicy,
+    /// Retained recipe storage policy, shared by desktop and windowless hosts.
+    pub capture_pool: CapturePoolPolicy,
     /// Raster camera convention; use the shared right-handed default unless selected explicitly.
     pub camera_convention: worldrunner_camera::ViewConvention,
     /// Optional startup SSR override. Requires authored scene effects and HDR.
@@ -283,6 +287,7 @@ pub use retained::DecalUpdate;
 
 fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
     options.presentation_budget.validate()?;
+    options.capture_pool.validate()?;
     if !matches!(
         options.present_mode,
         wgpu::PresentMode::Fifo

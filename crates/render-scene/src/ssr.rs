@@ -50,6 +50,7 @@ pub(crate) fn validate_extent(
 }
 pub(crate) const fn neutral_ao() -> SceneSsao {
     SceneSsao {
+        receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
         depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint {
             level_count: 8,
             rounding: worldrunner_render_plan::SceneDownsampleRounding::Ceil,
@@ -231,7 +232,7 @@ impl Ssr {
             device,
             config,
             &settings,
-            screen.passes.filtered.format() == wgpu::TextureFormat::Rg16Float,
+            (screen.settings.receiver, screen.passes.filtered.format()),
         );
         let water_trace = grid::pipeline(device, config, &settings, true);
         Ok(Self {

@@ -6,8 +6,14 @@ namespace Disunity.Hosting;
 
 internal sealed partial class SceneLoader
 {
-    /// <summary>A mesh filter of a player plan. The plan holds no mesh asset yet, so the filter has no mesh.</summary>
-    private static MeshFilter MeshFilter(GameObject owner) => owner.AddComponent<MeshFilter>();
+    /// <summary>A mesh filter of a player plan: <c>{"mesh": asset index or null}</c>. The shared mesh is the planned resource
+    /// mesh, which every filter that names it shares; without one the filter has no mesh.</summary>
+    private MeshFilter MeshFilter(GameObject owner, JsonElement value)
+    {
+        var filter = owner.AddComponent<MeshFilter>();
+        if (value.TryGetProperty("mesh", out var index) && index.ValueKind == JsonValueKind.Number) filter.sharedMesh = (Mesh)PlannedAsset(index.GetInt32());
+        return filter;
+    }
 
     private static SortingGroup SortingGroup(GameObject owner, JsonElement value)
     {

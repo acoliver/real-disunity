@@ -96,24 +96,18 @@ impl Captures {
         &mut self,
         id: u64,
         size: [u32; 2],
+        limit: u64,
     ) -> Result<(), CaptureRequestError> {
         let Some(recipe) = self.recipes.get(&id) else {
             return Ok(());
         };
-        let required = recipe.pool_bytes(size)?;
         let other: u64 = self
             .reservations
             .iter()
             .filter(|(key, _)| **key != id)
             .map(|(_, value)| value)
             .sum();
-        let limit = RetainedCaptureRecipe::POOL_BYTES;
-        if required > limit - other {
-            return Err(CaptureRequestError::RecipeBudget {
-                required: required + other,
-                limit,
-            });
-        }
+        let required = recipe.pool_bytes(size, limit, other)?;
         self.reservations.insert(id, required);
         Ok(())
     }
@@ -167,7 +161,32 @@ pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) 
     [ao || ssr, ao || ssr, ao || ssr, ssr, ssr]
 }
 
+pub(crate) fn ao_format(
+    effects: Option<&worldrunner_render_plan::SceneEffects>,
+) -> wgpu::TextureFormat {
+    ao_format_from_settings(effects.and_then(|e| e.ssao()).copied())
+}
+
+pub(crate) fn ao_format_from_settings(
+    settings: Option<worldrunner_render_plan::SceneSsao>,
+) -> wgpu::TextureFormat {
+    use worldrunner_render_plan::{SceneSsaoKernel, SceneSsaoReceiver};
+    match settings {
+        Some(ao) if ao.receiver == SceneSsaoReceiver::DepthAwareGather => {
+            wgpu::TextureFormat::Rg32Float
+        }
+        Some(ao) if matches!(ao.kernel, SceneSsaoKernel::Scalable { .. }) => {
+            wgpu::TextureFormat::Rg16Float
+        }
+        _ => wgpu::TextureFormat::R32Float,
+    }
+}
+
 impl RetainedHost {
+    pub(crate) fn capture_pool_bytes(&self) -> u64 {
+        self.capture_pool
+    }
+
     pub(crate) fn capture_ready(&self, request: &(u64, u64, bool), pages: bool) -> bool {
         request.1 == self.ready_generation()
             && !self.readiness.page_wait
@@ -180,7 +199,7 @@ impl RetainedHost {
         &self,
         generation: u64,
         recipe: &RetainedCaptureRecipe,
-    ) -> Result<(), CaptureRequestError> {
+    ) -> Result<wgpu::TextureFormat, CaptureRequestError> {
         if generation > self.accepted_generation() {
             return Err(CaptureRequestError::UnknownGeneration { generation });
         }
@@ -190,15 +209,19 @@ impl RetainedHost {
                 ready: self.readiness.published,
             });
         }
-        let available = if generation == self.readiness.published {
-            self.readiness.capture_features
+        let (available, format) = if generation == self.readiness.published {
+            (
+                self.readiness.capture_features,
+                self.readiness.capture_ao_format,
+            )
         } else {
-            self.readiness
+            let pending = self
+                .readiness
                 .queue
                 .iter()
                 .find(|p| p.generation == generation)
-                .expect("accepted generation")
-                .capture_features
+                .expect("accepted generation");
+            (pending.capture_features, pending.capture_ao_format)
         };
         for (index, output) in [
             CaptureOutput::Depth,
@@ -219,7 +242,7 @@ impl RetainedHost {
                 }
             }
         }
-        Ok(())
+        Ok(format)
     }
 
     /// Admits typed output requests without allocating GPU or image storage.
@@ -234,16 +257,14 @@ impl RetainedHost {
             | crate::FrameProfile::HdrNativeRcas { samples, .. }
             | crate::FrameProfile::HdrUpscaled { samples, .. } => samples,
         };
-        let required = recipe.pool_bytes(self.size)?;
+        recipe.ao_format = self.validate_capture_features(generation, &recipe)?;
         let reserved: u64 = self.captures.reservations.values().sum();
-        let limit = RetainedCaptureRecipe::POOL_BYTES;
-        if required > limit - reserved {
-            return Err(CaptureRequestError::RecipeBudget {
-                required: required + reserved,
-                limit,
-            });
-        }
-        self.validate_capture_features(generation, &recipe)?;
+        let limit = self.capture_pool;
+        // Queued recipes can begin at any extent within the declared maximum.
+        let required = self
+            .options
+            .capture_pool
+            .reservation_bytes(&recipe, self.size, limit, reserved)?;
         if recipe.outputs.iter().any(|output| output.term().is_some()) && recipe.accumulated() {
             return Err(CaptureRequestError::UnsupportedRecipe);
         }

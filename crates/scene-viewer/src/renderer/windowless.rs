@@ -29,8 +29,9 @@ impl Renderer {
             [extents.render, extents.surface],
             options.frame_profile,
             scene.effects(),
-            crate::presentation::PresentationPolicy {
+            &crate::presentation::PresentationPolicy {
                 budget: options.presentation_budget,
+                capture_pool: crate::CapturePoolPolicy::Fixed(host.capture_pool_bytes()),
                 recipes: true,
             },
         )?;

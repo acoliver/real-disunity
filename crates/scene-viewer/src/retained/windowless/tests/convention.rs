@@ -24,6 +24,7 @@ fn scene() -> RenderScene {
         post: vec![],
         anti_alias: *initial.anti_alias(),
         ssao: Some(SceneSsao {
+            receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
             depth_footprint: SceneSsaoDepthFootprint::default(),
             kernel: SceneSsaoKernel::Hemisphere,
             filter: SceneSsaoFilter::DepthAwareBox,
@@ -275,4 +276,43 @@ fn basis_scene() -> RenderScene {
         effects: base.effects().cloned(),
     })
     .unwrap()
+}
+
+#[test]
+fn retained_capture_decodes_gather_ao() {
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut host = camera_host(None);
+    let effects = host.scene.effects().unwrap().clone();
+    let mut ao = *effects.ssao().unwrap();
+    ao.receiver = worldrunner_render_plan::SceneSsaoReceiver::DepthAwareGather;
+    host.apply(RetainedUpdate::Settings(Box::new(
+        SceneEffects::new(SceneEffectsParts {
+            water: None,
+            sky: *effects.sky(),
+            sun: *effects.sun(),
+            ambient: *effects.ambient(),
+            shadows: effects.shadows().clone(),
+            camera: *effects.camera(),
+            grading: *effects.grading(),
+            post: vec![],
+            anti_alias: *effects.anti_alias(),
+            ssao: Some(ao),
+        })
+        .unwrap()
+        .with_ssr(*effects.ssr().unwrap())
+        .unwrap(),
+    )))
+    .unwrap();
+    let mut run = host.windowless(&mut driver).unwrap();
+    let captured = products(&mut run, &events);
+    let ao = captured.ambient_occlusion.unwrap();
+    assert_eq!(ao.pixels.len(), 64 * 64);
+    assert!(
+        ao.pixels
+            .iter()
+            .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+    );
+    assert!(ao.pixels.iter().any(|v| *v > 0.0));
+    run.shutdown().unwrap();
 }

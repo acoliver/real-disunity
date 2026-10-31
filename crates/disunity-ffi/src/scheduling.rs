@@ -453,3 +453,21 @@ pub extern "C" fn disunity_callback_check(world: u64, ticket: u64) -> DisunityRe
         Err(worldrunner_world_simulation::WorldError::WrongCallback.into())
     })
 }
+
+/// Runs the `OnDisable` and `OnDestroy` messages that destruction has queued, now, in a child
+/// scope the host drains with `disunity_world_resume` until a lifecycle-complete record. The frame's
+/// cleanup does not repeat them. Allowed at top level and inside a script callback.
+/// # Safety
+/// `output` is writable for one record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_cleanup_flush(
+    world: u64,
+    output: *mut DisunityAdvance,
+) -> DisunityResult {
+    call(world, output, |session| {
+        session
+            .native
+            .flush_cleanup()
+            .map_err(crate::errors::AbiError::from)
+    })
+}

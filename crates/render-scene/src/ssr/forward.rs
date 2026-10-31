@@ -42,6 +42,12 @@ pub(crate) fn source(source: &str, terrain: bool) -> String {
     )
 }
 pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    receiver_layout(device, worldrunner_render_plan::SceneSsaoReceiver::Nearest)
+}
+pub(crate) fn receiver_layout(
+    device: &wgpu::Device,
+    receiver: worldrunner_render_plan::SceneSsaoReceiver,
+) -> wgpu::BindGroupLayout {
     let mut entries = Vec::new();
     for binding in 0..3 {
         entries.push(wgpu::BindGroupLayoutEntry {
@@ -77,6 +83,9 @@ pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         },
         count: None,
     });
+    if crate::ssao::receiver::gathers(receiver) {
+        entries.push(crate::ssao::receiver::uniform_entry());
+    }
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("reflection environment"),
         entries: &entries,
@@ -122,9 +131,15 @@ pub(crate) fn group(
         binding: 4,
         resource: intensity.as_entire_binding(),
     });
+    if crate::ssao::receiver::gathers(screen.settings.receiver) {
+        entries.push(wgpu::BindGroupEntry {
+            binding: 5,
+            resource: screen.uniform.as_entire_binding(),
+        });
+    }
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("reflection environment"),
-        layout: &layout(device),
+        layout: &receiver_layout(device, screen.settings.receiver),
         entries: &entries,
     })
 }

@@ -1,5 +1,5 @@
 //! Mesh filters, mesh renderers and skinned mesh renderers in player scenes and prefabs: the
-//! renderer settings carry into the plan, a Mesh reference the plans cannot build yet binds null
+//! renderer settings carry into the plan, a filter's Mesh reference the plan does not hold binds null
 //! and is listed once, and a Material reference the plan does not hold binds null and is listed
 //! per slot.
 
@@ -124,7 +124,7 @@ fn assert_rig(components: &[Vec<PlanComponent>], differences: &[String], owner: 
     let [rock, body] = components else {
         panic!("two objects: {components:?}")
     };
-    let [PlanComponent::MeshFilter {}, mesh_renderer] = &rock[..] else {
+    let [PlanComponent::MeshFilter { mesh: None }, mesh_renderer] = &rock[..] else {
         panic!("a filter and a renderer on the rock: {rock:?}")
     };
     let expected = json!({
@@ -135,7 +135,7 @@ fn assert_rig(components: &[Vec<PlanComponent>], differences: &[String], owner: 
         "sorting_order": 7, "materials": [null, null, null]
     });
     assert_eq!(serde_json::to_value(mesh_renderer).unwrap(), expected);
-    let [PlanComponent::MeshFilter {}, skinned] = &body[..] else {
+    let [PlanComponent::MeshFilter { mesh: None }, skinned] = &body[..] else {
         panic!("a filter and a skinned renderer on the body: {body:?}")
     };
     let mut skin = expected.clone();
@@ -150,7 +150,7 @@ fn assert_rig(components: &[Vec<PlanComponent>], differences: &[String], owner: 
     let name = |what: &str, who: &str| format!("{owner}{who}: {what}");
     let mut wanted = vec![
         name(
-            "MeshFilter mesh references a Mesh asset, which plans cannot build yet",
+            "MeshFilter mesh references object 500 of file 1, which the plan does not hold",
             "Rock",
         ),
         name(

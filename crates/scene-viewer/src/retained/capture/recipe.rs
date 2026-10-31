@@ -46,9 +46,14 @@ pub struct RetainedCaptureRecipe {
     pub(crate) require_pages: bool,
     pub(crate) require_geometry: bool,
     pub(crate) frame_samples: u32,
+    pub(crate) ao_format: wgpu::TextureFormat,
     native_rcas: Option<crate::NativeRcasSettings>,
 }
 impl RetainedCaptureRecipe {
+    pub(crate) fn set_ssao(&mut self, settings: Option<worldrunner_render_plan::SceneSsao>) {
+        self.ao_format = super::ao_format_from_settings(settings);
+    }
+
     pub fn new(
         supersample: u32,
         temporal_samples: u32,
@@ -88,6 +93,7 @@ impl RetainedCaptureRecipe {
             require_pages: false,
             require_geometry: false,
             frame_samples: 1,
+            ao_format: wgpu::TextureFormat::R32Float,
             native_rcas: None,
         })
     }
@@ -177,20 +183,47 @@ impl RetainedCaptureRecipe {
         ])
     }
 
-    pub(crate) const POOL_BYTES: u64 = 256 * 1024 * 1024;
+    pub(crate) fn pool_bytes(
+        &self,
+        size: [u32; 2],
+        limit: u64,
+        reserved: u64,
+    ) -> Result<u64, CaptureRequestError> {
+        Self::pool_reservation_bytes(self.storage_bytes(size)?, limit, reserved)
+    }
 
-    pub(crate) fn pool_bytes(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
-        let required = self.storage_bytes(size)?;
-        if required > Self::POOL_BYTES {
+    pub(crate) fn pool_reservation_bytes(
+        bytes: u64,
+        limit: u64,
+        reserved: u64,
+    ) -> Result<u64, CaptureRequestError> {
+        if bytes > limit {
             return Err(CaptureRequestError::RecipeBudget {
-                required,
-                limit: Self::POOL_BYTES,
+                required: bytes,
+                limit,
             });
         }
-        Ok(required)
+        let required = bytes
+            .checked_add(reserved)
+            .ok_or(CaptureRequestError::InvalidRecipe)?;
+        if required > limit {
+            return Err(CaptureRequestError::RecipeBudget { required, limit });
+        }
+        Ok(bytes)
     }
 
     pub(crate) fn storage_bytes(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
+        let bytes = self.storage_requirement(size)?;
+        if bytes > self.max_bytes {
+            return Err(CaptureRequestError::RecipeBudget {
+                required: bytes,
+                limit: self.max_bytes,
+            });
+        }
+        Ok(bytes)
+    }
+
+    pub(crate) fn storage_requirement(&self, size: [u32; 2]) -> Result<u64, CaptureRequestError> {
         if size.contains(&0) {
             return Err(CaptureRequestError::InvalidRecipe);
         }
@@ -199,7 +232,12 @@ impl RetainedCaptureRecipe {
         let mut bytes = 0_u64;
         for output in &self.outputs {
             bytes = bytes
-                .checked_add(output_storage(*output, size, self.frame_samples)?)
+                .checked_add(output_storage(
+                    *output,
+                    size,
+                    self.frame_samples,
+                    self.ao_format,
+                )?)
                 .ok_or(CaptureRequestError::InvalidRecipe)?;
         }
         if self.accumulated() {
@@ -216,12 +254,6 @@ impl RetainedCaptureRecipe {
                 .and_then(|n| n.checked_add(accumulation))
                 .ok_or(CaptureRequestError::InvalidRecipe)?;
         }
-        if bytes > self.max_bytes {
-            return Err(CaptureRequestError::RecipeBudget {
-                required: bytes,
-                limit: self.max_bytes,
-            });
-        }
         Ok(bytes)
     }
 }
@@ -230,6 +262,7 @@ fn output_storage(
     output: CaptureOutput,
     size: [u32; 2],
     samples: u32,
+    ao_format: wgpu::TextureFormat,
 ) -> Result<u64, CaptureRequestError> {
     let width = u64::from(size[0])
         .checked_mul(if output == CaptureOutput::SsrConfidence {
@@ -250,6 +283,7 @@ fn output_storage(
         | CaptureOutput::EnvironmentSpecular
         | CaptureOutput::SunSpecular => (8, 24),
         CaptureOutput::SsrConfidence => (8, 12),
+        CaptureOutput::AmbientOcclusion if ao_format == wgpu::TextureFormat::Rg32Float => (8, 12),
         CaptureOutput::Depth | CaptureOutput::AmbientOcclusion => (4, 8),
     };
     let targets = if output.term().is_some() {
@@ -324,13 +358,44 @@ mod tests {
         for samples in [1, 4] {
             // Two padded staging copies and one tightly packed raw plane.
             assert_eq!(
-                output_storage(CaptureOutput::Specular, [33, 2], samples),
+                output_storage(
+                    CaptureOutput::Specular,
+                    [33, 2],
+                    samples,
+                    wgpu::TextureFormat::R32Float
+                ),
                 Ok(2576)
             );
         }
         assert_eq!(
-            output_storage(CaptureOutput::Specular, [u32::MAX; 2], 1),
+            output_storage(
+                CaptureOutput::Specular,
+                [u32::MAX; 2],
+                1,
+                wgpu::TextureFormat::R32Float
+            ),
             Err(CaptureRequestError::InvalidRecipe)
+        );
+    }
+    #[test]
+    fn ao_native_format_budget_preserves_nearest_and_counts_gather_storage() {
+        for format in [
+            wgpu::TextureFormat::R32Float,
+            wgpu::TextureFormat::Rg16Float,
+        ] {
+            assert_eq!(
+                output_storage(CaptureOutput::AmbientOcclusion, [33, 2], 1, format),
+                Ok(1552)
+            );
+        }
+        assert_eq!(
+            output_storage(
+                CaptureOutput::AmbientOcclusion,
+                [33, 2],
+                1,
+                wgpu::TextureFormat::Rg32Float
+            ),
+            Ok(2840)
         );
     }
     #[test]

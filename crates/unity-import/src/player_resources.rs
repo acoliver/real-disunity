@@ -8,7 +8,8 @@
 //! tables of many megabytes. Textures, sprites and sprite atlases are planned too, along
 //! with the ones such an object references even when the container does not list them (see
 //! [`crate::player_sprites`]), and so are shaders (see [`crate::player_shader_refs`]) and materials
-//! (see [`crate::player_materials`]). A `GameObject` is a prefab: a scene plan of the object and its
+//! (see [`crate::player_materials`]); a `MeshFilter` plans the meshes it references, with their data in
+//! files beside the plan (see [`crate::player_meshes`]). A `GameObject` is a prefab: a scene plan of the object and its
 //! descendants in a file beside the plan (see [`crate::player_prefabs`]); a prefab that does not
 //! plan keeps its error and the rest of the plan is unaffected. Entries of other classes keep
 //! only their class, so loading one names the class the engine does not build yet.
@@ -31,6 +32,7 @@ use crate::{
     player_materials::{
         PlanMaterial, decode_material, plan_material, unplanned_reference as unplanned_material,
     },
+    player_meshes::{DecodedMesh, PlanMesh, decode_mesh, plan_mesh},
     player_pipeline::{GraphicsAssets, admit_graphics_assets},
     player_plan::{PlanSource, tag_manager_names},
     player_prefabs::{is_root, plan_prefab, prefab_name},
@@ -146,6 +148,12 @@ pub enum ResourceAsset {
     },
     /// A material the planner could not decode, with the reason loading it reports.
     UnplannedMaterial { error: String },
+    /// A mesh: its channels, sub-meshes and bounds, with the vertex and index data in the file
+    /// `resource` (see [`crate::player_meshes`]).
+    Mesh {
+        #[serde(flatten)]
+        mesh: PlanMesh,
+    },
     /// A texture a camera or script draws into. `depth_format` is the `GraphicsFormat` of the
     /// depth buffer (0 for none) and `color_format` that of the color buffer; `dimension`,
     /// `filter_mode` and the wrap modes are the engine's enum values.
@@ -251,6 +259,7 @@ fn referenced_on_demand(class: ClassId) -> bool {
         || class == ClassId::SPRITE_ATLAS
         || class == ClassId::SHADER
         || class == ClassId::MATERIAL
+        || class == ClassId::MESH
         || class == ClassId::RENDER_TEXTURE
         || class == ClassId::GAME_OBJECT
 }
@@ -285,6 +294,8 @@ pub(crate) struct Registry {
     shaders: BTreeMap<ObjectKey, Result<ShaderDecl, String>>,
     /// Each admitted material as decoded, or why it did not.
     materials: BTreeMap<ObjectKey, Result<Material, String>>,
+    /// Each admitted mesh as decoded, until its asset is planned.
+    meshes: BTreeMap<ObjectKey, DecodedMesh>,
     /// Each admitted render texture as decoded, or why it did not.
     render_textures: BTreeMap<ObjectKey, Result<RenderTexture, String>>,
     /// Differences found while admitting and while planning textures, sprites and atlases.
@@ -300,6 +311,7 @@ impl Registry {
             rejected: BTreeSet::new(),
             shaders: BTreeMap::new(),
             materials: BTreeMap::new(),
+            meshes: BTreeMap::new(),
             render_textures: BTreeMap::new(),
             notes: Vec::new(),
         }
@@ -337,6 +349,9 @@ impl Registry {
             self.rejected.insert(key.clone());
             return Ok(None);
         }
+        if class == ClassId::MESH && !self.admit_mesh(key)? {
+            return Ok(None);
+        }
         if class == ClassId::SHADER {
             let decoded = decode_shader(&mut self.files, key);
             self.shaders.insert(key.clone(), decoded);
@@ -352,6 +367,28 @@ impl Registry {
         self.planned.insert(key.clone(), self.queue.len());
         self.queue.push((key.clone(), class));
         Ok(Some(self.queue.len() - 1))
+    }
+
+    /// Decodes a mesh being admitted. A mesh the plan cannot hold is noted once, with whatever
+    /// else it leaves out, and rejected.
+    fn admit_mesh(&mut self, key: &ObjectKey) -> Result<bool, PlayerError> {
+        match decode_mesh(&mut self.files, key)? {
+            Ok(mut decoded) => {
+                self.notes.append(&mut decoded.notes);
+                self.meshes.insert(key.clone(), decoded);
+                Ok(true)
+            }
+            Err(flaw) => {
+                self.notes.push(flaw);
+                self.rejected.insert(key.clone());
+                Ok(false)
+            }
+        }
+    }
+
+    /// The decoded mesh of an admitted object, once, to plan its asset.
+    pub(crate) fn take_mesh(&mut self, key: &ObjectKey) -> Option<DecodedMesh> {
+        self.meshes.remove(key)
     }
 
     /// `{"$asset": i}` for a reference from `owner` to a planned object, or why there is none.
@@ -443,6 +480,7 @@ impl ResourcePlanner {
             ClassId::GAME_OBJECT => self.prefab(key, layouts),
             ClassId::SHADER => Ok(self.shader(key)),
             ClassId::MATERIAL => Ok(self.material(key)),
+            ClassId::MESH => plan_mesh(&mut self.registry, key, &self.output, index),
             ClassId::RENDER_TEXTURE => Ok(self.render_texture(key)),
             _ => self.script_asset(key, layouts),
         }

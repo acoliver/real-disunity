@@ -533,6 +533,15 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_callback_check", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_callback_check(ulong world, ulong ticket);
         /// <summary>
+        ///  Runs the `OnDisable` and `OnDestroy` messages that destruction has queued, now, in a child
+        ///  scope the host drains with `disunity_world_resume` until a lifecycle-complete record. The frame's
+        ///  cleanup does not repeat them. Allowed at top level and inside a script callback.
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_cleanup_flush", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_cleanup_flush(ulong world, DisunityAdvance* output);
+        /// <summary>
         ///  Copies the last diagnostic into independently owned storage.
         ///  # Safety
         ///  `output` is writable for one buffer descriptor.
@@ -736,11 +745,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_collider_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_collider_read(ulong world, ulong handle, DisunityCollider2d* output);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one hit. A zero collider means no hit.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_physics_raycast", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_physics_raycast(ulong world, float x, float y, float dx, float dy, float distance, uint layers, DisunityRayHit* output);
     }
 }

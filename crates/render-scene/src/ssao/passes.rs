@@ -367,3 +367,38 @@ mod scalable_sampling_tests;
 #[cfg(test)]
 #[path = "depth_footprint_tests.rs"]
 mod depth_footprint_tests;
+
+#[cfg(test)]
+impl ScreenPasses {
+    pub(super) fn receiver_depth(
+        &self,
+        kernel: worldrunner_render_plan::SceneSsaoKernel,
+    ) -> &wgpu::Texture {
+        if matches!(
+            kernel,
+            worldrunner_render_plan::SceneSsaoKernel::Scalable { .. }
+                | worldrunner_render_plan::SceneSsaoKernel::Spiral
+        ) {
+            &self
+                .stages
+                .iter()
+                .find(|stage| stage.slot == PassSlot::OcclusionMetadata(0))
+                .unwrap()
+                .target
+        } else {
+            &self.stages[0].target
+        }
+    }
+    pub(super) fn draw_receiver_metadata(&self, context: &crate::device::GpuContext) {
+        let stage = self
+            .stages
+            .iter()
+            .find(|stage| stage.slot == PassSlot::OcclusionMetadata(0))
+            .unwrap();
+        super::tests::draw(context, &stage.pipeline, &stage.group, &stage.target);
+    }
+    pub(super) fn draw_final_filter(&self, context: &crate::device::GpuContext) {
+        let stage = self.stages.last().unwrap();
+        super::tests::draw(context, &stage.pipeline, &stage.group, &stage.target);
+    }
+}

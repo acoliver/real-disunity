@@ -81,7 +81,7 @@ pub const fn fragment_entry_point(masked: bool) -> &'static str {
 mod tests;
 
 #[cfg(test)]
-mod gpu_math_tests;
+pub(crate) mod gpu_math_tests;
 
 #[cfg(test)]
 mod foliage_tests;

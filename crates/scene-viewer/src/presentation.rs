@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod capture_pool_tests;
+#[cfg(test)]
 mod history_planning_tests;
 
 #[cfg(test)]
@@ -23,20 +25,32 @@ use worldrunner_render_post::FrameConfig;
 use worldrunner_render_scene::Viewport;
 use worldrunner_render_scene::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct PresentationPolicy {
     pub budget: crate::PresentationBudgetPolicy,
     pub recipes: bool,
+    pub capture_pool: crate::CapturePoolPolicy,
 }
 
 impl PresentationPolicy {
+    fn pool_bytes(&self, settings: &RendererConfiguration) -> Result<Option<u64>, ViewerError> {
+        if !self.recipes {
+            return Ok(None);
+        }
+        Ok(Some(self.capture_pool.effective_bytes(
+            settings.frame.samples,
+            crate::retained::ao_format_from_settings(settings.ssao),
+        )?))
+    }
+
     pub(super) fn inventory(
-        self,
+        &self,
         mut settings: RendererConfiguration,
         capture_size: Viewport,
         limits: &wgpu::Limits,
-    ) -> Result<RendererConfiguration, ViewerError> {
-        settings.additional = planning::additional(capture_size, self.recipes);
+    ) -> Result<(RendererConfiguration, Option<u64>), ViewerError> {
+        let pool = self.pool_bytes(&settings)?;
+        settings.additional = planning::additional(capture_size, pool);
         let required = settings
             .allocations()
             .validate(limits)
@@ -44,7 +58,7 @@ impl PresentationPolicy {
         self.budget
             .allocation_policy()
             .resolve::<worldrunner_render_post::PostError>(required)?;
-        Ok(settings)
+        Ok((settings, pool))
     }
 }
 
@@ -56,7 +70,7 @@ pub(super) struct Presentation {
     pub targets: Targets,
     scale: Option<worldrunner_render_post::RenderScale>,
     capture_size: Viewport,
-    recipe_capacity: bool,
+    capture_pool: Option<u64>,
     native_rcas: Option<crate::NativeRcasSettings>,
 }
 
@@ -98,8 +112,9 @@ impl Presentation {
             [size, capture_size],
             profile,
             effects,
-            PresentationPolicy {
+            &PresentationPolicy {
                 budget: crate::PresentationBudget::default().into(),
+                capture_pool: crate::CapturePoolPolicy::default(),
                 recipes: true,
             },
         )
@@ -111,12 +126,12 @@ impl Presentation {
         [size, capture_size]: [Viewport; 2],
         profile: crate::FrameProfile,
         effects: Option<&worldrunner_render_plan::SceneEffects>,
-        policy: PresentationPolicy,
+        policy: &PresentationPolicy,
     ) -> Result<Self, ViewerError> {
         let (settings, scale) =
             setup::configuration(context.device().features(), format, size, profile, effects)?;
-        let settings = policy.inventory(settings, capture_size, &context.device().limits())?;
-        let recipe_capacity = policy.recipes;
+        let (settings, capture_pool) =
+            policy.inventory(settings, capture_size, &context.device().limits())?;
         let native_rcas = settings.post.native_rcas;
         let scheduler = ConfiguredFrameRenderer::new_with_policy(
             context,
@@ -129,7 +144,7 @@ impl Presentation {
             targets,
             scale,
             capture_size,
-            recipe_capacity,
+            capture_pool,
             native_rcas,
         })
     }
@@ -140,7 +155,7 @@ impl Presentation {
         size: Viewport,
         capture_size: Viewport,
     ) -> Result<(), ViewerError> {
-        self.resize_scaled(context, size, capture_size, self.scale, self.native_rcas)
+        self.resize_scaled(context, [size, capture_size], self.scale, self.native_rcas)
     }
 
     pub fn resize_recipe(
@@ -149,14 +164,13 @@ impl Presentation {
         size: Viewport,
         rcas: Option<crate::NativeRcasSettings>,
     ) -> Result<(), ViewerError> {
-        self.resize_scaled(context, size, size, None, rcas.or(self.native_rcas))
+        self.resize_scaled(context, [size, size], None, rcas.or(self.native_rcas))
     }
 
     fn resize_scaled(
         &mut self,
         context: &worldrunner_render_scene::device::GpuContext,
-        size: Viewport,
-        capture_size: Viewport,
+        [size, capture_size]: [Viewport; 2],
         scale: Option<worldrunner_render_post::RenderScale>,
         rcas: Option<crate::NativeRcasSettings>,
     ) -> Result<(), ViewerError> {
@@ -177,12 +191,16 @@ impl Presentation {
                     .frame
                     .with_render_extent(scale.extent([size.width, size.height])?);
             }
-            settings.additional = planning::additional(capture_size, self.recipe_capacity);
+            settings.additional = planning::additional(capture_size, self.capture_pool);
             self.scheduler.reconfigure(context, settings)?;
             self.targets = Targets::new(context.device(), &self.scheduler, size);
             self.capture_size = capture_size;
         }
         Ok(())
+    }
+
+    pub(crate) fn capture_pool_bytes(&self) -> u64 {
+        self.capture_pool.unwrap_or(0)
     }
 
     pub fn present(
@@ -202,12 +220,9 @@ impl Presentation {
     }
 }
 
-fn recipe_allocations() -> worldrunner_render_gpu::configuration::AllocationSet {
+fn recipe_allocations(bytes: u64) -> worldrunner_render_gpu::configuration::AllocationSet {
     let mut allocations = worldrunner_render_gpu::configuration::AllocationSet::default();
-    allocations.shared_cpu(
-        "capture recipe storage reservation",
-        crate::RetainedCaptureRecipe::POOL_BYTES,
-    );
+    allocations.shared_cpu("capture recipe storage reservation", bytes);
     allocations
 }
 

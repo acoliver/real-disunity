@@ -14,6 +14,7 @@ pub(crate) struct Preparation {
     pub decal_ids: Vec<u64>,
     pub pages_enabled: bool,
     pub capture_features: [bool; 5],
+    pub capture_ao_format: wgpu::TextureFormat,
     pub require_pages: bool,
     pub require_geometry: bool,
 }
@@ -26,6 +27,7 @@ pub(crate) struct Readiness {
     pub published: u64,
     pub pages_enabled: bool,
     pub capture_features: [bool; 5],
+    pub capture_ao_format: wgpu::TextureFormat,
     pub page_wait: bool,
     pub geometry_wait: bool,
     pub camera: (CameraPose, SceneCamera, worldrunner_camera::ViewConvention),
@@ -60,6 +62,7 @@ impl Readiness {
         self.published = front.generation;
         self.pages_enabled = front.pages_enabled;
         self.capture_features = front.capture_features;
+        self.capture_ao_format = front.capture_ao_format;
         self.page_wait = front.require_pages;
         self.geometry_wait = front.require_geometry;
         if !self.page_wait && !self.geometry_wait {
@@ -209,6 +212,7 @@ impl RetainedHost {
         self.readiness.queue.push_back(Preparation {
             generation: self.readiness.accepted,
             capture_features: super::capture::features(self.scene.effects()),
+            capture_ao_format: super::capture::ao_format(self.scene.effects()),
             pages_enabled: self
                 .scene
                 .terrain()

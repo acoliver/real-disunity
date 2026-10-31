@@ -91,6 +91,7 @@ fn effects_scene() -> RenderScene {
         post: vec![],
         anti_alias: *effects.anti_alias(),
         ssao: Some(SceneSsao {
+            receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
             depth_footprint: SceneSsaoDepthFootprint::default(),
             kernel: SceneSsaoKernel::Hemisphere,
             filter: SceneSsaoFilter::DepthAwareBox,

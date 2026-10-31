@@ -1,6 +1,11 @@
 //! Ambient occlusion settings, sampling and reconstruction.
 pub(crate) mod bilateral;
 pub(crate) mod passes;
+pub(crate) mod receiver;
+#[cfg(test)]
+mod receiver_lighting_tests;
+#[cfg(test)]
+mod receiver_tests;
 #[cfg(test)]
 pub(crate) mod tests;
 

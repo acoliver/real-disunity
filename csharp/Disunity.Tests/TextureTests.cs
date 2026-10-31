@@ -176,7 +176,15 @@ internal static class TextureTests
         Ensure(new Texture2D(16, 16, TextureFormat.RGBA32, Texture.GenerateAllMips, false).mipmapCount == 5 && Texture.GenerateAllMips == -1, "GenerateAllMips");
         Throws<ArgumentException>(() => new Texture2D(4, 4, TextureFormat.RGBA32, 0, false), "a zero mip count");
         Throws<ArgumentException>(() => chain.GetPixels(4), "a mip level out of range", "mip level 4");
-        Throws<ArgumentException>(() => new Texture2D(0, 4), "a zero width");
+        Throws<ArgumentException>(() => new Texture2D(-1, 4), "a negative width");
+        Throws<ArgumentException>(() => new Texture2D(4, 16385), "a height over the limit");
+        var empty = new Texture2D(0, 0);
+        Ensure(empty.width == 0 && empty.height == 0 && empty.mipmapCount == 1, "a 0x0 texture is an empty texture with one level");
+        Ensure(empty.GetRawTextureData().Length == 0 && empty.GetPixels().Length == 0, "an empty texture holds no texels");
+        Ensure(new Texture2D(0, 4).GetPixels().Length == 0 && new Texture2D(4, 0, TextureFormat.RGBA32, true).mipmapCount == 1, "a zero width or height is empty too, with one level");
+        Throws<InvalidOperationException>(() => empty.GetPixel(0, 0), "reading a pixel of an empty texture", "no pixel to read");
+        Throws<InvalidOperationException>(() => empty.SetPixel(0, 0, Color.red), "writing a pixel of an empty texture", "no pixel to write");
+        Ensure(!ReferenceEquals(empty, new Texture2D(0, 0)) && new Dictionary<Texture, int> { [empty] = 1 }.ContainsKey(empty), "an empty texture works as a dictionary key");
 
         var checker = new Texture2D(4, 4, TextureFormat.RGBA32, true);
         var updates = checker.updateCount;

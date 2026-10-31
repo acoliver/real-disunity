@@ -123,7 +123,7 @@ fn verify_recipe_plan(
         effects,
     )
     .unwrap();
-    settings.additional = super::planning::additional(viewport, true);
+    settings.additional = super::planning::additional(viewport, Some(256 * 1024 * 1024));
     assert_eq!(
         planned.validate(limits),
         settings.allocations().validate(limits)

@@ -134,8 +134,6 @@ internal static class ObjectModelTests
         Ensure(Shader.Find("Test/Destroy") == null && DisunityHost.RegisterShader("Test/Destroy") != shader, "a destroyed shader leaves the registry");
 
         var go = DisunityHost.CreateGameObject();
-        NotSupported(() => UnityEngine.Object.DestroyImmediate(go), "DestroyImmediate of a GameObject", "DestroyImmediate");
-        NotSupported(() => UnityEngine.Object.DestroyImmediate(go.transform, true), "DestroyImmediate of a component", "DestroyImmediate");
         NotSupported(() => UnityEngine.Object.DestroyImmediate(ScriptableObject.CreateInstance<Asset>()), "DestroyImmediate of a script asset", "DestroyImmediate");
         Ensure(go && go.activeSelf, "a refused DestroyImmediate leaves the object alive");
         NotSupported(() => UnityEngine.Object.Destroy(new Texture2D(1, 1), 1f), "delayed destruction of an asset", "delayed destruction");

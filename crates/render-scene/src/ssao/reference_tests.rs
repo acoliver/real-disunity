@@ -70,7 +70,10 @@ fn gpu_bilateral_weights_match_cpu_and_production_two_axis_wiring() {
         &screen.uniform,
         &depth,
         raw,
-        SceneSsaoFilter::SeparableBilateral,
+        (
+            SceneSsaoFilter::SeparableBilateral,
+            worldrunner_render_plan::SceneSsaoReceiver::Nearest,
+        ),
         &mut stages,
     );
     assert_eq!(

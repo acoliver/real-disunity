@@ -1,7 +1,7 @@
 //! Mesh filters, mesh renderers and skinned mesh renderers of a player as plan components.
 //!
-//! A Mesh asset cannot be planned yet, so a reference to one binds null and is listed once per
-//! component. A renderer plans one material slot per serialized slot (see
+//! A filter plans the asset index of its mesh (see [`crate::player_meshes`]); a mesh the plan
+//! cannot hold binds null and is listed once per component. A renderer plans one material slot per serialized slot (see
 //! [`crate::player_materials`]): the asset index of the planned material, or null for an empty
 //! slot or a material the plan cannot hold, which is listed.
 
@@ -43,20 +43,22 @@ pub struct PlanRenderer {
     pub materials: Vec<Option<usize>>,
 }
 
-/// The plan filter for a decoded one; a mesh reference is listed in `differences`.
+/// The plan filter for a decoded one. `resolve` gives the asset index of its mesh; a reference
+/// it cannot resolve is `None` and listed in `differences`.
 pub(crate) fn plan_mesh_filter(
     owner: &str,
     filter: &MeshFilter,
+    resolve: impl FnOnce(PPtr) -> Result<usize, String>,
     differences: &mut Vec<String>,
 ) -> PlanComponent {
-    if !filter.mesh.is_null() {
-        differences.push(unplanned(
-            owner,
-            "MeshFilter",
-            "mesh references a Mesh asset",
-        ));
-    }
-    PlanComponent::MeshFilter {}
+    let mesh = if filter.mesh.is_null() {
+        None
+    } else {
+        resolve(filter.mesh)
+            .map_err(|cause| differences.push(format!("{owner}: MeshFilter mesh {cause}")))
+            .ok()
+    };
+    PlanComponent::MeshFilter { mesh }
 }
 
 /// The plan mesh renderer for a decoded one.

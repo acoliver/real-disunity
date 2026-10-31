@@ -30,9 +30,9 @@ internal static class CloneTests
         DisunityHost.LoadWorld();
         var template = DisunityHost.AddComponent(new Probe());
         var outside = DisunityHost.AddComponent(new Probe());
-        try { UnityEngine.Object.Destroy(outside); throw new Exception("unsupported component destruction removed its owner"); }
-        catch (NotSupportedException) { }
-        if (!outside.gameObject) throw new Exception("unsupported component destruction changed native lifetime");
+        var spare = DisunityHost.AddComponent(new Probe());
+        UnityEngine.Object.Destroy(spare);
+        if (!spare.gameObject) throw new Exception("component destruction removed its owner");
         template.Internal = template;
         template.External = outside;
         template.ObjectReference = template.gameObject;

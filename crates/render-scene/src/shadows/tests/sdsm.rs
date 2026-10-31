@@ -355,6 +355,7 @@ fn screen_source() -> RenderScene {
     let base = scene(&[[0, 0, 1000]], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
     parts.ssao = Some(SceneSsao {
+        receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
         depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
         kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
         filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,

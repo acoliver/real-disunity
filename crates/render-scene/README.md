@@ -502,3 +502,5 @@ for both sampling stages. Fragment keeps its shader source, bindings, descriptor
 uniform bytes and allocation totals. Synthetic 17×17 GPU tests cover both channels,
 clamping, tile corners, adjacent tile edges and perspective interpolation. A 0.6 m
 triangle in a 10 m tile differs from fragment sampling by 0.002811 at its centroid.
+
+AO receiver reconstruction is shared by mesh and terrain lighting. The optional depth-aware gather packs source metre depth beside final AO without adding a sampled texture binding. See [receiver contracts](../../dev-docs/rendering/ambient-occlusion.md#full-resolution-receivers).

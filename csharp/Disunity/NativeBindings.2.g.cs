@@ -12,6 +12,12 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one hit. A zero collider means no hit.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_raycast", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_raycast(ulong world, float x, float y, float dx, float dy, float distance, uint layers, DisunityRayHit* output);
+        /// <summary>
+        ///  # Safety
         ///  `output` is writable for one collider identity, zero for no overlap.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_physics_overlap_circle", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -170,6 +176,18 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_gameobject_destroy_after", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_gameobject_destroy_after(ulong world, ulong @object, ulong numerator, ulong denominator);
+        /// <summary>
+        ///  Marks a native component pending: it stays usable until the frame ends. A transform is refused
+        ///  and a retired or unknown component is an error; destroying a pending component again is fine.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_component_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_component_destroy(ulong world, ulong component);
+        /// <summary>
+        ///  Marks a script component pending, queuing its `OnDisable` and `OnDestroy` messages for the frame's
+        ///  cleanup (or `disunity_cleanup_flush`), with the same rules as `disunity_component_destroy`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_script_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_script_destroy(ulong world, ulong identity);
         /// <summary>
         ///  # Safety
         ///  Output is writable for one text style record.

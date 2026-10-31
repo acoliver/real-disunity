@@ -82,8 +82,9 @@ impl Renderer {
             [initial.render, initial.surface],
             profile,
             scene.effects(),
-            crate::presentation::PresentationPolicy {
+            &crate::presentation::PresentationPolicy {
                 budget: startup.presentation_budget,
+                capture_pool: crate::CapturePoolPolicy::Fixed(startup.capture_pool),
                 recipes: startup.recipes,
             },
         )?;
@@ -562,6 +563,7 @@ pub(crate) mod sdsm_tests;
 #[derive(Clone, Debug)]
 pub(crate) struct Startup {
     pub(crate) presentation_budget: crate::PresentationBudgetPolicy,
+    pub(crate) capture_pool: u64,
     pub(crate) recipes: bool,
     frames_in_flight: usize,
     gpu_timing: bool,
@@ -573,6 +575,7 @@ impl From<&crate::ViewerOptions> for Startup {
     fn from(options: &crate::ViewerOptions) -> Self {
         Self {
             presentation_budget: options.presentation_budget,
+            capture_pool: 256 * 1024 * 1024,
             recipes: false,
             frames_in_flight: options.frames_in_flight,
             gpu_timing: options.gpu_timing,
@@ -586,6 +589,7 @@ impl From<usize> for Startup {
     fn from(frames_in_flight: usize) -> Self {
         Self {
             presentation_budget: crate::PresentationBudget::default().into(),
+            capture_pool: 256 * 1024 * 1024,
             recipes: false,
             frames_in_flight,
             gpu_timing: false,

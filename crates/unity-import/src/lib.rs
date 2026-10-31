@@ -19,6 +19,7 @@ pub mod player_objects;
 pub mod player_pipeline;
 pub mod player_plan;
 mod player_prefabs;
+mod player_render_textures;
 pub mod player_resources;
 pub mod player_scene;
 pub mod player_scripts;

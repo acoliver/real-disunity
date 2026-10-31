@@ -27,6 +27,7 @@ pub mod mesh;
 pub mod object;
 pub mod player_settings;
 pub mod render_settings;
+pub mod render_texture;
 pub mod script_builtin;
 pub mod script_data;
 pub mod shader;

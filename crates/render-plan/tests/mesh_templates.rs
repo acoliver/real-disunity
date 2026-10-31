@@ -245,3 +245,87 @@ fn an_empty_template_list_draws_nothing() {
             .is_none()
     );
 }
+
+/// A host with its own placement policy: the scene transform comes from the instance's mesh id,
+/// not from the world transform, and the first object keeps a distinct policy set.
+struct Placer;
+
+fn placed_transform(index: u32, mesh: u64) -> SceneTransform {
+    SceneTransform {
+        position_millimeters: [i64::try_from(mesh).unwrap() * 7, -3, i64::from(index)],
+        rotation: SceneRotation {
+            x: 0,
+            y: 707_107,
+            z: 0,
+            w: 707_107,
+        },
+        scale_millionths: 2_500_000 + u64::from(index),
+    }
+}
+
+impl MeshResolver for Placer {
+    fn resolve(&self, _: &MeshInstance) -> Option<ResolvedMesh> {
+        None
+    }
+
+    fn resolve_template(&self, instance: &MeshInstance) -> Option<MeshTemplate> {
+        let placed = (0..2)
+            .map(|index| layer(index).with_transform(placed_transform(index, instance.mesh.0)))
+            .collect();
+        Some(MeshTemplate::Placed(placed))
+    }
+}
+
+#[test]
+fn placed_templates_come_out_exactly_as_the_host_built_them() {
+    let mut w = world();
+    let object = drawn(&mut w, at(1.5, -2.25, 3.0));
+    let scenes = extract_mesh_objects(&w, object, &Placer, MeshExtractOptions::default()).unwrap();
+    let expected: Vec<_> = (0..2)
+        .map(|index| layer(index).with_transform(placed_transform(index, 1)))
+        .collect();
+    assert_eq!(scenes, expected);
+
+    let meter = extract_mesh_instances_with(&w, &Placer, units(1.0)).unwrap();
+    assert_eq!(meter.len(), 2);
+    assert!(meter.iter().all(|e| e.object == object));
+    assert_eq!(meter.iter().map(|e| e.scene).collect::<Vec<_>>(), expected);
+}
+
+#[test]
+fn placed_templates_ignore_a_world_transform_a_scene_object_cannot_hold() {
+    let mut w = world();
+    let object = drawn(
+        &mut w,
+        LocalTransform {
+            scale: Vec3::new(1.0, 2.0, 3.0),
+            ..LocalTransform::default()
+        },
+    );
+    assert!(matches!(
+        extract_mesh_objects(&w, object, &Layered { layers: 1 }, units(1.0)),
+        Err(MeshExtractError::Transform { .. })
+    ));
+    let scenes = extract_mesh_objects(&w, object, &Placer, units(1.0)).unwrap();
+    assert_eq!(scenes[0].transform(), &placed_transform(0, 1));
+}
+
+#[test]
+fn placed_templates_are_not_drawn_for_inactive_or_destroyed_objects() {
+    let mut w = world();
+    let object = drawn(&mut w, at(1.0, 0.0, 0.0));
+    w.set_active(object, false).unwrap();
+    let options = MeshExtractOptions::default();
+    assert!(
+        extract_mesh_objects(&w, object, &Placer, options)
+            .unwrap()
+            .is_empty()
+    );
+    w.set_active(object, true).unwrap();
+    w.destroy_object(object).unwrap();
+    assert!(
+        extract_mesh_objects(&w, object, &Placer, options)
+            .unwrap()
+            .is_empty()
+    );
+}

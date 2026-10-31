@@ -1,11 +1,10 @@
-//! The temporal bank `hdr_taa::append` builds for `UpscaleMode::Temporal`. The public gate
-//! "temporal reconstruction is not yet scheduled" rejects these configurations, so the tests
-//! build `HdrPost` directly, below the gate. They establish the schedule, the shared bank and
+//! The temporal bank `hdr_taa::append` builds for `UpscaleMode::Temporal`. Some tests build
+//! `HdrPost` directly to inspect slots; the chain tests use the public `ToneMapOutput`. They establish the schedule, the shared bank and
 //! the block upload; the stage maths is covered by `taa_upscale_gpu_tests`.
 use crate::hdr_post::HdrPost;
 use crate::{
     BufferReadback, FrameConfig, FrameTargets, HdrPostSettings, PostResolve, StageSet, TaaSettings,
-    TemporalBlock, ToneMap, UpscaleMode, UpscaleSettings,
+    TemporalBlock, ToneMap, ToneMapOutput, UpscaleMode, UpscaleSettings,
 };
 
 pub(crate) fn settings() -> HdrPostSettings {
@@ -160,41 +159,13 @@ fn a_temporal_block_reaches_the_slot_uniform_buffer() {
     );
 }
 
-/// A factory around `HdrPost` that does not apply the public "not yet scheduled" gate, so the
-/// built chain can run. Only test code can construct it.
-pub(crate) struct BelowTheGate(pub(crate) HdrPost);
-impl crate::StageFactory for BelowTheGate {
-    fn validate_config(&self, _: &wgpu::Device, _: FrameConfig) -> Result<(), crate::PostError> {
-        Ok(())
-    }
-    fn frame_slots(&self) -> usize {
-        3
-    }
-    fn needs_velocity(&self) -> bool {
-        true
-    }
-    fn settle_build(&self, accepted: bool) {
-        self.0.settle_build(accepted);
-    }
-    fn build_for_slot(
-        &self,
-        device: &wgpu::Device,
-        targets: &FrameTargets,
-        _: &crate::Resources,
-        slot: usize,
-    ) -> Result<StageSet, crate::PostError> {
-        let display = (1.0, ToneMap::Reinhard);
-        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-        Ok(self.0.build(device, targets, slot, format, display))
-    }
-    fn build(
-        &self,
-        device: &wgpu::Device,
-        targets: &FrameTargets,
-        persistent: &crate::Resources,
-    ) -> Result<StageSet, crate::PostError> {
-        self.build_for_slot(device, targets, persistent, 0)
-    }
+/// The public factory a host builds: fixed exposure 1 and the Reinhard curve, validated by the
+/// same rules a renderer applies.
+pub(crate) fn public_factory(device: &wgpu::Device, settings: &HdrPostSettings) -> ToneMapOutput {
+    ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)
+        .unwrap()
+        .with_effects(device, *settings)
+        .unwrap()
 }
 
 fn full_chain_settings() -> HdrPostSettings {
@@ -253,14 +224,9 @@ fn a_temporal_chain_dispatches_every_stage_at_the_output_extent_and_writes_every
     let (render, output) = ([14, 14], [24, 24]);
     let config =
         FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1).with_render_extent(render);
-    let post = HdrPost::new(&device, &full_chain_settings()).unwrap();
-    let chain = crate::PostChain::new(
-        &device,
-        config,
-        crate::Resources::default(),
-        BelowTheGate(post),
-    )
-    .unwrap();
+    let factory = public_factory(&device, &full_chain_settings());
+    let chain =
+        crate::PostChain::new(&device, config, crate::Resources::default(), factory).unwrap();
     // A constant field at the render extent; the output must be the same field at O.
     let out = crate::color_texture(&device, "out", output, wgpu::TextureFormat::Rgba8UnormSrgb);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -273,15 +239,10 @@ fn a_temporal_chain_dispatches_every_stage_at_the_output_extent_and_writes_every
         settings: TaaSettings::new(0.9),
         history_valid: false,
     };
-    chain
-        .factory()
-        .0
-        .prepare_temporal(&mut encoder, 0, &block)
-        .unwrap();
-    chain
-        .factory()
-        .0
-        .prepare(&mut encoder, 0, 0.031, true, 1.0)
+    let factory = chain.factory();
+    factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
+    factory
+        .prepare_effects(&mut encoder, 0, 0.031, true)
         .unwrap();
     chain.encode(
         &mut encoder,

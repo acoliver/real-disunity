@@ -1,12 +1,12 @@
-//! Reset equivalence of the temporal bank, built below the public "not yet scheduled" gate.
+//! Reset equivalence of the temporal bank, built through the public `ToneMapOutput`.
 //! The first output after any reset cause must equal the first output of a fresh chain on the
 //! same device, and the slot schedule must not change any output. Both comparisons run the
 //! same code twice on one device, so they are byte comparisons.
-use crate::hdr_temporal_build_tests::{BelowTheGate, settings};
+use crate::hdr_temporal_build_tests::{public_factory, settings};
 use crate::taa_gpu_test_support::{
     SHADER, f16_bits, noise, passthrough_pipeline, sampled, view, write_texture,
 };
-use crate::{FrameConfig, PostChain, Resources, TaaSettings, TemporalBlock};
+use crate::{FrameConfig, PostChain, Resources, TaaSettings, TemporalBlock, ToneMapOutput};
 
 const JITTER: [[f32; 2]; 4] = [
     [-0.375, -0.4],
@@ -37,7 +37,7 @@ fn scene_bytes([width, height]: [u32; 2], seed: u32) -> Vec<u8> {
 struct Rig {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    chain: PostChain<BelowTheGate>,
+    chain: PostChain<ToneMapOutput>,
     output: [u32; 2],
 }
 
@@ -46,9 +46,8 @@ impl Rig {
         let (device, queue) = gpu.clone();
         let config = FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
-        let post = crate::hdr_post::HdrPost::new(&device, &settings()).unwrap();
-        let chain =
-            PostChain::new(&device, config, Resources::default(), BelowTheGate(post)).unwrap();
+        let factory = public_factory(&device, &settings());
+        let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
         Self {
             device,
             queue,
@@ -134,9 +133,11 @@ impl Rig {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.upload_scene(&mut encoder, seed);
-        let post = &self.chain.factory().0;
-        post.prepare_temporal(&mut encoder, slot, block).unwrap();
-        post.prepare(&mut encoder, slot, 0.031, true, 1.0).unwrap();
+        let factory = self.chain.factory();
+        factory.prepare_temporal(&mut encoder, slot, block).unwrap();
+        factory
+            .prepare_effects(&mut encoder, slot, 0.031, true)
+            .unwrap();
         let view = out.create_view(&wgpu::TextureViewDescriptor::default());
         self.chain.encode(&mut encoder, &view);
         self.queue.submit([encoder.finish()]);

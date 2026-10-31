@@ -13,23 +13,22 @@ use std::sync::{Arc, Mutex};
 
 use wgpu::util::DeviceExt;
 
-use crate::hdr_post::HdrPost;
-use crate::hdr_temporal_build_tests::{BelowTheGate, settings};
+use crate::hdr_temporal_build_tests::{public_factory, settings};
 use crate::taa_gpu_test_support::{passthrough_pipeline, read};
 use crate::temporal_quality_scene as scene;
 use crate::upscale_tests::reference::Image;
 use crate::{
     FrameConfig, FrameTargets, PostChain, PostError, ProjectionJitter, RenderScale, Resources,
-    StageFactory, StageSet, TaaSettings, TemporalBlock,
+    StageFactory, StageSet, TaaSettings, TemporalBlock, ToneMapOutput,
 };
 
 const OUTPUT: [u32; 2] = [160, 96];
 const BORDER: usize = 2;
 const EDGE_BAND: f64 = 2.0;
 
-/// `BelowTheGate` that also keeps the reconstruction output of slot 0 so the test can read HDR.
+/// The public factory, which also keeps the reconstruction output of slot 0 so the test can read HDR.
 struct Recording {
-    inner: BelowTheGate,
+    inner: ToneMapOutput,
     output: Arc<Mutex<Option<wgpu::Texture>>>,
 }
 
@@ -87,10 +86,9 @@ impl Rig {
         let (device, queue) = gpu.clone();
         let config = FrameConfig::new(OUTPUT, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
-        let post = HdrPost::new(&device, &settings()).unwrap();
         let output = Arc::new(Mutex::new(None));
         let factory = Recording {
-            inner: BelowTheGate(post),
+            inner: public_factory(&device, &settings()),
             output: output.clone(),
         };
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
@@ -177,9 +175,11 @@ impl Rig {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.paint(&mut encoder, offset);
-        let post = &self.chain.factory().inner.0;
-        post.prepare_temporal(&mut encoder, 0, &block).unwrap();
-        post.prepare(&mut encoder, 0, 0.031, true, 1.0).unwrap();
+        let factory = &self.chain.factory().inner;
+        factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
+        factory
+            .prepare_effects(&mut encoder, 0, 0.031, true)
+            .unwrap();
         let view = self
             .sink
             .create_view(&wgpu::TextureViewDescriptor::default());

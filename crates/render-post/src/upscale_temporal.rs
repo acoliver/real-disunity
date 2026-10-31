@@ -115,8 +115,7 @@ impl HdrPostSettings {
                 "temporal upscaling requires a render extent of at least half the output",
             );
         }
-        self.validate_jitter(config, explicit)?;
-        unsupported("temporal reconstruction is not yet scheduled")
+        self.validate_jitter(config, explicit)
     }
 }
 

@@ -72,13 +72,9 @@ fn temporal_accepts_exactly_half_the_output_up_to_the_jitter_check() {
     let jitter = ProjectionJitter::for_extents([32, 24], OUTPUT).unwrap();
     assert_eq!(
         post.validate_frame_with_jitter(config([32, 24], 1), Some(jitter)),
-        unsupported(REDUCED_NOT_SCHEDULED)
+        Ok(())
     );
 }
-
-/// Until the reconstruction stage exists a reduced Temporal configuration is gated so that no
-/// renderer is built that would silently fall back to another upscaler.
-const REDUCED_NOT_SCHEDULED: &str = "temporal reconstruction is not yet scheduled";
 
 #[test]
 fn explicit_jitter_shorter_than_the_derived_sequence_is_rejected() {
@@ -99,14 +95,14 @@ fn explicit_jitter_shorter_than_the_derived_sequence_is_rejected() {
         let enough = ProjectionJitter::new(length).unwrap();
         assert_eq!(
             post.validate_frame_with_jitter(config(REDUCED, 1), Some(enough)),
-            unsupported(REDUCED_NOT_SCHEDULED),
+            Ok(()),
             "length {length}"
         );
     }
     // No explicit choice means the derived sequence, which is long enough by definition.
     assert_eq!(
         post.validate_frame_with_jitter(config(REDUCED, 1), None),
-        unsupported(REDUCED_NOT_SCHEDULED)
+        Ok(())
     );
 }
 

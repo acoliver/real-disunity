@@ -20,7 +20,7 @@ struct TaaHistory {
     key: HistoryKey,
     texture: wgpu::Texture,
     depth: Option<wgpu::Texture>,
-    /// The lock history at the output grid, for temporal reconstruction only.
+    /// The lock history at the output grid, for temporal reconstruction with locks on only.
     locks: Option<wgpu::Texture>,
 }
 impl TaaHistory {
@@ -30,7 +30,8 @@ impl TaaHistory {
                 key,
                 texture: taa_upscale_gpu::history(device, key.history_extent()),
                 depth: None,
-                locks: Some(taa_upscale_gpu::lock_history(device, key.history_extent())),
+                locks: taa_upscale_gpu::locks_enabled()
+                    .then(|| taa_upscale_gpu::lock_history(device, key.history_extent())),
             }
         } else {
             let size = key.render();
@@ -185,12 +186,9 @@ fn append_temporal(
     (uniform, camera): (&wgpu::Buffer, &wgpu::Buffer),
 ) -> wgpu::TextureView {
     let history = &bank.texture;
-    let lock_history = bank
-        .locks
-        .as_ref()
-        .expect("a temporal bank has a lock history");
+    let lock_history = bank.locks.as_ref();
     let output = taa_upscale_gpu::output(device, output_extent);
-    let lock_bank = taa_upscale_gpu::lock_bank(device, output_extent);
+    let lock_bank = lock_history.map(|_| taa_upscale_gpu::lock_bank(device, output_extent));
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
     let reconstructed = taa_upscale_gpu::append(
         device,
@@ -206,15 +204,16 @@ fn append_temporal(
             camera,
             history,
             output: &output,
-            lock_history,
-            lock_bank: &lock_bank,
+            locks: lock_history
+                .zip(lock_bank.as_ref())
+                .map(|(history, bank)| taa_upscale_gpu::LockInputs { history, bank }),
         },
     );
     set.resources.textures.push(output);
     set.resources.textures.push(history.clone());
-    set.resources.textures.push(lock_bank);
-    set.resources.textures.push(lock_history.clone());
-    set.resources.textures.push(reconstructed.candidates);
+    set.resources.textures.extend(lock_bank);
+    set.resources.textures.extend(lock_history.cloned());
+    set.resources.textures.extend(reconstructed.candidates);
     set.resources
         .textures
         .push(reconstructed.reconstructed.depth);

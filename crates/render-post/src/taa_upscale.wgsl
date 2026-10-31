@@ -176,35 +176,59 @@ fn next_lock(prev: vec4<f32>, candidate: f32, reference: f32) -> vec4<f32> {
     }
     return vec4<f32>(0.0);
 }
-@fragment fn taa_upscale(@builtin(position) position: vec4<f32>) -> Resolved {
+// What both entry points compute before the locks: the reconstruction, the history position and
+// its validity, the confidence and the neighbourhood box.
+struct Prepared {
+    q: vec2<f32>,
+    flow: vec2<f32>,
+    uv: vec2<f32>,
+    usable: bool,
+    confidence: f32,
+    bounds: array<vec3<f32>, 2>,
+    current: vec4<f32>,
+}
+fn prepare(position: vec4<f32>) -> Prepared {
     let in_extent = temporal.extents.xy;
     let out_extent = temporal.extents.zw;
     let u = (floor(position.xy) + 0.5) / out_extent;
     let q = fma(u, in_extent, temporal.jitter_phase_weight.xy) - 0.5;
-    let current = reconstruct(q);
     let texel = clamp(vec2<i32>(floor(q + 0.5)), vec2<i32>(0), vec2<i32>(in_extent) - 1);
     let flow = textureLoad(motion, texel, 0).xy;
     let uv = u + flow;
     let usable = temporal.clip_valid.y > 0.5 && finite(uv.x) && finite(uv.y)
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
-    let confidence = history_confidence(q);
-    let bounds = neighbourhood(q);
-    let locking = locks > 0.5;
-    let prev = reproject_lock(uv, usable && locking && confidence > 0.0, bounds[0].x);
-    let candidate = select(0.0, gather_candidate(q, flow, confidence), locking);
-    let lock = next_lock(prev, candidate, bounds[0].x);
-    var rgb = current.rgb;
-    if usable {
-        let fetched = catmull_rom(uv);
+    return Prepared(q, flow, uv, usable, history_confidence(q), neighbourhood(q), reconstruct(q));
+}
+// The resolved color. `locked` halves the share of the new sample.
+fn blend(s: Prepared, locked: bool) -> vec4<f32> {
+    let out_extent = temporal.extents.zw;
+    var rgb = s.current.rgb;
+    if s.usable {
+        let fetched = catmull_rom(s.uv);
         if finite(fetched.x) && finite(fetched.y) && finite(fetched.z) {
             let h = to_ycocg(compress(max(fetched, vec3<f32>(0.0))));
-            let clipped = clip_toward_centre(h, bounds[0], temporal.clip_valid.x * bounds[1]);
-            let moved = length(flow * out_extent);
+            let clipped = clip_toward_centre(h, s.bounds[0], temporal.clip_valid.x * s.bounds[1]);
+            let moved = length(s.flow * out_extent);
             let base = temporal.jitter_phase_weight.w;
-            let weight = select(base, 1.0 - (1.0 - base) * LOCK_SHARE, lock.x > 0.0 && base > 0.0);
-            let wh = weight * clamp(1.0 - MOTION_K * moved, 0.0, 1.0) * confidence;
-            rgb = current.rgb * (1.0 - wh) + decompress(from_ycocg(clipped)) * wh;
+            let weight = select(base, 1.0 - (1.0 - base) * LOCK_SHARE, locked && base > 0.0);
+            let wh = weight * clamp(1.0 - MOTION_K * moved, 0.0, 1.0) * s.confidence;
+            rgb = s.current.rgb * (1.0 - wh) + decompress(from_ycocg(clipped)) * wh;
         }
     }
-    return Resolved(clean(vec4<f32>(rgb, current.a)), lock);
+    return clean(vec4<f32>(rgb, s.current.a));
+}
+// The entry point with the thin-feature locks: the only one that reads the candidates and the lock
+// history and writes the lock bank.
+@fragment fn taa_upscale(@builtin(position) position: vec4<f32>) -> Resolved {
+    let s = prepare(position);
+    let locking = locks > 0.5;
+    let prev = reproject_lock(s.uv, s.usable && locking && s.confidence > 0.0, s.bounds[0].x);
+    let candidate = select(0.0, gather_candidate(s.q, s.flow, s.confidence), locking);
+    let lock = next_lock(prev, candidate, s.bounds[0].x);
+    return Resolved(blend(s, lock.x > 0.0), lock);
+}
+// The entry point without locks: binds neither the candidates nor the lock history and has one
+// target.
+@fragment fn taa_upscale_unlocked(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    return blend(prepare(position), false);
 }

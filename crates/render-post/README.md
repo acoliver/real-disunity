@@ -438,7 +438,10 @@ explicit sequence is chosen, and `validate_jitter` rejects a shorter one. The al
 counts one shared history and three outputs at the output extent, plus per slot the dilated depth (R32Float), dilated motion (Rg32Float), depth confidence (R32Float) and reconstructed depth buffer at the render extent (20R bytes), each a per-generation entry (a shared entry would need one descriptor across generations, #399). Measured static error ratios
 against reset-every-frame are in [docs/rendering.md](../../docs/rendering.md#temporal-upscaling).
 
-Passes of a temporal slot, in order (each a `StageSet` stage):
+Passes of a temporal slot, in order (each a `StageSet` stage). Pass 4, the lock half of pass 5 and the lock history copy of
+pass 6 exist only when the thin-feature locks are on, which is test only (`WithLocks`). With locks off, the
+default, there is no `temporal create locks`, no `temporal lock history`, no lock bank and no lock
+memory, and `temporal upscale` runs its single target `taa_upscale_unlocked` entry point.
 
 1. `temporal depth clear`: fills the reconstructed depth buffer (`array<atomic<u32>>`, 4R bytes) with the bits of +inf.
 2. `temporal reconstruct dilate`: per texel, the nearest valid depth (`0 < z < 1`) of the 3x3 neighbourhood
@@ -462,9 +465,10 @@ Passes of a temporal slot, in order (each a `StageSet` stage):
    of the new sample (`w` becomes `1 - (1 - w) / 2`); `history_weight == 0` stays 0. The `Rgba16Float` lock
    bank holds frames left, reference luminance, contrast and one unused lane, 8O bytes per image (two 16
    bit float channels are not a core storage format).
-6. `temporal upscale history` and `temporal lock history`: the shared history copies of colour and locks.
+6. `temporal upscale history`, and with locks `temporal lock history`: the shared history copies of colour and
+   locks.
 
-Lock state costs, measured by `taa_allocation_tests`: candidates 8R per slot, lock bank 8O per slot and one
+Lock state costs, only with locks on and measured by `taa_allocation_tests` (with locks off they are zero): candidates 8R per slot, lock bank 8O per slot and one
 shared lock history 8O, so 24R + 32O bytes with three slots (the design counted 16O for two 16 bit channels).
 
 **The locks ship off and no measurement shows them improving the output.** `taa_upscale_gpu::LOCKS_DEFAULT` is

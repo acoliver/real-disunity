@@ -94,7 +94,9 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
     if temporal {
         temporal_reconstruction_allocations(set, config.size);
-        temporal_lock_allocations(set, config.size, [w, h]);
+        if crate::taa_upscale_gpu::locks_enabled() {
+            temporal_lock_allocations(set, config.size, [w, h]);
+        }
     } else {
         let depth = crate::taa_gpu::DEPTH_FORMAT;
         set.texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
@@ -133,7 +135,7 @@ fn temporal_reconstruction_allocations(set: &mut AllocationSet, [w, h]: [u32; 2]
         3,
     );
 }
-/// The thin-feature lock state: the candidate field per slot at `R`, the lock bank per slot at
+/// The thin-feature lock state, allocated only with locks on: the candidate field per slot at `R`, the lock bank per slot at
 /// `O` and the lock history, shared like the colour history and counted once per generation.
 fn temporal_lock_allocations(set: &mut AllocationSet, [rw, rh]: [u32; 2], [w, h]: [u32; 2]) {
     set.texture(

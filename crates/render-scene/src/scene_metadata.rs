@@ -44,18 +44,8 @@ impl SceneMetadata {
         let passes = crate::ssao::passes::ScreenPasses::new(
             device, size, &uniform, &depth, &normals, settings,
         );
-        let ambient = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("filtered ambient occlusion"),
-            layout: &crate::ssao::ambient_layout(device),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(
-                    &passes
-                        .filtered
-                        .create_view(&wgpu::TextureViewDescriptor::default()),
-                ),
-            }],
-        });
+        let ambient =
+            crate::ssao::receiver::group(device, &passes.filtered, &uniform, settings.receiver);
         Ok(Self {
             settings,
             size,

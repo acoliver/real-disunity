@@ -13,7 +13,9 @@ pub enum FeatureTarget {
     /// channel, not perceptual roughness. Before water; single-sample `Rgba16Float`.
     /// Available when SSR metadata is enabled.
     Specular,
-    /// Filtered visibility in red, `R32Float` or `Rg16Float` (green is filter metadata).
+    /// Filtered visibility in red. Nearest uses `R32Float`, or `Rg16Float` for
+    /// Scalable with normalized depth in green. `DepthAwareGather` uses `Rg32Float`
+    /// with the consumed view-space metre depth in green, at the kernel's extent.
     AmbientOcclusion,
     /// Trace confidence in alpha of `Rgba16Float`, at trace resolution.
     /// Capture extent is `(trace_width * frame_sample_count, trace_height)`.

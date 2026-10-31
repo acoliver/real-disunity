@@ -26,6 +26,8 @@ mod origin_tests;
 mod ownership_tests;
 #[path = "pyramid_tests.rs"]
 mod pyramid_tests;
+#[path = "receiver_tests.rs"]
+mod receiver_tests;
 #[path = "regressions.rs"]
 mod regressions;
 #[path = "replacement_tests.rs"]

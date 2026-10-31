@@ -108,7 +108,7 @@ fn gpu_resolve_adds_specular_once_and_misses_roughness_and_water_preserve_existi
     );
 }
 
-fn resolve_inputs(ssr: &Ssr, final_depth: &wgpu::Texture) -> Vec<wgpu::TextureView> {
+pub(super) fn resolve_inputs(ssr: &Ssr, final_depth: &wgpu::Texture) -> Vec<wgpu::TextureView> {
     let mut inputs = vec![
         ssr.material
             .create_view(&wgpu::TextureViewDescriptor::default()),
@@ -193,7 +193,7 @@ fn gpu_scene_selected_replacement_preserves_direct_and_diffuse_energy() {
     }
 }
 
-fn prepare_forward(context: &GpuContext, ssr: &Ssr) {
+pub(super) fn prepare_forward(context: &GpuContext, ssr: &Ssr) {
     if ssr.settings.composition != worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment
         && !ssr.settings.depth_relative_ao
     {

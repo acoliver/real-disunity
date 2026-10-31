@@ -281,7 +281,10 @@ pub(super) fn configured_resolve_source(
     samples: u32,
     water: bool,
     ao: bool,
-    packed_depth: bool,
+    ao_input: (
+        worldrunner_render_plan::SceneSsaoReceiver,
+        wgpu::TextureFormat,
+    ),
 ) -> String {
     let source = sampled_resolve_source(levels, samples, water);
     if !ao {
@@ -298,6 +301,19 @@ pub(super) fn configured_resolve_source(
         } else {
             "let visibility = gathered_visibility(p, cosine, surface.a, sample); factor *= visibility;"
         });
+    if crate::ssao::receiver::gathers(ao_input.0) {
+        assert_eq!(ao_input.1, wgpu::TextureFormat::Rg32Float);
+        return format!(
+            "{source}\n{}\n{}",
+            include_str!("receiver.wgsl"),
+            include_str!("../ssao/receiver.wgsl")
+        )
+        .replace("ambient_texture", "application_ao")
+        .replace(
+            "FORWARD_SAMPLE",
+            if samples == 1 { "0" } else { "i32(sample)" },
+        );
+    }
     format!(
         "{source}\n{}\n{}\n{}",
         include_str!("gather_origin.wgsl"),
@@ -306,7 +322,7 @@ pub(super) fn configured_resolve_source(
     )
     .replace(
         "APPLICATION_TAP_DEPTH",
-        if packed_depth {
+        if ao_input.1 == wgpu::TextureFormat::Rg16Float {
             "tap.g * reflection_far_depth()"
         } else {
             "textureLoad(opaque_depth, coordinates[i], 0).r"
@@ -323,11 +339,14 @@ pub(super) fn resolve_pipelines(
     samples: u32,
     levels: usize,
     ao: bool,
-    packed_depth: bool,
+    ao_input: (
+        worldrunner_render_plan::SceneSsaoReceiver,
+        wgpu::TextureFormat,
+    ),
     shared_extents: Option<&[[u32; 2]]>,
 ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
     let source = |water| {
-        let source = configured_resolve_source(levels, samples, water, ao, packed_depth);
+        let source = configured_resolve_source(levels, samples, water, ao, ao_input);
         shared_extents.map_or_else(
             || source.clone(),
             |extents| super::pyramid::resolve_source(source.clone(), extents, samples),

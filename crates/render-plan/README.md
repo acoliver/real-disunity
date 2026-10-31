@@ -153,3 +153,5 @@ normal sampling with the authored ratio. Without normal mips, the explicit
 mip-zero bilinear path is unchanged. Water uses the scene's `direct_diffuse`
 convention, including `SceneDirectDiffuse::LambertianPrepared` for prepared sun
 colours. Per-body `sun_disk` controls remain independent of the scene surface disk.
+
+`SceneSsao.receiver` selects nearest filtered-AO lookup by default, or a depth-aware four-tap gather. Both enum choices are valid with every supported kernel/filter pair. See [ambient occlusion](../../dev-docs/rendering/ambient-occlusion.md#full-resolution-receivers) for metre weighting and composition.

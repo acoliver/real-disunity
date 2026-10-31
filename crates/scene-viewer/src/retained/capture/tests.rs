@@ -233,3 +233,62 @@ fn feature_availability_uses_requested_generation_and_counts_native_storage() {
         Err(CaptureRequestError::RecipeBudget { .. })
     ));
 }
+
+#[test]
+fn ao_capture_budget_uses_requested_generations_native_format() {
+    use worldrunner_render_plan::{SceneEffects, SceneEffectsParts, SceneSsaoReceiver};
+    let mut host = host();
+    host.size = [33, 2];
+    host.options.frame_profile = crate::FrameProfile::Hdr {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let initial = host.scene.effects().unwrap();
+    let effects = SceneEffects::new(SceneEffectsParts {
+        water: None,
+        sky: *initial.sky(),
+        sun: *initial.sun(),
+        ambient: *initial.ambient(),
+        shadows: initial.shadows().clone(),
+        camera: *initial.camera(),
+        grading: *initial.grading(),
+        post: vec![],
+        anti_alias: *initial.anti_alias(),
+        ssao: Some(worldrunner_render_plan::SceneSsao {
+            receiver: SceneSsaoReceiver::DepthAwareGather,
+            depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
+            kernel: worldrunner_render_plan::SceneSsaoKernel::Hemisphere,
+            filter: worldrunner_render_plan::SceneSsaoFilter::DepthAwareBox,
+            sample_count: 4,
+            bias_millimeters: 1,
+            radius_millimeters: 100,
+            intensity_micro: 1_000_000,
+            horizon_angle_millidegrees: 90_000,
+        }),
+    })
+    .unwrap();
+    host.apply(RetainedUpdate::Settings(Box::new(effects)))
+        .unwrap();
+    let make = |max| {
+        RetainedCaptureRecipe::new(
+            1,
+            1,
+            CaptureJitter::None,
+            false,
+            vec![CaptureOutput::AmbientOcclusion],
+            max,
+        )
+        .unwrap()
+    };
+    assert_eq!(make(u64::MAX).storage_bytes(host.size), Ok(1552));
+    assert_eq!(
+        host.request_capture_recipe(1, make(2839)),
+        Err(CaptureRequestError::RecipeBudget {
+            required: 2840,
+            limit: 2839
+        })
+    );
+    let id = host.request_capture_recipe(1, make(2840)).unwrap();
+    assert_eq!(id, 0);
+    assert_eq!(host.captures.reservations[&id], 2840);
+}

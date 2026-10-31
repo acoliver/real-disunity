@@ -5,6 +5,7 @@ use worldrunner_render_plan::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 
 fn settings(footprint: SceneSsaoDepthFootprint) -> worldrunner_render_plan::SceneSsao {
     worldrunner_render_plan::SceneSsao {
+        receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
         depth_footprint: footprint,
         ..super::scalable_tests::recipe()
     }
@@ -201,7 +202,7 @@ fn compare_occlusion(
         &screen.uniform,
         &legacy[0],
         raw,
-        screen.settings.filter,
+        (screen.settings.filter, screen.settings.receiver),
         &mut filters,
     );
     for stage in filters {

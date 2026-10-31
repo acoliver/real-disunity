@@ -342,7 +342,17 @@ fn gpu_full_chain_resolve_lod_matches_independent_oracle() {
         }
     }
     for samples in crate::msaa_tests::supported_samples(&context) {
-        gpu::resolve_pipelines(context.device(), samples, 10, true, false, Some(&sizes));
+        gpu::resolve_pipelines(
+            context.device(),
+            samples,
+            10,
+            true,
+            (
+                worldrunner_render_plan::SceneSsaoReceiver::Nearest,
+                wgpu::TextureFormat::R32Float,
+            ),
+            Some(&sizes),
+        );
     }
 }
 

@@ -60,6 +60,7 @@ pub(super) fn with_occlusion(scene: &RenderScene) -> (RenderScene, SceneEffects)
     let effects = SceneEffects::new(SceneEffectsParts {
         anti_alias: SceneAntiAlias::taa(900_000),
         ssao: Some(SceneSsao {
+            receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
             depth_footprint: SceneSsaoDepthFootprint::default(),
             kernel: SceneSsaoKernel::Hemisphere,
             filter: SceneSsaoFilter::DepthAwareBox,

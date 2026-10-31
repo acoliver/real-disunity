@@ -51,7 +51,7 @@ fn expected(scale_micro: u32) -> f64 {
         .extent(OUTPUT_EXTENT)
         .unwrap();
     let ratio = f64::from(render[0].min(render[1])) / f64::from(SIZE);
-    ratio.log2() - 1.0
+    ratio.log2() - 0.5
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn temporal_reconstruction_carries_the_derived_bias_at_each_scale() {
             Some(UpscaleMode::Temporal),
         );
         let wanted = expected(scale);
-        assert!(wanted < -1.3, "{scale}: a sharpening bias, got {wanted}");
+        assert!(wanted < -0.8, "{scale}: a sharpening bias, got {wanted}");
         assert!(
             (f64::from(bias) - wanted).abs() <= BIAS_BOUND,
             "{scale}: bias {bias} wanted {wanted}"
@@ -76,7 +76,7 @@ fn temporal_reconstruction_carries_the_derived_bias_at_each_scale() {
 /// by at most `-log2(1 - 0.5 / (scale * SIZE))`, the larger of the two directions.
 #[test]
 fn the_table_values_hold_at_the_documented_scales_within_the_extent_rounding() {
-    let table = [(500_000, -2.0), (670_000, -1.578), (770_000, -1.377)];
+    let table = [(500_000, -1.5), (670_000, -1.078), (770_000, -0.877)];
     for (scale, listed) in table {
         let bias = bias_of(
             Some(scale),

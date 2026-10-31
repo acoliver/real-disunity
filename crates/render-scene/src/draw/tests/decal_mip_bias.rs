@@ -1,6 +1,6 @@
 //! The material mip bias in the frame block moves the decal albedo to a finer mip level. The
 //! rig in `mip_rig` supplies a plain renderer (bias +0.0) and a temporal half-scale renderer
-//! (bias exactly -2). The decal albedo has a constant colour per mip level and the 1 m decal on a
+//! (bias forced to exactly -2). The decal albedo has a constant colour per mip level and the 1 m decal on a
 //! vertical card spans `64 / 2^j` of the 32 pixels, so the implicit LOD of the 64 texel texture is
 //! exactly the integer `j`.
 use super::decals::decal;

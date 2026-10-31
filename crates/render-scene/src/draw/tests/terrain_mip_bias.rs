@@ -1,6 +1,6 @@
 //! The material mip bias in the frame block scales the terrain gradients, so the terrain albedo
 //! moves to a finer mip level. The rig in `mip_rig` supplies a plain renderer (bias +0.0) and a
-//! temporal half-scale renderer (bias exactly -2). A terrain tile is 10 m of world and the albedo
+//! temporal half-scale renderer (bias forced to exactly -2). A terrain tile is 10 m of world and the albedo
 //! has 64 texels with a constant colour per mip level, so a camera at height `h` looking down
 //! spans one pixel over `2 h tan(30 degrees) / 32` meters and the implicit LOD is exactly the
 //! integer `j` when that is `2^j / 6.4` meters.

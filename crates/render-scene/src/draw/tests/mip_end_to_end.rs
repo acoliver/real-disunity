@@ -237,6 +237,17 @@ struct Table {
     rows: [[Measurement; 4]; 3],
 }
 
+/// `log2(s)` of the rounded render extent, independent of the policy under test.
+fn log2_scale(render: [u32; 2]) -> f32 {
+    let ratio = f64::from(render[0].min(render[1])) / f64::from(OUTPUT);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "log2 of a ratio in [0.5, 1] fits f32"
+    )]
+    let log2 = ratio.log2() as f32;
+    log2
+}
+
 fn table(context: &GpuContext, fixture: fn() -> SceneTexture, name: &str) -> Table {
     let reference = reference(context, fixture());
     let native = measure(context, fixture(), None, None, &reference);
@@ -247,7 +258,7 @@ fn table(context: &GpuContext, fixture: fn() -> SceneTexture, name: &str) -> Tab
             .unwrap()
             .extent([OUTPUT; 2])
             .unwrap();
-        let log2_s = worldrunner_render_post::material_mip_bias(render, [OUTPUT; 2]) + 1.0;
+        let log2_s = log2_scale(render);
         let row = OFFSETS.map(|offset| {
             let bias = offset.map_or(0.0, |offset| log2_s + offset);
             measure(context, fixture(), Some(scale), Some(bias), &reference)
@@ -280,18 +291,47 @@ fn chosen(table: &Table) -> Option<usize> {
 }
 
 #[test]
-fn measurement_table_for_both_fixtures() {
+fn the_decision_rule_chooses_half_a_level_below_log2_s_on_the_stripes() {
     let context = context();
-    for (name, fixture) in [
-        ("stripes", stripes as fn() -> SceneTexture),
-        ("smooth", smooth),
-    ] {
-        let table = table(&context, fixture, name);
-        println!(
-            "fixture {name}: rule chooses {:?}",
-            chosen(&table).map(|index| NAMES[index])
+    let table = table(&context, stripes, "stripes");
+    println!(
+        "stripes: rule chooses {:?}",
+        chosen(&table).map(|index| NAMES[index])
+    );
+    assert_eq!(chosen(&table), Some(1), "log2(s) - 0.5 is the policy");
+}
+
+/// The policy bias against native TAA and against bias 0 at every scale. Measured on lavapipe
+/// (target/up3.md session 8), the policy shimmer over the native shimmer is 1.087, 0.619 and
+/// 0.554 on the stripes (limit 1.10, so 1.2% of margin at scale 0.5 and 44% or more elsewhere)
+/// and 0.705, 0.524, 0.408 on the smooth texture. The error over the bias-0 error is 0.871,
+/// 0.670, 0.678 on the stripes and 0.466, 0.443, 0.432 on the smooth texture.
+fn assert_policy_meets_the_rule(fixture: fn() -> SceneTexture, name: &str) {
+    let context = context();
+    let reference = reference(&context, fixture());
+    let native = measure(&context, fixture(), None, None, &reference);
+    for scale in SCALES {
+        let zero = measure(&context, fixture(), Some(scale), Some(0.0), &reference);
+        let policy = measure(&context, fixture(), Some(scale), None, &reference);
+        assert!(
+            policy.shimmer <= 1.10 * native.shimmer,
+            "{name} {scale}: shimmer {policy:?} exceeds 1.1 x native {native:?}"
+        );
+        assert!(
+            policy.error < zero.error,
+            "{name} {scale}: error {policy:?} is not below bias 0 {zero:?}"
         );
     }
+}
+
+#[test]
+fn the_policy_bias_stays_within_the_native_shimmer_cap_and_lowers_the_error_on_the_stripes() {
+    assert_policy_meets_the_rule(stripes, "stripes");
+}
+
+#[test]
+fn the_policy_bias_also_meets_the_rule_on_the_smooth_texture() {
+    assert_policy_meets_the_rule(smooth, "smooth");
 }
 
 #[test]

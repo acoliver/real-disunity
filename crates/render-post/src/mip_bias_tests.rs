@@ -6,7 +6,7 @@ use crate::{
 };
 
 const OUTPUTS: [[u32; 2]; 2] = [[1920, 1080], [1452, 921]];
-const SCALES: [(u32, f64); 3] = [(500_000, -2.0), (670_000, -1.578), (770_000, -1.377)];
+const SCALES: [(u32, f64); 3] = [(500_000, -1.5), (670_000, -1.078), (770_000, -0.877)];
 
 fn scaled(output: [u32; 2], millionths: u32) -> [u32; 2] {
     RenderScale::new(millionths)
@@ -15,11 +15,11 @@ fn scaled(output: [u32; 2], millionths: u32) -> [u32; 2] {
         .unwrap()
 }
 
-/// Independent reference: `log2(min(Rw / Ow, Rh / Oh)) - 1` in f64.
+/// Independent reference: `log2(min(Rw / Ow, Rh / Oh)) - 0.5` in f64.
 fn reference(render: [u32; 2], output: [u32; 2]) -> f64 {
     let ratio = (f64::from(render[0]) / f64::from(output[0]))
         .min(f64::from(render[1]) / f64::from(output[1]));
-    ratio.log2() - 1.0
+    ratio.log2() - 0.5
 }
 
 #[test]
@@ -55,15 +55,15 @@ fn bias_equals_the_exact_formula_from_the_rounded_extents() {
 }
 
 #[test]
-fn half_scale_is_exactly_minus_two() {
+fn half_scale_is_exactly_minus_one_and_a_half() {
     assert_eq!(
         material_mip_bias([960, 540], [1920, 1080]).to_bits(),
-        (-2.0_f32).to_bits()
+        (-1.5_f32).to_bits()
     );
     // 461 / 921 is just above one half, so the width (exactly 0.5) is the smaller ratio.
     assert_eq!(
         material_mip_bias([726, 461], [1452, 921]).to_bits(),
-        (-2.0_f32).to_bits()
+        (-1.5_f32).to_bits()
     );
 }
 

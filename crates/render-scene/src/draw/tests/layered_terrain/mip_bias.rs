@@ -1,7 +1,7 @@
 //! The material mip bias in the frame block scales the gradients of the direct layered terrain
 //! draw, so the layer albedo moves to a finer mip level, in the isotropic and the anisotropic
 //! filter alike. The rig is the one of the conventional terrain test: a plain renderer (bias
-//! +0.0) against a temporal half-scale renderer (bias exactly -2), a 64 texel albedo with a
+//! +0.0) against a temporal half-scale renderer (bias forced to exactly -2), a 64 texel albedo with a
 //! constant colour per mip level and a repeat of 10 m, so the camera heights of that test give
 //! the implicit LOD exactly 2 and 3. The albedo has zero alpha, which is the layer's metallic.
 //! The camera looks almost straight down, so the anisotropic footprint is a ratio of 1.0003 and

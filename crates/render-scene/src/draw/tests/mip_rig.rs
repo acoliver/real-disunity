@@ -1,8 +1,8 @@
 //! Shared rig for the material mip bias tests that go through a whole renderer. The renderer
 //! derives the bias from its configuration, so the biased frame comes from a renderer that
-//! reconstructs 32x32 into 64x64 temporally (smaller axis ratio 0.5, bias exactly -2) and the
-//! reference from a plain 32x32 renderer (bias +0.0), both drawing the same scene at the same
-//! camera. The textures have a constant colour per mip level.
+//! reconstructs 32x32 into 64x64 temporally with its bias forced to exactly -2 (the derived bias
+//! there is -1.5, which would put the colour between two levels) and the reference from a plain
+//! 32x32 renderer (bias +0.0), both drawing the same scene at the same camera. The textures have a constant colour per mip level.
 use super::mip_bias::LEVELS;
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
@@ -26,6 +26,9 @@ pub(super) fn plain(context: &GpuContext) -> ConfiguredFrameRenderer {
     ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap()
 }
 
+/// Two whole levels, so every constant colour level is hit exactly.
+const FORCED_BIAS: f32 = -2.0;
+
 pub(super) fn temporal(context: &GpuContext) -> ConfiguredFrameRenderer {
     let output = [2 * RENDER; 2];
     let mut settings = RendererConfiguration::legacy(output, COLOR_FORMAT);
@@ -39,7 +42,10 @@ pub(super) fn temporal(context: &GpuContext) -> ConfiguredFrameRenderer {
         }),
         ..HdrPostSettings::default()
     };
-    ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap()
+    let renderer =
+        ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap();
+    renderer.force_material_mip_bias(Some(FORCED_BIAS));
+    renderer
 }
 
 /// Draws one frame through the public encoding boundary and reads the resolved render target.

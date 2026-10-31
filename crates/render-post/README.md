@@ -467,10 +467,30 @@ Passes of a temporal slot, in order (each a `StageSet` stage):
 Lock state costs, measured by `taa_allocation_tests`: candidates 8R per slot, lock bank 8O per slot and one
 shared lock history 8O, so 24R + 32O bytes with three slots (the design counted 16O for two 16 bit channels).
 
-**The locks ship off** (`taa_upscale_gpu::LOCKS_DEFAULT` is `false`, the `locks` pipeline override of the
-shader). The first measurement did not meet rule 1 of the coordinator (lock-on ROI error at most 0.90
-times the lock-off error on the 18 designated cases): the ratios were 0.95 to 1.02. Rules 2 and 3 held.
-The plumbing, allocation, reset behaviour and tests ship; the feature stays off until it is re-measured.
+**The locks ship off and no measurement shows them improving the output.** `taa_upscale_gpu::LOCKS_DEFAULT` is
+`false` (the `locks` pipeline override of the shader), so the default output equals the output without locks
+byte for byte; the thin-feature sweep asserts `to_bits` equality of the default and `WithoutLocks` chains on
+all 15 fixture and speed cases at each of the scales 0.5, 0.67 and 0.77. The rules, fixed before any lock code:
+lock-on ROI error at most 0.90 times lock-off on 18 designated cases (grid, wire 45, wire 90, static and at 0.3
+px per frame, three scales), at most 1.10 times on the other 27, and a vanished line within 2/255 display levels
+after at most two submitted frames. Two lavapipe measurements, both failing:
+
+| Attempt | Rule 1 (18 designated, 0.90) | Rule 2 (27 others, 1.10) | Rule 3 (vanished line, 2 frames) |
+| --- | --- | --- | --- |
+| 1. lock bank and raised weight (shipped, off) | held on 0 of 18 (0.952 to 1.045) | held on 27 of 27 (largest 1.097) | held (1 frame) |
+| 2. clip box widened by the lock contrast (not kept) | held on 6 of 18 (the static cases at 0.67 and 0.77, 0.618 to 0.859), failed on 12 (0.902 to 1.192) | failed on 1 of 27 (1.118) | failed on 6 of 6 (14 to 32 frames), and an x4 shading change left 44.3 levels |
+
+The plumbing, allocation, reset behaviour, the exposure and radiance guards, the shading change test and the
+measurement ship; enabling the locks is tracked in issue #436 (a lock kill when the contrast vanishes, a
+separate diagnosis of scale 0.5 and 0.3 px per frame, a re-measure on both devices). The full ratio tables are
+in [docs/rendering.md](../../docs/rendering.md#temporal-upscaling). `lock_rule_measurement` in
+`temporal_thin_feature_tests.rs` reproduces the 45 row table (27 hold with the shipped shader) and asserts only
+finite output; enabling locks requires changing it to assert `lock_rule_holds` on both devices.
+
+Luminance normaliser: none was added. The path is already scale invariant (relative ROI error 0.97 to 1.02 of the
+unscaled run from 2^-10 to 2^13; `Rgba16Float` overflows beyond 2^13), and luminance is computed only for the
+lock reference. The exposure guard asserts that the history, copied before the tone stage, is unchanged within
+2^-11 relative (2^-24 floor) across display exposures 2^-6 to 2^6.
 
 The test-only switches `taa_upscale_gpu::WithLocks`, `WithoutLocks`, `taa_reconstruct_gpu::WithoutDilation` and `WithoutClip` (thread-local guards over
 pipeline-overridable constants; production passes the defaults) recompute the PR 2 path on the same device

@@ -289,6 +289,8 @@ PlayerShaderTests.Run();
 PlayerMaterialTests.Run();
 PlayerMeshTests.Run();
 PlayerRenderTextureTests.Run();
+Texture2DArrayTests.Run();
+PlayerTextureArrayTests.Run();
 TextCoreTests.Run();
 FontEngineTests.Run();
 TouchScreenKeyboardTests.Run();

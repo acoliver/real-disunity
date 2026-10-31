@@ -17,13 +17,32 @@ internal sealed partial class ResourceDatabase
             DataSize: data.GetProperty("size").GetInt64());
         var texture = Texture2D.FromPlayer(name, plan);
         ReadBytes($"texture {name}", Path.Combine(_directory, data.Str("file")), data.GetProperty("offset").GetInt64(), texture.PixelBytes);
+        ApplySampler(texture, asset);
+        return texture;
+    }
+
+    private Texture2DArray TextureArray(JsonElement asset)
+    {
+        var name = asset.Str("name");
+        var data = asset.GetProperty("data");
+        var plan = new PlayerTextureArray(asset.GetProperty("width").GetInt32(), asset.GetProperty("height").GetInt32(), asset.GetProperty("depth").GetInt32(),
+            asset.GetProperty("graphics_format").GetInt32(), asset.GetProperty("mip_count").GetInt32(), Readable: asset.GetProperty("readable").GetBoolean(),
+            DataSize: data.GetProperty("size").GetInt64());
+        var array = Texture2DArray.FromPlayer(name, plan);
+        ReadBytes($"texture array {name}", Path.Combine(_directory, data.Str("file")), data.GetProperty("offset").GetInt64(), array.PixelBytes);
+        ApplySampler(array, asset);
+        return array;
+    }
+
+    /// <summary>The filter, wrap modes, anisotropy and mip bias a texture asset plans.</summary>
+    private static void ApplySampler(Texture texture, JsonElement asset)
+    {
         texture.filterMode = (FilterMode)asset.GetProperty("filter_mode").GetInt32();
         texture.wrapModeU = (TextureWrapMode)asset.GetProperty("wrap_u").GetInt32();
         texture.wrapModeV = (TextureWrapMode)asset.GetProperty("wrap_v").GetInt32();
         texture.wrapModeW = (TextureWrapMode)asset.GetProperty("wrap_w").GetInt32();
         texture.anisoLevel = asset.GetProperty("aniso_level").GetInt32();
         texture.mipMapBias = asset.GetProperty("mip_bias").GetSingle();
-        return texture;
     }
 
     private Sprite PlayerSprite(JsonElement asset)

@@ -146,28 +146,8 @@ public sealed partial class Texture2D
         IncrementUpdateCount();
     }
 
-    /// <summary>Each texel of a level is the average of the 2x2 texels of the level above it.</summary>
-    private void Downsample(int level)
-    {
-        var (w, h, sourceW, sourceH) = (LevelWidth(level), LevelHeight(level), LevelWidth(level - 1), LevelHeight(level - 1));
-        var bytes = TexelFormats.BytesPerPixel(_format);
-        var source = LevelBytes(level - 1);
-        var target = LevelBytes(level);
-        for (var y = 0; y < h; y++)
-            for (var x = 0; x < w; x++)
-            {
-                var sum = Sample(source, 2 * x, 2 * y, sourceW, sourceH) + Sample(source, 2 * x + 1, 2 * y, sourceW, sourceH)
-                    + Sample(source, 2 * x, 2 * y + 1, sourceW, sourceH) + Sample(source, 2 * x + 1, 2 * y + 1, sourceW, sourceH);
-                TexelFormats.Write(_format, target.Slice((y * w + x) * bytes, bytes), sum * 0.25f);
-            }
-    }
-
-    /// <summary>The texel at (x, y) of a level of the given size, clamped to its edge.</summary>
-    private Color Sample(ReadOnlySpan<byte> level, int x, int y, int w, int h)
-    {
-        var bytes = TexelFormats.BytesPerPixel(_format);
-        return TexelFormats.Read(_format, level.Slice((Math.Min(y, h - 1) * w + Math.Min(x, w - 1)) * bytes, bytes));
-    }
+    private void Downsample(int level) =>
+        TexelFormats.Downsample(_format, LevelBytes(level - 1), LevelWidth(level - 1), LevelHeight(level - 1), LevelBytes(level), LevelWidth(level), LevelHeight(level));
 
     /// <summary>Texture2D.Compress, PackTextures, GenerateAtlas, ReadPixels, CopyPixels and the external
     /// texture members need a GPU or a texture compressor, which the engine does not have yet.</summary>

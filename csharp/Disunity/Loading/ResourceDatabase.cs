@@ -112,6 +112,7 @@ internal sealed partial class ResourceDatabase
     {
         "TextAsset" => typeof(TextAsset),
         "Texture2D" => typeof(Texture2D),
+        "Texture2DArray" => typeof(Texture2DArray),
         "Sprite" => typeof(Sprite),
         "SpriteAtlas" => typeof(UnityEngine.U2D.SpriteAtlas),
         "Script" => ScriptType(asset),
@@ -170,6 +171,7 @@ internal sealed partial class ResourceDatabase
         {
             "TextAsset" => _built[index] = Text(asset),
             "Texture2D" => _built[index] = Texture(asset),
+            "Texture2DArray" => _built[index] = TextureArray(asset),
             "Sprite" => _built[index] = PlayerSprite(asset),
             "SpriteAtlas" => _built[index] = Atlas(asset),
             "Prefab" => _built[index] = Prefab(index, asset),

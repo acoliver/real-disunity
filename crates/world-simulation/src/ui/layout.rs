@@ -65,7 +65,7 @@ impl World {
 
     /// The size and pivot of an object's rectangle, as a script reads them. Every rectangle has
     /// one, including one that is inactive, hidden or under no canvas, which has the size its own
-    /// values and any parent rectangle give it. `None` when the object has no RectTransform.
+    /// values and any parent rectangle give it. `None` when the object has no `RectTransform`.
     pub fn ui_extent(
         &self,
         viewport: UVec2,

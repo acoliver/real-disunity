@@ -116,7 +116,12 @@ fn a_world_canvas_inside_a_screen_canvas_is_drawn_on_the_screen() {
         }),
     )
     .unwrap();
-    let n = w.ui_layout(viewport()).unwrap().rect(nested).cloned().unwrap();
+    let n = w
+        .ui_layout(viewport())
+        .unwrap()
+        .rect(nested)
+        .cloned()
+        .unwrap();
     assert!(n.pixels_from_world.is_some());
     assert_eq!(n.size, Vec2::new(800., 600.));
 }
@@ -141,4 +146,47 @@ fn a_screen_canvas_under_a_plain_object_fills_the_screen() {
     let screen = r.screen_corners.unwrap();
     assert!(screen[0].abs_diff_eq(Vec2::ZERO, 0.001));
     assert!(screen[2].abs_diff_eq(Vec2::new(800., 600.), 0.001));
+}
+
+#[test]
+fn any_finite_anchors_and_pivot_are_a_rectangle() {
+    let mut w = world();
+    let root = screen_canvas(&mut w, None);
+    let crossed = rect(
+        &mut w,
+        Some(root),
+        RectTransform {
+            anchor_min: Vec2::new(0.75, 1.5),
+            anchor_max: Vec2::new(0.25, 1.0),
+            pivot: Vec2::new(-1., 2.),
+            size_delta: Vec2::ZERO,
+            ..Default::default()
+        },
+    );
+    let extent = w.ui_extent(viewport(), crossed).unwrap().unwrap();
+    assert_eq!(extent.size, Vec2::new(-400., -300.));
+    assert_eq!(extent.pivot, Vec2::new(-1., 2.));
+    for bad in [Vec2::new(f32::NAN, 0.), Vec2::new(0., f32::INFINITY)] {
+        let o = w.create_object(ObjectDesc::default()).unwrap();
+        for r in [
+            RectTransform {
+                anchor_min: bad,
+                ..Default::default()
+            },
+            RectTransform {
+                anchor_max: bad,
+                ..Default::default()
+            },
+            RectTransform {
+                size_delta: bad,
+                ..Default::default()
+            },
+            RectTransform {
+                anchored_position: bad,
+                ..Default::default()
+            },
+        ] {
+            assert!(w.add_component(o, ComponentDesc::RectTransform(r)).is_err());
+        }
+    }
 }

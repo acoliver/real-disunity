@@ -45,13 +45,19 @@ impl Default for RectTransform {
     }
 }
 impl RectTransform {
+    /// Any finite values are a rectangle. Anchors and pivot may lie outside 0 to 1, and a minimum
+    /// anchor may pass its maximum: scripts set the two anchors one at a time, and the layout keeps
+    /// the negative size such values give.
     pub(crate) fn validate(self) -> Result<(), UiError> {
-        if [self.anchor_min, self.anchor_max, self.pivot]
-            .iter()
-            .any(|v| !v.is_finite() || v.min_element() < 0. || v.max_element() > 1.)
-            || self.anchor_min.cmpgt(self.anchor_max).any()
-            || !self.size_delta.is_finite()
-            || !self.anchored_position.is_finite()
+        if [
+            self.anchor_min,
+            self.anchor_max,
+            self.pivot,
+            self.size_delta,
+            self.anchored_position,
+        ]
+        .iter()
+        .any(|v| !v.is_finite())
         {
             return Err(UiError::InvalidRect);
         }

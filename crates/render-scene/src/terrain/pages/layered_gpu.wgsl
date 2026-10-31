@@ -97,7 +97,9 @@ fn layered_texture(index: u32, uv: vec2<f32>, repeat: bool) -> vec4<f32> {
     return layered_sample(layered_images[index], uv, vec2<f32>(0.0), vec2<f32>(0.0), repeat);
 }
 fn layered_trilinear(index: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    return layered_sample(layered_images[index], uv, dx, dy, true);
+    // The single scaling point for the anisotropic footprint and the isotropic gradients.
+    let scale = layered_gradient_scale();
+    return layered_sample(layered_images[index], uv, dx * scale, dy * scale, true);
 }
 fn layered_rotate(value: vec2<f32>, layer: Layer) -> vec2<f32> {
     return vec2<f32>(value.x * layer.rotation_offsets.x - value.y * layer.rotation_offsets.y,

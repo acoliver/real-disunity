@@ -14,7 +14,7 @@ use super::*;
 /// The camera is displaced 200 mm along the ground so the view direction is not parallel to
 /// the world up axis. That tilts it by 0.66 degrees, which stretches the footprint by
 /// `1 / cos^2` = 1.00013, an LOD change of 1.9e-4, under the 0.005 bound's margin of 0.0016.
-fn height_for(level: u32) -> i64 {
+pub(super) fn height_for(level: u32) -> i64 {
     match level {
         2 => 17_320,
         3 => 34_641,
@@ -67,7 +67,7 @@ fn scene() -> RenderScene {
     .unwrap()
 }
 
-fn frame_at(height: i64) -> FrameUniform {
+pub(super) fn frame_at(height: i64) -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [0, -200, height],

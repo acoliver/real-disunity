@@ -413,6 +413,24 @@ driver overhead and staging alignment. `take_statistics()` acknowledges initial
 resource uploads for this resident generation; later calls retain residency and
 draw counts but report zero new resource uploads. Both APIs return owned values.
 
+`SceneSpecularCube::with_preparation(SceneSpecularPreparation)` marks the owned
+cube bytes as a source for GGX filtering. The request lives on the texture because
+its bytes, format, mip chain and preparation recipe form one resource identity;
+`SceneEnvironment` continues to select the resulting cube by its existing handle.
+Both RGBA16Float and BC6H unsigned-float sources use `sky::preparation::encode`
+on the host device. Cube size, mip count, sample count, convention and source LOD
+tail map directly to `EnvironmentPreparation`. The job's one-texel generated LUT
+is discarded; the authored scene BRDF table and scene intensity remain unchanged.
+Scene-viewer admits source storage, aligned upload staging, integration uniforms
+and disposable intermediates as pending-generation reservations. These expire at
+publication or cancellation without replacing presentation targets or temporal history.
+Filtered cube storage uses the scene resource inventory and stays charged until
+its resident retires. Resize and settings-only replacement count that storage once;
+overlapping scene residents count separately. Texture statistics report the output
+cube dimensions. Queue ordering requires no CPU completion wait. Dropping pending generations cancels publication;
+shutdown uses the host's bounded drain. A cube without a request is uploaded
+byte-for-byte without filtering or preparation allocations.
+
 Scene texture cubes and half-float BRDF tables use the common texture uploader.
 `SceneGpu::environment_maps` references that uploaded storage through
 `PreparedEnvironmentMaps`; the compositor water and reflection setters install

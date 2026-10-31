@@ -156,4 +156,6 @@ pub use scene::{
     SceneDecalMapping, SceneDecalNormalFrame, SceneDecalReceivers, SceneDecalWriteMask,
 };
 
-pub use scene::{SceneEnvironment, SceneEnvironmentConsumers, SceneSpecularCubeFormat};
+pub use scene::{
+    SceneEnvironment, SceneEnvironmentConsumers, SceneSpecularCubeFormat, SceneSpecularPreparation,
+};

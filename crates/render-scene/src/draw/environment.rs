@@ -3,7 +3,7 @@ use crate::sky::preparation::{PreparationError, PreparedEnvironmentMaps};
 use worldrunner_render_plan::{SceneEnvironment, TextureHandle};
 
 impl SceneGpu {
-    /// Borrows already uploaded scene storage; no texture allocation or filtering occurs.
+    /// Borrows resident scene storage, including any cube filtered during installation.
     pub fn environment_maps(
         &self,
         environment: SceneEnvironment,

@@ -4,6 +4,8 @@
 
 The inventory is checked before the allocator runs. Peak usage includes the published generation, every unretired generation and the proposed replacement. Retained allocations with the same name and descriptor are counted once. Names for retained allocations must identify the same physical storage across generations. A new backing allocation must use a different name or an ordinary, non-retained entry.
 
+`Configuration::reserve` admits independently owned storage and returns an `AllocationReservation`. Admission and replacement include every live reservation exactly once. Dropping its owner releases the charge. Reservations do not replace targets or advance the configuration generation. A pending scene owns its transient preparation reservation; scene texture storage belongs to its resident and remains charged through retirement. These inventories do not enter compositor generation descriptors.
+
 Texture entries account for compression blocks, mip extents, layers and samples. Depth24Plus uses four bytes per texel. Stencil8 and combined depth/stencil use a conservative eight-byte backing bound, including backend stencil emulation and depth promotion. Readback entries use 256-byte row pitch. Counts describe physical allocation multiplicity, rather than the number of views or references. Buffer entries must include their actual padded size. CPU accumulation and temporary storage can be declared separately. These are descriptor bytes, not a measurement of driver-private bookkeeping or total process memory.
 
 `Configuration::new` adopts an already constructed value. Custom builders must preflight its inventory before constructing it and resolve GPU error scopes before returning a replacement. The stock constructor supplies that preflight and captures out-of-memory, validation and internal driver errors. Device loss takes precedence over an allocation result after construction and scope resolution.
@@ -14,7 +16,7 @@ The allocation closure creates private replacement objects. It must not publish 
 
 ## Stock renderer
 
-`render-scene::compositor::ConfiguredFrameRenderer` supplies the stock inventory and replacement builder. `RendererConfiguration` describes targets, HDR output, post settings, SSAO, reflections, water, active frame slots and timing. External persistent storage, transient uploads, readbacks and CPU capture storage belong in `additional`; imported references do not create additional physical allocations.
+`render-scene::compositor::ConfiguredFrameRenderer` supplies the stock inventory and replacement builder. `RendererConfiguration` describes targets, HDR output, post settings, SSAO, reflections, water, active frame slots and timing. Storage whose lifetime follows compositor replacement belongs in `additional`; imported references do not create additional physical allocations. Work and scene resources with independent owners use `ConfiguredFrameRenderer::reserve`.
 
 Stock effect implementations retain three physical slots. `frame_slots` restricts the active subset and does not reduce the physical inventory. Timing capability selection is fixed at device setup. Exposure carry and slot history remain retained across replacement, including temporary disabling of the HDR output. Exposure reset stays explicit. Unread timing storage is also retained.
 

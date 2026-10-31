@@ -107,6 +107,9 @@ impl PreparedScene {
         device: &wgpu::Device,
         pipelines: &super::ScenePipelines,
     ) -> Result<(), DrawError> {
+        super::source_environment::allocations(&self.scene)?
+            .validate(&device.limits())
+            .map_err(|_| crate::sky::preparation::PreparationError::Budget)?;
         if let Some(policy) = self
             .scene
             .terrain()

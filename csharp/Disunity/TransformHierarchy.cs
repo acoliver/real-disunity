@@ -42,12 +42,20 @@ public partial class Transform
         var target = parent?.gameObject.NativeHandle ?? 0;
         var moved = DisunityHost.ParentHandle(gameObject) != target;
         DisunityAdvance work;
-        DisunityHost.ThrowIfError(NativeBindings.disunity_transform_parent(DisunityHost.WorldHandle, gameObject.NativeHandle,
-            target, worldPositionStays ? 1u : 0u, &work));
+        try { DisunityHost.ThrowIfError(NativeParent(target, worldPositionStays, &work)); }
+        catch (DisunityException error) when (worldPositionStays && error.Reason == DisunityErrorReason.SingularParent)
+        {
+            // A parent scaled to zero has no inverse to keep the world pose through. The native world refuses and
+            // changes nothing, so the engine's choice is to keep the local values, as worldPositionStays false does.
+            DisunityHost.ThrowIfError(NativeParent(target, false, &work));
+        }
         MarkChanged();
         if (moved) gameObject.SiblingKey = DisunityHost.NextSiblingKey();
         DisunityHost.Drain(work);
     }
+
+    private unsafe DisunityResult NativeParent(ulong target, bool keepWorld, DisunityAdvance* work) =>
+        NativeBindings.disunity_transform_parent(DisunityHost.WorldHandle, gameObject.NativeHandle, target, keepWorld ? 1u : 0u, work);
 
     public Transform root
     {

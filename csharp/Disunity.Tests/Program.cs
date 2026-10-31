@@ -286,6 +286,7 @@ DefaultCanvasMaterialTests.Run();
 StopCoroutineTests.Run();
 SpriteDataUtilityTests.Run();
 EventTests.Run();
+SingularReparentTests.Run();
 FieldBinderTests.Run();
 SerializedCollectionTests.Run();
 ManagedReferenceTests.Run();

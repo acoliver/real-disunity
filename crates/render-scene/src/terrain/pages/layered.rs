@@ -1,5 +1,8 @@
 //! CPU reference for ordered, height-aware terrain composition.
 
+mod anisotropy;
+#[cfg(test)]
+mod anisotropy_tests;
 mod sampling;
 mod splat;
 #[cfg(test)]
@@ -197,8 +200,8 @@ impl<'a> LayeredReference<'a> {
                 world_meters,
                 appearance.blur_radius_millimeters,
             );
-            let angle = appearance.rotation_arcminutes as f32 * std::f32::consts::PI / 10_800.0;
-            let (sine, cosine) = angle.sin_cos();
+            let rotation = crate::terrain_uniform::rotation_sin_cos(appearance.rotation_arcminutes);
+            let (sine, cosine) = rotation;
             let uv = [
                 (world_meters[0] * cosine - world_meters[1] * sine
                     + layer.offset_millimeters[0] as f32 * 0.001)
@@ -216,7 +219,7 @@ impl<'a> LayeredReference<'a> {
                     footprint[1] * cosine / repeat,
                 ],
             ];
-            samples.push(self.material_sample(&appearance, uv, derivatives, coverage)?);
+            samples.push(self.material_sample(&appearance, uv, derivatives, coverage, rotation)?);
         }
         let mut tint = [1.0; 3];
         let mut roughness = 0.0;

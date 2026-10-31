@@ -30,6 +30,9 @@ pub enum ComponentKind {
     Text,
     Body2d,
     Collider2d,
+    MeshInstance,
+    MeshRenderer,
+    MeshFilter,
     Renderer,
     Script,
 }
@@ -60,6 +63,9 @@ impl ComponentDesc {
             Self::Text(_) => ComponentKind::Text,
             Self::Body2d(_) => ComponentKind::Body2d,
             Self::Collider2d(_) => ComponentKind::Collider2d,
+            Self::MeshInstance(_) => ComponentKind::MeshInstance,
+            Self::MeshRenderer(_) => ComponentKind::MeshRenderer,
+            Self::MeshFilter(_) => ComponentKind::MeshFilter,
             Self::Renderer { .. } => ComponentKind::Renderer,
             Self::Script { .. } => ComponentKind::Script,
         }
@@ -300,6 +306,7 @@ impl World {
     }
 
     pub(crate) fn record_change(&mut self, change: Change) {
+        self.spatial_observe(change);
         self.journal.record(change);
     }
 }

@@ -12,6 +12,7 @@ const ABI_SOURCES: &[&str] = &[
     "src/canvas.rs",
     "src/canvas_group.rs",
     "src/canvas_renderer.rs",
+    "src/mesh_renderer.rs",
     "src/camera_layers.rs",
     "src/camera_data.rs",
     "src/light.rs",

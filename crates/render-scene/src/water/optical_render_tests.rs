@@ -232,7 +232,7 @@ fn use_stock_shader(
         samples,
         &water.layout,
         false,
-        [0; 4],
+        [0; 5],
         &source,
     );
 }

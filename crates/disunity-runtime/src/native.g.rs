@@ -85,6 +85,26 @@ pub struct DisunityCanvasRenderer {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct DisunityMeshRenderer {
+    pub kind: u32,
+    pub enabled: u32,
+    pub force_rendering_off: u32,
+    pub receive_shadows: u32,
+    pub allow_occlusion_when_dynamic: u32,
+    pub static_shadow_caster: u32,
+    pub shadow_casting_mode: u32,
+    pub motion_vector_mode: u32,
+    pub light_probe_usage: u32,
+    pub reflection_probe_usage: u32,
+    pub rendering_layer_mask: u32,
+    pub renderer_priority: i32,
+    pub sorting_layer: i32,
+    pub sorting_order: i32,
+    pub material_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct DisunityLight {
     pub cookie_texture: u64,
     pub enabled: u32,

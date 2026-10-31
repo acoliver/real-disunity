@@ -52,6 +52,8 @@ impl super::SceneTexture {
 pub struct TextureAnisotropy(u16);
 
 impl TextureAnisotropy {
+    pub const ISOTROPIC: Self = Self(1);
+
     /// Accepts only 1, 2, 4, 8 or 16.
     pub fn new(level: u16) -> Result<Self, super::SceneValidationError> {
         if !matches!(level, 1 | 2 | 4 | 8 | 16) {
@@ -69,6 +71,6 @@ impl TextureAnisotropy {
 
 impl Default for TextureAnisotropy {
     fn default() -> Self {
-        Self(1)
+        Self::ISOTROPIC
     }
 }

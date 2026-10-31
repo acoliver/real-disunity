@@ -86,6 +86,7 @@ pub(super) fn fixture(
     })
     .unwrap()
     .with_layered_source(TerrainLayeredSource {
+        anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         channel_map: None,
         type_grid: TerrainTypeGrid::new([2; 2], [0; 2], 12_000, vec![0; 4]).unwrap(),
         filter: TerrainSplatFilter::Spiral14,
@@ -147,10 +148,16 @@ fn oracle_texel(footprint: [f64; 2], rotation: u32, repeat: u32) -> Vec<u8> {
     let color = glam::DVec4::from_array(products[0]).as_vec4().to_array();
     let packed = glam::DVec4::from_array(products[1]).as_vec4().to_array();
     let xy = glam::Vec2::new(packed[0], packed[1]) * 2.0 - glam::Vec2::ONE;
+    let inverse = glam::DMat2::from_angle(-f64::from(rotation) * std::f64::consts::PI / 10_800.0);
+    let terrain_xy = (inverse * xy.as_dvec2()).as_vec2();
     let sample = HeightLayerSample {
         albedo: [color[0], color[1], color[2]],
         metallic: color[3],
-        normal: [xy.x, xy.y, (1.0 - xy.length_squared()).max(0.0).sqrt()],
+        normal: [
+            terrain_xy.x,
+            terrain_xy.y,
+            (1.0 - xy.length_squared()).max(0.0).sqrt(),
+        ],
         roughness: packed[3],
         height: glam::DVec4::from_array(products[2]).as_vec4().x,
         coverage: 1.0,
@@ -193,7 +200,7 @@ fn independent_level_oracle_covers_fine_coarse_rotation_and_scale() {
 #[test]
 fn composed_pages_match_independent_trilinear_oracle() {
     let context = context();
-    for (rotation, repeat) in [(0, 750), (2700, 1700), (5400, 9000)] {
+    for (rotation, repeat) in [(0, 750), (2700, 1700), (5400, 9000), (2_160_000_000, 750)] {
         let (terrain, resources) = fixture(rotation, repeat, [4; 3]);
         let source = LayeredGpuSource::new(&terrain, &resources).unwrap();
         let reference = LayeredReference::new(&terrain, &resources).unwrap();
@@ -318,11 +325,21 @@ fn single_mip_gpu_products_are_byte_identical_for_all_footprints() {
     }
 }
 
-fn execute_footprint(
+pub(super) fn execute_footprint(
     context: &crate::device::GpuContext,
     source: &LayeredGpuSource,
     positions: &[[f32; 2]],
     footprint: [f32; 2],
+) -> Vec<u8> {
+    execute_shader(context, source, positions, footprint, None)
+}
+
+pub(super) fn execute_shader(
+    context: &crate::device::GpuContext,
+    source: &LayeredGpuSource,
+    positions: &[[f32; 2]],
+    footprint: [f32; 2],
+    shader: Option<&str>,
 ) -> Vec<u8> {
     let device = context.device();
     let mut registry = ResourceRegistry::default();
@@ -334,6 +351,9 @@ fn execute_footprint(
             (positions, footprint),
         )
         .unwrap();
+    if let Some(shader) = shader {
+        super::anisotropy_tests::replace_pipeline(device, &mut operations, shader);
+    }
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: positions.len() as u64 * 16,

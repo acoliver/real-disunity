@@ -7,7 +7,8 @@
 //! plan, with references to other planned resources as `{"$asset": i}`, since a few hold
 //! tables of many megabytes. Textures, sprites and sprite atlases are planned too, along
 //! with the ones such an object references even when the container does not list them (see
-//! [`crate::player_sprites`]). A `GameObject` is a prefab: a scene plan of the object and its
+//! [`crate::player_sprites`]), and so are shaders (see [`crate::player_shader_refs`]) and materials
+//! (see [`crate::player_materials`]). A `GameObject` is a prefab: a scene plan of the object and its
 //! descendants in a file beside the plan (see [`crate::player_prefabs`]); a prefab that does not
 //! plan keeps its error and the rest of the plan is unaffected. Entries of other classes keep
 //! only their class, so loading one names the class the engine does not build yet.
@@ -20,17 +21,21 @@ use std::{
 use serde::Serialize;
 use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{
-    ClassId, managers::ResourceManager, object::PPtr, script_data::ScriptLayouts,
-    text_asset::TextAsset,
+    ClassId, graphics::Material, managers::ResourceManager, object::PPtr,
+    script_data::ScriptLayouts, text_asset::TextAsset,
 };
 
 use crate::{
     PlayerError,
     player_files::PlayerFiles,
+    player_materials::{
+        PlanMaterial, decode_material, plan_material, unplanned_reference as unplanned_material,
+    },
     player_pipeline::{GraphicsAssets, admit_graphics_assets},
     player_plan::{PlanSource, tag_manager_names},
     player_prefabs::{is_root, plan_prefab, prefab_name},
     player_scripts::script_fields,
+    player_shader_refs::{ShaderDecl, decode_shader, unplanned_reference},
     player_sprites::{self, AssetRef, TextureData},
     player_values::{FieldWriter, not_held},
 };
@@ -120,6 +125,24 @@ pub enum ResourceAsset {
         is_variant: bool,
         sprites: Vec<AssetRef>,
     },
+    /// A shader, by the name its source declares, with the render queue of its first
+    /// sub-shader and the numbers of sub-shaders and of passes in the first one. Programs are
+    /// not planned.
+    Shader {
+        name: String,
+        render_queue: i32,
+        pass_count: usize,
+        subshader_count: usize,
+    },
+    /// A shader the planner could not decode, with the reason loading it reports.
+    UnplannedShader { error: String },
+    /// A material, with its shader and textures as asset indexes.
+    Material {
+        #[serde(flatten)]
+        material: PlanMaterial,
+    },
+    /// A material the planner could not decode, with the reason loading it reports.
+    UnplannedMaterial { error: String },
 }
 
 /// An object of a player file, by file path and path ID.
@@ -202,6 +225,8 @@ fn referenced_on_demand(class: ClassId) -> bool {
     class == ClassId::TEXTURE_2D
         || class == ClassId::SPRITE
         || class == ClassId::SPRITE_ATLAS
+        || class == ClassId::SHADER
+        || class == ClassId::MATERIAL
         || class == ClassId::GAME_OBJECT
 }
 
@@ -231,6 +256,10 @@ pub(crate) struct Registry {
     pub(crate) queue: Vec<(ObjectKey, ClassId)>,
     /// Textures the engine does not build, which are noted once.
     rejected: BTreeSet<ObjectKey>,
+    /// Each admitted shader as decoded, or why it did not.
+    shaders: BTreeMap<ObjectKey, Result<ShaderDecl, String>>,
+    /// Each admitted material as decoded, or why it did not.
+    materials: BTreeMap<ObjectKey, Result<Material, String>>,
     /// Differences found while admitting and while planning textures, sprites and atlases.
     pub(crate) notes: Vec<String>,
 }
@@ -242,6 +271,8 @@ impl Registry {
             planned: BTreeMap::new(),
             queue: Vec::new(),
             rejected: BTreeSet::new(),
+            shaders: BTreeMap::new(),
+            materials: BTreeMap::new(),
             notes: Vec::new(),
         }
     }
@@ -278,6 +309,14 @@ impl Registry {
             self.rejected.insert(key.clone());
             return Ok(None);
         }
+        if class == ClassId::SHADER {
+            let decoded = decode_shader(&mut self.files, key);
+            self.shaders.insert(key.clone(), decoded);
+        }
+        if class == ClassId::MATERIAL {
+            let decoded = decode_material(&mut self.files, key);
+            self.materials.insert(key.clone(), decoded);
+        }
         self.planned.insert(key.clone(), self.queue.len());
         self.queue.push((key.clone(), class));
         Ok(Some(self.queue.len() - 1))
@@ -306,15 +345,25 @@ impl Registry {
             ));
         }
         if let Some(&index) = self.planned.get(&key) {
-            return Ok(index);
+            return self.usable(&key, index, pptr);
         }
         if !referenced_on_demand(class) {
             return Err(not_held(pptr));
         }
         match self.admit(&key, class) {
-            Ok(Some(index)) => Ok(index),
+            Ok(Some(index)) => self.usable(&key, index, pptr),
             Ok(None) => Err(not_held(pptr)),
             Err(error) => Err(error.to_string()),
+        }
+    }
+
+    /// The asset index of an admitted object, unless it is a shader or material that did not
+    /// decode.
+    fn usable(&self, key: &ObjectKey, index: usize, pptr: PPtr) -> Result<usize, String> {
+        match (self.shaders.get(key), self.materials.get(key)) {
+            (Some(Err(cause)), _) => Err(unplanned_reference(pptr, cause)),
+            (_, Some(Err(cause))) => Err(unplanned_material(pptr, cause)),
+            _ => Ok(index),
         }
     }
 }
@@ -325,8 +374,8 @@ impl PlanSource for Registry {
         &mut self.files
     }
 
-    fn outside(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
-        self.reference(owner, pptr)
+    fn asset(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
+        self.asset_index(owner, pptr)
     }
 }
 
@@ -357,7 +406,56 @@ impl ResourcePlanner {
             ClassId::SPRITE => player_sprites::plan_sprite(&mut self.registry, key),
             ClassId::SPRITE_ATLAS => player_sprites::plan_atlas(&mut self.registry, key),
             ClassId::GAME_OBJECT => self.prefab(key, layouts),
+            ClassId::SHADER => Ok(self.shader(key)),
+            ClassId::MATERIAL => Ok(self.material(key)),
             _ => self.script_asset(key, layouts),
+        }
+    }
+
+    /// The shader `key` as admitted: its declarations, or an error entry that names why it did
+    /// not decode.
+    fn shader(&mut self, key: &ObjectKey) -> ResourceAsset {
+        let decoded = (self.registry.shaders.get(key).cloned())
+            .unwrap_or_else(|| Err("it was not admitted".to_owned()));
+        match decoded {
+            Ok(decl) => ResourceAsset::Shader {
+                name: decl.name,
+                render_queue: decl.render_queue,
+                pass_count: decl.pass_count,
+                subshader_count: decl.subshader_count,
+            },
+            Err(error) => {
+                let (file, path_id) = key;
+                let error = format!("shader object {path_id} of {}: {error}", file.display());
+                self.differences
+                    .push(format!("shader did not plan: {error}"));
+                ResourceAsset::UnplannedShader { error }
+            }
+        }
+    }
+
+    /// The material `key` as admitted, with its shader and textures planned as assets, or an
+    /// error entry that names why it did not decode.
+    fn material(&mut self, key: &ObjectKey) -> ResourceAsset {
+        let (file, path_id) = key;
+        let decoded = (self.registry.materials.get(key).cloned())
+            .unwrap_or_else(|| Err("it was not admitted".to_owned()));
+        match decoded {
+            Ok(material) => {
+                let registry = &mut self.registry;
+                let planned = plan_material(
+                    &material,
+                    |pptr| registry.asset_index(file, pptr),
+                    &mut self.differences,
+                );
+                ResourceAsset::Material { material: planned }
+            }
+            Err(error) => {
+                let error = format!("material object {path_id} of {}: {error}", file.display());
+                self.differences
+                    .push(format!("material did not plan: {error}"));
+                ResourceAsset::UnplannedMaterial { error }
+            }
         }
     }
 

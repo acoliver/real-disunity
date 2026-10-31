@@ -10,6 +10,20 @@ a normalized material mixture. Reordering a dense palette with the matching grid
 remap does not change the rendered surface. Blur radii, tints, and rotations come
 from scene inputs; no content-specific blur table is embedded.
 
+Terrain material normals use +X along layer U and +Y along layer V. Unrotated
+U follows east and V follows north in the Z-up scene. Appearance rotation applies
+to world-to-UV mapping; its inverse brings each layer normal into the common
+east/north frame before blending and page storage. From the normalized geometric
+normal N, the draw constructs T = normalize([N.z, 0, -N.x]) and B = cross(N, T).
+T follows the eastward heightfield direction at constant north. Live layered draws
+and cached pages use the same final normal composition.
+
+`SceneTerrain::with_material_normal_strength(Some(value))` accepts finite values
+in [0, 4]; `None` restores the default 1. Zero uses the interpolated geometric
+normal, one preserves the unscaled shading bytes, and larger values scale the
+material normal's XY components before normalization. Strength is applied after
+page lookup, so it has identical semantics for live and cached materials.
+
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
@@ -41,9 +55,15 @@ all levels use linear texel/mip filtering and repeat wrapping. Texture-level
 filter/wrap settings affect dynamic quads and sprites only, whose anisotropic
 sampling is outside this implementation's scope. Samplers are cached by material
 anisotropy, independently of texture handles. wgpu clamps the effective level to
-the adapter's supported capability. Terrain anisotropy is not implemented for
-sources or cached pages and is tracked by
-[#347](https://github.com/acoliver/real-disunity/issues/347). See the
+the adapter's supported capability. Layered terrain sources use their own validated
+`TerrainLayeredSource::anisotropy` level. Above 1, portable explicit-level taps
+average the major-axis footprint at `log2(max(major / taps, minor))`, with the tap
+count bounded by the footprint ratio and authored level. Hardware sampler
+anisotropy stays 1, preventing backend-dependent double filtering. The 1x path
+preserves its isotropic bytes. Cached-page reads share the principal-axis geometry
+and authored level, using at most 16 manual trilinear taps with independent
+gutter-safe page lookup. See the
+[terrain source contract](../../dev-docs/rendering/terrain-pages.md#portable-source-anisotropy) and the
 [sampling contract](../../dev-docs/rendering/2d.md#texture-sampling).
 
 ## Masked alpha-to-coverage
@@ -397,3 +417,30 @@ retained settings publication, including removal and consumer changes.
 at equal render and output extents, after the resolve and CAS, and does not
 alter upscale RCAS. See [the post contract](../render-post/README.md#native-resolution-rcas)
 for stops, filter domains and output rounding.
+
+## Water lighting and normal filtering
+
+Water specializes the shared lighting shader with the scene's direct-diffuse
+convention. `LambertianPrepared` uses prepared sun colour without another Fresnel
+or pi factor in diffuse. Water sun disks remain per-body controls. Each distinct
+lighting convention has its own cached plain and shadowed water pipelines.
+
+`SceneWaterSettings::normal_anisotropy` selects validated 1x, 2x, 4x, 8x or 16x
+filtering when `normal_mips` is enabled. Bodies with the same level reuse one
+sampler. The default 1x descriptor preserves trilinear repeat sampling; explicit
+mip-zero normals retain their float-precision bilinear path. The synthetic water
+normal readback test checks minor-axis detail at a grazing angle and compares the
+1x bytes with the original sampler descriptor.
+
+`SceneWaterFlowCoordinates::mode` selects seed addressing independently of normal
+repetition. `SceneWaterSeedCoordinates::Repeat` is the default and preserves existing
+bytes. `EndpointClamped` places the first and last seeds at the domain endpoints,
+using `(clamp(t, 0, 1) * (N - 1) + 0.5) / N` per axis before bilinear filtering.
+The domain uses the descriptor's integer-millimetre origin and positive extent.
+CPU geometry computes domain-relative seed coordinates before narrowing to float32;
+only the endpoint specialization adds their vertex buffer and interpolated varying.
+Renderer and presentation allocation plans count this buffer at eight bytes per
+expanded vertex, with an eight-byte empty placeholder and conservative basin bounds.
+Flow maps need at least two texels per axis in this mode; invalid dimensions fail
+before GPU allocation. Normal coordinates and samplers remain unchanged. See the
+[water contract](../../dev-docs/rendering/scene-materials.md) for sampling and tests.

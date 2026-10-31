@@ -17,6 +17,7 @@ pub(super) fn build_cached(
     } else {
         source.to_owned()
     };
+    let source = include_str!("../terrain/pages/footprint.wgsl").to_owned() + &source;
     let source = source.as_str();
     let terrain_layout = super::scene_layout(device, "terrain", groups);
     let terrain = build_terrain(device, &terrain_layout, source, buffers, targets, target);

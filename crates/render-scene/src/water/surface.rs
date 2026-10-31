@@ -2,6 +2,12 @@
 use crate::draw::DrawError;
 use worldrunner_render_plan::RenderScene;
 
+fn endpoint_clamped(body: &worldrunner_render_plan::SceneWaterBody) -> bool {
+    body.material.flow_coordinates.is_some_and(|coordinates| {
+        coordinates.mode == worldrunner_render_plan::SceneWaterSeedCoordinates::EndpointClamped
+    })
+}
+
 pub(crate) fn validate(scene: &RenderScene) -> Result<(), DrawError> {
     if let Some(effects) = scene.effects() {
         for body in effects.water_bodies() {
@@ -17,6 +23,15 @@ pub(crate) fn validate(scene: &RenderScene) -> Result<(), DrawError> {
                 let prepared =
                     crate::texture::prepare_texture(&scene.resources().textures()[index])
                         .map_err(|source| DrawError::Texture { index, source })?;
+                if body.material.flow == Some(handle)
+                    && endpoint_clamped(body)
+                    && (prepared.width() < 2 || prepared.height() < 2)
+                {
+                    return Err(crate::frame::FrameError::UnsupportedEffect(
+                        "endpoint-clamped water seeds require at least 2 samples per axis",
+                    )
+                    .into());
+                }
                 if !matches!(
                     prepared.format(),
                     wgpu::TextureFormat::Rg8Unorm
@@ -82,15 +97,31 @@ pub(crate) fn inputs(
             .collect()
     })
 }
-pub(super) fn sampler(device: &wgpu::Device) -> wgpu::Sampler {
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        address_mode_u: wgpu::AddressMode::Repeat,
-        address_mode_v: wgpu::AddressMode::Repeat,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::MipmapFilterMode::Linear,
-        ..Default::default()
-    })
+pub(super) fn samplers(
+    device: &wgpu::Device,
+    bodies: &[worldrunner_render_plan::SceneWaterBody],
+) -> Vec<wgpu::Sampler> {
+    let mut cache = std::collections::HashMap::new();
+    bodies
+        .iter()
+        .map(|body| {
+            let level = body.material.normal_anisotropy;
+            cache
+                .entry(level)
+                .or_insert_with(|| {
+                    device.create_sampler(&wgpu::SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::Repeat,
+                        address_mode_v: wgpu::AddressMode::Repeat,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                        anisotropy_clamp: level.level(),
+                        ..Default::default()
+                    })
+                })
+                .clone()
+        })
+        .collect()
 }
 pub(super) fn binding(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry {
@@ -102,6 +133,16 @@ pub(crate) fn validate_inputs(
     water: &super::Water,
 ) -> Result<(), worldrunner_render_post::FrameError> {
     for (body, inputs) in water.settings.iter().zip(&water.surface_inputs) {
+        if endpoint_clamped(body)
+            && inputs[1].as_ref().is_some_and(|view| {
+                let size = view.texture().size();
+                size.width < 2 || size.height < 2
+            })
+        {
+            return Err(worldrunner_render_post::FrameError::WaterSettings(
+                "endpoint-clamped water seeds require at least 2 samples per axis",
+            ));
+        }
         if [
             body.material.normal,
             body.material.flow,

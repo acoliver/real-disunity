@@ -124,6 +124,33 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer and 1 for a
+    ///  skinned mesh renderer and is fixed when the component is created. The mode fields hold the
+    ///  numeric value of the script enum: shadow casting 0 to 3, motion vectors 0 to 2, light probe
+    ///  usage 0, 1, 2 or 4, reflection probe usage 0 to 3. `material_count` is at most 64. A write
+    ///  rejects an out-of-range value, a boolean above 1 or a different kind, and changes nothing.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshRenderer
+    {
+        public uint kind;
+        public uint enabled;
+        public uint force_rendering_off;
+        public uint receive_shadows;
+        public uint allow_occlusion_when_dynamic;
+        public uint static_shadow_caster;
+        public uint shadow_casting_mode;
+        public uint motion_vector_mode;
+        public uint light_probe_usage;
+        public uint reflection_probe_usage;
+        public uint rendering_layer_mask;
+        public int renderer_priority;
+        public int sorting_layer;
+        public int sorting_order;
+        public uint material_count;
+    }
+
+    /// <summary>
     ///  A light's settings. `kind` uses the managed `LightType` values (0 Spot, 1 Directional,
     ///  2 Point, 3 Rectangle, 4 Disc, 5 Pyramid, 6 Box, 7 Tube), `shadows` is 0 None, 1 Hard or 2 Soft,
     ///  and `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime. The masks have one bit per layer,

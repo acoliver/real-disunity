@@ -12,10 +12,12 @@ pub(crate) const ARRAY_LIMIT: u32 = 7;
 #[derive(Debug)]
 pub(crate) struct ResidentSource {
     pub buffers: Vec<wgpu::Buffer>,
-    textures: Vec<wgpu::Texture>,
+    pub(super) textures: Vec<wgpu::Texture>,
     pub views: Vec<wgpu::TextureView>,
     pub samplers: [wgpu::Sampler; 2],
     checked_samplers: [CheckedSampler; 2],
+    #[cfg(test)]
+    pub(super) sampler_descriptors: [wgpu::SamplerDescriptor<'static>; 2],
 }
 
 pub(super) fn image(
@@ -118,6 +120,9 @@ fn sampler(repeat: bool) -> wgpu::SamplerDescriptor<'static> {
         wgpu::AddressMode::ClampToEdge
     };
     wgpu::SamplerDescriptor {
+        // Explicit shader taps own the footprint on every backend. Hardware
+        // anisotropy would add backend-specific filtering on top of those taps.
+        anisotropy_clamp: 1,
         address_mode_u: address,
         address_mode_v: address,
         mag_filter: wgpu::FilterMode::Linear,
@@ -230,6 +235,8 @@ impl LayeredGpuSource {
             checked_samplers: descriptors
                 .each_ref()
                 .map(|descriptor| CheckedSampler::new(device, descriptor)),
+            #[cfg(test)]
+            sampler_descriptors: descriptors,
         })
     }
 

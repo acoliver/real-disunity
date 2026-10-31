@@ -27,6 +27,14 @@ pub(crate) struct Staging {
 enum Undo {
     Replaced(ComponentHandle, Box<ComponentDesc>),
     Added(ComponentHandle),
+    Follow(ObjectHandle, Option<ObjectHandle>),
+}
+
+impl Staging {
+    /// Notes the follow target `object` had before a change, so rollback can restore it.
+    pub(crate) fn record_follow(&mut self, object: ObjectHandle, previous: Option<ObjectHandle>) {
+        self.undo.push(Undo::Follow(object, previous));
+    }
 }
 
 impl World {
@@ -77,16 +85,24 @@ impl World {
         };
         for undo in staging.undo.into_iter().rev() {
             match undo {
-                Undo::Replaced(handle, desc) => {
-                    if let Some(slot) = self.components.get_mut(handle.0) {
-                        slot.desc = *desc;
-                    }
-                }
+                Undo::Replaced(handle, desc) => self.restore_component(handle, *desc),
                 Undo::Added(handle) => self.unwind_added_component(handle),
+                Undo::Follow(object, previous) => self.store_follow(object, previous),
             }
         }
         if let Some(physics) = staging.physics {
             self.physics = physics;
+        }
+    }
+
+    fn restore_component(&mut self, handle: ComponentHandle, desc: ComponentDesc) {
+        let Some(slot) = self.components.get_mut(handle.0) else {
+            return;
+        };
+        slot.desc = desc;
+        let (owner, kind) = (slot.object, slot.desc.kind());
+        if kind == ComponentKind::Transform {
+            self.spatial_touch(owner);
         }
     }
 
@@ -100,6 +116,14 @@ impl World {
         {
             object.renderer = None;
         }
+        if matches!(component.desc, ComponentDesc::MeshInstance(_))
+            && let Some(object) = self.objects.get_mut(owner.0)
+        {
+            object.mesh_instance = None;
+        }
+        if let Some(object) = self.objects.get_mut(owner.0) {
+            object.components.retain(|owned| *owned != handle);
+        }
         self.lifecycle.scripts.remove(&handle);
         self.lifetime.components.remove(&handle);
         self.components.unwind_insert(handle.0);
@@ -110,7 +134,7 @@ impl World {
         handle: ComponentHandle,
         previous: ComponentDesc,
     ) {
-        if self.journal.enabled()
+        if (self.journal.enabled() || self.spatial.is_some())
             && let Some(component) = self.components.get(handle.0)
         {
             let object = component.object;

@@ -12,10 +12,15 @@ impl World {
         object: ObjectHandle,
         parent: Option<ObjectHandle>,
     ) -> Result<(), WorldError> {
-        self.objects
-            .get_mut(object.0)
-            .expect("validated object")
-            .parent = parent;
+        let previous = std::mem::replace(
+            &mut self
+                .objects
+                .get_mut(object.0)
+                .expect("validated object")
+                .parent,
+            parent,
+        );
+        self.relink_child(object, previous, parent);
         self.record_change(crate::journal::Change::Parent(object));
         if parent.is_some_and(|parent| self.lifetime.objects.contains(&parent)) {
             self.destroy(object, crate::DestroyWhen::EndOfFrame)?;
@@ -23,18 +28,54 @@ impl World {
         Ok(())
     }
 
+    /// Moves `object` between the child sets of its old and new parents. A parent that is no
+    /// longer stored has no set to update.
+    pub(crate) fn relink_child(
+        &mut self,
+        object: ObjectHandle,
+        previous: Option<ObjectHandle>,
+        parent: Option<ObjectHandle>,
+    ) {
+        if let Some(old) = previous.and_then(|old| self.objects.get_mut(old.0)) {
+            old.children.remove(&object);
+        }
+        if let Some(new) = parent.and_then(|new| self.objects.get_mut(new.0)) {
+            new.children.insert(object);
+        }
+    }
+
     pub fn parent(&self, object: ObjectHandle) -> Result<Option<ObjectHandle>, WorldError> {
         Ok(self.live_object(object)?.parent)
     }
 
     pub fn children(&self, object: ObjectHandle) -> Result<Vec<ObjectHandle>, WorldError> {
-        self.live_object(object)?;
-        Ok(self
-            .objects
-            .iter(self.identity)
-            .filter(|(_, value)| value.parent == Some(object))
-            .map(|(id, _)| ObjectHandle(id))
-            .collect())
+        Ok(self.live_object(object)?.children.iter().copied().collect())
+    }
+
+    /// Every live object below any of `roots`, excluding the roots themselves unless one is
+    /// below another. Costs one pass over the objects however many roots there are.
+    /// Stale roots are ignored. The result is in handle order.
+    pub fn descendants(&self, roots: &[ObjectHandle]) -> Vec<ObjectHandle> {
+        if roots.is_empty() {
+            return Vec::new();
+        }
+        let mut children: std::collections::BTreeMap<ObjectHandle, Vec<ObjectHandle>> =
+            std::collections::BTreeMap::new();
+        for (id, value) in self.objects.iter(self.identity) {
+            if let Some(parent) = value.parent {
+                children.entry(parent).or_default().push(ObjectHandle(id));
+            }
+        }
+        let mut found = std::collections::BTreeSet::new();
+        let mut pending: Vec<_> = roots.to_vec();
+        while let Some(object) = pending.pop() {
+            for &child in children.get(&object).into_iter().flatten() {
+                if found.insert(child) {
+                    pending.push(child);
+                }
+            }
+        }
+        found.into_iter().collect()
     }
 
     pub(crate) fn subtree(&self, root: ObjectHandle) -> Result<Vec<ObjectHandle>, WorldError> {
@@ -102,6 +143,7 @@ impl World {
             .expect("validated object")
             .active = active;
         self.record_change(crate::journal::Change::Properties(object));
+        self.spatial_touch(object);
         self.refresh_lifecycle(&nodes, mutation);
         Ok(mutation)
     }

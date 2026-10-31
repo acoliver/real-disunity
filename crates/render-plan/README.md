@@ -44,6 +44,16 @@ There is no built-in content adapter registry, inventory interpreter, source
 terrain/clutter table, format-specific decoder, or bundled content. Producers must
 supply engine artifacts or construct scenes through the validated public API.
 
+## Terrain normal inputs
+
+Terrain source texel columns and rows increase layer U and V without a vertical
+flip. Normal channels decode as `2 * value - 1`. Appearance rotation is inverted
+on each layer normal before blending into the common east/north material frame.
+Page callbacks supply already-unrotated directions. See the public
+[`LayerSample::normal`](../render-scene/src/terrain/pages/composition.rs) and
+[`TerrainPageSource::sample`](../render-scene/src/terrain/pages/scene.rs) contracts
+and the [terrain page contract](../../dev-docs/rendering/terrain-pages.md).
+
 ## Material anisotropy
 
 `SceneMaterial::with_anisotropy` accepts a validated `TextureAnisotropy` and applies
@@ -53,8 +63,12 @@ samplers use linear minification, magnification and mip filtering with repeat
 wrapping regardless of per-texture `TextureSampler` settings. Materials with
 equal levels share a sampler; shared textures do not force equal material levels.
 Dynamic quads and sprites continue to use their texture filter/wrap settings
-without anisotropy. Terrain anisotropy is not implemented for sources or cached
-pages and is tracked by [#347](https://github.com/acoliver/real-disunity/issues/347).
+without anisotropy. `TerrainLayeredSource::anisotropy` selects the same validated
+levels for source images; 1 preserves isotropic sampling bytes. Higher levels use
+portable shader taps along the major footprint axis with explicit trilinear LOD,
+bounded by the footprint ratio and authored level. Hardware source samplers stay
+at 1 to avoid backend-dependent anisotropy. The same setting governs cached-page
+reads, with at most 16 manual trilinear taps and per-tap gutter-safe page lookup.
 See [texture sampling](../../dev-docs/rendering/2d.md#texture-sampling) for device
 clamping and [terrain pages](../../dev-docs/rendering/terrain-pages.md) for the
 terrain sampling limitations.
@@ -130,3 +144,12 @@ BRDF factors, scene-hit radiance and source payloads remain unchanged. Water
 retains its independent per-body environment amplitude.
 Retained settings updates replace or remove the environment without uploading the
 scene again. Omitting it preserves the stock empty-environment rendering.
+
+## Water surface sampling
+
+`SceneWaterSettings::normal_anisotropy` uses `TextureAnisotropy`, accepting only
+1, 2, 4, 8 or 16. `STOCK` selects 1. Enable `normal_mips` to use derivative-selected
+normal sampling with the authored ratio. Without normal mips, the explicit
+mip-zero bilinear path is unchanged. Water uses the scene's `direct_diffuse`
+convention, including `SceneDirectDiffuse::LambertianPrepared` for prepared sun
+colours. Per-body `sun_disk` controls remain independent of the scene surface disk.

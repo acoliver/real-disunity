@@ -180,6 +180,7 @@ pub struct SceneTerrain {
     layered_source: Option<super::TerrainLayeredSource>,
     page_policy: Option<super::TerrainPagePolicy>,
     streaming_policy: Option<super::TerrainStreamingPolicy>,
+    material_normal_strength_bits: Option<u32>,
 }
 
 impl SceneTerrain {
@@ -210,9 +211,34 @@ impl SceneTerrain {
             layered_source: None,
             page_policy: None,
             streaming_policy: None,
+            material_normal_strength_bits: None,
         };
         terrain.validate()?;
         Ok(terrain)
+    }
+
+    /// Sets the terrain-wide material normal strength. `None` restores 1.
+    /// Zero uses the geometric normal; values above one amplify material relief.
+    ///
+    /// # Errors
+    /// Rejects nonfinite values and strengths outside [0, 4].
+    pub fn with_material_normal_strength(
+        mut self,
+        strength: Option<f32>,
+    ) -> Result<Self, SceneValidationError> {
+        if strength.is_some_and(|value| !value.is_finite() || !(0.0..=4.0).contains(&value)) {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "terrain material normal strength must be finite and within [0, 4]",
+            });
+        }
+        self.material_normal_strength_bits = strength.map(f32::to_bits);
+        Ok(self)
+    }
+
+    /// Resolved material normal strength, defaulting to one.
+    pub fn material_normal_strength(&self) -> f32 {
+        self.material_normal_strength_bits
+            .map_or(1.0, f32::from_bits)
     }
 
     /// Adopts validated layered composition with an independent material-cell grid.
@@ -517,6 +543,30 @@ mod tests {
             surfaces: vec![neutral_surface(0)],
             lod_policy: policy,
         })
+    }
+
+    #[test]
+    fn material_normal_strength_is_optional_finite_and_bounded() {
+        let base = terrain(vec![0; 4], vec![0; 4], TerrainLodPolicy::FullResolution).unwrap();
+        assert_eq!(base.material_normal_strength().to_bits(), 1.0_f32.to_bits());
+        for value in [0.0, 0.5, 1.0, 2.0, 4.0, f32::MIN_POSITIVE] {
+            let authored = base
+                .clone()
+                .with_material_normal_strength(Some(value))
+                .unwrap();
+            assert_eq!(
+                authored.material_normal_strength().to_bits(),
+                value.to_bits()
+            );
+            assert_eq!(authored.with_material_normal_strength(None).unwrap(), base);
+        }
+        for value in [-0.1, 4.01, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(
+                base.clone()
+                    .with_material_normal_strength(Some(value))
+                    .is_err()
+            );
+        }
     }
 
     #[test]

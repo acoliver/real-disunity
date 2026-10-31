@@ -18,6 +18,7 @@ mod subresources;
 mod terrain;
 mod timing_probe;
 mod validation;
+mod water_response;
 
 use glam::{Vec3, Vec4};
 use worldrunner_render_plan::*;

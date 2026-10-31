@@ -19,6 +19,38 @@ Each SceneWaterBody::material carries SceneWaterSettings with optional normal an
 
 FrameRenderer::set_water_environment and ConfiguredFrameRenderer::set_water_environment accept submitted PreparedEnvironmentMaps from sky::preparation. The configured wrapper retains those host-budgeted views during replacement, including extent changes, and exposes submitted water_receivers without unrestricted renderer access. Water samples the prefiltered cube at perceptual roughness times the last mip and the BRDF LUT at (normal dot view, roughness), with dielectric F0 0.02037. Missing environment maps contribute zero specular radiance. Shared hemisphere and light-direction kernels and the existing cascaded shadow binding supply water lighting. Water carries the scene direct-diffuse convention through its plain and shadowed pipeline cache and shared shader constants. `LambertianPrepared` consumes prepared solar colour without an extra Fresnel or pi diffuse factor. Per-body sun-disk controls remain independent of the scene surface disk. Default lighting and 1x normal filtering preserve output bytes. The height-fog kernel and compose_water_fog interface preserve the opaque snapshot's existing fog and apply the camera segment only to newly added scattering and reflection. No division by fog transmittance is needed, including fully opaque fog.
 
+### Water directional-shadow response
+
+`SceneWaterSettings::shadow_response` defaults to `None`. An explicit neutral
+`SceneWaterShadowResponse::default()` also leaves shader source, uniforms, cache
+keys and output bytes unchanged. Non-neutral responses select a variant in the
+existing water pipeline cache. No buffers or textures are added: `disk.w` stores
+the lookup selector, and `wind_flags.zw` store the floor and relief/disk flags.
+These lanes are independent of wind and the disk's radius and amplitude.
+
+`SceneWaterShadowOffset` controls the normal passed to the shared shadow sampler:
+`ShadingNormal` uses the final lighting normal, `GeometricNormal` uses planar
+positive Z, and `None` uses zero. Projection, receiver derivatives, cascades,
+strength and the configured grid PCF or bilinear filter stay shared. Water does
+not expose an independent filter footprint.
+
+For strength-adjusted visibility `s`, diffuse uses `max(s, floor)`. The floor is
+validated in integer millionths from zero through one million. `depth_relief`
+changes that result to `mix(max(s, floor), 1, w)`. With tint enabled, `w` is the
+existing `water_tint_weights(original_distance, water.tint_controls).x`, used by
+`water_tint_color` to mix deep/shallow colour with the sampled background. Without
+tint, `w` is `clamp(original_distance, 0, 1)`, the existing one-metre refraction
+depth weight. The depth is measured on the original camera ray before distortion.
+The solar disk uses the relieved visibility before luminance limiting, then
+optionally multiplies by `s` again when `disk_raw_visibility` is set.
+
+The local water path and water's shared surface-lighting path apply the same
+diffuse and disk rules. Analytic specular retains raw visibility; ambient,
+environment reflection, opaque receivers, refraction coordinates and snapshots
+retain their existing equations. GPU regressions compare floor, relief and the
+limited disk against an independent double-precision oracle, measure along-edge
+variance from a rippling normal map, and check neutral bytes and snapshot isolation.
+
 ## Rendering support
 
 Stock rendering supports material and instance tint, baked and optional vertex AO, rigid periodic wind translation, thin-surface transmission, card dimensions and mesh/card transitions. The frame owns `animation_time_milliseconds`; all geometry passes consume the same clock. Card fitting inverse-transposes authored normals before the placement transform.

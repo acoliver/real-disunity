@@ -2,7 +2,8 @@ use worldrunner_render_plan::SceneWaterBody;
 
 pub(super) fn mask(bodies: &[SceneWaterBody]) -> u32 {
     bodies.iter().fold(0, |mask, body| {
-        mask | u32::from(body.material.lighting_normal_micro.is_some())
+        mask | super::shadow_response::key(body)
+            | u32::from(body.material.lighting_normal_micro.is_some())
             | (u32::from(body.material.metallic_micro.is_some()) << 1)
             | (u32::from(body.material.normal_mips) << 2)
             | (u32::from(body.material.environment.is_some()) << 3)
@@ -62,6 +63,7 @@ pub(super) fn uniforms(body: &SceneWaterBody, time_milliseconds: u32) -> [f32; 3
         );
     }
     data[20..32].copy_from_slice(&wind_uniforms(body, time_milliseconds));
+    super::shadow_response::uniforms(body, &mut data);
     data
 }
 fn wind_uniforms(body: &SceneWaterBody, time_milliseconds: u32) -> [f32; 12] {

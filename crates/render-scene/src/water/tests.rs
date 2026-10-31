@@ -32,6 +32,8 @@ mod screen_tests;
 mod seed_geometry_tests;
 #[path = "seed_tests.rs"]
 mod seed_tests;
+#[path = "shadow_response_tests.rs"]
+mod shadow_response_tests;
 #[path = "shoreline_tests.rs"]
 mod shoreline_tests;
 #[path = "terms_tests.rs"]

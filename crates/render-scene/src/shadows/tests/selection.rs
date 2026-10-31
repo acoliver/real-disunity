@@ -108,10 +108,11 @@ fn clear_layers(renderer: &ShadowedScene, encoder: &mut wgpu::CommandEncoder) {
     }
 }
 
-fn probe_pipeline(
+pub(super) fn probe_pipeline(
     context: &GpuContext,
     shadow_layout: &wgpu::BindGroupLayout,
     source: &str,
+    normal_layout: Option<&wgpu::BindGroupLayout>,
 ) -> wgpu::RenderPipeline {
     let empty = context
         .device()
@@ -123,7 +124,11 @@ fn probe_pipeline(
         .device()
         .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("cascade probe"),
-            bind_group_layouts: &[Some(&empty), Some(&empty), Some(shadow_layout)],
+            bind_group_layouts: &[
+                Some(normal_layout.unwrap_or(&empty)),
+                Some(&empty),
+                Some(shadow_layout),
+            ],
             immediate_size: 0,
         });
     let module = context
@@ -166,7 +171,7 @@ pub(super) fn render_probe(
     renderer: &ShadowedScene,
     source: &str,
 ) -> RgbaImage {
-    let pipeline = probe_pipeline(context, &renderer.shadow_layout, source);
+    let pipeline = probe_pipeline(context, &renderer.shadow_layout, source, None);
     let mut target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {

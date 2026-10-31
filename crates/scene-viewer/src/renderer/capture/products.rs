@@ -69,13 +69,17 @@ impl Native {
             CaptureOutput::LinearHdr
             | CaptureOutput::Normals
             | CaptureOutput::Albedo
-            | CaptureOutput::SunVisibility => {
+            | CaptureOutput::SunVisibility
+            | CaptureOutput::DirectDiffuse
+            | CaptureOutput::AmbientDiffuse
+            | CaptureOutput::EnvironmentSpecular
+            | CaptureOutput::SunSpecular => {
                 let image = LinearRgbaImage::from_native(viewport, format, &bytes)
                     .map_err(|e| ViewerError::Gpu(e.to_string()))?;
                 match self.output {
                     CaptureOutput::LinearHdr => products.linear_hdr = Some(image),
                     CaptureOutput::Normals => products.normals = Some(image),
-                    CaptureOutput::Albedo | CaptureOutput::SunVisibility => {
+                    output if output.term().is_some() => {
                         products.store_term(self.output, image);
                     }
                     _ => unreachable!("colour output"),
@@ -244,12 +248,15 @@ impl Products {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         resident: &super::super::Resident,
+        scheduler: &ConfiguredFrameRenderer,
     ) {
         for term in &self.terms {
             match resident {
-                super::super::Resident::Plain(plain) => term.encode(device, encoder, &plain.gpu),
+                super::super::Resident::Plain(plain) => {
+                    scheduler.encode_term_capture(device, encoder, term, (&plain.gpu, None));
+                }
                 super::super::Resident::Shadowed(scene) => {
-                    scene.encode_term_capture(device, encoder, term);
+                    scene.encode_term_capture_with(device, encoder, term, scheduler);
                 }
             }
         }

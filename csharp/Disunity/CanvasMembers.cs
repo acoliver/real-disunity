@@ -74,16 +74,12 @@ public sealed partial class Canvas
 
     public int sortingLayerID { get => Read().sorting_layer; set { var c = Read(); c.sorting_layer = value; Write(c); } }
 
-    /// <summary>The engine has no sorting layer table, so only the Default layer (ID 0) has a name.</summary>
-    /// <exception cref="NotSupportedException">The layer is not Default, or the name is not "Default".</exception>
+    /// <summary>The name of the registered layer with <see cref="sortingLayerID"/>, or an empty string for an id no layer has.
+    /// Setting a name no layer has keeps the current layer and logs a warning once per name.</summary>
     public string sortingLayerName
     {
-        get => sortingLayerID == 0 ? "Default" : throw new NotSupportedException("Canvas.sortingLayerName for a sorting layer other than Default is not supported yet");
-        set
-        {
-            if (value != "Default") throw new NotSupportedException("Canvas.sortingLayerName other than Default is not supported yet");
-            sortingLayerID = 0;
-        }
+        get => SortingLayer.IDToName(sortingLayerID);
+        set { if (SortingLayer.TryResolve(value, out var id)) sortingLayerID = id; }
     }
 
     /// <summary>The display the canvas targets. Stored; the engine has one display.</summary>

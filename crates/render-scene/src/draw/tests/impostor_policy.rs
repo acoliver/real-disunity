@@ -243,7 +243,7 @@ fn mask_oracle(channel: u8, enabled: bool) -> String {
     let source = crate::shader::ENVIRONMENT_WGSL;
     let start = source.find("    var masked_amount = 0.0;").unwrap();
     let end = source[start..]
-        .find("    var colour = surface_lighting(")
+        .find("    let lighting = scene_surface_lighting(")
         .unwrap()
         + start;
     let value = f64::from(channel) / 255.0;

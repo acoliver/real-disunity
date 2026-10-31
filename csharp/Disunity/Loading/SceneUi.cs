@@ -11,9 +11,10 @@ internal sealed partial class SceneLoader
 
     private Canvas Canvas(GameObject owner, JsonElement value, string where)
     {
-        if (value.Int("sorting_layer_id") != 0 || value.Int("target_display") != 0)
-            throw new SceneLoadException($"{where}: only the Default sorting layer and display 1 are supported");
+        if (value.Int("target_display") != 0)
+            throw new SceneLoadException($"{where}: only display 1 is supported");
         var canvas = owner.AddComponent<Canvas>();
+        canvas.sortingLayerID = value.Int("sorting_layer_id");
         canvas.sortingOrder = value.Int("sorting_order");
         var mode = value.Variant<RenderMode>("render_mode");
         var through = value.GetProperty("camera");

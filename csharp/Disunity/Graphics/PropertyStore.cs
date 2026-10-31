@@ -13,7 +13,7 @@ internal readonly record struct ConstantBufferBinding(object? Buffer, int Offset
 /// the vector slot, as in Unity, and SetInt writes the float slot. A property that was never set reads
 /// as its zero value (matrices read as identity, textures as null).
 /// </summary>
-internal sealed class PropertyStore
+internal sealed partial class PropertyStore
 {
     /// <summary>Unity limits array properties to this many elements.</summary>
     internal const int MaxArray = 1023;

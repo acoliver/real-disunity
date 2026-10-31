@@ -54,10 +54,21 @@ pub struct ScenePlan {
     /// player plans carry them; a project plan leaves the list empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub layers: Vec<String>,
+    /// Sorting layers in drawing order, first drawn first. Only player plans carry them, and
+    /// only when the player's tag manager lists some; a project plan leaves the list empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sorting_layers: Vec<PlanSortingLayer>,
     /// What the plan leaves out of the scene as authored, one line each. Only player plans
     /// leave anything out; a project plan fails instead.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub differences: Vec<String>,
+}
+
+/// A sorting layer of a player: the name scripts use and the id renderers store.
+#[derive(Debug, Serialize)]
+pub struct PlanSortingLayer {
+    pub name: String,
+    pub id: i32,
 }
 
 #[derive(Debug, Serialize)]
@@ -297,6 +308,7 @@ pub fn plan_scene(project: &Project, path: &Path) -> Result<ScenePlan, PlanError
         fonts,
         axes: input_axes(project)?,
         layers: Vec::new(),
+        sorting_layers: Vec::new(),
         differences: Vec::new(),
     })
 }

@@ -2,7 +2,14 @@ use super::*;
 
 #[test]
 fn term_outputs_are_native_budgeted_and_reject_accumulation() {
-    for output in [CaptureOutput::Albedo, CaptureOutput::SunVisibility] {
+    for output in [
+        CaptureOutput::Albedo,
+        CaptureOutput::SunVisibility,
+        CaptureOutput::DirectDiffuse,
+        CaptureOutput::AmbientDiffuse,
+        CaptureOutput::EnvironmentSpecular,
+        CaptureOutput::SunSpecular,
+    ] {
         let recipe =
             RetainedCaptureRecipe::new(1, 1, CaptureJitter::None, false, vec![output], 1024 * 1024)
                 .unwrap();
@@ -52,5 +59,57 @@ fn replay_targets_are_charged_only_to_requested_term_storage() {
             .storage_bytes([32, 32])
             .unwrap()
             + 32 * 32 * 12
+    );
+}
+
+#[test]
+fn radiance_recipes_reject_every_accumulation_mode_and_charge_each_target() {
+    let outputs = [
+        CaptureOutput::DirectDiffuse,
+        CaptureOutput::AmbientDiffuse,
+        CaptureOutput::EnvironmentSpecular,
+        CaptureOutput::SunSpecular,
+    ];
+    for output in outputs {
+        for (spatial, temporal, jitter, clock) in [
+            (2, 1, CaptureJitter::None, false),
+            (1, 2, CaptureJitter::None, false),
+            (1, 1, CaptureJitter::Halton23, false),
+            (1, 1, CaptureJitter::None, true),
+        ] {
+            assert_eq!(
+                RetainedCaptureRecipe::new(
+                    spatial,
+                    temporal,
+                    jitter,
+                    clock,
+                    vec![output],
+                    1024 * 1024
+                ),
+                Err(CaptureRequestError::UnsupportedRecipe)
+            );
+        }
+    }
+    let recipe = RetainedCaptureRecipe::new(
+        1,
+        1,
+        CaptureJitter::None,
+        false,
+        outputs.to_vec(),
+        1024 * 1024,
+    )
+    .unwrap();
+    let single = RetainedCaptureRecipe::new(
+        1,
+        1,
+        CaptureJitter::None,
+        false,
+        vec![CaptureOutput::Albedo],
+        1024 * 1024,
+    )
+    .unwrap();
+    assert_eq!(
+        recipe.storage_bytes([33, 2]).unwrap(),
+        4 * single.storage_bytes([33, 2]).unwrap()
     );
 }

@@ -14,4 +14,11 @@ public static partial class DisunityHost
 
     /// <summary>Restores the built-in layer names and forgets every other.</summary>
     public static void ClearUserLayerNames() => LayerMask.ClearUserLayerNames();
+
+    /// <summary>Replaces the sorting layer table with a player's layers, in drawing order; a scene plan's
+    /// <c>sorting_layers</c> come here. Default (id 0) is added first when the list lacks it.</summary>
+    public static void SetSortingLayers(IReadOnlyList<(string Name, int Id)> layers) => SortingLayer.SetLayers(layers);
+
+    /// <summary>Restores the table of the Default sorting layer alone.</summary>
+    public static void ClearSortingLayers() => SortingLayer.ClearLayers();
 }

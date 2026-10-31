@@ -92,7 +92,7 @@ impl World {
     pub fn active_in_hierarchy(&self, object: ObjectHandle) -> Result<bool, WorldError> {
         let mut current = Some(object);
         while let Some(handle) = current {
-            if self.is_unpublished(handle) || !self.object(handle)?.active {
+            if self.is_unpublished(handle) || !self.live_object(handle)?.active {
                 return Ok(false);
             }
             current = self.parent(handle)?;

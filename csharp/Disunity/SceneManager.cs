@@ -38,7 +38,7 @@ public static class SceneManager
     public static bool SetActiveScene(Scene scene)
     {
         if (!scene.IsValid()) throw new ArgumentException("the scene is not valid", nameof(scene));
-        return DisunityHost.ActivateScene(scene.handle);
+        return DisunityHost.ActivateScene(scene.Handle);
     }
 
     public static void LoadScene(string sceneName) => LoadScene(sceneName, LoadSceneMode.Single);

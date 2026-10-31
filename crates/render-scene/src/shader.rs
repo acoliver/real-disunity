@@ -106,3 +106,6 @@ pub(crate) mod surface_policy_tests;
 
 #[cfg(test)]
 mod decal_tests;
+
+#[cfg(test)]
+mod lighting_terms_tests;

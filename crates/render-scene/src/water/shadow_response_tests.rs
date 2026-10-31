@@ -16,8 +16,8 @@ fn water_shadow_lookup_preserves_roughness_aware_ambient_visibility() {
         "fn raw_sunlight_visibility(_position: vec3<f32>, _normal: vec3<f32>) -> f32 {\n    return 1.0;",
         "fn raw_sunlight_visibility(_position: vec3<f32>, _normal: vec3<f32>) -> f32 {\n    return select(0.2, 0.8, _normal.x > 0.001);")
         .replace("1.0 /* SCREEN_AMBIENT_FACTOR */", "0.25")
-        .replace("return SceneSurfaceLight(color, diffuse_radiance, specular_radiance);",
-            "return SceneSurfaceLight(ambient, ambient, vec3<f32>(0.0));");
+        .replace("return SceneSurfaceLight(color, diffuse_radiance, specular_radiance,\n        direct_diffuse, ambient, environment, sun_specular);",
+            "return SceneSurfaceLight(ambient, ambient, vec3<f32>(0.0), vec3<f32>(0.0), ambient, vec3<f32>(0.0), vec3<f32>(0.0));");
     let baseline = response_render_source(&context, body.clone(), &frame, &source);
     body.material.shadow_response = Some(SceneWaterShadowResponse {
         offset: SceneWaterShadowOffset::GeometricNormal,

@@ -11,7 +11,7 @@ namespace UnityEngine;
 /// <see cref="sharedMaterials"/>. Nothing draws mesh renderers yet, so <see cref="isVisible"/> is always false.
 /// A sprite renderer keeps the settings its native sprite does not hold (shadow, probe and priority settings) on
 /// the managed component, where nothing reads them; their defaults are the ones a sprite has: no shadows, no probes.
-/// The only sorting layer the engine registers is Default, id 0.
+/// Sorting layers come from <see cref="SortingLayer"/>: Default (id 0) and, for a player, the layers of its plan.
 /// </summary>
 public abstract partial class Renderer : NativeComponent
 {
@@ -86,15 +86,12 @@ public abstract partial class Renderer : NativeComponent
         set => Update(r => { r.sorting_layer = value; return r; });
     }
 
-    /// <summary>The engine registers no layer but Default (id 0); another name or id throws <see cref="NotSupportedException"/>.</summary>
+    /// <summary>The name of the registered layer with <see cref="sortingLayerID"/>, or an empty string for an id no layer has.
+    /// Setting a name no layer has keeps the current layer and logs a warning once per name.</summary>
     public string sortingLayerName
     {
-        get => sortingLayerID == 0 ? "Default" : throw new NotSupportedException("named sorting layer is not registered");
-        set
-        {
-            if (value != "Default") throw new NotSupportedException("named sorting layer is not registered");
-            sortingLayerID = 0;
-        }
+        get => SortingLayer.IDToName(sortingLayerID);
+        set { if (SortingLayer.TryResolve(value, out var id)) sortingLayerID = id; }
     }
 
     public int sortingOrder

@@ -38,11 +38,23 @@ pub struct RectExtent {
     pub pivot: Vec2,
 }
 
+type UiInputs = (
+    BTreeMap<ObjectHandle, RectTransform>,
+    BTreeMap<ObjectHandle, Canvas>,
+);
+
 type UiParts = (
     BTreeMap<ObjectHandle, RectTransform>,
     BTreeMap<ObjectHandle, Canvas>,
     BTreeMap<ObjectHandle, Resolved>,
 );
+
+fn check_viewport(viewport: UVec2) -> Result<(), WorldError> {
+    if viewport.min_element() == 0 || viewport.max_element() > 16384 {
+        return Err(UiError::InvalidViewport.into());
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy)]
 struct Resolved {
@@ -71,17 +83,86 @@ impl World {
         viewport: UVec2,
         object: ObjectHandle,
     ) -> Result<Option<RectExtent>, WorldError> {
-        let (_, _, resolved) = self.resolve_ui(viewport)?;
-        Ok(resolved.get(&object).map(|r| RectExtent {
+        check_viewport(viewport)?;
+        // A rectangle depends only on its ancestors, so resolving that chain answers the query
+        // without laying out every rectangle of the world.
+        let chain = self.ancestry(object)?;
+        let (rects, mut canvases) = self.ui_parts_of(&chain)?;
+        if !rects.contains_key(&object) {
+            return Ok(None);
+        }
+        self.add_camera_canvases(&mut canvases)?;
+        let mut parent = None;
+        for &node in &chain {
+            parent = Some(self.resolve_ui_node(node, parent, &rects, &canvases, viewport)?);
+        }
+        Ok(parent.map(|r| RectExtent {
             size: r.size,
             pivot: r.pivot,
         }))
     }
 
-    fn resolve_ui(&self, viewport: UVec2) -> Result<UiParts, WorldError> {
-        if viewport.min_element() == 0 || viewport.max_element() > 16384 {
-            return Err(UiError::InvalidViewport.into());
+    /// The object and its ancestors, root first.
+    fn ancestry(&self, object: ObjectHandle) -> Result<Vec<ObjectHandle>, WorldError> {
+        let mut chain = Vec::new();
+        let mut current = Some(object);
+        while let Some(node) = current {
+            chain.push(node);
+            current = self.parent(node)?;
         }
+        chain.reverse();
+        Ok(chain)
+    }
+
+    /// The live rectangles and canvases of `nodes`, keyed by object.
+    fn ui_parts_of(&self, nodes: &[ObjectHandle]) -> Result<UiInputs, WorldError> {
+        let mut rects = BTreeMap::new();
+        let mut canvases = BTreeMap::new();
+        for &node in nodes {
+            if self.lifetime.objects.contains(&node) {
+                continue;
+            }
+            for &handle in &self.live_object(node)?.components {
+                if self.lifetime.components.contains(&handle) {
+                    continue;
+                }
+                match self.component(handle)?.desc {
+                    ComponentDesc::RectTransform(r) => {
+                        rects.insert(node, r);
+                    }
+                    ComponentDesc::Canvas(c) => {
+                        canvases.insert(node, c);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok((rects, canvases))
+    }
+
+    /// Adds the canvases above each camera the given canvases render through, which the camera
+    /// check reads. A camera whose ancestry cannot be read is left for that check to report.
+    fn add_camera_canvases(
+        &self,
+        canvases: &mut BTreeMap<ObjectHandle, Canvas>,
+    ) -> Result<(), WorldError> {
+        let cameras: Vec<_> = canvases
+            .values()
+            .filter_map(|c| match c.mode {
+                CanvasMode::ScreenSpaceCamera { camera, .. } => Some(camera),
+                _ => None,
+            })
+            .collect();
+        for camera in cameras {
+            if let Ok(chain) = self.ancestry(camera) {
+                canvases.extend(self.ui_parts_of(&chain)?.1);
+            }
+        }
+        Ok(())
+    }
+
+    fn resolve_ui(&self, viewport: UVec2) -> Result<UiParts, WorldError> {
+        check_viewport(viewport)?;
         let mut rects = BTreeMap::new();
         let mut canvases = BTreeMap::new();
         for (_, c) in self.components.iter(self.identity) {

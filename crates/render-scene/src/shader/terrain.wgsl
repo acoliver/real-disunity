@@ -330,15 +330,14 @@ fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
     // occlusion pass, so its ambient contribution remains unoccluded.
     let projected = scene_project_decals(input.world_position, geometric, 2u,
         blended.albedo, vec2<f32>(blended.roughness, blended.metalness), normal);
-    let colour = surface_lighting(
+    let lighting = scene_surface_lighting(
         input.world_position,
         projected.normal,
         projected.albedo,
-        projected.properties.x,
-        projected.properties.y,
-        1.0,
+        vec3<f32>(projected.properties, 1.0), DIELECTRIC_F0,
     );
 
+    let colour = lighting.color;
     // Terrain has no emissive term, so its total outgoing radiance is exactly
     // what surface_lighting returned; exposure still goes through the shared
     // function so terrain and the props standing on it cannot drift apart.

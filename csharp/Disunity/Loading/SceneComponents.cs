@@ -83,10 +83,15 @@ internal sealed partial class SceneLoader
         _ => throw new SceneLoadException($"renderer material {name} is not supported"),
     };
 
+    /// <summary>A built-in material by name, or a planned game material by its asset index.</summary>
+    private UnityEngine.Material SpriteMaterial(JsonElement value) => value.ValueKind == JsonValueKind.Number
+        ? (UnityEngine.Material)PlannedAsset(value.GetInt32())
+        : Material(value.GetString() ?? throw new SceneLoadException("a sprite renderer's material is a name or an asset index"));
+
     private SpriteRenderer SpriteRenderer(GameObject owner, JsonElement value)
     {
         var renderer = owner.AddComponent<SpriteRenderer>();
-        renderer.sharedMaterial = Material(value.Str("material"));
+        renderer.sharedMaterial = SpriteMaterial(value.GetProperty("material"));
         renderer.sortingOrder = value.Int("sorting_order");
         if (value.Index("sprite") is { } sprite) renderer.sprite = sprites[sprite];
         renderer.color = value.Rgba("color");

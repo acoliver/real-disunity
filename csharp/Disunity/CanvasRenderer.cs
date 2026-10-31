@@ -88,12 +88,16 @@ public sealed partial class CanvasRenderer : NativeComponent
         set => Update(r => { r.softness_x = value.x; r.softness_y = value.y; return r; });
     }
 
-    /// <summary>Clears the mesh, the materials (the count becomes 0) and both textures.</summary>
-    public void Clear() => Update(r =>
+    /// <summary>Clears the mesh, the materials (the count becomes 0), both textures and the secondary textures.</summary>
+    public void Clear()
     {
-        r.mesh = 0; r.texture = 0; r.alpha_texture = 0; r.material_count = 0;
-        return r;
-    });
+        Update(r =>
+        {
+            r.mesh = 0; r.texture = 0; r.alpha_texture = 0; r.material_count = 0;
+            return r;
+        });
+        _secondary.Clear();
+    }
 
     /// <summary>Sets the mesh; null clears it. The mesh is found again by <see cref="GetMesh"/> while it is alive.</summary>
     public void SetMesh(Mesh? mesh)

@@ -505,7 +505,6 @@ internal static class ShaderMaterialTests
         NotSupported(() => material.SetPass(0), "SetPass", "Material.SetPass");
         NotSupported(() => material.FindPass("Forward"), "FindPass", "Material.FindPass");
         NotSupported(() => material.GetPassName(0), "GetPassName", "Material.GetPassName");
-        NotSupported(() => material.ComputeCRC(), "ComputeCRC", "Material.ComputeCRC");
         var obsolete = typeof(Material);
         NotSupported(() => Invoke(obsolete.GetConstructor([typeof(string)])!, "Shader \"X\" {}"), "Material(string)", "Material(string)");
         NotSupported(() => Invoke(obsolete.GetMethod("Create", [typeof(string)])!, "Shader \"X\" {}"), "Material.Create", "Material.Create");
@@ -660,8 +659,8 @@ internal static class ShaderMaterialTests
             Ensure(ReferenceEquals(renderer.sharedMaterial, Material.SpriteLit), "a renderer keeps a sprite material");
             renderer.sharedMaterial = Material.SpriteUnlit;
             Ensure(ReferenceEquals(renderer.sharedMaterial, Material.SpriteUnlit), "and changes it");
-            Throws<NotSupportedException>(() => renderer.sharedMaterial = custom, "a renderer cannot draw a custom material yet", "sprite materials");
-            Ensure(ReferenceEquals(renderer.sharedMaterial, Material.SpriteUnlit), "a refused material changes nothing");
+            renderer.sharedMaterial = custom;
+            Ensure(ReferenceEquals(renderer.sharedMaterial, custom), "a renderer keeps a custom material");
         }
         finally { DisunityHost.UnloadWorld(); }
     }

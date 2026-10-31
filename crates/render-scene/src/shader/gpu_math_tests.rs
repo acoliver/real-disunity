@@ -120,7 +120,7 @@ fn configured_environment_reaches_production_lighting_with_exactly_one_exposure_
     }
 }
 
-fn configured_frame(
+pub(super) fn configured_frame(
     exposure: worldrunner_render_lighting::ExposureOwnership,
 ) -> crate::frame::FrameUniform {
     use glam::{Mat3, Mat4, Vec3};

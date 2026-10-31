@@ -4,7 +4,8 @@ namespace UnityEngine.SceneManagement;
 
 public readonly partial struct Scene
 {
-    public int handle => Handle;
+    /// <summary>The scene's handle; the default handle for an invalid scene. It is a <see cref="SceneHandle"/>.</summary>
+    public SceneHandle handle => SceneHandle.Of(Handle);
     public bool isLoaded => IsValid() && DisunityHost.IsLoadedScene(Handle);
     public string name => DisunityHost.SceneInfo(Handle)?.Name ?? "";
     public string path => DisunityHost.SceneInfo(Handle)?.Path ?? "";

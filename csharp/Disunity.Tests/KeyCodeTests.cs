@@ -10,6 +10,8 @@ internal static class KeyCodeTests
         MembersParseByName();
         AKeyPushedWithTheStandardValueReadsThroughItsMember();
         InputManagerNamesResolve();
+        PunctuationNamesAreTheirCharacters();
+        EveryKeyTheHostDeliversCountsForAnyKey();
         AnUnknownInputManagerNameHasNoKey();
         JoystickAndMouseButtonAxesRegisterAndReadNeverPressed();
         Console.WriteLine("PASS: KeyCode values, names and input manager button names");
@@ -83,6 +85,36 @@ internal static class KeyCodeTests
             ("joystick 8 button 19", KeyCode.Joystick8Button19), ("", KeyCode.None),
         ];
         foreach (var (name, key) in names) Expect.Equal<KeyCode?>(key, InputAxes.Key(name), $"input manager name '{name}'");
+    }
+
+    private static void PunctuationNamesAreTheirCharacters()
+    {
+        foreach (var mark in "!\"#$%&'()*+,-./:;<=>?@[\\]^_`")
+            Expect.Equal<KeyCode?>((KeyCode)mark, InputAxes.Key(mark.ToString()), $"punctuation '{mark}'");
+    }
+
+    private static void EveryKeyTheHostDeliversCountsForAnyKey()
+    {
+        var delivered = new List<KeyCode>();
+        for (var key = KeyCode.A; key <= KeyCode.Z; key++) delivered.Add(key);
+        for (var key = KeyCode.Alpha0; key <= KeyCode.Alpha9; key++) delivered.Add(key);
+        for (var key = KeyCode.F1; key <= KeyCode.F12; key++) delivered.Add(key);
+        delivered.AddRange([KeyCode.Space, KeyCode.Return, KeyCode.Escape, KeyCode.Backspace, KeyCode.Tab, KeyCode.Delete, KeyCode.Insert,
+            KeyCode.Home, KeyCode.End, KeyCode.PageUp, KeyCode.PageDown, KeyCode.UpArrow, KeyCode.DownArrow, KeyCode.LeftArrow, KeyCode.RightArrow,
+            KeyCode.LeftShift, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.CapsLock, KeyCode.Numlock, KeyCode.ScrollLock, KeyCode.Pause,
+            KeyCode.Minus, KeyCode.Equals, KeyCode.LeftBracket, KeyCode.RightBracket, KeyCode.Backslash, KeyCode.Semicolon,
+            KeyCode.Quote, KeyCode.Comma, KeyCode.Period, KeyCode.Slash, KeyCode.BackQuote]);
+        DisunityHost.LoadWorld();
+        foreach (var key in delivered)
+        {
+            DisunityHost.PushKey(Time.time + 0.001, key, true);
+            DisunityHost.Step(0.016f);
+            Expect.That(Input.anyKey && Input.anyKeyDown, $"{key} counts for anyKey");
+            DisunityHost.PushKey(Time.time + 0.001, key, false);
+            DisunityHost.Step(0.016f);
+            Expect.That(!Input.anyKey, $"releasing {key} ends anyKey");
+        }
+        DisunityHost.UnloadWorld();
     }
 
     private static void AnUnknownInputManagerNameHasNoKey()

@@ -31,7 +31,7 @@ use worldrunner_unity_serialized::{
 use crate::{
     PlayerError,
     components::RectTransform,
-    plan::{PlanComponent, PlanObject, ScenePlan},
+    plan::{PlanComponent, PlanObject, PlanSortingLayer, ScenePlan},
     player_files::PlayerFiles,
     player_graphics::{plan_camera, plan_canvas_group, plan_light},
     player_scripts::script_fields,
@@ -66,7 +66,8 @@ pub fn plan_player_scene(
     scene: &str,
     layouts: &ScriptLayouts,
 ) -> Result<ScenePlan, PlayerError> {
-    let (tags, layers) = tag_manager_names(data_dir)?;
+    let names = tag_manager_names(data_dir)?;
+    let tags = names.tags;
     let mut source = SceneSource::new(PlayerFiles::new(data_dir));
     let path = data_dir.join(scene);
     let mut planner = PlayerPlanner::new(path.clone(), &tags, false);
@@ -84,7 +85,8 @@ pub fn plan_player_scene(
         textures: Vec::new(),
         fonts: Vec::new(),
         axes: Vec::new(),
-        layers,
+        layers: names.layers,
+        sorting_layers: names.sorting_layers,
         differences: planner.differences,
     })
 }
@@ -92,19 +94,30 @@ pub fn plan_player_scene(
 /// Layers a plan names: Unity has 32, the first eight built in.
 const LAYER_COUNT: usize = 32;
 
-/// The tag names by tag index (Unity's built-in tags and the user tags of the player's tag
-/// manager) and the manager's layer names by layer index. Both come from one decode of
-/// `globalgamemanagers`; without that file, or a tag manager in it, the layers are empty.
-pub(crate) fn tag_manager_names(
-    data_dir: &Path,
-) -> Result<(BTreeMap<u16, String>, Vec<String>), PlayerError> {
-    let mut names: BTreeMap<u16, String> = BUILTIN_TAGS
-        .iter()
-        .map(|&(index, name)| (index, name.to_owned()))
-        .collect();
+/// What the player's tag manager names.
+pub(crate) struct ManagerNames {
+    /// Tag names by tag index: Unity's built-in tags and the user tags.
+    pub(crate) tags: BTreeMap<u16, String>,
+    /// Layer names by layer index.
+    pub(crate) layers: Vec<String>,
+    /// Sorting layers in drawing order.
+    pub(crate) sorting_layers: Vec<PlanSortingLayer>,
+}
+
+/// The names of the player's tag manager, from one decode of `globalgamemanagers`; without that
+/// file, or a tag manager in it, the layers and sorting layers are empty.
+pub(crate) fn tag_manager_names(data_dir: &Path) -> Result<ManagerNames, PlayerError> {
+    let mut names = ManagerNames {
+        tags: BUILTIN_TAGS
+            .iter()
+            .map(|&(index, name)| (index, name.to_owned()))
+            .collect(),
+        layers: Vec::new(),
+        sorting_layers: Vec::new(),
+    };
     let path = data_dir.join("globalgamemanagers");
     if !path.exists() {
-        return Ok((names, Vec::new()));
+        return Ok(names);
     }
     let mut managers = crate::player_objects::OpenFile::open(&path)?;
     let tag_manager = managers
@@ -114,15 +127,24 @@ pub(crate) fn tag_manager_names(
         .find(|object| object.class_id == ClassId::TAG_MANAGER)
         .map(|object| object.path_id);
     let Some(path_id) = tag_manager else {
-        return Ok((names, Vec::new()));
+        return Ok(names);
     };
     let manager: TagManager = managers.decode(path_id)?;
     for (offset, tag) in (FIRST_USER_TAG..).zip(manager.tags) {
-        names.insert(offset, tag);
+        names.tags.insert(offset, tag);
     }
-    let mut layers = manager.layers;
-    layers.resize(LAYER_COUNT, String::new());
-    Ok((names, layers))
+    names.layers = manager.layers;
+    names.layers.resize(LAYER_COUNT, String::new());
+    names.sorting_layers = manager
+        .sorting_layers
+        .into_iter()
+        .map(|layer| PlanSortingLayer {
+            name: layer.name,
+            // Ids are stored as unsigned words; the engine reads them as signed.
+            id: i32::from_le_bytes(layer.unique_id.to_le_bytes()),
+        })
+        .collect();
+    Ok(names)
 }
 
 /// A scene object found while walking the hierarchy.

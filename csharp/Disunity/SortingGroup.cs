@@ -24,15 +24,12 @@ public sealed class SortingGroup : Behaviour
         set { var settings = Read(); settings.sorting_layer = value; Write(settings); }
     }
 
-    /// <summary>The engine registers no layer but Default (id 0); another name or id throws <see cref="NotSupportedException"/>.</summary>
+    /// <summary>The name of the registered layer with <see cref="sortingLayerID"/>, or an empty string for an id no layer has.
+    /// Setting a name no layer has keeps the current layer and logs a warning once per name.</summary>
     public string sortingLayerName
     {
-        get => sortingLayerID == 0 ? "Default" : throw new NotSupportedException("named sorting layer is not registered");
-        set
-        {
-            if (value != "Default") throw new NotSupportedException("named sorting layer is not registered");
-            sortingLayerID = 0;
-        }
+        get => SortingLayer.IDToName(sortingLayerID);
+        set { if (SortingLayer.TryResolve(value, out var id)) sortingLayerID = id; }
     }
 
     public int sortingOrder

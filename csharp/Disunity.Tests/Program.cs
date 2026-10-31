@@ -250,6 +250,7 @@ UiTests.Run();
 PoolTests.Run();
 RectTransformMemberTests.Run();
 CanvasMemberTests.Run();
+SortingLayerTests.Run();
 CanvasCameraModeTests.Run();
 SpriteTests.Run();
 SpriteAtlasTests.Run();

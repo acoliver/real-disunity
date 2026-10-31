@@ -18,7 +18,7 @@ internal static class SortingGroupTests
             Settings();
             Console.WriteLine("PASS: SortingGroup layer, order and sortAtRoot read back as written; the order is stored unclamped");
             LayerNames();
-            Console.WriteLine("PASS: SortingGroup layer names accept Default and reject unregistered layers");
+            Console.WriteLine("PASS: SortingGroup layer names accept Default and keep the layer for unregistered names");
             EnabledState();
             Console.WriteLine("PASS: SortingGroup.enabled is native state and follows the object's active state");
             OnePerObject();
@@ -68,9 +68,10 @@ internal static class SortingGroupTests
         group.sortingLayerID = 4;
         group.sortingLayerName = "Default";
         Expect.Equal(0, group.sortingLayerID, "setting Default sets id 0");
-        Expect.Throws<NotSupportedException>(() => group.sortingLayerName = "Units", "an unregistered name");
+        group.sortingLayerName = "Units";
+        Expect.Equal(0, group.sortingLayerID, "an unregistered name keeps the layer");
         group.sortingLayerID = 2;
-        Expect.Throws<NotSupportedException>(() => _ = group.sortingLayerName, "the name of an unregistered id");
+        Expect.Equal("", group.sortingLayerName, "an unregistered id has no name");
     }
 
     private static void EnabledState()

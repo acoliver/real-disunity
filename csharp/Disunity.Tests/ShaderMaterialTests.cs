@@ -660,8 +660,8 @@ internal static class ShaderMaterialTests
             Ensure(ReferenceEquals(renderer.sharedMaterial, Material.SpriteLit), "a renderer keeps a sprite material");
             renderer.sharedMaterial = Material.SpriteUnlit;
             Ensure(ReferenceEquals(renderer.sharedMaterial, Material.SpriteUnlit), "and changes it");
-            Throws<NotSupportedException>(() => renderer.sharedMaterial = custom, "a renderer cannot draw a custom material yet", "sprite materials");
-            Ensure(ReferenceEquals(renderer.sharedMaterial, Material.SpriteUnlit), "a refused material changes nothing");
+            renderer.sharedMaterial = custom;
+            Ensure(ReferenceEquals(renderer.sharedMaterial, custom), "a renderer keeps a custom material");
         }
         finally { DisunityHost.UnloadWorld(); }
     }

@@ -3,12 +3,16 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-/// <summary>A <see cref="Renderer"/> that draws a <see cref="Sprite"/>. It has exactly one material, a built-in
-/// sprite material: a list of any other length, or a material that is not one, throws. Its
-/// <see cref="Renderer.localBounds"/> is the zero box; <see cref="bounds"/> is the world box of the sprite.</summary>
+/// <summary>A <see cref="Renderer"/> that draws a <see cref="Sprite"/>. It has exactly one material, any
+/// <see cref="Material"/>: a list of any other length throws. The renderer keeps the managed reference and reads it
+/// back. The native sprite keeps only a built-in identity: a built-in sprite material, or a copy of one, draws as
+/// itself and any other material draws as <see cref="Material.SpriteUnlit"/> until shaders execute (the engine's
+/// choice). Its <see cref="Renderer.localBounds"/> is the zero box; <see cref="bounds"/> is the world box of the
+/// sprite.</summary>
 public sealed class SpriteRenderer : Renderer
 {
     private DisunityMeshRenderer _other = Defaults();
+    private Material? _material;
 
     /// <summary>A sprite casts no shadow, receives none and uses no probes.</summary>
     private static DisunityMeshRenderer Defaults() => new()
@@ -48,21 +52,27 @@ public sealed class SpriteRenderer : Renderer
         _other = value;
     }
 
-    internal override IReadOnlyList<Material?> ReadShared() => [Material.FromNative(Read().lighting)];
+    internal override IReadOnlyList<Material?> ReadShared() => [_material ?? Material.FromNative(Read().lighting)];
+
+    /// <summary>The built-in sprite material the native sprite draws with.</summary>
+    internal BuiltinSpriteMaterial NativeMaterial => (BuiltinSpriteMaterial)Read().lighting;
 
     internal override void WriteShared(IReadOnlyList<Material?> materials)
     {
         if (materials.Count != 1) throw new NotSupportedException("a SpriteRenderer has exactly one material");
         ArgumentNullException.ThrowIfNull(materials[0]);
         var sprite = Read();
-        sprite.lighting = (uint)materials[0]!.SpriteMaterial;
+        sprite.lighting = (uint)materials[0]!.NativeSpriteIdentity;
         Write(sprite);
+        _material = materials[0];
     }
 
     internal override void CopyManagedState(NativeComponent source, Func<Object, Object> remap)
     {
         base.CopyManagedState(source, remap);
-        _other = ((SpriteRenderer)source)._other;
+        var sprite = (SpriteRenderer)source;
+        _other = sprite._other;
+        _material = sprite._material;
     }
 
     public Sprite? sprite

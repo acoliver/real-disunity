@@ -7,7 +7,8 @@ public enum BuiltinSpriteMaterial : uint { Unlit = 0, Lit = 1 }
 
 /// <summary>
 /// A shader and the values set for it, kept in managed memory; nothing draws with it yet except the two
-/// built-in sprite materials, which the native 2D pipeline draws. A material made from a <see cref="Shader"/>
+/// built-in sprite materials, which the native 2D pipeline draws; a sprite renderer with any other material draws
+/// as the unlit sprite material. A material made from a <see cref="Shader"/>
 /// or another material has no shader declarations to consult, so it knows only what was set on it: see
 /// <see cref="Material.HasProperty(string)"/>. Unity's convenience members map to fixed names, as it does for
 /// a shader without [MainColor] and [MainTexture]: <see cref="color"/> is _Color and <see cref="mainTexture"/>,
@@ -45,6 +46,10 @@ public partial class Material : Object
     /// <summary>The built-in sprite material this is; only the two sprite materials have one.</summary>
     public BuiltinSpriteMaterial SpriteMaterial =>
         _sprite ?? throw new NotSupportedException("Material.SpriteMaterial is not supported yet for a material other than the built-in sprite materials");
+
+    /// <summary>The built-in sprite material the native 2D pipeline draws this as: itself for a sprite material or a copy
+    /// of one, and the unlit sprite material for any other material.</summary>
+    internal BuiltinSpriteMaterial NativeSpriteIdentity => _sprite ?? BuiltinSpriteMaterial.Unlit;
 
     public Material(BuiltinSpriteMaterial material)
     {

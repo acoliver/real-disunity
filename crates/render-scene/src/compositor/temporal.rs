@@ -113,8 +113,12 @@ impl FrameRenderer {
     /// Applies the jitter of the next frame to the camera matrix and attaches the history.
     ///
     /// The jitter always starts from the unjittered matrix, so preparing a frame twice does not
-    /// offset it twice. Without jitter the frame is returned unchanged.
+    /// offset it twice. Without jitter the camera is unchanged. The material mip bias follows the
+    /// configuration, not the jitter, so it is set on every frame.
     pub(crate) fn jitter_frame(&self, mut frame: FrameUniform) -> FrameUniform {
+        frame.material_mip_bias = self
+            .post_requested
+            .material_mip_bias(self.targets().config());
         if self.temporal.borrow().jitter.is_none() {
             return frame;
         }
@@ -196,6 +200,10 @@ mod taa_end_to_end_tests;
 #[cfg(test)]
 #[path = "temporal_upscale_end_to_end_tests.rs"]
 mod temporal_upscale_end_to_end_tests;
+
+#[cfg(test)]
+#[path = "temporal_mip_bias_tests.rs"]
+mod temporal_mip_bias_tests;
 
 #[cfg(test)]
 #[path = "temporal_configuration_tests.rs"]

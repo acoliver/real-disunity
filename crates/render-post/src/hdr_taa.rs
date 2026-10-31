@@ -8,8 +8,8 @@ use std::{cell::RefCell, rc::Rc};
 use wgpu::util::DeviceExt;
 
 use crate::{
-    StageSet, TAA_UNIFORM_BYTES, TaaSettings, TemporalBlock, history_key::HistoryKey, taa_gpu,
-    taa_upscale_gpu,
+    StageSet, TAA_UNIFORM_BYTES, TEMPORAL_CAMERA_BYTES, TaaSettings, TemporalBlock, TemporalCamera,
+    history_key::HistoryKey, taa_gpu, taa_upscale_gpu,
 };
 
 /// The history textures of one bank: colour and linear depth on the render grid for native TAA,
@@ -122,6 +122,36 @@ pub(crate) fn uniform_buffer(device: &wgpu::Device) -> wgpu::Buffer {
     })
 }
 
+/// A slot's camera buffer of the temporal stage, zeroed: no camera term until the first upload.
+pub(crate) fn camera_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("slot temporal camera"),
+        size: camera_size(),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+fn camera_size() -> wgpu::BufferAddress {
+    wgpu::BufferAddress::try_from(TEMPORAL_CAMERA_BYTES)
+        .expect("the block size fits a buffer address")
+}
+
+/// Copies `camera` into a slot's camera buffer through an immutable staging buffer.
+pub(crate) fn upload_camera(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    destination: &wgpu::Buffer,
+    camera: TemporalCamera,
+) {
+    let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("immutable temporal camera"),
+        contents: &camera.to_bytes(),
+        usage: wgpu::BufferUsages::COPY_SRC,
+    });
+    encoder.copy_buffer_to_buffer(&staging, 0, destination, 0, camera_size());
+}
+
 /// Schedules the TAA stages at the end of `set` and returns the resolved color: "taa resolve",
 /// "taa history" and "taa depth history" on the render grid, or, for `temporal`, "temporal
 /// upscale" and "temporal upscale history" on the output grid. `set` owns the output; the shared
@@ -131,13 +161,19 @@ pub(crate) fn append(
     set: &mut StageSet,
     targets: &crate::FrameTargets,
     (settings, history, uniform): (TaaSettings, &SharedHistory, &wgpu::Buffer),
-    temporal: bool,
+    temporal: Option<&wgpu::Buffer>,
 ) -> wgpu::TextureView {
     let config = targets.config();
-    let output = temporal.then(|| config.output_extent());
+    let output = temporal.map(|_| config.output_extent());
     let bank = history.acquire(device, HistoryKey::new(config.size, output, config.samples));
-    if let Some(output) = output {
-        append_temporal(device, set, targets, (&bank.texture, output, uniform))
+    if let (Some(output), Some(camera)) = (output, temporal) {
+        append_temporal(
+            device,
+            set,
+            targets,
+            (&bank.texture, output),
+            (uniform, camera),
+        )
     } else {
         append_native(device, set, targets, (settings, &bank, uniform))
     }
@@ -147,7 +183,8 @@ fn append_temporal(
     device: &wgpu::Device,
     set: &mut StageSet,
     targets: &crate::FrameTargets,
-    (history, output_extent, uniform): (&wgpu::Texture, [u32; 2], &wgpu::Buffer),
+    (history, output_extent): (&wgpu::Texture, [u32; 2]),
+    (uniform, camera): (&wgpu::Buffer, &wgpu::Buffer),
 ) -> wgpu::TextureView {
     let output = taa_upscale_gpu::output(device, output_extent);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
@@ -159,7 +196,9 @@ fn append_temporal(
             motion: targets
                 .velocity()
                 .expect("temporal reconstruction needs the velocity attachment"),
+            depth: targets.depth(),
             uniform,
+            camera,
             history,
             output: &output,
         },

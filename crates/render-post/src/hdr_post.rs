@@ -177,6 +177,7 @@ pub(crate) struct HdrPost {
     carry: wgpu::Buffer,
     frame: [wgpu::Buffer; 3],
     taa: [wgpu::Buffer; 3],
+    camera: [wgpu::Buffer; 3],
     taa_history: crate::hdr_taa::SharedHistory,
 }
 impl HdrPost {
@@ -210,6 +211,7 @@ impl HdrPost {
                 })
             }),
             taa: std::array::from_fn(|_| crate::hdr_taa::uniform_buffer(device)),
+            camera: std::array::from_fn(|_| crate::hdr_taa::camera_buffer(device)),
             taa_history: crate::hdr_taa::SharedHistory::default(),
         })
     }
@@ -245,6 +247,15 @@ impl HdrPost {
         block: &crate::TemporalBlock,
     ) -> Result<(), PostError> {
         crate::hdr_taa::upload_temporal(&self.device, encoder, &self.taa[slot], block)
+    }
+    /// Uploads the camera term of the temporal stage of `slot`.
+    pub fn prepare_temporal_camera(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        camera: crate::TemporalCamera,
+    ) {
+        crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera[slot], camera);
     }
     #[cfg(test)]
     pub fn taa_history_size(&self) -> Option<[u32; 2]> {
@@ -296,7 +307,9 @@ impl HdrPost {
                     &mut set,
                     targets,
                     (taa, &self.taa_history, &self.taa[slot]),
-                    self.settings.reconstructs_temporally(targets.config()),
+                    self.settings
+                        .reconstructs_temporally(targets.config())
+                        .then_some(&self.camera[slot]),
                 )
             },
         );

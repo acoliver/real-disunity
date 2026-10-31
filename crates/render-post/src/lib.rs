@@ -123,6 +123,11 @@ mod taa_velocity;
 mod temporal_block;
 #[cfg(test)]
 mod temporal_block_tests;
+mod temporal_camera;
+#[cfg(test)]
+mod temporal_camera_gpu_tests;
+#[cfg(test)]
+mod temporal_camera_tests;
 #[cfg(test)]
 mod temporal_disocclusion_scene;
 #[cfg(test)]
@@ -143,6 +148,7 @@ pub use jitter::ProjectionJitter;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 pub use taa::{TAA_UNIFORM_BYTES, TaaSettings, TaaUniform};
 pub use temporal_block::{TEMPORAL_BLOCK_BYTES, TemporalBlock};
+pub use temporal_camera::{TEMPORAL_CAMERA_BYTES, TemporalCamera};
 mod native_rcas;
 mod tone_map;
 pub use native_rcas::{NativeRcasSettings, RcasDomain};

@@ -19,10 +19,45 @@ struct Temporal {
 @group(0) @binding(0) var color: texture_2d<f32>;
 // Accumulated history, Rgba16Float at O.
 @group(0) @binding(1) var history: texture_2d<f32>;
-// Total backward motion in uv units, Rg16Float at R (the format of the velocity texture): the
-// history position of output pixel p is u + motion, read at the internal texel nearest q.
+// Object residual of the backward motion in uv units, Rg16Float at R (the format of the velocity
+// texture), with camera and jitter already cancelled. The total backward motion is the camera
+// term of `camera_motion` plus this; the history position of output pixel p is u plus the total,
+// read at the internal texel nearest q.
 @group(0) @binding(2) var motion: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> temporal: Temporal;
+// Camera motion between the frames, see temporal_camera.rs.
+struct Camera {
+    // Maps (ndc x, ndc y, device depth, 1) of this frame to the previous clip space.
+    reprojection: mat4x4<f32>,
+    // x: 1 when the camera term applies, y: depth convention (0 is standard Z), zw: depth terms.
+    flags: vec4<f32>,
+}
+@group(0) @binding(4) var<uniform> camera: Camera;
+// Single-sample device depth at R.
+@group(0) @binding(5) var depth: texture_depth_2d;
+fn not_finite() -> f32 {
+    return bitcast<f32>(0x7f800000u);
+}
+// uv of a point in NDC; +y is up in NDC and down in uv.
+fn ndc_to_uv(ndc: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(0.5 * ndc.x + 0.5, 0.5 - 0.5 * ndc.y);
+}
+// Backward uv displacement of the surface at uv `u` and device depth `z` caused by the camera
+// alone: where the previous frame's camera saw the same world point, minus `u`. Zero without a
+// camera term, and for an identity reprojection exactly, because both positions go through the
+// same conversion. Infinite when the point is behind the previous camera, which makes the history
+// unusable.
+fn camera_motion(u: vec2<f32>, z: f32) -> vec2<f32> {
+    if camera.flags.x < 0.5 {
+        return vec2<f32>(0.0);
+    }
+    let ndc = vec2<f32>(2.0 * u.x - 1.0, 1.0 - 2.0 * u.y);
+    let clip = camera.reprojection * vec4<f32>(ndc, z, 1.0);
+    if !(clip.w > 0.0) {
+        return vec2<f32>(not_finite());
+    }
+    return ndc_to_uv(clip.xy / clip.w) - ndc_to_uv(ndc);
+}
 // Same constant as the native resolve: weight scale 1 - MOTION_K * displacement in output pixels.
 const MOTION_K: f32 = 1.5;
 const HALF_PI: f32 = 1.5707963267948966;
@@ -110,7 +145,8 @@ fn catmull_rom(uv: vec2<f32>) -> vec3<f32> {
     let q = fma(u, in_extent, temporal.jitter_phase_weight.xy) - 0.5;
     let current = reconstruct(q);
     let texel = clamp(vec2<i32>(floor(q + 0.5)), vec2<i32>(0), vec2<i32>(in_extent) - 1);
-    let flow = textureLoad(motion, texel, 0).xy;
+    let flow = camera_motion(u, textureLoad(depth, texel, 0))
+        + textureLoad(motion, texel, 0).xy;
     let uv = u + flow;
     let usable = temporal.clip_valid.y > 0.5 && finite(uv.x) && finite(uv.y)
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));

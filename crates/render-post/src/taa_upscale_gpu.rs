@@ -2,7 +2,7 @@
 //! `taa_common.wgsl` helpers.
 //!
 //! It reads the jittered current color at the internal extent `R` and writes the output extent
-//! `O`, then copies its result into the history. The uniform block is a [`crate::TemporalBlock`].
+//! `O`, then copies its result into the history. The uniform block is a [`crate::TemporalBlock`], the camera block a [`crate::TemporalCamera`].
 use crate::{Stage, StageId, StageSet, StageTarget};
 
 /// Stage names, in execution order. Identities are stable for timing.
@@ -59,7 +59,12 @@ pub struct Inputs<'a> {
     pub color: &'a wgpu::TextureView,
     /// Total backward motion in uv units at `R`, [`crate::VELOCITY_FORMAT`].
     pub motion: &'a wgpu::TextureView,
+    /// Single-sample device depth at `R`, standard Z, read at the internal texel nearest the
+    /// output pixel for the camera term.
+    pub depth: &'a wgpu::TextureView,
     pub uniform: &'a wgpu::Buffer,
+    /// A [`crate::TemporalCamera`] block.
+    pub camera: &'a wgpu::Buffer,
     /// [`history`] at `O`.
     pub history: &'a wgpu::Texture,
     /// [`output`] at `O`.
@@ -95,6 +100,8 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) {
             entry(1, wgpu::BindingResource::TextureView(&history)),
             entry(2, wgpu::BindingResource::TextureView(inputs.motion)),
             entry(3, inputs.uniform.as_entire_binding()),
+            entry(4, inputs.camera.as_entire_binding()),
+            entry(5, wgpu::BindingResource::TextureView(inputs.depth)),
         ],
     });
     set.stages.push(Stage::fullscreen(

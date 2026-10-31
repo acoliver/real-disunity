@@ -177,10 +177,10 @@ fn units_apply_to_translation_and_never_to_scale() {
             ..at(2.0, 0.0, 0.0)
         },
     );
-    for per_unit in [0.5, 1.0, 10.0, 1000.0] {
+    for (per_unit, expected) in [(0.5, 1), (1.0, 2), (10.0, 20), (1000.0, 2000)] {
         let t = *only(&w, object, units(per_unit)).transform();
         assert_eq!(t.scale_millionths, 3_000_000);
-        assert_eq!(t.position_millimeters[0], (2.0 * per_unit) as i64);
+        assert_eq!(t.position_millimeters[0], expected);
     }
     let default = *only(&w, object, MeshExtractOptions::default()).transform();
     assert_eq!(default.position_millimeters[0], 2_000);

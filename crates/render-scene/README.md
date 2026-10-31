@@ -425,6 +425,24 @@ convention. `LambertianPrepared` uses prepared sun colour without another Fresne
 or pi factor in diffuse. Water sun disks remain per-body controls. Each distinct
 lighting convention has its own cached plain and shadowed water pipelines.
 
+`SceneWaterSettings::shadow_response` optionally supplies a validated
+`SceneWaterShadowResponse`. `None` and the neutral default preserve shader source,
+uniform bytes, pipeline keys and output. `offset` chooses the animated
+`ShadingNormal`, planar Z-up `GeometricNormal`, or zero offset (`None`) for the
+shared directional-shadow sampler. The diffuse floor is in millionths, bounded
+by `0..=1_000_000`. Optional depth relief blends the floored visibility toward one.
+With an authored background tint its weight is `water_tint_weights(...).x`, the
+existing background blend weight at the original, undistorted camera-axis water
+depth. Without tint it uses `clamp(original_distance, 0, 1)`, the existing one-metre
+depth ramp used for refraction. The disk receives this visibility before its
+luminance limit; `disk_raw_visibility` multiplies by strength-adjusted raw
+visibility again after limiting. Both water lighting paths share this response.
+Opaque shading, ambient, environment reflection and immutable refraction snapshots
+are unaffected. The keyed existing water pipeline uses spare uniform lanes, so
+allocation sizes and buffer counts do not change. Filtering remains the scene's
+configured comparison-grid PCF or explicit bilinear depth comparison; there is no
+independent water filter footprint.
+
 `SceneWaterSettings::normal_anisotropy` selects validated 1x, 2x, 4x, 8x or 16x
 filtering when `normal_mips` is enabled. Bodies with the same level reuse one
 sampler. The default 1x descriptor preserves trilinear repeat sampling; explicit

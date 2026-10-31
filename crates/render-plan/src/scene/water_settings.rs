@@ -49,6 +49,8 @@ pub struct SceneWaterSettings {
     pub optics: Option<super::SceneWaterOptics>,
     /// Optional depth-driven flow, normal and opacity shaping.
     pub shoreline: Option<super::SceneWaterShoreline>,
+    /// Optional water-only directional-shadow receiver response.
+    pub shadow_response: Option<super::SceneWaterShadowResponse>,
 }
 impl SceneWaterSettings {
     pub const STOCK: Self = Self {
@@ -71,6 +73,7 @@ impl SceneWaterSettings {
         wind: None,
         optics: None,
         shoreline: None,
+        shadow_response: None,
     };
     pub(super) fn validate_handles(
         self,
@@ -91,6 +94,9 @@ impl SceneWaterSettings {
     }
     pub(super) fn validate_refraction(self) -> Result<(), SceneValidationError> {
         super::water_terms::validate(&self)?;
+        if let Some(response) = self.shadow_response {
+            response.validate()?;
+        }
         if let Some(value) = self.metallic_micro {
             super::effects::require_range("water metallic", u64::from(value), 0, 1_000_000)?;
         }

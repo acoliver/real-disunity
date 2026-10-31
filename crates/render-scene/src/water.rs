@@ -4,6 +4,7 @@ mod geometry;
 mod optics;
 pub(crate) mod planning;
 pub(crate) mod receivers;
+mod shadow_response;
 pub(crate) mod snapshots;
 pub(crate) mod surface;
 mod terms;
@@ -411,11 +412,11 @@ fn pipeline_with_source(
     options: [u32; 5],
     source: &str,
 ) -> wgpu::RenderPipeline {
-    let constants = terms::constants(options);
     let buffers = geometry::layouts(options[4] & endpoint::SPECIALIZATION != 0);
+    let source = shadow_response::specialize(source, options[4]);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("planar water"),
-        source: wgpu::ShaderSource::Wgsl(vertex_seeds::specialize(source, options[4])),
+        source: wgpu::ShaderSource::Wgsl(vertex_seeds::specialize(&source, options[4])),
     });
     let vertex_constants = terms::vertex_constants(options);
     let shadow_layout = crate::shadows::water_layout(device);
@@ -445,7 +446,7 @@ fn pipeline_with_source(
             module: &module,
             entry_point: Some("fs_water"),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &constants,
+                constants: &terms::constants(options),
                 ..Default::default()
             },
             targets: &std::array::from_fn::<_, 4, _>(|_| {

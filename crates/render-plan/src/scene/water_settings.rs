@@ -11,6 +11,8 @@ pub struct SceneWaterSettings {
     /// Signed RG flow at unit encoding speed, added to constant body velocity.
     pub flow_speed_millimeters_per_second: u32,
     pub flow: Option<TextureHandle>,
+    /// Sampling stage for raw flow seeds; Vertex requires a flow map.
+    pub flow_seed_sampling: super::SceneWaterSeedSampling,
     /// Two-phase normal advection period. `None` preserves continuous scrolling.
     /// Requires a normal map and a positive period. Positive velocity advances
     /// sampling coordinates; the displacement per cycle is velocity times period.
@@ -54,6 +56,7 @@ impl SceneWaterSettings {
         tile_millimeters: [1000; 2],
         flow_speed_millimeters_per_second: 1000,
         flow: None,
+        flow_seed_sampling: super::SceneWaterSeedSampling::Fragment,
         flow_period_milliseconds: None,
         refraction_millimeters: None,
         screen_refraction_micro: None,

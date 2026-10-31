@@ -102,7 +102,7 @@ pub(super) fn constants(options: [u32; 5]) -> Vec<(&'static str, f64)> {
     constants
 }
 pub(super) fn vertex_constants(options: [u32; 5]) -> Vec<(&'static str, f64)> {
-    if options[4] & 128 != 0 {
+    if options[4] & (128 | super::vertex_seeds::SPECIALIZATION) != 0 {
         vec![("WATER_TERMS", f64::from(options[4]))]
     } else {
         Vec::new()

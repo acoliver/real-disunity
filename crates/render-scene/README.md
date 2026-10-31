@@ -444,3 +444,20 @@ expanded vertex, with an eight-byte empty placeholder and conservative basin bou
 Flow maps need at least two texels per axis in this mode; invalid dimensions fail
 before GPU allocation. Normal coordinates and samplers remain unchanged. See the
 [water contract](../../dev-docs/rendering/scene-materials.md) for sampling and tests.
+
+`SceneWaterSettings::flow_seed_sampling` selects `SceneWaterSeedSampling::Fragment`
+(the default) or `Vertex`, independently of Repeat or EndpointClamped addressing.
+Vertex requires a flow map. The GPU samples raw unorm RG at each emitted mesh
+vertex, then perspective-interpolates those values. Signed decoding, wind shaping
+and depth shaping execute in the fragment stage. Both stages reuse the same
+addressing and float-precision bilinear weights. Vertex fetches texel centres with
+`textureSampleLevel` at explicit mip zero, avoiding quantized filter weights on
+downlevel software adapters. Vertex texture reads
+are already required by water wind, so no CPU lattice copy is needed.
+The vertex variant adds one two-component varying and no persistent allocation;
+endpoint coordinates keep their existing buffer and shared sizing helper. The
+renderer and device-free presentation plans therefore have identical byte totals
+for both sampling stages. Fragment keeps its shader source, bindings, descriptors,
+uniform bytes and allocation totals. Synthetic 17×17 GPU tests cover both channels,
+clamping, tile corners, adjacent tile edges and perspective interpolation. A 0.6 m
+triangle in a 10 m tile differs from fragment sampling by 0.002811 at its centroid.

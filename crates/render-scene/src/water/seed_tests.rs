@@ -45,6 +45,10 @@ pub(super) fn body(mode: SceneWaterSeedCoordinates) -> SceneWaterBody {
 }
 
 pub(super) fn install_field(context: &GpuContext, water: &mut Water) {
+    install_lattice(context, water, &field());
+}
+
+pub(super) fn install_lattice(context: &GpuContext, water: &mut Water, bytes: &[u8]) {
     let texture = context.device().create_texture(&wgpu::TextureDescriptor {
         label: Some("asymmetric endpoint seed lattice"),
         size: wgpu::Extent3d {
@@ -61,7 +65,7 @@ pub(super) fn install_field(context: &GpuContext, water: &mut Water) {
     });
     context.queue().write_texture(
         texture.as_image_copy(),
-        &field(),
+        bytes,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(34),

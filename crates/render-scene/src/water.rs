@@ -9,6 +9,7 @@ pub(crate) mod surface;
 mod terms;
 #[cfg(test)]
 mod tests;
+mod vertex_seeds;
 
 pub(crate) use geometry::allocations;
 pub(crate) const STAGING_BYTES: u64 = 560 + crate::frame::FRAME_UNIFORM_BYTES as u64;
@@ -146,7 +147,7 @@ pub(crate) struct Water {
     pub snapshots: [Snapshots; 3],
     pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
-    endpoint_pipelines: Option<[wgpu::RenderPipeline; 2]>,
+    seed_pipelines: std::collections::BTreeMap<u32, [wgpu::RenderPipeline; 2]>,
     layout: wgpu::BindGroupLayout,
     specializations: std::rc::Rc<
         std::cell::RefCell<std::collections::BTreeMap<[u32; 5], [wgpu::RenderPipeline; 2]>>,
@@ -229,7 +230,7 @@ impl Water {
             samples: config.samples,
             pipeline: plain_pipeline,
             shadow_pipeline,
-            endpoint_pipelines: None,
+            seed_pipelines: std::collections::BTreeMap::new(),
             layout,
         })
     }
@@ -264,10 +265,15 @@ impl Water {
             water.pipeline = selected[0].clone();
             water.shadow_pipeline = selected[1].clone();
         }
-        if self.settings.iter().any(endpoint::enabled) {
-            let mut endpoint_options = options;
-            endpoint_options[4] |= endpoint::SPECIALIZATION;
-            water.endpoint_pipelines = Some(self.specialized_pipelines(device, endpoint_options));
+        for body in self.settings.iter() {
+            let key = vertex_seeds::key(body);
+            if key != 0 && !water.seed_pipelines.contains_key(&key) {
+                let mut seed_options = options;
+                seed_options[4] |= key;
+                water
+                    .seed_pipelines
+                    .insert(key, self.specialized_pipelines(device, seed_options));
+            }
         }
         WaterFeature {
             water,
@@ -297,12 +303,10 @@ impl Water {
             })
             .clone()
     }
-    fn body_pipeline(&self, body: &Body, shadows: bool) -> &wgpu::RenderPipeline {
-        if body.seed.is_some() {
-            &self
-                .endpoint_pipelines
-                .as_ref()
-                .expect("endpoint pipelines")[usize::from(shadows)]
+    fn body_pipeline(&self, index: usize, shadows: bool) -> &wgpu::RenderPipeline {
+        let key = vertex_seeds::key(&self.settings[index]);
+        if key != 0 {
+            &self.seed_pipelines[&key][usize::from(shadows)]
         } else if shadows {
             &self.shadow_pipeline
         } else {
@@ -411,7 +415,7 @@ fn pipeline_with_source(
     let buffers = geometry::layouts(options[4] & endpoint::SPECIALIZATION != 0);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("planar water"),
-        source: wgpu::ShaderSource::Wgsl(endpoint::specialize(source, options[4])),
+        source: wgpu::ShaderSource::Wgsl(vertex_seeds::specialize(source, options[4])),
     });
     let vertex_constants = terms::vertex_constants(options);
     let shadow_layout = crate::shadows::water_layout(device);
@@ -601,9 +605,10 @@ impl PreparedFeature for WaterFeature {
                 if let Some(shadow) = &self.shadow {
                     pass.set_bind_group(1, shadow, &[]);
                 }
-                for (body, group) in self.water.bodies.iter().zip(&self.groups) {
+                for (index, (body, group)) in self.water.bodies.iter().zip(&self.groups).enumerate()
+                {
                     if body.vertices != 0 {
-                        pass.set_pipeline(self.water.body_pipeline(body, self.shadow.is_some()));
+                        pass.set_pipeline(self.water.body_pipeline(index, self.shadow.is_some()));
                         pass.set_bind_group(0, group, &[]);
                         pass.set_vertex_buffer(0, body.buffer.slice(..));
                         if let Some(seed) = &body.seed {

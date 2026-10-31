@@ -19,6 +19,10 @@ public sealed partial class Camera : Behaviour
     public enum MonoOrStereoscopicEye { Left = 0, Right = 1, Mono = 2 }
     public enum StereoscopicEye { Left = 0, Right = 1 }
 
+    private const float MinFieldOfView = 0.00001f;
+    private const float MaxFieldOfView = 179f;
+    private const float MinClipDistance = 0.01f;
+
     private static readonly object TargetLock = new();
     private static readonly Dictionary<int, WeakReference<RenderTexture>> TargetTextures = new();
 
@@ -43,10 +47,20 @@ public sealed partial class Camera : Behaviour
     }
     public bool orthographic { get => Read().orthographic == 1; set => Update(c => { c.orthographic = value ? 1u : 0u; return c; }); }
     public float orthographicSize { get => Read().orthographic_size; set => Update(c => { c.orthographic_size = value; return c; }); }
-    /// <summary>Vertical field of view in degrees, between 0 and 180 exclusive. It is kept while the camera is orthographic.</summary>
-    public float fieldOfView { get => Read().field_of_view; set => Update(c => { c.field_of_view = value; return c; }); }
-    public float nearClipPlane { get => Read().near; set => Update(c => { c.near = value; return c; }); }
-    public float farClipPlane { get => Read().far; set => Update(c => { c.far = value; return c; }); }
+    /// <summary>
+    /// Vertical field of view in degrees. Scripts set it from computed values, so the engine's choice is to
+    /// clamp a write to [0.00001, 179] and read back the clamped value; NaN is still rejected. It is kept while
+    /// the camera is orthographic.
+    /// </summary>
+    public float fieldOfView
+    {
+        get => Read().field_of_view;
+        set => Update(c => { c.field_of_view = MathF.Min(MathF.Max(value, MinFieldOfView), MaxFieldOfView); return c; });
+    }
+    /// <summary>The engine's choice: a near plane below 0.01 clamps to 0.01. NaN is rejected.</summary>
+    public float nearClipPlane { get => Read().near; set => Update(c => { c.near = MathF.Max(value, MinClipDistance); return c; }); }
+    /// <summary>The engine's choice: a far plane within 0.01 of the near plane clamps to the near plane plus 0.01. NaN is rejected.</summary>
+    public float farClipPlane { get => Read().far; set => Update(c => { c.far = MathF.Max(value, c.near + MinClipDistance); return c; }); }
     /// <summary>Draw order between cameras. Native depth is whole, so fractional values are rejected.</summary>
     public float depth
     {

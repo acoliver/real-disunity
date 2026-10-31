@@ -330,6 +330,7 @@ Physics3DQueryTests.Run();
 AnimationTests.Run();
 ScriptExceptionTests.Run();
 CameraProjectionTests.Run();
+CameraClampTests.Run();
 CameraSceneTests.Run();
 PlayerCameraPlanTests.Run();
 LightTests.Run();

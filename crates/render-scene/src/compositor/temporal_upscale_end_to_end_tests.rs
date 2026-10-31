@@ -62,13 +62,8 @@ impl<'a> Rig<'a> {
         settings.frame = frame_config;
         settings.hdr = Some((1.0, ToneMap::Reinhard));
         settings.post = post;
-        let mut renderer =
+        let renderer =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap();
-        let jitter = crate::post::jitter(&post, frame_config, None).unwrap();
-        renderer
-            .renderer_mut()
-            .set_projection_jitter(jitter)
-            .unwrap();
         let device = context.device();
         Self {
             context,
@@ -126,7 +121,7 @@ impl<'a> Rig<'a> {
 
     /// The output of a frame without history, whatever came before.
     fn reset_frame(&mut self) -> Vec<u8> {
-        self.renderer.renderer_mut().reset_temporal_history();
+        self.renderer.reset_temporal_history();
         self.render_in_slot(0)
     }
 }
@@ -139,12 +134,12 @@ fn error(bytes: &[u8], reference: &Image) -> f64 {
 fn the_renderer_builds_the_output_extent_and_derives_the_jitter_from_both_extents() {
     let context = context();
     for scale in SCALES {
-        let mut rig = Rig::new(&context, scale);
+        let rig = Rig::new(&context, scale);
         let config = rig.renderer.targets().config();
         assert_eq!(config.size, rig.render, "{scale}");
         assert_eq!(config.output_extent(), OUTPUT_EXTENT, "{scale}");
         assert!(rig.render[0] < SIZE, "{scale}: a reduced render extent");
-        let selected = rig.renderer.renderer_mut().projection_jitter();
+        let selected = rig.renderer.projection_jitter();
         assert_eq!(selected, Some(rig.expected), "{scale}");
         assert!(rig.expected.length() > ProjectionJitter::DEFAULT_LENGTH);
     }
@@ -155,7 +150,7 @@ fn every_frame_of_two_jitter_cycles_is_an_output_sized_fully_written_image() {
     let context = context();
     for scale in SCALES {
         let mut rig = Rig::new(&context, scale);
-        assert!(!rig.renderer.renderer_mut().has_temporal_history());
+        assert!(!rig.renderer.has_temporal_history());
         for index in 0..2 * rig.cycle() {
             let bytes = rig.render();
             assert_eq!(
@@ -177,10 +172,7 @@ fn every_frame_of_two_jitter_cycles_is_an_output_sized_fully_written_image() {
                 "{scale} frame {index}: {lit} lit pixels"
             );
         }
-        assert!(
-            rig.renderer.renderer_mut().has_temporal_history(),
-            "{scale}"
-        );
+        assert!(rig.renderer.has_temporal_history(), "{scale}");
     }
 }
 

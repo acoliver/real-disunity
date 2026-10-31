@@ -125,6 +125,9 @@ public partial class Material : Object
     public bool enableInstancing { get; set; }
     public int passCount => shader.passCount;
 
+    /// <summary>The pass count the shader declares, or null when the material has no shader or the shader declares none.</summary>
+    internal int? DeclaredPassCount => shader is { } own && own ? own.DeclaredPassCount : null;
+
     public string[] shaderKeywords
     {
         get => _keywords.ToArray();

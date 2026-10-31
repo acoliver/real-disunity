@@ -217,7 +217,7 @@ internal static class GameObjectMemberTests
             using var loaded = DisunityHost.LoadScene(Plan, new SceneLoadOptions(typeof(GameObjectMemberTests).Assembly, _ => []));
             var a = GameObject.Find("A")!;
             var scene = a.scene;
-            Ensure(scene.IsValid() && scene.isLoaded && scene.name == "level3" && scene.buildIndex == 3 && scene.handle != 0, "the scene is the loaded one");
+            Ensure(scene.IsValid() && scene.isLoaded && scene.name == "level3" && scene.buildIndex == 3 && scene.handle != default, "the scene is the loaded one");
             Ensure(a.sceneCullingMask == 1UL && GameObject.Find("A1")!.scene == scene, "objects of the scene share it");
             var runtime = new GameObject("Runtime");
             Ensure(runtime.scene == scene, "an object made at run time joins the loaded scene");

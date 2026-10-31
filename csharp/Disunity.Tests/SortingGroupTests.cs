@@ -27,6 +27,8 @@ internal static class SortingGroupTests
             Console.WriteLine("PASS: RequireComponent(typeof(SortingGroup)) adds one group before the script, found from a child");
             Cloning();
             Console.WriteLine("PASS: Instantiate gives the clone its own SortingGroup settings");
+            Planned();
+            Console.WriteLine("PASS: a planned SortingGroup builds with its enabled state, layer, order and sortAtRoot");
         }
         finally { DisunityHost.UnloadWorld(); }
     }
@@ -115,5 +117,21 @@ internal static class SortingGroupTests
         Expect.That(clone.sortingOrder == 12 && clone.sortAtRoot && !clone.enabled, "settings copied");
         clone.sortingOrder = 1;
         Expect.Equal(12, group.sortingOrder, "the original is unchanged");
+    }
+
+    private const string Plan = """
+        {"scene":"level0","assets":[],"sprites":[],"textures":[],"fonts":[],"axes":[],"differences":[],"objects":[
+        {"name":"Widget","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[
+        {"type":"SortingGroup","enabled":false,"sorting_layer_id":0,"sorting_order":-12,"sort_at_root":true}]}]}
+        """;
+
+    private static void Planned()
+    {
+        var assembly = typeof(SortingGroupTests).Assembly;
+        using var loaded = DisunityHost.LoadScene(Plan, new SceneLoadOptions(assembly, _ => []) { Assemblies = _ => assembly });
+        var group = loaded.Objects[0].GetComponent<SortingGroup>()!;
+        Expect.That(!group.enabled, "the plan's enabled state");
+        Expect.That(group.sortingLayerID == 0 && group.sortingOrder == -12 && group.sortAtRoot, "the plan's layer, order and sortAtRoot");
+        Expect.Equal(1, loaded.Objects[0].GetComponents<SortingGroup>().Length, "one group");
     }
 }

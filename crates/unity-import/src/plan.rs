@@ -161,6 +161,13 @@ pub enum PlanComponent {
         #[serde(flatten)]
         camera: UrpCamera,
     },
+    /// A sorting group of a player scene.
+    SortingGroup {
+        enabled: bool,
+        sorting_layer_id: i32,
+        sorting_order: i32,
+        sort_at_root: bool,
+    },
     /// A canvas group of a player scene.
     CanvasGroup {
         enabled: bool,

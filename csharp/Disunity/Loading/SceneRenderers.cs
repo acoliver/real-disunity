@@ -9,6 +9,16 @@ internal sealed partial class SceneLoader
     /// <summary>A mesh filter of a player plan. The plan holds no mesh asset yet, so the filter has no mesh.</summary>
     private static MeshFilter MeshFilter(GameObject owner) => owner.AddComponent<MeshFilter>();
 
+    private static SortingGroup SortingGroup(GameObject owner, JsonElement value)
+    {
+        var group = owner.AddComponent<SortingGroup>();
+        group.enabled = value.Bool("enabled");
+        group.sortingLayerID = value.Int("sorting_layer_id");
+        group.sortingOrder = value.Int("sorting_order");
+        group.sortAtRoot = value.Bool("sort_at_root");
+        return group;
+    }
+
     private MeshRenderer MeshRenderer(GameObject owner, JsonElement value)
     {
         var renderer = owner.AddComponent<MeshRenderer>();

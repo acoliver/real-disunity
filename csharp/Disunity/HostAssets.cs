@@ -26,6 +26,18 @@ public static partial class DisunityHost
     /// </summary>
     public static void ApplyRenderPipelines(Action<string> log) => Resources?.ApplyGraphics(log);
 
+    /// <summary>
+    /// Registers the input axes the loaded resource plan carries, which a player takes from its input manager, for a
+    /// player to call before its first scene loads. An axis the engine cannot deliver is reported to
+    /// <paramref name="log"/> and left unregistered, so reading it throws as an unknown axis does.
+    /// </summary>
+    public static void ApplyInputAxes(Action<string> log)
+    {
+        if (Resources is not { } resources) return;
+        EnsureWorld();
+        resources.ApplyInputAxes(log);
+    }
+
     /// <summary>Stops <see cref="UnityEngine.Resources"/> loading from a player's resources.</summary>
     public static void UnloadResources() => Resources = null;
     internal static unsafe ScriptableObject RegisterAsset(ScriptableObject asset)

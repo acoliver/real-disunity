@@ -3,9 +3,11 @@ using UnityEngine;
 
 namespace Disunity.Hosting;
 
-/// <summary>Registers a plan's input axes. An axis is registered only when the engine can
-/// deliver every input it names, so reading any other fails as an unregistered axis does
-/// instead of reading zero forever.</summary>
+/// <summary>Registers a plan's input axes. A key axis is registered only when the engine can
+/// deliver every key it names, so reading any other fails as an unregistered axis does
+/// instead of reading zero forever. A mouse movement axis registers with no keys and reads
+/// zero, because the engine's mouse never moves; a joystick axis is not registered, because the
+/// engine has no joystick that could be at rest.</summary>
 internal static class InputAxes
 {
     private static readonly string[] Buttons = ["negative", "positive", "alt_negative", "alt_positive"];
@@ -21,9 +23,9 @@ internal static class InputAxes
             var name = axis.Str("name");
             var kind = axis.Str("kind");
             var missing = Buttons.Select(button => axis.Str(button)).Where(button => button != "" && Key(button) is null).ToList();
-            if (kind != "KeyOrMouseButton")
+            if (kind is not ("KeyOrMouseButton" or "MouseMovement"))
                 unregistered.Add($"{name}: {kind} axes read a device the engine has no input for");
-            else if (missing.Count > 0)
+            else if (kind == "KeyOrMouseButton" && missing.Count > 0)
                 unregistered.Add($"{name}: no key for {string.Join(", ", missing.Select(button => $"`{button}`"))}");
             else
                 DisunityHost.RegisterInputAxis(id, Definition(axis));

@@ -285,6 +285,7 @@ TouchScreenKeyboardTests.Run();
 DefaultCanvasMaterialTests.Run();
 StopCoroutineTests.Run();
 SpriteDataUtilityTests.Run();
+EventTests.Run();
 FieldBinderTests.Run();
 SerializedCollectionTests.Run();
 ManagedReferenceTests.Run();

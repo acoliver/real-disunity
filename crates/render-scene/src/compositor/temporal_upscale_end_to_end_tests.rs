@@ -88,11 +88,18 @@ impl<'a> Rig<'a> {
     }
 
     fn render_in_slot(&mut self, slot: usize) -> Vec<u8> {
+        self.render_from(slot, 0)
+    }
+
+    /// One frame in `slot` from a camera at `eye_x` millimetres.
+    fn render_from(&mut self, slot: usize, eye_x: i64) -> Vec<u8> {
         let device = self.context.device();
         let renderer = self.renderer.renderer_mut();
         renderer.select_frame_slot(slot);
         self.submitted += 1;
-        let prepared = renderer.prepare_uniform(frame(0, self.render[0])).unwrap();
+        let prepared = renderer
+            .prepare_uniform(frame(eye_x, self.render[0]))
+            .unwrap();
         let view = self
             .output
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -220,3 +227,65 @@ fn the_static_error_against_reset_every_frame_meets_the_design_ratio_at_each_sca
         );
     }
 }
+
+/// Mean error over the frames after `WARM_FRAMES`, to the reference of each frame's camera, of a
+/// camera that moves `step_mm` per frame, for the history kept and for the history reset before
+/// each frame (the spatial reconstruction alone).
+fn pan_errors(context: &GpuContext, scale: u32, step_mm: i64) -> (f64, f64) {
+    let eyes: Vec<i64> = (0..PAN_FRAMES)
+        .map(|index| i64::try_from(index).unwrap() * step_mm)
+        .collect();
+    let references: Vec<Image> = eyes.iter().map(|&eye| supersampled(context, eye)).collect();
+    let run = |reset_each_frame: bool| {
+        let mut rig = Rig::new(context, scale);
+        let errors: Vec<f64> = eyes
+            .iter()
+            .zip(&references)
+            .map(|(&eye, reference)| {
+                if reset_each_frame {
+                    rig.renderer.reset_temporal_history();
+                }
+                let slot = rig.submitted % SLOTS;
+                error(&rig.render_from(slot, eye), reference)
+            })
+            .collect();
+        let late = &errors[WARM_FRAMES..];
+        late.iter().sum::<f64>() / f64::from(u32::try_from(late.len()).unwrap())
+    };
+    (run(false), run(true))
+}
+
+const PAN_FRAMES: usize = 40;
+const WARM_FRAMES: usize = 24;
+/// Camera steps per frame in millimetres, both directions. At this distance and field of view
+/// one output pixel is about 180 mm, so a step is about a quarter of a pixel.
+const PAN_STEPS: [i64; 2] = [41, -29];
+
+/// A camera pan with the temporal stage stays aligned with the native-resolution reference: the
+/// error with history is no more than the error of the spatial reconstruction alone.
+///
+/// Measured on lavapipe, temporal / reset: 0.57 to 0.69 with the camera term. With the upload
+/// forced to "no camera" the same run gives 0.73 to 0.95, still below the bound, so this test
+/// does not detect a missing camera term at these steps; the render-post pan tests do (they fail
+/// on the stage that ignores the term). It guards the compositor wiring against making a pan
+/// worse than the spatial floor.
+#[test]
+fn a_camera_pan_stays_aligned_with_the_native_resolution_reference() {
+    let context = context();
+    for scale in SCALES {
+        for step in PAN_STEPS {
+            let (temporal, reset) = pan_errors(&context, scale, step);
+            println!(
+                "scale {scale} step {step}: temporal {temporal:.5} reset {reset:.5} ratio {:.3}",
+                temporal / reset
+            );
+            assert!(temporal.is_finite() && reset.is_finite());
+            assert!(
+                temporal <= PAN_RATIO_BOUND * reset,
+                "{scale} {step}: temporal {temporal} reset {reset}"
+            );
+        }
+    }
+}
+
+const PAN_RATIO_BOUND: f64 = 1.0;

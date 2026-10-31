@@ -150,6 +150,8 @@ mod temporal_dolly_scene;
 #[cfg(test)]
 mod temporal_dolly_tests;
 #[cfg(test)]
+mod temporal_exposure_tests;
+#[cfg(test)]
 mod temporal_quality_scene;
 #[cfg(test)]
 mod temporal_quality_tests;

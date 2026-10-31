@@ -7,7 +7,8 @@ use crate::hdr_temporal_build_tests::{public_factory, settings};
 use crate::taa_gpu_test_support::read;
 use crate::temporal_quality_tests::Recording;
 use crate::{
-    FrameConfig, PostChain, ProjectionJitter, Resources, TaaSettings, TemporalBlock, TemporalCamera,
+    FrameConfig, HdrPostSettings, PostChain, ProjectionJitter, Resources, TaaSettings,
+    TemporalBlock, TemporalCamera,
 };
 use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
@@ -19,11 +20,13 @@ pub(crate) struct SceneRig {
     queue: wgpu::Queue,
     chain: PostChain<Recording>,
     hdr: wgpu::Texture,
+    history: wgpu::Texture,
     sink: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
     render: [u32; 2],
     output: [u32; 2],
     slot_output: Arc<Mutex<Option<wgpu::Texture>>>,
+    slot_history: Arc<Mutex<Option<wgpu::Texture>>>,
     pub(crate) jitter: ProjectionJitter,
 }
 
@@ -80,13 +83,25 @@ impl SceneRig {
         output: [u32; 2],
         scene_wgsl: String,
     ) -> Self {
+        Self::with_settings(gpu, [render, output], scene_wgsl, &settings())
+    }
+
+    /// A chain built from other post settings, for example another display exposure.
+    pub(crate) fn with_settings(
+        gpu: &(wgpu::Device, wgpu::Queue),
+        [render, output]: [[u32; 2]; 2],
+        scene_wgsl: String,
+        post: &HdrPostSettings,
+    ) -> Self {
         let (device, queue) = gpu.clone();
         let config = FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
         let slot_output = Arc::new(Mutex::new(None));
+        let slot_history = Arc::new(Mutex::new(None));
         let factory = Recording {
-            inner: public_factory(&device, &settings()),
+            inner: public_factory(&device, post),
             output: slot_output.clone(),
+            history: slot_history.clone(),
         };
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
         let hdr = slot_output
@@ -94,6 +109,11 @@ impl SceneRig {
             .unwrap()
             .take()
             .expect("slot 0 was built");
+        let history = slot_history
+            .lock()
+            .unwrap()
+            .take()
+            .expect("the history was built");
         let sink =
             crate::color_texture(&device, "sink", output, wgpu::TextureFormat::Rgba8UnormSrgb);
         Self {
@@ -102,10 +122,12 @@ impl SceneRig {
             queue,
             chain,
             hdr,
+            history,
             sink,
             render,
             output,
             slot_output,
+            slot_history,
             jitter: ProjectionJitter::for_extents(render, output).unwrap(),
         }
     }
@@ -121,6 +143,12 @@ impl SceneRig {
             .unwrap()
             .take()
             .expect("slot 0 was rebuilt");
+        self.history = self
+            .slot_history
+            .lock()
+            .unwrap()
+            .take()
+            .expect("the history was rebuilt");
         self.sink = crate::color_texture(
             &self.device,
             "sink",
@@ -252,5 +280,28 @@ impl SceneRig {
             .iter()
             .map(|p| (p[0] + p[1] + p[2]) / 3.0)
             .collect()
+    }
+}
+
+impl SceneRig {
+    /// The shared history texture after the last frame: the pre-tone reconstruction, row major.
+    pub(crate) fn history_image(&self) -> Vec<[f64; 4]> {
+        read((&self.device, &self.queue), &self.history)
+    }
+
+    /// The tone mapped bytes the chain wrote to its sink in the last frame, RGBA, row major.
+    pub(crate) fn display_bytes(&self) -> Vec<u8> {
+        crate::Readback::new(
+            &self.device,
+            FrameConfig::new(self.output, wgpu::TextureFormat::Rgba8UnormSrgb, 1),
+            1_000_000,
+        )
+        .unwrap()
+        .read(
+            &self.device,
+            &crate::test_authority(&self.queue),
+            &self.sink,
+        )
+        .unwrap()
     }
 }

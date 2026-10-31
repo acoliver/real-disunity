@@ -27,9 +27,9 @@ const BORDER: usize = 2;
 const EDGE_BAND: f64 = 2.0;
 
 /// The public factory, which also keeps the reconstruction output of slot 0 so the test can read HDR.
-struct Recording {
-    inner: ToneMapOutput,
-    output: Arc<Mutex<Option<wgpu::Texture>>>,
+pub(crate) struct Recording {
+    pub(crate) inner: ToneMapOutput,
+    pub(crate) output: Arc<Mutex<Option<wgpu::Texture>>>,
 }
 
 impl StageFactory for Recording {

@@ -124,6 +124,10 @@ mod temporal_block;
 #[cfg(test)]
 mod temporal_block_tests;
 #[cfg(test)]
+mod temporal_disocclusion_scene;
+#[cfg(test)]
+mod temporal_disocclusion_tests;
+#[cfg(test)]
 mod temporal_quality_scene;
 #[cfg(test)]
 mod temporal_quality_tests;

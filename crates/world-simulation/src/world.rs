@@ -173,6 +173,11 @@ impl World {
             .ok_or(WorldError::StaleObject(handle))
     }
 
+    /// Whether `handle` names a live object of this world, without building its snapshot.
+    pub fn object_alive(&self, handle: ObjectHandle) -> bool {
+        self.live_object(handle).is_ok()
+    }
+
     pub fn object(&self, handle: ObjectHandle) -> Result<ObjectSnapshot, WorldError> {
         let object = self.live_object(handle)?;
         Ok(ObjectSnapshot {

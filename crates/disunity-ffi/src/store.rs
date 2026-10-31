@@ -81,9 +81,12 @@ impl Session {
             .get(&handle)
             .copied()
             .ok_or("object handle is stale or belongs to another world")?;
-        self.native
-            .object(object)
-            .map_err(crate::errors::AbiError::from)?;
+        if !self.native.object_alive(object) {
+            // Building the snapshot only on failure keeps the world's own error for the caller.
+            self.native
+                .object(object)
+                .map_err(crate::errors::AbiError::from)?;
+        }
         Ok(object)
     }
 }
@@ -167,7 +170,7 @@ pub(crate) fn destroy_object(
         .map_err(crate::errors::AbiError::from)?;
     session
         .objects
-        .retain(|_, handle| session.native.object(*handle).is_ok());
+        .retain(|_, handle| session.native.object_alive(*handle));
     Ok(())
 }
 

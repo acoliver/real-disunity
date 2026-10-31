@@ -164,7 +164,7 @@ pub(crate) fn call(
             let result = f(session);
             session
                 .objects
-                .retain(|_, handle| session.native.object(*handle).is_ok());
+                .retain(|_, handle| session.native.object_alive(*handle));
             let retired: Vec<_> = session
                 .dispatch
                 .tickets

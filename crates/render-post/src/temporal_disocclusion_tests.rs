@@ -132,7 +132,21 @@ struct Metrics {
     plane_flicker: f64,
 }
 
-fn run(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2], accumulate: bool) -> Metrics {
+/// The path under measurement. The three paths share the scene and the frames.
+#[derive(Clone, Copy, Debug)]
+enum Path {
+    /// Accumulated history with the nearest-depth dilation.
+    Dilated,
+    /// Accumulated history with every texel's own depth and residual: the PR 2 path.
+    Undilated,
+    /// History reset every frame: the spatial reconstruction only.
+    Reset,
+}
+
+fn run(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2], path: Path) -> Metrics {
+    let _undilated =
+        matches!(path, Path::Undilated).then(crate::taa_reconstruct_gpu::WithoutDilation::new);
+    let accumulate = !matches!(path, Path::Reset);
     let rig = Rig::new(gpu, render);
     let plane = plane_pixels();
     let mut previous = Vec::new();
@@ -158,19 +172,32 @@ fn run(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2], accumulate: bool) ->
     }
 }
 
-fn measure(millionths: u32) -> (Metrics, Metrics) {
+/// The three paths on one device and one scene.
+struct Paths {
+    pr2: Metrics,
+    reset: Metrics,
+    new: Metrics,
+}
+
+fn measure(millionths: u32) -> Paths {
     let gpu = crate::gpu_tests::gpu();
     let render = RenderScale::new(millionths)
         .unwrap()
         .extent(OUTPUT)
         .unwrap();
-    let temporal = run(&gpu, render, true);
-    let reset = run(&gpu, render, false);
+    let paths = Paths {
+        pr2: run(&gpu, render, Path::Undilated),
+        reset: run(&gpu, render, Path::Reset),
+        new: run(&gpu, render, Path::Dilated),
+    };
     eprintln!(
-        "scale {millionths} R {render:?}: temporal {temporal:?} | reset {reset:?} | strip ratio {:.4}",
-        temporal.strip_error / reset.strip_error
+        "scale {millionths} R {render:?}: pr2 {:?} | reset {:?} | new {:?} | new over reset {:.4}",
+        paths.pr2,
+        paths.reset,
+        paths.new,
+        paths.new.strip_error / paths.reset.strip_error
     );
-    (temporal, reset)
+    paths
 }
 
 /// The baseline of the PR 2 path, measured on lavapipe (mean absolute HDR error over the last
@@ -204,34 +231,43 @@ fn measure(millionths: u32) -> (Metrics, Metrics) {
 /// numbers are unchanged. The step 4 target is half of the PR 2 excess over the reset floor, a
 /// ratio of 1.225 at the 1.45 of 0.5 scale; the assertion is that ratio, measured at under 1.
 /// Every number is finite and positive, and the static plane is stable under accumulation
-/// (flicker at most a quarter of the reset flicker, measured at less than a tenth).
-fn assert_baseline((temporal, reset): (Metrics, Metrics)) {
-    for m in [temporal, reset] {
+/// (flicker at most a quarter of the reset flicker, measured at less than a tenth). The PR 2
+/// numbers above are recorded; the test recomputes them on its own device with the dilation
+/// switched off (`WithoutDilation`) and asserts the target against that run.
+fn assert_baseline(paths: &Paths) {
+    let Paths { pr2, reset, new } = *paths;
+    for m in [pr2, reset, new] {
         for v in [m.strip_error, m.plane_error, m.plane_flicker] {
             assert!(v.is_finite() && v > 0.0, "{m:?}");
         }
     }
+    // The PR 2 path has an excess over the floor to remove: measured at 1.45 to 1.59 times.
     assert!(
-        temporal.strip_error <= 1.225 * reset.strip_error,
-        "{temporal:?} {reset:?}"
+        pr2.strip_error >= 1.15 * reset.strip_error,
+        "{pr2:?} {reset:?}"
+    );
+    // The coordinator's target, recomputed on this device: half of the PR 2 excess.
+    assert!(
+        new.strip_error <= reset.strip_error + 0.5 * (pr2.strip_error - reset.strip_error),
+        "{pr2:?} {reset:?} {new:?}"
     );
     assert!(
-        temporal.plane_flicker <= 0.25 * reset.plane_flicker,
-        "{temporal:?} {reset:?}"
+        new.plane_flicker <= 0.25 * reset.plane_flicker,
+        "{new:?} {reset:?}"
     );
 }
 
 #[test]
 fn half_scale_disocclusion() {
-    assert_baseline(measure(500_000));
+    assert_baseline(&measure(500_000));
 }
 
 #[test]
 fn two_thirds_scale_disocclusion() {
-    assert_baseline(measure(670_000));
+    assert_baseline(&measure(670_000));
 }
 
 #[test]
 fn three_quarters_scale_disocclusion() {
-    assert_baseline(measure(770_000));
+    assert_baseline(&measure(770_000));
 }

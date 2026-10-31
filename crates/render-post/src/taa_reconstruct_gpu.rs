@@ -30,6 +30,43 @@ pub struct Outputs {
     pub scatter: wgpu::Buffer,
 }
 
+/// The shader's `dilate` override: 1 in production.
+#[cfg(not(test))]
+const fn dilation() -> f64 {
+    1.0
+}
+
+#[cfg(test)]
+thread_local! {
+    static DILATION: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+#[cfg(test)]
+fn dilation() -> f64 {
+    f64::from(u8::from(DILATION.with(std::cell::Cell::get)))
+}
+
+/// While alive, stages built on this thread keep each texel's own depth and residual instead of
+/// the nearest of the 3x3 neighbourhood. A test measures the path before the dilation existed
+/// next to the real one on the same device.
+#[cfg(test)]
+pub(crate) struct WithoutDilation;
+
+#[cfg(test)]
+impl WithoutDilation {
+    pub(crate) fn new() -> Self {
+        DILATION.with(|d| d.set(false));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for WithoutDilation {
+    fn drop(&mut self) {
+        DILATION.with(|d| d.set(true));
+    }
+}
+
 fn target(
     device: &wgpu::Device,
     label: &str,
@@ -61,7 +98,10 @@ fn pass(
         layout: None,
         module,
         entry_point: Some(entry),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        compilation_options: wgpu::PipelineCompilationOptions {
+            constants: &[("dilate", dilation())],
+            ..Default::default()
+        },
         cache: None,
     });
     let group = device.create_bind_group(&wgpu::BindGroupDescriptor {

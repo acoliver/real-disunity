@@ -27,6 +27,10 @@ struct Camera {
 // One u32 per internal texel, row major: the nearest depth that reaches it from the current frame.
 @group(0) @binding(5) var<storage, read_write> scatter: array<atomic<u32>>;
 
+// False only in tests: the stage then keeps every texel's own depth and residual, which is the
+// temporal path before the dilation existed, so a test can measure both on one device.
+override dilate: bool = true;
+
 const INFINITY_BITS: u32 = 0x7f800000u;
 
 fn finite(v: f32) -> bool {
@@ -62,6 +66,9 @@ fn clear(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // Texel of the nearest valid depth around `s`, or `s` itself when none is valid.
 fn nearest(s: vec2<i32>, size: vec2<i32>) -> vec2<i32> {
+    if !dilate {
+        return s;
+    }
     var best = s;
     var best_depth = 2.0;
     for (var i = 0; i < 9; i++) {

@@ -66,10 +66,21 @@ impl Default for ScriptState {
 #[derive(Clone, Default)]
 pub(crate) struct Lifecycle {
     pub scripts: BTreeMap<ComponentHandle, ScriptState>,
+    /// Scripts registered since the scheduler last looked for new ones, in registration order.
+    /// It may name scripts removed since; readers skip those.
+    pub(crate) added: Vec<ComponentHandle>,
     pub(crate) mutations: BTreeMap<usize, Vec<LifecycleWork>>,
     next_sequence: usize,
     pub(crate) unpublished: BTreeMap<usize, Vec<ObjectHandle>>,
     pub cleanup: Vec<LifecycleWork>,
+}
+
+impl Lifecycle {
+    /// Stores a script's state and notes it for the scheduler's next look at new scripts.
+    pub(crate) fn register(&mut self, script: ComponentHandle, state: ScriptState) {
+        self.scripts.insert(script, state);
+        self.added.push(script);
+    }
 }
 
 impl World {
@@ -172,17 +183,7 @@ impl World {
                 continue;
             }
             let active = self.active_in_hierarchy(object).expect("live hierarchy");
-            let scripts: Vec<_> = self
-                .lifecycle
-                .scripts
-                .keys()
-                .copied()
-                .filter(|&script| {
-                    !self.lifetime.components.contains(&script)
-                        && self.component(script).is_ok_and(|c| c.object == object)
-                })
-                .collect();
-            for script in scripts {
+            for script in self.object_scripts(object) {
                 let state = self
                     .lifecycle
                     .scripts
@@ -212,6 +213,26 @@ impl World {
         }
         awake.extend(transitions);
         self.lifecycle.mutations.insert(mutation.sequence, awake);
+    }
+
+    /// The object's registered, unretired scripts in handle order, the order of the script table.
+    /// Reading the object's own component list keeps a refresh proportional to the objects it visits.
+    fn object_scripts(&self, object: ObjectHandle) -> Vec<ComponentHandle> {
+        let Ok(stored) = self.live_object(object) else {
+            return Vec::new();
+        };
+        let mut scripts: Vec<_> = stored
+            .components
+            .iter()
+            .copied()
+            .filter(|script| {
+                self.lifecycle.scripts.contains_key(script)
+                    && !self.lifetime.components.contains(script)
+                    && self.component(*script).is_ok_and(|c| c.object == object)
+            })
+            .collect();
+        scripts.sort_unstable();
+        scripts
     }
 }
 

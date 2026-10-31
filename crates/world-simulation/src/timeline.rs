@@ -93,7 +93,8 @@ struct Scope {
 #[derive(Clone, Default)]
 pub(crate) struct Scheduler {
     scopes: Vec<Scope>,
-    known_scripts: BTreeSet<ComponentHandle>,
+    /// Set at the start of a frame: the next look at new scripts revisits every script.
+    rescan_scripts: bool,
     sequence: u64,
     fixed_steps: u32,
     frame_delta: TimeSpan,
@@ -196,7 +197,7 @@ impl World {
         self.scheduler.fixed_steps = u32::try_from(phases.len()).expect("bounded steps");
         self.scheduler.frame_delta = clock.delta;
         self.scheduler.frame_unscaled_delta = clock.unscaled_delta;
-        self.scheduler.known_scripts.clear();
+        self.scheduler.rescan_scripts = true;
         self.clock = clock;
         self.expire_destruction()?;
         let mut tasks = VecDeque::from([Task::Phase(ScriptMessage::Start)]);
@@ -244,7 +245,8 @@ impl World {
     }
     pub(crate) fn open_lifecycle(&mut self, mutation: MutationId) -> Result<Advance, WorldError> {
         if self.scheduler.scopes.is_empty() {
-            self.scheduler.known_scripts = self.lifecycle.scripts.keys().copied().collect();
+            self.lifecycle.added.clear();
+            self.scheduler.rescan_scripts = false;
         }
         let tasks = self
             .take_lifecycle_work(mutation)?
@@ -320,18 +322,26 @@ impl World {
         }
         self.poll_scheduler()
     }
+    /// Runs the lifecycle of objects whose scripts were registered since the last look, or of
+    /// every scripted object at the start of a frame. Only the new registrations are read
+    /// otherwise, so a callback's resume does not cost a pass over every script.
     fn initialize_scripts(&mut self) -> Result<(), WorldError> {
-        let known: BTreeSet<_> = self.lifecycle.scripts.keys().copied().collect();
-        let nodes: BTreeSet<_> = known
-            .difference(&self.scheduler.known_scripts)
-            .filter_map(|&script| self.component(script).ok().map(|c| c.object))
+        let added = std::mem::take(&mut self.lifecycle.added);
+        let candidates: Vec<_> = if std::mem::take(&mut self.scheduler.rescan_scripts) {
+            self.lifecycle.scripts.keys().copied().collect()
+        } else {
+            added
+        };
+        let nodes: BTreeSet<_> = candidates
+            .into_iter()
+            .filter(|script| self.lifecycle.scripts.contains_key(script))
+            .filter_map(|script| self.component(script).ok().map(|c| c.object))
             .filter(|&object| !self.is_unpublished(object))
             .collect();
         if !nodes.is_empty() {
             let mutation = self.reserve_mutation()?;
             self.refresh_lifecycle(&nodes.into_iter().collect::<Vec<_>>(), mutation);
         }
-        self.scheduler.known_scripts = known;
         Ok(())
     }
     fn enqueue_front(&mut self, tasks: impl IntoIterator<Item = Task>) {

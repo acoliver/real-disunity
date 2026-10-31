@@ -330,8 +330,7 @@ impl World {
     ) {
         if script {
             self.lifecycle
-                .scripts
-                .insert(handle, crate::lifecycle::ScriptState::default());
+                .register(handle, crate::lifecycle::ScriptState::default());
         }
         if self.lifetime.objects.contains(&object) {
             self.lifetime.components.insert(handle);

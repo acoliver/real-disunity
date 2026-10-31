@@ -37,17 +37,18 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     }
     gaussian_allocations(&mut set, config, &settings);
     tent_allocations(&mut set, config, &settings);
-    let upscale = settings
-        .upscale
-        .filter(|_| config.size != config.output_extent());
+    let upscale = settings.upscale.filter(|_| {
+        config.size != config.output_extent() && !settings.reconstructs_temporally(config)
+    });
     display_input_allocations(&mut set, config, &settings);
+    taa_allocations(&mut set, config, &settings);
     if settings.resolve.active_cmaa2().is_some() {
-        crate::cmaa2_gpu::allocations(&mut set, config.size);
+        crate::cmaa2_gpu::allocations(&mut set, settings.post_extent(config));
     }
     if settings.sharpen.is_some() {
         // Sharpening is one more stage between tone mapping and the output, so it adds one
         // intermediate: the stage before it can no longer write the output.
-        let [w, h] = config.size;
+        let [w, h] = settings.post_extent(config);
         set.texture(
             "CAS input",
             [w, h, 1],
@@ -68,6 +69,33 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     }
     set
 }
+/// The TAA history bank and the slot outputs. The history is shared by the three slots and
+/// counted once. Native TAA works on the render grid and keeps a linear-depth history for the
+/// disocclusion test. Temporal reconstruction works on the output grid and has no depth history.
+fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrPostSettings) {
+    if settings.resolve.active_taa().is_none() {
+        return;
+    }
+    let temporal = settings.reconstructs_temporally(config);
+    let [w, h] = if temporal {
+        config.output_extent()
+    } else {
+        config.size
+    };
+    // The history bank is shared by the three slots but belongs to its history key (extents,
+    // mode, samples), not to every generation: a resize builds a new bank while the retiring
+    // generation still holds the old one. A shared entry must keep one descriptor across
+    // generations, so the bank is a plain single entry per generation. When the key is unchanged
+    // and the bank is reused, a retiring generation is counted twice until it retires.
+    let colour = crate::taa_gpu::FORMAT;
+    set.texture("taa history", [w, h, 1], colour, [1, 1], 1);
+    set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
+    if !temporal {
+        let depth = crate::taa_gpu::DEPTH_FORMAT;
+        set.texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
+        set.texture("taa depth output", [w, h, 1], depth, [1, 1], 3);
+    }
+}
 /// The display-linear intermediates between tone mapping and a spatial resolve or upscale: FXAA
 /// reads an `Rgba16Float` copy, the upscale and native RCAS read `Rgba32Float`.
 fn display_input_allocations(
@@ -76,8 +104,10 @@ fn display_input_allocations(
     settings: &HdrPostSettings,
 ) {
     let fxaa = settings.resolve.active_fxaa().is_some();
-    let upscale = settings.upscale.is_some() && config.size != config.output_extent();
-    let [w, h] = config.size;
+    let upscale = settings.upscale.is_some()
+        && config.size != config.output_extent()
+        && !settings.reconstructs_temporally(config);
+    let [w, h] = settings.post_extent(config);
     if fxaa {
         set.texture(
             "display-linear post input",
@@ -96,8 +126,9 @@ fn display_input_allocations(
             3,
         );
     }
-    if settings.native_rcas.is_some() && config.size == config.output_extent() {
-        let [w, h] = config.size;
+    let temporal_rcas = settings.temporal_rcas(config).is_some();
+    if temporal_rcas || (settings.native_rcas.is_some() && config.size == config.output_extent()) {
+        let [w, h] = settings.post_extent(config);
         set.texture(
             "native RCAS input",
             [w, h, 1],
@@ -112,7 +143,7 @@ fn tent_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &Hdr
         .bloom
         .filter(|_| matches!(settings.bloom_kernel, crate::BloomKernel::Tent))
     {
-        let mut sizes = vec![config.size];
+        let mut sizes = vec![settings.post_extent(config)];
         while sizes.len() < usize::try_from(bloom.levels).unwrap()
             && *sizes.last().unwrap() != [1, 1]
         {
@@ -142,7 +173,7 @@ fn gaussian_allocations(set: &mut AllocationSet, config: FrameConfig, settings: 
     if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
         (settings.bloom, settings.bloom_kernel)
         && let Ok(extents) = crate::gaussian_extents_with_terminal(
-            config.size,
+            settings.post_extent(config),
             bloom.levels,
             bloom.policies.terminal,
         )

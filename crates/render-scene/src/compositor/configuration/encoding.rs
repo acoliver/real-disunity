@@ -100,6 +100,19 @@ impl ConfiguredFrameRenderer {
     pub fn targets(&self) -> &worldrunner_render_post::FrameTargets {
         self.state.current().targets()
     }
+    /// The projection jitter the configuration selected, `None` when the scene passes render
+    /// unjittered. Derived from the settings on construction and on every reconfiguration.
+    pub fn projection_jitter(&self) -> Option<worldrunner_render_post::ProjectionJitter> {
+        self.state.current().projection_jitter()
+    }
+    /// Discards the previous-frame camera, for camera cuts; the jitter sequence restarts.
+    pub fn reset_temporal_history(&self) {
+        self.state.current().reset_temporal_history();
+    }
+    /// Whether the next frame has a previous camera to reproject from.
+    pub fn has_temporal_history(&self) -> bool {
+        self.state.current().has_temporal_history()
+    }
     pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
         self.state.current_mut().set_frame_time(seconds)
     }

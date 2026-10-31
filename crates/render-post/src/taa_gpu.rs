@@ -1,4 +1,5 @@
-//! Schedules the TAA resolve and history passes. The shader is `taa.wgsl`.
+//! Schedules the TAA resolve and history passes. The shader is `taa.wgsl` after the shared
+//! `taa_common.wgsl` helpers.
 use crate::{Stage, StageId, StageSet, StageTarget, TaaSettings};
 
 /// Stage names, in execution order. Identities are stable for timing.
@@ -239,7 +240,7 @@ fn zero_velocity(device: &wgpu::Device, samples: u32) -> wgpu::TextureView {
 /// The shader source. The multisampled build differs only in the types of the `depth` and
 /// `velocity` bindings.
 fn shader(multisampled: bool) -> String {
-    let source = include_str!("taa.wgsl");
+    let source = concat!(include_str!("taa_common.wgsl"), include_str!("taa.wgsl"));
     if multisampled {
         source
             .replace(DEPTH_BINDING, MULTISAMPLED_DEPTH_BINDING)

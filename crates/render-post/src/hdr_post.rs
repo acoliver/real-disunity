@@ -38,24 +38,43 @@ pub struct HdrPostSettings {
 }
 impl HdrPostSettings {
     /// Validate the HDR display path before allocating frame targets.
+    ///
+    /// `UpscaleMode::Temporal` has its own rows, see the Temporal rows in `upscale_temporal.rs`.
     pub fn validate_frame(self, config: crate::FrameConfig) -> Result<(), PostError> {
+        self.validate_frame_inner(config)?;
+        self.validate_temporal(config, None)
+    }
+
+    fn validate_frame_inner(self, config: crate::FrameConfig) -> Result<(), PostError> {
         self.validate()?;
         if config.size != config.output_extent() && self.upscale.is_none() {
             return Err(PostError::UnsupportedProfile(
                 "reduced HDR extent requires an upscale mode",
             ));
         }
-        // Gaussian levels run at the render extent and must not be smaller than 1x1.
+        // Gaussian levels run at the carried colour extent and must not be smaller than 1x1.
         if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
             (self.bloom, self.bloom_kernel)
         {
             crate::gaussian_extents_with_terminal(
-                config.size,
+                self.post_extent(config),
                 bloom.levels,
                 bloom.policies.terminal,
             )?;
         }
         Ok(())
+    }
+
+    /// [`Self::validate_frame`] for a renderer whose scene passes use `explicit` jitter.
+    ///
+    /// `None` means the sequence the renderer derives itself, which is long enough.
+    pub fn validate_frame_with_jitter(
+        self,
+        config: crate::FrameConfig,
+        explicit: Option<crate::ProjectionJitter>,
+    ) -> Result<(), PostError> {
+        self.validate_frame_inner(config)?;
+        self.validate_temporal(config, explicit)
     }
 
     pub fn validate(self) -> Result<(), PostError> {
@@ -201,6 +220,10 @@ impl HdrPost {
         }
         self.settings = *settings;
     }
+    /// Ends a build of every slot: promotes or drops the history bank the build asked for.
+    pub fn settle_build(&self, accepted: bool) {
+        self.taa_history.settle(accepted);
+    }
     /// Uploads the TAA block of `slot`; `None` uploads zeros, which reads as no history.
     pub fn prepare_taa(
         &self,
@@ -209,6 +232,19 @@ impl HdrPost {
         block: Option<&[u8; crate::TAA_UNIFORM_BYTES]>,
     ) {
         crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block);
+    }
+    /// Uploads the temporal block of `slot`.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::UnsupportedProfile`] for an invalid block.
+    pub fn prepare_temporal(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        block: &crate::TemporalBlock,
+    ) -> Result<(), PostError> {
+        crate::hdr_taa::upload_temporal(&self.device, encoder, &self.taa[slot], block)
     }
     #[cfg(test)]
     pub fn taa_history_size(&self) -> Option<[u32; 2]> {
@@ -260,12 +296,14 @@ impl HdrPost {
                     &mut set,
                     targets,
                     (taa, &self.taa_history, &self.taa[slot]),
+                    self.settings.reconstructs_temporally(targets.config()),
                 )
             },
         );
         let scene = crate::hdr_taa::Scene {
             targets,
             color: &color,
+            extent: self.settings.post_extent(targets.config()),
         };
         if let Some(a) = self.settings.adaptive {
             self.meter(&scene, slot, a, &mut set);
@@ -297,7 +335,7 @@ impl HdrPost {
         set: &mut StageSet,
     ) {
         let device = &self.device;
-        let size = scene.targets.config().size;
+        let size = scene.extent;
         let bins = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("slot luminance histogram"),
             size: 1024,

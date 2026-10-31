@@ -484,6 +484,12 @@ impl ConfiguredFrameRenderer {
             history,
         })
     }
+    /// Test harnesses that rasterise their own scene need the stock encoder and `prepare_uniform`,
+    /// which the restricted public surface does not expose.
+    #[cfg(test)]
+    pub(super) fn renderer_mut(&mut self) -> &mut FrameRenderer {
+        self.state.current_mut()
+    }
     pub fn configuration(&self) -> &RendererConfiguration {
         &self.settings
     }
@@ -545,6 +551,7 @@ impl ConfiguredFrameRenderer {
                 next.post_time = post_time;
                 next.exposure_reset = reset;
                 next.temporal = temporal;
+                install_jitter(&mut next, &settings)?;
                 next.reset_temporal_history();
                 next.elapsed_seconds = elapsed;
                 next.animation_time = animation_time;
@@ -580,6 +587,14 @@ fn allocate(
     let result = build(context, settings, history, timing);
     scope.finish()?;
     result
+}
+/// Selects the jitter the settings imply: the default sequence under native TAA, the sequence
+/// derived from both extents under reduced temporal reconstruction, none otherwise.
+fn install_jitter(
+    renderer: &mut FrameRenderer,
+    settings: &RendererConfiguration,
+) -> Result<(), PostError> {
+    renderer.set_projection_jitter(crate::post::jitter(&settings.post, settings.frame, None)?)
 }
 fn build(
     context: &GpuContext,
@@ -630,6 +645,7 @@ fn build(
         ssr_requested: settings.ssr,
     };
     renderer.install_reflections(device, settings.frame.size)?;
+    install_jitter(&mut renderer, settings)?;
     renderer.install_water_bodies(device, settings.water.clone())?;
     if renderer.ssr.is_some() && renderer.snapshots.is_none() {
         renderer.snapshots = Some(std::array::from_fn(|_| {

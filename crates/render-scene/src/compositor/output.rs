@@ -27,6 +27,12 @@ impl StageFactory for FrameOutput {
             Self::Hdr(f) => f.needs_velocity(),
         }
     }
+    fn settle_build(&self, accepted: bool) {
+        match self {
+            Self::Copy(_) => {}
+            Self::Hdr(f) => f.settle_build(accepted),
+        }
+    }
     fn build_for_slot(
         &self,
         device: &wgpu::Device,

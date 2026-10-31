@@ -167,7 +167,7 @@ impl FrameRenderer {
         let exposure = effects.map_or(1.0, |effects| {
             f64::from(effects.grading().exposure_micro) / 1_000_000.0
         });
-        post.validate_frame(config)?;
+        post.validate_frame_with_jitter(config, antialiasing.jitter)?;
         let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
             .with_effects(context.device(), post)?;
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
@@ -205,7 +205,7 @@ impl FrameRenderer {
             )?,
         };
         renderer.install_reflections(context.device(), size)?;
-        renderer.set_projection_jitter(crate::post::jitter(&post, antialiasing.jitter))?;
+        renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
             renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
         }
@@ -431,7 +431,7 @@ impl FrameRenderer {
                 self.frame_delta,
                 self.exposure_reset.get(),
             )?;
-            self.prepare_taa(factory, encoder);
+            self.prepare_taa(factory, encoder)?;
             let reset = self.exposure_reset.clone();
             publication::encode(encoder, &reset.clone(), move || {
                 reset.set(false);

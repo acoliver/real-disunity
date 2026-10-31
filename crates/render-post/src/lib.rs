@@ -79,9 +79,18 @@ mod cmaa2_gpu;
 mod cmaa2_tests;
 mod fxaa;
 mod hdr_taa;
+#[cfg(test)]
+mod hdr_temporal_build_tests;
+#[cfg(test)]
+mod hdr_temporal_reset_tests;
+mod history_key;
+#[cfg(test)]
+mod history_key_tests;
 mod jitter;
 #[cfg(test)]
 mod jitter_tests;
+#[cfg(test)]
+mod post_extent_allocation_tests;
 mod post_filters;
 mod smaa;
 mod smaa_gpu;
@@ -91,15 +100,35 @@ mod smaa_lut_tests;
 #[cfg(test)]
 mod smaa_tests;
 mod taa;
+#[cfg(test)]
+mod taa_allocation_tests;
 mod taa_gpu;
 #[cfg(test)]
+mod taa_gpu_test_support;
+#[cfg(test)]
 mod taa_gpu_tests;
+#[cfg(test)]
+mod taa_history_reference;
 #[cfg(test)]
 mod taa_reference;
 #[cfg(test)]
 mod taa_tests;
+mod taa_upscale_gpu;
+#[cfg(test)]
+mod taa_upscale_gpu_tests;
 #[cfg(test)]
 mod taa_velocity;
+mod temporal_block;
+#[cfg(test)]
+mod temporal_block_tests;
+#[cfg(test)]
+mod temporal_quality_scene;
+#[cfg(test)]
+mod temporal_quality_tests;
+#[cfg(test)]
+mod temporal_upscale_reference;
+#[cfg(test)]
+mod temporal_upscale_reference_tests;
 pub use antialias::{AntiAliasing, FxaaSettings, MsaaSamples, PostResolve};
 pub use cas::CasSettings;
 pub use cmaa2::{Cmaa2Preset, Cmaa2Settings};
@@ -107,10 +136,12 @@ pub use fxaa::{FxaaKernel, FxaaLuminance, FxaaQuality};
 pub use jitter::ProjectionJitter;
 pub use smaa::{SmaaEdgeDetection, SmaaPreset, SmaaSettings};
 pub use taa::{TAA_UNIFORM_BYTES, TaaSettings, TaaUniform};
+pub use temporal_block::{TEMPORAL_BLOCK_BYTES, TemporalBlock};
 mod native_rcas;
 mod tone_map;
 pub use native_rcas::{NativeRcasSettings, RcasDomain};
 mod upscale;
+mod upscale_temporal;
 pub use hdr_post::{
     AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,
 };
@@ -335,6 +366,9 @@ mod upscale_tests;
 
 #[cfg(test)]
 mod upscale_hdr_tests;
+
+#[cfg(test)]
+mod upscale_temporal_tests;
 
 #[cfg(test)]
 mod bloom_policy_tests;

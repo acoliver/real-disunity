@@ -136,13 +136,55 @@ fn the_merged_resolve_decides_the_jitter_whichever_route_chose_it() {
     )
     .unwrap();
     for settings in [from_authoring, from_descriptor] {
-        assert_eq!(post::jitter(&settings, None), default);
-        assert_eq!(post::jitter(&settings, Some(explicit)), Some(explicit));
+        assert_eq!(post::jitter(&settings, config(), None), Ok(default));
+        assert_eq!(
+            post::jitter(&settings, config(), Some(explicit)),
+            Ok(Some(explicit))
+        );
     }
     let fxaa = post::settings(&effects(s::SceneAntiAlias::Disabled, Some(500_000))).unwrap();
-    assert_eq!(post::jitter(&fxaa, None), None);
-    assert_eq!(post::jitter(&fxaa, Some(explicit)), Some(explicit));
-    assert_eq!(post::jitter(&p::HdrPostSettings::default(), None), None);
+    assert_eq!(post::jitter(&fxaa, config(), None), Ok(None));
+    assert_eq!(
+        post::jitter(&fxaa, config(), Some(explicit)),
+        Ok(Some(explicit))
+    );
+    let plain = p::HdrPostSettings::default();
+    assert_eq!(post::jitter(&plain, config(), None), Ok(None));
+}
+
+fn config() -> p::FrameConfig {
+    p::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1)
+}
+
+fn reduced_temporal() -> (p::HdrPostSettings, p::FrameConfig) {
+    let settings = p::HdrPostSettings {
+        resolve: p::PostResolve::taa(0.9),
+        upscale: Some(p::UpscaleSettings {
+            mode: p::UpscaleMode::Temporal,
+            sharpness: None,
+        }),
+        ..p::HdrPostSettings::default()
+    };
+    (settings, config().with_render_extent([43, 32]))
+}
+
+#[test]
+fn a_reduced_temporal_renderer_derives_its_jitter_from_both_extents() {
+    let (settings, reduced) = reduced_temporal();
+    let derived = p::ProjectionJitter::for_extents([43, 32], [64, 48]).unwrap();
+    assert_eq!(post::jitter(&settings, reduced, None), Ok(Some(derived)));
+}
+
+#[test]
+fn a_shorter_explicit_sequence_is_rejected_for_a_reduced_temporal_renderer() {
+    let (settings, reduced) = reduced_temporal();
+    let derived = p::ProjectionJitter::for_extents([43, 32], [64, 48]).unwrap();
+    assert!(derived.length() > 1);
+    let short = p::ProjectionJitter::new(derived.length() - 1).unwrap();
+    assert!(settings.validate_jitter(reduced, Some(short)).is_err());
+    assert_eq!(settings.validate_jitter(reduced, Some(derived)), Ok(()));
+    assert_eq!(settings.validate_jitter(reduced, None), Ok(()));
+    assert_eq!(settings.validate_jitter(config(), Some(short)), Ok(()));
 }
 
 #[test]

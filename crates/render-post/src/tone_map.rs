@@ -155,6 +155,21 @@ impl ToneMapOutput {
             post.prepare_taa(encoder, slot, block);
         }
     }
+    /// Uploads the temporal block of `slot`. Without effects there is nothing to upload to.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::UnsupportedProfile`] for an invalid block.
+    pub fn prepare_temporal(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        block: &crate::TemporalBlock,
+    ) -> Result<(), PostError> {
+        self.post
+            .as_ref()
+            .map_or(Ok(()), |post| post.prepare_temporal(encoder, slot, block))
+    }
     #[cfg(test)]
     pub(crate) fn taa_history_size(&self) -> Option<[u32; 2]> {
         self.post
@@ -208,6 +223,11 @@ impl StageFactory for ToneMapOutput {
         self.post
             .as_ref()
             .is_some_and(|post| post.settings.resolve.active_taa().is_some())
+    }
+    fn settle_build(&self, accepted: bool) {
+        if let Some(post) = &self.post {
+            post.settle_build(accepted);
+        }
     }
     fn build_for_slot(
         &self,

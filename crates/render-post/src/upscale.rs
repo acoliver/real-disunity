@@ -28,6 +28,11 @@ impl RenderScale {
 pub enum UpscaleMode {
     Bilinear,
     Easu,
+    /// Temporal reconstruction onto the output grid, with TAA as the only accumulator.
+    ///
+    /// It needs the scene HDR profile, a TAA resolve and one sample per pixel; see
+    /// [`crate::HdrPostSettings::validate_frame`]. At equal extents it is the native TAA path.
+    Temporal,
 }
 
 /// Spatial reconstruction of display-referred RGB. `None` disables RCAS exactly.
@@ -64,6 +69,11 @@ impl StageFactory for SpatialUpscale {
         config: crate::FrameConfig,
     ) -> Result<(), PostError> {
         self.settings.validate()?;
+        if self.settings.mode == UpscaleMode::Temporal {
+            return Err(PostError::UnsupportedProfile(
+                "temporal upscaling requires the HDR scene profile",
+            ));
+        }
         crate::CopyOutput::new(device, self.output_format).validate_config(device, config)
     }
     fn build(
@@ -109,6 +119,9 @@ pub(crate) fn append(
     let entry = match factory.settings.mode {
         UpscaleMode::Bilinear => "bilinear",
         UpscaleMode::Easu => "easu",
+        UpscaleMode::Temporal => {
+            unreachable!("temporal reconstruction is rejected by SpatialUpscale validation")
+        }
     };
     pass(
         device,

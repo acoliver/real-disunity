@@ -42,13 +42,15 @@ fn targets(device: &wgpu::Device, size: [u32; 2], samples: u32) -> FrameTargets 
 }
 
 fn slots(factory: &ToneMapOutput, device: &wgpu::Device, targets: &FrameTargets) -> Vec<StageSet> {
-    (0..factory.frame_slots())
+    let sets = (0..factory.frame_slots())
         .map(|slot| {
             factory
                 .build_for_slot(device, targets, &Resources::default(), slot)
                 .unwrap()
         })
-        .collect()
+        .collect();
+    factory.settle_build(true);
+    sets
 }
 
 fn names(set: &StageSet) -> Vec<&'static str> {
@@ -221,10 +223,104 @@ fn rebinding_settings_without_taa_releases_both_histories() {
         .unwrap()
         .with_retained_effects(&device, settings(false, true), Some(&with_taa))
         .unwrap();
+    let _built = slots(&without, &device, &targets(&device, [8, 8], 1));
     assert_eq!(without.taa_history_size(), None);
     assert_eq!(
         with_taa.taa_history_size(),
         None,
         "the shared history is gone"
+    );
+}
+
+/// A factory whose last slot can be made to fail after the earlier slots have built.
+struct FailsLast {
+    inner: ToneMapOutput,
+    fail: std::cell::Cell<bool>,
+}
+impl StageFactory for FailsLast {
+    fn validate_config(
+        &self,
+        device: &wgpu::Device,
+        config: FrameConfig,
+    ) -> Result<(), crate::PostError> {
+        self.inner.validate_config(device, config)
+    }
+    fn frame_slots(&self) -> usize {
+        self.inner.frame_slots()
+    }
+    fn needs_velocity(&self) -> bool {
+        self.inner.needs_velocity()
+    }
+    fn settle_build(&self, accepted: bool) {
+        self.inner.settle_build(accepted);
+    }
+    fn build_for_slot(
+        &self,
+        device: &wgpu::Device,
+        targets: &FrameTargets,
+        persistent: &Resources,
+        slot: usize,
+    ) -> Result<StageSet, crate::PostError> {
+        if self.fail.get() && slot == 2 {
+            return Err(crate::PostError::UnsupportedProfile("slot rejected"));
+        }
+        self.inner.build_for_slot(device, targets, persistent, slot)
+    }
+    fn build(
+        &self,
+        device: &wgpu::Device,
+        targets: &FrameTargets,
+        persistent: &Resources,
+    ) -> Result<StageSet, crate::PostError> {
+        self.inner.build(device, targets, persistent)
+    }
+}
+
+#[test]
+fn a_failed_replacement_keeps_the_committed_history_bank() {
+    let (device, _) = crate::gpu_tests::gpu();
+    let factory = FailsLast {
+        inner: factory(&device, &settings(true, false)),
+        fail: std::cell::Cell::new(false),
+    };
+    let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba16Float, 1);
+    let mut chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
+    assert_eq!(chain.factory().inner.taa_history_size(), Some([8, 8]));
+
+    chain.factory().fail.set(true);
+    assert!(chain.resize(&device, [16, 4]).is_err());
+    assert_eq!(
+        chain.factory().inner.taa_history_size(),
+        Some([8, 8]),
+        "the slots still run on the old history, so the bank must still be the old one"
+    );
+
+    chain.factory().fail.set(false);
+    assert!(chain.resize(&device, [16, 4]).unwrap());
+    assert_eq!(chain.factory().inner.taa_history_size(), Some([16, 4]));
+}
+
+#[test]
+fn a_rejected_settings_change_that_turns_taa_off_keeps_the_committed_bank() {
+    let (device, _) = crate::gpu_tests::gpu();
+    let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba16Float, 1);
+    let live = FailsLast {
+        inner: factory(&device, &settings(true, false)),
+        fail: std::cell::Cell::new(false),
+    };
+    let mut chain = PostChain::new(&device, config, Resources::default(), live).unwrap();
+    let off = ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)
+        .unwrap()
+        .with_retained_effects(&device, settings(false, true), Some(&chain.factory().inner))
+        .unwrap();
+    let rejected = FailsLast {
+        inner: off,
+        fail: std::cell::Cell::new(true),
+    };
+    assert!(chain.reconfigure(&device, rejected).is_err());
+    assert_eq!(
+        chain.factory().inner.taa_history_size(),
+        Some([8, 8]),
+        "the live slots still run on the committed bank"
     );
 }

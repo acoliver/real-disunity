@@ -7,51 +7,109 @@ use std::{cell::RefCell, rc::Rc};
 
 use wgpu::util::DeviceExt;
 
-use crate::{StageSet, TAA_UNIFORM_BYTES, TaaSettings, taa_gpu};
+use crate::{
+    StageSet, TAA_UNIFORM_BYTES, TaaSettings, TemporalBlock, history_key::HistoryKey, taa_gpu,
+    taa_upscale_gpu,
+};
 
-/// The colour and linear-depth history textures of one render size. They are created, replaced
-/// and released together, and both are reset by the CPU's `history_valid`.
-#[derive(Debug)]
+/// The history textures of one bank: colour and linear depth on the render grid for native TAA,
+/// colour alone on the output grid for temporal reconstruction. They are created, replaced and
+/// released together, and reset by the CPU's `history_valid`.
+#[derive(Clone, Debug)]
 struct TaaHistory {
-    size: [u32; 2],
+    key: HistoryKey,
     texture: wgpu::Texture,
-    depth: wgpu::Texture,
+    depth: Option<wgpu::Texture>,
+}
+impl TaaHistory {
+    fn new(device: &wgpu::Device, key: HistoryKey) -> Self {
+        if key.temporal() {
+            Self {
+                key,
+                texture: taa_upscale_gpu::history(device, key.history_extent()),
+                depth: None,
+            }
+        } else {
+            let size = key.render();
+            Self {
+                key,
+                texture: taa_gpu::history(device, size),
+                depth: Some(taa_gpu::depth_history(device, size)),
+            }
+        }
+    }
+}
+
+/// The committed bank, which the live stage sets use, and the candidate bank a replacement under
+/// construction has asked for. A candidate becomes the bank only when the owner of the replacement
+/// has validated every slot's schedule.
+#[derive(Debug, Default)]
+struct Banks {
+    committed: Option<TaaHistory>,
+    candidate: Option<TaaHistory>,
+    /// Settings that no longer use TAA asked to drop the committed bank when their build is accepted.
+    release_pending: bool,
 }
 
 /// History shared by the stage sets of every slot. Cloning shares it.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct SharedHistory(Rc<RefCell<Option<TaaHistory>>>);
+pub(crate) struct SharedHistory(Rc<RefCell<Banks>>);
 impl SharedHistory {
-    /// The colour and depth histories for `size`, created on first use and replaced when the
-    /// size changes.
-    fn acquire(&self, device: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::Texture) {
-        let mut slot = self.0.borrow_mut();
-        if slot.as_ref().is_none_or(|history| history.size != size) {
-            *slot = Some(TaaHistory {
-                size,
-                texture: taa_gpu::history(device, size),
-                depth: taa_gpu::depth_history(device, size),
-            });
+    /// The bank for `key`: the committed one when it matches, otherwise a candidate shared by
+    /// every slot of the same build. The committed bank is not touched.
+    fn acquire(&self, device: &wgpu::Device, key: HistoryKey) -> TaaHistory {
+        let mut banks = self.0.borrow_mut();
+        let Banks {
+            committed,
+            candidate,
+            ..
+        } = &mut *banks;
+        let bank = match committed {
+            Some(history) if history.key == key => history,
+            _ => candidate.get_or_insert_with(|| TaaHistory::new(device, key)),
+        };
+        if bank.key != key {
+            *bank = TaaHistory::new(device, key);
         }
-        let history = slot.as_ref().expect("history was just created");
-        (history.texture.clone(), history.depth.clone())
+        bank.clone()
     }
 
-    /// Drops the history, for settings that no longer use TAA.
+    /// Ends a build: an accepted build promotes its candidate (or drops the committed bank when
+    /// a release was requested), a rejected one drops the candidate and the request.
+    pub fn settle(&self, accepted: bool) {
+        let mut banks = self.0.borrow_mut();
+        let candidate = banks.candidate.take();
+        let release = std::mem::take(&mut banks.release_pending);
+        if !accepted {
+            return;
+        }
+        if release {
+            banks.committed = None;
+        }
+        if candidate.is_some() {
+            banks.committed = candidate;
+        }
+    }
+
+    /// Asks to drop the history, for settings that no longer use TAA. The bank stays until the
+    /// build of those settings is accepted, because the live stage sets still read it.
     pub fn release(&self) {
-        *self.0.borrow_mut() = None;
+        self.0.borrow_mut().release_pending = true;
     }
 
     #[cfg(test)]
     pub fn size(&self) -> Option<[u32; 2]> {
-        self.0.borrow().as_ref().map(|history| history.size)
+        let banks = self.0.borrow();
+        banks.committed.as_ref().map(|history| history.key.render())
     }
 }
 
-/// The scene color the HDR path reads, and the frame it belongs to.
+/// The scene color the HDR path reads, and the frame it belongs to. `extent` is the extent of
+/// `color`: the render extent, or the output extent after temporal reconstruction.
 pub(crate) struct Scene<'a> {
     pub targets: &'a crate::FrameTargets,
     pub color: &'a wgpu::TextureView,
+    pub extent: [u32; 2],
 }
 
 /// A slot's uniform buffer, zeroed: no history until the first upload.
@@ -64,16 +122,64 @@ pub(crate) fn uniform_buffer(device: &wgpu::Device) -> wgpu::Buffer {
     })
 }
 
-/// Schedules "taa resolve", "taa history" and "taa depth history" at the end of `set` and returns the resolved
-/// color. `set` owns the output; the shared history is also kept alive by it.
+/// Schedules the TAA stages at the end of `set` and returns the resolved color: "taa resolve",
+/// "taa history" and "taa depth history" on the render grid, or, for `temporal`, "temporal
+/// upscale" and "temporal upscale history" on the output grid. `set` owns the output; the shared
+/// history is also kept alive by it.
 pub(crate) fn append(
     device: &wgpu::Device,
     set: &mut StageSet,
     targets: &crate::FrameTargets,
     (settings, history, uniform): (TaaSettings, &SharedHistory, &wgpu::Buffer),
+    temporal: bool,
 ) -> wgpu::TextureView {
     let config = targets.config();
-    let (history_texture, depth_history) = history.acquire(device, config.size);
+    let output = temporal.then(|| config.output_extent());
+    let bank = history.acquire(device, HistoryKey::new(config.size, output, config.samples));
+    if let Some(output) = output {
+        append_temporal(device, set, targets, (&bank.texture, output, uniform))
+    } else {
+        append_native(device, set, targets, (settings, &bank, uniform))
+    }
+}
+
+fn append_temporal(
+    device: &wgpu::Device,
+    set: &mut StageSet,
+    targets: &crate::FrameTargets,
+    (history, output_extent, uniform): (&wgpu::Texture, [u32; 2], &wgpu::Buffer),
+) -> wgpu::TextureView {
+    let output = taa_upscale_gpu::output(device, output_extent);
+    let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+    taa_upscale_gpu::append(
+        device,
+        set,
+        &taa_upscale_gpu::Inputs {
+            color: targets.resolved(),
+            motion: targets
+                .velocity()
+                .expect("temporal reconstruction needs the velocity attachment"),
+            uniform,
+            history,
+            output: &output,
+        },
+    );
+    set.resources.textures.push(output);
+    set.resources.textures.push(history.clone());
+    output_view
+}
+
+fn append_native(
+    device: &wgpu::Device,
+    set: &mut StageSet,
+    targets: &crate::FrameTargets,
+    (settings, bank, uniform): (TaaSettings, &TaaHistory, &wgpu::Buffer),
+) -> wgpu::TextureView {
+    let config = targets.config();
+    let depth_history = bank
+        .depth
+        .as_ref()
+        .expect("a native bank has a depth history");
     let output = taa_gpu::output(device, config.size);
     let depth_output = taa_gpu::depth_output(device, config.size);
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
@@ -87,17 +193,17 @@ pub(crate) fn append(
             velocity: targets.velocity(),
             velocity_samples: config.samples,
             uniform,
-            history: &history_texture,
+            history: &bank.texture,
             output: &output,
-            depth_history: &depth_history,
+            depth_history,
             depth_output: &depth_output,
         },
         settings,
     );
     set.resources.textures.push(output);
-    set.resources.textures.push(history_texture);
+    set.resources.textures.push(bank.texture.clone());
     set.resources.textures.push(depth_output);
-    set.resources.textures.push(depth_history);
+    set.resources.textures.push(depth_history.clone());
     output_view
 }
 
@@ -118,4 +224,28 @@ pub(crate) fn upload(
 
 fn block_size() -> wgpu::BufferAddress {
     wgpu::BufferAddress::try_from(TAA_UNIFORM_BYTES).expect("the block size fits a buffer address")
+}
+
+/// Copies `block` into the head of `destination`, a slot's uniform buffer. A temporal block is
+/// always supplied: its extents divide, so an all-zero block is not a "no history" block.
+///
+/// # Errors
+///
+/// [`crate::PostError::UnsupportedProfile`] for a block that fails [`TemporalBlock::validate`];
+/// nothing is recorded then.
+pub(crate) fn upload_temporal(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    destination: &wgpu::Buffer,
+    block: &TemporalBlock,
+) -> Result<(), crate::PostError> {
+    let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("immutable temporal block"),
+        contents: &block.to_bytes()?,
+        usage: wgpu::BufferUsages::COPY_SRC,
+    });
+    let size = wgpu::BufferAddress::try_from(crate::TEMPORAL_BLOCK_BYTES)
+        .expect("the block size fits a buffer address");
+    encoder.copy_buffer_to_buffer(&staging, 0, destination, 0, size);
+    Ok(())
 }

@@ -59,6 +59,8 @@ pub enum ComponentDesc {
     },
     /// A particle system. Its settings and particles stay in the managed component.
     ParticleSystem,
+    /// A sorting group; its layer and order sort the object's renderers as one unit.
+    SortingGroup(crate::SortingGroup),
     Tilemap(crate::tilemap::Tilemap),
     Camera(crate::presentation::Camera),
     Light(crate::presentation::Light),
@@ -102,7 +104,8 @@ impl ComponentDesc {
             Self::AudioListener { .. }
             | Self::GUILayer { .. }
             | Self::FlareLayer { .. }
-            | Self::ParticleSystem => Ok(()),
+            | Self::ParticleSystem
+            | Self::SortingGroup(_) => Ok(()),
             #[cfg(feature = "ui")]
             Self::RectTransform(value) => value.validate().map_err(WorldError::from),
             #[cfg(feature = "ui")]

@@ -248,7 +248,8 @@ impl World {
             | ComponentDesc::AudioListener { .. }
             | ComponentDesc::GUILayer { .. }
             | ComponentDesc::FlareLayer { .. }
-            | ComponentDesc::ParticleSystem => self.owns_unretired(owner, desc),
+            | ComponentDesc::ParticleSystem
+            | ComponentDesc::SortingGroup(_) => self.owns_unretired(owner, desc),
             #[cfg(feature = "ui")]
             ComponentDesc::RectTransform(_)
             | ComponentDesc::Canvas(_)

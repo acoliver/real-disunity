@@ -23,6 +23,7 @@ fn description(kind: u32, enabled: bool) -> Option<ComponentDesc> {
         92 => Some(ComponentDesc::GUILayer { enabled }),
         124 => Some(ComponentDesc::FlareLayer { enabled }),
         198 => Some(ComponentDesc::ParticleSystem),
+        210 => Some(ComponentDesc::SortingGroup(Default::default())),
         _ => None,
     }
 }

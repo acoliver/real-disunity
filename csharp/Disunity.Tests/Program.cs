@@ -185,7 +185,9 @@ CheckImport("disunity_canvas_renderer_material_read", u64, u64, u32, u32, u64.Ma
 CheckImport("disunity_canvas_renderer_material_write", u64, u64, u32, u32, u64);
 CheckImport("disunity_mesh_renderer_create", u64, u64, u32, u64.MakePointerType());
 CheckImport("disunity_mesh_renderer_read", u64, u64, AbiType("DisunityMeshRenderer").MakePointerType());
+CheckImport("disunity_sorting_group_read", u64, u64, AbiType("DisunitySortingGroup").MakePointerType());
 CheckImport("disunity_mesh_renderer_write", u64, u64, AbiType("DisunityMeshRenderer").MakePointerType());
+CheckImport("disunity_sorting_group_write", u64, u64, AbiType("DisunitySortingGroup").MakePointerType());
 CheckImport("disunity_mesh_filter_create", u64, u64, u64.MakePointerType());
 CheckImport("disunity_mesh_filter_read", u64, u64, u64.MakePointerType());
 CheckImport("disunity_mesh_filter_write", u64, u64, u64);
@@ -307,6 +309,7 @@ CurveEditingTests.Run();
 GradientTests.Run();
 UnityAttributeTests.Run();
 RequireComponentTests.Run();
+SortingGroupTests.Run();
 
 AssetBundleTests.Run();
 WebRequestTests.Run();

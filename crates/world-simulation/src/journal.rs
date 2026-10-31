@@ -19,6 +19,7 @@ pub enum ComponentKind {
     GuiLayer,
     FlareLayer,
     ParticleSystem,
+    SortingGroup,
     #[cfg(feature = "ui")]
     RectTransform,
     #[cfg(feature = "ui")]
@@ -53,6 +54,7 @@ impl ComponentDesc {
             Self::GUILayer { .. } => ComponentKind::GuiLayer,
             Self::FlareLayer { .. } => ComponentKind::FlareLayer,
             Self::ParticleSystem => ComponentKind::ParticleSystem,
+            Self::SortingGroup(_) => ComponentKind::SortingGroup,
             #[cfg(feature = "ui")]
             Self::RectTransform(_) => ComponentKind::RectTransform,
             #[cfg(feature = "ui")]

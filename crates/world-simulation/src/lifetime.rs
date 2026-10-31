@@ -62,7 +62,8 @@ impl World {
             | ComponentDesc::AudioListener { .. }
             | ComponentDesc::GUILayer { .. }
             | ComponentDesc::FlareLayer { .. }
-            | ComponentDesc::ParticleSystem => {}
+            | ComponentDesc::ParticleSystem
+            | ComponentDesc::SortingGroup(_) => {}
         }
         self.queue_script_cleanup(handle);
         self.lifetime.components.insert(handle);

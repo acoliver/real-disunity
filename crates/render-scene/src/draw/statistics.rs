@@ -33,6 +33,7 @@ pub struct SceneStatistics {
 
 #[derive(Debug)]
 pub(super) struct ResourceCounters {
+    pub reservation: Option<worldrunner_render_gpu::configuration::AllocationReservation>,
     pub textures: u64,
     pub meshes: u64,
     pub uploaded: bool,
@@ -41,6 +42,7 @@ pub(super) struct ResourceCounters {
 impl ResourceCounters {
     pub fn new(prepared: &super::PreparedScene) -> Self {
         Self {
+            reservation: None,
             textures: prepared
                 .textures
                 .iter()
@@ -68,6 +70,14 @@ impl ResourceCounters {
     }
 }
 impl SceneGpu {
+    /// Keeps scene storage admitted until this resident is retired.
+    pub fn retain_resource_reservation(
+        &mut self,
+        reservation: worldrunner_render_gpu::configuration::AllocationReservation,
+    ) {
+        self.resource_counters.reservation = Some(reservation);
+    }
+
     /// Reads submitted mesh draws and prepared decal counts without polling or allocation.
     pub fn statistics(&self) -> SceneStatistics {
         let selection = self.camera_selection.borrow();

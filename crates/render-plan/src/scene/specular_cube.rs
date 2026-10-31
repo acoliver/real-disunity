@@ -1,4 +1,4 @@
-//! Authored linear BC6H or half-float prefiltered reflection radiance.
+//! Authored linear BC6H or half-float reflection radiance, optionally filtered on installation.
 use super::SceneValidationError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,6 +9,7 @@ pub enum SceneSpecularCubeFormat {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneSpecularCube {
+    preparation: Option<super::SceneSpecularPreparation>,
     size: u32,
     mips: u32,
     format: SceneSpecularCubeFormat,
@@ -33,6 +34,7 @@ impl SceneSpecularCube {
             });
         }
         Ok(Self {
+            preparation: None,
             size,
             mips: size.ilog2() + 1,
             format: SceneSpecularCubeFormat::Bc6hRgbUfloat,
@@ -65,11 +67,25 @@ impl SceneSpecularCube {
             });
         }
         Ok(Self {
+            preparation: None,
             size,
             mips,
             format: SceneSpecularCubeFormat::Rgba16Float,
             bytes,
         })
+    }
+    /// Request host-side filtering of these source bytes instead of uploading
+    /// them as an already prefiltered result. Other cube constructors stay unchanged.
+    pub fn with_preparation(
+        mut self,
+        settings: super::SceneSpecularPreparation,
+    ) -> Result<Self, SceneValidationError> {
+        settings.validate()?;
+        self.preparation = Some(settings);
+        Ok(self)
+    }
+    pub const fn preparation(&self) -> Option<super::SceneSpecularPreparation> {
+        self.preparation
     }
     pub const fn format(&self) -> SceneSpecularCubeFormat {
         self.format

@@ -1,6 +1,6 @@
 use super::{
-    Extents, Presentation, Renderer, Resident, ViewerError, device_errors, readiness,
-    required_features, target,
+    Extents, Presentation, Renderer, ViewerError, device_errors, readiness, required_features,
+    target,
 };
 
 impl Renderer {
@@ -35,13 +35,12 @@ impl Renderer {
                 recipes: true,
             },
         )?;
-        let mut resident = Resident::new(&context, scene, options.shadows, options.frame_profile)?;
-        super::environment::install(
+        let resident = super::environment::new_resident(
             &context,
-            &mut resident,
+            scene,
+            options.shadows,
+            options.frame_profile,
             &mut presentation,
-            scene.effects(),
-            false,
         )?;
         let execution =
             target::Execution::offscreen(&context, options.size, options.frames_in_flight)?;

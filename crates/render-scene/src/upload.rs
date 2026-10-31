@@ -475,6 +475,6 @@ fn upload_cube(
         device,
         queue,
         "scene environment cube",
-        TextureUsages::empty(),
+        TextureUsages::COPY_SRC,
     )
 }

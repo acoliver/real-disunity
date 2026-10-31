@@ -121,7 +121,7 @@ use worldrunner_render_scene::{
     offscreen::{OffscreenTarget, RgbaImage},
 };
 
-fn draw(
+pub(super) fn draw(
     context: &GpuContext,
     resident: &mut Resident,
     presentation: &mut Presentation,

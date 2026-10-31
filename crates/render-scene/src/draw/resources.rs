@@ -43,13 +43,20 @@ pub(super) fn table_index(handle: TextureHandle) -> usize {
 /// Uploads every scene texture and creates a view of each.
 pub(super) fn upload_textures(
     device: &Device,
-    queue: &Queue,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
     prepared: &[crate::texture::OwnedPreparedTexture],
 ) -> Result<(Vec<Texture>, Vec<TextureView>), DrawError> {
     let mut textures = Vec::new();
     let mut views = Vec::new();
     for texture in prepared {
-        let uploaded = upload_texture(device, queue, &texture.as_prepared())?;
+        let prepared = texture.as_prepared();
+        let mut uploaded = upload_texture(device, authority.queue(), &prepared)?;
+        if let Some(request) = prepared
+            .cube()
+            .and_then(worldrunner_render_plan::SceneSpecularCube::preparation)
+        {
+            uploaded = super::source_environment::filter(device, authority, &uploaded, request)?;
+        }
         views.push(uploaded.create_view(&TextureViewDescriptor::default()));
         textures.push(uploaded);
     }

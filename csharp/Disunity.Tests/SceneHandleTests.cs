@@ -24,6 +24,8 @@ internal static class SceneHandleTests
         Expect.Equal("7", one.ToString(), "the text is the raw value");
         Expect.That(one.CompareTo(other) < 0 && other.CompareTo(one) > 0 && one.CompareTo(same) == 0, "handles order by raw value");
         Expect.Equal(0UL, default(SceneHandle).GetRawData(), "the default handle is raw 0");
+        int number = one;
+        Expect.That(number == 7 && (int)other == 9 && (int)default(SceneHandle) == 0, "a handle converts implicitly to the scene id it wraps");
     }
 
     private static string Plan(string name) =>
@@ -48,6 +50,7 @@ internal static class SceneHandleTests
             var (first, second) = (SceneManager.GetSceneAt(0), SceneManager.GetSceneAt(1));
             Expect.That(first.handle != default && second.handle != default, "a loaded scene has a non-default handle");
             Expect.That(first.handle != second.handle, "two scenes have different handles");
+            Expect.That((int)first.handle != 0 && (int)second.handle != 0 && (int)first.handle != (int)second.handle, "the scene ids are different non-zero numbers");
             Expect.That(first.handle == SceneManager.GetSceneAt(0).handle, "a scene found again has the same handle");
             Expect.That(SceneManager.SetActiveScene(second), "the second scene can be made active");
             Expect.That(SceneManager.GetActiveScene().handle == second.handle, "the active scene's handle is the second scene's");

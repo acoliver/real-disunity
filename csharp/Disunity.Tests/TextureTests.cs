@@ -293,9 +293,9 @@ internal static class TextureTests
             var bytes = (byte[])typeof(Texture2D).GetField("_data", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(texture)!;
             Ensure(bytes.Length == 64 && Enumerable.Range(0, 16).All(i => bytes[4 * i] == color.r && bytes[4 * i + 1] == color.g && bytes[4 * i + 2] == color.b && bytes[4 * i + 3] == color.a), $"{texture.name} is one color");
             Ensure(!texture.isReadable, $"{texture.name} is not readable, so a game cannot change it");
-            Throws<InvalidOperationException>(() => texture.SetPixel(0, 0, Color.magenta), $"{texture.name} SetPixel", "not readable");
-            Throws<InvalidOperationException>(() => texture.SetPixels32([new Color32(1, 2, 3, 4)]), $"{texture.name} SetPixels32", "not readable");
-            Throws<InvalidOperationException>(() => texture.LoadRawTextureData(new byte[64]), $"{texture.name} LoadRawTextureData", "not readable");
+            Throws<UnityException>(() => texture.SetPixel(0, 0, Color.magenta), $"{texture.name} SetPixel", "not readable");
+            Throws<UnityException>(() => texture.SetPixels32([new Color32(1, 2, 3, 4)]), $"{texture.name} SetPixels32", "not readable");
+            Throws<UnityException>(() => texture.LoadRawTextureData(new byte[64]), $"{texture.name} LoadRawTextureData", "not readable");
         }
         Ensure(ReferenceEquals(Texture2D.whiteTexture, Texture2D.whiteTexture), "a built-in texture is shared");
         Ensure(Texture2D.grayTexture.graphicsFormat == GraphicsFormat.R8G8B8A8_SRGB && Texture2D.linearGrayTexture.graphicsFormat == GraphicsFormat.R8G8B8A8_UNorm, "linear gray is a linear format");
@@ -331,9 +331,13 @@ internal static class TextureTests
         Ensure(texture.isReadable, "a script texture is readable");
         texture.Apply(false, makeNoLongerReadable: true);
         Ensure(!texture.isReadable, "Apply can drop readability");
-        Throws<InvalidOperationException>(() => texture.GetPixel(0, 0), "reading a non-readable texture", "not readable");
-        Throws<InvalidOperationException>(() => texture.GetRawTextureData(), "raw data of a non-readable texture", "not readable");
-        Throws<InvalidOperationException>(() => texture.Apply(), "Apply on a non-readable texture", "not readable");
+        Throws<UnityException>(() => texture.GetPixel(0, 0), "reading a non-readable texture", "not readable");
+        var fellBack = false;
+        try { texture.GetPixels(); }
+        catch (UnityException) { fellBack = true; }
+        Ensure(fellBack, "a game's catch of UnityException handles a non-readable texture");
+        Throws<UnityException>(() => texture.GetRawTextureData(), "raw data of a non-readable texture", "not readable");
+        Throws<UnityException>(() => texture.Apply(), "Apply on a non-readable texture", "not readable");
     }
 
     private static void FormatsAndConstructors()

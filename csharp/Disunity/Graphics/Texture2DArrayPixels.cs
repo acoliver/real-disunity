@@ -13,7 +13,7 @@ public sealed partial class Texture2DArray
     /// <summary>The format of a readable array with a codec, after checking <paramref name="element"/> and <paramref name="level"/>.</summary>
     private TextureFormat RequirePixels(string member, int element, int level)
     {
-        if (!_readable) throw new InvalidOperationException($"Texture2DArray.{member}: texture '{name}' is not readable");
+        if (!_readable) throw new UnityException($"Texture2DArray.{member}: texture '{name}' is not readable");
         if (_format is not { } known || !TexelFormats.HasCodec(known))
             throw new NotSupportedException($"Texture2DArray.{member} is not supported yet for GraphicsFormat.{_graphics}");
         if (element < 0 || element >= _depth) throw new ArgumentException($"Texture2DArray.{member}: array element {element} is outside 0 to {_depth - 1}");
@@ -61,7 +61,7 @@ public sealed partial class Texture2DArray
     /// <summary>Regenerates the smaller mip levels of every slice when asked, counts an update and optionally drops readability.</summary>
     public void Apply(bool updateMipmaps = true, bool makeNoLongerReadable = false)
     {
-        if (!_readable) throw new InvalidOperationException($"Texture2DArray.{nameof(Apply)}: texture '{name}' is not readable");
+        if (!_readable) throw new UnityException($"Texture2DArray.{nameof(Apply)}: texture '{name}' is not readable");
         if (updateMipmaps && _format is { } known && TexelFormats.HasCodec(known))
             for (var element = 0; element < _depth; element++)
                 for (var level = 1; level < _mipCount; level++)

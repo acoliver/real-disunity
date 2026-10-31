@@ -179,7 +179,7 @@ public sealed partial class Texture2D : Texture
 
     private void RequireReadable(string member)
     {
-        if (!_readable) throw new InvalidOperationException($"Texture2D.{member}: texture '{name}' is not readable");
+        if (!_readable) throw new UnityException($"Texture2D.{member}: texture '{name}' is not readable");
     }
 
     private void RequirePixels(string member)

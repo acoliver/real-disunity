@@ -116,6 +116,7 @@ internal static class SortingLayerTests
         var renderer = new GameObject("r").AddComponent<SpriteRenderer>();
         var group = renderer.gameObject.AddComponent<SortingGroup>();
         renderer.sortingLayerName = "Units";
+        group.sortingLayerName = "Units";
         var warnings = Warnings(() =>
         {
             renderer.sortingLayerName = "Missing";
@@ -124,7 +125,7 @@ internal static class SortingLayerTests
             renderer.sortingLayerName = "Other";
         });
         Expect.Equal(5, renderer.sortingLayerID, "the renderer keeps its layer");
-        Expect.Equal(0, group.sortingLayerID, "the group keeps its layer");
+        Expect.Equal(5, group.sortingLayerID, "the group keeps its layer");
         Expect.Equal(2, warnings.Count, $"one warning per name: {string.Join("|", warnings)}");
         Expect.That(warnings[0].Contains("Missing") && warnings[1].Contains("Other"), "the warnings name the layers");
         renderer.sortingLayerID = 99;

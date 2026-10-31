@@ -53,6 +53,7 @@ mod lod_material;
 mod lod_scale;
 mod material_factors;
 mod mip_bias;
+mod mip_rig;
 mod normal_frames;
 mod resident_sampling;
 mod retained;
@@ -64,6 +65,7 @@ mod taa;
 mod taa_screen_space_tests;
 mod temporal;
 mod terrain_blend;
+mod terrain_mip_bias;
 mod velocity;
 
 /// The colour format every test renders into.

@@ -282,6 +282,7 @@ PlayerMaterialTests.Run();
 TextCoreTests.Run();
 FontEngineTests.Run();
 TouchScreenKeyboardTests.Run();
+DefaultCanvasMaterialTests.Run();
 FieldBinderTests.Run();
 SerializedCollectionTests.Run();
 ManagedReferenceTests.Run();

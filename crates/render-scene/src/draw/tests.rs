@@ -54,6 +54,7 @@ mod lod_scale;
 mod mask_mip_bias;
 mod material_factors;
 mod mip_bias;
+mod mip_end_to_end;
 mod mip_rig;
 mod normal_frames;
 mod relief_mip_bias;

@@ -1,3 +1,4 @@
+fn sunlight_normal_bias() -> f32 { return shadow.bias.y; }
 struct DirectionalShadow {
     clip_from_world: array<mat4x4<f32>, 4>,
     // y: normal bias in metres, z: grid radius or -1 for bilinear, w: strength reduction.

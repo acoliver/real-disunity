@@ -85,7 +85,13 @@ fn surface_lighting(
         vec3<f32>(roughness_in, metalness, ambient_occlusion), DIELECTRIC_F0).color;
 }
 struct SceneSurfaceLight { color: vec3<f32>, diffuse: vec3<f32>, specular: vec3<f32>, }
+struct SceneSurfaceVisibility { raw: f32, ambient: f32, diffuse: f32, disk_factor: f32, }
 fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: vec3<f32>, properties: vec3<f32>, dielectric_f0: vec3<f32>) -> SceneSurfaceLight {
+    let raw = raw_sunlight_visibility(world_position, normal);
+    return scene_surface_lighting_with_visibility(world_position, normal, albedo, properties, dielectric_f0,
+        SceneSurfaceVisibility(raw, raw, direct_sunlight_visibility(raw), 1.0));
+}
+fn scene_surface_lighting_with_visibility(world_position: vec3<f32>, normal: vec3<f32>, albedo: vec3<f32>, properties: vec3<f32>, dielectric_f0: vec3<f32>, visibility: SceneSurfaceVisibility) -> SceneSurfaceLight {
     if frame.grading.y != 0.0 { return SceneSurfaceLight(albedo, albedo, vec3<f32>(0.0)); }
     let roughness_in = properties.x;
     let metalness = properties.y;
@@ -110,9 +116,8 @@ fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: 
     var diffuse = (vec3<f32>(1.0) - fresnel) * diffuse_colour / PI;
     if SCENE_DIRECT_DIFFUSE != 0u { diffuse = diffuse_colour; }
 
-    let visibility = raw_sunlight_visibility(world_position, normal);
-    let shadow = direct_sunlight_visibility(visibility);
-    let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, visibility);
+    let shadow = visibility.diffuse;
+    let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, scene_surface_ambient_visibility(world_position, normal, visibility.ambient));
     var environment_roughness = roughness;
     if SCENE_ROUGHNESS_REMAP != 0u {
         environment_roughness = rd_remap_roughness(roughness_in, SCENE_ROUGHNESS_REMAP);
@@ -137,9 +142,9 @@ fn scene_surface_lighting(world_position: vec3<f32>, normal: vec3<f32>, albedo: 
     if SCENE_SPECULAR_OCCLUSION != 0u { diffuse_ao = ao; }
     let diffuse_radiance = diffuse * diffuse_ao
         * frame.sun_irradiance.rgb * normal_dot_light * shadow + ambient;
-    let specular_radiance = specular * specular_ao * frame.sun_irradiance.rgb * normal_dot_light * shadow + environment;
+    let specular_radiance = specular * specular_ao * frame.sun_irradiance.rgb * normal_dot_light * direct_sunlight_visibility(visibility.raw) + environment;
     if SCENE_DISK_PEAK > 0.0 {
-        let disk = scene_disk_highlight(normal, view, light, f0, roughness_in, shadow) * specular_ao;
+        let disk = scene_disk_highlight(normal, view, light, f0, roughness_in, shadow) * visibility.disk_factor * specular_ao;
         let selected_diffuse = diffuse * diffuse_ao * frame.sun_irradiance.rgb * normal_dot_light * shadow + ambient;
         return SceneSurfaceLight(selected_diffuse + disk + environment, selected_diffuse, disk + environment);
     }

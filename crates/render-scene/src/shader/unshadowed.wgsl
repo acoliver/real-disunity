@@ -1,3 +1,4 @@
+fn sunlight_normal_bias() -> f32 { return 0.0; }
 fn raw_sunlight_visibility(_position: vec3<f32>, _normal: vec3<f32>) -> f32 {
     return 1.0;
 }

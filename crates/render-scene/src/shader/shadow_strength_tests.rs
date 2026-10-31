@@ -40,14 +40,17 @@ fn source(visibility: f32, reduction: f32, screen: f32) -> String {
          }}
          fn direct_sunlight_visibility{shadow}"
     );
+    let lighting = super::ENVIRONMENT_WGSL;
+    let ao = "let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, scene_surface_ambient_visibility(world_position, normal, visibility.ambient));";
+    assert_eq!(lighting.matches(ao).count(), 1);
     format!(
         "{}\n{}",
-        super::ENVIRONMENT_WGSL
+        lighting
             .replace(include_str!("unshadowed.wgsl"), &receiver)
             .replace("1.0 /* SCREEN_AMBIENT_FACTOR */", &format!("{screen}"))
             .replace(
-                "let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, visibility);",
-                "let ao = scene_ao(ambient_occlusion, world_position, normal_dot_light, visibility); observed_ao = ao;",
+                ao,
+                &format!("{ao} observed_ao = ao;"),
             )
             .replace(
                 "vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
@@ -103,20 +106,28 @@ fn check_strengths(context: &GpuContext, visibility: f32, screen: f32) {
         );
         assert!((values[3] - actual[0] - actual[1]).abs() < 1e-6);
     }
-    let previous = baseline_source
-        .replace(
-            "let shadow = direct_sunlight_visibility(visibility);",
-            "let shadow = sunlight_visibility(world_position, normal);",
-        )
-        .replace(
-            "scene_ao(ambient_occlusion, world_position, normal_dot_light, visibility)",
-            "scene_ao(ambient_occlusion, world_position, normal_dot_light, shadow)",
-        );
+    let previous = previous_source(&baseline_source);
     let previous = evaluate_source(context, &previous, ENTRY, Some(&frame), None);
     assert_eq!(
         baseline.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         previous.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
     );
+}
+
+fn previous_source(source: &str) -> String {
+    let direct = "let shadow = visibility.diffuse;";
+    let ao = "scene_ao(ambient_occlusion, world_position, normal_dot_light, scene_surface_ambient_visibility(world_position, normal, visibility.ambient))";
+    assert_eq!(source.matches(direct).count(), 1);
+    assert_eq!(source.matches(ao).count(), 1);
+    source
+        .replace(
+            direct,
+            "let shadow = sunlight_visibility(world_position, normal);",
+        )
+        .replace(
+            ao,
+            "scene_ao(ambient_occlusion, world_position, normal_dot_light, shadow)",
+        )
 }
 
 #[test]

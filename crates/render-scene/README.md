@@ -436,7 +436,14 @@ existing background blend weight at the original, undistorted camera-axis water
 depth. Without tint it uses `clamp(original_distance, 0, 1)`, the existing one-metre
 depth ramp used for refraction. The disk receives this visibility before its
 luminance limit; `disk_raw_visibility` multiplies by strength-adjusted raw
-visibility again after limiting. Both water lighting paths share this response.
+visibility again after limiting. Both water lighting paths consume the same sampled
+visibility and apply the response after sampling. At zero scene normal bias all
+three offsets reuse the shading-normal lookup, including its receiver-plane
+derivatives. A specialized neutral response therefore preserves both raw visibility
+and output bytes with multisampling and roughness-aware occlusion. Shared surface
+lighting takes explicit visibility inputs; water does not rewrite its shader body.
+Water retains a shading-normal lookup at the shared-lighting AO evaluation site;
+ordinary surfaces reuse their single raw sample for direct lighting and AO.
 Opaque shading, ambient, environment reflection and immutable refraction snapshots
 are unaffected. The keyed existing water pipeline uses spare uniform lanes, so
 allocation sizes and buffer counts do not change. Filtering remains the scene's

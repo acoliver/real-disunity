@@ -18,6 +18,7 @@ mod subresources;
 mod terrain;
 mod timing_probe;
 mod validation;
+mod water_identity;
 mod water_response;
 
 use glam::{Vec3, Vec4};

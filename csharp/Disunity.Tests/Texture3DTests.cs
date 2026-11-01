@@ -110,9 +110,9 @@ internal static class Texture3DTests
         Throws<ArgumentException>(() => volume.GetPixel(0, 0, 0, -1), "a negative mip level", "mip level");
         volume.Apply(false, true);
         Expect.That(!volume.isReadable, "Apply can make the volume no longer readable");
-        Throws<InvalidOperationException>(() => volume.GetPixels(), "reading an unreadable volume", "not readable");
-        Throws<InvalidOperationException>(() => volume.SetPixel(0, 0, 0, default), "writing an unreadable volume", "not readable");
-        Throws<InvalidOperationException>(() => volume.Apply(), "applying an unreadable volume", "not readable");
+        Throws<UnityException>(() => volume.GetPixels(), "reading an unreadable volume", "not readable");
+        Throws<UnityException>(() => volume.SetPixel(0, 0, 0, default), "writing an unreadable volume", "not readable");
+        Throws<UnityException>(() => volume.Apply(), "applying an unreadable volume", "not readable");
     }
 
     private static void FormatsWithoutCodecsKeepBytesOnly()

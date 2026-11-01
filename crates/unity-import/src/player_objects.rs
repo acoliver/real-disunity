@@ -9,6 +9,8 @@ use std::{
 
 use worldrunner_unity_serialized::{
     ClassId, ObjectInfo, SerializedError, SerializedFile,
+    animator::{AnimationClip, Animator, AnimatorOverrideController},
+    animator_controller::AnimatorController,
     camera::Camera,
     classes::{GameObject, MonoBehaviour, MonoScript, RectTransform, Transform},
     font::Font,
@@ -372,7 +374,7 @@ const fn layout<T: Layout + std::fmt::Debug>() -> (ClassId, Check) {
 }
 
 /// The classes with layouts, each with the check [`decode_census`] runs on its objects.
-const LAYOUTS: [(ClassId, Check); 32] = [
+const LAYOUTS: [(ClassId, Check); 36] = [
     layout::<GameObject>(),
     layout::<Transform>(),
     layout::<RectTransform>(),
@@ -405,6 +407,10 @@ const LAYOUTS: [(ClassId, Check); 32] = [
     layout::<GraphicsSettings>(),
     layout::<QualitySettings>(),
     layout::<InputManager>(),
+    layout::<Animator>(),
+    layout::<AnimatorController>(),
+    layout::<AnimatorOverrideController>(),
+    layout::<AnimationClip>(),
 ];
 const FAILURES_KEPT: usize = 5;
 

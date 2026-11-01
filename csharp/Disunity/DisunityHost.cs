@@ -215,6 +215,7 @@ public static partial class DisunityHost
                 var world = WorldHandle;
                 WorldHandle = 0;
                 _listenerDiagnostic = null;
+                UndrawnCalls.Reset();
                 RemoveMainThreadContext();
                 Resources?.Clear();
                 ThrowIfError(NativeBindings.disunity_world_destroy(world));

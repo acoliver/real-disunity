@@ -195,6 +195,20 @@ pub enum PlanComponent {
     MeshFilter {
         mesh: Option<usize>,
     },
+    /// An animator of a player scene or prefab: the asset index of its controller (an
+    /// animator controller or an override controller), or `None` when it has none or the plan
+    /// cannot hold it. `culling_mode` and `update_mode` are the script enum values.
+    Animator {
+        enabled: bool,
+        controller: Option<usize>,
+        culling_mode: i32,
+        update_mode: i32,
+        apply_root_motion: bool,
+        linear_velocity_blending: bool,
+        stabilize_feet: bool,
+        keep_state_on_disable: bool,
+        write_defaults_on_disable: bool,
+    },
     /// A mesh renderer of a player scene.
     MeshRenderer {
         #[serde(flatten)]

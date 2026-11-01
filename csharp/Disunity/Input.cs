@@ -3,11 +3,6 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-public enum KeyCode
-{
-    None, Space, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    UpArrow, DownArrow, LeftArrow, RightArrow, Return, Escape
-}
 public static partial class Input
 {
     private static unsafe (uint Keys, float Axis) Read(uint code)

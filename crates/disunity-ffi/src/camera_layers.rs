@@ -21,6 +21,7 @@ fn description(kind: u32, enabled: bool) -> Option<ComponentDesc> {
         )),
         81 => Some(ComponentDesc::AudioListener { enabled }),
         92 => Some(ComponentDesc::GUILayer { enabled }),
+        95 => Some(ComponentDesc::Animator { enabled }),
         124 => Some(ComponentDesc::FlareLayer { enabled }),
         198 => Some(ComponentDesc::ParticleSystem),
         210 => Some(ComponentDesc::SortingGroup(Default::default())),
@@ -70,7 +71,8 @@ pub unsafe extern "C" fn disunity_camera_layer_read(
             ComponentDesc::UniversalAdditionalCameraData(ref data) => data.enabled,
             ComponentDesc::AudioListener { enabled }
             | ComponentDesc::GUILayer { enabled }
-            | ComponentDesc::FlareLayer { enabled } => enabled,
+            | ComponentDesc::FlareLayer { enabled }
+            | ComponentDesc::Animator { enabled } => enabled,
             _ => return Err("camera-side component required".into()),
         };
         unsafe {
@@ -108,6 +110,9 @@ pub extern "C" fn disunity_camera_layer_write(
                 enabled: enabled == 1,
             },
             ComponentDesc::FlareLayer { .. } => ComponentDesc::FlareLayer {
+                enabled: enabled == 1,
+            },
+            ComponentDesc::Animator { .. } => ComponentDesc::Animator {
                 enabled: enabled == 1,
             },
             _ => return Err("camera-side component required".into()),

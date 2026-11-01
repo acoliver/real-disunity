@@ -39,9 +39,11 @@ internal static class GraphicsTests
         }
     }
 
-    /// <summary>The render texture overloads of SetRenderTarget work; GraphicsTargetTests covers them.</summary>
+    /// <summary>The render texture overloads of SetRenderTarget work, and Blit, BlitMultiTap and CopyTexture
+    /// complete without drawing; GraphicsTargetTests and GraphicsBlitTests cover them.</summary>
     private static bool DrawsNothingButSetsTheActiveTexture(MethodInfo method) =>
-        method.Name == "SetRenderTarget" && method.GetParameters()[0].ParameterType == typeof(RenderTexture);
+        (method.Name == "SetRenderTarget" && method.GetParameters()[0].ParameterType == typeof(RenderTexture))
+        || method.Name is "Blit" or "BlitMultiTap" or "CopyTexture";
 
     private static void EveryOverloadIsCovered(List<(string Member, Action Call)> calls)
     {
@@ -70,26 +72,10 @@ internal static class GraphicsTests
     private static void AddCopies(List<(string, Action)> calls)
     {
         Texture t = null!;
-        RenderTexture rt = null!;
-        Material m = null!;
         GraphicsBuffer gb = null!;
         Rect rect = default;
-        Vector2[] offsets = Array.Empty<Vector2>();
         calls.AddRange(new (string, Action)[]
         {
-            ("Blit", () => Graphics.Blit(t, rt)),
-            ("Blit", () => Graphics.Blit(t, rt, Vector2.one, Vector2.zero)),
-            ("Blit", () => Graphics.Blit(t, rt, Vector2.one, Vector2.zero, 0, 0)),
-            ("Blit", () => Graphics.Blit(t, rt, m)),
-            ("Blit", () => Graphics.Blit(t, rt, m, 1, 0)),
-            ("Blit", () => Graphics.Blit(t, m)),
-            ("Blit", () => Graphics.Blit(t, m, 1, 0)),
-            ("BlitMultiTap", () => Graphics.BlitMultiTap(t, rt, m, offsets)),
-            ("BlitMultiTap", () => Graphics.BlitMultiTap(t, rt, m, 0, offsets)),
-            ("CopyTexture", () => Graphics.CopyTexture(t, t)),
-            ("CopyTexture", () => Graphics.CopyTexture(t, 0, t, 0)),
-            ("CopyTexture", () => Graphics.CopyTexture(t, 0, 0, t, 0, 0)),
-            ("CopyTexture", () => Graphics.CopyTexture(t, 0, 0, 0, 0, 1, 1, t, 0, 0, 0, 0)),
             ("ConvertTexture", () => Graphics.ConvertTexture(t, t)),
             ("ConvertTexture", () => Graphics.ConvertTexture(t, 0, t, 0)),
             ("CopyBuffer", () => Graphics.CopyBuffer(gb, gb)),

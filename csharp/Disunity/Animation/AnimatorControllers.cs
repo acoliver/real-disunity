@@ -1,9 +1,16 @@
 namespace UnityEngine;
 
-/// <summary>An Animator's controller. The engine loads no controller assets, so the base class has no clips.</summary>
+/// <summary>An Animator's controller. The base class has no clips; controllers built from a player's plan list theirs and
+/// have no state machine, since the engine plays no animation.</summary>
 public class RuntimeAnimatorController : Object
 {
     public virtual AnimationClip[] animationClips => [];
+}
+
+/// <summary>A controller built from a player's plan: the clips it lists, in order, and nothing else.</summary>
+internal sealed class PlannedAnimatorController(AnimationClip[] clips) : RuntimeAnimatorController
+{
+    public override AnimationClip[] animationClips => (AnimationClip[])clips.Clone();
 }
 
 /// <summary>An original clip and the clip that replaces it, as the older <c>clips</c> property reports them.</summary>

@@ -9,7 +9,7 @@ public sealed partial class Texture3D
     /// <summary>Checks that the texture is readable, has a codec and has the mip level.</summary>
     private void RequirePixels(string member, int level)
     {
-        if (!_readable) throw new InvalidOperationException($"Texture3D.{member}: texture '{name}' is not readable");
+        if (!_readable) throw new UnityException($"Texture3D.{member}: texture '{name}' is not readable");
         if (!TexelFormats.HasCodec(_format)) throw new NotSupportedException($"Texture3D.{member} is not supported yet for TextureFormat.{_format}");
         if (level < 0 || level >= _mipCount) throw new ArgumentException($"Texture3D.{member}: mip level {level} is outside 0 to {_mipCount - 1}");
     }
@@ -81,7 +81,7 @@ public sealed partial class Texture3D
 
     public void Apply(bool updateMipmaps, bool makeNoLongerReadable)
     {
-        if (!_readable) throw new InvalidOperationException($"Texture3D.{nameof(Apply)}: texture '{name}' is not readable");
+        if (!_readable) throw new UnityException($"Texture3D.{nameof(Apply)}: texture '{name}' is not readable");
         if (updateMipmaps && TexelFormats.HasCodec(_format))
             for (var level = 1; level < _mipCount; level++) Downsample(level);
         if (makeNoLongerReadable) _readable = false;

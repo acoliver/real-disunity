@@ -110,7 +110,7 @@ internal static partial class MeshTests
         Expect.Equal(0, mesh.vertexCount, "Clear removes the positions");
         Expect.Equal(0, mesh.normals.Length + mesh.uv.Length + mesh.colors.Length + mesh.tangents.Length, "Clear removes the channels");
         Expect.Equal(1, mesh.subMeshCount, "Clear leaves one sub-mesh");
-        Expect.Equal(0, mesh.GetIndexCount(0), "Clear leaves it without indices");
+        Expect.Equal(0u, mesh.GetIndexCount(0), "Clear leaves it without indices");
         Expect.Equal(default, mesh.bounds, "Clear zeroes the bounds");
         mesh.vertices = QuadPositions();
         mesh.uv = new Vector2[4];
@@ -155,7 +155,7 @@ internal static partial class MeshTests
         Expect.Equal(new Bounds(Vector3.one, Vector3.one), mesh.bounds, "bounds still work");
         Expect.Equal(4, mesh.vertexCount, "vertexCount still works");
         Expect.Equal(1, mesh.subMeshCount, "subMeshCount still works");
-        Expect.Equal(6, mesh.GetIndexCount(0) + mesh.GetIndexStart(0) + mesh.GetBaseVertex(0), "sub-mesh queries still work");
+        Expect.Equal(6u, mesh.GetIndexCount(0) + mesh.GetIndexStart(0) + mesh.GetBaseVertex(0), "sub-mesh queries still work");
         Expect.Equal(MeshTopology.Triangles, mesh.GetTopology(0), "GetTopology still works");
         Expect.Equal(4, mesh.Snapshot().Positions.Length, "the renderer still reads the data");
     }

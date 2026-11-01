@@ -47,17 +47,20 @@ public partial class Mesh
         set => ReplaceWithTriangles(value);
     }
 
-    public int GetIndexStart(int submesh)
+    /// <summary>Where the sub-mesh's indices start in the mesh's one index buffer: the sum of the earlier counts. Unsigned, as
+    /// compiled game code expects.</summary>
+    public uint GetIndexStart(int submesh)
     {
         CheckSubMesh(submesh);
-        var start = 0;
-        for (var index = 0; index < submesh; index++) start += _subMeshes[index].Indices.Length;
+        var start = 0u;
+        for (var index = 0; index < submesh; index++) start += (uint)_subMeshes[index].Indices.Length;
         return start;
     }
 
-    public int GetIndexCount(int submesh) => SubMeshAt(submesh).Indices.Length;
+    public uint GetIndexCount(int submesh) => (uint)SubMeshAt(submesh).Indices.Length;
 
-    public int GetBaseVertex(int submesh) => SubMeshAt(submesh).BaseVertex;
+    /// <summary>The sub-mesh's base vertex as an unsigned number; a negative base vertex reads as its two's complement.</summary>
+    public uint GetBaseVertex(int submesh) => unchecked((uint)SubMeshAt(submesh).BaseVertex);
 
     public MeshTopology GetTopology(int submesh) => SubMeshAt(submesh).Topology;
 

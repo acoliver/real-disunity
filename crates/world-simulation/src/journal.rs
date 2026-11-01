@@ -18,6 +18,7 @@ pub enum ComponentKind {
     AudioListener,
     GuiLayer,
     FlareLayer,
+    Animator,
     ParticleSystem,
     SortingGroup,
     #[cfg(feature = "ui")]
@@ -53,6 +54,7 @@ impl ComponentDesc {
             Self::AudioListener { .. } => ComponentKind::AudioListener,
             Self::GUILayer { .. } => ComponentKind::GuiLayer,
             Self::FlareLayer { .. } => ComponentKind::FlareLayer,
+            Self::Animator { .. } => ComponentKind::Animator,
             Self::ParticleSystem => ComponentKind::ParticleSystem,
             Self::SortingGroup(_) => ComponentKind::SortingGroup,
             #[cfg(feature = "ui")]

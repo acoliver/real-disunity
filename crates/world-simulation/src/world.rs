@@ -253,6 +253,7 @@ impl World {
             | ComponentDesc::AudioListener { .. }
             | ComponentDesc::GUILayer { .. }
             | ComponentDesc::FlareLayer { .. }
+            | ComponentDesc::Animator { .. }
             | ComponentDesc::ParticleSystem
             | ComponentDesc::SortingGroup(_) => self.owns_unretired(owner, desc),
             #[cfg(feature = "ui")]

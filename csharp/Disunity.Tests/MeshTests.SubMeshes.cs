@@ -13,14 +13,16 @@ internal static partial class MeshTests
     private static void SubMeshCounts()
     {
         var mesh = new Mesh();
+        foreach (var name in new[] { nameof(Mesh.GetIndexCount), nameof(Mesh.GetIndexStart), nameof(Mesh.GetBaseVertex) })
+            Expect.That(typeof(Mesh).GetMethod(name, [typeof(int)])!.ReturnType == typeof(uint), $"{name} returns an unsigned count, as compiled game code expects");
         Expect.Equal(1, mesh.subMeshCount, "a new mesh has one empty sub-mesh");
-        Expect.Equal(0, mesh.GetIndexCount(0), "the first sub-mesh is empty");
+        Expect.Equal(0u, mesh.GetIndexCount(0), "the first sub-mesh is empty");
         mesh.vertices = QuadPositions();
         mesh.SetTriangles(new List<int> { 0, 1, 2 }, 0);
         mesh.subMeshCount = 3;
         Expect.Equal(3, mesh.subMeshCount, "subMeshCount grows");
-        Expect.Equal(3, mesh.GetIndexCount(0), "growing keeps the indices");
-        Expect.Equal(0, mesh.GetIndexCount(2), "a grown sub-mesh is empty");
+        Expect.Equal(3u, mesh.GetIndexCount(0), "growing keeps the indices");
+        Expect.Equal(0u, mesh.GetIndexCount(2), "a grown sub-mesh is empty");
         mesh.SetTriangles(new List<int> { 0, 2, 3, 3, 2, 1 }, 2);
         mesh.subMeshCount = 2;
         Expect.Equal(2, mesh.subMeshCount, "subMeshCount truncates");
@@ -36,13 +38,13 @@ internal static partial class MeshTests
         mesh.subMeshCount = 3;
         mesh.SetTriangles(new[] { 0, 1, 2 }, 1, true, 1);
         mesh.SetTriangles(new[] { 3, 2, 1 }, 2);
-        Expect.Equal(0, mesh.GetIndexStart(0), "the first sub-mesh starts at 0");
-        Expect.Equal(6, mesh.GetIndexStart(1), "a sub-mesh starts after the indices before it");
-        Expect.Equal(9, mesh.GetIndexStart(2), "the running sum of earlier counts");
-        Expect.Equal(6, mesh.GetIndexCount(0), "GetIndexCount");
-        Expect.Equal(3, mesh.GetIndexCount(1), "GetIndexCount of the second");
-        Expect.Equal(0, mesh.GetBaseVertex(0), "base vertex defaults to 0");
-        Expect.Equal(1, mesh.GetBaseVertex(1), "GetBaseVertex");
+        Expect.Equal(0u, mesh.GetIndexStart(0), "the first sub-mesh starts at 0");
+        Expect.Equal(6u, mesh.GetIndexStart(1), "a sub-mesh starts after the indices before it");
+        Expect.Equal(9u, mesh.GetIndexStart(2), "the running sum of earlier counts");
+        Expect.Equal(6u, mesh.GetIndexCount(0), "GetIndexCount");
+        Expect.Equal(3u, mesh.GetIndexCount(1), "GetIndexCount of the second");
+        Expect.Equal(0u, mesh.GetBaseVertex(0), "base vertex defaults to 0");
+        Expect.Equal(1u, mesh.GetBaseVertex(1), "GetBaseVertex");
         foreach (var index in new[] { -1, 3 })
         {
             Expect.Throws<ArgumentOutOfRangeException>(() => mesh.GetIndexStart(index), $"GetIndexStart({index})");
@@ -91,24 +93,24 @@ internal static partial class MeshTests
         Expect.Equal(0, mesh.triangles.Length, "null triangles clear the indices");
         mesh.SetTriangles(new int[] { 0, 1, 2 }, 0, true, 0);
         mesh.SetTriangles((List<int>)null!, 0);
-        Expect.Equal(0, mesh.GetIndexCount(0), "a null list empties the sub-mesh");
+        Expect.Equal(0u, mesh.GetIndexCount(0), "a null list empties the sub-mesh");
         mesh.SetTriangles(new List<int> { 0, 1, 2 }, 0, false, 0);
         mesh.SetTriangles(new List<int> { 0, 1, 2 }, 0, true, 0);
-        Expect.Equal(3, mesh.GetIndexCount(0), "SetTriangles with a base vertex of 0");
+        Expect.Equal(3u, mesh.GetIndexCount(0), "SetTriangles with a base vertex of 0");
     }
 
     private static void BaseVertexRange()
     {
         var mesh = QuadMesh();
         mesh.SetTriangles(new List<int> { 0, 1, 2 }, 0, true, 1);
-        Expect.Equal(1, mesh.GetBaseVertex(0), "SetTriangles records the base vertex");
+        Expect.Equal(1u, mesh.GetBaseVertex(0), "SetTriangles records the base vertex");
         Expect.Throws<ArgumentException>(() => mesh.SetTriangles(new List<int> { 0, 1, 3 }, 0, true, 1), "index + baseVertex past the last vertex");
         Expect.Throws<ArgumentException>(() => mesh.SetTriangles(new[] { 0, 1, 2 }, 0, true, -1), "index + baseVertex below 0");
-        Expect.Equal(1, mesh.GetBaseVertex(0), "a failed set keeps the base vertex");
+        Expect.Equal(1u, mesh.GetBaseVertex(0), "a failed set keeps the base vertex");
         mesh.SetTriangles(new[] { 1, 2, 3 }, 0, true, -1);
-        Expect.Equal(-1, mesh.GetBaseVertex(0), "a negative base vertex that stays in range");
+        Expect.Equal(uint.MaxValue, mesh.GetBaseVertex(0), "a negative base vertex that stays in range reads as unsigned");
         mesh.SetTriangles(new[] { 0, 1, 2 }, 0);
-        Expect.Equal(0, mesh.GetBaseVertex(0), "SetTriangles without a base vertex resets it");
+        Expect.Equal(0u, mesh.GetBaseVertex(0), "SetTriangles without a base vertex resets it");
     }
 
     private static void IndexFormatLimit()
@@ -143,8 +145,8 @@ internal static partial class MeshTests
         Expect.Equal(MeshTopology.Quads, mesh.GetTopology(2), "Quads");
         Expect.Equal(MeshTopology.Points, mesh.GetTopology(3), "Points");
         Expect.Sequence(new[] { 0, 1, 1, 2 }, mesh.GetIndices(0), "line indices");
-        Expect.Equal(14, mesh.GetIndexStart(4), "the starts follow the earlier counts 4, 4, 4 and 2");
-        Expect.Equal(3, mesh.GetIndexCount(4), "the last count");
+        Expect.Equal(14u, mesh.GetIndexStart(4), "the starts follow the earlier counts 4, 4, 4 and 2");
+        Expect.Equal(3u, mesh.GetIndexCount(4), "the last count");
         Expect.Throws<ArgumentException>(() => mesh.SetIndices(new[] { 0, 1, 2 }, MeshTopology.Lines, 0), "three line indices");
         Expect.Throws<ArgumentException>(() => mesh.SetIndices(new[] { 0 }, MeshTopology.LineStrip, 0), "a line strip of one index");
         Expect.Throws<ArgumentException>(() => mesh.SetIndices(new[] { 0, 1, 2 }, MeshTopology.Quads, 0), "three quad indices");
@@ -178,7 +180,7 @@ internal static partial class MeshTests
         Expect.That(error.Message.Contains("sub-mesh 0", StringComparison.Ordinal), $"the message names the sub-mesh: {error.Message}");
         Expect.Equal(6, mesh.vertexCount, "a refused change keeps the positions");
         Expect.Equal(6, mesh.normals.Length, "a refused change keeps the other channels");
-        Expect.Equal(6, mesh.GetIndexCount(0), "a refused change keeps the indices");
+        Expect.Equal(6u, mesh.GetIndexCount(0), "a refused change keeps the indices");
         mesh.subMeshCount = 2;
         mesh.SetTriangles(new List<int> { 0, 1, 2 }, 1, false, 3);
         Expect.Throws<InvalidOperationException>(() => mesh.vertices = new Vector3[5], "the base vertex counts toward the range");

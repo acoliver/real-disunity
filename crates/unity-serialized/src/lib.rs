@@ -10,6 +10,8 @@
 //! by [`ObjectInfo::offset`] and [`ObjectInfo::size`], and [`object::decode`] reads it with a
 //! class layout from [`classes`].
 
+pub mod animator;
+pub mod animator_controller;
 pub mod camera;
 mod class;
 pub mod classes;

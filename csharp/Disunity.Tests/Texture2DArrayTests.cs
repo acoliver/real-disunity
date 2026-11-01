@@ -93,9 +93,9 @@ internal static class Texture2DArrayTests
         Throws<ArgumentException>(() => array.SetPixels(new Color[4], 2, 0), "writing past the depth", "array element");
         array.Apply(false, true);
         Expect.That(!array.isReadable, "Apply can make the array no longer readable");
-        Throws<InvalidOperationException>(() => array.GetPixels(0), "reading an unreadable array", "not readable");
-        Throws<InvalidOperationException>(() => array.SetPixels(new Color[4], 0), "writing an unreadable array", "not readable");
-        Throws<InvalidOperationException>(() => array.Apply(), "applying an unreadable array", "not readable");
+        Throws<UnityException>(() => array.GetPixels(0), "reading an unreadable array", "not readable");
+        Throws<UnityException>(() => array.SetPixels(new Color[4], 0), "writing an unreadable array", "not readable");
+        Throws<UnityException>(() => array.Apply(), "applying an unreadable array", "not readable");
     }
 
     private static void FormatsWithoutCodecsKeepBytesOnly()

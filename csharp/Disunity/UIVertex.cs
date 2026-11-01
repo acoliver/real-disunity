@@ -12,8 +12,9 @@ public struct UIVertex
     public Vector4 uv2;
     public Vector4 uv3;
 
-    /// <summary>A white vertex facing the camera: normal (0, 0, -1), tangent (1, 0, 0, -1), every other field zero.</summary>
-    public static UIVertex simpleVert => new()
+    /// <summary>A white vertex facing the camera: normal (0, 0, -1), tangent (1, 0, 0, -1), every other field zero. A field,
+    /// because game code reads it as one; read-only so that no caller changes the shared value (the engine's choice).</summary>
+    public static readonly UIVertex simpleVert = new()
     {
         color = new Color32(255, 255, 255, 255),
         normal = new Vector3(0f, 0f, -1f),

@@ -63,8 +63,10 @@ public static partial class DisunityHost
             if (position is { } targetPosition) objects[root].transform.position = targetPosition;
             if (rotation is { } targetRotation) objects[root].transform.rotation = targetRotation;
             var copied = new Dictionary<object, object>(ReferenceEqualityComparer.Instance);
-            foreach (var (source, target) in natives)
-                target.CopyManagedState(source, original => (EngineObject)remap.GetValueOrDefault(original, original));
+            EngineObject Remapped(EngineObject original) => (EngineObject)remap.GetValueOrDefault(original, original);
+            foreach (var (source, target) in natives) target.CopyManagedState(source, Remapped);
+            foreach (var row in rows.Where(row => row.kind == 2 && NativeComponents[row.source] is Animator))
+                ((Animator)NativeComponents[row.target]).CopyManagedState((Animator)NativeComponents[row.source], Remapped);
             foreach (var (source, target) in scripts)
                 foreach (var field in SerializedFields(source.GetType()))
                     field.SetValue(target, CopyField(field.GetValue(source), remap, copied));

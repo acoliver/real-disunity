@@ -54,6 +54,9 @@ public sealed partial class Shader : Object
     public bool isSupported => !Destroyed;
     public int renderQueue => Declared(_renderQueue, nameof(renderQueue));
     public int passCount => Declared(_passCount, nameof(passCount));
+
+    /// <summary>The declared pass count, or null when the engine has no declaration, for callers that validate a pass only when they can.</summary>
+    internal int? DeclaredPassCount => _passCount;
     public int subshaderCount => Declared(_subshaderCount, nameof(subshaderCount));
 
     public static Shader? Find(string name) => DisunityHost.FindShader(name);

@@ -17,7 +17,9 @@ internal static class PongScene
             var scores = new[] { Named("PlayerOneScore"), Named("PlayerTwoScore") }.Select(o => o.GetComponent<Text>()!).ToArray();
             Require(scores.All(s => s.text == "0"), "ScoreView.Awake shows zero");
             Require(Named("Ball").layer == 8 && Named("Canvas").layer == 5, "layers load");
-            Require(scene.UnregisteredAxes.Any(a => a.StartsWith("Fire1: no key for `left ctrl`")), "axes without engine keys are reported");
+            Require(scene.UnregisteredAxes.All(a => !a.StartsWith("Fire1:")) && !Input.GetButton("Fire1"),
+                "Fire1 registers with its control key and mouse button, which nothing presses");
+            Require(scene.UnregisteredAxes.Any(a => a.Contains("JoystickAxis")), "joystick axes are reported as unregistered");
             Require(scene.Differences.All(d => !d.Contains("polate")), "interpolation is applied, not reported");
             Require(scene.Differences.All(d => !d.Contains("pixel perfect")) && Named("Canvas").GetComponent<Canvas>()!.pixelPerfect,
                 "the canvas is pixel perfect as authored, not reported");

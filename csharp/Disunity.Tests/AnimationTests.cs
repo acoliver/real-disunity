@@ -2,12 +2,12 @@ using System.Reflection;
 using Disunity.Hosting;
 using UnityEngine;
 
-/// <summary>The animation types: Animators cannot be attached, hashes match Unity, and clips, overrides and masks hold data.</summary>
+/// <summary>The animation types: Animators attach and keep their enabled flag, hashes match Unity, and clips, overrides and masks hold data.</summary>
 internal static class AnimationTests
 {
     public static void Run()
     {
-        AddComponentIsRefused();
+        AnimatorsAttachAndKeepTheirEnabledState();
         StringToHashMatchesUnity();
         AnimatorHoldsDefaultsAndIgnoresCommands();
         AnimatorRefusesPlayback();
@@ -19,7 +19,7 @@ internal static class AnimationTests
         AvatarMaskHoldsData();
         StateMachineBehavioursDoNothingByDefault();
         TypeShapesAndEnums();
-        Console.WriteLine("PASS: Animators cannot be attached, state hashes match Unity, and clips, overrides, masks and state structs behave as data");
+        Console.WriteLine("PASS: Animators attach, state hashes match Unity, and clips, overrides, masks and state structs behave as data");
     }
 
     private static List<string> Warnings(Action action)
@@ -35,18 +35,26 @@ internal static class AnimationTests
         return seen;
     }
 
-    private static void AddComponentIsRefused()
+    private static void AnimatorsAttachAndKeepTheirEnabledState()
     {
         DisunityHost.LoadWorld();
         try
         {
             var go = DisunityHost.CreateGameObject();
-            var error = Refusal.Of(() => go.AddComponent<Animator>());
-            Expect.That(error.Message == "Animator components are not supported yet", $"message: {error.Message}");
-            Expect.That(go.GetComponent<Animator>() == null, "the Animator stays off the GameObject");
+            var animator = go.AddComponent<Animator>();
+            Expect.That(go.GetComponent<Animator>() == animator && animator.gameObject == go, "the Animator attaches to the GameObject");
+            Expect.That(animator.enabled && animator.isActiveAndEnabled, "an attached animator starts enabled");
+            animator.enabled = false;
+            Expect.That(!animator.enabled && !go.GetComponent<Animator>()!.enabled && !animator.isActiveAndEnabled, "enabled lives in the world");
+            animator.enabled = true;
+            Expect.That(animator.enabled, "enabled can be set again");
+            var loose = new Animator { enabled = false };
+            Expect.That(!loose.enabled, "an animator made with new stores its enabled state");
             var body = go.AddComponent<Rigidbody2D>();
-            Expect.That(go.GetComponent<Rigidbody2D>() == body, "other components still attach after a refusal");
+            Expect.That(go.GetComponent<Rigidbody2D>() == body, "other components attach beside the Animator");
             Expect.Throws<NotSupportedException>(() => go.AddComponent<Rigidbody>(), "3D physics components are still refused");
+            UnityEngine.Object.DestroyImmediate(animator);
+            Expect.That(go.GetComponent<Animator>() == null, "a destroyed Animator leaves the GameObject");
         }
         finally { DisunityHost.UnloadWorld(); }
     }

@@ -20,6 +20,8 @@ pub(crate) struct Session {
     pub fonts: worldrunner_world_simulation::ui::FontBook,
     pub font_ids: BTreeMap<u64, worldrunner_world_simulation::FontId>,
     pub textures: crate::textures::TextureStore,
+    /// Canvas renderers whose unused triangles a frame has already named on stderr.
+    pub left_out_noted: std::collections::BTreeSet<worldrunner_world_simulation::ObjectHandle>,
     pub clones: BTreeMap<u64, crate::cloning::PendingClone>,
     pub constructions: BTreeMap<u64, crate::construction::PendingConstruction>,
     pub dispatch: crate::scheduling::Dispatch,
@@ -117,6 +119,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
                 .map_err(|e| AllocationError::Native(e.into()))?,
             font_ids: BTreeMap::new(),
             textures: BTreeMap::new(),
+            left_out_noted: std::collections::BTreeSet::new(),
             clones: BTreeMap::new(),
             constructions: BTreeMap::new(),
             dispatch: Default::default(),

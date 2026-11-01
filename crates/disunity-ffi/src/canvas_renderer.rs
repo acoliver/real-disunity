@@ -104,6 +104,13 @@ impl DisunityCanvasRenderer {
             mesh: self.mesh,
             texture: self.texture,
             alpha_texture: self.alpha_texture,
+            // The mesh and the texture it draws with go when the managed mesh or texture does.
+            geometry: current.geometry.filter(|_| self.mesh != 0),
+            graphic_texture: if self.texture == 0 {
+                0
+            } else {
+                current.graphic_texture
+            },
             ..current
         };
         Ok(renderer.normalized().map_err(WorldError::from)?)
@@ -115,8 +122,8 @@ fn renderer(
     handle: u64,
 ) -> Result<(ComponentHandle, CanvasRenderer), AbiError> {
     let id = component(session, handle)?;
-    match session.native.component(id)?.desc {
-        ComponentDesc::CanvasRenderer(renderer) => Ok((id, renderer)),
+    match &session.native.component(id)?.desc {
+        ComponentDesc::CanvasRenderer(renderer) => Ok((id, renderer.clone())),
         _ => Err("component is not a CanvasRenderer".into()),
     }
 }

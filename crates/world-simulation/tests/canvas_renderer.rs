@@ -32,8 +32,8 @@ fn handle_of(world: &World, object: ObjectHandle) -> Option<ComponentHandle> {
 
 fn renderer_of(world: &World, object: ObjectHandle) -> CanvasRenderer {
     let handle = handle_of(world, object).expect("a canvas renderer on the object");
-    match world.component(handle).unwrap().desc {
-        ComponentDesc::CanvasRenderer(renderer) => renderer,
+    match &world.component(handle).unwrap().desc {
+        ComponentDesc::CanvasRenderer(renderer) => renderer.clone(),
         _ => unreachable!("handle_of finds canvas renderers"),
     }
 }
@@ -102,12 +102,12 @@ fn a_nan_alpha_is_rejected_and_any_other_alpha_is_kept() {
         ..CanvasRenderer::default()
     };
     assert_eq!(
-        world.set_component(handle, ComponentDesc::CanvasRenderer(nan)),
+        world.set_component(handle, ComponentDesc::CanvasRenderer(nan.clone())),
         Err(WorldError::Ui(UiError::InvalidCanvasRenderer))
     );
     let other = world.create_object(ObjectDesc::default()).unwrap();
     assert_eq!(
-        world.add_component(other, ComponentDesc::CanvasRenderer(nan)),
+        world.add_component(other, ComponentDesc::CanvasRenderer(nan.clone())),
         Err(WorldError::Ui(UiError::InvalidCanvasRenderer))
     );
     assert_eq!(nan.normalized(), Err(UiError::InvalidCanvasRenderer));
@@ -134,7 +134,7 @@ fn a_clip_rectangle_is_stored_and_can_be_removed() {
         ..CanvasRenderer::default()
     };
     world
-        .set_component(handle, ComponentDesc::CanvasRenderer(clipped))
+        .set_component(handle, ComponentDesc::CanvasRenderer(clipped.clone()))
         .unwrap();
     assert_eq!(
         renderer_of(&world, object).clip_rect,
@@ -148,7 +148,7 @@ fn a_clip_rectangle_is_stored_and_can_be_removed() {
     );
     let unclipped = CanvasRenderer {
         clip_rect: None,
-        ..clipped
+        ..clipped.clone()
     };
     world
         .set_component(handle, ComponentDesc::CanvasRenderer(unclipped))
@@ -177,7 +177,7 @@ fn material_counts_are_limited_to_the_slots() {
             ..CanvasRenderer::default()
         };
         assert_eq!(
-            world.set_component(handle, ComponentDesc::CanvasRenderer(over)),
+            world.set_component(handle, ComponentDesc::CanvasRenderer(over.clone())),
             Err(WorldError::Ui(UiError::InvalidCanvasRenderer)),
             "counts {materials} and {pops}"
         );
@@ -203,18 +203,18 @@ fn a_material_is_set_only_inside_the_count() {
         pop_material_count: 1,
         ..CanvasRenderer::default()
     };
-    let set = renderer.with_material(false, 1, 7).unwrap();
+    let set = renderer.clone().with_material(false, 1, 7).unwrap();
     assert_eq!(set.materials[1], 7);
     assert_eq!(set.pop_materials, [0; MAX_CANVAS_MATERIALS]);
-    let pop = renderer.with_material(true, 0, 8).unwrap();
+    let pop = renderer.clone().with_material(true, 0, 8).unwrap();
     assert_eq!(pop.pop_materials[0], 8);
     assert_eq!(pop.materials, [0; MAX_CANVAS_MATERIALS]);
     assert_eq!(
-        renderer.with_material(false, 2, 7),
+        renderer.clone().with_material(false, 2, 7),
         Err(UiError::InvalidCanvasRenderer)
     );
     assert_eq!(
-        renderer.with_material(true, 1, 7),
+        renderer.clone().with_material(true, 1, 7),
         Err(UiError::InvalidCanvasRenderer)
     );
 }

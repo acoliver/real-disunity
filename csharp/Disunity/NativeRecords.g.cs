@@ -92,6 +92,36 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  One mesh vertex: its position in the element's local space, its first texture coordinate
+    ///  and its colour.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityUiVertex
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float u;
+        public float v;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+    }
+
+    /// <summary>
+    ///  What a renderer holds to draw: the renderer identity of its texture (0 for none) and the
+    ///  sizes of its mesh.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityUiGraphicInfo
+    {
+        public ulong texture;
+        public uint vertex_count;
+        public uint index_count;
+    }
+
+    /// <summary>
     ///  A canvas renderer's settings; booleans are 0 or 1. `mesh`, `texture` and `alpha_texture` are
     ///  managed instance ids (0 for none). The clip rectangle is x, y, width, height and only counts
     ///  when `has_rect_clipping` is 1. The materials have their own calls. A write rejects a NaN

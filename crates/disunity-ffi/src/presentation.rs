@@ -167,17 +167,24 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
     mutate(world, |s| {
         use worldrunner_world_simulation::{
             presentation::extraction::{SpriteTextures, append_ui_from, extract_world},
-            ui::contribution::extract_ui,
+            ui::{append_graphics, contribution::extract_ui, extract_graphics},
         };
 
         let mut plan = extract_world(&s.native, &SpriteTextures::default(), [width, height])
             .map_err(crate::errors::AbiError::from)?;
         let ui = extract_ui(&s.native, &s.fonts, [width, height])
             .map_err(crate::errors::AbiError::from)?;
+        let graphics =
+            extract_graphics(&s.native, &ui.layout).map_err(crate::errors::AbiError::from)?;
+        note_left_out_triangles(s, &graphics);
+        // Graphics go in first, so the engine's own text of the same sorting key draws over them.
+        append_graphics(&mut plan, graphics)
+            .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
         let next = plan
             .quads
             .iter()
             .filter_map(|q| q.texture)
+            .filter(|id| *id < crate::textures::FIRST_PLAYER_TEXTURE)
             .max()
             .map_or(Some(next_texture), |n| {
                 n.checked_add(1).map(|n| n.max(next_texture))
@@ -209,6 +216,20 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         }
         Ok(())
     })
+}
+/// Names, once per renderer, the triangles of a mesh that make no quad, which are not drawn.
+fn note_left_out_triangles(
+    session: &mut crate::store::Session,
+    graphics: &[worldrunner_world_simulation::ui::UiGraphic],
+) {
+    for graphic in graphics {
+        if graphic.left_out_triangles > 0 && session.left_out_noted.insert(graphic.object) {
+            eprintln!(
+                "canvas renderer on {:?}: {} triangles make no quad and are left out",
+                graphic.object, graphic.left_out_triangles
+            );
+        }
+    }
 }
 /// Fills the lens fields; the fields of the other lens kind stay zero.
 fn write_lens(header: &mut DisunityPresentation, lens: worldrunner_camera::CameraLens) {

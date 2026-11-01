@@ -295,21 +295,7 @@ pub fn append_ui_from(
         let texture = glyph_texture(&texture);
         plan.textures.insert(id, texture);
         for glyph in text.quads {
-            let mut corners = glyph.corners.map(|[x, y, z]| [x, -z, y]);
-            if text.overlay {
-                let camera = plan
-                    .camera
-                    .ok_or(worldrunner_camera::ViewError::InvalidWorldPoint)?;
-                let height = glam::UVec2::new(camera.viewport().width, camera.viewport().height)
-                    .as_vec2()
-                    .y;
-                corners = glyph.corners;
-                for corner in &mut corners {
-                    *corner = camera
-                        .screen_to_world(Vec3::new(corner[0], height - corner[1], 0.0))?
-                        .to_array();
-                }
-            }
+            let corners = ui_corners(plan.camera, glyph.corners, text.overlay)?;
             let uv = glyph.uv;
             plan.quads.push(SpriteQuad {
                 lighting: super::SpriteLighting::Unlit,
@@ -326,6 +312,31 @@ pub fn append_ui_from(
     plan.quads
         .sort_by_key(|q| (q.overlay, q.sorting_layer, q.sorting_order));
     Ok(())
+}
+
+/// A UI element's corners as the presentation draws them. Overlay corners are screen pixels
+/// counted from the bottom, which the camera turns into world points; other corners are points
+/// of the native world and change to the view's axes.
+#[cfg(feature = "ui")]
+pub(crate) fn ui_corners(
+    camera: Option<worldrunner_camera::ResolvedView>,
+    corners: [[f32; 3]; 4],
+    overlay: bool,
+) -> Result<[[f32; 3]; 4], worldrunner_camera::ViewError> {
+    if !overlay {
+        return Ok(corners.map(|[x, y, z]| [x, -z, y]));
+    }
+    let camera = camera.ok_or(worldrunner_camera::ViewError::InvalidWorldPoint)?;
+    let height = glam::UVec2::new(camera.viewport().width, camera.viewport().height)
+        .as_vec2()
+        .y;
+    let mut result = corners;
+    for corner in &mut result {
+        *corner = camera
+            .screen_to_world(Vec3::new(corner[0], height - corner[1], 0.0))?
+            .to_array();
+    }
+    Ok(result)
 }
 
 #[cfg(feature = "ui")]

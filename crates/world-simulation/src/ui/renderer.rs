@@ -1,6 +1,8 @@
 //! The state of a canvas renderer: what a UI element submits to be drawn.
+use crate::ui::geometry::UiGeometry;
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::{ComponentDesc, ComponentHandle, UiError, World, WorldError};
+use std::sync::Arc;
 
 /// How many materials, and how many pop materials, one renderer holds.
 pub const MAX_CANVAS_MATERIALS: usize = 8;
@@ -17,9 +19,9 @@ pub struct CanvasRendererFlags {
 }
 
 /// What a UI element submits: a colour, an alpha, a mesh, textures, materials and a clip
-/// rectangle. Meshes, textures and materials are managed instance ids, 0 for none. Nothing
-/// draws this yet.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// rectangle. Meshes, textures and materials are managed instance ids, 0 for none. The
+/// presentation draws the quads of `geometry` with the texture `graphic_texture` names.
+#[derive(Clone, Debug, PartialEq)]
 pub struct CanvasRenderer {
     pub color: [f32; 4],
     /// Kept apart from the colour's alpha; the engine multiplies them when it draws.
@@ -33,6 +35,10 @@ pub struct CanvasRenderer {
     pub mesh: u64,
     pub texture: u64,
     pub alpha_texture: u64,
+    /// The mesh's vertices and triangles, shared between clones; none when no mesh is set.
+    pub geometry: Option<Arc<UiGeometry>>,
+    /// The renderer identity of the texture the quads are drawn with, 0 for plain colour.
+    pub graphic_texture: u64,
     /// Slots at or past `material_count` are always 0.
     pub materials: [u64; MAX_CANVAS_MATERIALS],
     /// Slots at or past `pop_material_count` are always 0.
@@ -52,6 +58,8 @@ impl Default for CanvasRenderer {
             mesh: 0,
             texture: 0,
             alpha_texture: 0,
+            geometry: None,
+            graphic_texture: 0,
             materials: [0; MAX_CANVAS_MATERIALS],
             pop_materials: [0; MAX_CANVAS_MATERIALS],
         }
@@ -62,10 +70,11 @@ impl Default for CanvasRenderer {
 /// enabled canvas group on its object and the objects above, ending at the first group that
 /// ignores the groups above it.
 pub fn inherited_alpha(world: &World, renderer: ComponentHandle) -> Result<f32, WorldError> {
-    let ComponentDesc::CanvasRenderer(desc) = world.component(renderer)?.desc else {
+    let component = world.component(renderer)?;
+    let ComponentDesc::CanvasRenderer(desc) = &component.desc else {
         return Err(WorldError::from(UiError::InvalidCanvasRenderer));
     };
-    let object = world.component(renderer)?.object;
+    let object = component.object;
     let groups = groups_by_object(&world.snapshot().components);
     Ok(desc.alpha * effective_alpha(world, &groups, object)?)
 }
@@ -84,8 +93,8 @@ impl CanvasRenderer {
         Ok(self)
     }
 
-    pub(crate) fn validate(self) -> Result<(), UiError> {
-        let normal = self.normalized()?;
+    pub(crate) fn validate(&self) -> Result<(), UiError> {
+        let normal = self.clone().normalized()?;
         if normal.materials == self.materials && normal.pop_materials == self.pop_materials {
             Ok(())
         } else {

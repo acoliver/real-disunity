@@ -11,6 +11,38 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Sets whether the body is drawn between its poses either side of the last physics step,
+        ///  Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_interpolation_write(ulong world, ulong handle, uint interpolate);
+        /// <summary>
+        ///  # Safety
+        ///  `interpolate` is writable for one flag.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_interpolation_read(ulong world, ulong handle, uint* interpolate);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one body record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_read(ulong world, ulong handle, DisunityBody2d* output);
+        /// <summary>
+        ///  Writes a box (kind 0), circle (kind 1) or tilemap (kind 2) collider. A tilemap collider takes
+        ///  its shapes from the Tilemap on its object, so its size and radius are ignored.
+        ///  # Safety
+        ///  `value` points to one readable collider record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_collider_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_collider_write(ulong world, ulong handle, DisunityCollider2d* value);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one collider record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_collider_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_collider_read(ulong world, ulong handle, DisunityCollider2d* output);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one hit. A zero collider means no hit.
         /// </summary>

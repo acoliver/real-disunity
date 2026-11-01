@@ -84,11 +84,23 @@ fn load_history(p: vec2<i32>) -> vec3<f32> {
 fn reconstruct(q: vec2<f32>) -> vec4<f32> {
     let base = floor(q);
     let origin = vec2<i32>(base);
+    let wx = vec4<f32>(
+        lanczos2(q.x - (base.x - 1.0)),
+        lanczos2(q.x - base.x),
+        lanczos2(q.x - (base.x + 1.0)),
+        lanczos2(q.x - (base.x + 2.0)),
+    );
+    let wy = vec4<f32>(
+        lanczos2(q.y - (base.y - 1.0)),
+        lanczos2(q.y - base.y),
+        lanczos2(q.y - (base.y + 1.0)),
+        lanczos2(q.y - (base.y + 2.0)),
+    );
     var sum = vec4<f32>(0.0);
     var total = 0.0;
     for (var i = 0; i < 16; i++) {
         let d = vec2<i32>(i % 4 - 1, i / 4 - 1);
-        let w = lanczos2(q.x - (base.x + f32(d.x))) * lanczos2(q.y - (base.y + f32(d.y)));
+        let w = wx[d.x + 1] * wy[d.y + 1];
         sum += w * load_color(origin + d);
         total += w;
     }

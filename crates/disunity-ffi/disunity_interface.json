@@ -653,6 +653,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_texture_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_texture_store",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_tilemap_create",
       "since": "5.0.0",
       "rets": "DisunityResult"

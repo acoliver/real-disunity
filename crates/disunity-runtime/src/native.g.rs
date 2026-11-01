@@ -519,6 +519,23 @@ pub struct DisunityTileCell {
     pub tile: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityTextureInfo {
+    pub identity: u64,
+    /// Starts at 1 and rises by one each time the identity is stored again.
+    pub generation: u64,
+    /// The engine's `TextureFormat` value.
+    pub format: u32,
+    pub width: u32,
+    pub height: u32,
+    pub mips: u32,
+    /// Nonzero when the texels are linear data rather than sRGB colour.
+    pub linear: u32,
+    pub length: u32,
+    pub present: u32,
+}
+
 /// The ABI revision these records belong to.
 pub const DISUNITY_ABI_VERSION: u32 = 7;
 

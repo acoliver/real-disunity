@@ -44,6 +44,9 @@ pub mod sorting_group;
 pub mod sprites;
 mod store;
 pub mod text_style;
+#[cfg(test)]
+mod texture_tests;
+pub mod textures;
 pub mod tilemap;
 #[cfg(test)]
 mod time_input_tests;

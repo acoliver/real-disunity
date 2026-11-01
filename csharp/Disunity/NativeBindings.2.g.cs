@@ -260,5 +260,24 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_cells", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_tilemap_set_cells(ulong world, ulong handle, DisunityTileCell* cells, uint count);
+        /// <summary>
+        ///  Keeps a texture's bytes for the host and raises its generation.
+        ///
+        ///  # Safety
+        ///  `info` is readable for one record; `bytes` is readable for `length` bytes, or null when
+        ///  `length` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_store", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_store(ulong world, ulong identity, DisunityTextureInfo* info, byte* bytes, uint length);
+        /// <summary>
+        ///  Reports a stored texture and copies its bytes when `capacity` holds them. A zero capacity
+        ///  copies nothing. An identity nothing stored reports `present` zero and is not an error.
+        ///
+        ///  # Safety
+        ///  `out` is writable for one record; `bytes` is writable for `capacity` bytes, or null when
+        ///  `capacity` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_read(ulong world, ulong identity, DisunityTextureInfo* @out, byte* bytes, uint capacity);
     }
 }

@@ -620,6 +620,32 @@ namespace Disunity.Native
         public uint tile;
     }
 
+    /// <summary>
+    ///  A stored texture's description. `present` is zero when a read names an identity nothing stored.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTextureInfo
+    {
+        public ulong identity;
+        /// <summary>
+        ///  Starts at 1 and rises by one each time the identity is stored again.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  The engine's `TextureFormat` value.
+        /// </summary>
+        public uint format;
+        public uint width;
+        public uint height;
+        public uint mips;
+        /// <summary>
+        ///  Nonzero when the texels are linear data rather than sRGB colour.
+        /// </summary>
+        public uint linear;
+        public uint length;
+        public uint present;
+    }
+
 
 
 }

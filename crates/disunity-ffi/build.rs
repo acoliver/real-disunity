@@ -34,6 +34,7 @@ const ABI_SOURCES: &[&str] = &[
     "src/object_api.rs",
     "src/text_style.rs",
     "src/tilemap.rs",
+    "src/textures.rs",
 ];
 
 fn main() {

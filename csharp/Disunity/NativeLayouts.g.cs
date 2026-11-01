@@ -384,6 +384,16 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityTileCell>("y").ToInt32() != 4) throw new InvalidOperationException("DisunityTileCell.y offset");
         if (Marshal.OffsetOf<DisunityTileCell>("tile").ToInt32() != 8) throw new InvalidOperationException("DisunityTileCell.tile offset");
         if (Marshal.SizeOf<DisunityTileCell>() != 12 || typeof(DisunityTileCell).GetFields().Length != 3) throw new InvalidOperationException("DisunityTileCell layout");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("identity").ToInt32() != 0) throw new InvalidOperationException("DisunityTextureInfo.identity offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("generation").ToInt32() != 8) throw new InvalidOperationException("DisunityTextureInfo.generation offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("format").ToInt32() != 16) throw new InvalidOperationException("DisunityTextureInfo.format offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("width").ToInt32() != 20) throw new InvalidOperationException("DisunityTextureInfo.width offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("height").ToInt32() != 24) throw new InvalidOperationException("DisunityTextureInfo.height offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("mips").ToInt32() != 28) throw new InvalidOperationException("DisunityTextureInfo.mips offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("linear").ToInt32() != 32) throw new InvalidOperationException("DisunityTextureInfo.linear offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("length").ToInt32() != 36) throw new InvalidOperationException("DisunityTextureInfo.length offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("present").ToInt32() != 40) throw new InvalidOperationException("DisunityTextureInfo.present offset");
+        if (Marshal.SizeOf<DisunityTextureInfo>() != 48 || typeof(DisunityTextureInfo).GetFields().Length != 9) throw new InvalidOperationException("DisunityTextureInfo layout");
     }
 }
 /// The native ABI revision this assembly was built against.

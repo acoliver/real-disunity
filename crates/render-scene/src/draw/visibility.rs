@@ -5,6 +5,9 @@ use worldrunner_render_plan::{BillboardPolicy, SceneMesh, SceneTransform};
 
 use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
+use placement::BatchBounds;
+
+mod placement;
 
 /// Object placement counts for one recorded view, excluding terrain.
 /// Hidden live placements count as culled; removed placements are not considered.
@@ -101,7 +104,7 @@ impl MeshSelection {
             .unwrap_or_else(|| self.ceilings_squared.len().saturating_sub(1))
     }
 
-    fn wind_bounds(
+    pub(super) fn wind_bounds(
         &self,
         transform: &SceneTransform,
         extent: Vec3,
@@ -135,6 +138,8 @@ impl MeshSelection {
         bounds.expanded(Vec3::splat((6.0 * radius + 7.0 * origin.length()) * scale))
     }
 
+    /// Reference for the cached path in `placement`; tests compare the two bit for bit.
+    #[cfg(test)]
     fn material_bounds(
         &self,
         transform: &SceneTransform,
@@ -154,6 +159,7 @@ impl MeshSelection {
             ))
     }
 
+    #[cfg(test)]
     fn placement_bounds(
         &self,
         instances: &Instances,
@@ -217,6 +223,7 @@ fn within_ceiling(distance: u128, ceiling: u128, scale: Option<u32>) -> bool {
     }
 }
 
+#[cfg(test)]
 fn impostor_extent(extents: [f32; 2], transform: &SceneTransform, stretch: f32) -> Vec3 {
     let scale = model_matrix(transform).x_axis.truncate().length();
     Vec3::splat(extents[0] * scale + extents[1] * stretch)
@@ -319,51 +326,58 @@ impl Selection {
         };
         for (&key, batch) in &instances.batches {
             let mesh = &meshes[key.1];
+            let mut bounds = BatchBounds::new(mesh, instances, key.2, batch);
             // Traversal scans allocated slots; removed slots contribute neither
             // selection work nor statistics.
             for (slot, object, visible) in batch.placements() {
                 self.stats.considered += 1;
                 if !visible
                     || (self.casters_only && !object.casts_shadow())
-                    || !frustum.intersects(mesh.placement_bounds(
-                        instances,
+                    || !frustum.intersects(bounds.placement(
+                        slot,
                         object.transform(),
-                        key.2,
                         relief_stretch,
                     ))
                 {
                     self.stats.culled += 1;
                     continue;
                 }
-                let distance_squared = object
-                    .transform()
-                    .position_millimeters
-                    .into_iter()
-                    .zip(eye_millimeters)
-                    .try_fold(0_u128, |sum, (position, eye)| {
-                        let delta = (i128::from(position) - i128::from(eye)).unsigned_abs();
-                        sum.checked_add(delta * delta)
-                    })
-                    .expect("squared placement distance exceeds u128 millimetres");
+                let distance_squared =
+                    distance_squared(object.transform().position_millimeters, eye_millimeters);
                 let lod = mesh.lod(distance_squared, object.lod_distance_scale_millionths());
-                self.stats.drawn_per_lod[lod] += 1;
-                let slot = u32::try_from(slot).expect("validated instance slot");
-                if let Some(last) = self
-                    .ranges
-                    .last_mut()
-                    .filter(|last| last.key == key && last.lod == lod && last.slots.end == slot)
-                {
-                    last.slots.end += 1;
-                } else {
-                    self.ranges.push(SelectedRange {
-                        key,
-                        lod,
-                        slots: slot..slot + 1,
-                    });
-                }
+                self.push(key, lod, slot);
             }
         }
     }
+
+    fn push(&mut self, key: BatchKey, lod: usize, slot: usize) {
+        self.stats.drawn_per_lod[lod] += 1;
+        let slot = u32::try_from(slot).expect("validated instance slot");
+        if let Some(last) = self
+            .ranges
+            .last_mut()
+            .filter(|last| last.key == key && last.lod == lod && last.slots.end == slot)
+        {
+            last.slots.end += 1;
+        } else {
+            self.ranges.push(SelectedRange {
+                key,
+                lod,
+                slots: slot..slot + 1,
+            });
+        }
+    }
+}
+
+fn distance_squared(position: [i64; 3], eye: [i64; 3]) -> u128 {
+    position
+        .into_iter()
+        .zip(eye)
+        .try_fold(0_u128, |sum, (position, eye)| {
+            let delta = (i128::from(position) - i128::from(eye)).unsigned_abs();
+            sum.checked_add(delta * delta)
+        })
+        .expect("squared placement distance exceeds u128 millimetres")
 }
 
 /// Extend only the toward-light depth end of the authored receiver volume.
@@ -377,14 +391,15 @@ pub(super) fn caster_matrix(
 ) -> Mat4 {
     let mut near = terrain.map_or(0.0, |bounds| caster_near(bounds, receiver));
     for (&(_, mesh, material), batch) in &instances.batches {
+        let mut bounds = BatchBounds::new(&meshes[mesh], instances, material, batch);
         // Scan allocated slots, excluding removed placements from caster fitting.
-        for (_, object, visible) in batch
+        for (slot, object, visible) in batch
             .placements()
             .filter(|(_, object, visible)| *visible && object.casts_shadow())
         {
             debug_assert!(visible);
             near = near.min(caster_near(
-                meshes[mesh].placement_bounds(instances, object.transform(), material, 0.0),
+                bounds.placement(slot, object.transform(), 0.0),
                 receiver,
             ));
         }
@@ -443,3 +458,6 @@ mod scale_tests;
 
 #[cfg(test)]
 mod caster_tests;
+
+#[cfg(test)]
+mod cache_tests;

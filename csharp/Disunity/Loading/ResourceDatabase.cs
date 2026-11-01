@@ -124,6 +124,9 @@ internal sealed partial class ResourceDatabase
         "Material" or "UnplannedMaterial" => typeof(Material),
         "Mesh" => typeof(Mesh),
         "RenderTexture" or "UnplannedRenderTexture" => typeof(RenderTexture),
+        "AnimationClip" => typeof(AnimationClip),
+        "AnimatorController" => typeof(RuntimeAnimatorController),
+        "AnimatorOverrideController" => typeof(AnimatorOverrideController),
         var other => throw new InvalidDataException($"resource plans have no {other} assets"),
     };
 
@@ -184,6 +187,9 @@ internal sealed partial class ResourceDatabase
             "UnplannedShader" or "UnplannedMaterial" or "UnplannedRenderTexture" => throw new InvalidOperationException($"Resources: {asset.Str("error")}"),
             "Material" => _built[index] = PlayerMaterials.Build(asset, Asset),
             "Mesh" => _built[index] = PlayerMeshes.Build(asset, _directory),
+            "AnimationClip" => _built[index] = PlayerAnimations.Clip(asset),
+            "AnimatorController" => _built[index] = PlayerAnimations.Controller(asset, Asset),
+            "AnimatorOverrideController" => _built[index] = PlayerAnimations.Overrides(asset, Asset),
             _ => Script(index, asset),
         };
     }

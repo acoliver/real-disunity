@@ -3,7 +3,7 @@ using Disunity.Native;
 namespace UnityEngine;
 internal static class NativeBehaviourState
 {
-    internal static bool IsNative(Component value) => value is AudioListener or GUILayer or FlareLayer or Rendering.SortingGroup or Rendering.Universal.Light2D or Rendering.Universal.UniversalAdditionalCameraData;
+    internal static bool IsNative(Component value) => value is AudioListener or GUILayer or FlareLayer or Animator or Rendering.SortingGroup or Rendering.Universal.Light2D or Rendering.Universal.UniversalAdditionalCameraData;
     internal static unsafe bool Read(ulong handle)
     {
         uint value;

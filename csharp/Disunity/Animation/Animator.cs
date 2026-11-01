@@ -4,11 +4,13 @@ using Disunity.Hosting;
 namespace UnityEngine;
 
 /// <summary>
-/// Unity's animation component. The engine has no animation playback, so an Animator cannot be attached
-/// to a GameObject (<c>AddComponent&lt;Animator&gt;</c> throws) and an instance made with <c>new</c> is an
+/// Unity's animation component. An Animator attaches to a GameObject and keeps its settings and its
+/// <see cref="runtimeAnimatorController"/>, but the engine has no animation playback (the engine's choice, until
+/// something plays clips): every animator, attached or made with <c>new</c>, is an
 /// animator with no controller state machine: it has no layers, parameters or states, reads zero, empty
 /// or null for them, and ignores commands that need a controller with a warning when
 /// <see cref="logWarnings"/> is set, as Unity does for a parameter or state that does not exist.
+/// An attached animator's <c>enabled</c> flag lives in the world; the rest of its state is managed.
 /// Members that would evaluate or record animation throw <see cref="NotSupportedException"/>.
 /// The <c>playableGraph</c> property is not defined, because the playable types are not.
 /// </summary>
@@ -16,7 +18,6 @@ public partial class Animator : Behaviour
 {
     public Animator() { }
 
-    private protected override bool EnabledState { get; set; } = true;
     public RuntimeAnimatorController? runtimeAnimatorController { get; set; }
     public Avatar? avatar { get; set; }
     public float speed { get; set; } = 1f;

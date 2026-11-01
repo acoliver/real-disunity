@@ -27,6 +27,7 @@ internal sealed partial class SceneLoader
         "CanvasGroup" => CanvasGroup(owner, value),
         "CanvasRenderer" => CanvasRenderer(owner, value),
         "MeshFilter" => MeshFilter(owner, value),
+        "Animator" => Animator(owner, value),
         "MeshRenderer" => MeshRenderer(owner, value),
         "SkinnedMeshRenderer" => SkinnedMeshRenderer(owner, value),
         "UniversalAdditionalCameraData" => CameraData(owner, value, where),

@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use glam::UVec2;
-use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::presentation::extraction::{SpriteTextures, extract_world};
+use worldrunner_world_simulation::presentation::{Camera, Projection};
 use worldrunner_world_simulation::ui::{
     Canvas, CanvasGroup, CanvasMode, CanvasRenderer, RectTransform, UiGeometry, UiGraphic,
     UiVertex, append_graphics, extract_graphics,
@@ -337,4 +337,64 @@ fn a_mesh_is_checked_when_it_is_built() {
     assert!(UiGeometry::new(colour, vec![0, 1, 0]).is_err());
     assert!(UiGeometry::new(two, vec![0, 1, 1]).is_ok());
     assert!(UiGeometry::new(Vec::new(), Vec::new()).is_ok());
+}
+
+#[test]
+fn overlay_quads_under_a_perspective_camera_lie_inside_its_view() {
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let perspective = Camera {
+        projection: Projection::Perspective,
+        near: 0.3,
+        far: 1000.,
+        ..Camera::default()
+    };
+    world
+        .add_component(canvas, ComponentDesc::Camera(perspective))
+        .unwrap();
+    let object = element(&mut world, canvas);
+    draw(&mut world, object, renderer(unit_quad()));
+    let mut plan = extract_world(&world, &SpriteTextures::default(), VIEWPORT).unwrap();
+    append_graphics(&mut plan, graphics(&world)).unwrap();
+    let view = plan.camera.expect("a presented camera");
+    assert_eq!(plan.quads.len(), 1);
+    for corner in plan.quads[0].corners {
+        assert!(
+            view.contains_point(glam::Vec3::from(corner)),
+            "{corner:?} is clipped"
+        );
+    }
+}
+
+#[test]
+fn a_nested_canvas_under_a_camera_canvas_draws_at_its_screen_pixels() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let camera = world.create_object(ObjectDesc::default()).unwrap();
+    let root = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
+        .unwrap();
+    let settings = Canvas {
+        mode: CanvasMode::ScreenSpaceCamera {
+            camera,
+            orthographic_size: 3.,
+            plane_distance: 10.,
+        },
+        ..Canvas::default()
+    };
+    world
+        .add_component(root, ComponentDesc::Canvas(settings))
+        .unwrap();
+    let nested = element(&mut world, root);
+    world
+        .add_component(nested, ComponentDesc::Canvas(Canvas::default()))
+        .unwrap();
+    let object = element(&mut world, nested);
+    draw(&mut world, object, renderer(unit_quad()));
+    let found = graphics(&world);
+    assert_eq!(found.len(), 1);
+    assert!(found[0].overlay, "a camera canvas is drawn on the screen");
+    let expected = [[350., 250.], [450., 250.], [450., 350.], [350., 350.]];
+    for (corner, pixel) in found[0].quads[0].corners.iter().zip(expected) {
+        near(&corner[..2], &pixel);
+    }
 }

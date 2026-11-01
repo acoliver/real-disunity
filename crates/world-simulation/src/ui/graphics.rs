@@ -1,12 +1,12 @@
 //! The quads of the meshes canvas renderers submit, ready for the presentation.
-//! Corners are in the same space as a text glyph's: screen pixels on an overlay canvas, native
-//! world points otherwise.
+//! Corners are in the same space as a text glyph's: screen pixels on a screen-space canvas,
+//! native world points otherwise.
 use crate::presentation::SpriteLighting;
 use crate::presentation::extraction::{
     SpriteQuad, WorldRenderPlan, camera_admits, selected_camera, ui_corners,
 };
 use crate::ui::group::{effective_alpha, groups_by_object};
-use crate::ui::{Canvas, CanvasMode, CanvasRenderer, RectLayout, UiLayout};
+use crate::ui::{CanvasRenderer, RectLayout, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, ObjectSnapshot, World, WorldError};
 use std::collections::BTreeMap;
 
@@ -44,14 +44,6 @@ pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphi
     let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
     let rects: BTreeMap<ObjectHandle, &RectLayout> =
         layout.rects.iter().map(|r| (r.object, r)).collect();
-    let canvases: BTreeMap<ObjectHandle, Canvas> = snapshot
-        .components
-        .iter()
-        .filter_map(|c| match c.desc {
-            ComponentDesc::Canvas(canvas) => Some((c.object, canvas)),
-            _ => None,
-        })
-        .collect();
     let order = hierarchy_order(world, &snapshot.objects)?;
     let mut found = Vec::new();
     for component in &snapshot.components {
@@ -62,9 +54,7 @@ pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphi
             continue;
         };
         let alpha = renderer.alpha * effective_alpha(world, &groups, component.object)?;
-        let overlay = canvases
-            .get(&rect.canvas)
-            .is_some_and(|c| c.mode == CanvasMode::ScreenSpaceOverlay);
+        let overlay = rect.on_screen();
         if renderer.flags.cull
             || alpha <= 0.
             || (!overlay && !camera_admits(world, camera, component.object)?)
@@ -97,11 +87,9 @@ fn graphic(
         .quads
         .iter()
         .map(|quad| UiGraphicQuad {
-            corners: quad.positions.map(|p| {
-                rect.local_to_world
-                    .transform_point3(glam::Vec3::from(p))
-                    .to_array()
-            }),
+            corners: quad
+                .positions
+                .map(|p| rect.drawn_point(glam::Vec3::from(p)).to_array()),
             uv_rect: quad.uv_rect,
             color: std::array::from_fn(|i| tint[i] * quad.color[i]),
         })

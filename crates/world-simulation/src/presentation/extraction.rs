@@ -314,9 +314,15 @@ pub fn append_ui_from(
     Ok(())
 }
 
+/// Raster depth overlay corners are unprojected at. The near plane itself (depth 0) is the clip
+/// boundary, where rounding clips a perspective camera's overlay; halfway keeps every corner
+/// inside the view for both lens kinds, and overlays draw after the world without a depth test.
+#[cfg(feature = "ui")]
+pub(crate) const OVERLAY_DEPTH: f32 = 0.5;
+
 /// A UI element's corners as the presentation draws them. Overlay corners are screen pixels
-/// counted from the bottom, which the camera turns into world points; other corners are points
-/// of the native world and change to the view's axes.
+/// counted from the bottom, which the camera turns into world points at [`OVERLAY_DEPTH`]; other
+/// corners are points of the native world and change to the view's axes.
 #[cfg(feature = "ui")]
 pub(crate) fn ui_corners(
     camera: Option<worldrunner_camera::ResolvedView>,
@@ -333,7 +339,7 @@ pub(crate) fn ui_corners(
     let mut result = corners;
     for corner in &mut result {
         *corner = camera
-            .screen_to_world(Vec3::new(corner[0], height - corner[1], 0.0))?
+            .screen_to_world(Vec3::new(corner[0], height - corner[1], OVERLAY_DEPTH))?
             .to_array();
     }
     Ok(result)

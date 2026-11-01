@@ -243,3 +243,19 @@ mod temporal_configuration_tests;
 #[cfg(test)]
 #[path = "temporal_rejection_tests.rs"]
 mod temporal_rejection_tests;
+
+#[cfg(test)]
+#[path = "qualification_scene_tests.rs"]
+mod qualification_scene;
+
+#[cfg(test)]
+#[path = "qualification_reference_tests.rs"]
+mod qualification_reference;
+
+#[cfg(test)]
+#[path = "qualification_timing_tests.rs"]
+mod qualification_timing;
+
+#[cfg(test)]
+#[path = "qualification_matrix_tests.rs"]
+mod qualification_matrix;

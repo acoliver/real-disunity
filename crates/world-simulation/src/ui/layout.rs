@@ -15,6 +15,8 @@ pub struct RectLayout {
     /// Maps world points to screen pixels (x and y) on a screen-space canvas; `None` in world
     /// space.
     pub pixels_from_world: Option<Mat4>,
+    /// The mode the rectangle is drawn in: its root canvas's, whatever a nested canvas's own.
+    pub mode: CanvasMode,
     pub sorting_layer: i32,
     pub sorting_order: i32,
 }
@@ -276,6 +278,7 @@ impl World {
                 corners,
                 screen_corners,
                 pixels_from_world,
+                mode: settings.mode,
                 sorting_layer: settings.sorting_layer,
                 sorting_order: settings.sorting_order,
             });

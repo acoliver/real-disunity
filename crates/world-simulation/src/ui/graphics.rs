@@ -136,7 +136,7 @@ pub fn append_graphics(
             plan.quads.push(SpriteQuad {
                 lighting: SpriteLighting::Unlit,
                 overlay: graphic.overlay,
-                corners: ui_corners(plan.camera, quad.corners, graphic.overlay)?,
+                corners: ui_corners(plan.camera.as_ref(), quad.corners, graphic.overlay)?,
                 uv_rect: quad.uv_rect,
                 color: quad.color,
                 texture: graphic.texture,

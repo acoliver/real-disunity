@@ -95,7 +95,9 @@ internal static class CanvasRendererGraphicsTests
         Ensure(Read(renderer).Info.texture == 0, "no texture draws plain color");
         var empty = new Texture2D(0, 0);
         renderer.SetTexture(empty);
-        Ensure(Read(renderer).Info.texture == 0, "a texture of no size draws plain color");
+        var undrawn = Read(renderer).Info.texture;
+        Ensure(undrawn >= DisunityHost.FirstPlayerTextureIdentity && DisunityHost.PlayerTexture(undrawn) is null,
+            "a texture of no size gets an identity with no texels, so its quads are left out");
         var material = new Material(Material.SpriteUnlit);
         var fromMaterial = new Texture2D(4, 4);
         material.mainTexture = fromMaterial;
@@ -106,7 +108,12 @@ internal static class CanvasRendererGraphicsTests
         Ensure(Read(renderer).Info.texture == given.RendererIdentity, "a given texture wins over the material's");
         var stored = new RenderTexture(4, 4, 0);
         renderer.SetTexture(stored);
-        Ensure(Read(renderer).Info.texture == 0, "a texture that is not a Texture2D draws plain color");
+        var target = Read(renderer).Info.texture;
+        Ensure(target >= DisunityHost.FirstPlayerTextureIdentity && target != undrawn && DisunityHost.PlayerTexture(target) is null,
+            "a render texture gets its own identity with no texels");
+        renderer.SetTexture(null);
+        renderer.SetTexture(stored);
+        Ensure(Read(renderer).Info.texture == target, "a render texture keeps its identity");
         EngineObject.DestroyImmediate(stored);
     }
 }

@@ -40,8 +40,14 @@ public sealed partial class CanvasRenderer
     }
 
     /// <summary>Tells the native renderer which texture the quads sample. A <see cref="Texture2D"/> that has pixels
-    /// gives its renderer identity, which stores its bytes for the host; any other texture, or none, draws plain color.</summary>
+    /// gives its renderer identity, which stores its bytes for the host; no texture draws plain color; any other
+    /// texture gives an identity with no texels, so the frame leaves its quads out.</summary>
     private void SendTexture(Texture? texture) =>
         DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_renderer_texture_write(
-            DisunityHost.WorldHandle, Handle, texture is Texture2D { width: > 0, height: > 0 } plain ? plain.RendererIdentity : 0UL));
+            DisunityHost.WorldHandle, Handle, texture switch
+            {
+                null => 0UL,
+                Texture2D { width: > 0, height: > 0 } plain => plain.RendererIdentity,
+                _ => DisunityHost.UndrawnTextureIdentity(texture),
+            }));
 }

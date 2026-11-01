@@ -36,20 +36,20 @@ fn quad_vertices(u: [f32; 2], v: [f32; 2]) -> Vec<UiVertex> {
     ]
 }
 
-fn geometry(vertices: Vec<UiVertex>, indices: Vec<u32>) -> Option<Arc<UiGeometry>> {
-    Some(Arc::new(UiGeometry::new(vertices, indices).unwrap()))
+fn geometry(vertices: Vec<UiVertex>, indices: Vec<u32>) -> Arc<UiGeometry> {
+    Arc::new(UiGeometry::new(vertices, indices).unwrap())
 }
 
-fn unit_quad() -> Option<Arc<UiGeometry>> {
+fn unit_quad() -> Arc<UiGeometry> {
     geometry(
         quad_vertices([0.25, 0.75], [0.5, 1.]),
         vec![0, 1, 2, 2, 3, 0],
     )
 }
 
-fn renderer(geometry: Option<Arc<UiGeometry>>) -> CanvasRenderer {
+fn renderer(geometry: impl Into<Option<Arc<UiGeometry>>>) -> CanvasRenderer {
     CanvasRenderer {
-        geometry,
+        geometry: geometry.into(),
         graphic_texture: 1 << 40,
         ..CanvasRenderer::default()
     }
@@ -283,10 +283,10 @@ fn appended_quads_keep_hierarchy_order_for_equal_sorting_keys() {
         .unwrap();
     let first = element(&mut world, canvas);
     let second = element(&mut world, canvas);
-    let mut plain = renderer(unit_quad());
-    plain.graphic_texture = 0;
+    let mut untextured = renderer(unit_quad());
+    untextured.graphic_texture = 0;
     draw(&mut world, second, renderer(unit_quad()));
-    draw(&mut world, first, plain);
+    draw(&mut world, first, untextured);
     let mut plan = extract_world(&world, &SpriteTextures::default(), VIEWPORT).unwrap();
     append_graphics(&mut plan, graphics(&world)).unwrap();
     let textures: Vec<_> = plan.quads.iter().map(|q| q.texture).collect();

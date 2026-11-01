@@ -1,6 +1,6 @@
 //! Pathless CPU UI contributions for the existing scene compositor.
-//! Texture coverage is linear R8; a glyph quad samples it as alpha. Vertices of
-//! a screen-space canvas are pixels, other vertices use the native world basis. Rendering
+//! Texture coverage is linear R8; a glyph quad samples it as alpha. Overlay
+//! vertices are pixels, other vertices use the native world basis. Rendering
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
 use crate::presentation::CoverageTexture as SceneTexture;
@@ -67,7 +67,7 @@ pub fn extract_ui(
                 _ => None,
             })
             .unwrap_or_default();
-        let overlay = rect.on_screen();
+        let overlay = rect.mode == CanvasMode::ScreenSpaceOverlay;
         if !overlay && !camera_admits(world, camera, component.object)? {
             continue;
         }
@@ -81,7 +81,6 @@ pub fn extract_ui(
         color[3] *= effective_alpha(world, &groups, component.object)?;
         let mut text = contribution(rect, text, overlay, color);
         snap_to_pixels(&mut text, rect, canvas);
-        to_screen(&mut text, rect);
         texts.push(text);
     }
     texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.object));
@@ -152,19 +151,6 @@ fn snap_to_pixels(text: &mut UiTextContribution, rect: &RectLayout, canvas: Canv
     for quad in &mut text.quads {
         for corner in &mut quad.corners {
             *corner = (Vec3::from(*corner) + shift).to_array();
-        }
-    }
-}
-
-/// Moves the glyphs of a screen-space canvas from world points to the screen pixels they are
-/// drawn at.
-fn to_screen(text: &mut UiTextContribution, rect: &RectLayout) {
-    let Some(pixels) = rect.pixels_from_world else {
-        return;
-    };
-    for quad in &mut text.quads {
-        for corner in &mut quad.corners {
-            *corner = pixels.transform_point3(Vec3::from(*corner)).to_array();
         }
     }
 }

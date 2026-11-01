@@ -285,6 +285,8 @@ pub fn append_ui_from(
         return Err(worldrunner_camera::ViewError::InvalidWorldPoint);
     }
     for text in ui.texts {
+        let screen = text_screen(&ui.layout, &text, plan.camera.is_some());
+        let overlay = text.overlay || screen.is_some();
         let Some(texture) = text.texture else {
             continue;
         };
@@ -295,11 +297,16 @@ pub fn append_ui_from(
         let texture = glyph_texture(&texture);
         plan.textures.insert(id, texture);
         for glyph in text.quads {
-            let corners = ui_corners(plan.camera, glyph.corners, text.overlay)?;
+            let drawn = screen.map_or(glyph.corners, |pixels| {
+                glyph
+                    .corners
+                    .map(|c| pixels.transform_point3(Vec3::from(c)).to_array())
+            });
+            let corners = ui_corners(plan.camera.as_ref(), drawn, overlay)?;
             let uv = glyph.uv;
             plan.quads.push(SpriteQuad {
                 lighting: super::SpriteLighting::Unlit,
-                overlay: text.overlay,
+                overlay,
                 corners,
                 uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
                 color: text.color,
@@ -314,6 +321,23 @@ pub fn append_ui_from(
     Ok(())
 }
 
+/// The map from a text's world points to screen pixels when the presentation draws it on the
+/// screen although its glyphs are world points: text on a screen space camera canvas, drawn over
+/// the presented camera's picture where its own camera puts it, like the canvas's graphics.
+#[cfg(feature = "ui")]
+fn text_screen(
+    layout: &crate::ui::UiLayout,
+    text: &crate::ui::contribution::UiTextContribution,
+    presented: bool,
+) -> Option<glam::Mat4> {
+    if text.overlay || !presented {
+        return None;
+    }
+    layout
+        .rect(text.object)
+        .and_then(|rect| rect.pixels_from_world)
+}
+
 /// Raster depth overlay corners are unprojected at. The near plane itself (depth 0) is the clip
 /// boundary, where rounding clips a perspective camera's overlay; halfway keeps every corner
 /// inside the view for both lens kinds, and overlays draw after the world without a depth test.
@@ -325,7 +349,7 @@ pub(crate) const OVERLAY_DEPTH: f32 = 0.5;
 /// corners are points of the native world and change to the view's axes.
 #[cfg(feature = "ui")]
 pub(crate) fn ui_corners(
-    camera: Option<worldrunner_camera::ResolvedView>,
+    camera: Option<&worldrunner_camera::ResolvedView>,
     corners: [[f32; 3]; 4],
     overlay: bool,
 ) -> Result<[[f32; 3]; 4], worldrunner_camera::ViewError> {

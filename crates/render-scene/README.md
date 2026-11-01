@@ -362,6 +362,65 @@ SSAO-only scenes on `ScenePipelines::with_ssao` do not write velocity.
 
 Jitter alone makes the image shimmer. Enable it only with the resolve, or in tests.
 
+## Temporal reactive mask producer (water)
+
+A temporal upscale owns an `Rg8Unorm` reactive and composition mask at the internal extent; its contract,
+clear, dilation, consumption and measured bytes are in the
+[render-post README](../render-post/README.md#reactive-and-composition-mask). The water surface is the one
+producer in this crate. It ships off.
+
+* Switch. `FrameRenderer::set_water_reactive_mask(bool)` (defined in `water/reactive.rs`) defaults to
+  `false`, and nothing in the compositor turns it on. With the switch off, or on a frame without a mask, the
+  plan, the pass list, the pipelines and the output are those of a renderer without temporal masks
+  (`temporal_water_tests`: the plan lists `[Opaque, TransparentWater]` with one feature pass; scene colour
+  is `to_bits` equal with the producer on and off; a renderer without a mask is unchanged with the switch on).
+* The pass. With the switch on and a mask in `FrameTargets`, the water feature adds a second pass,
+  `PassSlot::TransparentWaterMask`, ordered after `TransparentWater` and before `TransparentAlpha`
+  (`validate_transparency` still counts one water pass). It redraws the water bodies with the same `vs_water`
+  vertex stage (same specialized module text, vertex constants and layouts) and a constant fragment
+  `fs_water_reactive` that writes `(0.9, 0, 0, 0)`: reactive 0.9, composition 0. The value is a policy
+  constant fixed before measuring; a value derived from the surface animation is out of scope. The only
+  colour target is the mask with `Max` blend on colour and alpha. The depth attachment is the water pass's
+  depth (`Load`/`Store`) with `LessEqual` and depth writes off, so water hidden behind nearer geometry
+  writes nothing. `AttachmentDeclaration` has no read-only flag and the stock contracts build every depth
+  attachment writable, so the pass declares the attachment as the water pass does and the pipeline turns
+  the writes off; the depth is unchanged. The mask is declared `Load` with retained contents: the host
+  clear (`FrameTargets::encode_mask_clear`) is the producer and the only clear, as the
+  [producer contract](../render-post/README.md#reactive-and-composition-mask) requires.
+* Why a separate pass. The water pass writes four `Rgba16Float` outputs: colour and the three receiver
+  outputs (normal, material, environment), 4 x 8 = 32 bytes per sample. That is the WebGPU default
+  `max_color_attachment_bytes_per_sample`, and the frame contracts check it
+  (`ContractError::ColorAttachmentBytes`). A fifth `Rg8Unorm` output makes 34 bytes and the pipeline fails
+  to build ("The total number of bytes per sample in color attachments 34 exceeds the limit 32"). Packing the
+  receiver outputs would change the SSR inputs and their tests for a 2 byte saving, and requiring a higher
+  device limit is not portable. The separate pass keeps the four outputs and every no-mask pipeline as they
+  are. It costs one extra depth-tested draw of the water vertices, and only when a mask exists. The cost has
+  not been timed.
+* Why it is off. The rule, fixed before the measurement: on the trail region over the last 8 frames,
+  `trail_mask <= reset + 0.5 * (trail_zero - reset)`, and the static opaque region at most 1.10 times its
+  zero-mask error. Scene: a wall and animated stock water, 24 frames 0.1 s apart, lavapipe, mean absolute
+  error in 8 bit sRGB divided by 255, against a 4x supersampled render of the same frame and water time
+  (`temporal_water_producer_tests`, which prints the table):
+
+  | Scale | Trail, zero mask | Trail, mask | Trail, reset | Bound | Static, zero | Static, mask | 1.10 x static zero | Trail rule |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | 0.50 | 0.00618 | 0.00796 | 0.01126 | 0.00872 | 0.00404 | 0.00428 | 0.00444 | holds only vacuously |
+  | 0.67 | 0.00477 | 0.00788 | 0.00726 | 0.00601 | 0.00312 | 0.00317 | 0.00343 | fails (0.00788 > 0.00601) |
+  | 0.77 | 0.00441 | 0.00678 | 0.00730 | 0.00585 | 0.00313 | 0.00313 | 0.00344 | fails (0.00678 > 0.00585) |
+
+  With the stock water at these steps the accumulating run is already below the reset floor at every scale,
+  and the 0.9 mask raises the error on the water above the zero-mask run. The static region stays within
+  1.10 times. At 0.5 the bound exceeds the mask error only because the zero-mask error is below the reset
+  floor, so that row holds vacuously and shows no gain. Nothing was tuned: the animation step, region, frame
+  count and constant are the first values written. No measurement shows the producer improving the output.
+  `temporal_water_producer_tests` asserts only finite, positive values and the static bound. The Radeon
+  was not run for the water tests.
+* Follow-up. Enabling the producer is tracked in the Hubnot issue "Temporal upscaler: turn on the water
+  reactive-mask producer once it meets the PR 6 acceptance rule".
+* Contract for further producers (alpha, particles). Declare the mask `Load` with the host clear as its
+  producer, write with `Max` blend per channel, never clear it. A producer whose pass would exceed the 32
+  byte colour attachment limit needs a pass of its own, ordered after the pass whose depth it reads.
+
 ## Cascade refresh scheduling
 
 `DirectionalShadowSettings::refresh_policy` defaults to

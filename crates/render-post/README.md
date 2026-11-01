@@ -484,6 +484,9 @@ memory, and `temporal upscale` runs its single target `taa_upscale_unlocked` ent
 6. `temporal upscale history`, and with locks `temporal lock history`: the shared history copies of colour and
    locks.
 
+With a temporal mask, `temporal mask dilate` runs after `temporal depth clip` and the upscale pass consumes the
+prepared mask; see [Reactive and composition mask](#reactive-and-composition-mask).
+
 Lock state costs, only with locks on and measured by `taa_allocation_tests` (with locks off they are zero): candidates 8R per slot, lock bank 8O per slot and one
 shared lock history 8O, so 24R + 32O bytes with three slots (the design counted 16O for two 16 bit channels).
 
@@ -522,6 +525,82 @@ block, so a policy can be switched on in that one function. None ships: on the A
 nonzero candidate stayed within 1.10 times the native TAA shimmer at scale 0.5. The
 measurements on lavapipe and the Radeon, the decision rule and what remains before a bias can be
 enabled are in [docs/rendering.md](../../docs/rendering.md#material-mip-bias).
+
+#### Reactive and composition mask
+
+A temporal upscale (`UpscaleMode::Temporal` at a render extent below the output) owns one mask beside the
+velocity target. `StageFactory::needs_temporal_masks` is true for that mode only, and `FrameTargets`
+allocates the mask only when TAA reconstructs the output grid; at equal extents (the native TAA path) and in
+every other mode no mask exists.
+
+* Resource. `TEMPORAL_MASK_FORMAT` is `Rg8Unorm` at the internal extent R, one sample, usable as render
+  attachment, sampled texture, copy source and copy destination. Red is the reactive value, green the
+  composition value, both in [0, 1]. `FrameTargets::temporal_mask()` and `temporal_mask_texture()` mirror
+  `velocity()` and `velocity_texture()`; `FrameTargets::validate_temporal_mask(config, &texture)` rejects a host
+  texture of the wrong sample count, format (`PostError::UnsupportedFormat`) or extent
+  (`PostError::MaskExtent { expected, actual }`) before any encoder exists.
+* Clear. The host calls `FrameTargets::encode_mask_clear(encoder)` first in the frame's encoder, before any
+  producer. It encodes one render pass clearing both channels to zero and nothing when there is no mask. The
+  clear is in the frame's own encoder, so a frame whose encoder is dropped never submits its producers' writes
+  and the next frame clears again (`temporal_mask_clear_tests`, including a stale 1.0 that would otherwise be
+  dilated and consumed).
+* Producer contract, for water today and for any future alpha or particle feature. Declare the mask as an
+  indexed colour output with `AttachmentLoad::Load` and the view with `with_retained_contents()`, so the
+  frame validator accepts the host clear as the producer. Write with `BlendOperation::Max` on both
+  channels, so overlapping producers combine monotonically and no producer lowers another's value. Never
+  clear it: a clear in a producer is right only while that producer is the first writer of every frame and it
+  would erase an earlier producer and hide a stale mask from the cancelled-frame guarantee. Draw at one
+  sample. Cap the value in the producer; the consumer applies no cap, so reactive 1 means the history weight
+  is zero. A producer that is not a pass of its own must stay within the 32 byte colour attachment limit
+  (`ContractError::ColorAttachmentBytes`); see the water pass in the
+  [render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water).
+* Dilation. When a mask exists, `temporal mask dilate` (`taa_mask.wgsl`, `taa_mask_gpu.rs`) is scheduled
+  after `temporal depth clip` and before `temporal create locks` or `temporal upscale`. It takes the 3x3
+  maximum of each channel (clamped at the image border) into a per-slot `Rg8Unorm` "temporal prepared mask"
+  at R. It is a fullscreen fragment pass because `Rg8Unorm` is not a core storage format. A single set
+  texel grows to its 3x3 neighbourhood and not beyond; 0.5 passes through to within 1/255.
+* Reactive consumption (`taa_upscale.wgsl`). The shader reads the maximum of the prepared red over the
+  same 2x2 internal texels as the depth confidence and computes
+  `wh = history_weight * (1 - reactive) * clamp(1 - 1.5 * moved) * confidence`. Reactive 1 gives `wh = 0`,
+  which is the current-frame Lanczos2 reconstruction (the reset image, within 2^-11 per channel on texels
+  whose dilated reactive is 1); the history weight is monotone in reactive. Alpha stays the current alpha.
+* Composition consumption. The locked entry point reads the maximum of the prepared green over the same
+  texels. The lock share is interpolated, `mix(LOCK_SHARE, 1, composition)`, which is exactly 0.5 at
+  composition 0. At composition 1 no lock is reprojected, no candidate is gathered and the new lock bank is
+  written as zero, so composition 1 removes the locks (the lock-off image within 2^-11, the bank all zero).
+  `taa_upscale_unlocked`, the default entry point, has no composition consumer: with locks off (the default,
+  #436) the green channel changes nothing.
+* No mask, no cost. An absent mask schedules no clear and no `temporal mask dilate`, allocates no mask and
+  binds a 1x1 zero texture with `masks = 0` in the shader, so the stage list, the allocation and the output
+  are those of the path before masks. The default output is unchanged with no mask and with an all-zero mask:
+  `absent_and_all_zero_masks_are_the_path_before_masks` (`temporal_reactive_tests.rs`) compares the last 8
+  frames by `to_bits`, and `composition_zero_is_the_locked_path_without_masks`
+  (`temporal_composition_tests.rs`) does the same for the image and the lock bank under `WithLocks`. The
+  test-only switch `taa_mask_gpu::WithoutMasks` builds the chain whose targets carry no mask.
+* Measured bytes. The producer mask is one shared `Rg8Unorm` entry, "frame temporal mask", 2R bytes per
+  frame generation (written and read within one encoded frame in queue order, reset by the clear). The
+  prepared mask is a per-slot entry, "temporal prepared mask", 2R bytes each. With three slots that is
+  2R + 3 x 2R = 8R bytes: 7,680 + 23,040 = 30,720 at the 160x96 test rig at scale 0.5 (R = 80x48 = 3,840 texels).
+  `taa_allocation_tests` and `post_extent_allocation_tests` pin these and pin that no other configuration
+  names a mask. The 1x1 zero texture a slot binds for a frame without a mask is not in the declaration.
+* Measured quality, lavapipe, mean absolute HDR error over the last 8 of 48 frames of a 70% white translucent bar
+  moving 2 canvas px per frame over an opaque textured background (`temporal_translucent_scene.rs`), trail
+  region = strip vacated in those frames, reactive painted on the bar (`temporal_reactive_tests.rs`):
+
+  | Scale | R | Trail at reactive 0, 0.25, 0.5, 0.75, 1 | Reset floor | Trail at 0.9 | Static region, every strength |
+  | --- | --- | --- | --- | --- | --- |
+  | 0.50 | 80x48 | 0.07979, 0.06440, 0.05051, 0.04203, 0.04102 | 0.04357 | 0.04068 | 0.07141 |
+  | 0.67 | 107x64 | 0.06215, 0.05353, 0.04210, 0.03328, 0.02906 | 0.03235 | 0.02921 | 0.03831 |
+  | 0.77 | 123x74 | 0.05100, 0.04357, 0.03284, 0.02256, 0.01547 | 0.03053 | 0.01672 | 0.03363 |
+
+  The rule fixed before implementation: each step of the strength sweep at most the previous plus 2^-11,
+  trail at 0.9 at most reset + 0.5 (zero - reset), static region at most 1.10 times the zero-mask run. All hold at
+  the three scales on lavapipe (the static region is bit-equal to the zero-mask run) and on the Radeon 780M
+  (17 tests of `temporal_translucent` and `temporal_mask`). The composition tests were not run on the Radeon.
+
+The only producer in the tree is the water surface, which ships off: see the
+[render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water) for the measurement
+table that decided it and the follow-up issue.
 
 ### Native-resolution RCAS
 

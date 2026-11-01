@@ -116,7 +116,7 @@ pub fn format_name(format: u32) -> String {
 /// The base level of a texture the managed engine stored, as a scene texture with its rows top
 /// first. RGBA32, RGB24 and Alpha8 become RGBA8 texels (Alpha8 as white with that alpha). DXT1,
 /// DXT5 and BC4 follow `path`: one-level DX10 DDS containers in their sRGB forms when the texture
-/// is not linear (BC4 holds data and is always linear), or decoded RGBA8 texels (BC4 as red).
+/// is not linear (BC4 holds data and is always linear), or decoded RGBA8 texels (BC4 as red). BC7 is only drawn decoded.
 /// Further mip levels are not carried, as the engine's choice for now.
 pub fn player_scene_texture(
     texture: &PlayerTexture,
@@ -128,6 +128,7 @@ pub fn player_scene_texture(
         1 => texels(texture, "Alpha8", 1, |t| [255, 255, 255, t[0]]),
         10 => block(texture, "DXT1", BlockLayout::Bc1, path),
         12 => block(texture, "DXT5", BlockLayout::Bc3, path),
+        25 => block(texture, "BC7", BlockLayout::Bc7, path),
         26 => block(texture, "BC4", BlockLayout::Bc4, path),
         other => Err(PlayerTextureError::Unsupported {
             format: format_name(other),
@@ -186,6 +187,11 @@ fn block(
     path: BlockPath,
 ) -> Result<SceneTexture, PlayerTextureError> {
     let (width, height) = (texture.width, texture.height);
+    if path == BlockPath::Dds && layout == BlockLayout::Bc7 {
+        return Err(PlayerTextureError::Unsupported {
+            format: format.into(),
+        });
+    }
     if path == BlockPath::Dds && height % 4 != 0 {
         return Err(PlayerTextureError::Unaligned { format, height });
     }

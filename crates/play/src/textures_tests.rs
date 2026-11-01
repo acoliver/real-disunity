@@ -349,3 +349,74 @@ fn decoded_565_endpoints_fill_every_bit_of_each_channel() {
     let scene = decoded(&white).unwrap();
     assert_eq!(pixel(texels(&scene).1, 4, 0, 0), [255, 255, 255, 255]);
 }
+
+const BC7: u32 = 25;
+
+/// A mode 6 block whose sixteen texels are all `rgba`: both endpoints equal, every index zero.
+/// Every value is even, so the endpoints' P-bits are clear.
+fn solid_bc7_block(rgba: [u8; 4]) -> Vec<u8> {
+    assert!(rgba.iter().all(|value| value % 2 == 0));
+    let mut bits = 1_u128 << 6;
+    let mut at = 7;
+    for value in rgba {
+        for _ in 0..2 {
+            bits |= u128::from(value >> 1) << at;
+            at += 7;
+        }
+    }
+    assert_eq!(at, 63, "two clear P-bits and sixteen zero indices follow");
+    bits.to_le_bytes().to_vec()
+}
+
+#[test]
+fn bc7_is_decoded_with_its_block_rows_placed_and_the_texture_turned_top_first() {
+    let colours = [
+        [10, 20, 30, 254],
+        [40, 50, 60, 254],
+        [70, 80, 90, 254],
+        [100, 110, 120, 254],
+    ];
+    let bytes: Vec<u8> = colours.iter().flat_map(|c| solid_bc7_block(*c)).collect();
+    let scene = decoded(&player(BC7, [8, 8], false, bytes)).unwrap();
+    let (space, rows) = texels(&scene);
+    assert_eq!(
+        space,
+        TextureColorSpace::Srgb,
+        "a texture that is not linear is sRGB"
+    );
+    let at = |x: usize, y: usize| rows[(y * 8 + x) * 4..][..4].to_vec();
+    assert_eq!(
+        at(0, 0),
+        colours[2],
+        "the first row of the output is the top, the last stored block row"
+    );
+    assert_eq!(at(7, 0), colours[3]);
+    assert_eq!(at(0, 7), colours[0]);
+    assert_eq!(at(7, 7), colours[1]);
+    assert_eq!(rows.len(), 8 * 8 * 4);
+}
+
+#[test]
+fn bc7_crops_blocks_past_the_edge_checks_the_length_and_is_never_a_container() {
+    let block = solid_bc7_block([200, 100, 50, 254]);
+    let bytes: Vec<u8> = (0..4).flat_map(|_| block.clone()).collect();
+    let scene = decoded(&player(BC7, [5, 5], true, bytes.clone())).unwrap();
+    let (space, rows) = texels(&scene);
+    assert_eq!(space, TextureColorSpace::Linear);
+    assert_eq!(rows.len(), 5 * 5 * 4);
+    assert_eq!(&rows[..4], &[200, 100, 50, 254]);
+    assert!(matches!(
+        decoded(&player(BC7, [5, 5], true, bytes[..63].to_vec())),
+        Err(PlayerTextureError::Short {
+            needed: 64,
+            actual: 63,
+            ..
+        })
+    ));
+    assert_eq!(
+        player_scene_texture(&player(BC7, [4, 4], false, block)),
+        Err(PlayerTextureError::Unsupported {
+            format: "BC7".into()
+        })
+    );
+}

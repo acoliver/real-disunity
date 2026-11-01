@@ -24,6 +24,8 @@ pub enum BlockLayout {
     Bc3,
     /// Eight bytes: two endpoints and sixteen 3-bit indices.
     Bc4,
+    /// Sixteen bytes in one of eight modes; only decoded, never carried as a container.
+    Bc7,
 }
 
 impl BlockLayout {
@@ -32,7 +34,7 @@ impl BlockLayout {
     pub const fn block_bytes(self) -> usize {
         match self {
             Self::Bc1 | Self::Bc4 => 8,
-            Self::Bc3 => 16,
+            Self::Bc3 | Self::Bc7 => 16,
         }
     }
 
@@ -46,6 +48,8 @@ impl BlockLayout {
             (Self::Bc3, false) => 77,
             (Self::Bc3, true) => 78,
             (Self::Bc4, _) => 80,
+            (Self::Bc7, false) => 98,
+            (Self::Bc7, true) => 99,
         }
     }
 
@@ -53,6 +57,9 @@ impl BlockLayout {
         match self {
             Self::Bc1 => flip_colour_indices(block),
             Self::Bc4 => flip_alpha_indices(block),
+            // Turning a BC7 block over would re-encode its indices per mode and partition; BC7 is
+            // only drawn decoded.
+            Self::Bc7 => {}
             Self::Bc3 => {
                 let (alpha, colour) = block.split_at_mut(8);
                 flip_alpha_indices(alpha);
@@ -166,6 +173,7 @@ fn decode_block(layout: BlockLayout, block: &[u8]) -> [[u8; 4]; 16] {
             texels
         }
         BlockLayout::Bc4 => decode_alpha(block).map(|red| [red, 0, 0, 255]),
+        BlockLayout::Bc7 => crate::bc7::decode_block(block),
     }
 }
 

@@ -119,7 +119,7 @@ fn mode_4_index_selection_swaps_which_index_set_drives_colour() {
         w.indices(3, &[0], |t| t as u32 % 8);
         w.block()
     };
-    for texel in [1_usize, 6, 11, 14] {
+    for texel in 1_usize..16 {
         let narrow = RAMP_2[texel % 4];
         let wide = RAMP_3[texel % 8];
         assert_eq!(

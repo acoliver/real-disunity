@@ -82,3 +82,45 @@ fn fixture() -> u64 {
         world
     }
 }
+
+fn quad_with(
+    texture: Option<u64>,
+) -> worldrunner_world_simulation::presentation::extraction::SpriteQuad {
+    use worldrunner_world_simulation::presentation::{SpriteLighting, extraction::SpriteQuad};
+    SpriteQuad {
+        lighting: SpriteLighting::Unlit,
+        overlay: false,
+        corners: [[0.; 3]; 4],
+        uv_rect: [0., 0., 1., 1.],
+        color: [1.; 4],
+        texture,
+        sorting_layer: 0,
+        sorting_order: 0,
+    }
+}
+
+#[test]
+fn glyph_textures_start_above_scene_textures_and_below_the_player_range() {
+    let player = crate::textures::FIRST_PLAYER_TEXTURE;
+    assert_eq!(next_glyph_texture(&[], 18), Some(18));
+    assert_eq!(next_glyph_texture(&[quad_with(Some(40))], 18), Some(41));
+    assert_eq!(next_glyph_texture(&[quad_with(Some(3))], 18), Some(18));
+    let shown = [
+        quad_with(Some(40)),
+        quad_with(Some(player + 5)),
+        quad_with(None),
+    ];
+    assert_eq!(
+        next_glyph_texture(&shown, 18),
+        Some(41),
+        "a player texture does not raise it"
+    );
+    assert_eq!(
+        next_glyph_texture(&[quad_with(Some(player + 5))], 18),
+        Some(18)
+    );
+    assert_eq!(
+        next_glyph_texture(&[quad_with(Some(player - 1))], 18),
+        Some(player)
+    );
+}

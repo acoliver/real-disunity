@@ -180,16 +180,8 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         // Graphics go in first, so the engine's own text of the same sorting key draws over them.
         append_graphics(&mut plan, graphics)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
-        let next = plan
-            .quads
-            .iter()
-            .filter_map(|q| q.texture)
-            .filter(|id| *id < crate::textures::FIRST_PLAYER_TEXTURE)
-            .max()
-            .map_or(Some(next_texture), |n| {
-                n.checked_add(1).map(|n| n.max(next_texture))
-            })
-            .ok_or("texture identity exhausted")?;
+        let next =
+            next_glyph_texture(&plan.quads, next_texture).ok_or("texture identity exhausted")?;
         append_ui_from(&mut plan, ui, next)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
         let mut header = DisunityPresentation {
@@ -217,6 +209,22 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         Ok(())
     })
 }
+/// The identity glyph coverage textures start from: one past the highest identity a quad shows
+/// below the player range, and at least `floor`. Player textures keep their own identities, so
+/// a quad that shows one must not push glyph identities into the range the managed engine
+/// allocates from.
+fn next_glyph_texture(
+    quads: &[worldrunner_world_simulation::presentation::extraction::SpriteQuad],
+    floor: u64,
+) -> Option<u64> {
+    quads
+        .iter()
+        .filter_map(|q| q.texture)
+        .filter(|id| *id < crate::textures::FIRST_PLAYER_TEXTURE)
+        .max()
+        .map_or(Some(floor), |n| n.checked_add(1).map(|n| n.max(floor)))
+}
+
 /// Names, once per renderer, the triangles of a mesh that make no quad, which are not drawn.
 fn note_left_out_triangles(
     session: &mut crate::store::Session,

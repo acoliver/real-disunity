@@ -180,14 +180,15 @@ impl Camera {
     }
 
     /// Rejects the settings a frame cannot show yet, each by the Unity member that sets it.
+    ///
+    /// A replaced `projectionMatrix` is accepted and the frame is drawn with the lens settings
+    /// (`fieldOfView` or `orthographicSize`, near and far), as the engine's choice: games replace
+    /// the projection to shift or jitter it slightly, and the scene view has no term for that yet.
     pub fn require_presentable(self) -> Result<(), WorldError> {
         if self.projection == Projection::Perspective && self.near <= 0. {
             return Err(lighting::unsupported(
                 "nearClipPlane 0 with perspective projection",
             ));
-        }
-        if self.projection_matrix.is_some() {
-            return Err(lighting::unsupported("projectionMatrix"));
         }
         if self.world_to_camera.is_some() {
             return Err(lighting::unsupported("worldToCameraMatrix"));

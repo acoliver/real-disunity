@@ -56,7 +56,7 @@ fn a_camera_drawing_into_a_texture_is_not_the_screen_camera() {
     let plan = plan(&[ortho(0, 3.), into_texture]).unwrap();
     assert!(matches!(
         lens_of(&plan),
-        CameraLens::Orthographic { half_height_meters, .. } if half_height_meters == 3.
+        CameraLens::Orthographic { half_height_meters, .. } if (half_height_meters - 3.).abs() < 1e-9
     ));
 }
 
@@ -69,7 +69,7 @@ fn a_camera_on_another_display_is_not_the_screen_camera() {
     let plan = plan(&[second_display, ortho(0, 3.)]).unwrap();
     assert!(matches!(
         lens_of(&plan),
-        CameraLens::Orthographic { half_height_meters, .. } if half_height_meters == 3.
+        CameraLens::Orthographic { half_height_meters, .. } if (half_height_meters - 3.).abs() < 1e-9
     ));
 }
 
@@ -137,19 +137,14 @@ fn a_perspective_camera_with_no_near_plane_cannot_be_presented() {
 }
 
 #[test]
-fn a_perspective_camera_still_rejects_a_replaced_projection_matrix() {
+fn a_replaced_projection_matrix_presents_with_the_lens_settings() {
     let replaced = Camera {
         projection_matrix: Some([
             1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
         ]),
         ..perspective(0)
     };
-    assert_eq!(
-        plan(&[replaced]),
-        Err(WorldError::InvalidComponent(
-            ComponentError::UnsupportedField("projectionMatrix")
-        ))
-    );
+    assert_eq!(plan(&[replaced]), plan(&[perspective(0)]));
 }
 
 fn overlay(depth: i32, clear: CameraClear) -> Camera {
@@ -185,7 +180,7 @@ fn the_highest_clearing_camera_is_the_base_below_several_overlays() {
     .unwrap();
     assert!(matches!(
         lens_of(&plan),
-        CameraLens::Orthographic { half_height_meters, .. } if half_height_meters == 3.
+        CameraLens::Orthographic { half_height_meters, .. } if (half_height_meters - 3.).abs() < 1e-9
     ));
 }
 
@@ -198,7 +193,7 @@ fn an_overlay_camera_with_no_camera_below_it_is_the_base_and_clears_to_its_backg
         };
         let plan = plan(&[lone]).unwrap();
         assert!(plan.camera_state.is_some(), "{clear:?}");
-        assert_eq!(plan.clear, [0.25, 0.5, 0.75, 1.], "{clear:?}");
+        assert!(same(plan.clear, [0.25, 0.5, 0.75, 1.]), "{clear:?}");
     }
 }
 
@@ -213,5 +208,16 @@ fn a_clearing_camera_into_a_texture_is_no_base_for_an_overlay() {
         background: [0., 1., 0., 1.],
         ..overlay(10, CameraClear::Nothing)
     };
-    assert_eq!(plan(&[into_texture, top]).unwrap().clear, [0., 1., 0., 1.]);
+    assert!(same(
+        plan(&[into_texture, top]).unwrap().clear,
+        [0., 1., 0., 1.]
+    ));
+}
+
+/// Whether two colours match to well within one 8-bit step.
+fn same(actual: [f64; 4], expected: [f64; 4]) -> bool {
+    actual
+        .iter()
+        .zip(expected)
+        .all(|(a, e)| (a - e).abs() < 1e-9)
 }

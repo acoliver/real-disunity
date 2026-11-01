@@ -318,7 +318,10 @@ fn a_perspective_camera_is_accepted_and_the_frame_names_what_it_cannot_show() {
     }
     assert_eq!(write(world, camera, pong()).code, 0);
     assert_eq!(write_matrix(world, camera, 0, Some([1.; 16])).code, 0);
-    assert!(clear_color(world).is_err(), "a custom projection matrix");
+    assert!(
+        clear_color(world).is_ok(),
+        "a custom projection matrix presents with the lens settings"
+    );
     assert_eq!(write_matrix(world, camera, 0, None).code, 0);
     assert_eq!(write_matrix(world, camera, 1, Some([1.; 16])).code, 0);
     assert!(clear_color(world).is_err(), "a custom view matrix");

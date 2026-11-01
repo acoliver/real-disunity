@@ -135,13 +135,6 @@ fn a_frame_rejects_each_setting_it_cannot_show() {
     let cases = [
         (
             Camera {
-                projection_matrix: Some(identity),
-                ..Default::default()
-            },
-            "projectionMatrix",
-        ),
-        (
-            Camera {
                 world_to_camera: Some(identity),
                 ..Default::default()
             },

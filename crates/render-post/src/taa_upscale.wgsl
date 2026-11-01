@@ -73,11 +73,11 @@ fn lanczos2(x: f32) -> f32 {
     return select(s * s * c, 0.0, abs(x) >= 2.0);
 }
 fn load_color(p: vec2<i32>) -> vec4<f32> {
-    let last = vec2<i32>(textureDimensions(color)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     return clean(textureLoad(color, clamp(p, vec2<i32>(0), last), 0));
 }
 fn load_history(p: vec2<i32>) -> vec3<f32> {
-    let last = vec2<i32>(textureDimensions(history)) - 1;
+    let last = vec2<i32>(temporal.extents.zw) - 1;
     return textureLoad(history, clamp(p, vec2<i32>(0), last), 0).rgb;
 }
 // Normalised Lanczos2 of the 4x4 texels around q.
@@ -133,7 +133,7 @@ fn catmull_rom(uv: vec2<f32>) -> vec3<f32> {
 // agree that it belongs to the surface.
 fn history_confidence(q: vec2<f32>) -> f32 {
     let base = vec2<i32>(floor(q));
-    let last = vec2<i32>(textureDimensions(confidence)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     var least = 1.0;
     for (var i = 0; i < 4; i++) {
         let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
@@ -150,7 +150,7 @@ fn gather_masks(q: vec2<f32>) -> vec2<f32> {
         return vec2<f32>(0.0);
     }
     let base = vec2<i32>(floor(q));
-    let last = vec2<i32>(textureDimensions(prepared_mask)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     var most = vec2<f32>(0.0);
     for (var i = 0; i < 4; i++) {
         let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
@@ -166,7 +166,7 @@ fn gather_candidate(q: vec2<f32>, flow: vec2<f32>, confidence: f32) -> f32 {
         return 0.0;
     }
     let base = vec2<i32>(floor(q));
-    let last = vec2<i32>(textureDimensions(candidates)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     var best = 0.0;
     for (var i = 0; i < 4; i++) {
         let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
@@ -183,7 +183,7 @@ fn reproject_lock(uv: vec2<f32>, usable: bool, reference: f32) -> vec4<f32> {
     if !usable {
         return vec4<f32>(0.0);
     }
-    let last = vec2<i32>(textureDimensions(lock_history)) - 1;
+    let last = vec2<i32>(temporal.extents.zw) - 1;
     let at = clamp(vec2<i32>(floor(uv * temporal.extents.zw)), vec2<i32>(0), last);
     let prev = textureLoad(lock_history, at, 0);
     let alive = prev.x > 0.5 && finite(prev.y) && abs(reference - prev.y) <= prev.z;

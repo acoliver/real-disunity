@@ -1,4 +1,5 @@
 mod admission;
+mod aniso_footprint;
 mod array_layers;
 mod capture;
 mod mip_bias;

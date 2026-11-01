@@ -155,6 +155,8 @@ mod temporal_dolly_tests;
 #[cfg(test)]
 mod temporal_exposure_tests;
 #[cfg(test)]
+mod temporal_mask_clear_tests;
+#[cfg(test)]
 mod temporal_mask_tests;
 #[cfg(test)]
 mod temporal_quality_scene;

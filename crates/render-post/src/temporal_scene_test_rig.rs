@@ -239,6 +239,22 @@ impl SceneRig {
         ));
     }
 
+    /// A producer of a frame that was later cancelled: the mask write is submitted, the rest of
+    /// the frame never is.
+    pub(crate) fn abandon_mask_write(&self, value: f64) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        crate::temporal_mask_clear_tests::write_mask(&mut encoder, self.chain.targets(), value);
+        self.queue.submit([encoder.finish()]);
+    }
+
+    /// The mask bytes after the last submitted work, row major.
+    pub(crate) fn mask(&self) -> Vec<[u8; 2]> {
+        let texture = self.chain.targets().temporal_mask_texture().unwrap();
+        crate::temporal_mask_clear_tests::read_mask((&self.device, &self.queue), texture)
+    }
+
     fn record(
         &self,
         index: u64,
@@ -258,6 +274,7 @@ impl SceneRig {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        self.chain.targets().encode_mask_clear(&mut encoder);
         self.paint(&mut encoder, offset, tail);
         let factory = &self.chain.factory().inner;
         if let Some(camera) = camera {

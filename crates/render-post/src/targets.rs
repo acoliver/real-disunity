@@ -268,6 +268,27 @@ impl FrameTargets {
         self.temporal_mask.as_ref().map(|(texture, _)| texture)
     }
 
+    /// Zero the temporal mask. A host calls this first in the frame, in the frame's own encoder and
+    /// before any pass that writes the mask. Nothing is encoded when there is no mask.
+    pub fn encode_mask_clear(&self, encoder: &mut wgpu::CommandEncoder) {
+        let Some(mask) = self.temporal_mask() else {
+            return;
+        };
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("temporal mask clear"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: mask,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+    }
+
     /// Check a host-supplied mask texture against the internal extent of `config`: one sample,
     /// [`TEMPORAL_MASK_FORMAT`] and exactly the internal extent. Nothing is encoded.
     pub fn validate_temporal_mask(

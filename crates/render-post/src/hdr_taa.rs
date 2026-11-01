@@ -20,6 +20,8 @@ struct TaaHistory {
     key: HistoryKey,
     texture: wgpu::Texture,
     depth: Option<wgpu::Texture>,
+    /// The lock history at the output grid, for temporal reconstruction with locks on only.
+    locks: Option<wgpu::Texture>,
 }
 impl TaaHistory {
     fn new(device: &wgpu::Device, key: HistoryKey) -> Self {
@@ -28,6 +30,8 @@ impl TaaHistory {
                 key,
                 texture: taa_upscale_gpu::history(device, key.history_extent()),
                 depth: None,
+                locks: taa_upscale_gpu::locks_enabled()
+                    .then(|| taa_upscale_gpu::lock_history(device, key.history_extent())),
             }
         } else {
             let size = key.render();
@@ -35,6 +39,7 @@ impl TaaHistory {
                 key,
                 texture: taa_gpu::history(device, size),
                 depth: Some(taa_gpu::depth_history(device, size)),
+                locks: None,
             }
         }
     }
@@ -167,13 +172,7 @@ pub(crate) fn append(
     let output = temporal.map(|_| config.output_extent());
     let bank = history.acquire(device, HistoryKey::new(config.size, output, config.samples));
     if let (Some(output), Some(camera)) = (output, temporal) {
-        append_temporal(
-            device,
-            set,
-            targets,
-            (&bank.texture, output),
-            (uniform, camera),
-        )
+        append_temporal(device, set, targets, (&bank, output), (uniform, camera))
     } else {
         append_native(device, set, targets, (settings, &bank, uniform))
     }
@@ -183,10 +182,13 @@ fn append_temporal(
     device: &wgpu::Device,
     set: &mut StageSet,
     targets: &crate::FrameTargets,
-    (history, output_extent): (&wgpu::Texture, [u32; 2]),
+    (bank, output_extent): (&TaaHistory, [u32; 2]),
     (uniform, camera): (&wgpu::Buffer, &wgpu::Buffer),
 ) -> wgpu::TextureView {
+    let history = &bank.texture;
+    let lock_history = bank.locks.as_ref();
     let output = taa_upscale_gpu::output(device, output_extent);
+    let lock_bank = lock_history.map(|_| taa_upscale_gpu::lock_bank(device, output_extent));
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
     let reconstructed = taa_upscale_gpu::append(
         device,
@@ -202,14 +204,28 @@ fn append_temporal(
             camera,
             history,
             output: &output,
+            locks: lock_history
+                .zip(lock_bank.as_ref())
+                .map(|(history, bank)| taa_upscale_gpu::LockInputs { history, bank }),
         },
     );
     set.resources.textures.push(output);
     set.resources.textures.push(history.clone());
-    set.resources.textures.push(reconstructed.depth);
-    set.resources.textures.push(reconstructed.motion);
-    set.resources.textures.push(reconstructed.confidence);
-    set.resources.buffers.push(reconstructed.scatter);
+    set.resources.textures.extend(lock_bank);
+    set.resources.textures.extend(lock_history.cloned());
+    set.resources.textures.extend(reconstructed.candidates);
+    set.resources
+        .textures
+        .push(reconstructed.reconstructed.depth);
+    set.resources
+        .textures
+        .push(reconstructed.reconstructed.motion);
+    set.resources
+        .textures
+        .push(reconstructed.reconstructed.confidence);
+    set.resources
+        .buffers
+        .push(reconstructed.reconstructed.scatter);
     output_view
 }
 

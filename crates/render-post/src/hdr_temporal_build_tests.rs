@@ -54,77 +54,116 @@ fn shared(sets: &[StageSet]) -> Vec<wgpu::Texture> {
         .collect()
 }
 
-#[test]
-fn temporal_mode_schedules_the_reconstruction_instead_of_the_native_resolve() {
+const UNLOCKED_STAGES: [&str; 6] = [
+    "temporal depth clear",
+    "temporal reconstruct dilate",
+    "temporal depth clip",
+    "temporal upscale",
+    "temporal upscale history",
+    "tone",
+];
+
+const LOCKED_STAGES: [&str; 8] = [
+    "temporal depth clear",
+    "temporal reconstruct dilate",
+    "temporal depth clip",
+    "temporal create locks",
+    "temporal upscale",
+    "temporal upscale history",
+    "temporal lock history",
+    "tone",
+];
+
+fn scheduled_names() -> Vec<Vec<&'static str>> {
     let (device, _) = crate::gpu_tests::gpu();
     let post = HdrPost::new(&device, &settings()).unwrap();
-    for set in slots(&post, &device, &targets(&device, [10, 10], [16, 16])) {
-        let names: Vec<_> = set.stages.iter().map(|s| s.id.name).collect();
-        assert_eq!(
-            names,
-            [
-                "temporal depth clear",
-                "temporal reconstruct dilate",
-                "temporal depth clip",
-                "temporal upscale",
-                "temporal upscale history",
-                "tone"
-            ]
-        );
+    slots(&post, &device, &targets(&device, [10, 10], [16, 16]))
+        .iter()
+        .map(|set| set.stages.iter().map(|s| s.id.name).collect())
+        .collect()
+}
+
+#[test]
+fn temporal_mode_schedules_the_reconstruction_without_lock_passes_by_default() {
+    for names in scheduled_names() {
+        assert_eq!(names, UNLOCKED_STAGES);
     }
 }
 
 #[test]
-fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_at_the_output_extent() {
+fn temporal_mode_schedules_the_lock_passes_when_locks_are_on() {
+    let _on = crate::taa_upscale_gpu::WithLocks::new();
+    for names in scheduled_names() {
+        assert_eq!(names, LOCKED_STAGES);
+    }
+}
+
+/// Checks the bank of a three slot build at 10x10 render and 16x16 output. `locks` adds the
+/// candidates, the lock bank per slot and the shared lock history.
+fn assert_bank(locks: bool) {
     let (device, _) = crate::gpu_tests::gpu();
     let post = HdrPost::new(&device, &settings()).unwrap();
     let sets = slots(&post, &device, &targets(&device, [10, 10], [16, 16]));
     let history = shared(&sets);
-    assert_eq!(history.len(), 1, "one colour history, no depth history");
+    assert_eq!(
+        history.len(),
+        1 + usize::from(locks),
+        "colour history, lock history if on"
+    );
     for set in &sets {
-        assert_eq!(
-            set.resources.textures.len(),
-            5,
-            "output, history, dilated depth, dilated motion and confidence"
-        );
-        let at_output: Vec<_> = set
+        assert_eq!(set.resources.textures.len(), 5 + 3 * usize::from(locks));
+        let at_output = set
             .resources
             .textures
             .iter()
             .filter(|t| (t.width(), t.height()) == (16, 16))
-            .collect();
+            .inspect(|t| assert_eq!(t.format(), crate::taa_upscale_gpu::FORMAT))
+            .count();
         assert_eq!(
-            at_output.len(),
-            2,
-            "output and history are the output extent"
+            at_output,
+            2 + 2 * usize::from(locks),
+            "output, history, lock bank and history"
         );
-        for texture in at_output {
-            assert_eq!(texture.format(), crate::taa_upscale_gpu::FORMAT);
-        }
-        for texture in set
+        let at_render: Vec<_> = set
             .resources
             .textures
             .iter()
             .filter(|t| (t.width(), t.height()) == (10, 10))
-        {
-            assert!(
-                [
-                    crate::taa_reconstruct_gpu::DEPTH_FORMAT,
-                    crate::taa_reconstruct_gpu::MOTION_FORMAT,
-                    crate::taa_reconstruct_gpu::CONFIDENCE_FORMAT
-                ]
-                .contains(&texture.format()),
-                "the reconstruction targets are the render extent"
-            );
-        }
+            .map(wgpu::Texture::format)
+            .collect();
+        let candidates = at_render
+            .iter()
+            .filter(|f| **f == crate::taa_thin_gpu::CANDIDATE_FORMAT)
+            .count();
+        assert_eq!(at_render.len(), 3 + usize::from(locks));
+        assert_eq!(
+            candidates,
+            1 + usize::from(locks),
+            "motion, and candidates if on"
+        );
         assert_eq!(set.resources.buffers.len(), 1, "the reconstructed depth");
     }
-    let outputs: Vec<_> = sets.iter().flat_map(|s| &s.resources.textures).collect();
+    let own = sets
+        .iter()
+        .flat_map(|s| &s.resources.textures)
+        .filter(|t| !history.contains(t))
+        .count();
     assert_eq!(
-        outputs.iter().filter(|t| !history.contains(t)).count(),
-        12,
-        "each slot owns its output, dilated depth, dilated motion and confidence"
+        own,
+        3 * (4 + 2 * usize::from(locks)),
+        "per slot output, depth, motion, confidence, then candidates and lock bank"
     );
+}
+
+#[test]
+fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_without_locks() {
+    assert_bank(false);
+}
+
+#[test]
+fn the_temporal_bank_adds_the_lock_resources_when_locks_are_on() {
+    let _on = crate::taa_upscale_gpu::WithLocks::new();
+    assert_bank(true);
 }
 
 #[test]

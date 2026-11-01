@@ -94,6 +94,9 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
     if temporal {
         temporal_reconstruction_allocations(set, config.size);
+        if crate::taa_upscale_gpu::locks_enabled() {
+            temporal_lock_allocations(set, config.size, [w, h]);
+        }
     } else {
         let depth = crate::taa_gpu::DEPTH_FORMAT;
         set.texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
@@ -131,6 +134,20 @@ fn temporal_reconstruction_allocations(set: &mut AllocationSet, [w, h]: [u32; 2]
         [1, 1],
         3,
     );
+}
+/// The thin-feature lock state, allocated only with locks on: the candidate field per slot at `R`, the lock bank per slot at
+/// `O` and the lock history, shared like the colour history and counted once per generation.
+fn temporal_lock_allocations(set: &mut AllocationSet, [rw, rh]: [u32; 2], [w, h]: [u32; 2]) {
+    set.texture(
+        "temporal thin candidates",
+        [rw, rh, 1],
+        crate::taa_thin_gpu::CANDIDATE_FORMAT,
+        [1, 1],
+        3,
+    );
+    let lock = crate::taa_upscale_gpu::FORMAT;
+    set.texture("temporal lock bank", [w, h, 1], lock, [1, 1], 3);
+    set.texture("temporal lock history", [w, h, 1], lock, [1, 1], 1);
 }
 /// The display-linear intermediates between tone mapping and a spatial resolve or upscale: FXAA
 /// reads an `Rgba16Float` copy, the upscale and native RCAS read `Rgba32Float`.

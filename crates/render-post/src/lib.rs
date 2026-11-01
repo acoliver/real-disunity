@@ -124,6 +124,9 @@ mod taa_reconstruct_test_rig;
 mod taa_reference;
 #[cfg(test)]
 mod taa_tests;
+mod taa_thin_gpu;
+#[cfg(test)]
+mod taa_thin_tests;
 mod taa_upscale_gpu;
 #[cfg(test)]
 mod taa_upscale_gpu_tests;
@@ -150,6 +153,8 @@ mod temporal_dolly_scene;
 #[cfg(test)]
 mod temporal_dolly_tests;
 #[cfg(test)]
+mod temporal_exposure_tests;
+#[cfg(test)]
 mod temporal_quality_scene;
 #[cfg(test)]
 mod temporal_quality_tests;
@@ -157,6 +162,10 @@ mod temporal_quality_tests;
 mod temporal_reset_state_tests;
 #[cfg(test)]
 mod temporal_scene_test_rig;
+#[cfg(test)]
+mod temporal_thin_feature_scene;
+#[cfg(test)]
+mod temporal_thin_feature_tests;
 #[cfg(test)]
 mod temporal_upscale_reference;
 #[cfg(test)]

@@ -62,8 +62,35 @@ fn native_taa_history_is_single_sampled_with_msaa_scene_targets() {
     assert_eq!(taa_bytes(config(4), None), taa_bytes(config(1), None));
 }
 
+/// The thin-feature lock state, measured: `Rg32Float` candidates at `R` per slot (8R), an
+/// `Rgba16Float` lock bank at `O` per slot (8O) and one shared lock history (8O). The bank and the history
+/// are 8O each, 32O with three slots, not the 16O the design counted for two 16 bit channels.
+fn lock_bytes() -> u64 {
+    let candidates = texels(RENDER) * 2 * FLOAT_R * SLOTS;
+    let bank = texels(OUTPUT) * HALF_RGBA * SLOTS;
+    let history = texels(OUTPUT) * HALF_RGBA;
+    candidates + bank + history
+}
+
 #[test]
 fn temporal_taa_counts_output_sized_history_once_and_render_sized_reconstruction_per_slot() {
+    assert_eq!(
+        taa_bytes(config(1), Some(UpscaleMode::Temporal)),
+        unlocked_bytes()
+    );
+}
+
+#[test]
+fn temporal_taa_adds_the_lock_state_only_when_locks_are_on() {
+    let _on = crate::taa_upscale_gpu::WithLocks::new();
+    assert_eq!(
+        taa_bytes(config(1), Some(UpscaleMode::Temporal)),
+        unlocked_bytes() + lock_bytes()
+    );
+}
+
+/// The temporal bytes of a configuration without locks.
+fn unlocked_bytes() -> u64 {
     let shared = texels(OUTPUT) * HALF_RGBA;
     let per_slot_output = texels(OUTPUT) * HALF_RGBA * SLOTS;
     let dilated_depth = texels(RENDER) * FLOAT_R;
@@ -72,9 +99,19 @@ fn temporal_taa_counts_output_sized_history_once_and_render_sized_reconstruction
     let confidence = texels(RENDER) * FLOAT_R;
     let per_slot_reconstruction =
         (dilated_depth + dilated_motion + reconstructed_depth + confidence) * SLOTS;
+    shared + per_slot_output + per_slot_reconstruction
+}
+
+/// The same equality with locks on: the lock candidates, bank and history count too.
+#[test]
+fn locked_temporal_allocations_equal_the_bytes_of_the_real_stage_sets() {
+    let _on = crate::taa_upscale_gpu::WithLocks::new();
+    let (render, output) = ([10, 10], [16, 16]);
+    let config =
+        FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1).with_render_extent(render);
     assert_eq!(
-        taa_bytes(config(1), Some(UpscaleMode::Temporal)),
-        shared + per_slot_output + per_slot_reconstruction
+        taa_bytes(config, Some(UpscaleMode::Temporal)),
+        built_temporal_bytes(render, output)
     );
 }
 

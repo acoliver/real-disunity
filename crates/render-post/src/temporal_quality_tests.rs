@@ -31,6 +31,8 @@ const EDGE_BAND: f64 = 2.0;
 pub(crate) struct Recording {
     pub(crate) inner: ToneMapOutput,
     pub(crate) output: Arc<Mutex<Option<wgpu::Texture>>>,
+    /// The shared history texture, the second texture of slot 0 in the temporal bank.
+    pub(crate) history: Arc<Mutex<Option<wgpu::Texture>>>,
 }
 
 impl StageFactory for Recording {
@@ -58,6 +60,7 @@ impl StageFactory for Recording {
             .build_for_slot(device, targets, persistent, slot)?;
         if slot == 0 {
             *self.output.lock().unwrap() = set.resources.textures.first().cloned();
+            *self.history.lock().unwrap() = set.resources.textures.get(1).cloned();
         }
         Ok(set)
     }
@@ -91,6 +94,7 @@ impl Rig {
         let factory = Recording {
             inner: public_factory(&device, &settings()),
             output: output.clone(),
+            history: Arc::default(),
         };
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
         let hdr = output.lock().unwrap().take().expect("slot 0 was built");

@@ -162,6 +162,7 @@ impl StageFactory for Stage1 {
                 camera: &self.camera,
                 history: &self.history,
                 output: &self.output,
+                locks: None,
             },
         );
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {

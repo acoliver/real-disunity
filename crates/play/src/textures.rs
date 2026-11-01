@@ -8,7 +8,7 @@ use worldrunner_unity_import::{Filter, PlanTexture, Project, Wrap, import_textur
 
 use crate::{
     PlayError,
-    block_texture::{BlockLayout, dx10_dds, flip_rows, level_bytes},
+    block_texture::{BlockLayout, decode_level, dx10_dds, flip_rows, level_bytes},
 };
 
 /// Decodes texture `i` of the plan into identity `first + i`, with its import sampling.
@@ -85,6 +85,15 @@ pub enum PlayerTextureError {
     Unaligned { format: &'static str, height: u32 },
 }
 
+/// How a block-compressed texture reaches the renderer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockPath {
+    /// A DX10 DDS container; the renderer's device must have been created with block compression.
+    Dds,
+    /// RGBA8 texels decoded here, which every device can sample.
+    Rgba8,
+}
+
 /// The name of an engine `TextureFormat` value, for logs.
 #[must_use]
 pub fn format_name(format: u32) -> String {
@@ -105,18 +114,21 @@ pub fn format_name(format: u32) -> String {
 }
 
 /// The base level of a texture the managed engine stored, as a scene texture with its rows top
-/// first. RGBA32, RGB24 and Alpha8 become RGBA8 texels (Alpha8 as white with that alpha); DXT1,
-/// DXT5 and BC4 become one-level DX10 DDS containers in their sRGB forms when the texture is not
-/// linear (BC4 holds data and is always linear). Further mip levels are not carried, as the
-/// engine's choice for now.
-pub fn player_scene_texture(texture: &PlayerTexture) -> Result<SceneTexture, PlayerTextureError> {
+/// first. RGBA32, RGB24 and Alpha8 become RGBA8 texels (Alpha8 as white with that alpha). DXT1,
+/// DXT5 and BC4 follow `path`: one-level DX10 DDS containers in their sRGB forms when the texture
+/// is not linear (BC4 holds data and is always linear), or decoded RGBA8 texels (BC4 as red).
+/// Further mip levels are not carried, as the engine's choice for now.
+pub fn player_scene_texture(
+    texture: &PlayerTexture,
+    path: BlockPath,
+) -> Result<SceneTexture, PlayerTextureError> {
     match texture.format {
         4 => texels(texture, "RGBA32", 4, |t| [t[0], t[1], t[2], t[3]]),
         3 => texels(texture, "RGB24", 3, |t| [t[0], t[1], t[2], 255]),
         1 => texels(texture, "Alpha8", 1, |t| [255, 255, 255, t[0]]),
-        10 => block(texture, "DXT1", BlockLayout::Bc1),
-        12 => block(texture, "DXT5", BlockLayout::Bc3),
-        26 => block(texture, "BC4", BlockLayout::Bc4),
+        10 => block(texture, "DXT1", BlockLayout::Bc1, path),
+        12 => block(texture, "DXT5", BlockLayout::Bc3, path),
+        26 => block(texture, "BC4", BlockLayout::Bc4, path),
         other => Err(PlayerTextureError::Unsupported {
             format: format_name(other),
         }),
@@ -138,8 +150,7 @@ fn texels(
     convert: impl Fn(&[u8]) -> [u8; 4],
 ) -> Result<SceneTexture, PlayerTextureError> {
     let (width, height) = (texture.width, texture.height);
-    let row = width as usize * per_texel;
-    let needed = row * height as usize;
+    let needed = width as usize * per_texel * height as usize;
     let base = texture
         .bytes
         .get(..needed)
@@ -150,27 +161,32 @@ fn texels(
             needed,
             actual: texture.bytes.len(),
         })?;
-    let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
-    for line in base.chunks_exact(row).rev() {
-        rgba.extend(line.chunks_exact(per_texel).flat_map(&convert));
-    }
-    Ok(SceneTexture::Texels {
+    let rgba: Vec<u8> = base.chunks_exact(per_texel).flat_map(&convert).collect();
+    Ok(rgba_texels(texture, &rgba))
+}
+
+/// RGBA8 rows stored bottom first, as a scene texture with its rows top first.
+fn rgba_texels(texture: &PlayerTexture, rgba: &[u8]) -> SceneTexture {
+    let row = texture.width as usize * 4;
+    let top_first: Vec<u8> = rgba.chunks_exact(row).rev().flatten().copied().collect();
+    SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,
         color_space: color_space(texture.linear),
-        width,
-        height,
+        width: texture.width,
+        height: texture.height,
         mips: 1,
-        bytes: rgba.into_boxed_slice(),
-    })
+        bytes: top_first.into_boxed_slice(),
+    }
 }
 
 fn block(
     texture: &PlayerTexture,
     format: &'static str,
     layout: BlockLayout,
+    path: BlockPath,
 ) -> Result<SceneTexture, PlayerTextureError> {
     let (width, height) = (texture.width, texture.height);
-    if height % 4 != 0 {
+    if path == BlockPath::Dds && height % 4 != 0 {
         return Err(PlayerTextureError::Unaligned { format, height });
     }
     let needed = level_bytes(layout, width, height);
@@ -184,6 +200,12 @@ fn block(
             needed,
             actual: texture.bytes.len(),
         })?;
+    if path == BlockPath::Rgba8 {
+        return Ok(rgba_texels(
+            texture,
+            &decode_level(layout, width, height, base),
+        ));
+    }
     let srgb = !texture.linear && layout != BlockLayout::Bc4;
     Ok(SceneTexture::Encoded {
         encoding: TextureEncoding::DdsContainer,

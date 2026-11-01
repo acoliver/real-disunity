@@ -1,4 +1,5 @@
-//! Block-compressed player textures as DX10 DDS containers, with their rows turned top first.
+//! Block-compressed player textures as DX10 DDS containers with their rows turned top first, or
+//! decoded to RGBA8 for a device that cannot upload block formats.
 //!
 //! The managed engine stores a texture's rows bottom first; the presentation's sprite UVs count
 //! rows from the top. Turning a block-compressed image over reverses its block rows and the four
@@ -129,4 +130,99 @@ pub fn dx10_dds(width: u32, height: u32, dxgi: u32, payload: &[u8]) -> Vec<u8> {
     }
     bytes.extend_from_slice(payload);
     bytes
+}
+
+/// Decodes a base level to RGBA8 rows in the order the level stores them. `Bc4` fills red and
+/// leaves green and blue zero, as sampling a one-channel format does.
+#[must_use]
+pub fn decode_level(layout: BlockLayout, width: u32, height: u32, level: &[u8]) -> Vec<u8> {
+    let (width, height) = (width as usize, height as usize);
+    let blocks_wide = width.div_ceil(BLOCK_TEXELS);
+    let mut rgba = vec![0_u8; width * height * 4];
+    for (index, block) in level.chunks_exact(layout.block_bytes()).enumerate() {
+        let origin = [
+            (index % blocks_wide) * BLOCK_TEXELS,
+            (index / blocks_wide) * BLOCK_TEXELS,
+        ];
+        let texels = decode_block(layout, block);
+        for (texel, value) in texels.iter().enumerate() {
+            let (x, y) = (origin[0] + texel % 4, origin[1] + texel / 4);
+            if x < width && y < height {
+                rgba[(y * width + x) * 4..][..4].copy_from_slice(value);
+            }
+        }
+    }
+    rgba
+}
+
+fn decode_block(layout: BlockLayout, block: &[u8]) -> [[u8; 4]; 16] {
+    match layout {
+        BlockLayout::Bc1 => decode_colour(block, true),
+        BlockLayout::Bc3 => {
+            let mut texels = decode_colour(&block[8..], false);
+            for (texel, alpha) in texels.iter_mut().zip(decode_alpha(&block[..8])) {
+                texel[3] = alpha;
+            }
+            texels
+        }
+        BlockLayout::Bc4 => decode_alpha(block).map(|red| [red, 0, 0, 255]),
+    }
+}
+
+fn expand_565(value: u16) -> [u8; 3] {
+    let (r, g, b) = ((value >> 11) & 31, (value >> 5) & 63, value & 31);
+    [
+        ((r << 3) | (r >> 2)) as u8,
+        ((g << 2) | (g >> 4)) as u8,
+        ((b << 3) | (b >> 2)) as u8,
+    ]
+}
+
+/// A colour block: two 5:6:5 endpoints and sixteen 2-bit indices. With `punch_through` set, an
+/// endpoint order of `c0 <= c1` selects the three-colour mode whose fourth entry is transparent.
+fn decode_colour(block: &[u8], punch_through: bool) -> [[u8; 4]; 16] {
+    let c0 = u16::from_le_bytes([block[0], block[1]]);
+    let c1 = u16::from_le_bytes([block[2], block[3]]);
+    let (a, b) = (expand_565(c0), expand_565(c1));
+    let mix = |wa: u16, wb: u16, total: u16| {
+        [0, 1, 2].map(|i| ((wa * u16::from(a[i]) + wb * u16::from(b[i])) / total) as u8)
+    };
+    let opaque = |[r, g, bl]: [u8; 3]| [r, g, bl, 255];
+    let palette = if c0 > c1 || !punch_through {
+        [
+            opaque(a),
+            opaque(b),
+            opaque(mix(2, 1, 3)),
+            opaque(mix(1, 2, 3)),
+        ]
+    } else {
+        [opaque(a), opaque(b), opaque(mix(1, 1, 2)), [0, 0, 0, 0]]
+    };
+    let indices = u32::from_le_bytes([block[4], block[5], block[6], block[7]]);
+    std::array::from_fn(|texel| palette[((indices >> (2 * texel)) & 3) as usize])
+}
+
+/// An alpha block: two endpoints and sixteen 3-bit indices.
+fn decode_alpha(block: &[u8]) -> [u8; 16] {
+    let (a0, a1) = (u16::from(block[0]), u16::from(block[1]));
+    let palette: [u8; 8] = if a0 > a1 {
+        std::array::from_fn(|i| match i {
+            0 => a0 as u8,
+            1 => a1 as u8,
+            _ => (((8 - i as u16) * a0 + (i as u16 - 1) * a1) / 7) as u8,
+        })
+    } else {
+        std::array::from_fn(|i| match i {
+            0 => a0 as u8,
+            1 => a1 as u8,
+            6 => 0,
+            7 => 255,
+            _ => (((6 - i as u16) * a0 + (i as u16 - 1) * a1) / 5) as u8,
+        })
+    };
+    let mut bits = 0_u64;
+    for (index, byte) in block[2..8].iter().enumerate() {
+        bits |= u64::from(*byte) << (8 * index);
+    }
+    std::array::from_fn(|texel| palette[((bits >> (3 * texel)) & 7) as usize])
 }

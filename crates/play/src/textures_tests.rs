@@ -2,7 +2,15 @@ use worldrunner_disunity_runtime::PlayerTexture;
 use worldrunner_render_plan::{SceneTexture, TextureColorSpace};
 use worldrunner_render_scene::texture::prepare_texture;
 
-use crate::textures::{PlayerTextureError, player_scene_texture};
+use crate::textures::{BlockPath, PlayerTextureError};
+
+fn player_scene_texture(texture: &PlayerTexture) -> Result<SceneTexture, PlayerTextureError> {
+    crate::textures::player_scene_texture(texture, BlockPath::Dds)
+}
+
+fn decoded(texture: &PlayerTexture) -> Result<SceneTexture, PlayerTextureError> {
+    crate::textures::player_scene_texture(texture, BlockPath::Rgba8)
+}
 
 const ALPHA8: u32 = 1;
 const RGB24: u32 = 3;
@@ -223,5 +231,101 @@ fn short_data_and_unturnable_heights_are_errors() {
     assert!(matches!(
         player_scene_texture(&uneven),
         Err(PlayerTextureError::Unaligned { height: 6, .. })
+    ));
+}
+
+fn bc1_block(c0: u16, c1: u16, indices: u32) -> Vec<u8> {
+    let mut block = c0.to_le_bytes().to_vec();
+    block.extend_from_slice(&c1.to_le_bytes());
+    block.extend_from_slice(&indices.to_le_bytes());
+    block
+}
+
+fn pixel(rows: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
+    rows[(y * width + x) * 4..][..4].try_into().unwrap()
+}
+
+#[test]
+fn decoded_dxt1_has_four_colours_or_three_with_a_transparent_one_by_endpoint_order() {
+    const RED: u16 = 0xF800;
+    const BLUE: u16 = 0x001F;
+    // Row 0 of the stored data (the bottom row) takes indices 0..3 across; the others are all 0.
+    let indices = 0b11_10_01_00;
+    let four = player(DXT1, [4, 4], false, bc1_block(RED, BLUE, indices));
+    let scene = decoded(&four).unwrap();
+    let (space, rows) = texels(&scene);
+    assert_eq!(space, TextureColorSpace::Srgb);
+    // The bottom stored row is the last row once turned top first.
+    let row = |x| pixel(rows, 4, x, 3);
+    assert_eq!([row(0), row(1)], [[255, 0, 0, 255], [0, 0, 255, 255]]);
+    assert_eq!([row(2), row(3)], [[170, 0, 85, 255], [85, 0, 170, 255]]);
+    assert_eq!(pixel(rows, 4, 0, 0), [255, 0, 0, 255]);
+    let three = player(DXT1, [4, 4], true, bc1_block(BLUE, RED, indices));
+    let scene = decoded(&three).unwrap();
+    let rows = texels(&scene).1;
+    let row = |x| pixel(rows, 4, x, 3);
+    assert_eq!([row(2), row(3)], [[127, 0, 127, 255], [0, 0, 0, 0]]);
+}
+
+#[test]
+fn decoded_dxt5_takes_alpha_from_its_alpha_block_and_always_four_colours() {
+    // Alpha endpoints 200 and 100 with index 1 in the first texel and 7 in the second.
+    let alpha_bits: u64 = 1 | 7 << 3;
+    let mut block = vec![200, 100];
+    block.extend_from_slice(&alpha_bits.to_le_bytes()[..6]);
+    block.extend(bc1_block(0x001F, 0xF800, 0));
+    let scene = decoded(&player(DXT5, [4, 4], true, block)).unwrap();
+    let rows = texels(&scene).1;
+    assert_eq!(pixel(rows, 4, 0, 3), [0, 0, 255, 100]);
+    assert_eq!(pixel(rows, 4, 1, 3), [0, 0, 255, 114]);
+}
+
+fn alpha_block(a0: u8, a1: u8, indices: &[u64]) -> Vec<u8> {
+    let bits = indices
+        .iter()
+        .enumerate()
+        .fold(0_u64, |bits, (texel, index)| bits | index << (3 * texel));
+    let mut block = vec![a0, a1];
+    block.extend_from_slice(&bits.to_le_bytes()[..6]);
+    block
+}
+
+#[test]
+fn decoded_bc4_puts_the_value_in_red_with_the_six_step_ramp_below_the_second_endpoint() {
+    // a0 <= a1: indices 2..5 interpolate in fifths, 6 is 0 and 7 is 255.
+    let block = alpha_block(10, 110, &[0, 1, 2, 5, 6, 7]);
+    let scene = decoded(&player(BC4, [4, 4], false, block)).unwrap();
+    let rows = texels(&scene).1;
+    let reds: Vec<u8> = (0..6)
+        .map(|x| pixel(rows, 4, x % 4, 3 - x / 4)[0])
+        .collect();
+    assert_eq!(reds, [10, 110, 30, 90, 0, 255]);
+    assert_eq!(pixel(rows, 4, 0, 3), [10, 0, 0, 255]);
+}
+
+#[test]
+fn decoded_blocks_beyond_the_texture_edge_are_cropped_and_placed_by_block() {
+    // A 5x4 texture: two blocks across, the second holding one visible column.
+    let mut bytes = bc1_block(0xF800, 0x001F, 0);
+    bytes.extend(bc1_block(0x001F, 0xF800, 0));
+    let scene = decoded(&player(DXT1, [5, 4], false, bytes)).unwrap();
+    let rows = texels(&scene).1;
+    assert_eq!(rows.len(), 5 * 4 * 4);
+    assert_eq!(pixel(rows, 5, 3, 0), [255, 0, 0, 255]);
+    assert_eq!(pixel(rows, 5, 4, 0), [0, 0, 255, 255]);
+}
+
+#[test]
+fn decoding_needs_no_aligned_height_but_checks_the_length() {
+    let tall = player(DXT5, [4, 6], false, vec![0; 32]);
+    assert_eq!(texels(&decoded(&tall).unwrap()).1.len(), 4 * 6 * 4);
+    let short = player(DXT5, [4, 4], false, vec![0; 15]);
+    assert!(matches!(
+        decoded(&short),
+        Err(PlayerTextureError::Short {
+            needed: 16,
+            actual: 15,
+            ..
+        })
     ));
 }

@@ -4,10 +4,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use worldrunner_disunity_runtime::DisunityHost;
 use worldrunner_render_plan::simulation::SpriteTextures;
 
-use crate::{PlayError, textures::player_scene_texture};
+use crate::{
+    PlayError,
+    textures::{BlockPath, player_scene_texture},
+};
 
 /// Player textures take renderer identities from here up; the managed engine allocates them.
 pub const FIRST_PLAYER_TEXTURE: u64 = 1 << 40;
+
+/// The window's device is created for the scene it starts with, which has no block-compressed
+/// textures, so it cannot upload them; block formats are decoded here instead.
+const BLOCK_PATH: BlockPath = BlockPath::Rgba8;
 
 /// Which generation of each player texture the scene textures hold.
 #[derive(Debug, Default)]
@@ -36,7 +43,7 @@ impl PlayerTextures {
                 continue;
             };
             self.generations.insert(identity, stored.generation);
-            match player_scene_texture(&stored) {
+            match player_scene_texture(&stored, BLOCK_PATH) {
                 Ok(scene) => {
                     textures.textures.insert(identity, scene);
                 }

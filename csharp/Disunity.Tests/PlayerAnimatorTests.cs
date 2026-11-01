@@ -46,7 +46,7 @@ internal static class PlayerAnimatorTests
 
     private static JsonObject Pair(int original, JsonNode? replacement) => new() { ["original"] = original, ["replacement"] = replacement };
 
-    /// <summary>Assets: 0 the override controller, 1 its base, 2 to 4 the clips, 5 to 7 the prefabs.</summary>
+    /// <summary>Assets: 0 the override controller, 1 its base, 2 to 4 the clips, 5 to 7 the prefabs, 8 a controller with a gap in its clip list.</summary>
     private static string WritePlan(string directory)
     {
         SavePrefab(directory, "unit.json", "Unit", AnimatorPlan(0, enabled: false));
@@ -66,9 +66,10 @@ internal static class PlayerAnimatorTests
             new JsonObject { ["type"] = "Prefab", ["name"] = "Unit", ["plan"] = "unit.json" },
             new JsonObject { ["type"] = "Prefab", ["name"] = "Twin", ["plan"] = "twin.json" },
             new JsonObject { ["type"] = "Prefab", ["name"] = "Bare", ["plan"] = "bare.json" },
+            new JsonObject { ["type"] = "AnimatorController", ["name"] = "Gappy", ["clips"] = new JsonArray(2, null, 4) },
         };
-        string[] paths = ["controllers/nets", "controllers/base", "clips/walk", "clips/walknets", "clips/idle", "prefabs/unit", "prefabs/twin", "prefabs/bare"];
-        string[] classes = ["AnimatorOverrideController", "AnimatorController", "AnimationClip", "AnimationClip", "AnimationClip", "GameObject", "GameObject", "GameObject"];
+        string[] paths = ["controllers/nets", "controllers/base", "clips/walk", "clips/walknets", "clips/idle", "prefabs/unit", "prefabs/twin", "prefabs/bare", "controllers/gappy"];
+        string[] classes = ["AnimatorOverrideController", "AnimatorController", "AnimationClip", "AnimationClip", "AnimationClip", "GameObject", "GameObject", "GameObject", "AnimatorController"];
         var entries = new JsonArray(paths.Select((path, i) => (JsonNode)new JsonObject { ["path"] = path, ["class"] = classes[i], ["asset"] = i }).ToArray());
         return PlanHarness.WriteJson(directory, entries, assets);
     }
@@ -80,6 +81,11 @@ internal static class PlayerAnimatorTests
         var controller = Resources.Load<RuntimeAnimatorController>("controllers/base")!;
         Expect.Sequence(new[] { "Walk", "Idle" }, Names(controller.animationClips), "a controller lists its planned clips in order");
         Expect.That(ReferenceEquals(controller.animationClips[0], Resources.Load<AnimationClip>("clips/walk")), "the listed clip is the planned clip");
+        var copy = controller.animationClips;
+        copy[0] = null!;
+        Expect.Equal("Walk", controller.animationClips[0].name, "animationClips hands out a copy of the list");
+        var gappy = Resources.Load<RuntimeAnimatorController>("controllers/gappy")!;
+        Expect.Sequence(new[] { "Walk", "Idle" }, Names(gappy.animationClips), "a clip the plan could not hold is left out of the list");
         Console.WriteLine("PASS: a planned animator controller lists its clips");
     }
 

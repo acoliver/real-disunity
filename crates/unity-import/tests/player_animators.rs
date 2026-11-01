@@ -346,12 +346,21 @@ fn an_avatar_and_a_controller_the_plan_cannot_hold_are_listed_and_bind_null() {
 #[test]
 fn a_scene_animator_plans_with_a_null_controller_and_says_scenes_hold_none() {
     let dir = tempfile::tempdir().unwrap();
-    let spec = plain(2, ptr(1, 20));
-    let mut objects = prefab(2, "Hero", &spec);
-    objects.truncate(3);
-    write_file(dir.path(), "level0", objects, &["resources.assets"]);
+    let mut objects = prefab(2, "Hero", &plain(2, ptr(0, 20)));
+    objects.push(object(
+        20,
+        ClassId::ANIMATOR_CONTROLLER,
+        controller("Base", &[]),
+    ));
+    write_file(dir.path(), "level0", objects, &[]);
     let plan = plan_player_scene(dir.path(), "level0", &ScriptLayouts::new(Vec::new())).unwrap();
     let component = serde_json::to_value(&plan.objects[0].components[0]).unwrap();
     assert_eq!(component["type"], "Animator");
     assert_eq!(component["controller"], Json::Null);
+    assert_eq!(
+        plan.differences,
+        vec![
+            "Hero: Animator controller references AnimatorController object 20 of file 0, which scene plans do not hold"
+        ]
+    );
 }

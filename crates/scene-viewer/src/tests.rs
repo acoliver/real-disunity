@@ -172,6 +172,7 @@ pub(crate) fn scene(water: bool) -> RenderScene {
 }
 pub(crate) fn options() -> ViewerOptions {
     ViewerOptions {
+        activity_reason: crate::ActivityReason::default(),
         presentation_budget: crate::PresentationBudget::default().into(),
         capture_pool: crate::CapturePoolPolicy::default(),
         window_size_unit: crate::WindowSizeUnit::default(),

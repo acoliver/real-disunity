@@ -8,27 +8,51 @@ pub struct WindowlessRetained<'a> {
     session: Session<'a>,
     renderer: Renderer,
     closed: bool,
+    activity: Option<crate::activity::ActivityGuard>,
 }
 impl RetainedHost {
     pub fn windowless(
         self,
         driver: &mut impl RetainedDriver,
     ) -> Result<WindowlessRetained<'_>, ViewerError> {
-        let renderer = pollster::block_on(Renderer::windowless(&self));
-        let mut session = Session::new(self, driver);
-        match renderer {
-            Ok(mut renderer) => {
-                renderer.collect_retained(&mut session.host)?;
-                Ok(WindowlessRetained {
-                    session,
-                    renderer,
-                    closed: false,
-                })
-            }
-            Err(error) => {
-                let _ = session.shutdown();
-                Err(error)
-            }
+        let ((session, renderer), activity) = self.start_windowless_with_activity(
+            driver,
+            crate::activity::ActivityGuard::begin,
+            initialize,
+        )?;
+        Ok(WindowlessRetained {
+            session,
+            renderer,
+            closed: false,
+            activity: Some(activity),
+        })
+    }
+
+    pub(crate) fn start_windowless_with_activity<'a, G, T>(
+        self,
+        driver: &'a mut dyn RetainedDriver,
+        begin: impl FnOnce(&str) -> G,
+        start: impl FnOnce(Self, &'a mut dyn RetainedDriver) -> Result<T, ViewerError>,
+    ) -> Result<(T, G), ViewerError> {
+        let activity = begin(self.options.activity_reason.as_ref());
+        Ok((start(self, driver)?, activity))
+    }
+}
+
+fn initialize(
+    host: RetainedHost,
+    driver: &mut dyn RetainedDriver,
+) -> Result<(Session<'_>, Renderer), ViewerError> {
+    let renderer = pollster::block_on(Renderer::windowless(&host));
+    let mut session = Session::new(host, driver);
+    match renderer {
+        Ok(mut renderer) => {
+            renderer.collect_retained(&mut session.host)?;
+            Ok((session, renderer))
+        }
+        Err(error) => {
+            let _ = session.shutdown();
+            Err(error)
         }
     }
 }
@@ -105,10 +129,12 @@ impl WindowlessRetained<'_> {
             return Ok(());
         }
         self.closed = true;
-        let shutdown = self.session.shutdown();
-        let drain = self.renderer.drain();
-        shutdown?;
-        drain
+        crate::activity::release_after(&mut self.activity, || {
+            let shutdown = self.session.shutdown();
+            let drain = self.renderer.drain();
+            shutdown?;
+            drain
+        })
     }
     fn ensure_open(&self) -> Result<(), ViewerError> {
         if self.closed {

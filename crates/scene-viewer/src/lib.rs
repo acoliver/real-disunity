@@ -7,6 +7,8 @@
 //!
 //! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
 
+mod activity;
+pub use activity::ActivityReason;
 mod adapter;
 pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity};
 mod app;
@@ -50,6 +52,8 @@ use worldrunner_render_scene::{CameraPose, shadows::DirectionalShadowSettings};
 /// Explicit caller-owned desktop presentation settings.
 #[derive(Clone, Debug)]
 pub struct ViewerOptions {
+    /// Platform activity reason for retained runs; defaults to "Retained scene execution".
+    pub activity_reason: ActivityReason,
     /// Presentation descriptor-byte limit, including replacement overlap. Default: 1 GiB.
     pub presentation_budget: PresentationBudgetPolicy,
     /// Retained recipe storage policy, shared by desktop and windowless hosts.
@@ -234,6 +238,11 @@ pub fn run_live<D: LiveDriver>(driver: &mut D, options: LiveOptions) -> Result<(
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {
     validate_presentation(options)?;
+    if options.activity_reason.as_ref().is_empty() {
+        return Err(ViewerError::InvalidOptions(
+            "activity reason must be nonempty",
+        ));
+    }
     if let PresentationCadence::Fixed(interval) = options.cadence
         && (interval.is_zero() || std::time::Instant::now().checked_add(interval).is_none())
     {

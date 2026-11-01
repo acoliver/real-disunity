@@ -487,6 +487,20 @@ impl RetainedHost {
 
     /// Runs once on the main thread through the same event loop and renderer as `run_with_updates`.
     pub fn run(self, driver: &mut impl RetainedDriver) -> Result<(), ViewerError> {
-        crate::app::run_retained(self, driver)
+        self.run_with_activity(
+            driver,
+            crate::activity::ActivityGuard::begin,
+            crate::app::run_retained,
+        )
+    }
+
+    pub(crate) fn run_with_activity<G>(
+        self,
+        driver: &mut dyn RetainedDriver,
+        begin: impl FnOnce(&str) -> G,
+        run: impl FnOnce(Self, &mut dyn RetainedDriver) -> Result<(), ViewerError>,
+    ) -> Result<(), ViewerError> {
+        let _activity = begin(self.options.activity_reason.as_ref());
+        run(self, driver)
     }
 }

@@ -4,6 +4,23 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Retained run activity
+
+On macOS, retained desktop and windowless runs hold an `NSProcessInfo` activity
+with exactly `UserInitiated | LatencyCritical` to prevent App Nap while backgrounded
+or occluded. Desktop activity starts before event-loop creation and lasts through
+shutdown and renderer cleanup. Windowless activity starts before renderer startup
+and stays active between `frame` and `poll` calls until shutdown or drop. Startup
+failures, runtime failures and cancellation release the token after cleanup.
+Other platforms hold no platform activity. `UserInitiated` disables idle system
+sleep. No separate power-assertion API is called; display sleep and occluded-window
+presentation policy are unchanged.
+
+Set `ViewerOptions::activity_reason` to a nonempty string using `.into()`, for example
+`"Capturing a scene".into()`. `ActivityReason::default()` supplies
+`"Retained scene execution"`. Empty reasons return `ViewerError::InvalidOptions`
+before activity or renderer startup. The reason is used only by retained runs.
+
 ## Opaque capture attribution
 
 Retained recipes accept `CaptureOutput::Albedo`, `SunVisibility`, `DirectDiffuse`,

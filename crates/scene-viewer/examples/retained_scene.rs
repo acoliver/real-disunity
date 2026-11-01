@@ -112,6 +112,7 @@ fn scene() -> Result<RenderScene, SceneValidationError> {
 
 fn options() -> ViewerOptions {
     ViewerOptions {
+        activity_reason: worldrunner_scene_viewer::ActivityReason::default(),
         presentation_budget: worldrunner_scene_viewer::PresentationBudget::default().into(),
         capture_pool: worldrunner_scene_viewer::CapturePoolPolicy::default(),
         window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),

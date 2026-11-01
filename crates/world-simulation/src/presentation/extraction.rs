@@ -97,8 +97,11 @@ fn view_basis() -> Mat4 {
         1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
     ])
 }
-/// The enabled camera on an active object that draws to the screen with the highest depth; the
-/// first one wins a tie. Cameras that draw into a texture or to another display are not candidates.
+/// The camera a frame presents: the enabled camera on an active object that draws to the screen,
+/// preferring cameras that clear and then the highest depth; the first one wins a tie. A camera
+/// that keeps a lower camera's output (clear flags Depth or Nothing) lays over the base camera, and
+/// a frame has one camera, so the engine's choice is to present the base and leave the overlay out.
+/// Only when no camera clears does an overlay camera become the choice, and it is then rejected.
 pub(crate) fn selected_camera(
     world: &World,
     components: &[crate::world::ComponentSnapshot],
@@ -110,7 +113,7 @@ pub(crate) fn selected_camera(
         };
         if camera.enabled
             && camera.draws_to_screen()
-            && selected.is_none_or(|(_, best)| camera.depth > best.depth)
+            && selected.is_none_or(|(_, best)| camera.outranks(best))
             && world.active_in_hierarchy(component.object)?
         {
             selected = Some((component.object, camera));

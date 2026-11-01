@@ -4,7 +4,7 @@ use worldrunner_camera::CameraLens;
 use worldrunner_world_simulation::presentation::extraction::{
     SpriteTextures, WorldRenderPlan, extract_world,
 };
-use worldrunner_world_simulation::presentation::{Camera, Projection};
+use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentError, ObjectDesc, World, WorldError, WorldSettings,
 };
@@ -150,4 +150,65 @@ fn a_perspective_camera_still_rejects_a_replaced_projection_matrix() {
             ComponentError::UnsupportedField("projectionMatrix")
         ))
     );
+}
+
+fn overlay(depth: i32, clear: CameraClear) -> Camera {
+    Camera {
+        clear,
+        ..ortho(depth, 9.)
+    }
+}
+
+#[test]
+fn an_overlay_camera_above_a_clearing_camera_does_not_replace_it() {
+    for clear in [CameraClear::DepthOnly, CameraClear::Nothing] {
+        let plan = plan(&[perspective(0), overlay(10, clear)]).unwrap();
+        assert!(
+            matches!(lens_of(&plan), CameraLens::Perspective { .. }),
+            "{clear:?}"
+        );
+    }
+}
+
+#[test]
+fn the_highest_clearing_camera_is_the_base_below_several_overlays() {
+    let base = Camera {
+        clear: CameraClear::Skybox,
+        ..ortho(5, 3.)
+    };
+    let plan = plan(&[
+        ortho(1, 7.),
+        overlay(10, CameraClear::Nothing),
+        base,
+        overlay(11, CameraClear::DepthOnly),
+    ])
+    .unwrap();
+    assert!(matches!(
+        lens_of(&plan),
+        CameraLens::Orthographic { half_height_meters, .. } if half_height_meters == 3.
+    ));
+}
+
+#[test]
+fn an_overlay_camera_with_no_camera_below_it_still_cannot_be_presented() {
+    for (clear, field) in [
+        (CameraClear::DepthOnly, "clearFlags Depth"),
+        (CameraClear::Nothing, "clearFlags Nothing"),
+    ] {
+        assert_eq!(
+            plan(&[overlay(0, clear)]),
+            Err(WorldError::InvalidComponent(
+                ComponentError::UnsupportedField(field)
+            ))
+        );
+    }
+}
+
+#[test]
+fn a_clearing_camera_into_a_texture_is_no_base_for_an_overlay() {
+    let into_texture = Camera {
+        target_texture: 4,
+        ..ortho(0, 3.)
+    };
+    assert!(plan(&[into_texture, overlay(10, CameraClear::Nothing)]).is_err());
 }

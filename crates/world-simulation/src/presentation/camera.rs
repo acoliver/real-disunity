@@ -217,6 +217,17 @@ impl Camera {
         self.target_texture == 0 && self.target_display == 0
     }
 
+    /// Whether the camera clears to a colour, so it can be the base a frame starts from.
+    pub fn clears(self) -> bool {
+        matches!(self.clear, CameraClear::Skybox | CameraClear::SolidColor)
+    }
+
+    /// Whether the camera is chosen over `other` as the frame's camera: a clearing camera beats an
+    /// overlay camera, then the higher depth wins. Equal cameras do not outrank each other.
+    pub fn outranks(self, other: Self) -> bool {
+        (self.clears(), self.depth) > (other.clears(), other.depth)
+    }
+
     /// Whether the camera draws objects on `layer`.
     pub fn sees_layer(self, layer: u8) -> bool {
         self.culling_mask & 1u32.checked_shl(u32::from(layer)).unwrap_or(0) != 0

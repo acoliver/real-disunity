@@ -6,6 +6,9 @@
 //! A raster depth attachment clamps what a fragment writes to 0..1, so a negative, infinite or NaN
 //! depth reaches the stage as whatever the hardware stores. Those cases check that nothing that
 //! reaches the stage is scattered or turned into NaN, not which clamp the hardware applies.
+//! The rig paints the motion input and the depth input in separate passes, because a backend may
+//! drop a fragment's colour when its depth is not finite; the motion input of those cases is
+//! then the same on every backend.
 use crate::TemporalCamera;
 use crate::taa_reconstruct_test_rig::{Frame, run};
 

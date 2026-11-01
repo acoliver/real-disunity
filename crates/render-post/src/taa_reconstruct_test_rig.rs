@@ -1,8 +1,14 @@
 //! Rig of the reconstruction stages on lavapipe. A scene function in WGSL gives device depth and
 //! backward motion in internal texels (+x right, +y down) for every texel: `scene(p)` returns
-//! `(depth, motion x, motion y)`. A raster pass writes them into a depth attachment and a
-//! velocity target, the two stages of `taa_reconstruct_gpu` run, and the dilated depth, dilated
-//! motion and scatter buffer are read back.
+//! `(depth, motion x, motion y)`. Two raster passes write them, the motion into a velocity target
+//! and the depth into a depth attachment, the two stages of `taa_reconstruct_gpu` run, and the
+//! dilated depth, dilated motion and scatter buffer are read back.
+//!
+//! The passes are separate because a backend may drop a fragment's colour when the depth that
+//! fragment writes is not finite (Metal does for a NaN depth). With one pass, the motion input of
+//! a NaN depth case would then differ by backend. The motion pass has no depth attachment and the
+//! depth pass has no colour target, so the motion input never depends on how a backend treats a
+//! non-finite fragment depth.
 use crate::taa_reconstruct_gpu::{self, Inputs};
 use crate::{Operation, Resources, StageSet, TemporalCamera};
 use wgpu::util::DeviceExt;
@@ -40,50 +46,79 @@ fn scene_source(size: [u32; 2], body: &str) -> String {
     format!(
         "const SIZE = vec2<f32>({}.0, {}.0);
 fn scene(p: vec2<i32>) -> vec3<f32> {{ {body} }}
-struct Out {{ @location(0) motion: vec2<f32>, @builtin(frag_depth) depth: f32 }}
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
     return vec4<f32>(f32((i << 1u) & 2u) * 2.0 - 1.0, f32(i & 2u) * 2.0 - 1.0, 0.0, 1.0);
 }}
-@fragment fn paint(@builtin(position) pos: vec4<f32>) -> Out {{
+@fragment fn paint_motion(@builtin(position) pos: vec4<f32>) -> @location(0) vec2<f32> {{
     let s = scene(vec2<i32>(floor(pos.xy)));
-    return Out(vec2<f32>(s.y, s.z) / SIZE, s.x);
+    return vec2<f32>(s.y, s.z) / SIZE;
+}}
+@fragment fn paint_depth(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {{
+    return scene(vec2<i32>(floor(pos.xy))).x;
 }}",
         size[0], size[1]
     )
 }
 
-fn scene_pipeline(device: &wgpu::Device, source: String) -> wgpu::RenderPipeline {
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("reconstruct scene"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
+/// The two raster pipelines of the scene: one paints the velocity target, the other the depth
+/// attachment.
+struct ScenePipelines {
+    motion: wgpu::RenderPipeline,
+    depth: wgpu::RenderPipeline,
+}
+
+fn scene_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    entry_point: &str,
+    targets: &[Option<wgpu::ColorTargetState>],
+    depth_stencil: Option<wgpu::DepthStencilState>,
+) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("reconstruct scene"),
         layout: None,
         vertex: wgpu::VertexState {
-            module: &module,
+            module,
             entry_point: Some("vertex"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             buffers: &[],
         },
         fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some("paint"),
+            module,
+            entry_point: Some(entry_point),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &[Some(crate::VELOCITY_FORMAT.into())],
+            targets,
         }),
         primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Always),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
+        depth_stencil,
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
     })
+}
+
+fn scene_pipelines(device: &wgpu::Device, source: String) -> ScenePipelines {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("reconstruct scene"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let depth_always = wgpu::DepthStencilState {
+        format: wgpu::TextureFormat::Depth32Float,
+        depth_write_enabled: Some(true),
+        depth_compare: Some(wgpu::CompareFunction::Always),
+        stencil: wgpu::StencilState::default(),
+        bias: wgpu::DepthBiasState::default(),
+    };
+    ScenePipelines {
+        motion: scene_pipeline(
+            device,
+            &module,
+            "paint_motion",
+            &[Some(crate::VELOCITY_FORMAT.into())],
+            None,
+        ),
+        depth: scene_pipeline(device, &module, "paint_depth", &[], Some(depth_always)),
+    }
 }
 
 fn texture(device: &wgpu::Device, size: [u32; 2], format: wgpu::TextureFormat) -> wgpu::Texture {
@@ -99,13 +134,16 @@ fn texture(device: &wgpu::Device, size: [u32; 2], format: wgpu::TextureFormat) -
     })
 }
 
+/// Paints the motion target in a pass with no depth attachment, then the depth attachment in a
+/// pass with no colour target. A backend may drop a fragment's colour when its depth is not
+/// finite, so one pass would make the motion input depend on the backend.
 fn draw_scene(
     encoder: &mut wgpu::CommandEncoder,
-    pipeline: &wgpu::RenderPipeline,
+    pipelines: &ScenePipelines,
     (motion, depth): (&wgpu::TextureView, &wgpu::TextureView),
 ) {
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("reconstruct scene"),
+        label: Some("reconstruct scene motion"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: motion,
             resolve_target: None,
@@ -115,6 +153,13 @@ fn draw_scene(
                 store: wgpu::StoreOp::Store,
             },
         })],
+        ..Default::default()
+    });
+    pass.set_pipeline(&pipelines.motion);
+    pass.draw(0..3, 0..1);
+    drop(pass);
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("reconstruct scene depth"),
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
             view: depth,
             depth_ops: Some(wgpu::Operations {
@@ -125,7 +170,7 @@ fn draw_scene(
         }),
         ..Default::default()
     });
-    pass.set_pipeline(pipeline);
+    pass.set_pipeline(&pipelines.depth);
     pass.draw(0..3, 0..1);
 }
 
@@ -261,7 +306,7 @@ pub(crate) fn run(
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     draw_scene(
         &mut encoder,
-        &scene_pipeline(device, scene_source(size, body)),
+        &scene_pipelines(device, scene_source(size, body)),
         (&motion_view, &depth_view),
     );
     for stage in &set.stages {

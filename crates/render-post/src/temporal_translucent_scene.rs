@@ -45,6 +45,14 @@ pub(crate) fn wgsl() -> String {
     }}
     return o;
 }}
+// The mask producer of the bar: `frame.bar.w` of reactive strength over its footprint.
+@fragment fn paint_mask(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {{
+    let p = (frag.xy - frame.jitter) / frame.render * vec2<f32>({w:?}, {h:?});
+    if within(p, vec2<f32>(frame.bar.z, {top:?}), vec2<f32>({bw:?}, {bh:?})) {{
+        return vec4<f32>(frame.bar.w, 0.0, 0.0, 0.0);
+    }}
+    return vec4<f32>(0.0);
+}}
 ",
         w = opaque::CANVAS[0],
         h = opaque::CANVAS[1],

@@ -166,6 +166,8 @@ mod temporal_quality_scene;
 #[cfg(test)]
 mod temporal_quality_tests;
 #[cfg(test)]
+mod temporal_reactive_tests;
+#[cfg(test)]
 mod temporal_reset_state_tests;
 #[cfg(test)]
 mod temporal_scene_test_rig;

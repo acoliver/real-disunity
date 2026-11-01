@@ -40,7 +40,7 @@ fn truth(pixel: Pixel, left: f64) -> f64 {
     sum / f64::from(SUB * SUB)
 }
 
-fn error(image: &[f64], pixels: &[Pixel], left: f64) -> f64 {
+pub(crate) fn error(image: &[f64], pixels: &[Pixel], left: f64) -> f64 {
     mean(
         pixels
             .iter()
@@ -52,9 +52,9 @@ fn error(image: &[f64], pixels: &[Pixel], left: f64) -> f64 {
     clippy::cast_possible_truncation,
     reason = "the bar's left edge is a small canvas coordinate"
 )]
-fn frame(rig: &SceneRig, index: u64, history_valid: bool) {
+pub(crate) fn frame(rig: &SceneRig, index: u64, history_valid: bool, reactive: f32) {
     let left = opaque::bar_left(index) as f32;
-    let tail = [scene::OFF_CANVAS, 0.0, left, 0.0];
+    let tail = [scene::OFF_CANVAS, 0.0, left, reactive];
     rig.frame(index, history_valid, (tail, Some(static_camera())));
 }
 
@@ -63,7 +63,7 @@ fn run(gpu: &(wgpu::Device, wgpu::Queue), render: [u32; 2], accumulate: bool) ->
     let plane = plane_pixels();
     let (mut trail, mut fixed) = (Vec::new(), Vec::new());
     for index in 0..FRAMES {
-        frame(&rig, index, accumulate && index > 0);
+        frame(&rig, index, accumulate && index > 0, 0.0);
         if index + MEASURED < FRAMES {
             continue;
         }

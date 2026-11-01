@@ -23,6 +23,7 @@ pub(crate) struct SceneRig {
     history: wgpu::Texture,
     sink: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
+    mask_pipeline: Option<wgpu::RenderPipeline>,
     render: [u32; 2],
     output: [u32; 2],
     slot_output: Arc<Mutex<Option<wgpu::Texture>>>,
@@ -61,6 +62,48 @@ fn pipeline(device: &wgpu::Device, source: String) -> wgpu::RenderPipeline {
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// The producer of the mask: the scene module's `paint_mask` entry, drawn with the maximum blend
+/// the mask contract asks of producers.
+fn mask_pipeline(device: &wgpu::Device, source: &str) -> wgpu::RenderPipeline {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("analytic mask producer"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let max = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Max,
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("analytic mask producer"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vertex"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("paint_mask"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: crate::TEMPORAL_MASK_FORMAT,
+                blend: Some(wgpu::BlendState {
+                    color: max,
+                    alpha: max,
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
@@ -117,6 +160,9 @@ impl SceneRig {
         let sink =
             crate::color_texture(&device, "sink", output, wgpu::TextureFormat::Rgba8UnormSrgb);
         Self {
+            mask_pipeline: scene_wgsl
+                .contains("fn paint_mask")
+                .then(|| mask_pipeline(&device, &scene_wgsl)),
             pipeline: pipeline(&device, scene_wgsl),
             device,
             queue,
@@ -160,8 +206,13 @@ impl SceneRig {
         self.jitter = ProjectionJitter::for_extents(render, output).unwrap();
     }
 
-    /// Rasterises the scene into colour, velocity and depth at the internal extent.
-    fn paint(&self, encoder: &mut wgpu::CommandEncoder, offset: [f32; 2], tail: [f32; 4]) {
+    /// The group of the scene uniform for `pipeline`.
+    fn frame_group(
+        &self,
+        pipeline: &wgpu::RenderPipeline,
+        offset: [f32; 2],
+        tail: [f32; 4],
+    ) -> wgpu::BindGroup {
         let [rw, rh] = self
             .render
             .map(|side| f32::from(u16::try_from(side).unwrap()));
@@ -176,14 +227,45 @@ impl SceneRig {
                 contents: &bytes,
                 usage: wgpu::BufferUsages::UNIFORM,
             });
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
-            layout: &self.pipeline.get_bind_group_layout(0),
+            layout: &pipeline.get_bind_group_layout(0),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform.as_entire_binding(),
             }],
+        })
+    }
+
+    /// Draws the scene's mask producer into the frame mask, when the scene has one.
+    fn paint_mask(&self, encoder: &mut wgpu::CommandEncoder, offset: [f32; 2], tail: [f32; 4]) {
+        let (Some(pipeline), Some(view)) =
+            (&self.mask_pipeline, self.chain.targets().temporal_mask())
+        else {
+            return;
+        };
+        let group = self.frame_group(pipeline, offset, tail);
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("analytic mask producer"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
         });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
+    /// Rasterises the scene into colour, velocity and depth at the internal extent, then the mask.
+    fn paint(&self, encoder: &mut wgpu::CommandEncoder, offset: [f32; 2], tail: [f32; 4]) {
+        let group = self.frame_group(&self.pipeline, offset, tail);
         let targets = self.chain.targets();
         let attachment = |view| {
             Some(wgpu::RenderPassColorAttachment {
@@ -215,6 +297,8 @@ impl SceneRig {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..3, 0..1);
+        drop(pass);
+        self.paint_mask(encoder, offset, tail);
     }
 
     /// Frame `index` of the jitter sequence with the scene values `tail`. The camera term is

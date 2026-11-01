@@ -160,7 +160,9 @@ pub trait StageFactory {
 fn target_options<F: StageFactory>(factory: &F, config: FrameConfig) -> crate::TargetOptions {
     crate::TargetOptions {
         velocity: factory.needs_velocity(),
-        temporal_mask: factory.needs_temporal_masks() && config.size != config.output_extent(),
+        temporal_mask: factory.needs_temporal_masks()
+            && config.size != config.output_extent()
+            && crate::taa_mask_gpu::masks_enabled(),
     }
 }
 

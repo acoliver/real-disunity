@@ -155,11 +155,15 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) ->
         candidates
     });
     let candidate_view = candidates.as_ref().map(view);
+    let prepared_view = prepared_mask.as_ref().map(view);
     set.stages.push(resolve_stage(
         device,
         inputs,
-        &reconstructed,
-        candidate_view.as_ref(),
+        (
+            &reconstructed,
+            candidate_view.as_ref(),
+            prepared_view.as_ref(),
+        ),
     ));
     set.stages.push(Stage::copy_texture(
         StageId::new(STAGES[1], 0),
@@ -190,8 +194,11 @@ fn view(texture: &wgpu::Texture) -> wgpu::TextureView {
 fn resolve_stage(
     device: &wgpu::Device,
     inputs: &Inputs<'_>,
-    reconstructed: &taa_reconstruct_gpu::Outputs,
-    candidates: Option<&wgpu::TextureView>,
+    (reconstructed, candidates, prepared): (
+        &taa_reconstruct_gpu::Outputs,
+        Option<&wgpu::TextureView>,
+        Option<&wgpu::TextureView>,
+    ),
 ) -> Stage {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("temporal upscale"),
@@ -203,16 +210,23 @@ fn resolve_stage(
             .into(),
         ),
     });
-    let pipeline = pipeline(device, &module, inputs.locks.is_some());
+    let pipeline = pipeline(
+        device,
+        &module,
+        (inputs.locks.is_some(), prepared.is_some()),
+    );
     let (history, motion) = (view(inputs.history), view(&reconstructed.motion));
     let confidence = view(&reconstructed.confidence);
     let entry = |binding, resource| wgpu::BindGroupEntry { binding, resource };
+    let zero_mask = view(&zero_mask_texture(device));
+    let mask = prepared.unwrap_or(&zero_mask);
     let mut entries = vec![
         entry(0, wgpu::BindingResource::TextureView(inputs.color)),
         entry(1, wgpu::BindingResource::TextureView(&history)),
         entry(2, wgpu::BindingResource::TextureView(&motion)),
         entry(3, inputs.uniform.as_entire_binding()),
         entry(4, wgpu::BindingResource::TextureView(&confidence)),
+        entry(7, wgpu::BindingResource::TextureView(mask)),
     ];
     let lock_history = inputs.locks.as_ref().map(|l| view(l.history));
     if let (Some(candidates), Some(lock_history)) = (candidates, &lock_history) {
@@ -229,6 +243,20 @@ fn resolve_stage(
         None => StageTarget::Texture(view(inputs.output)),
     };
     Stage::fullscreen(StageId::new(STAGES[0], 0), &pipeline, &[&group], target)
+}
+
+/// The 1x1 mask a stage without a producer mask binds: zero everywhere, so no texel is reactive.
+fn zero_mask_texture(device: &wgpu::Device) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("temporal zero mask"),
+        size: crate::targets::extent([1, 1]),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: crate::TEMPORAL_MASK_FORMAT,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    })
 }
 
 /// Whether the thin-feature locks run by default. They are off: the lock rules of the
@@ -292,22 +320,23 @@ impl Drop for WithLocks {
 }
 
 /// The unlocked pipeline has one target and binds no lock texture. The locked one sets the shader's
-/// `locks` override, which gates its lock branches.
+/// `locks` override, which gates its lock branches. `masks` says whether the bound mask is real.
 fn pipeline(
     device: &wgpu::Device,
     module: &wgpu::ShaderModule,
-    locks: bool,
+    (locks, masks): (bool, bool),
 ) -> wgpu::RenderPipeline {
+    let masks = ("masks", f64::from(u8::from(masks)));
     let (entry_point, overrides, targets) = if locks {
         (
             "taa_upscale",
-            [("locks", 1.0)],
+            [("locks", 1.0), masks],
             vec![Some(FORMAT.into()), Some(FORMAT.into())],
         )
     } else {
         (
             "taa_upscale_unlocked",
-            [("locks", 0.0)],
+            [("locks", 0.0), masks],
             vec![Some(FORMAT.into())],
         )
     };

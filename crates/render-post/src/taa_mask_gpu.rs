@@ -62,3 +62,37 @@ pub fn stage(
     let stage = Stage::fullscreen(StageId::new(STAGE, 0), &pipeline, &[&group], target);
     (stage, out)
 }
+
+#[cfg(test)]
+thread_local! {
+    static MASKING: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Whether frame targets of a temporal reconstruction carry a mask: always in production.
+pub(crate) fn masks_enabled() -> bool {
+    #[cfg(test)]
+    let on = MASKING.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    let on = true;
+    on
+}
+
+/// While alive, chains built on this thread have no mask, so the shader reads none: the path
+/// before masks existed. A test measures it next to the masked path on the same device.
+#[cfg(test)]
+pub(crate) struct WithoutMasks;
+
+#[cfg(test)]
+impl WithoutMasks {
+    pub(crate) fn new() -> Self {
+        MASKING.with(|m| m.set(false));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for WithoutMasks {
+    fn drop(&mut self) {
+        MASKING.with(|m| m.set(true));
+    }
+}

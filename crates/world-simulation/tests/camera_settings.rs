@@ -135,13 +135,6 @@ fn a_frame_rejects_each_setting_it_cannot_show() {
     let cases = [
         (
             Camera {
-                projection: Projection::Perspective,
-                ..Default::default()
-            },
-            "perspective projection",
-        ),
-        (
-            Camera {
                 projection_matrix: Some(identity),
                 ..Default::default()
             },
@@ -153,20 +146,6 @@ fn a_frame_rejects_each_setting_it_cannot_show() {
                 ..Default::default()
             },
             "worldToCameraMatrix",
-        ),
-        (
-            Camera {
-                target_texture: 7,
-                ..Default::default()
-            },
-            "targetTexture",
-        ),
-        (
-            Camera {
-                target_display: 1,
-                ..Default::default()
-            },
-            "targetDisplay",
         ),
         (
             Camera {

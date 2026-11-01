@@ -1,6 +1,6 @@
 //! Pathless extraction from the sole native world into shared scene geometry.
 use crate::presentation::CoverageTexture as SceneTexture;
-use crate::presentation::{Sprite, sprite_corners};
+use crate::presentation::{Projection, Sprite, sprite_corners};
 use crate::{ComponentDesc, World, WorldError};
 use glam::{Mat4, Vec3};
 use std::collections::BTreeMap;
@@ -76,12 +76,12 @@ pub fn extract_world(
             ComponentDesc::Camera(camera)
                 if selected.is_some_and(|(object, _)| object == component.object) =>
             {
+                result.clear = camera.clear_color()?;
                 let state = camera_state(world, component.object, camera, matrix, basis, viewport)?;
                 result.camera = Some(resolve(&state).map_err(|_| {
                     WorldError::InvalidComponent(crate::ComponentError::InvalidPresentation)
                 })?);
                 result.camera_state = Some(state);
-                result.clear = camera.clear_color()?;
             }
             _ => {}
         }
@@ -97,7 +97,8 @@ fn view_basis() -> Mat4 {
         1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
     ])
 }
-/// The enabled camera on an active object with the highest depth; the first one wins a tie.
+/// The enabled camera on an active object that draws to the screen with the highest depth; the
+/// first one wins a tie. Cameras that draw into a texture or to another display are not candidates.
 pub(crate) fn selected_camera(
     world: &World,
     components: &[crate::world::ComponentSnapshot],
@@ -108,6 +109,7 @@ pub(crate) fn selected_camera(
             continue;
         };
         if camera.enabled
+            && camera.draws_to_screen()
             && selected.is_none_or(|(_, best)| camera.depth > best.depth)
             && world.active_in_hierarchy(component.object)?
         {
@@ -167,11 +169,7 @@ fn camera_state(
             forward: basis.transform_vector3(rotation * Vec3::Z).as_dvec3(),
             up: basis.transform_vector3(rotation * Vec3::Y).as_dvec3(),
         },
-        lens: CameraLens::Orthographic {
-            half_height_meters: f64::from(camera.half_height),
-            near_meters: f64::from(camera.near),
-            far_meters: f64::from(camera.far),
-        },
+        lens: camera_lens(camera),
         viewport: Viewport {
             width: viewport[0],
             height: viewport[1],
@@ -181,6 +179,22 @@ fn camera_state(
         },
     };
     Ok(state)
+}
+fn camera_lens(camera: crate::presentation::Camera) -> CameraLens {
+    let near_meters = f64::from(camera.near);
+    let far_meters = f64::from(camera.far);
+    match camera.projection {
+        Projection::Perspective => CameraLens::Perspective {
+            vertical_fov_radians: f64::from(camera.field_of_view).to_radians(),
+            near_meters,
+            far_meters,
+        },
+        Projection::Orthographic => CameraLens::Orthographic {
+            half_height_meters: f64::from(camera.half_height),
+            near_meters,
+            far_meters,
+        },
+    }
 }
 fn quad(
     sprite: Sprite,

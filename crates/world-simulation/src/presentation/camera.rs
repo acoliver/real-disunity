@@ -89,8 +89,8 @@ const DEPTH_TEXTURE_BITS: u32 = 0b111;
 /// Unity supports eight displays.
 pub const DISPLAY_COUNT: u32 = 8;
 
-/// A camera. Frames present orthographic cameras that draw the full screen; the other settings are
-/// stored for scripts and rejected by [`Camera::clear_color`] when they would change the frame.
+/// A camera. Frames present orthographic and perspective cameras that draw the full screen; the
+/// other settings are stored for scripts and rejected by [`Camera::clear_color`] when they would change the frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
     pub enabled: bool,
@@ -180,8 +180,10 @@ impl Camera {
 
     /// Rejects the settings a frame cannot show yet, each by the Unity member that sets it.
     pub fn require_presentable(self) -> Result<(), WorldError> {
-        if self.projection == Projection::Perspective {
-            return Err(lighting::unsupported("perspective projection"));
+        if self.projection == Projection::Perspective && self.near <= 0. {
+            return Err(lighting::unsupported(
+                "nearClipPlane 0 with perspective projection",
+            ));
         }
         if self.projection_matrix.is_some() {
             return Err(lighting::unsupported("projectionMatrix"));
@@ -207,6 +209,12 @@ impl Camera {
             && y.abs() <= f32::EPSILON
             && (width - 1.).abs() <= f32::EPSILON
             && (height - 1.).abs() <= f32::EPSILON
+    }
+
+    /// Whether the camera draws to the screen: a camera with a target texture or another display
+    /// does not, so it cannot be the camera a frame presents.
+    pub fn draws_to_screen(self) -> bool {
+        self.target_texture == 0 && self.target_display == 0
     }
 
     /// Whether the camera draws objects on `layer`.

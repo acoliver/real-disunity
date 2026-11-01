@@ -74,7 +74,7 @@ impl DisunityHost {
     }
 
     /// Turns a failed result into the error with the world's own message, so a log says why.
-    fn check(&self, result: native::DisunityResult) -> Result<(), HostError> {
+    pub(crate) fn check(&self, result: native::DisunityResult) -> Result<(), HostError> {
         if result.code == 0 {
             Ok(())
         } else {

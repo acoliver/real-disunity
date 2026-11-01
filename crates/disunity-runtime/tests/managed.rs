@@ -166,6 +166,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_lifecycle_soak(&mut host, &fixture);
     assert_managed_lighting(&mut host, &root);
     assert_presentation_cameras(&mut host, &root);
+    assert_player_textures(&mut host, &root);
     host.run_slice(&fixture).unwrap();
     assert_cross_language_writes(&mut host);
     drop(host);
@@ -276,5 +277,31 @@ fn assert_presentation_cameras(host: &mut DisunityHost, root: &Path) {
         matches!(&failed, HostError::Native { message, .. } if message.contains("rect")),
         "the player log must say why: {failed:?}"
     );
+    host.unload_slice().unwrap();
+}
+
+fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
+    use worldrunner_disunity_runtime::PlayerTexture;
+    const FIRST: u64 = 1 << 40;
+    host.run_slice(&root.join("csharp/PortableFixture/texture.fixture"))
+        .unwrap();
+    let (identity, texture) = (FIRST..FIRST + 64)
+        .find_map(|id| Some((id, host.player_texture(id, 0).unwrap()?)))
+        .expect("the fixture's texture reaches the host");
+    assert_eq!(
+        texture,
+        PlayerTexture {
+            format: 4,
+            width: 2,
+            height: 1,
+            mips: 1,
+            linear: true,
+            generation: 1,
+            bytes: vec![9, 8, 7, 6, 5, 4, 3, 2],
+        }
+    );
+    assert_eq!(host.player_texture(identity, 1).unwrap(), None);
+    assert_eq!(host.player_texture(identity, 0).unwrap().unwrap(), texture);
+    assert_eq!(host.player_texture(FIRST + 1000, 0).unwrap(), None);
     host.unload_slice().unwrap();
 }

@@ -1,6 +1,6 @@
 //! Water as the producer of the temporal reactive mask, through the inner renderer of a
-//! `ConfiguredFrameRenderer` with `UpscaleMode::Temporal` (decision Q6: the jitter gap of the
-//! configured path is not part of this check). The scene of `taa_end_to_end_tests` is drawn into the
+//! `ConfiguredFrameRenderer` with `UpscaleMode::Temporal`. The jitter of the configured path is
+//! covered by `temporal_configuration_tests`; this check drives the inner renderer directly. The scene of `taa_end_to_end_tests` is drawn into the
 //! render-extent targets, then a `Load` opaque pass and the water pass run through `encode_frame`.
 use super::taa_end_to_end_tests::{OUTPUT, Scene, context};
 use crate::{

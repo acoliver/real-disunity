@@ -122,6 +122,23 @@ fn an_orthographic_camera_disables_the_depth_terms() {
     assert!(terms.iter().all(|term| *term == 0.0), "{terms:?}");
 }
 
+/// Contract for cameras that are not finite standard-Z perspective: the disocclusion depth test
+/// is off, while the reprojection, the history validity and the colour clip stay in force.
+#[test]
+fn an_orthographic_camera_keeps_history_and_reprojection_without_the_depth_test() {
+    let ortho = glam::camera::rh::proj::directx::orthographic(-4.0, 4.0, -3.0, 3.0, 0.1, 100.0);
+    let current = ortho * Mat4::from_rotation_y(0.4);
+    let previous = ortho * Mat4::from_translation(Vec3::new(0.5, 0.0, 0.0));
+    let block = uniform(&view_of(current, previous, true));
+    assert!(block.history_valid);
+    assert!(block.depth_terms.iter().all(|term| *term == 0.0));
+    let camera = worldrunner_render_post::TemporalCamera::from(&block);
+    assert!(camera.valid);
+    assert!(camera.depth_terms.iter().all(|term| *term == 0.0));
+    let expected = (previous.as_dmat4() * current.as_dmat4().inverse()).to_cols_array_2d();
+    assert_eq!(block.reprojection, expected);
+}
+
 #[test]
 fn a_frame_without_valid_history_marks_the_block_invalid() {
     let camera = projection();

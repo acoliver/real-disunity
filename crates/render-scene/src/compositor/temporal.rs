@@ -239,3 +239,7 @@ mod temporal_mip_bias_tests;
 #[cfg(test)]
 #[path = "temporal_configuration_tests.rs"]
 mod temporal_configuration_tests;
+
+#[cfg(test)]
+#[path = "temporal_rejection_tests.rs"]
+mod temporal_rejection_tests;

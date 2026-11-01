@@ -13,7 +13,7 @@ use worldrunner_render_post::{
 
 const OUTPUT_EXTENT: [u32; 2] = [64, 64];
 
-fn context() -> GpuContext {
+pub(super) fn context() -> GpuContext {
     pollster::block_on(GpuContext::request()).unwrap()
 }
 
@@ -24,7 +24,7 @@ fn render_extent(scale_micro: u32) -> [u32; 2] {
         .unwrap()
 }
 
-fn configuration(
+pub(super) fn configuration(
     resolve: PostResolve,
     upscale: Option<UpscaleMode>,
     scale_micro: u32,
@@ -46,7 +46,7 @@ fn configuration(
     settings
 }
 
-fn temporal(scale_micro: u32) -> RendererConfiguration {
+pub(super) fn temporal(scale_micro: u32) -> RendererConfiguration {
     configuration(
         PostResolve::taa(0.9),
         Some(UpscaleMode::Temporal),
@@ -54,7 +54,10 @@ fn temporal(scale_micro: u32) -> RendererConfiguration {
     )
 }
 
-fn build(context: &GpuContext, settings: RendererConfiguration) -> ConfiguredFrameRenderer {
+pub(super) fn build(
+    context: &GpuContext,
+    settings: RendererConfiguration,
+) -> ConfiguredFrameRenderer {
     ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap()
 }
 

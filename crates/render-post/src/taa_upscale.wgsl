@@ -44,7 +44,9 @@ override locks: f32 = 1.0;
 const MOTION_K: f32 = 1.5;
 const HALF_PI: f32 = 1.5707963267948966;
 // A locked texel halves the share of the new sample: the history weight w becomes 1 - (1 - w) / 2,
-// which doubles the frames the accumulation averages over. A history weight of 0 stays 0.
+// which doubles the frames the accumulation averages over. A history weight of 0 stays 0. The
+// composition of the mask moves the share linearly to 1 (no protection); a composition of 1 also
+// kills the lock itself.
 const LOCK_SHARE: f32 = 0.5;
 struct Resolved {
     @location(0) color: vec4<f32>,
@@ -139,18 +141,20 @@ fn history_confidence(q: vec2<f32>) -> f32 {
     }
     return least;
 }
-// Strongest reactive strength of the prepared mask over the same 2x2 internal texels as
-// `history_confidence`, 0 without masks. A reactive texel rejects history in proportion.
-fn gather_reactive(q: vec2<f32>) -> f32 {
+// Strongest reactive strength (x) and composition (y) of the prepared mask over the same 2x2
+// internal texels as `history_confidence`, both 0 without masks. A reactive texel rejects history
+// in proportion; a composition texel weakens the thin-feature lock (only the locked entry point
+// reads it).
+fn gather_masks(q: vec2<f32>) -> vec2<f32> {
     if masks < 0.5 {
-        return 0.0;
+        return vec2<f32>(0.0);
     }
     let base = vec2<i32>(floor(q));
     let last = vec2<i32>(textureDimensions(prepared_mask)) - 1;
-    var most = 0.0;
+    var most = vec2<f32>(0.0);
     for (var i = 0; i < 4; i++) {
         let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
-        most = max(most, textureLoad(prepared_mask, t, 0).x);
+        most = max(most, textureLoad(prepared_mask, t, 0).xy);
     }
     return most;
 }
@@ -205,6 +209,7 @@ struct Prepared {
     usable: bool,
     confidence: f32,
     reactive: f32,
+    composition: f32,
     bounds: array<vec3<f32>, 2>,
     current: vec4<f32>,
 }
@@ -219,7 +224,8 @@ fn prepare(position: vec4<f32>) -> Prepared {
     let usable = temporal.clip_valid.y > 0.5 && finite(uv.x) && finite(uv.y)
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     let confidence = history_confidence(q);
-    return Prepared(q, flow, uv, usable, confidence, gather_reactive(q), neighbourhood(q), reconstruct(q));
+    let mask = gather_masks(q);
+    return Prepared(q, flow, uv, usable, confidence, mask.x, mask.y, neighbourhood(q), reconstruct(q));
 }
 // The resolved color. `locked` halves the share of the new sample.
 fn blend(s: Prepared, locked: bool) -> vec4<f32> {
@@ -232,7 +238,8 @@ fn blend(s: Prepared, locked: bool) -> vec4<f32> {
             let clipped = clip_toward_centre(h, s.bounds[0], temporal.clip_valid.x * s.bounds[1]);
             let moved = length(s.flow * out_extent);
             let base = temporal.jitter_phase_weight.w;
-            let weight = select(base, 1.0 - (1.0 - base) * LOCK_SHARE, locked && base > 0.0);
+            let share = mix(LOCK_SHARE, 1.0, s.composition);
+            let weight = select(base, 1.0 - (1.0 - base) * share, locked && base > 0.0);
             let wh = weight * (1.0 - s.reactive) * clamp(1.0 - MOTION_K * moved, 0.0, 1.0) * s.confidence;
             rgb = s.current.rgb * (1.0 - wh) + decompress(from_ycocg(clipped)) * wh;
         }
@@ -243,7 +250,7 @@ fn blend(s: Prepared, locked: bool) -> vec4<f32> {
 // history and writes the lock bank.
 @fragment fn taa_upscale(@builtin(position) position: vec4<f32>) -> Resolved {
     let s = prepare(position);
-    let locking = locks > 0.5;
+    let locking = locks > 0.5 && s.composition < 1.0;
     let prev = reproject_lock(s.uv, s.usable && locking && s.confidence > 0.0, s.bounds[0].x);
     let candidate = select(0.0, gather_candidate(s.q, s.flow, s.confidence), locking);
     let lock = next_lock(prev, candidate, s.bounds[0].x);

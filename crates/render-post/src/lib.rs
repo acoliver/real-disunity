@@ -142,6 +142,8 @@ mod temporal_camera_gpu_tests;
 #[cfg(test)]
 mod temporal_camera_tests;
 #[cfg(test)]
+mod temporal_composition_tests;
+#[cfg(test)]
 mod temporal_depth_motion_scene;
 #[cfg(test)]
 mod temporal_depth_motion_tests;

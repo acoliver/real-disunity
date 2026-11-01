@@ -28,6 +28,7 @@ pub(crate) struct SceneRig {
     output: [u32; 2],
     slot_output: Arc<Mutex<Option<wgpu::Texture>>>,
     slot_history: Arc<Mutex<Option<wgpu::Texture>>>,
+    slot_lock_bank: Arc<Mutex<Option<wgpu::Texture>>>,
     pub(crate) jitter: ProjectionJitter,
 }
 
@@ -141,10 +142,12 @@ impl SceneRig {
             .with_render_extent(render);
         let slot_output = Arc::new(Mutex::new(None));
         let slot_history = Arc::new(Mutex::new(None));
+        let slot_lock_bank = Arc::new(Mutex::new(None));
         let factory = Recording {
             inner: public_factory(&device, post),
             output: slot_output.clone(),
             history: slot_history.clone(),
+            lock_bank: slot_lock_bank.clone(),
         };
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
         let hdr = slot_output
@@ -174,6 +177,7 @@ impl SceneRig {
             output,
             slot_output,
             slot_history,
+            slot_lock_bank,
             jitter: ProjectionJitter::for_extents(render, output).unwrap(),
         }
     }
@@ -388,6 +392,12 @@ impl SceneRig {
     /// The shared history texture after the last frame: the pre-tone reconstruction, row major.
     pub(crate) fn history_image(&self) -> Vec<[f64; 4]> {
         read((&self.device, &self.queue), &self.history)
+    }
+
+    /// The lock bank of slot 0 after the last frame, row major; `None` with the locks off.
+    pub(crate) fn lock_bank(&self) -> Option<Vec<[f64; 4]>> {
+        let bank = self.slot_lock_bank.lock().unwrap().clone()?;
+        Some(read((&self.device, &self.queue), &bank))
     }
 
     /// The tone mapped bytes the chain wrote to its sink in the last frame, RGBA, row major.

@@ -33,6 +33,8 @@ pub(crate) struct Recording {
     pub(crate) output: Arc<Mutex<Option<wgpu::Texture>>>,
     /// The shared history texture, the second texture of slot 0 in the temporal bank.
     pub(crate) history: Arc<Mutex<Option<wgpu::Texture>>>,
+    /// The lock bank of slot 0, present only when the locks are on.
+    pub(crate) lock_bank: Arc<Mutex<Option<wgpu::Texture>>>,
 }
 
 impl StageFactory for Recording {
@@ -64,6 +66,9 @@ impl StageFactory for Recording {
         if slot == 0 {
             *self.output.lock().unwrap() = set.resources.textures.first().cloned();
             *self.history.lock().unwrap() = set.resources.textures.get(1).cloned();
+            *self.lock_bank.lock().unwrap() = crate::taa_upscale_gpu::locks_enabled()
+                .then(|| set.resources.textures.get(2).cloned())
+                .flatten();
         }
         Ok(set)
     }
@@ -98,6 +103,7 @@ impl Rig {
             inner: public_factory(&device, &settings()),
             output: output.clone(),
             history: Arc::default(),
+            lock_bank: Arc::default(),
         };
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
         let hdr = output.lock().unwrap().take().expect("slot 0 was built");

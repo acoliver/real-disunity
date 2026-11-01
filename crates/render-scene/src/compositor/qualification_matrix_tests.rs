@@ -136,17 +136,21 @@ fn env_one<T: FromStr>(name: &str, default: T) -> T {
     })
 }
 
+/// `RD_QUAL_OUTPUTS` as extents, each written `WxH`.
+fn env_outputs(default: &str) -> Vec<[u32; 2]> {
+    env_list::<String>("OUTPUTS", default)
+        .iter()
+        .map(|text| {
+            let (w, h) = text.split_once('x').expect("WxH");
+            [w.parse().expect("width"), h.parse().expect("height")]
+        })
+        .collect()
+}
+
 impl Config {
     fn from_env() -> Self {
-        let outputs: Vec<String> = env_list("OUTPUTS", "1920x1080,1452x921");
         Self {
-            outputs: outputs
-                .iter()
-                .map(|text| {
-                    let (w, h) = text.split_once('x').expect("WxH");
-                    [w.parse().expect("width"), h.parse().expect("height")]
-                })
-                .collect(),
+            outputs: env_outputs("1920x1080,1452x921"),
             scales: env_list("SCALES", "500000,670000,770000"),
             modes: env_list("MODES", "M1,M2,M3,M4,M5"),
             pans: env_list("PAN", "0,0.3"),
@@ -171,6 +175,8 @@ struct Harness<'a> {
     render: [u32; 2],
     envelope: Option<FrameEnvelope>,
     submitted: usize,
+    /// Whether each frame begins a pass-level timing record (`stage_timings` turns it on).
+    timed: bool,
 }
 
 impl<'a> Harness<'a> {
@@ -195,6 +201,7 @@ impl<'a> Harness<'a> {
             render,
             envelope: FrameEnvelope::new(context),
             submitted: 0,
+            timed: false,
         }
     }
 
@@ -204,6 +211,7 @@ impl<'a> Harness<'a> {
         let renderer = self.renderer.renderer_mut();
         renderer.select_frame_slot(self.submitted % SLOTS);
         self.submitted += 1;
+        let timing_id = u64::try_from(self.submitted).ok().filter(|_| self.timed);
         let prepared = renderer.prepare_uniform(frame(eye_x, self.render)).unwrap();
         let view = self
             .output
@@ -213,6 +221,9 @@ impl<'a> Harness<'a> {
             .context
             .submission()
             .prepare(device, |encoder, _| {
+                if let Some(id) = timing_id {
+                    renderer.begin_timing(id).unwrap();
+                }
                 if let Some(e) = envelope {
                     e.begin(encoder);
                 }
@@ -419,3 +430,7 @@ fn qualification_matrix() {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "qualification_stage_timings_tests.rs"]
+mod stage_timings;

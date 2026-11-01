@@ -167,16 +167,17 @@ fn unsupported_and_invalid_settings_are_typed_and_leave_the_camera_unchanged() {
 }
 
 #[test]
-fn clear_modes_that_need_a_lower_camera_are_rejected_at_presentation() {
+fn clear_modes_that_keep_a_lower_camera_start_from_the_background_with_none_below() {
     for flags in [3, 4] {
         let (world, camera) = camera_world();
         let value = DisunityCamera {
             clear_flags: flags,
+            r: 0.5,
+            a: 1.,
             ..pong()
         };
         assert_eq!(write(world, camera, value).code, 0);
-        let error = clear_color(world).unwrap_err();
-        assert_eq!(error.detail, DisunityErrorReason::InvalidComponent as u64);
+        assert_eq!(clear_color(world), Ok([0.5, 0., 0., 1.]));
         unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
     }
 }

@@ -190,17 +190,15 @@ fn the_highest_clearing_camera_is_the_base_below_several_overlays() {
 }
 
 #[test]
-fn an_overlay_camera_with_no_camera_below_it_still_cannot_be_presented() {
-    for (clear, field) in [
-        (CameraClear::DepthOnly, "clearFlags Depth"),
-        (CameraClear::Nothing, "clearFlags Nothing"),
-    ] {
-        assert_eq!(
-            plan(&[overlay(0, clear)]),
-            Err(WorldError::InvalidComponent(
-                ComponentError::UnsupportedField(field)
-            ))
-        );
+fn an_overlay_camera_with_no_camera_below_it_is_the_base_and_clears_to_its_background() {
+    for clear in [CameraClear::DepthOnly, CameraClear::Nothing] {
+        let lone = Camera {
+            background: [0.25, 0.5, 0.75, 1.],
+            ..overlay(0, clear)
+        };
+        let plan = plan(&[lone]).unwrap();
+        assert!(plan.camera_state.is_some(), "{clear:?}");
+        assert_eq!(plan.clear, [0.25, 0.5, 0.75, 1.], "{clear:?}");
     }
 }
 
@@ -208,7 +206,12 @@ fn an_overlay_camera_with_no_camera_below_it_still_cannot_be_presented() {
 fn a_clearing_camera_into_a_texture_is_no_base_for_an_overlay() {
     let into_texture = Camera {
         target_texture: 4,
+        background: [1., 0., 0., 1.],
         ..ortho(0, 3.)
     };
-    assert!(plan(&[into_texture, overlay(10, CameraClear::Nothing)]).is_err());
+    let top = Camera {
+        background: [0., 1., 0., 1.],
+        ..overlay(10, CameraClear::Nothing)
+    };
+    assert_eq!(plan(&[into_texture, top]).unwrap().clear, [0., 1., 0., 1.]);
 }

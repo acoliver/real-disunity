@@ -329,3 +329,23 @@ fn decoding_needs_no_aligned_height_but_checks_the_length() {
         })
     ));
 }
+
+#[test]
+fn a_dxt5_colour_block_with_endpoints_in_either_order_has_four_opaque_colours() {
+    // c0 <= c1 would select the three-colour mode in DXT1; DXT5 never does.
+    let mut block = alpha_block(255, 255, &[0; 16]);
+    block.extend(bc1_block(0x001F, 0xF800, 0b11));
+    let scene = decoded(&player(DXT5, [4, 4], true, block)).unwrap();
+    let rows = texels(&scene).1;
+    assert_eq!(pixel(rows, 4, 0, 3), [170, 0, 85, 255]);
+}
+
+#[test]
+fn decoded_565_endpoints_fill_every_bit_of_each_channel() {
+    let green = player(DXT1, [4, 4], true, bc1_block(0x07E0, 0x0000, 0));
+    let scene = decoded(&green).unwrap();
+    assert_eq!(pixel(texels(&scene).1, 4, 0, 0), [0, 255, 0, 255]);
+    let white = player(DXT1, [4, 4], true, bc1_block(0xFFFF, 0x0000, 0));
+    let scene = decoded(&white).unwrap();
+    assert_eq!(pixel(texels(&scene).1, 4, 0, 0), [255, 255, 255, 255]);
+}

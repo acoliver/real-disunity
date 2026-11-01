@@ -1,4 +1,5 @@
 using Disunity.Hosting;
+using Disunity.Native;
 using UnityEngine.Experimental.Rendering;
 
 namespace UnityEngine;
@@ -12,7 +13,31 @@ public sealed partial class Texture2D
 
     /// <summary>The identity the renderer knows this texture by: allocated the first time a sprite is made over it,
     /// from <see cref="DisunityHost.FirstPlayerTextureIdentity"/> up, and kept for the texture's lifetime.</summary>
-    internal ulong RendererIdentity => _identity != 0 ? _identity : _identity = DisunityHost.AllocatePlayerTextureIdentity(this);
+    internal ulong RendererIdentity
+    {
+        get
+        {
+            if (_identity != 0) return _identity;
+            _identity = DisunityHost.AllocatePlayerTextureIdentity(this);
+            StoreForRenderer();
+            return _identity;
+        }
+    }
+
+    /// <summary>Hands the texture's raw bytes and description to the host, which draws from them: called when the
+    /// texture takes its identity and on <see cref="Apply(bool, bool)"/>. A texture of no size has nothing to draw.</summary>
+    private unsafe void StoreForRenderer()
+    {
+        if (_width == 0 || _height == 0) return;
+        DisunityHost.EnsureLoaded();
+        var info = new DisunityTextureInfo
+        {
+            identity = _identity, format = (uint)_format, width = (uint)_width, height = (uint)_height, mips = (uint)_mipCount,
+            linear = GraphicsFormats.IsSrgb(_graphics) ? 0u : 1u, length = (uint)_data.Length,
+        };
+        fixed (byte* bytes = _data)
+            DisunityHost.ThrowIfError(NativeBindings.disunity_texture_store(DisunityHost.WorldHandle, _identity, &info, bytes, info.length));
+    }
 
     /// <summary>The raw bytes, which a player's pixels are read into.</summary>
     internal Span<byte> PixelBytes => _data;

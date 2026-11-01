@@ -200,6 +200,8 @@ CheckImport("disunity_camera_matrix_write", u64, u64, u32, f32.MakePointerType()
 CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
 CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
 CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
+CheckImport("disunity_texture_store", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
+CheckImport("disunity_texture_read", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
 CheckImport("disunity_camera_layer_create", u64, u64, u32, u64.MakePointerType());
 CheckImport("disunity_camera_layer_read", u64, u64, u32.MakePointerType());
 CheckImport("disunity_camera_layer_write", u64, u64, u32);
@@ -258,6 +260,7 @@ CanvasCameraModeTests.Run();
 SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();
+PlayerTextureStoreTests.Run();
 
 EnabledTests.Run();
 PlayerServiceTests.Run();

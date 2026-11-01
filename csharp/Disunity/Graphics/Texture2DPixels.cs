@@ -142,6 +142,7 @@ public sealed partial class Texture2D
         RequireReadable(nameof(Apply));
         if (updateMipmaps && TexelFormats.HasCodec(_format))
             for (var level = 1; level < _mipCount; level++) Downsample(level);
+        if (_identity != 0) StoreForRenderer();
         if (makeNoLongerReadable) _readable = false;
         IncrementUpdateCount();
     }

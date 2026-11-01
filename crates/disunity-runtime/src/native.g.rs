@@ -207,6 +207,8 @@ pub struct DisunityPresentation {
     pub textures: u32,
     pub width: u32,
     pub height: u32,
+    /// 0 for an orthographic lens, 1 for a perspective lens.
+    pub lens: u32,
     pub eye_x: f64,
     pub eye_y: f64,
     pub eye_z: f64,
@@ -219,6 +221,8 @@ pub struct DisunityPresentation {
     pub half_height: f64,
     pub near: f64,
     pub far: f64,
+    /// Vertical field of view in radians; zero for an orthographic lens.
+    pub vertical_fov: f64,
     pub r: f64,
     pub g: f64,
     pub b: f64,

@@ -130,9 +130,9 @@ fn a_perspective_camera_with_no_near_plane_cannot_be_presented() {
     };
     assert_eq!(
         plan(&[flat]),
-        Err(WorldError::InvalidComponent(ComponentError::UnsupportedField(
-            "nearClipPlane 0 with perspective projection"
-        )))
+        Err(WorldError::InvalidComponent(
+            ComponentError::UnsupportedField("nearClipPlane 0 with perspective projection")
+        ))
     );
 }
 
@@ -146,8 +146,8 @@ fn a_perspective_camera_still_rejects_a_replaced_projection_matrix() {
     };
     assert_eq!(
         plan(&[replaced]),
-        Err(WorldError::InvalidComponent(ComponentError::UnsupportedField(
-            "projectionMatrix"
-        )))
+        Err(WorldError::InvalidComponent(
+            ComponentError::UnsupportedField("projectionMatrix")
+        ))
     );
 }

@@ -89,6 +89,8 @@ pub struct DisunityPresentation {
     pub textures: u32,
     pub width: u32,
     pub height: u32,
+    /// 0 for an orthographic lens, 1 for a perspective lens.
+    pub lens: u32,
     pub eye_x: f64,
     pub eye_y: f64,
     pub eye_z: f64,
@@ -101,6 +103,8 @@ pub struct DisunityPresentation {
     pub half_height: f64,
     pub near: f64,
     pub far: f64,
+    /// Vertical field of view in radians; zero for an orthographic lens.
+    pub vertical_fov: f64,
     pub r: f64,
     pub g: f64,
     pub b: f64,
@@ -197,17 +201,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             [header.eye_x, header.eye_y, header.eye_z] = state.pose.eye_meters.to_array();
             [header.forward_x, header.forward_y, header.forward_z] = state.pose.forward.to_array();
             [header.up_x, header.up_y, header.up_z] = state.pose.up.to_array();
-            let worldrunner_camera::CameraLens::Orthographic {
-                half_height_meters,
-                near_meters,
-                far_meters,
-            } = state.lens
-            else {
-                return Err("unsupported presentation camera lens".into());
-            };
-            header.half_height = half_height_meters;
-            header.near = near_meters;
-            header.far = far_meters;
+            write_lens(&mut header, state.lens);
         }
         s.presentation = Some(plan);
         unsafe {
@@ -215,6 +209,32 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         }
         Ok(())
     })
+}
+/// Fills the lens fields; the fields of the other lens kind stay zero.
+fn write_lens(header: &mut DisunityPresentation, lens: worldrunner_camera::CameraLens) {
+    use worldrunner_camera::CameraLens;
+    match lens {
+        CameraLens::Orthographic {
+            half_height_meters,
+            near_meters,
+            far_meters,
+        } => {
+            header.lens = 0;
+            header.half_height = half_height_meters;
+            header.near = near_meters;
+            header.far = far_meters;
+        }
+        CameraLens::Perspective {
+            vertical_fov_radians,
+            near_meters,
+            far_meters,
+        } => {
+            header.lens = 1;
+            header.vertical_fov = vertical_fov_radians;
+            header.near = near_meters;
+            header.far = far_meters;
+        }
+    }
 }
 /// # Safety
 /// Output is writable for one quad. Index addresses the last prepared frame.

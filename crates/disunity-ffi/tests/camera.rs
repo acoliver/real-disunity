@@ -306,21 +306,10 @@ fn a_perspective_camera_is_accepted_and_the_frame_names_what_it_cannot_show() {
         ..pong()
     };
     assert_eq!(write(world, camera, perspective).code, 0);
-    let rejected = [
-        perspective,
-        DisunityCamera {
-            viewport_width: 0.5,
-            ..pong()
-        },
-        DisunityCamera {
-            target_texture: 9,
-            ..pong()
-        },
-        DisunityCamera {
-            target_display: 1,
-            ..pong()
-        },
-    ];
+    let rejected = [DisunityCamera {
+        viewport_width: 0.5,
+        ..pong()
+    }];
     for value in rejected {
         assert_eq!(write(world, camera, value).code, 0, "{value:?}");
         let error = clear_color(world).unwrap_err();

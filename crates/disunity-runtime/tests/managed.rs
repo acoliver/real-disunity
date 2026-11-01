@@ -165,6 +165,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_failed_runs_drain(&mut host, &root);
     assert_lifecycle_soak(&mut host, &fixture);
     assert_managed_lighting(&mut host, &root);
+    assert_presentation_cameras(&mut host, &root);
     host.run_slice(&fixture).unwrap();
     assert_cross_language_writes(&mut host);
     drop(host);
@@ -246,5 +247,34 @@ fn assert_managed_lighting(host: &mut DisunityHost, root: &Path) {
         }
         host.advance(1, 100).unwrap();
     }
+    host.unload_slice().unwrap();
+}
+
+fn assert_presentation_cameras(host: &mut DisunityHost, root: &Path) {
+    use worldrunner_camera::CameraLens;
+    let fixtures = root.join("csharp/PortableFixture");
+    host.run_slice(&fixtures.join("perspective.fixture"))
+        .unwrap();
+    let frame = host.export_presentation([80, 40], 8).unwrap();
+    let lens = frame.camera_state.expect("a presented camera").lens;
+    let CameraLens::Perspective {
+        vertical_fov_radians,
+        near_meters,
+        far_meters,
+    } = lens
+    else {
+        panic!("expected a perspective lens, got {lens:?}");
+    };
+    assert!((vertical_fov_radians - std::f64::consts::FRAC_PI_2).abs() < 1e-6);
+    assert_eq!((near_meters, far_meters), (0.5, 200.));
+    assert!(frame.camera.is_some(), "the lens resolves to a view");
+    host.unload_slice().unwrap();
+    host.run_slice(&fixtures.join("camera-rect.fixture"))
+        .unwrap();
+    let failed = host.export_presentation([80, 40], 8).unwrap_err();
+    assert!(
+        matches!(&failed, HostError::Native { message, .. } if message.contains("rect")),
+        "the player log must say why: {failed:?}"
+    );
     host.unload_slice().unwrap();
 }

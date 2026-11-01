@@ -265,6 +265,10 @@ namespace Disunity.Native
         public uint textures;
         public uint width;
         public uint height;
+        /// <summary>
+        ///  0 for an orthographic lens, 1 for a perspective lens.
+        /// </summary>
+        public uint lens;
         public double eye_x;
         public double eye_y;
         public double eye_z;
@@ -277,6 +281,10 @@ namespace Disunity.Native
         public double half_height;
         public double near;
         public double far;
+        /// <summary>
+        ///  Vertical field of view in radians; zero for an orthographic lens.
+        /// </summary>
+        public double vertical_fov;
         public double r;
         public double g;
         public double b;

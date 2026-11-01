@@ -155,10 +155,12 @@ pub trait StageFactory {
     ) -> Result<StageSet, PostError>;
 }
 
-fn target_options<F: StageFactory>(factory: &F) -> crate::TargetOptions {
+/// The mask has a consumer only when TAA reconstructs the output grid, that is at a render
+/// extent that differs from the output; equal extents are the native TAA path.
+fn target_options<F: StageFactory>(factory: &F, config: FrameConfig) -> crate::TargetOptions {
     crate::TargetOptions {
         velocity: factory.needs_velocity(),
-        temporal_mask: factory.needs_temporal_masks(),
+        temporal_mask: factory.needs_temporal_masks() && config.size != config.output_extent(),
     }
 }
 
@@ -217,7 +219,7 @@ impl<F: StageFactory> PostChain<F> {
         factory: F,
     ) -> Result<Self, PostError> {
         factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_options(device, config, target_options(&factory))?;
+        let targets = FrameTargets::with_options(device, config, target_options(&factory, config))?;
         let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
@@ -301,7 +303,8 @@ impl<F: StageFactory> PostChain<F> {
     ) -> Result<(), PostError> {
         config.validate_device(device)?;
         self.factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_options(device, config, target_options(&self.factory))?;
+        let targets =
+            FrameTargets::with_options(device, config, target_options(&self.factory, config))?;
         let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
         for feature in &mut self.features {
             feature.prepared = None;

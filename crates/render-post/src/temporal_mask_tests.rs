@@ -137,7 +137,7 @@ fn a_frame_without_a_mask_schedules_the_stages_it_did_before_masks_existed() {
 
 /// The mask entry appears exactly in the configurations that ask for masks.
 #[test]
-fn only_temporal_upscale_with_taa_declares_mask_bytes() {
+fn only_reconstructing_temporal_upscale_declares_mask_bytes() {
     let limits = wgpu::Limits::default();
     let masks = |config: FrameConfig, settings| {
         let set = crate::allocation::post_allocations(config, settings);
@@ -159,4 +159,6 @@ fn only_temporal_upscale_with_taa_declares_mask_bytes() {
         1
     );
     assert_eq!(masks(config(), settings(PostResolve::None, temporal)), 0);
+    let native = FrameConfig::new(OUTPUT, wgpu::TextureFormat::Rgba16Float, 1);
+    assert_eq!(masks(native, settings(PostResolve::taa(0.9), temporal)), 0);
 }

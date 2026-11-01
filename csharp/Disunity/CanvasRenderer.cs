@@ -8,7 +8,7 @@ namespace UnityEngine;
 /// an alpha texture, materials, pop materials and a clip rectangle. Every setting is read from and written to
 /// the component in the native world, so a clone from <c>Instantiate</c> has its own. A mesh, texture or
 /// material is stored by instance id and found again while the object is alive, so a getter returns the object
-/// that was set and returns null once it is destroyed or collected. Nothing draws these meshes yet. The engine
+/// that was set and returns null once it is destroyed or collected. The quads of a mesh are drawn: <see cref="SetMesh"/> sends the first sub-mesh to the native world. The engine
 /// does not batch UI, so <see cref="absoluteDepth"/> and <see cref="relativeDepth"/> are always -1.
 /// The material count is 0 through <see cref="MaxMaterials"/>; a larger count throws. The native side rejects a
 /// NaN alpha with a <see cref="DisunityException"/> and keeps any other alpha as given. The engine does not
@@ -104,13 +104,17 @@ public sealed partial class CanvasRenderer : NativeComponent
     {
         var id = IdOf(mesh, nameof(mesh));
         Update(r => { r.mesh = id; return r; });
+        SendGeometry(mesh);
     }
     public Mesh? GetMesh() => Find<Mesh>(Read().mesh);
 
+    /// <summary>Sets the main texture. A <see cref="Texture2D"/> with pixels is also what the quads of the mesh are
+    /// drawn with.</summary>
     public void SetTexture(Texture? texture)
     {
         var id = IdOf(texture, nameof(texture));
         Update(r => { r.texture = id; return r; });
+        SendTexture(texture);
     }
     public void SetAlphaTexture(Texture? texture)
     {

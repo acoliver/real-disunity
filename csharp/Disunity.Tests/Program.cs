@@ -201,6 +201,9 @@ CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("Disuni
 CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
 CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
 CheckImport("disunity_texture_store", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
+CheckImport("disunity_canvas_renderer_geometry_write", u64, u64, AbiType("DisunityUiVertex").MakePointerType(), u32, u32.MakePointerType(), u32);
+CheckImport("disunity_canvas_renderer_texture_write", u64, u64, u64);
+CheckImport("disunity_canvas_renderer_geometry_read", u64, u64, AbiType("DisunityUiGraphicInfo").MakePointerType(), AbiType("DisunityUiVertex").MakePointerType(), u32);
 CheckImport("disunity_texture_read", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
 CheckImport("disunity_camera_layer_create", u64, u64, u32, u64.MakePointerType());
 CheckImport("disunity_camera_layer_read", u64, u64, u32.MakePointerType());
@@ -358,6 +361,7 @@ CanvasGroupTests.Run();
 BehaviourTypeTests.Run();
 AdaptivePerformanceTests.Run();
 CanvasRendererTests.Run();
+CanvasRendererGraphicsTests.Run();
 SpriteMaterialTests.Run();
 SpriteDrawModeTests.Run();
 CanvasRendererStreamTests.Run();

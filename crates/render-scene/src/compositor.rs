@@ -511,7 +511,7 @@ impl FrameRenderer {
                 device,
                 frame,
                 (self.elapsed_seconds, self.frame_slot),
-                shadow,
+                (shadow, self.targets().temporal_mask_texture()),
             )
         });
         Ok(())

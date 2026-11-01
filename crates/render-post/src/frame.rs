@@ -18,6 +18,8 @@ pub enum PassSlot {
     AfterOpaqueSnapshot,
     AfterOpaqueDepth,
     TransparentWater,
+    /// Producers of the temporal mask that must follow the water pass's depth.
+    TransparentWaterMask,
     TransparentAlpha,
     AfterWaterDepth,
     ReflectionDepthPyramid(u32),

@@ -96,7 +96,7 @@ pub(super) fn frame(eye_x: i64, size: u32) -> FrameUniform {
 }
 
 pub(super) struct Scene {
-    pipeline: wgpu::RenderPipeline,
+    pub(super) pipeline: wgpu::RenderPipeline,
 }
 
 pub(super) struct Target<'a> {
@@ -218,7 +218,7 @@ pub(super) fn decode_output(bytes: &[u8]) -> Image {
         .collect()
 }
 
-fn decode_hdr(bytes: &[u8]) -> Image {
+pub(super) fn decode_hdr(bytes: &[u8]) -> Image {
     bytes
         .chunks_exact(8)
         .map(|texel| {
@@ -348,7 +348,7 @@ fn display(radiance: f64) -> f64 {
     }
 }
 
-fn tone_map(image: Image) -> Image {
+pub(super) fn tone_map(image: Image) -> Image {
     image.into_iter().map(|rgb| rgb.map(display)).collect()
 }
 
@@ -391,7 +391,7 @@ pub(super) fn supersampled(context: &GpuContext, eye_x: i64) -> Image {
     tone_map(average)
 }
 
-fn count(n: usize) -> f64 {
+pub(super) fn count(n: usize) -> f64 {
     f64::from(u32::try_from(n).unwrap())
 }
 

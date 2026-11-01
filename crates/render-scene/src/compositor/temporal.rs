@@ -225,6 +225,14 @@ mod taa_end_to_end_tests;
 mod temporal_upscale_end_to_end_tests;
 
 #[cfg(test)]
+#[path = "temporal_water_tests.rs"]
+mod temporal_water_tests;
+
+#[cfg(test)]
+#[path = "temporal_water_producer_tests.rs"]
+mod temporal_water_producer_tests;
+
+#[cfg(test)]
 #[path = "temporal_mip_bias_tests.rs"]
 mod temporal_mip_bias_tests;
 

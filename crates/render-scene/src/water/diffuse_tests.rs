@@ -83,21 +83,36 @@ fn water_diffuse_conventions_have_distinct_reused_pipelines() {
         vec![settings()],
     )
     .unwrap();
-    let a = water.feature(context.device(), &prepared_frame(false), (0.0, 0), None);
-    let b = water.feature(context.device(), &prepared_frame(true), (0.0, 0), None);
-    let again = water.feature(context.device(), &prepared_frame(true), (0.0, 0), None);
+    let a = water.feature(
+        context.device(),
+        &prepared_frame(false),
+        (0.0, 0),
+        (None, None),
+    );
+    let b = water.feature(
+        context.device(),
+        &prepared_frame(true),
+        (0.0, 0),
+        (None, None),
+    );
+    let again = water.feature(
+        context.device(),
+        &prepared_frame(true),
+        (0.0, 0),
+        (None, None),
+    );
     assert_ne!(a.water.pipeline, b.water.pipeline);
     assert_ne!(a.water.shadow_pipeline, b.water.shadow_pipeline);
     assert_eq!(b.water.pipeline, again.water.pipeline);
     assert_eq!(water.specializations.borrow().len(), 2);
     let mut frame = prepared_frame(false);
     frame.specular_convention = SceneSpecularConvention::default();
-    let default = water.feature(context.device(), &frame, (0.0, 0), None);
+    let default = water.feature(context.device(), &frame, (0.0, 0), (None, None));
     assert_eq!(default.water.pipeline, water.pipeline);
     assert_eq!(default.water.shadow_pipeline, water.shadow_pipeline);
     frame.specular_convention.surface_disk =
         Some(worldrunner_render_plan::SceneSurfaceDisk::new(2_000_000, 3_000_000).unwrap());
-    let scene_disk = water.feature(context.device(), &frame, (0.0, 0), None);
+    let scene_disk = water.feature(context.device(), &frame, (0.0, 0), (None, None));
     assert_eq!(scene_disk.water.pipeline, water.pipeline);
     assert_eq!(scene_disk.water.shadow_pipeline, water.shadow_pipeline);
 }

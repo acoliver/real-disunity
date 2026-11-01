@@ -333,7 +333,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
         context.device(),
         &FrameUniform::new(&fixture_view(), None).unwrap(),
         (2.0, slot),
-        None,
+        (None, None),
     );
     let mut encoder = context.submission().begin(context.device()).unwrap();
     {

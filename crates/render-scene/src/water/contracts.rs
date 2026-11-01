@@ -261,6 +261,8 @@ fn unsupported_overlapping_transparent_writers_have_typed_errors() {
     );
     assert!(PassSlot::Opaque < PassSlot::AfterOpaqueSnapshot);
     assert!(PassSlot::AfterOpaqueDepth < PassSlot::TransparentWater);
+    assert!(PassSlot::TransparentWater < PassSlot::TransparentWaterMask);
+    assert!(PassSlot::TransparentWaterMask < PassSlot::TransparentAlpha);
     assert!(PassSlot::TransparentWater < PassSlot::AfterWaterDepth);
     assert!(PassSlot::AfterWaterDepth < PassSlot::ScreenSpaceAfterTransparent);
 }

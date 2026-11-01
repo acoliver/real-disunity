@@ -48,7 +48,7 @@ fn opaque_auxiliary_is_not_a_water_target() {
                 context.device(),
                 &FrameUniform::new(&fixture_view(), None).unwrap(),
                 (0.0, 0),
-                None,
+                (None, None),
             )
             .schedule(&mut passes, &mut views)
             .unwrap();

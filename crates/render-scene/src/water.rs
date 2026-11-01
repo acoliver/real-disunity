@@ -3,6 +3,7 @@ mod endpoint;
 mod geometry;
 mod optics;
 pub(crate) mod planning;
+pub(crate) mod reactive;
 pub(crate) mod receivers;
 pub(crate) mod shadow_filter;
 #[cfg(test)]
@@ -157,6 +158,7 @@ pub(crate) struct Water {
         std::cell::RefCell<std::collections::BTreeMap<[u32; 5], [wgpu::RenderPipeline; 2]>>,
     >,
     samples: u32,
+    reactive: reactive::Reactive,
     pub receivers: [[wgpu::Texture; 3]; 3],
     pub environment: [wgpu::TextureView; 2],
     pub environment_intensity_micro: u32,
@@ -232,6 +234,7 @@ impl Water {
             snapshots: std::array::from_fn(|_| Snapshots::new(device, config)),
             specializations: std::rc::Rc::default(),
             samples: config.samples,
+            reactive: reactive::Reactive::default(),
             pipeline: plain_pipeline,
             shadow_pipeline,
             seed_pipelines: std::collections::BTreeMap::new(),
@@ -243,9 +246,10 @@ impl Water {
         device: &wgpu::Device,
         frame: &FrameUniform,
         timing: (f32, usize),
-        shadow: Option<&wgpu::BindGroup>,
+        inputs: (Option<&wgpu::BindGroup>, Option<&wgpu::Texture>),
     ) -> WaterFeature {
         let (time, slot) = timing;
+        let (shadow, mask) = inputs;
         let snapshots = &self.snapshots[slot];
         let groups = self
             .bodies
@@ -279,6 +283,7 @@ impl Water {
                     .insert(key, self.specialized_pipelines(device, seed_options));
             }
         }
+        let mask = self.mask_draw(device, mask, options);
         WaterFeature {
             water,
             snapshots: snapshots.clone(),
@@ -287,6 +292,7 @@ impl Water {
             slot,
             groups,
             shadow: shadow.cloned(),
+            mask,
         }
     }
 }
@@ -524,6 +530,7 @@ pub(crate) struct WaterFeature {
     slot: usize,
     groups: Vec<wgpu::BindGroup>,
     shadow: Option<wgpu::BindGroup>,
+    mask: Option<reactive::MaskDraw>,
 }
 impl WaterFeature {
     pub fn schedule(
@@ -564,6 +571,7 @@ impl WaterFeature {
             views.push(view);
         }
         passes.push(water);
+        let mask_pass = self.schedule_mask(passes, views)?;
         let mut feature = FeatureDeclaration::new(PassSlot::TransparentWater)
             .passes
             .remove(0);
@@ -583,6 +591,7 @@ impl WaterFeature {
             );
         }
         declaration.passes.push(feature);
+        declaration.passes.extend(mask_pass);
         declaration.effects.push("water");
         Ok(declaration)
     }
@@ -633,6 +642,7 @@ impl PreparedFeature for WaterFeature {
                     }
                 }
             }
+            PassSlot::TransparentWaterMask => self.draw_mask(pass),
             _ => unreachable!("declared water slot"),
         }
     }

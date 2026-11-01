@@ -203,3 +203,26 @@ fn every_selectable_sample_count_validates_and_other_counts_are_rejected() {
         );
     }
 }
+
+#[test]
+fn the_mask_pass_sits_between_the_water_and_alpha_passes_and_loads_what_the_host_cleared() {
+    assert!(PassSlot::TransparentWater < PassSlot::TransparentWaterMask);
+    assert!(PassSlot::TransparentWaterMask < PassSlot::TransparentAlpha);
+    let mask = ResourceRef::new("temporal reactive mask");
+    let mut loading = attachment(AttachmentLoad::Load, wgpu::StoreOp::Store);
+    loading.resource = mask;
+    let mut after_water = PassDeclaration::new(PassSlot::TransparentWaterMask);
+    after_water.color = Some(loading);
+    assert_eq!(
+        validate_frame(&[after_water.clone()], &[], &[]),
+        Err(FrameError::MissingProducer(mask))
+    );
+    let mut clearing = attachment(
+        AttachmentLoad::ClearColor(wgpu::Color::TRANSPARENT),
+        wgpu::StoreOp::Store,
+    );
+    clearing.resource = mask;
+    let mut first = PassDeclaration::new(PassSlot::Opaque);
+    first.color = Some(clearing);
+    assert!(validate_frame(&[first, after_water], &[], &[]).is_ok());
+}

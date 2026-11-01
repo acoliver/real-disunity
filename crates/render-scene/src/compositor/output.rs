@@ -27,6 +27,12 @@ impl StageFactory for FrameOutput {
             Self::Hdr(f) => f.needs_velocity(),
         }
     }
+    fn needs_temporal_masks(&self) -> bool {
+        match self {
+            Self::Copy(_) => false,
+            Self::Hdr(f) => f.needs_temporal_masks(),
+        }
+    }
     fn settle_build(&self, accepted: bool) {
         match self {
             Self::Copy(_) => {}

@@ -79,6 +79,21 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
         return;
     }
     let temporal = settings.reconstructs_temporally(config);
+    if settings
+        .upscale
+        .is_some_and(|upscale| upscale.mode == crate::UpscaleMode::Temporal)
+    {
+        // Held by the frame targets, one field for every slot: it is cleared, written and read
+        // inside one encoded frame.
+        let [rw, rh] = config.size;
+        set.texture(
+            "frame temporal mask",
+            [rw, rh, 1],
+            crate::TEMPORAL_MASK_FORMAT,
+            [1, 1],
+            1,
+        );
+    }
     let [w, h] = if temporal {
         config.output_extent()
     } else {

@@ -128,6 +128,11 @@ pub trait StageFactory {
     fn needs_velocity(&self) -> bool {
         false
     }
+    /// Whether the frame targets carry the reactive and composition mask of temporal
+    /// reconstruction.
+    fn needs_temporal_masks(&self) -> bool {
+        false
+    }
     /// Called once after every slot of a build was attempted, with whether all of them built and
     /// validated. A factory that keeps state shared by the slots promotes or drops what this
     /// build created, so a rejected replacement leaves the live chain's state untouched.
@@ -148,6 +153,13 @@ pub trait StageFactory {
         targets: &FrameTargets,
         persistent: &Resources,
     ) -> Result<StageSet, PostError>;
+}
+
+fn target_options<F: StageFactory>(factory: &F) -> crate::TargetOptions {
+    crate::TargetOptions {
+        velocity: factory.needs_velocity(),
+        temporal_mask: factory.needs_temporal_masks(),
+    }
 }
 
 /// Retained query storage and unread results, shared only across replacements.
@@ -205,7 +217,7 @@ impl<F: StageFactory> PostChain<F> {
         factory: F,
     ) -> Result<Self, PostError> {
         factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_velocity(device, config, factory.needs_velocity())?;
+        let targets = FrameTargets::with_options(device, config, target_options(&factory))?;
         let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
@@ -289,7 +301,7 @@ impl<F: StageFactory> PostChain<F> {
     ) -> Result<(), PostError> {
         config.validate_device(device)?;
         self.factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_velocity(device, config, self.factory.needs_velocity())?;
+        let targets = FrameTargets::with_options(device, config, target_options(&self.factory))?;
         let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
         for feature in &mut self.features {
             feature.prepared = None;

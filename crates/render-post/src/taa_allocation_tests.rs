@@ -9,6 +9,7 @@ const OUTPUT: [u32; 2] = [64, 32];
 const HALF_RGBA: u64 = 8;
 const FLOAT_R: u64 = 4;
 const SLOTS: u64 = 3;
+const MASK_TEXEL: u64 = 2;
 
 fn texels(extent: [u32; 2]) -> u64 {
     u64::from(extent[0]) * u64::from(extent[1])
@@ -99,7 +100,13 @@ fn unlocked_bytes() -> u64 {
     let confidence = texels(RENDER) * FLOAT_R;
     let per_slot_reconstruction =
         (dilated_depth + dilated_motion + reconstructed_depth + confidence) * SLOTS;
-    shared + per_slot_output + per_slot_reconstruction
+    shared + per_slot_output + per_slot_reconstruction + mask_bytes()
+}
+
+/// The producer mask of temporal reconstruction: `Rg8Unorm` at `R`, one field shared by the
+/// slots because it is cleared, written and read inside one encoded frame.
+fn mask_bytes() -> u64 {
+    texels(RENDER) * MASK_TEXEL
 }
 
 /// The same equality with locks on: the lock candidates, bank and history count too.
@@ -138,9 +145,12 @@ fn built_temporal_bytes(render: [u32; 2], output: [u32; 2]) -> u64 {
     use crate::hdr_temporal_build_tests as build;
     let (device, _) = crate::gpu_tests::gpu();
     let post = crate::hdr_post::HdrPost::new(&device, &build::settings()).unwrap();
-    let sets = build::slots(&post, &device, &build::targets(&device, render, output));
+    let targets = build::targets(&device, render, output);
+    let sets = build::slots(&post, &device, &targets);
     let mut textures: Vec<&wgpu::Texture> = Vec::new();
-    let mut bytes = 0;
+    let mut bytes = targets.temporal_mask_texture().map_or(0, |mask| {
+        u64::from(mask.width()) * u64::from(mask.height()) * MASK_TEXEL
+    });
     for set in &sets {
         for texture in &set.resources.textures {
             if !textures.contains(&texture) {

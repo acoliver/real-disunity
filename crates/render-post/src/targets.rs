@@ -147,7 +147,21 @@ pub struct FrameTargets {
     multisampled: Option<(wgpu::Texture, wgpu::TextureView)>,
     depth: wgpu::TextureView,
     velocity: Option<(wgpu::Texture, wgpu::TextureView)>,
+    temporal_mask: Option<(wgpu::Texture, wgpu::TextureView)>,
 }
+
+/// Optional attachments beside the resolved colour and depth.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TargetOptions {
+    /// The object-motion residual attachment for a TAA resolve.
+    pub velocity: bool,
+    /// The reactive and composition mask of temporal reconstruction.
+    pub temporal_mask: bool,
+}
+
+/// Format of the temporal mask: reactive in the red channel, composition in the green channel,
+/// both in `[0, 1]`.
+pub const TEMPORAL_MASK_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg8Unorm;
 
 /// Format of the object-motion residual attachment, in uv units of the previous frame.
 pub const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
@@ -166,6 +180,22 @@ impl FrameTargets {
         device: &wgpu::Device,
         config: FrameConfig,
         velocity: bool,
+    ) -> Result<Self, PostError> {
+        Self::with_options(
+            device,
+            config,
+            TargetOptions {
+                velocity,
+                temporal_mask: false,
+            },
+        )
+    }
+
+    /// As [`Self::new`], with the optional attachments `options` selects.
+    pub fn with_options(
+        device: &wgpu::Device,
+        config: FrameConfig,
+        options: TargetOptions,
     ) -> Result<Self, PostError> {
         config.validate_device(device)?;
         let texture = color_texture(device, "post resolved scene", config.size, config.format);
@@ -198,7 +228,7 @@ impl FrameTargets {
                 view_formats: &[],
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let velocity = velocity.then(|| {
+        let velocity = options.velocity.then(|| {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("frame velocity"),
                 size: extent(config.size),
@@ -214,6 +244,9 @@ impl FrameTargets {
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             (texture, view)
         });
+        let temporal_mask = options
+            .temporal_mask
+            .then(|| mask_texture(device, config.size));
         Ok(Self {
             config,
             texture,
@@ -221,7 +254,40 @@ impl FrameTargets {
             multisampled,
             depth,
             velocity,
+            temporal_mask,
         })
+    }
+
+    /// The temporal mask, present only for targets built with `TargetOptions::temporal_mask`.
+    pub fn temporal_mask(&self) -> Option<&wgpu::TextureView> {
+        self.temporal_mask.as_ref().map(|(_, view)| view)
+    }
+
+    /// The texture behind [`Self::temporal_mask`].
+    pub fn temporal_mask_texture(&self) -> Option<&wgpu::Texture> {
+        self.temporal_mask.as_ref().map(|(texture, _)| texture)
+    }
+
+    /// Check a host-supplied mask texture against the internal extent of `config`: one sample,
+    /// [`TEMPORAL_MASK_FORMAT`] and exactly the internal extent. Nothing is encoded.
+    pub fn validate_temporal_mask(
+        config: FrameConfig,
+        texture: &wgpu::Texture,
+    ) -> Result<(), PostError> {
+        if texture.sample_count() != 1 {
+            return Err(PostError::SampleCount(texture.sample_count()));
+        }
+        if texture.format() != TEMPORAL_MASK_FORMAT {
+            return Err(PostError::UnsupportedFormat(texture.format()));
+        }
+        let actual = [texture.width(), texture.height()];
+        if actual != config.size {
+            return Err(PostError::MaskExtent {
+                expected: config.size,
+                actual,
+            });
+        }
+        Ok(())
     }
 
     /// The velocity attachment, present only for targets built for a TAA resolve.
@@ -287,6 +353,12 @@ impl FrameTargets {
             None => None,
         }
     }
+}
+
+fn mask_texture(device: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = color_texture(device, "frame temporal mask", size, TEMPORAL_MASK_FORMAT);
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (texture, view)
 }
 
 /// Common single-sample color allocation for authored intermediate and output resources.

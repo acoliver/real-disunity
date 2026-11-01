@@ -45,6 +45,9 @@ impl StageFactory for Recording {
     fn needs_velocity(&self) -> bool {
         true
     }
+    fn needs_temporal_masks(&self) -> bool {
+        self.inner.needs_temporal_masks()
+    }
     fn settle_build(&self, accepted: bool) {
         self.inner.settle_build(accepted);
     }

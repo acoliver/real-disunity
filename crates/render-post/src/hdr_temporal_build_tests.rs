@@ -21,7 +21,11 @@ pub(crate) fn settings() -> HdrPostSettings {
 pub(crate) fn targets(device: &wgpu::Device, render: [u32; 2], output: [u32; 2]) -> FrameTargets {
     let config =
         FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1).with_render_extent(render);
-    FrameTargets::with_velocity(device, config, true).unwrap()
+    let options = crate::TargetOptions {
+        velocity: true,
+        temporal_mask: true,
+    };
+    FrameTargets::with_options(device, config, options).unwrap()
 }
 
 pub(crate) fn slots(

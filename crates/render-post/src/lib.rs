@@ -155,6 +155,8 @@ mod temporal_dolly_tests;
 #[cfg(test)]
 mod temporal_exposure_tests;
 #[cfg(test)]
+mod temporal_mask_tests;
+#[cfg(test)]
 mod temporal_quality_scene;
 #[cfg(test)]
 mod temporal_quality_tests;
@@ -221,7 +223,9 @@ pub use chain::{
 };
 pub use copy::CopyOutput;
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
-pub use targets::{FrameConfig, FrameTargets, VELOCITY_FORMAT, color_texture};
+pub use targets::{
+    FrameConfig, FrameTargets, TEMPORAL_MASK_FORMAT, TargetOptions, VELOCITY_FORMAT, color_texture,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PostError {
@@ -263,6 +267,11 @@ pub enum PostError {
     OutputStage,
     #[error("post compute dispatch {0:?} exceeds device limits or is empty")]
     Dispatch([u32; 3]),
+    #[error("temporal mask extent {actual:?} must equal the internal extent {expected:?}")]
+    MaskExtent {
+        expected: [u32; 2],
+        actual: [u32; 2],
+    },
     #[error("post readback source does not match its target contract")]
     ReadbackSource,
 }

@@ -100,6 +100,36 @@ fn natives_are_out_of_reach_of_load_and_the_shared_namespace() {
     assert_eq!(shared, serde_json::json!([1, true]));
 }
 
+/// A game that guards its globals (Haemimont's `autorun.lua` errors on reading or creating an
+/// undeclared global) keeps that guard when its code reads and writes through its source.
+#[test]
+fn the_shared_namespace_metamethods_apply_to_reads_and_writes_through_a_source() {
+    let saved = Arc::new(Mutex::new(Vec::new()));
+    let mut scripts = game(&saved);
+    scripts
+        .run(
+            "game",
+            "strict.lua",
+            br#"Declared = 1
+            setmetatable(_G, {
+                __index = function(_, key) error("undefined global " .. key, 2) end,
+                __newindex = function(_, key) error("new global " .. key, 2) end,
+            })"#,
+        )
+        .unwrap();
+    let read = scripts.eval_json("game", "return Missing").unwrap_err();
+    assert!(
+        read.to_string().contains("undefined global Missing"),
+        "{read}"
+    );
+    let write = scripts.eval_json("mod", "Created = 1").unwrap_err();
+    assert!(write.to_string().contains("new global Created"), "{write}");
+    let seen = scripts
+        .eval_json("game", "Declared = 2 return { Declared, GetMapName() }")
+        .unwrap();
+    assert_eq!(seen, serde_json::json!([2, "Crater"]));
+}
+
 #[test]
 fn natives_and_sources_are_checked_when_registered() {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();

@@ -64,7 +64,7 @@ impl UiGeometry {
         };
         if vertices.len() > MAX_UI_VERTICES
             || indices.len() > MAX_UI_INDICES
-            || indices.len() % 3 != 0
+            || !indices.len().is_multiple_of(3)
             || indices
                 .iter()
                 .any(|&index| index as usize >= vertices.len())
@@ -102,15 +102,12 @@ impl UiGeometry {
             let quad = triangles
                 .get(next + 1)
                 .and_then(|second| self.quad_of(triangles[next], *second));
-            match quad {
-                Some(quad) => {
-                    found.quads.push(quad);
-                    next += 2;
-                }
-                None => {
-                    found.left_out_triangles += 1;
-                    next += 1;
-                }
+            if let Some(quad) = quad {
+                found.quads.push(quad);
+                next += 2;
+            } else {
+                found.left_out_triangles += 1;
+                next += 1;
             }
         }
         found

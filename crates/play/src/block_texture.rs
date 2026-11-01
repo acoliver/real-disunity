@@ -106,7 +106,7 @@ fn flip_alpha_indices(block: &mut [u8]) {
         flipped |= ((bits >> (12 * row)) & 0xFFF) << (12 * (3 - row));
     }
     for (index, byte) in block[2..8].iter_mut().enumerate() {
-        *byte = (flipped >> (8 * index)) as u8;
+        *byte = low_byte(flipped >> (8 * index));
     }
 }
 
@@ -180,9 +180,9 @@ fn decode_block(layout: BlockLayout, block: &[u8]) -> [[u8; 4]; 16] {
 fn expand_565(value: u16) -> [u8; 3] {
     let (r, g, b) = ((value >> 11) & 31, (value >> 5) & 63, value & 31);
     [
-        ((r << 3) | (r >> 2)) as u8,
-        ((g << 2) | (g >> 4)) as u8,
-        ((b << 3) | (b >> 2)) as u8,
+        low_byte((r << 3) | (r >> 2)),
+        low_byte((g << 2) | (g >> 4)),
+        low_byte((b << 3) | (b >> 2)),
     ]
 }
 
@@ -193,7 +193,7 @@ fn decode_colour(block: &[u8], punch_through: bool) -> [[u8; 4]; 16] {
     let c1 = u16::from_le_bytes([block[2], block[3]]);
     let (a, b) = (expand_565(c0), expand_565(c1));
     let mix = |wa: u16, wb: u16, total: u16| {
-        [0, 1, 2].map(|i| ((wa * u16::from(a[i]) + wb * u16::from(b[i])) / total) as u8)
+        [0, 1, 2].map(|i| low_byte((wa * u16::from(a[i]) + wb * u16::from(b[i])) / total))
     };
     let opaque = |[r, g, bl]: [u8; 3]| [r, g, bl, 255];
     let palette = if c0 > c1 || !punch_through {
@@ -212,25 +212,41 @@ fn decode_colour(block: &[u8], punch_through: bool) -> [[u8; 4]; 16] {
 
 /// An alpha block: two endpoints and sixteen 3-bit indices.
 fn decode_alpha(block: &[u8]) -> [u8; 16] {
-    let (a0, a1) = (u16::from(block[0]), u16::from(block[1]));
+    let (e0, e1) = (block[0], block[1]);
+    let (a0, a1) = (u16::from(e0), u16::from(e1));
+    // Entry `i` (from 2) blends `steps + 1 - i` parts of the first endpoint with `i - 1` of the second.
+    let blend = |steps: u16, i: u16| low_byte(((steps + 1 - i) * a0 + (i - 1) * a1) / steps);
     let palette: [u8; 8] = if a0 > a1 {
-        std::array::from_fn(|i| match i {
-            0 => a0 as u8,
-            1 => a1 as u8,
-            _ => (((8 - i as u16) * a0 + (i as u16 - 1) * a1) / 7) as u8,
-        })
+        [
+            e0,
+            e1,
+            blend(7, 2),
+            blend(7, 3),
+            blend(7, 4),
+            blend(7, 5),
+            blend(7, 6),
+            blend(7, 7),
+        ]
     } else {
-        std::array::from_fn(|i| match i {
-            0 => a0 as u8,
-            1 => a1 as u8,
-            6 => 0,
-            7 => 255,
-            _ => (((6 - i as u16) * a0 + (i as u16 - 1) * a1) / 5) as u8,
-        })
+        [
+            e0,
+            e1,
+            blend(5, 2),
+            blend(5, 3),
+            blend(5, 4),
+            blend(5, 5),
+            0,
+            255,
+        ]
     };
     let mut bits = 0_u64;
     for (index, byte) in block[2..8].iter().enumerate() {
         bits |= u64::from(*byte) << (8 * index);
     }
     std::array::from_fn(|texel| palette[((bits >> (3 * texel)) & 7) as usize])
+}
+
+/// The low byte of a value; callers pass values that fit in it, or want it truncated.
+pub(crate) fn low_byte(value: impl Into<u64>) -> u8 {
+    value.into().to_le_bytes()[0]
 }

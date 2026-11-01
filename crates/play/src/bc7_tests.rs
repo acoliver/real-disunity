@@ -70,7 +70,7 @@ fn mode_6_decodes_a_four_bit_ramp_with_p_bits_in_colour_and_alpha() {
         w.indices(4, &[0], pick);
         w.block()
     };
-    let ramp = decode_block(&build(1, |t| t as u32));
+    let ramp = decode_block(&build(1, |t| u32::try_from(t).unwrap()));
     for (texel, got) in ramp.iter().enumerate() {
         assert_eq!(*got, grey(RAMP_4[texel]), "texel {texel}");
     }
@@ -91,8 +91,8 @@ fn mode_5_has_separate_colour_and_alpha_indices_and_four_rotations() {
             .put_all(&[0, 0], 7)
             .put_all(&[0, 0], 7);
         w.put_all(&[0, 255], 8);
-        w.indices(2, &[0], |t| t as u32 % 4);
-        w.indices(2, &[0], |t| t as u32 / 4);
+        w.indices(2, &[0], |t| u32::try_from(t).unwrap() % 4);
+        w.indices(2, &[0], |t| u32::try_from(t).unwrap() / 4);
         w.block()
     };
     for (rotation, texel) in [(0, 6), (1, 6), (2, 6), (3, 6)] {
@@ -115,8 +115,8 @@ fn mode_4_index_selection_swaps_which_index_set_drives_colour() {
         w.put(0, 2).put(select, 1);
         w.put_all(&[0, 31, 0, 31, 0, 31], 5);
         w.put_all(&[0, 63], 6);
-        w.indices(2, &[0], |t| t as u32 % 4);
-        w.indices(3, &[0], |t| t as u32 % 8);
+        w.indices(2, &[0], |t| u32::try_from(t).unwrap() % 4);
+        w.indices(3, &[0], |t| u32::try_from(t).unwrap() % 8);
         w.block()
     };
     for texel in 1_usize..16 {

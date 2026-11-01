@@ -4,6 +4,7 @@
 use crate::bc7_tables::{
     ANCHOR_THREE_SECOND, ANCHOR_THREE_THIRD, ANCHOR_TWO, THREE_SUBSETS, TWO_SUBSETS,
 };
+use crate::block_texture::low_byte;
 
 const TEXELS: usize = 16;
 
@@ -100,7 +101,8 @@ impl Bits {
     fn take(&mut self, count: u32) -> u32 {
         let field = (self.value >> self.position) & ((1_u128 << count) - 1);
         self.position += count;
-        field as u32
+        let [a, b, c, d, ..] = field.to_le_bytes();
+        u32::from_le_bytes([a, b, c, d])
     }
 }
 
@@ -195,7 +197,7 @@ fn read_endpoints(bits: &mut Bits, mode: &Mode) -> [[u8; 4]; 6] {
 
 /// Widens a `width`-bit value to 8 bits by repeating its high bits.
 fn expand(value: u32, width: u32) -> u8 {
-    ((value << (8 - width)) | (value >> (2 * width - 8))) as u8
+    low_byte((value << (8 - width)) | (value >> (2 * width - 8)))
 }
 
 fn subset_map(subsets: usize, partition: usize) -> [usize; TEXELS] {
@@ -231,5 +233,5 @@ fn weight(width: u32, index: u32) -> u32 {
 }
 
 fn interpolate(low: u8, high: u8, weight: u32) -> u8 {
-    (((64 - weight) * u32::from(low) + weight * u32::from(high) + 32) >> 6) as u8
+    low_byte(((64 - weight) * u32::from(low) + weight * u32::from(high) + 32) >> 6)
 }

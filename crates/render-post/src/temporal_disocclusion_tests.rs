@@ -20,9 +20,9 @@ use crate::temporal_scene_test_rig::{OUTPUT, SceneRig};
 use worldrunner_render_plan::post::RenderScale;
 
 /// Frames rendered: the bar travels `FRAMES * SPEED` pixels, 96, and stays on the canvas.
-const FRAMES: u64 = 48;
+pub(crate) const FRAMES: u64 = 48;
 /// The last frames over which the metrics are averaged.
-const MEASURED: u64 = 8;
+pub(crate) const MEASURED: u64 = 8;
 /// Frames of vacated background that count as newly uncovered.
 const UNCOVERED_FRAMES: u64 = 8;
 
@@ -57,14 +57,14 @@ impl Rig {
     }
 }
 
-type Pixel = [u32; 2];
+pub(crate) type Pixel = [u32; 2];
 
-fn centre(pixel: Pixel) -> [f64; 2] {
+pub(crate) fn centre(pixel: Pixel) -> [f64; 2] {
     pixel.map(|v| f64::from(v) + 0.5)
 }
 
 /// Pixels whose centre lies in the plane, a pixel in from its border.
-fn plane_pixels() -> Vec<Pixel> {
+pub(crate) fn plane_pixels() -> Vec<Pixel> {
     let (x, y) = (scene::PLANE_LEFT + 1.0, scene::PLANE_TOP + 1.0);
     let (w, h) = (scene::PLANE_WIDTH - 2.0, scene::PLANE_HEIGHT - 2.0);
     region(x..x + w, y..y + h)
@@ -73,7 +73,7 @@ fn plane_pixels() -> Vec<Pixel> {
 /// Pixels the bar vacated during the last `UNCOVERED_FRAMES` frames before `frame`: centres
 /// from a pixel inside the bar's left edge `UNCOVERED_FRAMES` ago to a pixel before its
 /// current left edge, and inside its rows by a pixel.
-fn strip_pixels(frame: u64) -> Vec<Pixel> {
+pub(crate) fn strip_pixels(frame: u64) -> Vec<Pixel> {
     let from = scene::bar_left(frame - UNCOVERED_FRAMES) + 1.0;
     let to = scene::bar_left(frame) - 1.0;
     region(
@@ -82,7 +82,7 @@ fn strip_pixels(frame: u64) -> Vec<Pixel> {
     )
 }
 
-fn region(x: std::ops::Range<f64>, y: std::ops::Range<f64>) -> Vec<Pixel> {
+pub(crate) fn region(x: std::ops::Range<f64>, y: std::ops::Range<f64>) -> Vec<Pixel> {
     let mut pixels = Vec::new();
     for py in 0..OUTPUT[1] {
         for px in 0..OUTPUT[0] {
@@ -108,11 +108,11 @@ fn truth(pixel: Pixel, left: f64) -> f64 {
     sum / f64::from(SUB * SUB)
 }
 
-fn index(pixel: Pixel) -> usize {
+pub(crate) fn index(pixel: Pixel) -> usize {
     usize::try_from(pixel[1] * OUTPUT[0] + pixel[0]).unwrap()
 }
 
-fn mean(values: impl Iterator<Item = f64>) -> f64 {
+pub(crate) fn mean(values: impl Iterator<Item = f64>) -> f64 {
     let (sum, count) = values.fold((0.0, 0_u32), |(s, n), v| (s + v, n + 1));
     sum / f64::from(count)
 }

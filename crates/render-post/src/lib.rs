@@ -167,6 +167,10 @@ mod temporal_thin_feature_scene;
 #[cfg(test)]
 mod temporal_thin_feature_tests;
 #[cfg(test)]
+mod temporal_translucent_scene;
+#[cfg(test)]
+mod temporal_translucent_tests;
+#[cfg(test)]
 mod temporal_upscale_reference;
 #[cfg(test)]
 mod temporal_upscale_reference_tests;

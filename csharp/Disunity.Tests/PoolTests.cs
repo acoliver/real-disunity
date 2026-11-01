@@ -136,6 +136,8 @@ internal static class PoolTests
 
     private static void Vertex()
     {
+        var field = typeof(UIVertex).GetField("simpleVert");
+        Expect.That(field is { IsStatic: true, IsPublic: true }, "simpleVert is a public static field, as compiled game code reads it");
         var v = UIVertex.simpleVert;
         Expect.That(v.position == Vector3.zero && v.normal == new Vector3(0, 0, -1), "position and normal");
         Expect.That(v.tangent == new Vector4(1, 0, 0, -1), "tangent");

@@ -140,7 +140,7 @@ internal static class PlayerMeshTests
         Expect.Sequence(new[] { 0, 1, 2 }, mesh.GetIndices(0), "sub-mesh 0 indices");
         Expect.Sequence(new[] { 1, 2, 3 }, mesh.GetIndices(1), "sub-mesh 1 indices with its base vertex");
         Expect.Sequence(new[] { 0, 1, 2 }, mesh.GetIndices(1, false), "sub-mesh 1 indices without its base vertex");
-        Expect.Equal(1, mesh.GetBaseVertex(1), "sub-mesh 1 base vertex");
+        Expect.Equal(1u, mesh.GetBaseVertex(1), "sub-mesh 1 base vertex");
         Expect.Equal(MeshTopology.Triangles, mesh.GetTopology(1), "sub-mesh topology");
         Expect.Equal(new Vector3(0.5f, 0.5f, 0), mesh.bounds.center, "the bounds center");
         Expect.Equal(new Vector3(1, 1, 0.5f), mesh.bounds.size, "the bounds size is twice the planned extent");

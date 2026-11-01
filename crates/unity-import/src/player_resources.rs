@@ -9,7 +9,9 @@
 //! with the ones such an object references even when the container does not list them (see
 //! [`crate::player_sprites`]), and so are shaders (see [`crate::player_shader_refs`]) and materials
 //! (see [`crate::player_materials`]); a `MeshFilter` plans the meshes it references, with their data in
-//! files beside the plan (see [`crate::player_meshes`]). A `GameObject` is a prefab: a scene plan of the object and its
+//! files beside the plan (see [`crate::player_meshes`]), and an `Animator` plans its controller, an
+//! animator controller or an override controller with the clips they list (see
+//! [`crate::player_animators`]). A `GameObject` is a prefab: a scene plan of the object and its
 //! descendants in a file beside the plan (see [`crate::player_prefabs`]); a prefab that does not
 //! plan keeps its error and the rest of the plan is unaffected. Entries of other classes keep
 //! only their class, so loading one names the class the engine does not build yet.
@@ -29,6 +31,7 @@ use worldrunner_unity_serialized::{
 use crate::{
     PlayerError,
     input::InputAxis,
+    player_animators::{PlanClipOverride, plan_animation_asset},
     player_files::PlayerFiles,
     player_input::plan_player_axes,
     player_materials::{
@@ -199,6 +202,21 @@ pub enum ResourceAsset {
     },
     /// A render texture the planner could not decode, with the reason loading it reports.
     UnplannedRenderTexture { error: String },
+    /// An animation clip, by name only: the engine plays no animation yet.
+    AnimationClip { name: String },
+    /// An animator controller and the clips it lists, as asset indexes (null where the plan
+    /// cannot hold a clip).
+    AnimatorController {
+        name: String,
+        clips: Vec<Option<usize>>,
+    },
+    /// A controller that replaces some clips of its base controller (see
+    /// [`crate::player_animators`]).
+    AnimatorOverrideController {
+        name: String,
+        base_controller: Option<usize>,
+        overrides: Vec<PlanClipOverride>,
+    },
 }
 
 /// An object of a player file, by file path and path ID.
@@ -289,6 +307,9 @@ fn referenced_on_demand(class: ClassId) -> bool {
         || class == ClassId::MATERIAL
         || class == ClassId::MESH
         || class == ClassId::RENDER_TEXTURE
+        || class == ClassId::ANIMATOR_CONTROLLER
+        || class == ClassId::ANIMATOR_OVERRIDE_CONTROLLER
+        || class == ClassId::ANIMATION_CLIP
         || class == ClassId::GAME_OBJECT
 }
 
@@ -513,6 +534,11 @@ impl ResourcePlanner {
             ClassId::MATERIAL => Ok(self.material(key)),
             ClassId::MESH => plan_mesh(&mut self.registry, key, &self.output, index),
             ClassId::RENDER_TEXTURE => Ok(self.render_texture(key)),
+            ClassId::ANIMATION_CLIP
+            | ClassId::ANIMATOR_CONTROLLER
+            | ClassId::ANIMATOR_OVERRIDE_CONTROLLER => {
+                plan_animation_asset(&mut self.registry, key, class)
+            }
             _ => self.script_asset(key, layouts),
         }
     }

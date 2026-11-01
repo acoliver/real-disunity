@@ -10,6 +10,7 @@ pub mod input;
 pub mod package;
 pub mod plan;
 pub mod player;
+pub mod player_animators;
 pub mod player_files;
 mod player_graphics;
 mod player_hierarchy;

@@ -18,6 +18,7 @@ use worldrunner_unity_serialized::graphics::{
 };
 use worldrunner_unity_serialized::{
     ClassId,
+    animator::Animator,
     camera::Camera,
     classes::{GameObject, MonoBehaviour, Transform},
     light::Light,
@@ -32,6 +33,7 @@ use crate::{
     PlayerError,
     components::RectTransform,
     plan::{PlanComponent, PlanObject, PlanSortingLayer, ScenePlan},
+    player_animators::plan_animator,
     player_files::PlayerFiles,
     player_graphics::{plan_camera, plan_canvas_group, plan_light},
     player_scripts::script_fields,
@@ -284,6 +286,7 @@ impl<'t> PlayerPlanner<'t> {
             ClassId::MESH_FILTER,
             ClassId::MESH_RENDERER,
             ClassId::SKINNED_MESH_RENDERER,
+            ClassId::ANIMATOR,
         ]
         .contains(&class)
         {
@@ -390,6 +393,19 @@ impl<'t> PlayerPlanner<'t> {
             return Ok(PlanComponent::CanvasRenderer {
                 cull_transparent_mesh: renderer.cull_transparent_mesh,
             });
+        }
+        if class == ClassId::ANIMATOR {
+            let animator: Animator = src
+                .files()
+                .local(&path, component)?
+                .decode(component.path_id)?;
+            let path = &self.path;
+            return Ok(plan_animator(
+                owner,
+                &animator,
+                |pptr| src.asset(path, pptr),
+                &mut self.differences,
+            ));
         }
         self.mesh_component(src, owner, class, component)
     }

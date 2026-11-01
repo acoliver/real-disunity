@@ -194,7 +194,12 @@ impl PlanSource for SceneSource {
             .map_err(|_| not_held(pptr))?;
         let key = (file, pptr.path_id);
         let class = class_of(&mut self.files, &key);
-        for held_by_resources in [ClassId::TEXTURE_2D, ClassId::MESH] {
+        for held_by_resources in [
+            ClassId::TEXTURE_2D,
+            ClassId::MESH,
+            ClassId::ANIMATOR_CONTROLLER,
+            ClassId::ANIMATOR_OVERRIDE_CONTROLLER,
+        ] {
             if class == Some(held_by_resources) {
                 return Err(format!(
                     "references {held_by_resources} object {} of file {}, which scene plans do not hold",

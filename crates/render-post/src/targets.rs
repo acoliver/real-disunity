@@ -377,7 +377,20 @@ impl FrameTargets {
 }
 
 fn mask_texture(device: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::TextureView) {
-    let texture = color_texture(device, "frame temporal mask", size, TEMPORAL_MASK_FORMAT);
+    // COPY_DST lets a host seed the mask by copy as well as by drawing into it.
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("frame temporal mask"),
+        size: extent(size),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TEMPORAL_MASK_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     (texture, view)
 }

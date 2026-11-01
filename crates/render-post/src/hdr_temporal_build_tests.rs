@@ -18,12 +18,31 @@ pub(crate) fn settings() -> HdrPostSettings {
     }
 }
 
+/// Targets without a temporal mask: the path before masks existed.
 pub(crate) fn targets(device: &wgpu::Device, render: [u32; 2], output: [u32; 2]) -> FrameTargets {
+    target_set(device, render, output, false)
+}
+
+/// Targets with the producer mask the real chain allocates for temporal reconstruction.
+pub(crate) fn masked_targets(
+    device: &wgpu::Device,
+    render: [u32; 2],
+    output: [u32; 2],
+) -> FrameTargets {
+    target_set(device, render, output, true)
+}
+
+fn target_set(
+    device: &wgpu::Device,
+    render: [u32; 2],
+    output: [u32; 2],
+    temporal_mask: bool,
+) -> FrameTargets {
     let config =
         FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1).with_render_extent(render);
     let options = crate::TargetOptions {
         velocity: true,
-        temporal_mask: true,
+        temporal_mask,
     };
     FrameTargets::with_options(device, config, options).unwrap()
 }

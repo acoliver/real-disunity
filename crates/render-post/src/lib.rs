@@ -113,6 +113,7 @@ mod taa_gpu_test_support;
 mod taa_gpu_tests;
 #[cfg(test)]
 mod taa_history_reference;
+mod taa_mask_gpu;
 #[cfg(test)]
 mod taa_overlapping_movers_tests;
 mod taa_reconstruct_gpu;
@@ -156,6 +157,8 @@ mod temporal_dolly_tests;
 mod temporal_exposure_tests;
 #[cfg(test)]
 mod temporal_mask_clear_tests;
+#[cfg(test)]
+mod temporal_mask_dilate_tests;
 #[cfg(test)]
 mod temporal_mask_tests;
 #[cfg(test)]

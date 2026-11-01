@@ -5,7 +5,9 @@
 //! `O`. With the thin-feature locks on it also writes the lock bank and copies both into the shared
 //! histories; with them off (the default) there are no lock passes and no lock resources. The uniform block is a [`crate::TemporalBlock`], the camera block, read by the reconstruction,
 //! a [`crate::TemporalCamera`].
-use crate::{Stage, StageId, StageSet, StageTarget, taa_reconstruct_gpu, taa_thin_gpu};
+use crate::{
+    Stage, StageId, StageSet, StageTarget, taa_mask_gpu, taa_reconstruct_gpu, taa_thin_gpu,
+};
 
 /// Stage names, in execution order. Identities are stable for timing. With locks on, the candidate
 /// pass, [`crate::taa_thin_gpu::STAGE`], runs before the first of them and "temporal lock history"
@@ -103,6 +105,8 @@ pub struct Inputs<'a> {
     pub output: &'a wgpu::Texture,
     /// The lock resources, present only when [`locks_enabled`].
     pub locks: Option<LockInputs<'a>>,
+    /// The producer mask at `R`, present when the frame targets carry one.
+    pub mask: Option<&'a wgpu::TextureView>,
 }
 
 /// The textures of the thin-feature lock path.
@@ -118,13 +122,16 @@ pub struct Outputs {
     pub reconstructed: taa_reconstruct_gpu::Outputs,
     /// The thin-feature candidate field at `R`, present with locks.
     pub candidates: Option<wgpu::Texture>,
+    /// The prepared (dilated) mask at `R`, present with a producer mask.
+    pub prepared_mask: Option<wgpu::Texture>,
 }
 
 /// Appends the stages of [`taa_reconstruct_gpu`], "temporal upscale", which writes `inputs.output`
 /// from the total motion, and "temporal upscale history", a texture copy into `inputs.history`.
 /// With `inputs.locks`, "temporal create locks" marks thin feature candidates at `R` before the
 /// upscale, which then also writes the lock bank, and "temporal lock history" copies the bank into
-/// the lock history. Returns the resources of the stages before the reconstruction, which the
+/// the lock history. With `inputs.mask`, "temporal mask dilate" prepares the mask after the
+/// reconstruction. Returns the resources of the stages before the reconstruction, which the
 /// caller keeps alive with the set.
 pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) -> Outputs {
     let reconstructed = taa_reconstruct_gpu::append(
@@ -137,6 +144,11 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) ->
             size: inputs.render,
         },
     );
+    let prepared_mask = inputs.mask.map(|mask| {
+        let (dilate, prepared) = taa_mask_gpu::stage(device, mask, inputs.render);
+        set.stages.push(dilate);
+        prepared
+    });
     let candidates = inputs.locks.as_ref().map(|_| {
         let (create_locks, candidates) = taa_thin_gpu::stage(device, inputs.color, inputs.render);
         set.stages.push(create_locks);
@@ -164,6 +176,7 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) ->
     Outputs {
         reconstructed,
         candidates,
+        prepared_mask,
     }
 }
 

@@ -207,6 +207,7 @@ fn append_temporal(
             locks: lock_history
                 .zip(lock_bank.as_ref())
                 .map(|(history, bank)| taa_upscale_gpu::LockInputs { history, bank }),
+            mask: targets.temporal_mask(),
         },
     );
     set.resources.textures.push(output);
@@ -214,6 +215,7 @@ fn append_temporal(
     set.resources.textures.extend(lock_bank);
     set.resources.textures.extend(lock_history.cloned());
     set.resources.textures.extend(reconstructed.candidates);
+    set.resources.textures.extend(reconstructed.prepared_mask);
     set.resources
         .textures
         .push(reconstructed.reconstructed.depth);

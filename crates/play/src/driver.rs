@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
 
-use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_render_plan::simulation::{SpriteTextures, from_presentation};
 
 use crate::unresolved::UnresolvedTextures;
@@ -85,11 +85,27 @@ impl PlayDriver {
         prepared: Prepared,
         capture_frames: impl IntoIterator<Item = u64>,
     ) -> Result<Self, PlayError> {
-        let mut host = DisunityHost::boot(&prepared.config)?;
-        host.run_slice(&prepared.request)?;
+        Self::boot(
+            &prepared.config,
+            &prepared.request,
+            prepared.textures,
+            capture_frames,
+        )
+    }
+
+    /// Boots the managed host from `config` and loads the slice `request` names, drawing
+    /// sprites with `textures`. A built player's scene boots this way with no sprite textures.
+    pub fn boot(
+        config: &ManagedHostConfig,
+        request: &Path,
+        textures: SpriteTextures,
+        capture_frames: impl IntoIterator<Item = u64>,
+    ) -> Result<Self, PlayError> {
+        let mut host = DisunityHost::boot(config)?;
+        host.run_slice(request)?;
         Ok(Self {
             host,
-            textures: prepared.textures,
+            textures,
             unresolved: UnresolvedTextures::default(),
             simulated: Duration::ZERO,
             capture_frames: capture_frames.into_iter().collect(),

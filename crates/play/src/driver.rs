@@ -6,7 +6,7 @@ use std::time::Duration;
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_render_plan::simulation::{SpriteTextures, from_presentation};
 
-use crate::unresolved::UnresolvedTextures;
+use crate::{player_textures::PlayerTextures, unresolved::UnresolvedTextures};
 use worldrunner_render_scene::{Viewport, simulation::WorldSceneContribution};
 use worldrunner_scene_viewer::{
     LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample, LiveReceipt, LiveTick,
@@ -72,6 +72,7 @@ impl Capture {
 pub struct PlayDriver {
     host: DisunityHost,
     textures: SpriteTextures,
+    player_textures: PlayerTextures,
     unresolved: UnresolvedTextures,
     simulated: Duration,
     capture_frames: BTreeSet<u64>,
@@ -106,6 +107,7 @@ impl PlayDriver {
         Ok(Self {
             host,
             textures,
+            player_textures: PlayerTextures::default(),
             unresolved: UnresolvedTextures::default(),
             simulated: Duration::ZERO,
             capture_frames: capture_frames.into_iter().collect(),
@@ -122,9 +124,14 @@ impl PlayDriver {
         let presentation = self
             .host
             .export_presentation([viewport.width, viewport.height], FIRST_COVERAGE_TEXTURE)?;
+        self.player_textures.refresh(
+            &self.host,
+            presentation.quads.iter().filter_map(|quad| quad.texture),
+            &mut self.textures,
+        )?;
         let mut plan = from_presentation(presentation, &self.textures);
-        // The renderer holds no texels for a player's textures yet; their sprites are left out of
-        // the frame, each texture named once on stderr.
+        // A texture with no texels to draw (an unsupported player format, say) leaves its sprites
+        // out of the frame, each texture named once on stderr.
         for id in self.unresolved.drop_unresolved(&mut plan) {
             eprintln!(
                 "a sprite shows texture {id}, which has no texels to draw; its sprites are left out"

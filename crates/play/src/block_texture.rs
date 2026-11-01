@@ -1,0 +1,132 @@
+//! Block-compressed player textures as DX10 DDS containers, with their rows turned top first.
+//!
+//! The managed engine stores a texture's rows bottom first; the presentation's sprite UVs count
+//! rows from the top. Turning a block-compressed image over reverses its block rows and the four
+//! texel rows inside each block.
+
+const BLOCK_TEXELS: usize = 4;
+const DDS_MAGIC: &[u8; 4] = b"DDS ";
+const HEADER_BYTES: u32 = 124;
+/// Caps, height, width, pixel format and linear size are all present.
+const HEADER_FLAGS: u32 = 0x1 | 0x2 | 0x4 | 0x1000 | 0x8_0000;
+const PIXEL_FORMAT_BYTES: u32 = 32;
+const PIXEL_FORMAT_FOURCC: u32 = 0x4;
+const CAPS_TEXTURE: u32 = 0x1000;
+const RESOURCE_DIMENSION_TEXTURE2D: u32 = 3;
+
+/// The block layouts a player texture can have that the renderer draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockLayout {
+    /// Eight bytes: two colour endpoints and sixteen 2-bit indices.
+    Bc1,
+    /// Sixteen bytes: an alpha block, then a `Bc1` colour block.
+    Bc3,
+    /// Eight bytes: two endpoints and sixteen 3-bit indices.
+    Bc4,
+}
+
+impl BlockLayout {
+    /// The bytes of one 4 by 4 block.
+    #[must_use]
+    pub const fn block_bytes(self) -> usize {
+        match self {
+            Self::Bc1 | Self::Bc4 => 8,
+            Self::Bc3 => 16,
+        }
+    }
+
+    /// The DXGI format code of the layout, in its sRGB form when `srgb` is set. `Bc4` holds data
+    /// and has no sRGB form.
+    #[must_use]
+    pub const fn dxgi(self, srgb: bool) -> u32 {
+        match (self, srgb) {
+            (Self::Bc1, false) => 71,
+            (Self::Bc1, true) => 72,
+            (Self::Bc3, false) => 77,
+            (Self::Bc3, true) => 78,
+            (Self::Bc4, _) => 80,
+        }
+    }
+
+    fn flip_block(self, block: &mut [u8]) {
+        match self {
+            Self::Bc1 => flip_colour_indices(block),
+            Self::Bc4 => flip_alpha_indices(block),
+            Self::Bc3 => {
+                let (alpha, colour) = block.split_at_mut(8);
+                flip_alpha_indices(alpha);
+                flip_colour_indices(colour);
+            }
+        }
+    }
+}
+
+/// The bytes of a `width` by `height` base level.
+#[must_use]
+pub fn level_bytes(layout: BlockLayout, width: u32, height: u32) -> usize {
+    let blocks = |texels: u32| (texels as usize).div_ceil(BLOCK_TEXELS);
+    blocks(width) * blocks(height) * layout.block_bytes()
+}
+
+/// Reverses the rows of a base level whose height is a multiple of four.
+#[must_use]
+pub fn flip_rows(layout: BlockLayout, width: u32, level: &[u8]) -> Vec<u8> {
+    let row_bytes = (width as usize).div_ceil(BLOCK_TEXELS) * layout.block_bytes();
+    let mut flipped = Vec::with_capacity(level.len());
+    for row in level.chunks_exact(row_bytes).rev() {
+        flipped.extend_from_slice(row);
+    }
+    for block in flipped.chunks_exact_mut(layout.block_bytes()) {
+        layout.flip_block(block);
+    }
+    flipped
+}
+
+/// The four index bytes after the two endpoints each hold one texel row.
+fn flip_colour_indices(block: &mut [u8]) {
+    block[4..8].reverse();
+}
+
+/// After two endpoint bytes, sixteen 3-bit indices fill 48 bits, twelve bits a texel row.
+fn flip_alpha_indices(block: &mut [u8]) {
+    let mut bits = 0_u64;
+    for (index, byte) in block[2..8].iter().enumerate() {
+        bits |= u64::from(*byte) << (8 * index);
+    }
+    let mut flipped = 0_u64;
+    for row in 0..4 {
+        flipped |= ((bits >> (12 * row)) & 0xFFF) << (12 * (3 - row));
+    }
+    for (index, byte) in block[2..8].iter_mut().enumerate() {
+        *byte = (flipped >> (8 * index)) as u8;
+    }
+}
+
+/// A one-level DX10 DDS container around `payload`.
+#[must_use]
+pub fn dx10_dds(width: u32, height: u32, dxgi: u32, payload: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(148 + payload.len());
+    bytes.extend_from_slice(DDS_MAGIC);
+    let linear_size = u32::try_from(payload.len()).unwrap_or(u32::MAX);
+    // Offsets 4 to 127: size, flags, height, width, linear size, depth, mips, 11 reserved words.
+    let mut header = [0_u32; 31];
+    header[0] = HEADER_BYTES;
+    header[1] = HEADER_FLAGS;
+    header[2] = height;
+    header[3] = width;
+    header[4] = linear_size;
+    header[6] = 1;
+    header[18] = PIXEL_FORMAT_BYTES;
+    header[19] = PIXEL_FORMAT_FOURCC;
+    header[20] = u32::from_le_bytes(*b"DX10");
+    header[26] = CAPS_TEXTURE;
+    for word in header {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    // The DX10 extension: format, 2D resource, no misc flags, one array slice, unknown alpha mode.
+    for word in [dxgi, RESOURCE_DIMENSION_TEXTURE2D, 0, 1, 0] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    bytes.extend_from_slice(payload);
+    bytes
+}

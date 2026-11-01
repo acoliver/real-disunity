@@ -145,7 +145,7 @@ impl GameScripts {
             })?;
             grant_native(&self.lua, &mut levels, &segments(grant)?, native)?;
         }
-        let env = forwarding(&self.lua, Vec::new(), levels[&Vec::new()].clone())?;
+        let env = root_environment(&self.lua, &levels[&Vec::new()])?;
         for path in levels.keys().filter(|path| !path.is_empty()) {
             let (last, parent) = path.split_last().expect("not empty");
             if let Value::Table(view) = levels[parent].raw_get::<Value>(last.as_str())? {
@@ -356,6 +356,25 @@ fn grant_native(
     Ok(())
 }
 
+/// A source's environment: a view of the whole shared namespace that holds no keys itself.
+/// Reads find a granted native first, then the global; writes go to the globals. The globals
+/// table is never rebound, so the view resolves through tables (`natives` falls back to the
+/// globals) where a nested view runs a function: a game reads globals constantly, and a table
+/// lookup costs a fraction of a host call. The globals' own metamethods still apply, so a game
+/// that guards undeclared globals keeps its guard.
+fn root_environment(lua: &Lua, natives: &Table) -> Result<Table, ScriptError> {
+    let globals = lua.globals();
+    let fallback = lua.create_table()?;
+    fallback.raw_set("__index", globals.clone())?;
+    natives.set_metatable(Some(fallback));
+    let meta = lua.create_table()?;
+    meta.raw_set("__index", natives.clone())?;
+    meta.raw_set("__newindex", globals)?;
+    let env = lua.create_table()?;
+    env.set_metatable(Some(meta));
+    Ok(env)
+}
+
 /// A view of the shared namespace at `path` that holds no keys itself. Reads find a granted
 /// native in `natives` first, then the shared value; writes always go to the shared namespace.
 /// Natives therefore stay visible however the game rebinds or extends the namespace, and the
@@ -407,4 +426,37 @@ pub(crate) fn lookup(lua: &Lua, path: &[String]) -> mlua::Result<Value> {
 
 fn refused(message: String) -> ScriptError {
     ScriptError::Sandbox { message }
+}
+
+#[cfg(test)]
+mod tests {
+    use mlua::{Table, Value};
+
+    use super::{GameScripts, ScriptConfig};
+
+    /// The source environment resolves a global through tables, granted natives first, so a read
+    /// runs no host function.
+    #[test]
+    fn a_source_environment_reads_through_tables() {
+        let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
+        scripts
+            .register_native("GetMapName", |_, ()| Ok("Crater"))
+            .unwrap();
+        scripts.add_source("game", &["GetMapName"]).unwrap();
+        let env = scripts.environment("game").unwrap();
+        let meta = env.metatable().unwrap();
+        let Value::Table(natives) = meta.raw_get::<Value>("__index").unwrap() else {
+            panic!("the environment reads through a function");
+        };
+        assert!(matches!(
+            natives.raw_get::<Value>("GetMapName").unwrap(),
+            Value::Function(_)
+        ));
+        let fallback: Table = natives.metatable().unwrap().raw_get("__index").unwrap();
+        assert_eq!(fallback, scripts.lua().globals());
+        assert_eq!(
+            meta.raw_get::<Table>("__newindex").unwrap(),
+            scripts.lua().globals()
+        );
+    }
 }

@@ -63,43 +63,66 @@ claim absence of model training exposure.
 
 ## Coordination and review authority
 
-Claim a feature-scoped change before starting and check open claims and PRs.
-Claims cannot reserve whole crates. Acknowledged external claims bind maintainer
-agents equally. Do not repossess a quiet claim without notice and an answer or
-Andrew's decision. Use issue and PR comments for coordination.
+Andrew's sessions collaborate through Hubnot on the hub hosted on Andrew's
+Linux box. Each session's clone has a `hub` remote and its own Hubnot
+identity named for its checkout, such as `mini-branch-3`; check it with
+`hn identity show`. Never read, print, copy or attach anything under
+`.git/hn` or `.git/hn-ssh`, which hold private keys. Run `hn sync hub` before
+reading shared state. The hub's `main` is published to GitHub every night;
+GitHub `main` accepts no other pushes.
 
-Identify agent-authored GitHub text as `[github-user/agent-name]` for the authenticated
-account, optionally followed by a human name. Internal sessions sharing an account
-use the identity assigned to their checkout, such as `[mini-llxprt-branch-4]`.
-Do not assume there are only two sessions.
+Claim a feature-scoped change on its Hubnot issue (`hn issue comment`) before
+starting, and check open claims and proposals (`hn issue list`,
+`hn proposal list`). Claims cannot reserve whole crates. Acknowledged
+external claims bind maintainer agents equally. Do not repossess a quiet
+claim without notice and an answer or Andrew's decision.
+
+Identify agent-authored text on GitHub as `[github-user/agent-name]` for the
+authenticated account, optionally followed by a human name. Internal sessions
+sharing an account use the identity of their checkout, such as
+`[mini-llxprt-branch-4]`. Do not assume there are only two sessions.
+
+Internal sessions keep at most two own worktrees and stacks no more than one
+deep, and end each day with a merged proposal, a proposal waiting on the gate
+or on Andrew, or a blocker recorded on the issue.
 
 Never modify, clean or manage another contributor's worktree or build output.
-Do not close their PR. Obtain the branch owner's explicit permission in a PR
-comment before pushing to their branch. Force pushes need explicit permission
-for that operation. Prepare integration work in your own checkout; offer help
-and agree its scope with the contributor first.
+Do not push to another session's branch or proposal without its explicit
+permission, recorded as a comment on the proposal. Prepare integration work
+in your own checkout; offer help and agree its scope first.
 
-Andrew intends human review daily. Maintainer agents must also review daily.
-Daily attention does not promise a same-day merge.
+**Proposing and merging:**
 
-**Merge authority:**
+1. Push your topic branch to the hub and open a proposal with
+   `hn proposal open --base hub/main --head <branch> "<title>"`. Give it the
+   body a pull request had: scope, verification, references and checklist.
+2. Request the gate with `hn run request <proposal> gate`. The runner on the
+   box runs the gate and signs the result.
+3. When the gate has passed on the current head, merge your own proposal
+   with `hn automerge <proposal> --rule ordinary --execute --remote hub`. No
+   approval from another session is required. Hubnot refuses the merge if
+   the gate has not passed, another session or Andrew requested changes, or
+   Andrew rejected the proposal.
+4. After a fix, revise with `hn proposal revise` and request the gate again.
 
-- Maintainer agents are Andrew's own sessions, identified as
-  `[mini-llxprt-branch-N]` or `[mac-llxprt-branch-N]`. A maintainer agent may
-  merge **its own** PR once `PR gate` has passed on the current head, every review
-  thread is resolved and no open comment objects to the merge. Use a normal merge.
-- External contributors' PRs, including PRs written by their agents, are merged
-  only by Andrew after his review.
-- No agent merges another session's or another contributor's PR.
-- Never lift, bypass or edit branch rules or required checks to merge, never push
-  directly to main, and never enable auto-merge or a merge queue. Updating your
-  own topic branch from main is allowed.
+Other sessions may review a proposal with `hn review <proposal> --approve` or
+`--request-changes` and a reason. A change request blocks the merge until it
+is answered, so use it for real defects. Ask another session for a review
+when you want a second opinion; it is not required.
 
-External PRs are exempt from the internal daily review-ready cadence. Never close
-them merely because they await maintainer review or merge.
-Internal sessions target daily review-ready delivery, at most two own worktrees
-and stacks no more than one deep. End with a posted review-ready PR or a blocker
-recorded on the issue or PR. Waiting for Andrew's merge is acceptable.
+Changes to protected paths need Andrew's approval and acceptance: `.hn/`,
+`.github/`, `crates/xtask/`, `AGENTS.md`, `CONTRIBUTING.md`,
+`dev-docs/quality-gates.md`, `rust-toolchain.toml`, `clippy.toml`,
+`rustfmt.toml`, `.cargo/` and `LICENSE`. So do `.llxprt/`, new crates and any
+other path outside the `ordinary` rule in `.hn/policy.json`. Say so in the
+proposal and wait. Never push to the hub's `main` and never merge another
+session's proposal.
+
+External contributors still open GitHub pull requests. The session Andrew
+assigns mirrors each one as a Hubnot proposal that links the pull request;
+Andrew reviews and accepts it, and GitHub shows it merged once the nightly
+publish contains its head. Never close an external pull request because it
+waits for review.
 
 ## Tests, limits and delivery
 
@@ -110,12 +133,17 @@ warning to turn a failure green. Never loosen these limits or add lint allowance
 three boolean fields/struct, 750 lines/file target and 1000 hard limit.
 Keep Rust incremental compilation disabled.
 
-Run `cargo xtask ci-cpu` and the relevant `ci-managed` and `ci-gpu` profiles for
-code changes. Protected `main` requires the `PR gate` check: Linux CPU, managed,
-GPU static checks and the sharded GPU suite. Windows, macOS and the serial GPU
-suite run after merge and nightly, and failures open a `ci-failure` issue; see
-[quality gates](dev-docs/quality-gates.md#continuous-integration). Report checks
-actually run and blockers; do not infer another platform passed.
+The hub's gate is the quality line. It runs on Linux for every proposal:
+documentation checks, `cargo xtask ci-cpu`, `ci-managed`, `ci-gpu-static`
+and, for C# changes, `ci-gpu-csharp`. It does not run the GPU test shards.
+Decide yourself which checks to run before proposing: run what tells you
+whether your change works, such as the affected crate's tests, a GPU test you
+touched or a game you changed, and leave the full profiles to the gate. Read
+the gate's log when it fails. Windows, macOS and the full serial GPU suite run
+every night on the published `main`; a failure opens a Hubnot issue, and a GPU
+failure is the first thing to fix the next morning. See
+[quality gates](dev-docs/quality-gates.md#continuous-integration). Report the
+checks you actually ran; do not infer another platform passed.
 
 Private `rd-stranded` validation and pin updates belong to its owner. External
 contributors need only the public verification path. Its current game pin protects

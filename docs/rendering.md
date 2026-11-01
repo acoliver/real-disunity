@@ -115,6 +115,63 @@ Measured ratios, temporal error over reset-every-frame error (the same pipeline 
 
 The design bound is 0.90, and both tests assert it. The gain sits on edges (edge pixels carry about 90% of the error); on the smooth interior the render-post harness measured temporal worse than reset at 0.67 and 0.77 (ratio 1.12 and 1.32, absolute error about 0.002). A single EASU frame is not beaten at 0.5 in that harness (0.0237 against 0.0250). The table above is static. Motion and disocclusion are measured in [Camera motion, dilation and depth clip](#camera-motion-dilation-and-depth-clip); colour is not measured. The history weight falls with motion as for native TAA. The tests are `crates/render-post/src/temporal_quality_tests.rs` and `crates/render-scene/src/compositor/temporal_upscale_end_to_end_tests.rs`.
 
+#### Qualification on the Radeon 780M
+
+Section 7 of issue #256 measured `Temporal` against fixed gates on a composite scene that no tuning used. The runner is `qualification_matrix` in `crates/render-scene/src/compositor/qualification_matrix_tests.rs`. It drives `ConfiguredFrameRenderer` at two outputs (1920x1080 and 1452x921), three scales (0.50, 0.67, 0.77) and five modes: M1 bilinear, M2 EASU, M3 reduced TAA plus EASU, M4 `Temporal` and M5 full-resolution 1x TAA with no upscale. RCAS is off in all of them, `Temporal` ships with locks and the water producer off, and the mip bias is 0. The gates and the outcome rule were fixed before the first measurement and are not changed here.
+
+Device: AMD Radeon 780M, Mesa 26.0.8 RADV. Quality cells use a 4x4 supersampled reference, 64 warm-up frames and 4 measured frames per cell. Cost cells use the whole-frame GPU timestamp envelope (a timestamp pair around scene, post, copies and clears), 30 warm-up frames and 120 measured frames, one frame submitted and waited for at a time, so the numbers are per-frame latency on an idle queue. The full matrix took 1470 s. Lavapipe ran the same tests for correctness only; its times come from a CPU rasteriser and are not cost evidence.
+
+**G1, static quality.** Converged static edge MAE of `Temporal` against EASU (M2), bound 0.90. All six cells pass.
+
+| Output | Scale | Temporal edge MAE | EASU edge MAE | Edge ratio | Whole-image MAE ratio |
+|---|---|---|---|---|---|
+| 1920x1080 | 0.50 | 0.0247 | 0.0306 | 0.807 | 0.709 |
+| 1920x1080 | 0.67 | 0.0211 | 0.0284 | 0.743 | 0.737 |
+| 1920x1080 | 0.77 | 0.0176 | 0.0272 | 0.647 | 0.655 |
+| 1452x921 | 0.50 | 0.0308 | 0.0354 | 0.870 | 0.780 |
+| 1452x921 | 0.67 | 0.0155 | 0.0248 | 0.625 | 0.592 |
+| 1452x921 | 0.77 | 0.0113 | 0.0221 | 0.511 | 0.514 |
+
+**G7, cost.** Median whole-frame GPU time of `Temporal` against full-resolution TAA (M5), bound 0.90, and p95 of `Temporal` no higher than the p95 of M5. All six cells fail both conditions.
+
+| Output | Scale | Temporal median (p95) ms | Full-resolution TAA median (p95) ms | Ratio |
+|---|---|---|---|---|
+| 1920x1080 | 0.50 | 8.60 (8.74) | 7.06 (7.21) | 1.22 |
+| 1920x1080 | 0.67 | 9.58 (9.83) | 7.06 (7.21) | 1.36 |
+| 1920x1080 | 0.77 | 10.36 (10.54) | 7.06 (7.21) | 1.47 |
+| 1452x921 | 0.50 | 5.27 (5.58) | 4.50 (4.63) | 1.17 |
+| 1452x921 | 0.67 | 6.25 (6.40) | 4.50 (4.63) | 1.39 |
+| 1452x921 | 0.77 | 6.69 (6.83) | 4.50 (4.63) | 1.49 |
+
+At 0.77 on 1920x1080 the bound needs `Temporal` at or below 6.35 ms; the matrix run measured 10.36 ms.
+
+**Per-stage breakdown at 1920x1080.** `qualification_stage_timings` reports the median GPU time of every timed pass over 30 warm-up and 120 measured frames. Scene rasterisation, clears and the output-sized history copy have no timing slot and sit in the gap between the whole-frame median and the sum of the stage medians.
+
+| Mode and scale | Stage medians, ms | Sum of stages | Whole frame median (p95) | Gap |
+|---|---|---|---|---|
+| M3 0.50 | taa resolve 0.891, tone 0.775, easu 1.162 | 2.828 | 3.898 (4.049) | 1.070 |
+| M4 0.50 | temporal depth clear 0.121, reconstruct dilate 0.431, depth clip 0.251, mask dilate 0.051, **temporal upscale 5.002**, tone 0.792 | 6.649 | 8.876 (13.622) | 2.228 |
+| M5 | taa resolve 3.079, tone 0.816 | 3.896 | 7.201 (10.873) | 3.306 |
+| M3 0.77 | taa resolve 1.929, tone 1.800, easu 1.432 | 5.161 | 7.290 (10.474) | 2.129 |
+| M4 0.77 | temporal depth clear 0.302, reconstruct dilate 1.085, depth clip 0.617, mask dilate 0.095, **temporal upscale 5.031**, tone 0.877 | 8.007 | 10.719 (14.044) | 2.712 |
+
+The output-resolution `temporal upscale` pass costs about 5.0 ms at 1080p whether the scene renders at 0.50 or 0.77. That is 4.3 times the EASU pass at 0.50 and 1.6 times the full-resolution TAA resolve. The stages that run at the internal extent grow with the render scale but stay near or below 1.1 ms each. This stage-timing run was a separate invocation from the matrix, so its whole-frame medians (for example 8.876 ms for M4 at 0.50) differ from the matrix cost table (8.60 ms); the two were not averaged.
+
+**Conclusion under the predeclared rule.** A scale that misses a gated item is not recommended, and if 0.67 and 0.77 both miss, the mode keeps its experimental label. G1 holds everywhere and G7 fails everywhere, so `Temporal` is not recommended at any of the three scales and stays experimental. `Easu` and native TAA remain the supported choices. Optimising the `temporal upscale` pass is separate work with its own proposal and measurements, and the matrix is rerun afterwards.
+
+**Reported, not gated.** On the composite scene with a 0.3 px per frame pan, `Temporal` edge MAE against M3 (reduced TAA plus EASU) is 0.849, 0.876 and 0.882 at 0.50, 0.67 and 0.77 on 1920x1080 and 0.905, 0.800 and 0.807 on 1452x921. The reference-relative instability ratio against M3 is 1.373, 1.165 and 1.089 on 1920x1080 and 1.310, 1.168 and 1.105 on 1452x921, above the 1.10 bound in five of six cells. The gate G3 itself uses the thin-feature fixtures, so these values are context only.
+
+**Not run yet.** G3 and G4 on the thin-feature fixtures at the matrix sizes, and G5 (reset, cancel and resize against a fresh renderer) at the matrix sizes. The matrix has no reset-every-frame mode, so G2 at the matrix sizes has no row either; the small-size ratios above (160x96 and 64x64) are the only G2 evidence. The small-size tests for these behaviours still pass. G6 is a report and the matrix table carries the full-resolution TAA numbers for it. G8 is carried over from the mip bias decision above.
+
+**Reproducing.** Both tests are `#[ignore]` and print tables:
+
+```sh
+cargo test --locked -p worldrunner-render-scene --all-features qualification_matrix -- --ignored --nocapture --test-threads=1
+cargo test --locked -p worldrunner-render-scene --all-features qualification_stage_timings -- --ignored --nocapture --test-threads=1
+```
+
+The `RD_QUAL_*` variables shrink the runs: `OUTPUTS` (`WxH,...`, matrix default `1920x1080,1452x921`), `SCALES` (millionths, default `500000,670000,770000`), `MODES` (`M1,...,M5`), `PAN` (output pixels per frame, default `0,0.3`), `FRAMES` (4), `WARM` (64), `FACTOR` (reference supersampling per axis, 4), `TIMING_WARM` (30) and `TIMING_FRAMES` (120). The stage breakdown defaults to `1920x1080`, scales `500000,770000` and modes `M3,M4,M5`. Select the Radeon with `VK_DRIVER_FILES` pointing at the RADV ICD. A device without `TIMESTAMP_QUERY` prints `unavailable` for cost, never zero.
+
 #### Camera motion, dilation and depth clip
 
 The temporal stage reprojects history with the total backward motion of each texel: the camera term plus the object residual that `velocity.rs` writes. Three compute stages at the internal extent run ahead of `temporal upscale` in every slot, and `taa_reconstruct.wgsl` holds all of them.

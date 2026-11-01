@@ -52,6 +52,8 @@ mod post_fxaa_tests;
 #[cfg(test)]
 mod post_taa_tests;
 #[cfg(test)]
+mod quality_metrics;
+#[cfg(test)]
 mod tolerance_tests;
 
 pub mod simulation;

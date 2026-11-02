@@ -48,6 +48,7 @@ pub(crate) struct ScriptState {
     pub awake: bool,
     pub active: bool,
     pub entered: EnteredState,
+    pub messages: crate::ScriptMessages,
 }
 
 impl Default for ScriptState {
@@ -59,6 +60,7 @@ impl Default for ScriptState {
             awake: false,
             active: false,
             entered: EnteredState::Dormant,
+            messages: crate::ScriptMessages::ALL,
         }
     }
 }
@@ -73,6 +75,8 @@ pub(crate) struct Lifecycle {
     next_sequence: usize,
     pub(crate) unpublished: crate::unpublished::Unpublished,
     pub cleanup: Vec<LifecycleWork>,
+    /// Per-frame messages reported for each script type, keyed by assembly and type name.
+    pub(crate) type_messages: BTreeMap<(String, String), crate::ScriptMessages>,
 }
 
 impl Lifecycle {
@@ -80,6 +84,18 @@ impl Lifecycle {
     pub(crate) fn register(&mut self, script: ComponentHandle, state: ScriptState) {
         self.scripts.insert(script, state);
         self.added.push(script);
+    }
+
+    /// The per-frame messages reported for a script type, or every message when none were.
+    pub(crate) fn messages_of_type(
+        &self,
+        assembly: &str,
+        type_name: &str,
+    ) -> crate::ScriptMessages {
+        self.type_messages
+            .get(&(assembly.to_owned(), type_name.to_owned()))
+            .copied()
+            .unwrap_or_default()
     }
 }
 

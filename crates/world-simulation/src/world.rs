@@ -309,7 +309,13 @@ impl World {
                 .expect("validated object")
                 .mesh_instance = Some(handle);
         }
-        let script = matches!(desc, ComponentDesc::Script { .. });
+        let script = match &desc {
+            ComponentDesc::Script {
+                assembly,
+                type_name,
+            } => Some(self.lifecycle.messages_of_type(assembly, type_name)),
+            _ => None,
+        };
         self.objects
             .get_mut(object.0)
             .expect("validated object")
@@ -332,11 +338,16 @@ impl World {
         &mut self,
         handle: ComponentHandle,
         object: ObjectHandle,
-        script: bool,
+        script: Option<crate::ScriptMessages>,
     ) {
-        if script {
-            self.lifecycle
-                .register(handle, crate::lifecycle::ScriptState::default());
+        if let Some(messages) = script {
+            self.lifecycle.register(
+                handle,
+                crate::lifecycle::ScriptState {
+                    messages,
+                    ..Default::default()
+                },
+            );
         }
         if self.lifetime.objects.contains(&object) {
             self.lifetime.components.insert(handle);

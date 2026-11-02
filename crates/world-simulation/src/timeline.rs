@@ -401,7 +401,7 @@ impl World {
                     message: ScriptMessage::Start,
                 }));
             }
-            if message != ScriptMessage::Start {
+            if message != ScriptMessage::Start && state.messages.wants(message) {
                 tasks.push(Task::Work(LifecycleWork { script, message }));
             }
         }

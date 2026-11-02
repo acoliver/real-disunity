@@ -88,6 +88,7 @@ fn scene_error(what: &str, error: &SceneValidationError) -> PlayError {
 /// until the game's own camera replaces it.
 fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
     ViewerOptions {
+        activity_reason: worldrunner_scene_viewer::ActivityReason::default(),
         presentation_budget: PresentationBudget::default().into(),
         capture_pool: CapturePoolPolicy::default(),
         window_size_unit: WindowSizeUnit::default(),

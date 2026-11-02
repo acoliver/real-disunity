@@ -24,7 +24,7 @@ use std::{
 use serde::Serialize;
 use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{
-    ClassId, graphics::Material, managers::ResourceManager, object::PPtr,
+    ClassId, font::Font, graphics::Material, managers::ResourceManager, object::PPtr,
     render_texture::RenderTexture, script_data::ScriptLayouts, text_asset::TextAsset,
 };
 
@@ -78,6 +78,14 @@ pub struct ResourceEntry {
 pub enum ResourceAsset {
     /// The contents are `length` bytes at `offset` in the player file `file`.
     TextAsset {
+        name: String,
+        file: PathBuf,
+        offset: u64,
+        length: u64,
+    },
+    /// A font: its font file is `length` bytes at `offset` in the player file `file`, none when
+    /// the font has no file of its own.
+    Font {
         name: String,
         file: PathBuf,
         offset: u64,
@@ -285,6 +293,7 @@ fn referenced_on_demand(class: ClassId) -> bool {
         || class == ClassId::ANIMATOR_CONTROLLER
         || class == ClassId::ANIMATOR_OVERRIDE_CONTROLLER
         || class == ClassId::ANIMATION_CLIP
+        || class == ClassId::FONT
         || class == ClassId::GAME_OBJECT
 }
 
@@ -496,6 +505,7 @@ impl ResourcePlanner {
         let index = self.assets.len();
         match class {
             ClassId::TEXT_ASSET => self.text_asset(file, *path_id),
+            ClassId::FONT => self.font(file, *path_id),
             ClassId::TEXTURE_2D => {
                 player_sprites::plan_texture(&mut self.registry, key, &self.output, index)
             }
@@ -649,6 +659,21 @@ impl ResourcePlanner {
         let bytes = serde_json::to_vec(fields).expect("JSON values serialize");
         player_sprites::write_resource(&self.output, &relative, &bytes)?;
         Ok(relative)
+    }
+
+    fn font(&mut self, file: &Path, path_id: i64) -> Result<ResourceAsset, PlayerError> {
+        let open = self.registry.files.open_path(file)?;
+        let font: Font = open.decode(path_id)?;
+        let object = *open.file.object(path_id).expect("decoded objects exist");
+        Ok(ResourceAsset::Font {
+            name: font.name,
+            file: std::path::absolute(file).map_err(|error| PlayerError::Io {
+                path: file.to_owned(),
+                source: error,
+            })?,
+            offset: object.offset + font.font_data.start as u64,
+            length: (font.font_data.end - font.font_data.start) as u64,
+        })
     }
 
     fn text_asset(&mut self, file: &Path, path_id: i64) -> Result<ResourceAsset, PlayerError> {

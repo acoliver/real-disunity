@@ -46,7 +46,7 @@ public sealed partial class Canvas : Behaviour
         }
     }
 }
-public sealed class Font
+public sealed class Font : Object
 {
     internal readonly ulong Handle;
     internal readonly ulong World;
@@ -55,6 +55,14 @@ public sealed class Font
     /// <summary>The font file this font was made from, which <see cref="UnityEngine.TextCore.LowLevel.FontEngine"/>
     /// loads a face from; null for a font made without one, which stays unusable there.</summary>
     internal byte[]? FontData { get; init; }
+
+    /// <summary>A font a player stores: it has the font file and no native UI registration, so only
+    /// <see cref="UnityEngine.TextCore.LowLevel.FontEngine"/> uses it. A font with an empty file has no data.</summary>
+    internal Font(string name, byte[] file) : this(0, 0)
+    {
+        this.name = name;
+        FontData = file.Length == 0 ? null : file;
+    }
 
     private static readonly object RebuildLock = new();
     private static Action<Font>? _textureRebuilt;

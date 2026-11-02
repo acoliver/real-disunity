@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Disunity.Hosting;
 using UnityEngine;
+using UnityEngine.TextCore.LowLevel;
 
 /// <summary>
 /// Loading a player's resources from a resource plan: text assets from their byte ranges,
@@ -49,6 +50,7 @@ internal static class ResourceTests
             {
                 LoadsTextAndScriptAssetsOnce();
                 DecodesEachByteOrderMark();
+                LoadsFontsWithTheirFileData();
                 BindsAssetsThatReferenceEachOtherBeforeAwake();
                 NamesTextBytesOutsideTheFile();
                 FiltersByTypeAndNamesUnbuiltClasses();
@@ -95,6 +97,12 @@ internal static class ResourceTests
             assets.Add(Text(path, data, file.Count, bytes.Length));
             file.AddRange(bytes);
         }
+        var font = SyntheticFont.Bytes();
+        entries.Add(Entry("fonts/sans", "Font", assets.Count));
+        assets.Add(Asset("Font", "Sans", data, file.Count, font.Length));
+        file.AddRange(font);
+        entries.Add(Entry("fonts/empty", "Font", assets.Count));
+        assets.Add(Asset("Font", "Empty", data, file.Count, 0));
         File.WriteAllBytes(data, [.. file, 9]);
         Directory.CreateDirectory(Path.Combine(directory, "resources"));
         File.WriteAllText(Path.Combine(directory, "resources", "1.json"), """{"level": "3", "notes": {"$asset": 0}}""");
@@ -117,8 +125,10 @@ internal static class ResourceTests
         return planPath;
     }
 
-    private static JsonObject Text(string name, string file, int offset, int length) =>
-        new() { ["type"] = "TextAsset", ["name"] = name, ["file"] = file, ["offset"] = offset, ["length"] = length };
+    private static JsonObject Text(string name, string file, int offset, int length) => Asset("TextAsset", name, file, offset, length);
+
+    private static JsonObject Asset(string type, string name, string file, int offset, int length) =>
+        new() { ["type"] = type, ["name"] = name, ["file"] = file, ["offset"] = offset, ["length"] = length };
 
     private static JsonObject Script(string type, string name, string fields) => new()
     {
@@ -128,6 +138,19 @@ internal static class ResourceTests
 
     private static JsonObject Entry(string path, string type, int? asset) =>
         new() { ["path"] = path, ["class"] = type, ["asset"] = asset };
+
+    private static void LoadsFontsWithTheirFileData()
+    {
+        var sans = Resources.Load<Font>("fonts/sans");
+        Require(sans is { name: "Sans" } && ReferenceEquals(sans, Resources.Load<Font>("Fonts/Sans")), "a font loads once by its path");
+        Require(FontEngine.LoadFontFace(sans!, 40) == FontEngineError.Success, "a face loads from the font's file data");
+        Require(FontEngine.GetGlyphIndex('A') == 1 && Math.Abs(FontEngine.GetFaceInfo().pointSize - 40) < 1e-3, "the face is the font's");
+        var empty = Resources.Load<Font>("fonts/empty");
+        Require(empty is { name: "Empty" }, "a font with no file loads");
+        Require(FontEngine.LoadFontFace(empty!) == FontEngineError.Invalid_File_Format, "a font with no file data is unusable");
+        Require(Resources.Load<TextAsset>("fonts/sans") is null, "a font is not a text asset");
+        FontEngine.UnloadFontFace();
+    }
 
     private static void LoadsTextAndScriptAssetsOnce()
     {

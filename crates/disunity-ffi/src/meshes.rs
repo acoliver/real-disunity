@@ -104,12 +104,15 @@ fn check_store(
     if vertices.iter().any(|v| !finite(v)) {
         return Err("a stored mesh holds a vertex value that is not finite");
     }
-    if indices.len() % 3 != 0 || indices.iter().any(|i| *i as usize >= vertices.len()) {
+    if !indices.len().is_multiple_of(3) || indices.iter().any(|i| *i as usize >= vertices.len()) {
         return Err("a stored mesh needs whole triangles over its own vertices");
     }
     for run in submeshes {
         let end = u64::from(run.first_index) + u64::from(run.index_count);
-        if run.first_index % 3 != 0 || run.index_count % 3 != 0 || end > indices.len() as u64 {
+        if !run.first_index.is_multiple_of(3)
+            || !run.index_count.is_multiple_of(3)
+            || end > indices.len() as u64
+        {
             return Err("a sub-mesh of a stored mesh must be whole triangles inside its indices");
         }
     }

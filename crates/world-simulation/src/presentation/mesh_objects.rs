@@ -27,10 +27,10 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
     let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
     let mut meshes: HashMap<ObjectHandle, u64> = HashMap::new();
     for component in &snapshot.components {
-        if let ComponentDesc::MeshFilter(filter) = &component.desc {
-            if filter.drawn_mesh != 0 {
-                meshes.insert(component.object, filter.drawn_mesh);
-            }
+        if let ComponentDesc::MeshFilter(filter) = &component.desc
+            && filter.drawn_mesh != 0
+        {
+            meshes.insert(component.object, filter.drawn_mesh);
         }
     }
     let basis = view_basis();

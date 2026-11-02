@@ -112,20 +112,11 @@ fn face_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f64; 3]> {
     for triangle in indices.chunks_exact(3) {
         let corners: Option<Vec<[f64; 3]>> = triangle
             .iter()
-            .map(|i| positions.get(*i as usize).map(|p| p.map(f64::from)))
+            .map(|index| positions.get(*index as usize).map(|p| p.map(f64::from)))
             .collect();
-        let Some([a, b, c]) = corners
-            .as_deref()
-            .and_then(|c| <&[[f64; 3]; 3]>::try_from(c).ok())
-        else {
+        let Some(face) = corners.as_deref().map(face_normal) else {
             continue;
         };
-        let (u, v) = (sub(*b, *a), sub(*c, *a));
-        let face = [
-            u[1] * v[2] - u[2] * v[1],
-            u[2] * v[0] - u[0] * v[2],
-            u[0] * v[1] - u[1] * v[0],
-        ];
         for corner in triangle {
             for (sum, part) in sums[*corner as usize].iter_mut().zip(face) {
                 *sum += part;
@@ -135,8 +126,18 @@ fn face_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f64; 3]> {
     sums.iter().map(|sum| unit(*sum)).collect()
 }
 
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+/// `(second - first) x (third - first)` of three corners, whose length is twice the face's area.
+fn face_normal(corners: &[[f64; 3]]) -> [f64; 3] {
+    let edge = |to: usize| {
+        let (from, to) = (corners[0], corners[to]);
+        [to[0] - from[0], to[1] - from[1], to[2] - from[2]]
+    };
+    let (first, second) = (edge(1), edge(2));
+    [
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    ]
 }
 
 /// `sum` as a unit vector, or zero when it has no direction.

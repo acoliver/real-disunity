@@ -7,8 +7,10 @@ use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 
+use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
 use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
 
+use crate::budget::{Ledger, Reservation};
 use crate::error::ProgramError;
 use crate::module::StageProgram;
 use crate::resources::Store;
@@ -25,10 +27,17 @@ pub use crate::resources::{BoundResource, BufferHandle, Resource, TargetHandle, 
 /// The runtime records into frames and never submits. A caller opens a frame with
 /// `SubmissionAuthority::begin`, passes it to `draw`, `dispatch` and the readbacks, and
 /// submits it. The runtime reaches the queue only to upload initial texture contents.
+///
+/// Every buffer, texture, render target, depth attachment and readback staging buffer is
+/// admitted against the `AllocationBudget` given at construction before it is created. Pipelines,
+/// shader modules, bind groups and the sampler are not counted: render-gpu's allocation sets
+/// describe buffer, texture and readback storage only.
 pub struct ProgramRuntime {
     pub(crate) device: wgpu::Device,
     pub(crate) authority: SubmissionAuthority,
     pub(crate) store: Store,
+    ledger: Ledger,
+    budget: AllocationBudget,
     /// The one sampler every sampler binding gets: linear filtering, clamped to the edge.
     pub(crate) sampler: wgpu::Sampler,
     modules: HashMap<blake3::Hash, wgpu::ShaderModule>,
@@ -38,7 +47,11 @@ pub struct ProgramRuntime {
 
 impl ProgramRuntime {
     #[must_use]
-    pub fn new(device: wgpu::Device, authority: SubmissionAuthority) -> Self {
+    pub fn new(
+        device: wgpu::Device,
+        authority: SubmissionAuthority,
+        budget: AllocationBudget,
+    ) -> Self {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("render-program fixed sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -49,6 +62,8 @@ impl ProgramRuntime {
             device,
             authority,
             store: Store::default(),
+            ledger: Ledger::default(),
+            budget,
             sampler,
             modules: HashMap::new(),
             render_pipelines: HashMap::new(),
@@ -65,6 +80,33 @@ impl ProgramRuntime {
     #[must_use]
     pub fn authority(&self) -> &SubmissionAuthority {
         &self.authority
+    }
+
+    #[must_use]
+    pub fn budget(&self) -> AllocationBudget {
+        self.budget
+    }
+
+    /// Descriptor bytes held now: live resources, released resources that submitted work may
+    /// still use until [`collect`](Self::collect) sees that work complete, and unresolved
+    /// readbacks.
+    #[must_use]
+    pub fn live_bytes(&self) -> u64 {
+        self.ledger.live_bytes()
+    }
+
+    /// Frees released resources whose last use has completed on the GPU. Every allocation does
+    /// this first.
+    pub fn collect(&self) {
+        self.store.collect(self.authority.completed_serial());
+    }
+
+    /// Admits `allocations` against the budget on top of everything live, or refuses them by
+    /// name before anything is created.
+    pub(crate) fn admit(&self, allocations: AllocationSet) -> Result<Reservation, ProgramError> {
+        self.collect();
+        self.ledger
+            .admit(&self.device.limits(), self.budget, allocations)
     }
 
     /// Checks that `encoder` records a frame the authority is preparing and that the device is

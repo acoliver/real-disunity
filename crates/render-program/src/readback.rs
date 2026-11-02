@@ -3,8 +3,10 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 
+use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::resources::{BufferHandle, TargetHandle};
 use crate::runtime::ProgramRuntime;
@@ -33,11 +35,13 @@ const ROW_ALIGNMENT: u32 = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 /// How long a resolve waits for the GPU and the map callback together.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A mappable staging buffer that a recorded copy fills.
+/// A mappable staging buffer that a recorded copy fills. Its bytes stay in the runtime's
+/// budget until it is resolved or dropped.
 struct Staged {
     buffer: wgpu::Buffer,
     device: wgpu::Device,
     authority: SubmissionAuthority,
+    _reservation: Reservation,
 }
 
 impl Staged {
@@ -150,7 +154,11 @@ impl ProgramRuntime {
         self.recording(encoder)?;
         let entry = self.store.buffer(handle)?;
         let size = entry.buffer.size();
-        let staged = self.staging(size)?;
+        let mut allocations = AllocationSet::default();
+        if size > 0 {
+            allocations.buffer("render-program readback", size, 1);
+        }
+        let staged = self.staging(size, allocations)?;
         encoder.copy_buffer_to_buffer(&entry.buffer, 0, &staged.buffer, 0, size);
         Ok(PendingBufferRead {
             staged,
@@ -178,7 +186,9 @@ impl ProgramRuntime {
         })?;
         let row = width * texel;
         let padded_row = row.next_multiple_of(ROW_ALIGNMENT);
-        let staged = self.staging(u64::from(padded_row) * u64::from(height))?;
+        let mut allocations = AllocationSet::default();
+        allocations.readback("render-program readback", [width, height], texel, 1);
+        let staged = self.staging(u64::from(padded_row) * u64::from(height), allocations)?;
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -200,7 +210,8 @@ impl ProgramRuntime {
         })
     }
 
-    fn staging(&self, size: u64) -> Result<Staged, ProgramError> {
+    fn staging(&self, size: u64, allocations: AllocationSet) -> Result<Staged, ProgramError> {
+        let reservation = self.admit(allocations)?;
         let buffer = self.guarded(|| {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("render-program readback"),
@@ -213,6 +224,7 @@ impl ProgramRuntime {
             buffer,
             device: self.device.clone(),
             authority: self.authority.clone(),
+            _reservation: reservation,
         })
     }
 }

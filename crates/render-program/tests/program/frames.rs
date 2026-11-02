@@ -126,3 +126,48 @@ fn device_loss_is_a_named_error_before_any_recording() {
     );
     assert_eq!(runtime.create_buffer("late", &[0; 4]).unwrap_err(), lost);
 }
+
+#[test]
+fn a_recorded_write_lands_at_its_place_in_the_frames_order() {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let buffer = runtime
+        .create_buffer("data", &words_to_bytes(&[1, 2, 3, 4]))
+        .unwrap();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    let before = runtime.read_buffer(&mut frame, buffer).unwrap();
+    runtime
+        .write_buffer(&mut frame, buffer, 4, &words_to_bytes(&[20, 30]))
+        .unwrap();
+    let after = runtime.read_buffer(&mut frame, buffer).unwrap();
+    let submission = frame.finish().submit().unwrap();
+    assert_eq!(
+        words(&before.resolve(submission.clone()).unwrap()),
+        [1, 2, 3, 4]
+    );
+    assert_eq!(words(&after.resolve(submission).unwrap()), [1, 20, 30, 4]);
+}
+
+#[test]
+fn a_write_outside_the_buffer_or_off_the_copy_alignment_is_a_named_error() {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let buffer = runtime.create_buffer("data", &[0; 8]).unwrap();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    assert_eq!(
+        runtime
+            .write_buffer(&mut frame, buffer, 4, &[0; 8])
+            .unwrap_err(),
+        ProgramError::WriteRange {
+            offset: 4,
+            len: 8,
+            size: 8
+        }
+    );
+    assert_eq!(
+        runtime
+            .write_buffer(&mut frame, buffer, 2, &[0; 4])
+            .unwrap_err(),
+        ProgramError::WriteAlignment { offset: 2, len: 4 }
+    );
+}

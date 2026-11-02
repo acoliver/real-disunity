@@ -49,6 +49,10 @@ pub enum ProgramError {
     },
     #[error("writing {len} bytes at {offset} does not fit a buffer of {size}")]
     WriteRange { offset: u64, len: u64, size: u64 },
+    #[error("the allocation takes the runtime to {required} bytes, over its budget of {budget}")]
+    OverBudget { required: u64, budget: u64 },
+    #[error("the allocation is invalid: {0}")]
+    InvalidAllocation(&'static str),
     #[error("writing {len} bytes at {offset} is not a multiple of four")]
     WriteAlignment { offset: u64, len: u64 },
     #[error("the program has a {found:?} stage where a {expected:?} stage is needed")]

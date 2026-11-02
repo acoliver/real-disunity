@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 
+use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::resource::upload_buffer;
 use worldrunner_render_gpu::texture::{TextureKind, TextureLayer, TextureUpload, packed_mips};
 
@@ -21,6 +22,12 @@ impl ProgramRuntime {
         bytes: &[u8],
     ) -> Result<BufferHandle, ProgramError> {
         self.authority.check_device()?;
+        let contents = padded(bytes);
+        let mut allocations = AllocationSet::default();
+        if !contents.is_empty() {
+            allocations.buffer("render-program buffer", contents.len() as u64, 1);
+        }
+        let reservation = self.admit(allocations)?;
         let usage = wgpu::BufferUsages::UNIFORM
             | wgpu::BufferUsages::STORAGE
             | wgpu::BufferUsages::VERTEX
@@ -33,13 +40,14 @@ impl ProgramRuntime {
                 self.authority.queue(),
                 label,
                 usage,
-                &padded(bytes),
+                &contents,
             )
         })?;
-        Ok(self.store.add_buffer(BufferEntry {
+        let entry = BufferEntry {
             buffer,
             len: bytes.len() as u64,
-        }))
+        };
+        Ok(self.store.add_buffer(entry, reservation))
     }
 
     /// Records an overwrite of part of a buffer into `encoder`; the offset and length must be
@@ -73,6 +81,11 @@ impl ProgramRuntime {
         if bytes.is_empty() {
             return Ok(());
         }
+        // The staging buffer lives only as long as the recorded copy, so it is admitted for the
+        // peak and released before this returns.
+        let mut allocations = AllocationSet::default();
+        allocations.buffer("render-program write", len, 1);
+        let _transient = self.admit(allocations)?;
         let staging = self.guarded(|| {
             upload_buffer(
                 &self.device,
@@ -122,6 +135,15 @@ impl ProgramRuntime {
             mips: &mips,
         };
         let upload = TextureUpload::new(&[layer], 0, TextureKind::D2)?;
+        let mut allocations = AllocationSet::default();
+        allocations.texture(
+            "render-program texture",
+            [size[0], size[1], 1],
+            format,
+            [1, 1],
+            1,
+        );
+        let reservation = self.admit(allocations)?;
         let texture = self.guarded(|| {
             upload.upload(
                 &self.device,
@@ -130,7 +152,7 @@ impl ProgramRuntime {
                 wgpu::TextureUsages::COPY_SRC,
             )
         })??;
-        Ok(self.store.add_texture(entry(texture)))
+        Ok(self.store.add_texture(entry(texture), reservation))
     }
 
     /// Creates a render target with a color texture and, when `depth` is a depth format, a
@@ -151,6 +173,24 @@ impl ProgramRuntime {
                 "{format:?} is not a depth format"
             )));
         }
+        let mut allocations = AllocationSet::default();
+        allocations.texture(
+            "render-program target color",
+            [size[0], size[1], 1],
+            color,
+            [1, 1],
+            1,
+        );
+        if let Some(format) = depth {
+            allocations.texture(
+                "render-program target depth",
+                [size[0], size[1], 1],
+                format,
+                [1, 1],
+                1,
+            );
+        }
+        let reservation = self.admit(allocations)?;
         let attachment = wgpu::TextureUsages::RENDER_ATTACHMENT;
         let color = self.new_texture(
             label,
@@ -159,22 +199,43 @@ impl ProgramRuntime {
             attachment | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING,
         );
         let depth = depth.map(|format| entry(self.new_texture(label, size, format, attachment)));
-        Ok(self.store.add_target(TargetEntry {
+        let target = TargetEntry {
             color: entry(color),
             depth,
-        }))
+        };
+        Ok(self.store.add_target(target, reservation))
     }
 
-    pub fn release_buffer(&mut self, handle: BufferHandle) -> bool {
-        self.store.remove_buffer(handle)
+    /// Releases a buffer for new work. Its bytes stay in the budget until the work already
+    /// submitted has completed on the GPU. Returns whether the handle was live.
+    ///
+    /// # Errors
+    /// Fails while a frame is being recorded, since that frame may use the buffer, and when
+    /// the device is lost.
+    pub fn release_buffer(&mut self, handle: BufferHandle) -> Result<bool, ProgramError> {
+        let _exclusive = self.authority.try_replacement()?;
+        let last = self.authority.submitted_serial();
+        Ok(self.store.remove_buffer(handle, last))
     }
 
-    pub fn release_texture(&mut self, handle: TextureHandle) -> bool {
-        self.store.remove_texture(handle)
+    /// Releases a texture; see [`release_buffer`](Self::release_buffer).
+    ///
+    /// # Errors
+    /// Fails while a frame is being recorded and when the device is lost.
+    pub fn release_texture(&mut self, handle: TextureHandle) -> Result<bool, ProgramError> {
+        let _exclusive = self.authority.try_replacement()?;
+        let last = self.authority.submitted_serial();
+        Ok(self.store.remove_texture(handle, last))
     }
 
-    pub fn release_target(&mut self, handle: TargetHandle) -> bool {
-        self.store.remove_target(handle)
+    /// Releases a render target; see [`release_buffer`](Self::release_buffer).
+    ///
+    /// # Errors
+    /// Fails while a frame is being recorded and when the device is lost.
+    pub fn release_target(&mut self, handle: TargetHandle) -> Result<bool, ProgramError> {
+        let _exclusive = self.authority.try_replacement()?;
+        let last = self.authority.submitted_serial();
+        Ok(self.store.remove_target(handle, last))
     }
 
     fn new_texture(

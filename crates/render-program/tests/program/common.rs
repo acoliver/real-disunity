@@ -162,10 +162,14 @@ pub fn stage(
     StageProgram::new(module, parameters).unwrap()
 }
 
+use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramRuntime, TargetHandle, TargetImage};
+
+/// A budget the tests that are not about budgets never reach.
+pub const AMPLE: AllocationBudget = AllocationBudget(1 << 30);
 
 /// The device and submission authority every runtime in a test shares, obtained the way the
 /// renderer's own crates obtain them.
@@ -192,7 +196,11 @@ impl Gpu {
     }
 
     pub fn runtime(&self) -> ProgramRuntime {
-        ProgramRuntime::new(self.device.clone(), self.authority.clone())
+        self.runtime_with(AMPLE)
+    }
+
+    pub fn runtime_with(&self, budget: AllocationBudget) -> ProgramRuntime {
+        ProgramRuntime::new(self.device.clone(), self.authority.clone(), budget)
     }
 }
 

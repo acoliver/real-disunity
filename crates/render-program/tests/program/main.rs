@@ -1,5 +1,6 @@
 //! Behavior of the program crate through its public interface.
 
+mod budget;
 mod common;
 mod compute;
 mod constants;

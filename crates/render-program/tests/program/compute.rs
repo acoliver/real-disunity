@@ -183,7 +183,7 @@ fn a_binding_set_that_differs_from_the_programs_is_a_named_error() {
         failure(&mut runtime, &program, &twice),
         ProgramError::UnexpectedBinding { set: 0, binding: 3 }
     );
-    runtime.release_buffer(big);
+    assert!(runtime.release_buffer(big).unwrap());
     assert_eq!(
         failure(&mut runtime, &program, &complete),
         ProgramError::UnknownHandle { kind: "buffer" }

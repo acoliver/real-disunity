@@ -327,7 +327,14 @@ fn assert_player_meshes(host: &mut DisunityHost, root: &Path) {
     assert_eq!(object.slots[0].color, [0.25, 0.5, 0.75, 1.]);
     assert_eq!(object.slots[1].color, [1.; 4], "an empty slot draws white");
     assert_eq!(object.slots[0].texture, 0);
-    let mesh = host.player_mesh(object.mesh, 0).unwrap().expect("the mesh");
+    assert_player_mesh(host, object.mesh);
+    assert_eq!(host.player_mesh(object.mesh, 1).unwrap(), None);
+    assert_eq!(host.player_mesh(FIRST + 1000, 0).unwrap(), None);
+    host.unload_slice().unwrap();
+}
+
+fn assert_player_mesh(host: &mut DisunityHost, identity: u64) {
+    let mesh = host.player_mesh(identity, 0).unwrap().expect("the mesh");
     assert_eq!(mesh.generation, 1);
     assert_eq!(mesh.positions.len(), 4);
     assert_eq!(mesh.positions[2], [1., 1., 0.]);
@@ -342,9 +349,6 @@ fn assert_player_meshes(host: &mut DisunityHost, root: &Path) {
         .collect();
     assert_eq!(runs, vec![(0, 0, 3), (1, 3, 3)]);
     assert_eq!(mesh.left_out, 0);
-    assert_eq!(host.player_mesh(object.mesh, 1).unwrap(), None);
-    assert_eq!(host.player_mesh(FIRST + 1000, 0).unwrap(), None);
-    host.unload_slice().unwrap();
 }
 
 fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {

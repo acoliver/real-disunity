@@ -4,6 +4,7 @@ mod common;
 mod compute;
 mod constants;
 mod conventions;
+mod drawn_state;
 mod fixtures;
 mod layout;
 mod module;

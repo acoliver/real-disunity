@@ -200,6 +200,8 @@ pub struct Scene<'a> {
     pub material: &'a PropertySet,
     pub globals: &'a PropertySet,
     pub state: &'a RenderState,
+    /// What the target holds before the draw.
+    pub clear: [f64; 4],
     /// Indices into the quad's four corners: top left, top right, bottom right, bottom left.
     pub indices: &'a [u16],
 }
@@ -287,7 +289,7 @@ pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
     let target = runtime
         .create_render_target("quad", [2, 2], wgpu::TextureFormat::Rgba8Unorm, None)
         .unwrap();
-    runtime.clear_target(target, [0.0; 4], 1.0).unwrap();
+    runtime.clear_target(target, scene.clear, 1.0).unwrap();
     let input = quad(runtime);
     let index_bytes: Vec<u8> = scene.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
     let index_buffer = runtime.create_buffer("indices", &index_bytes);

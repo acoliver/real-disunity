@@ -46,6 +46,7 @@ fn draw(pass: &Pass, enabled: &[u16]) -> TargetImage {
             material: &material,
             globals: &globals,
             state: &state,
+            clear: [0.0; 4],
             indices: &QUAD,
         },
     );

@@ -1,7 +1,9 @@
 #![cfg(feature = "ui")]
 
 mod ui_font;
-use worldrunner_world_simulation::ui::{FaceBook, GlyphJob, GlyphRect, RenderMode, UiError};
+use worldrunner_world_simulation::ui::{
+    FaceBook, FaceLimits, GlyphJob, GlyphRect, RenderMode, UiError,
+};
 
 /// A `kern` table of one horizontal format 0 subtable holding `pairs` (left, right, units).
 pub fn kern(pairs: &[(u16, u16, i16)]) -> Vec<u8> {
@@ -254,4 +256,36 @@ fn kern_pairs_become_scaled_advance_adjustments_in_both_orders_asked() {
         book.pair_adjustments(worldrunner_world_simulation::ui::FaceId(99), &[1]),
         Err(UiError::MissingFace)
     );
+}
+
+#[test]
+fn unloading_a_face_frees_its_share_of_the_limits() {
+    let bytes = ui_font::font();
+    let limits = FaceLimits {
+        max_faces: 1,
+        max_face_bytes: bytes.len(),
+        max_total_bytes: bytes.len() + 10,
+    };
+    let mut book = FaceBook::new(limits);
+    let id = book.load(bytes.clone(), 0, 12.).unwrap();
+    assert_eq!(book.load(bytes.clone(), 0, 12.), Err(UiError::FontLimit));
+    book.unload(id).unwrap();
+    let again = book.load(bytes.clone(), 0, 12.).unwrap();
+    assert_ne!(again, id, "ids are not reused");
+    let mut bytes_limit = FaceBook::new(FaceLimits {
+        max_faces: 4,
+        ..limits
+    });
+    let first = bytes_limit.load(bytes.clone(), 0, 12.).unwrap();
+    assert_eq!(
+        bytes_limit.load(bytes.clone(), 0, 12.),
+        Err(UiError::FontLimit)
+    );
+    bytes_limit.unload(first).unwrap();
+    bytes_limit.load(bytes.clone(), 0, 12.).unwrap();
+    let mut small = FaceBook::new(FaceLimits {
+        max_face_bytes: bytes.len() - 1,
+        ..limits
+    });
+    assert_eq!(small.load(bytes, 0, 12.), Err(UiError::InvalidFont));
 }

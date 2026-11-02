@@ -36,7 +36,12 @@ fn player(format: u32, size: [u32; 2], linear: bool, bytes: Vec<u8>) -> PlayerTe
 fn field(spread: u32, bytes: Vec<u8>) -> PlayerTexture {
     PlayerTexture {
         distance_spread: spread,
-        ..player(ALPHA8, [bytes.len() as u32, 1], true, bytes)
+        ..player(
+            ALPHA8,
+            [u32::try_from(bytes.len()).unwrap(), 1],
+            true,
+            bytes,
+        )
     }
 }
 
@@ -460,14 +465,14 @@ fn a_distance_field_is_full_inside_empty_outside_and_half_at_the_edge() {
 #[test]
 fn a_distance_field_edge_is_one_texel_wide_whatever_the_spread() {
     // One texel of distance is 255 / (2 * spread) bytes of field.
-    for (spread, texel_bytes) in [(1u32, 127.5), (2, 63.75), (4, 31.875), (8, 15.94)] {
+    for (spread, texel_bytes) in [(1u32, 127_u16), (2, 64), (4, 32), (8, 16)] {
         let ramp: Vec<u8> = (0..=255).collect();
         let transition = coverage(spread, &ramp)
             .into_iter()
             .filter(|alpha| (1..255).contains(alpha))
             .count();
         assert!(
-            (transition as f32 - texel_bytes).abs() <= 2.,
+            u16::try_from(transition).unwrap().abs_diff(texel_bytes) <= 2,
             "spread {spread}: {transition} bytes of field between empty and full, wanted about {texel_bytes}"
         );
     }

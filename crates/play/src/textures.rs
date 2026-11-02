@@ -152,10 +152,9 @@ fn alpha8_coverage(texel: u8, spread: u32) -> u8 {
     if spread == 0 {
         return texel;
     }
-    let slope = 2. * spread as f32;
-    let distance = f32::from(texel) / 255.;
-    let coverage = ((distance - 0.5) * slope + 0.5).clamp(0., 1.);
-    (coverage * 255.).round() as u8
+    // In bytes, the coverage is (2 * texel - 255) * spread + 127.5, rounded half up.
+    let scaled = (2 * i64::from(texel) - 255) * i64::from(spread) + 128;
+    u8::try_from(scaled.clamp(0, 255)).unwrap_or(u8::MAX)
 }
 
 fn color_space(linear: bool) -> TextureColorSpace {

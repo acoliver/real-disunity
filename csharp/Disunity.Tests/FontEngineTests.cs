@@ -280,13 +280,29 @@ internal static class FontEngineTests
     {
         var free = new List<GlyphRect>(slots);
         var used = new List<GlyphRect>();
-        Expect.That(FontEngine.TryAddGlyphToTexture(1, 4, mode, free, used, GlyphRenderMode.SMOOTH, Atlas(512), out var glyph), $"{mode}: the glyph fits");
+        var atlas = Atlas(512);
+        Expect.That(FontEngine.TryAddGlyphToTexture(1, 4, mode, free, used, GlyphRenderMode.SMOOTH, atlas, out var glyph), $"{mode}: the glyph fits");
         var rect = used[0];
+        Expect.That(InkInside(atlas, rect), $"{mode}: the glyph is drawn inside its rectangle and nowhere else");
         Expect.That(used.Count == 1 && glyph!.glyphRect == new GlyphRect(rect.x + 4, rect.y + 4, rect.width - 8, rect.height - 8), $"{mode}: the placed rectangle is recorded");
         Expect.That(free.All(f => !Overlap(f, rect)), $"{mode}: free space excludes the glyph");
         Expect.That(free.Select((a, i) => free.Where((b, j) => i != j && a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height).Any())
             .All(contained => !contained), $"{mode}: no free rectangle lies inside another");
         return rect;
+    }
+
+    private static bool InkInside(Texture2D atlas, GlyphRect rect)
+    {
+        var pixels = atlas.GetRawTextureData();
+        var inside = false;
+        for (var y = 0; y < atlas.height; y++)
+            for (var x = 0; x < atlas.width; x++)
+            {
+                if (pixels[y * atlas.width + x] == 0) continue;
+                if (x < rect.x || y < rect.y || x >= rect.x + rect.width || y >= rect.y + rect.height) return false;
+                inside = true;
+            }
+        return inside;
     }
 
     private static void ModesPickTheirSlot()

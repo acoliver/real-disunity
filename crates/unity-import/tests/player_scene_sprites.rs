@@ -124,6 +124,11 @@ const FIELDS: [&str; 7] = ["first", "again", "sibling", "cube", "far", "bare", "
 /// A scene whose root holds sprites 10 (twice), 11, 12 and 13 of its shared assets file: 10 and
 /// 11 draw the inline texture 20, 12 a cube map and 13 a texture in the `.resS` file.
 fn write_player(dir: &Path) {
+    write_level(dir);
+    write_shared_assets(dir);
+}
+
+fn write_level(dir: &Path) {
     let game_object = {
         let mut w = ObjectWriter::new(false);
         w.pptrs(&[ptr(0, 3), ptr(0, 4)])
@@ -166,6 +171,9 @@ fn write_player(dir: &Path) {
         ],
         &["sharedassets0.assets"],
     );
+}
+
+fn write_shared_assets(dir: &Path) {
     let streamed = Pixels::Streamed("archive:/CAB-1/sharedassets0.assets.resS", 4, 16);
     write_file(
         dir,

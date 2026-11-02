@@ -43,7 +43,7 @@ fn job(mode: u32) -> DisunityGlyphRender {
 }
 
 #[test]
-fn a_loaded_face_reports_info_names_glyphs_and_metrics() {
+fn a_loaded_face_reports_its_info_and_names() {
     let world = world();
     let face = load(world, 100.);
     let mut info = DisunityFaceInfo::default();
@@ -60,6 +60,12 @@ fn a_loaded_face_reports_info_names_glyphs_and_metrics() {
         OK
     );
     assert_eq!(length, 0, "the test font has no name table");
+}
+
+#[test]
+fn a_loaded_face_maps_characters_and_scales_metrics() {
+    let world = world();
+    let face = load(world, 100.);
     let mut glyph = 77;
     assert_eq!(
         unsafe { disunity_face_glyph_index(world, face, 65, &mut glyph) }.code,
@@ -83,6 +89,13 @@ fn a_loaded_face_reports_info_names_glyphs_and_metrics() {
         OK
     );
     assert!((metrics.width - 25.).abs() < 1e-3);
+}
+
+#[test]
+fn an_unloaded_face_answers_nothing() {
+    let world = world();
+    let face = load(world, 100.);
+    let mut glyph = 77;
     assert_eq!(disunity_face_unload(world, face).code, OK);
     assert_ne!(disunity_face_unload(world, face).code, OK);
     assert_ne!(

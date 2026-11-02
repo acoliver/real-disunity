@@ -15,11 +15,24 @@ pub(super) fn source_with(source: &RenderScene, shadows: SceneShadowCascades) ->
 #[test]
 fn resident_statistics_clear_shadows_only_after_submission() {
     let context = context();
-    let source = scene(&[[0, 0, 1_000]], 600_000, None);
+    let base = scene(&[[0, 0, 1_000]], 600_000, None);
+    let source = super::terrain::terrain_scene(&base, false, false);
     let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     render_target(&mut shadowed, &context, &view(), &target).unwrap();
     let previous = shadowed.scene_mut().statistics();
+    assert_eq!(
+        previous.effects.shadows.installation,
+        crate::draw::PassInstallation::Installed
+    );
+    assert_eq!(
+        previous.effects.shadows.receivers.meshes,
+        crate::draw::ReceiverBinding::Bound
+    );
+    assert_eq!(
+        previous.effects.shadows.receivers.terrain,
+        crate::draw::ReceiverBinding::Bound
+    );
     assert!(
         previous
             .passes
@@ -42,6 +55,10 @@ fn resident_statistics_clear_shadows_only_after_submission() {
         assert_eq!(shadowed.scene_mut().statistics(), previous);
         if submit {
             encoder.finish().submit().unwrap();
+            assert_eq!(
+                shadowed.scene_mut().statistics().effects,
+                crate::draw::EffectStatistics::default()
+            );
             assert_eq!(
                 shadowed.scene_mut().statistics().passes.shadow_cascades,
                 [crate::draw::DrawCount::default(); 4]

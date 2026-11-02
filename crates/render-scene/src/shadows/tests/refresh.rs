@@ -40,6 +40,19 @@ fn gpu_static_refresh_policy_reuses_maps_and_visibility() {
             .iter()
             .any(|slot| matches!(slot, PassSlot::ShadowCasters(_)))
     );
+    let stats = renderer.scene_mut().statistics();
+    assert_eq!(
+        stats.effects.shadows.installation,
+        crate::draw::PassInstallation::Installed
+    );
+    assert_eq!(
+        stats.effects.shadows.receivers.meshes,
+        crate::draw::ReceiverBinding::Bound
+    );
+    assert_eq!(
+        stats.passes.shadow_cascades,
+        [crate::draw::DrawCount::default(); 4]
+    );
     assert_eq!(fresh, reused);
     assert_eq!(maps, depth_layers(&context, &renderer));
     let fresh_default = capture_scene_shadowed(&context, &source, &view(), settings()).unwrap();

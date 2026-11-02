@@ -29,11 +29,17 @@ impl PreparedFeature for SceneFeature<'_> {
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
         self.gpu.reset_pass_statistics();
+        self.publications.install(
+            context,
+            crate::draw::PassInstallation::Absent,
+            self.screen.is_some(),
+            self.gpu.ssao,
+        );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
     }
     fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.publications.publish(context);
+        self.publications.publish(context, self.gpu);
     }
     fn draw(
         &self,
@@ -56,6 +62,7 @@ impl PreparedFeature for SceneFeature<'_> {
                 return;
             }
             if context.slot == PassSlot::DepthNormalPrepass {
+                self.publications.prepass();
                 self.publications.record(self.gpu.draw_prepass(
                     pass,
                     &screen.pipelines,

@@ -344,7 +344,7 @@ fn observations_freeze_selected_page_readiness_at_capture_submission() {
     };
     assert_eq!(*frame, first.frame);
     assert_eq!(observation.generation, first.generation);
-    assert_eq!(observation.terrain_pages, first.scene.terrain_pages);
+    assert_eq!(observation.scene, first.scene);
     drop(events);
     run.shutdown().unwrap();
 }

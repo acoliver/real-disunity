@@ -1,6 +1,8 @@
 //! Bounded observation of ordinary submitted frames.
 pub use worldrunner_render_scene::draw::{
-    DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics,
+    DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
+    ReceiverBindings, ResourceStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    TerrainPageStatistics,
 };
 
 /// The latest ordinary submission, available during `Presented` and subsequent updates.
@@ -9,6 +11,7 @@ pub use worldrunner_render_scene::draw::{
 pub struct RetainedFrameStatistics {
     pub frame: u64,
     pub generation: u64,
+    /// Submitted draws, resources and installed shadow/SSAO receiver state.
     pub scene: SceneStatistics,
     /// Effective descriptor-byte admission budget for the presentation configuration.
     pub presentation_budget_bytes: u64,

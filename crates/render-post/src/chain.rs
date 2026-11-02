@@ -475,6 +475,7 @@ impl<F: StageFactory> PostChain<F> {
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
         views: &[crate::AttachmentView],
+        completed: &[crate::PassSlot],
     ) -> Result<(), crate::FrameError> {
         let replacements = self
             .features
@@ -500,6 +501,7 @@ impl<F: StageFactory> PostChain<F> {
         }
         let mut context = crate::PrepareContext::new(device, encoder)?;
         context.set_views(views);
+        context.set_completed_prefix(completed);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
         }
@@ -577,7 +579,7 @@ impl<F: StageFactory> PostChain<F> {
             .unwrap_or(&mut local_registry);
         let raster =
             crate::contracts::stock::compile(device, passes, views, &declarations, registry)?;
-        self.prepare_features(device, encoder, borrowed, views)?;
+        self.prepare_features(device, encoder, borrowed, views, &completed)?;
         for (index, declaration) in passes.iter().enumerate() {
             if completed.contains(&declaration.slot) {
                 continue;

@@ -11,7 +11,9 @@ pub use timing::{
 };
 mod statistics;
 pub use statistics::{
-    DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics, TerrainPageStatistics,
+    DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
+    ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
+    ShadowStatistics, SsaoStatistics, TerrainPageStatistics,
 };
 mod decals;
 pub use decals::DecalUpdate;

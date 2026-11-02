@@ -7,24 +7,25 @@ pub use recipe::{CaptureJitter, CaptureOutput, RetainedCaptureProducts, Retained
 use std::collections::{BTreeMap, VecDeque};
 use worldrunner_render_scene::offscreen::RgbaImage;
 
-/// Readiness frozen when the capture's source frame was submitted.
+/// Statistics frozen when the capture's source frame was encoded and submitted.
+/// Accumulated recipes identify the first sample after warmup, rather than an aggregate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetainedCaptureObservation {
     pub generation: u64,
-    pub terrain_pages: super::statistics::TerrainPageStatistics,
+    pub scene: super::statistics::SceneStatistics,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedCaptureOutcome {
     Completed {
         frame: u64,
-        observation: RetainedCaptureObservation,
+        observation: Box<RetainedCaptureObservation>,
         time: std::time::Duration,
         image: RgbaImage,
     },
     RecipeCompleted {
         frame: u64,
-        observation: RetainedCaptureObservation,
+        observation: Box<RetainedCaptureObservation>,
         time: std::time::Duration,
         products: Box<RetainedCaptureProducts>,
     },
@@ -117,7 +118,7 @@ impl Captures {
         frame: u64,
         time: std::time::Duration,
         image: RgbaImage,
-        terrain_pages: super::statistics::TerrainPageStatistics,
+        scene: super::statistics::SceneStatistics,
     ) {
         let generation = self.outstanding[&id];
         self.events.push_back(RetainedEvent::Capture {
@@ -127,10 +128,7 @@ impl Captures {
                 frame,
                 time,
                 image,
-                observation: RetainedCaptureObservation {
-                    generation,
-                    terrain_pages,
-                },
+                observation: Box::new(RetainedCaptureObservation { generation, scene }),
             },
         });
     }
@@ -159,7 +157,7 @@ impl Captures {
         frame: u64,
         time: std::time::Duration,
         products: RetainedCaptureProducts,
-        terrain_pages: super::statistics::TerrainPageStatistics,
+        scene: super::statistics::SceneStatistics,
     ) {
         self.events.push_back(RetainedEvent::Capture {
             id,
@@ -168,10 +166,10 @@ impl Captures {
                 frame,
                 time,
                 products: Box::new(products),
-                observation: RetainedCaptureObservation {
+                observation: Box::new(RetainedCaptureObservation {
                     generation: self.outstanding[&id],
-                    terrain_pages,
-                },
+                    scene,
+                }),
             },
         });
     }

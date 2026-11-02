@@ -11,3 +11,14 @@ fn page_counts_distinguish_exact_residency_from_pending_selection() {
         TerrainPageStatistics::default()
     );
 }
+
+#[test]
+fn unsubmitted_effect_statistics_have_no_installation_or_receivers() {
+    use super::{EffectStatistics, PassExecution, PassInstallation, ReceiverBinding};
+    let stats = EffectStatistics::default();
+    assert_eq!(stats.shadows.installation, PassInstallation::Absent);
+    assert_eq!(stats.shadows.receivers.meshes, ReceiverBinding::Unbound);
+    assert_eq!(stats.shadows.receivers.terrain, ReceiverBinding::Unbound);
+    assert_eq!(stats.ssao.installation, PassInstallation::Absent);
+    assert_eq!(stats.ssao.prepass, PassExecution::Skipped);
+}

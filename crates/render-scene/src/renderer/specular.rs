@@ -64,6 +64,10 @@ impl Specialization {
     }
 }
 impl ScenePipelines {
+    pub(crate) fn has_ao_receiver(&self) -> bool {
+        self.specialization.screen.is_some()
+    }
+
     pub(crate) fn for_receiver(
         &self,
         receiver: worldrunner_render_plan::SceneSsaoReceiver,

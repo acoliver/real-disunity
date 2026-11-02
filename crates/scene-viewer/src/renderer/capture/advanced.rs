@@ -8,7 +8,7 @@ use worldrunner_render_scene::{SceneView, Viewport};
 pub(in crate::renderer) struct Active {
     id: u64,
     frame: u64,
-    terrain_pages: Option<worldrunner_render_scene::draw::TerrainPageStatistics>,
+    scene: Option<worldrunner_render_scene::draw::SceneStatistics>,
     time: Duration,
     view: SceneView,
     size: Viewport,
@@ -49,7 +49,7 @@ impl Active {
             self.frame,
             self.time,
             self.accumulation.finish(),
-            self.terrain_pages.expect("submitted sample"),
+            self.scene.expect("submitted sample"),
         );
     }
 }
@@ -102,7 +102,7 @@ impl Renderer {
             self.streaming.captures.active = Some(Active {
                 id,
                 frame: self.streaming.captures.next_frame(),
-                terrain_pages: None,
+                scene: None,
                 time: self.clock.time(),
                 view,
                 size,
@@ -182,7 +182,7 @@ impl Renderer {
         let ticket = self.execution.submit_capture(ready, prepared)?;
         let frame = self.streaming.captures.next_frame();
         self.streaming.captures.advance_frame();
-        let pages = self.resident.scene_mut().statistics().terrain_pages;
+        let scene = self.resident.scene_mut().statistics();
         let active = self
             .streaming
             .captures
@@ -191,7 +191,7 @@ impl Renderer {
             .expect("active recipe");
         if active.sample == 0 {
             active.frame = frame;
-            active.terrain_pages = Some(pages);
+            active.scene = Some(scene);
         }
         image.begin()?;
         self.streaming

@@ -399,6 +399,7 @@ pub struct PrepareContext<'a> {
     publications: worldrunner_render_gpu::submission::Publications,
     copies: Vec<(wgpu::Buffer, u64, wgpu::Buffer, u64, u64)>,
     views: Vec<AttachmentView>,
+    completed: Vec<PassSlot>,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(
@@ -412,7 +413,15 @@ impl<'a> PrepareContext<'a> {
             publications,
             copies: Vec::new(),
             views: Vec::new(),
+            completed: Vec::new(),
         })
+    }
+    /// Whether a validated geometry prefix already encoded this slot in the same frame.
+    pub fn completed_in_prefix(&self, slot: PassSlot) -> bool {
+        self.completed.contains(&slot)
+    }
+    pub(crate) fn set_completed_prefix(&mut self, completed: &[PassSlot]) {
+        self.completed = completed.to_vec();
     }
     pub fn publications(&self) -> worldrunner_render_gpu::submission::Publications {
         self.publications.clone()

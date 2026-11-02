@@ -608,6 +608,12 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
         self.gpu.reset_pass_statistics();
+        self.publications.install(
+            context,
+            crate::draw::PassInstallation::Installed,
+            self.screen.is_some(),
+            self.gpu.ssao,
+        );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
         // Each light view has its own immutable uniform range; billboards keep the main eye.
@@ -622,7 +628,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         );
     }
     fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.publications.publish(context);
+        self.publications.publish(context, self.gpu);
     }
     fn draw(
         &self,
@@ -643,6 +649,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 &screen.group,
             ));
         } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+            self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
             self.publications.record(
                 self.gpu

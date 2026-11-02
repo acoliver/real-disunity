@@ -1,16 +1,18 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
-//! `play --player <data directory>`: starts a built Unity player's scene without a window.
+//! `play --player <data directory>`: starts a built Unity player's scene, in a window when
+//! `--size`, `--capture` or `--key` is given and headless otherwise.
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{Game, PlayDriver, key_code, prepare, prepare_player, run_player};
+use worldrunner_render_plan::simulation::SpriteTextures;
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
-            [--arg VALUE]...";
+            [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...";
 
 #[derive(Default)]
 struct Arguments {
@@ -108,44 +110,44 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
     Ok(arguments)
 }
 
-/// Starts a player's scene, `level0` unless `--scene` names another, and runs it headless
-/// for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default). Each `--arg`
-/// is one argument of the player's command line, after its executable path.
-fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
-    let windowed = arguments.game.is_some()
-        || arguments.size.is_some()
-        || !arguments.keys.is_empty()
-        || !arguments.captures.is_empty()
-        || arguments.font.is_some()
-        || arguments.seed.is_some();
-    if windowed {
-        return Err(
-            "--player runs without a window and takes only --scene, --frames, --fixed-dt and --arg"
-                .into(),
-        );
+/// Starts a player's scene, `level0` unless `--scene` names another. With `--size`,
+/// `--capture` or `--key` it plays in a window like an original game; otherwise it runs
+/// headless for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
+/// Each `--arg` is one argument of the player's command line, after its executable path.
+fn player(data: &std::path::Path, arguments: Arguments) -> Result<(), String> {
+    if arguments.game.is_some() || arguments.font.is_some() || arguments.seed.is_some() {
+        return Err("--player takes no game name, --font or --seed".into());
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
     let prepared =
         prepare_player(data, scene, &arguments.command_line).map_err(|error| error.to_string())?;
+    let windowed =
+        arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
+    if windowed {
+        let driver = PlayDriver::boot(
+            &prepared.config,
+            &prepared.request,
+            SpriteTextures::default(),
+            arguments.captures.iter().map(|(frame, _)| *frame),
+        )
+        .map_err(|error| error.to_string())?;
+        let title = format!("Disunity: {}", data.display());
+        return live(driver, title, [1920, 1080], arguments);
+    }
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
     run_player(&prepared, arguments.frames.unwrap_or(1), dt).map_err(|error| error.to_string())
 }
 
-fn play(arguments: Arguments) -> Result<(), String> {
-    if let Some(data) = &arguments.player {
-        return player(data, &arguments);
-    }
-    let game = arguments.game.ok_or("name a game")?;
-    let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)
-        .map_err(|error| error.to_string())?;
-    let mut driver = PlayDriver::new(prepared, arguments.captures.iter().map(|(frame, _)| *frame))
-        .map_err(|error| error.to_string())?;
-    let mut options = LiveOptions::new(
-        format!("Disunity: {}", game.name()),
-        arguments.size.unwrap_or([960, 540]),
-    );
+/// Plays `driver` in a window of `--size` (else `size`) and writes the requested captures.
+fn live(
+    mut driver: PlayDriver,
+    title: String,
+    size: [u32; 2],
+    arguments: Arguments,
+) -> Result<(), String> {
+    let mut options = LiveOptions::new(title, arguments.size.unwrap_or(size));
     options.fixed_dt = arguments.fixed_dt;
     options.max_frames = arguments.frames;
     options.scheduled_input = arguments.keys;
@@ -164,6 +166,23 @@ fn play(arguments: Arguments) -> Result<(), String> {
         return Err(format!("{missing} requested frames were not presented"));
     }
     Ok(())
+}
+
+fn play(arguments: Arguments) -> Result<(), String> {
+    if let Some(data) = arguments.player.clone() {
+        return player(&data, arguments);
+    }
+    let game = arguments.game.ok_or("name a game")?;
+    let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)
+        .map_err(|error| error.to_string())?;
+    let driver = PlayDriver::new(prepared, arguments.captures.iter().map(|(frame, _)| *frame))
+        .map_err(|error| error.to_string())?;
+    live(
+        driver,
+        format!("Disunity: {}", game.name()),
+        [960, 540],
+        arguments,
+    )
 }
 
 fn main() -> ExitCode {

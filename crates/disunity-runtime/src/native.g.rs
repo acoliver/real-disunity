@@ -59,6 +59,28 @@ pub struct DisunityCanvasGroup {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityUiVertex {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub u: f32,
+    pub v: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityUiGraphicInfo {
+    pub texture: u64,
+    pub vertex_count: u32,
+    pub index_count: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityCanvasRenderer {
     pub mesh: u64,
@@ -207,6 +229,8 @@ pub struct DisunityPresentation {
     pub textures: u32,
     pub width: u32,
     pub height: u32,
+    /// 0 for an orthographic lens, 1 for a perspective lens.
+    pub lens: u32,
     pub eye_x: f64,
     pub eye_y: f64,
     pub eye_z: f64,
@@ -219,6 +243,8 @@ pub struct DisunityPresentation {
     pub half_height: f64,
     pub near: f64,
     pub far: f64,
+    /// Vertical field of view in radians; zero for an orthographic lens.
+    pub vertical_fov: f64,
     pub r: f64,
     pub g: f64,
     pub b: f64,
@@ -513,6 +539,23 @@ pub struct DisunityTileCell {
     pub x: i32,
     pub y: i32,
     pub tile: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityTextureInfo {
+    pub identity: u64,
+    /// Starts at 1 and rises by one each time the identity is stored again.
+    pub generation: u64,
+    /// The engine's `TextureFormat` value.
+    pub format: u32,
+    pub width: u32,
+    pub height: u32,
+    pub mips: u32,
+    /// Nonzero when the texels are linear data rather than sRGB colour.
+    pub linear: u32,
+    pub length: u32,
+    pub present: u32,
 }
 
 /// The ABI revision these records belong to.

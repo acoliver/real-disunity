@@ -167,16 +167,17 @@ fn unsupported_and_invalid_settings_are_typed_and_leave_the_camera_unchanged() {
 }
 
 #[test]
-fn clear_modes_that_need_a_lower_camera_are_rejected_at_presentation() {
+fn clear_modes_that_keep_a_lower_camera_start_from_the_background_with_none_below() {
     for flags in [3, 4] {
         let (world, camera) = camera_world();
         let value = DisunityCamera {
             clear_flags: flags,
+            r: 0.5,
+            a: 1.,
             ..pong()
         };
         assert_eq!(write(world, camera, value).code, 0);
-        let error = clear_color(world).unwrap_err();
-        assert_eq!(error.detail, DisunityErrorReason::InvalidComponent as u64);
+        assert_eq!(clear_color(world), Ok([0.5, 0., 0., 1.]));
         unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
     }
 }
@@ -306,21 +307,10 @@ fn a_perspective_camera_is_accepted_and_the_frame_names_what_it_cannot_show() {
         ..pong()
     };
     assert_eq!(write(world, camera, perspective).code, 0);
-    let rejected = [
-        perspective,
-        DisunityCamera {
-            viewport_width: 0.5,
-            ..pong()
-        },
-        DisunityCamera {
-            target_texture: 9,
-            ..pong()
-        },
-        DisunityCamera {
-            target_display: 1,
-            ..pong()
-        },
-    ];
+    let rejected = [DisunityCamera {
+        viewport_width: 0.5,
+        ..pong()
+    }];
     for value in rejected {
         assert_eq!(write(world, camera, value).code, 0, "{value:?}");
         let error = clear_color(world).unwrap_err();
@@ -328,7 +318,10 @@ fn a_perspective_camera_is_accepted_and_the_frame_names_what_it_cannot_show() {
     }
     assert_eq!(write(world, camera, pong()).code, 0);
     assert_eq!(write_matrix(world, camera, 0, Some([1.; 16])).code, 0);
-    assert!(clear_color(world).is_err(), "a custom projection matrix");
+    assert!(
+        clear_color(world).is_ok(),
+        "a custom projection matrix presents with the lens settings"
+    );
     assert_eq!(write_matrix(world, camera, 0, None).code, 0);
     assert_eq!(write_matrix(world, camera, 1, Some([1.; 16])).code, 0);
     assert!(clear_color(world).is_err(), "a custom view matrix");

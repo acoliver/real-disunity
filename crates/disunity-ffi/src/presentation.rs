@@ -89,6 +89,8 @@ pub struct DisunityPresentation {
     pub textures: u32,
     pub width: u32,
     pub height: u32,
+    /// 0 for an orthographic lens, 1 for a perspective lens.
+    pub lens: u32,
     pub eye_x: f64,
     pub eye_y: f64,
     pub eye_z: f64,
@@ -101,6 +103,8 @@ pub struct DisunityPresentation {
     pub half_height: f64,
     pub near: f64,
     pub far: f64,
+    /// Vertical field of view in radians; zero for an orthographic lens.
+    pub vertical_fov: f64,
     pub r: f64,
     pub g: f64,
     pub b: f64,
@@ -163,22 +167,21 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
     mutate(world, |s| {
         use worldrunner_world_simulation::{
             presentation::extraction::{SpriteTextures, append_ui_from, extract_world},
-            ui::contribution::extract_ui,
+            ui::{append_graphics, contribution::extract_ui, extract_graphics},
         };
 
         let mut plan = extract_world(&s.native, &SpriteTextures::default(), [width, height])
             .map_err(crate::errors::AbiError::from)?;
         let ui = extract_ui(&s.native, &s.fonts, [width, height])
             .map_err(crate::errors::AbiError::from)?;
-        let next = plan
-            .quads
-            .iter()
-            .filter_map(|q| q.texture)
-            .max()
-            .map_or(Some(next_texture), |n| {
-                n.checked_add(1).map(|n| n.max(next_texture))
-            })
-            .ok_or("texture identity exhausted")?;
+        let graphics =
+            extract_graphics(&s.native, &ui.layout).map_err(crate::errors::AbiError::from)?;
+        note_left_out_triangles(s, &graphics);
+        // Graphics go in first, so the engine's own text of the same sorting key draws over them.
+        append_graphics(&mut plan, graphics)
+            .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
+        let next =
+            next_glyph_texture(&plan.quads, next_texture).ok_or("texture identity exhausted")?;
         append_ui_from(&mut plan, ui, next)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
         let mut header = DisunityPresentation {
@@ -197,17 +200,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             [header.eye_x, header.eye_y, header.eye_z] = state.pose.eye_meters.to_array();
             [header.forward_x, header.forward_y, header.forward_z] = state.pose.forward.to_array();
             [header.up_x, header.up_y, header.up_z] = state.pose.up.to_array();
-            let worldrunner_camera::CameraLens::Orthographic {
-                half_height_meters,
-                near_meters,
-                far_meters,
-            } = state.lens
-            else {
-                return Err("unsupported presentation camera lens".into());
-            };
-            header.half_height = half_height_meters;
-            header.near = near_meters;
-            header.far = far_meters;
+            write_lens(&mut header, state.lens);
         }
         s.presentation = Some(plan);
         unsafe {
@@ -215,6 +208,62 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         }
         Ok(())
     })
+}
+/// The identity glyph coverage textures start from: one past the highest identity a quad shows
+/// below the player range, and at least `floor`. Player textures keep their own identities, so
+/// a quad that shows one must not push glyph identities into the range the managed engine
+/// allocates from.
+fn next_glyph_texture(
+    quads: &[worldrunner_world_simulation::presentation::extraction::SpriteQuad],
+    floor: u64,
+) -> Option<u64> {
+    quads
+        .iter()
+        .filter_map(|q| q.texture)
+        .filter(|id| *id < crate::textures::FIRST_PLAYER_TEXTURE)
+        .max()
+        .map_or(Some(floor), |n| n.checked_add(1).map(|n| n.max(floor)))
+}
+
+/// Names, once per renderer, the triangles of a mesh that make no quad, which are not drawn.
+fn note_left_out_triangles(
+    session: &mut crate::store::Session,
+    graphics: &[worldrunner_world_simulation::ui::UiGraphic],
+) {
+    for graphic in graphics {
+        if graphic.left_out_triangles > 0 && session.left_out_noted.insert(graphic.object) {
+            eprintln!(
+                "canvas renderer on {:?}: {} triangles make no quad and are left out",
+                graphic.object, graphic.left_out_triangles
+            );
+        }
+    }
+}
+/// Fills the lens fields; the fields of the other lens kind stay zero.
+fn write_lens(header: &mut DisunityPresentation, lens: worldrunner_camera::CameraLens) {
+    use worldrunner_camera::CameraLens;
+    match lens {
+        CameraLens::Orthographic {
+            half_height_meters,
+            near_meters,
+            far_meters,
+        } => {
+            header.lens = 0;
+            header.half_height = half_height_meters;
+            header.near = near_meters;
+            header.far = far_meters;
+        }
+        CameraLens::Perspective {
+            vertical_fov_radians,
+            near_meters,
+            far_meters,
+        } => {
+            header.lens = 1;
+            header.vertical_fov = vertical_fov_radians;
+            header.near = near_meters;
+            header.far = far_meters;
+        }
+    }
 }
 /// # Safety
 /// Output is writable for one quad. Index addresses the last prepared frame.

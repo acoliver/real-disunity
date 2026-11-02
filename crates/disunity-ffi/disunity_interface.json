@@ -183,6 +183,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_canvas_renderer_geometry_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_geometry_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_canvas_renderer_inherited_alpha",
       "since": "6.0.0",
       "rets": "DisunityResult"
@@ -205,6 +215,11 @@
     {
       "name": "disunity_canvas_renderer_write",
       "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_canvas_renderer_texture_write",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -650,6 +665,16 @@
     {
       "name": "disunity_text_write",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_texture_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_texture_store",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

@@ -11,6 +11,38 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Sets whether the body is drawn between its poses either side of the last physics step,
+        ///  Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_interpolation_write(ulong world, ulong handle, uint interpolate);
+        /// <summary>
+        ///  # Safety
+        ///  `interpolate` is writable for one flag.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_interpolation_read(ulong world, ulong handle, uint* interpolate);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one body record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_read(ulong world, ulong handle, DisunityBody2d* output);
+        /// <summary>
+        ///  Writes a box (kind 0), circle (kind 1) or tilemap (kind 2) collider. A tilemap collider takes
+        ///  its shapes from the Tilemap on its object, so its size and radius are ignored.
+        ///  # Safety
+        ///  `value` points to one readable collider record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_collider_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_collider_write(ulong world, ulong handle, DisunityCollider2d* value);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one collider record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_collider_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_collider_read(ulong world, ulong handle, DisunityCollider2d* output);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one hit. A zero collider means no hit.
         /// </summary>
@@ -260,5 +292,24 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_tilemap_set_cells", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_tilemap_set_cells(ulong world, ulong handle, DisunityTileCell* cells, uint count);
+        /// <summary>
+        ///  Keeps a texture's bytes for the host and raises its generation.
+        ///
+        ///  # Safety
+        ///  `info` is readable for one record; `bytes` is readable for `length` bytes, or null when
+        ///  `length` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_store", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_store(ulong world, ulong identity, DisunityTextureInfo* info, byte* bytes, uint length);
+        /// <summary>
+        ///  Reports a stored texture and copies its bytes when `capacity` holds them. A zero capacity
+        ///  copies nothing. An identity nothing stored reports `present` zero and is not an error.
+        ///
+        ///  # Safety
+        ///  `out` is writable for one record; `bytes` is writable for `capacity` bytes, or null when
+        ///  `capacity` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_read(ulong world, ulong identity, DisunityTextureInfo* @out, byte* bytes, uint capacity);
     }
 }

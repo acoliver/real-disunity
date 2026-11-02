@@ -92,6 +92,36 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  One mesh vertex: its position in the element's local space, its first texture coordinate
+    ///  and its colour.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityUiVertex
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float u;
+        public float v;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+    }
+
+    /// <summary>
+    ///  What a renderer holds to draw: the renderer identity of its texture (0 for none) and the
+    ///  sizes of its mesh.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityUiGraphicInfo
+    {
+        public ulong texture;
+        public uint vertex_count;
+        public uint index_count;
+    }
+
+    /// <summary>
     ///  A canvas renderer's settings; booleans are 0 or 1. `mesh`, `texture` and `alpha_texture` are
     ///  managed instance ids (0 for none). The clip rectangle is x, y, width, height and only counts
     ///  when `has_rect_clipping` is 1. The materials have their own calls. A write rejects a NaN
@@ -265,6 +295,10 @@ namespace Disunity.Native
         public uint textures;
         public uint width;
         public uint height;
+        /// <summary>
+        ///  0 for an orthographic lens, 1 for a perspective lens.
+        /// </summary>
+        public uint lens;
         public double eye_x;
         public double eye_y;
         public double eye_z;
@@ -277,6 +311,10 @@ namespace Disunity.Native
         public double half_height;
         public double near;
         public double far;
+        /// <summary>
+        ///  Vertical field of view in radians; zero for an orthographic lens.
+        /// </summary>
+        public double vertical_fov;
         public double r;
         public double g;
         public double b;
@@ -610,6 +648,32 @@ namespace Disunity.Native
         public int x;
         public int y;
         public uint tile;
+    }
+
+    /// <summary>
+    ///  A stored texture's description. `present` is zero when a read names an identity nothing stored.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTextureInfo
+    {
+        public ulong identity;
+        /// <summary>
+        ///  Starts at 1 and rises by one each time the identity is stored again.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  The engine's `TextureFormat` value.
+        /// </summary>
+        public uint format;
+        public uint width;
+        public uint height;
+        public uint mips;
+        /// <summary>
+        ///  Nonzero when the texels are linear data rather than sRGB colour.
+        /// </summary>
+        public uint linear;
+        public uint length;
+        public uint present;
     }
 
 

@@ -442,3 +442,6 @@ mod sprites;
 
 mod input;
 mod presentation;
+mod textures;
+
+pub use textures::PlayerTexture;

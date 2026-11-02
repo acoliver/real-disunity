@@ -3,7 +3,7 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-/// <summary>Unity's clear modes. Depth and Nothing need a lower camera and fail at presentation.</summary>
+/// <summary>Unity's clear modes. Depth and Nothing keep a lower camera's output; a frame with no camera below starts from the background colour.</summary>
 public enum CameraClearFlags { Skybox = 1, Color = 2, SolidColor = 2, Depth = 3, Nothing = 4 }
 
 /// <summary>

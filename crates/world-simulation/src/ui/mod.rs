@@ -6,6 +6,8 @@
 mod atlas;
 mod font_data;
 mod fonts;
+mod geometry;
+mod graphics;
 mod group;
 mod layout;
 mod renderer;
@@ -14,7 +16,11 @@ mod wrap;
 use crate::{ObjectHandle, WorldError};
 pub use atlas::GlyphAtlas;
 pub use fonts::{FontBook, UiLimits};
+pub use geometry::{
+    GeometryQuad, GeometryQuads, MAX_UI_INDICES, MAX_UI_VERTICES, UiGeometry, UiVertex,
+};
 use glam::{UVec2, Vec2};
+pub use graphics::{UiGraphic, UiGraphicQuad, append_graphics, extract_graphics};
 pub use group::{CanvasGroup, CanvasGroupFlags};
 pub use layout::{RectExtent, RectLayout, UiLayout};
 pub use renderer::{CanvasRenderer, CanvasRendererFlags, MAX_CANVAS_MATERIALS, inherited_alpha};

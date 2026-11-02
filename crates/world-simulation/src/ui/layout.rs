@@ -15,8 +15,29 @@ pub struct RectLayout {
     /// Maps world points to screen pixels (x and y) on a screen-space canvas; `None` in world
     /// space.
     pub pixels_from_world: Option<Mat4>,
+    /// The mode the rectangle is drawn in: its root canvas's, whatever a nested canvas's own.
+    pub mode: CanvasMode,
     pub sorting_layer: i32,
     pub sorting_order: i32,
+}
+
+impl RectLayout {
+    /// Whether the rectangle is drawn on the screen, as every rectangle under a screen-space
+    /// canvas is. A frame presents one camera, so a canvas a separate UI camera renders is drawn
+    /// over the presented camera's picture at its screen position, as the engine's choice.
+    #[must_use]
+    pub fn on_screen(&self) -> bool {
+        self.pixels_from_world.is_some()
+    }
+
+    /// Where a point of the rectangle's local space is drawn: screen pixels counted from the
+    /// lower left on a screen-space canvas, a point of the native world otherwise.
+    #[must_use]
+    pub fn drawn_point(&self, local: Vec3) -> Vec3 {
+        let world = self.local_to_world.transform_point3(local);
+        self.pixels_from_world
+            .map_or(world, |pixels| pixels.transform_point3(world))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -257,6 +278,7 @@ impl World {
                 corners,
                 screen_corners,
                 pixels_from_world,
+                mode: settings.mode,
                 sorting_layer: settings.sorting_layer,
                 sorting_order: settings.sorting_order,
             });

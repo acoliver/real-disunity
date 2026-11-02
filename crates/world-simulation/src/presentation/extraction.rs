@@ -1,6 +1,6 @@
 //! Pathless extraction from the sole native world into shared scene geometry.
 use crate::presentation::CoverageTexture as SceneTexture;
-use crate::presentation::{Sprite, sprite_corners};
+use crate::presentation::{Projection, Sprite, sprite_corners};
 use crate::{ComponentDesc, World, WorldError};
 use glam::{Mat4, Vec3};
 use std::collections::BTreeMap;
@@ -76,12 +76,12 @@ pub fn extract_world(
             ComponentDesc::Camera(camera)
                 if selected.is_some_and(|(object, _)| object == component.object) =>
             {
+                result.clear = camera.clear_color()?;
                 let state = camera_state(world, component.object, camera, matrix, basis, viewport)?;
                 result.camera = Some(resolve(&state).map_err(|_| {
                     WorldError::InvalidComponent(crate::ComponentError::InvalidPresentation)
                 })?);
                 result.camera_state = Some(state);
-                result.clear = camera.clear_color()?;
             }
             _ => {}
         }
@@ -97,7 +97,11 @@ fn view_basis() -> Mat4 {
         1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
     ])
 }
-/// The enabled camera on an active object with the highest depth; the first one wins a tie.
+/// The camera a frame presents: the enabled camera on an active object that draws to the screen,
+/// preferring cameras that clear and then the highest depth; the first one wins a tie. A camera
+/// that keeps a lower camera's output (clear flags Depth or Nothing) lays over the base camera, and
+/// a frame has one camera, so the engine's choice is to present the base and leave the overlay out.
+/// Only when no camera clears does an overlay camera become the choice, and it is then rejected.
 pub(crate) fn selected_camera(
     world: &World,
     components: &[crate::world::ComponentSnapshot],
@@ -108,7 +112,8 @@ pub(crate) fn selected_camera(
             continue;
         };
         if camera.enabled
-            && selected.is_none_or(|(_, best)| camera.depth > best.depth)
+            && camera.draws_to_screen()
+            && selected.is_none_or(|(_, best)| camera.outranks(best))
             && world.active_in_hierarchy(component.object)?
         {
             selected = Some((component.object, camera));
@@ -167,11 +172,7 @@ fn camera_state(
             forward: basis.transform_vector3(rotation * Vec3::Z).as_dvec3(),
             up: basis.transform_vector3(rotation * Vec3::Y).as_dvec3(),
         },
-        lens: CameraLens::Orthographic {
-            half_height_meters: f64::from(camera.half_height),
-            near_meters: f64::from(camera.near),
-            far_meters: f64::from(camera.far),
-        },
+        lens: camera_lens(camera),
         viewport: Viewport {
             width: viewport[0],
             height: viewport[1],
@@ -181,6 +182,22 @@ fn camera_state(
         },
     };
     Ok(state)
+}
+fn camera_lens(camera: crate::presentation::Camera) -> CameraLens {
+    let near_meters = f64::from(camera.near);
+    let far_meters = f64::from(camera.far);
+    match camera.projection {
+        Projection::Perspective => CameraLens::Perspective {
+            vertical_fov_radians: f64::from(camera.field_of_view).to_radians(),
+            near_meters,
+            far_meters,
+        },
+        Projection::Orthographic => CameraLens::Orthographic {
+            half_height_meters: f64::from(camera.half_height),
+            near_meters,
+            far_meters,
+        },
+    }
 }
 fn quad(
     sprite: Sprite,
@@ -268,6 +285,8 @@ pub fn append_ui_from(
         return Err(worldrunner_camera::ViewError::InvalidWorldPoint);
     }
     for text in ui.texts {
+        let screen = text_screen(&ui.layout, &text, plan.camera.is_some());
+        let overlay = text.overlay || screen.is_some();
         let Some(texture) = text.texture else {
             continue;
         };
@@ -278,25 +297,16 @@ pub fn append_ui_from(
         let texture = glyph_texture(&texture);
         plan.textures.insert(id, texture);
         for glyph in text.quads {
-            let mut corners = glyph.corners.map(|[x, y, z]| [x, -z, y]);
-            if text.overlay {
-                let camera = plan
-                    .camera
-                    .ok_or(worldrunner_camera::ViewError::InvalidWorldPoint)?;
-                let height = glam::UVec2::new(camera.viewport().width, camera.viewport().height)
-                    .as_vec2()
-                    .y;
-                corners = glyph.corners;
-                for corner in &mut corners {
-                    *corner = camera
-                        .screen_to_world(Vec3::new(corner[0], height - corner[1], 0.0))?
-                        .to_array();
-                }
-            }
+            let drawn = screen.map_or(glyph.corners, |pixels| {
+                glyph
+                    .corners
+                    .map(|c| pixels.transform_point3(Vec3::from(c)).to_array())
+            });
+            let corners = ui_corners(plan.camera.as_ref(), drawn, overlay)?;
             let uv = glyph.uv;
             plan.quads.push(SpriteQuad {
                 lighting: super::SpriteLighting::Unlit,
-                overlay: text.overlay,
+                overlay,
                 corners,
                 uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
                 color: text.color,
@@ -309,6 +319,54 @@ pub fn append_ui_from(
     plan.quads
         .sort_by_key(|q| (q.overlay, q.sorting_layer, q.sorting_order));
     Ok(())
+}
+
+/// The map from a text's world points to screen pixels when the presentation draws it on the
+/// screen although its glyphs are world points: text on a screen space camera canvas, drawn over
+/// the presented camera's picture where its own camera puts it, like the canvas's graphics.
+#[cfg(feature = "ui")]
+fn text_screen(
+    layout: &crate::ui::UiLayout,
+    text: &crate::ui::contribution::UiTextContribution,
+    presented: bool,
+) -> Option<glam::Mat4> {
+    if text.overlay || !presented {
+        return None;
+    }
+    layout
+        .rect(text.object)
+        .and_then(|rect| rect.pixels_from_world)
+}
+
+/// Raster depth overlay corners are unprojected at. The near plane itself (depth 0) is the clip
+/// boundary, where rounding clips a perspective camera's overlay; halfway keeps every corner
+/// inside the view for both lens kinds, and overlays draw after the world without a depth test.
+#[cfg(feature = "ui")]
+pub(crate) const OVERLAY_DEPTH: f32 = 0.5;
+
+/// A UI element's corners as the presentation draws them. Overlay corners are screen pixels
+/// counted from the bottom, which the camera turns into world points at [`OVERLAY_DEPTH`]; other
+/// corners are points of the native world and change to the view's axes.
+#[cfg(feature = "ui")]
+pub(crate) fn ui_corners(
+    camera: Option<&worldrunner_camera::ResolvedView>,
+    corners: [[f32; 3]; 4],
+    overlay: bool,
+) -> Result<[[f32; 3]; 4], worldrunner_camera::ViewError> {
+    if !overlay {
+        return Ok(corners.map(|[x, y, z]| [x, -z, y]));
+    }
+    let camera = camera.ok_or(worldrunner_camera::ViewError::InvalidWorldPoint)?;
+    let height = glam::UVec2::new(camera.viewport().width, camera.viewport().height)
+        .as_vec2()
+        .y;
+    let mut result = corners;
+    for corner in &mut result {
+        *corner = camera
+            .screen_to_world(Vec3::new(corner[0], height - corner[1], OVERLAY_DEPTH))?
+            .to_array();
+    }
+    Ok(result)
 }
 
 #[cfg(feature = "ui")]

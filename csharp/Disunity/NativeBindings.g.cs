@@ -235,6 +235,35 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_canvas_group_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_canvas_group_write(ulong world, ulong handle, DisunityCanvasGroup* value);
         /// <summary>
+        ///  Sets the mesh the renderer draws from `vertex_count` vertices and `index_count` triangle
+        ///  indices (the first sub-mesh), or clears it when both counts are zero. Rejects, leaving the
+        ///  renderer unchanged, a null pointer for a nonzero count, an index count that is not a multiple
+        ///  of three, an index past the vertices, a position or texture coordinate that is not finite, a
+        ///  NaN colour, or a mesh over the limits.
+        ///
+        ///  # Safety
+        ///  `vertices` is readable for `vertex_count` records and `indices` for `index_count` values; a
+        ///  pointer may be null when its count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_geometry_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_geometry_write(ulong world, ulong handle, DisunityUiVertex* vertices, uint vertex_count, uint* indices, uint index_count);
+        /// <summary>
+        ///  Sets the renderer identity of the texture the renderer draws with; 0 draws plain colour. A
+        ///  nonzero identity must be a player texture identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_texture_write(ulong world, ulong handle, ulong identity);
+        /// <summary>
+        ///  Reports the renderer's texture and mesh sizes and copies the vertices when `capacity` is
+        ///  nonzero. A capacity below the vertex count is rejected.
+        ///
+        ///  # Safety
+        ///  `info` is writable for one record; `vertices` is writable for `capacity` records, or null when
+        ///  `capacity` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_geometry_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_canvas_renderer_geometry_read(ulong world, ulong handle, DisunityUiGraphicInfo* info, DisunityUiVertex* vertices, uint capacity);
+        /// <summary>
         ///  Creates a canvas renderer with the engine's default settings on a live object.
         ///  # Safety
         ///  Output is writable for one component identity.
@@ -713,37 +742,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_body_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_body_write(ulong world, ulong handle, DisunityBody2d* value);
-        /// <summary>
-        ///  Sets whether the body is drawn between its poses either side of the last physics step,
-        ///  Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_body_interpolation_write(ulong world, ulong handle, uint interpolate);
-        /// <summary>
-        ///  # Safety
-        ///  `interpolate` is writable for one flag.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_body_interpolation_read(ulong world, ulong handle, uint* interpolate);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one body record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_body_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_body_read(ulong world, ulong handle, DisunityBody2d* output);
-        /// <summary>
-        ///  Writes a box (kind 0), circle (kind 1) or tilemap (kind 2) collider. A tilemap collider takes
-        ///  its shapes from the Tilemap on its object, so its size and radius are ignored.
-        ///  # Safety
-        ///  `value` points to one readable collider record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_collider_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_collider_write(ulong world, ulong handle, DisunityCollider2d* value);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one collider record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_collider_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_collider_read(ulong world, ulong handle, DisunityCollider2d* output);
     }
 }

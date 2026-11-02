@@ -53,7 +53,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind != "portable-lit-sprites-v1" && kind != "portable-sprites-v1" && kind != "portable-triangle-v1" && kind != "portable-load-failure-v1" && kind != "portable-callback-failure-v1" && kind != "portable-long-failure-v1")
+            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1"))
             {
                 return -2;
             }
@@ -68,6 +68,8 @@ public static class NativeBridge
             if (kind is "portable-sprites-v1" or "portable-lit-sprites-v1") AddSprites(behaviours, kind);
             if (kind == "portable-sprites-v1") AddCameraUi();
             if (kind == "portable-lit-sprites-v1") SpriteLightPulse.Create();
+            if (kind is "portable-perspective-v1" or "portable-camera-rect-v1") AddPerspectiveCamera(kind == "portable-camera-rect-v1");
+            if (kind == "portable-texture-v1") AddTexture();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
             DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
@@ -98,6 +100,23 @@ public static class NativeBridge
             renderer.sortingOrder = 2;
             if (kind == "portable-lit-sprites-v1") renderer.sharedMaterial = Material.SpriteLit;
         }
+    }
+    /// <summary>A two pixel texture that takes its renderer identity, (a sprite is made over it), so the host can read its bytes.</summary>
+    private static void AddTexture()
+    {
+        var texture = new Texture2D(2, 1, TextureFormat.RGBA32, false, true);
+        texture.SetPixel(0, 0, new Color32(9, 8, 7, 6));
+        texture.SetPixel(1, 0, new Color32(5, 4, 3, 2));
+        Sprite.Create(texture, new Rect(0, 0, 2, 1), new Vector2(0.5f, 0.5f));
+    }
+    private static void AddPerspectiveCamera(bool partialRect)
+    {
+        var camera = DisunityHost.CreateGameObject().AddComponent<Camera>();
+        camera.orthographic = false;
+        camera.fieldOfView = 90;
+        camera.nearClipPlane = 0.5f;
+        camera.farClipPlane = 200;
+        if (partialRect) camera.rect = new Rect(0, 0, 0.5f, 1);
     }
     private static void AddCameraUi()
     {

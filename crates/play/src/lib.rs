@@ -8,11 +8,19 @@
 //! [`prepare_player`] plans a built Unity player's scene and [`run_player`] starts it in the
 //! same host without a window, naming the first step that fails.
 
+mod bc7;
+mod bc7_tables;
+#[cfg(test)]
+mod bc7_tests;
+mod block_texture;
 mod driver;
 mod keys;
 mod player;
+mod player_textures;
 mod prepare;
 mod textures;
+#[cfg(test)]
+mod textures_tests;
 mod unresolved;
 
 pub use driver::{Capture, PlayDriver};

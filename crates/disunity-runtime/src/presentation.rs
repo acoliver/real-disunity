@@ -45,8 +45,12 @@ impl DisunityHost {
                 .map_err(|_| HostError::MissingSymbol("disunity_presentation_coverage".into()))?
         };
         let mut header = native::DisunityPresentation::default();
-        check(unsafe { prepare(world, viewport[0], viewport[1], next_texture, &mut header) })?;
-        let state = (header.present == 1).then(|| camera_state(header));
+        let prepared =
+            unsafe { prepare(world, viewport[0], viewport[1], next_texture, &mut header) };
+        self.check(prepared)?;
+        let state = (header.present == 1)
+            .then(|| camera_state(header))
+            .transpose()?;
         let camera = state
             .as_ref()
             .map(resolve)
@@ -61,32 +65,48 @@ impl DisunityHost {
         };
         for index in 0..header.quads {
             let mut q = native::DisunityQuad::default();
-            check(unsafe { quad(world, index, &mut q) })?;
+            self.check(unsafe { quad(world, index, &mut q) })?;
             plan.quads.push(decode_quad(q));
         }
-        plan.textures = read_coverage(world, header.textures, coverage)?;
+        plan.textures = read_coverage(world, header.textures, coverage)
+            .map_err(|failed| self.native_error(failed))?;
         Ok(plan)
     }
-}
-fn check(result: native::DisunityResult) -> Result<(), HostError> {
-    if result.code == 0 {
-        Ok(())
-    } else {
-        Err(HostError::Abi(result.code))
+
+    /// Turns a failed result into the error with the world's own message, so a log says why.
+    pub(crate) fn check(&self, result: native::DisunityResult) -> Result<(), HostError> {
+        if result.code == 0 {
+            Ok(())
+        } else {
+            Err(self.native_error(result))
+        }
     }
 }
-fn camera_state(h: native::DisunityPresentation) -> CameraState {
-    CameraState {
+fn camera_state(h: native::DisunityPresentation) -> Result<CameraState, HostError> {
+    let lens = match h.lens {
+        0 => CameraLens::Orthographic {
+            half_height_meters: h.half_height,
+            near_meters: h.near,
+            far_meters: h.far,
+        },
+        1 => CameraLens::Perspective {
+            vertical_fov_radians: h.vertical_fov,
+            near_meters: h.near,
+            far_meters: h.far,
+        },
+        other => {
+            return Err(HostError::Managed(format!(
+                "unknown camera lens kind {other}"
+            )));
+        }
+    };
+    Ok(CameraState {
         pose: CameraPose {
             eye_meters: glam::DVec3::new(h.eye_x, h.eye_y, h.eye_z),
             forward: glam::DVec3::new(h.forward_x, h.forward_y, h.forward_z),
             up: glam::DVec3::new(h.up_x, h.up_y, h.up_z),
         },
-        lens: CameraLens::Orthographic {
-            half_height_meters: h.half_height,
-            near_meters: h.near,
-            far_meters: h.far,
-        },
+        lens,
         viewport: Viewport {
             width: h.width,
             height: h.height,
@@ -94,7 +114,7 @@ fn camera_state(h: native::DisunityPresentation) -> CameraState {
         convention: ViewConvention {
             handedness: ViewHandedness::DirectXLeftHanded,
         },
-    }
+    })
 }
 fn decode_quad(q: native::DisunityQuad) -> SpriteQuad {
     SpriteQuad {
@@ -127,13 +147,20 @@ fn read_coverage(
     world: u64,
     count: u32,
     coverage: Coverage,
-) -> Result<std::collections::BTreeMap<u64, SceneTexture>, HostError> {
+) -> Result<std::collections::BTreeMap<u64, SceneTexture>, native::DisunityResult> {
+    let ok = |result: native::DisunityResult| {
+        if result.code == 0 {
+            Ok(())
+        } else {
+            Err(result)
+        }
+    };
     let mut textures = std::collections::BTreeMap::new();
     for index in 0..count {
         let mut meta = native::DisunityCoverage::default();
-        check(unsafe { coverage(world, index, &mut meta, std::ptr::null_mut(), 0) })?;
+        ok(unsafe { coverage(world, index, &mut meta, std::ptr::null_mut(), 0) })?;
         let mut bytes = vec![0; meta.length as usize];
-        check(unsafe { coverage(world, index, &mut meta, bytes.as_mut_ptr(), meta.length) })?;
+        ok(unsafe { coverage(world, index, &mut meta, bytes.as_mut_ptr(), meta.length) })?;
         textures.insert(
             meta.identity,
             SceneTexture {
@@ -144,4 +171,65 @@ fn read_coverage(
         );
     }
     Ok(textures)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn header(lens: u32) -> native::DisunityPresentation {
+        native::DisunityPresentation {
+            present: 1,
+            width: 64,
+            height: 32,
+            lens,
+            half_height: 8.,
+            vertical_fov: 1.25,
+            near: 0.5,
+            far: 200.,
+            forward_z: 1.,
+            up_y: 1.,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn lens_kind_zero_rebuilds_the_orthographic_lens() {
+        let state = camera_state(header(0)).unwrap();
+        assert_eq!(
+            state.lens,
+            CameraLens::Orthographic {
+                half_height_meters: 8.,
+                near_meters: 0.5,
+                far_meters: 200.
+            }
+        );
+        assert_eq!((state.viewport.width, state.viewport.height), (64, 32));
+    }
+
+    #[test]
+    fn lens_kind_one_rebuilds_the_perspective_lens() {
+        let state = camera_state(header(1)).unwrap();
+        assert_eq!(
+            state.lens,
+            CameraLens::Perspective {
+                vertical_fov_radians: 1.25,
+                near_meters: 0.5,
+                far_meters: 200.
+            }
+        );
+        assert!(
+            resolve(&state).is_ok(),
+            "the rebuilt lens resolves to a view"
+        );
+    }
+
+    #[test]
+    fn an_unknown_lens_kind_is_an_error_naming_the_kind() {
+        let failed = camera_state(header(2)).unwrap_err();
+        assert!(
+            matches!(&failed, HostError::Managed(m) if m.contains('2')),
+            "{failed:?}"
+        );
+    }
 }

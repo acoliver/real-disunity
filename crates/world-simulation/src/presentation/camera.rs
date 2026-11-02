@@ -10,9 +10,10 @@ pub enum CameraClear {
     Skybox = 1,
     #[default]
     SolidColor = 2,
-    /// Keeps a lower camera's colour, which a single-camera frame does not have.
+    /// Keeps a lower camera's colour; with no camera below it a frame starts from the background.
     DepthOnly = 3,
-    /// Keeps a lower camera's colour and depth, which a single-camera frame does not have.
+    /// Keeps a lower camera's colour and depth; with no camera below it a frame starts from the
+    /// background.
     Nothing = 4,
 }
 impl CameraClear {
@@ -89,8 +90,8 @@ const DEPTH_TEXTURE_BITS: u32 = 0b111;
 /// Unity supports eight displays.
 pub const DISPLAY_COUNT: u32 = 8;
 
-/// A camera. Frames present orthographic cameras that draw the full screen; the other settings are
-/// stored for scripts and rejected by [`Camera::clear_color`] when they would change the frame.
+/// A camera. Frames present orthographic and perspective cameras that draw the full screen; the
+/// other settings are stored for scripts and rejected by [`Camera::clear_color`] when they would change the frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
     pub enabled: bool,
@@ -179,12 +180,15 @@ impl Camera {
     }
 
     /// Rejects the settings a frame cannot show yet, each by the Unity member that sets it.
+    ///
+    /// A replaced `projectionMatrix` is accepted and the frame is drawn with the lens settings
+    /// (`fieldOfView` or `orthographicSize`, near and far), as the engine's choice: games replace
+    /// the projection to shift or jitter it slightly, and the scene view has no term for that yet.
     pub fn require_presentable(self) -> Result<(), WorldError> {
-        if self.projection == Projection::Perspective {
-            return Err(lighting::unsupported("perspective projection"));
-        }
-        if self.projection_matrix.is_some() {
-            return Err(lighting::unsupported("projectionMatrix"));
+        if self.projection == Projection::Perspective && self.near <= 0. {
+            return Err(lighting::unsupported(
+                "nearClipPlane 0 with perspective projection",
+            ));
         }
         if self.world_to_camera.is_some() {
             return Err(lighting::unsupported("worldToCameraMatrix"));
@@ -209,19 +213,33 @@ impl Camera {
             && (height - 1.).abs() <= f32::EPSILON
     }
 
+    /// Whether the camera draws to the screen: a camera with a target texture or another display
+    /// does not, so it cannot be the camera a frame presents.
+    pub fn draws_to_screen(self) -> bool {
+        self.target_texture == 0 && self.target_display == 0
+    }
+
+    /// Whether the camera clears to a colour, so it can be the base a frame starts from.
+    pub fn clears(self) -> bool {
+        matches!(self.clear, CameraClear::Skybox | CameraClear::SolidColor)
+    }
+
+    /// Whether the camera is chosen over `other` as the frame's camera: a clearing camera beats an
+    /// overlay camera, then the higher depth wins. Equal cameras do not outrank each other.
+    pub fn outranks(self, other: Self) -> bool {
+        (self.clears(), self.depth) > (other.clears(), other.depth)
+    }
+
     /// Whether the camera draws objects on `layer`.
     pub fn sees_layer(self, layer: u8) -> bool {
         self.culling_mask & 1u32.checked_shl(u32::from(layer)).unwrap_or(0) != 0
     }
 
-    /// The colour a frame starts from. Settings the frame cannot show, and clear modes that keep a
-    /// lower camera's output, are rejected, because a frame has one camera.
+    /// The colour a frame starts from. Settings the frame cannot show are rejected. A camera that
+    /// keeps a lower camera's output has nothing below it in a one-camera frame, so the engine's
+    /// choice is to start from its background colour.
     pub fn clear_color(self) -> Result<[f64; 4], WorldError> {
         self.require_presentable()?;
-        match self.clear {
-            CameraClear::Skybox | CameraClear::SolidColor => Ok(self.background),
-            CameraClear::DepthOnly => Err(lighting::unsupported("clearFlags Depth")),
-            CameraClear::Nothing => Err(lighting::unsupported("clearFlags Nothing")),
-        }
+        Ok(self.background)
     }
 }

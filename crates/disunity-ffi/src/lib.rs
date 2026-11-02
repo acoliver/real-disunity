@@ -13,6 +13,7 @@ pub mod camera;
 pub mod camera_data;
 pub mod camera_layers;
 pub mod canvas;
+pub mod canvas_geometry;
 pub mod canvas_group;
 pub mod canvas_renderer;
 pub mod cloning;
@@ -44,6 +45,9 @@ pub mod sorting_group;
 pub mod sprites;
 mod store;
 pub mod text_style;
+#[cfg(test)]
+mod texture_tests;
+pub mod textures;
 pub mod tilemap;
 #[cfg(test)]
 mod time_input_tests;

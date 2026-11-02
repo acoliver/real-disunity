@@ -67,7 +67,7 @@ pub fn extract_ui(
                 _ => None,
             })
             .unwrap_or_default();
-        let overlay = canvas.mode == CanvasMode::ScreenSpaceOverlay;
+        let overlay = rect.mode == CanvasMode::ScreenSpaceOverlay;
         if !overlay && !camera_admits(world, camera, component.object)? {
             continue;
         }

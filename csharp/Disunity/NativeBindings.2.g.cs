@@ -312,6 +312,26 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_texture_read(ulong world, ulong identity, DisunityTextureInfo* @out, byte* bytes, uint capacity);
         /// <summary>
+        ///  Keeps a mesh's contents for the host and raises its generation.
+        ///
+        ///  # Safety
+        ///  `info` is readable for one record. `vertices`, `indices` and `submeshes` are readable for the
+        ///  counts in the record, or null when that count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_store", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_store(ulong world, ulong identity, DisunityMeshInfo* info, DisunityMeshVertex* vertices, uint* indices, DisunityMeshSubMesh* submeshes);
+        /// <summary>
+        ///  Reports a stored mesh and copies its contents when they are newer than `info.generation` and
+        ///  the capacities in `info` hold them. Capacities of zero everywhere copy nothing and report the
+        ///  sizes. An identity nothing stored reports `present` zero and is not an error.
+        ///
+        ///  # Safety
+        ///  `info` is readable and writable for one record; the buffers are writable for the capacities
+        ///  in it, or null when that capacity is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_read(ulong world, ulong identity, DisunityMeshInfo* info, DisunityMeshVertex* vertices, uint* indices, DisunityMeshSubMesh* submeshes);
+        /// <summary>
         ///  Loads face `face_index` of the font file at `point_size` and writes its id.
         ///
         ///  # Safety

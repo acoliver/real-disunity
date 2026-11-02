@@ -559,6 +559,50 @@ pub struct DisunityTextureInfo {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMeshInfo {
+    pub identity: u64,
+    /// Starts at 1 and rises by one each time the identity is stored again.
+    pub generation: u64,
+    /// Zero when a read names an identity nothing stored.
+    pub present: u32,
+    /// Nonzero when the stored generation is newer than the one the read passed.
+    pub changed: u32,
+    /// Nonzero when the read copied the buffers.
+    pub copied: u32,
+    pub channels: u32,
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub submesh_count: u32,
+    pub left_out: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityMeshVertex {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub nx: f32,
+    pub ny: f32,
+    pub nz: f32,
+    pub u: f32,
+    pub v: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMeshSubMesh {
+    pub slot: u32,
+    pub first_index: u32,
+    pub index_count: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityFaceInfo {
     pub face_index: u32,

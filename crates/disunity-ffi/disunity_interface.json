@@ -498,6 +498,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_mesh_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_mesh_renderer_create",
       "since": "6.0.0",
       "rets": "DisunityResult"
@@ -510,6 +515,11 @@
     {
       "name": "disunity_mesh_renderer_write",
       "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_mesh_store",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

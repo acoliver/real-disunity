@@ -68,6 +68,25 @@ fn binding_parts(directory: &Path) -> Vec<(String, Vec<u8>)> {
     parts
 }
 
+/// The `NativeRecords.g.cs` and `NativeRecords.<n>.g.cs` parts in `directory`, by name, with their bytes.
+fn record_parts(directory: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut parts: Vec<_> = std::fs::read_dir(directory)
+        .expect("record directory")
+        .map(|entry| entry.expect("record entry").path())
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?.to_owned();
+            let part = name
+                .strip_prefix("NativeRecords.")?
+                .strip_suffix("g.cs")?
+                .strip_suffix('.')
+                .is_none_or(|number| number.bytes().all(|b| b.is_ascii_digit()));
+            part.then(|| (name.clone(), std::fs::read(&path).expect("record part")))
+        })
+        .collect();
+    parts.sort();
+    parts
+}
+
 fn checked_parts() -> Vec<(String, Vec<u8>)> {
     binding_parts(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../csharp/Disunity"))
 }
@@ -151,12 +170,10 @@ fn checked_bindings_match_complete_generated_signatures_and_layouts() {
 
 #[test]
 fn checked_managed_records_match_the_complete_generated_records() {
-    let generated = std::fs::read(Path::new(env!("OUT_DIR")).join("NativeRecords.g.cs"))
-        .expect("build generates managed records without changing checked sources");
-    let checked = std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../csharp/Disunity/NativeRecords.g.cs"),
-    )
-    .expect("generated managed record declarations are tracked");
+    let generated = record_parts(Path::new(env!("OUT_DIR")));
+    let checked =
+        record_parts(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../csharp/Disunity"));
+    assert!(!generated.is_empty(), "the build generates managed records");
     assert_eq!(
         checked, generated,
         "complete generated record declarations drifted"

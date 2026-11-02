@@ -675,73 +675,71 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  Face measurements in pixels at the face's point size.
+    ///  A stored mesh's description, also the in/out record of a read. On a store, `generation`,
+    ///  `present`, `changed` and `copied` are ignored. On a read, `generation` is the generation the
+    ///  caller already holds and the three counts are the capacities of the buffers passed (all zero
+    ///  asks for sizes only); the call fills in everything. `channels` is a mask of
+    ///  [`CHANNEL_NORMALS`], [`CHANNEL_UV0`] and [`CHANNEL_COLORS`]; a channel outside it reads as
+    ///  zero in every vertex. `left_out` counts the sub-meshes that are not triangle lists, which the
+    ///  engine leaves out.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityFaceInfo
+    internal unsafe partial struct DisunityMeshInfo
     {
-        public uint face_index;
-        public uint units_per_em;
-        public float point_size;
-        public float scale;
-        public float line_height;
-        public float ascent_line;
-        public float cap_line;
-        public float mean_line;
-        public float baseline;
-        public float descent_line;
-        public float superscript_offset;
-        public float superscript_size;
-        public float subscript_offset;
-        public float subscript_size;
-        public float underline_offset;
-        public float underline_thickness;
-        public float strikethrough_offset;
-        public float strikethrough_thickness;
-        public float tab_width;
+        public ulong identity;
+        /// <summary>
+        ///  Starts at 1 and rises by one each time the identity is stored again.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Zero when a read names an identity nothing stored.
+        /// </summary>
+        public uint present;
+        /// <summary>
+        ///  Nonzero when the stored generation is newer than the one the read passed.
+        /// </summary>
+        public uint changed;
+        /// <summary>
+        ///  Nonzero when the read copied the buffers.
+        /// </summary>
+        public uint copied;
+        public uint channels;
+        public uint vertex_count;
+        public uint index_count;
+        public uint submesh_count;
+        public uint left_out;
     }
 
     /// <summary>
-    ///  A glyph's size and placement in pixels at the face's point size.
+    ///  One vertex: position, normal, first texture coordinate and colour (linear RGBA).
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityGlyphMetrics
+    internal unsafe partial struct DisunityMeshVertex
     {
-        public float width;
-        public float height;
-        public float bearing_x;
-        public float bearing_y;
-        public float advance;
+        public float x;
+        public float y;
+        public float z;
+        public float nx;
+        public float ny;
+        public float nz;
+        public float u;
+        public float v;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
     }
 
     /// <summary>
-    ///  A change to the advance of `first` when `second` follows it.
+    ///  A run of triangle indices that one material slot draws. `slot` is the sub-mesh's number in
+    ///  the managed mesh, so a left-out sub-mesh leaves a gap in the slots.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityGlyphPair
+    internal unsafe partial struct DisunityMeshSubMesh
     {
-        public uint first;
-        public uint second;
-        public float x_advance;
+        public uint slot;
+        public uint first_index;
+        public uint index_count;
     }
-
-    /// <summary>
-    ///  One glyph to draw into an atlas. `mode` is 0 for coverage and 1 for a signed distance field.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityGlyphRender
-    {
-        public uint glyph;
-        public uint mode;
-        public uint padding;
-        public uint x;
-        public uint y;
-        public uint width;
-        public uint height;
-        public uint atlas_width;
-        public uint atlas_height;
-    }
-
-
 
 }

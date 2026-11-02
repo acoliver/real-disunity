@@ -18,6 +18,8 @@ internal static class CanvasMemberTests
             Console.WriteLine("PASS: isRootCanvas and rootCanvas follow the enabled canvases above");
             PixelRect();
             Console.WriteLine("PASS: Canvas.pixelRect is the screen, or the world camera's pixels in world space");
+            RenderingDisplaySize();
+            Console.WriteLine("PASS: Canvas.renderingDisplaySize is the screen in every render mode and follows a resize");
             WorldCamera();
             Console.WriteLine("PASS: Canvas.worldCamera can be set for camera and world space canvases");
         }
@@ -99,6 +101,26 @@ internal static class CanvasMemberTests
         camera.rect = new Rect(0, 0, 0.5f, 1f);
         world.worldCamera = camera;
         Expect.That(world.pixelRect == camera.pixelRect && camera.pixelRect.width == Screen.width / 2f, "world space uses the camera's pixels");
+    }
+
+    private static void RenderingDisplaySize()
+    {
+        var restore = (Screen.width, Screen.height);
+        try
+        {
+            DisunityHost.SetScreen(1280, 720, 96f, 60f);
+            var expected = new Vector2(1280, 720);
+            foreach (var mode in new[] { RenderMode.ScreenSpaceOverlay, RenderMode.WorldSpace })
+                Expect.That(NewCanvas(null, mode).renderingDisplaySize == expected, $"{mode} is the screen");
+            var camera = NewCamera();
+            camera.rect = new Rect(0, 0, 0.5f, 1f);
+            var through = NewCanvas(null, RenderMode.ScreenSpaceOverlay);
+            DisunityHost.RenderThroughCamera(through, camera, 50f);
+            Expect.That(through.renderingDisplaySize == expected, "a camera canvas reports the display, not the camera's rect");
+            DisunityHost.SetScreen(640, 480, 96f, 60f);
+            Expect.That(through.renderingDisplaySize == new Vector2(640, 480), "a resize shows at once");
+        }
+        finally { DisunityHost.SetScreen(restore.Item1, restore.Item2, 96f, 60f); }
     }
 
     private static void WorldCamera()

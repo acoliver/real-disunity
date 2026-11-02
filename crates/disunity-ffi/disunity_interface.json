@@ -343,6 +343,51 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_face_glyph_index",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_glyph_metrics",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_glyph_render",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_info",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_load",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_name",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_pairs",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_set_size",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_face_unload",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_font_register",
       "since": "2.0.0",
       "rets": "DisunityResult"

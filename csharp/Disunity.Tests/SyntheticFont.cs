@@ -12,7 +12,8 @@ internal static class SyntheticFont
         for (var i = 0; i < words.Length; i++) U16(result, i * 2, words[i]);
         return result;
     }
-    public static byte[] Bytes()
+    /// <summary>The font, with a <c>kern</c> table of format 0 holding the (left, right, units) pairs when given.</summary>
+    public static byte[] Bytes((int Left, int Right, int Value)[]? kern = null)
     {
         var head = new byte[54];
         U32(head, 0, 0x10000); U32(head, 12, 0x5f0f3cf5); U16(head, 18, 1000);
@@ -22,14 +23,19 @@ internal static class SyntheticFont
         U32(maxp, 0, 0x10000); U16(maxp, 4, 2);
         var glyph = Words(1, 0, 0, 500, 700, 2, 0).Concat(new byte[] { 1, 1, 1 })
             .Concat(Words(0, 500, -500, 0, 0, 700)).Append((byte)0).ToArray();
-        (string Tag, byte[] Data)[] tables = [
+        var tables = new List<(string Tag, byte[] Data)> {
             ("cmap", Cmap()), ("glyf", glyph), ("head", head), ("hhea", hhea),
             ("hmtx", Words(500, 0, 600, 0)), ("loca", Words(0, 0, glyph.Length / 2)), ("maxp", maxp),
-        ];
-        var output = new List<byte>(new byte[12 + tables.Length * 16]);
+        };
+        if (kern is not null)
+        {
+            var pairs = kern.OrderBy(pair => pair.Left).ThenBy(pair => pair.Right).SelectMany(pair => Words(pair.Left, pair.Right, pair.Value)).ToArray();
+            tables.Insert(5, ("kern", Words(0, 1, 0, 14 + kern.Length * 6, 1, kern.Length, 0, 0, 0).Concat(pairs).ToArray()));
+        }
+        var output = new List<byte>(new byte[12 + tables.Count * 16]);
         var header = output.ToArray();
-        U32(header, 0, 0x10000); U16(header, 4, tables.Length);
-        for (var i = 0; i < tables.Length; i++)
+        U32(header, 0, 0x10000); U16(header, 4, tables.Count);
+        for (var i = 0; i < tables.Count; i++)
         {
             var at = 12 + i * 16;
             Encoding.ASCII.GetBytes(tables[i].Tag).CopyTo(header, at);

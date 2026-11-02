@@ -157,3 +157,27 @@ fn textures_belong_to_their_world_and_unloading_it_drops_them() {
     let reused = new_world();
     assert_eq!(read(reused, FIRST, 0).1.present, 0);
 }
+
+#[test]
+fn a_distance_field_spread_reads_back_and_follows_each_store() {
+    let world = new_world();
+    let described = |spread| DisunityTextureInfo {
+        distance_spread: spread,
+        ..info(FIRST, 2)
+    };
+    for spread in [4, 0, 7] {
+        let description = described(spread);
+        let result =
+            unsafe { disunity_texture_store(world, FIRST, &description, [1u8, 2].as_ptr(), 2) };
+        assert_eq!(result.code, 0);
+        assert_eq!(read(world, FIRST, 0).1.distance_spread, spread);
+    }
+}
+
+#[test]
+fn a_texture_stored_without_a_spread_reads_back_with_none() {
+    let world = new_world();
+    assert_eq!(store(world, FIRST, &[1, 2, 3, 4, 5, 6, 7, 8]).code, 0);
+    assert_eq!(read(world, FIRST, 0).1.distance_spread, 0);
+    assert_eq!(read(world, FIRST + 1, 0).1.distance_spread, 0);
+}

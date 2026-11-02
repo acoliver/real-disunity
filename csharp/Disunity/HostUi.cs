@@ -55,7 +55,7 @@ public static partial class DisunityHost
         ulong handle;
         fixed (byte* pointer = bytes)
             ThrowIfError(NativeBindings.disunity_font_register(WorldHandle, pointer, checked((uint)bytes.Length), &handle));
-        var font = new Font(handle, WorldHandle);
+        var font = new Font(handle, WorldHandle) { FontData = (byte[])bytes.Clone() };
         Fonts.Add(handle, font);
         return font;
     }

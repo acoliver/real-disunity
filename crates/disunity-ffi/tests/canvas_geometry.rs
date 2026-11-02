@@ -276,14 +276,13 @@ fn a_frame_shows_the_meshs_quad_with_its_texture_rectangle() {
 }
 
 #[test]
-fn clearing_the_managed_mesh_or_texture_through_the_record_clears_the_graphic() {
+fn clearing_the_managed_mesh_through_the_record_clears_the_geometry_only() {
     let scene = scene();
     assert_eq!(write(&scene, &quad(), &INDICES).code, 0);
     let mut record = DisunityCanvasRenderer::default();
     unsafe {
         disunity_canvas_renderer_read(scene.world, scene.renderer, &mut record);
         disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER);
-        record.texture = 9;
         record.mesh = 8;
         assert_eq!(
             disunity_canvas_renderer_write(scene.world, scene.renderer, &record).code,
@@ -291,10 +290,13 @@ fn clearing_the_managed_mesh_or_texture_through_the_record_clears_the_graphic() 
         );
     }
     let held = info(&scene);
-    assert_eq!((held.texture, held.vertex_count), (PLAYER, 4));
-    record.texture = 0;
+    assert_eq!(
+        (held.texture, held.vertex_count),
+        (PLAYER, 4),
+        "a record whose main texture is 0 keeps the texture a material slot gave"
+    );
     record.mesh = 0;
     unsafe { disunity_canvas_renderer_write(scene.world, scene.renderer, &record) };
     let held = info(&scene);
-    assert_eq!((held.texture, held.vertex_count), (0, 0));
+    assert_eq!((held.texture, held.vertex_count), (PLAYER, 0));
 }

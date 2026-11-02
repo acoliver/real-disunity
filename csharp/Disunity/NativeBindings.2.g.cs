@@ -311,5 +311,67 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_texture_read(ulong world, ulong identity, DisunityTextureInfo* @out, byte* bytes, uint capacity);
+        /// <summary>
+        ///  Loads face `face_index` of the font file at `point_size` and writes its id.
+        ///
+        ///  # Safety
+        ///  `bytes` is readable for `length` bytes; `out_face` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_face_load", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_load(ulong world, byte* bytes, uint length, uint face_index, float point_size, ulong* out_face);
+        [DllImport(__DllName, EntryPoint = "disunity_face_unload", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_unload(ulong world, ulong face);
+        [DllImport(__DllName, EntryPoint = "disunity_face_set_size", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_set_size(ulong world, ulong face, float point_size);
+        /// <summary>
+        ///  # Safety
+        ///  `out` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_face_info", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_info(ulong world, ulong face, DisunityFaceInfo* @out);
+        /// <summary>
+        ///  Writes a face's family name (`which` 0) or style name (`which` 1) as UTF-8 and its length.
+        ///  The bytes are copied only when `capacity` holds them; a zero capacity asks for the length.
+        ///
+        ///  # Safety
+        ///  `bytes` is writable for `capacity` bytes, or null when `capacity` is zero; `length` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_face_name", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_name(ulong world, ulong face, uint which, byte* bytes, uint capacity, uint* length);
+        /// <summary>
+        ///  Writes the glyph index for a code point; 0 means the face has no glyph for it.
+        ///
+        ///  # Safety
+        ///  `out` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_face_glyph_index", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_glyph_index(ulong world, ulong face, uint unicode, uint* @out);
+        /// <summary>
+        ///  # Safety
+        ///  `out` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_face_glyph_metrics", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_glyph_metrics(ulong world, ulong face, uint glyph, DisunityGlyphMetrics* @out);
+        /// <summary>
+        ///  Draws a glyph into the rows of an atlas image of one byte per pixel, bottom row first.
+        ///
+        ///  # Safety
+        ///  `render` is readable for one record; `atlas` is writable for `atlas_length` bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_face_glyph_render", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_glyph_render(ulong world, ulong face, DisunityGlyphRender* render, byte* atlas, uint atlas_length);
+        /// <summary>
+        ///  Writes the kerning of every ordered pair of `glyphs` that the face adjusts. `count` holds the
+        ///  record capacity on entry and the number of adjustments on return. A zero capacity asks for the
+        ///  count and copies nothing; with more adjustments than a nonzero capacity nothing is copied and
+        ///  the call fails.
+        ///
+        ///  # Safety
+        ///  `glyphs` is readable for `glyph_count` values; `records` is writable for the capacity in
+        ///  `count`, or null when it is zero; `count` is readable and writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_face_pairs", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_face_pairs(ulong world, ulong face, uint* glyphs, uint glyph_count, DisunityGlyphPair* records, uint* count);
     }
 }

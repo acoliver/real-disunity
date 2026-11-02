@@ -24,7 +24,7 @@ use std::{
 use serde::Serialize;
 use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{
-    ClassId, graphics::Material, managers::ResourceManager, object::PPtr,
+    ClassId, font::Font, graphics::Material, managers::ResourceManager, object::PPtr,
     render_texture::RenderTexture, script_data::ScriptLayouts, text_asset::TextAsset,
 };
 
@@ -83,6 +83,14 @@ pub enum ResourceAsset {
         offset: u64,
         length: u64,
     },
+    /// A font: its font file is `length` bytes at `offset` in the player file `file`, none when
+    /// the font has no file of its own.
+    Font {
+        name: String,
+        file: PathBuf,
+        offset: u64,
+        length: u64,
+    },
     /// A script asset of `class` in `assembly`, with its fields in the JSON file `fields`,
     /// relative to the plan's directory.
     Script {
@@ -96,23 +104,10 @@ pub enum ResourceAsset {
     Prefab { name: String, plan: String },
     /// A prefab the planner could not plan, with the reason loading it reports.
     UnplannedPrefab { name: String, error: String },
-    /// A 2D texture. `format` is the `TextureFormat` value and `color_space` the decoded
-    /// value; `filter_mode` and the wrap modes are the sampler's values.
+    /// A 2D texture (see [`player_sprites::Texture2DAsset`]).
     Texture2D {
-        name: String,
-        width: i32,
-        height: i32,
-        format: i32,
-        mip_count: i32,
-        readable: bool,
-        color_space: i32,
-        filter_mode: i32,
-        wrap_u: i32,
-        wrap_v: i32,
-        wrap_w: i32,
-        aniso_level: i32,
-        mip_bias: f32,
-        data: TextureData,
+        #[serde(flatten)]
+        texture: player_sprites::Texture2DAsset,
     },
     /// A stack of equally sized slices. `graphics_format` is the `GraphicsFormat` value of the
     /// pixels, `depth` the number of slices; the other fields are those of `Texture2D`.
@@ -133,22 +128,10 @@ pub enum ResourceAsset {
         mip_bias: f32,
         data: TextureData,
     },
-    /// A rectangle of a texture. Rectangles and the border are in pixels (x, y, width,
-    /// height and left, bottom, right, top); the pivot is a fraction of the rectangle.
-    /// `packing_rotation` and `mesh_type` are the sprite's packed settings bits.
+    /// A rectangle of a texture (see [`player_sprites::SpriteAsset`]).
     Sprite {
-        name: String,
-        rect: [f32; 4],
-        pivot: [f32; 2],
-        pixels_per_unit: f32,
-        border: [f32; 4],
-        extrude: u32,
-        texture: Option<AssetRef>,
-        texture_rect: [f32; 4],
-        texture_rect_offset: [f32; 2],
-        packed: bool,
-        packing_rotation: u32,
-        mesh_type: u32,
+        #[serde(flatten)]
+        sprite: player_sprites::SpriteAsset,
     },
     /// Sprites packed together, in the atlas's order.
     SpriteAtlas {
@@ -310,6 +293,7 @@ fn referenced_on_demand(class: ClassId) -> bool {
         || class == ClassId::ANIMATOR_CONTROLLER
         || class == ClassId::ANIMATOR_OVERRIDE_CONTROLLER
         || class == ClassId::ANIMATION_CLIP
+        || class == ClassId::FONT
         || class == ClassId::GAME_OBJECT
 }
 
@@ -521,6 +505,7 @@ impl ResourcePlanner {
         let index = self.assets.len();
         match class {
             ClassId::TEXT_ASSET => self.text_asset(file, *path_id),
+            ClassId::FONT => self.font(file, *path_id),
             ClassId::TEXTURE_2D => {
                 player_sprites::plan_texture(&mut self.registry, key, &self.output, index)
             }
@@ -674,6 +659,21 @@ impl ResourcePlanner {
         let bytes = serde_json::to_vec(fields).expect("JSON values serialize");
         player_sprites::write_resource(&self.output, &relative, &bytes)?;
         Ok(relative)
+    }
+
+    fn font(&mut self, file: &Path, path_id: i64) -> Result<ResourceAsset, PlayerError> {
+        let open = self.registry.files.open_path(file)?;
+        let font: Font = open.decode(path_id)?;
+        let object = *open.file.object(path_id).expect("decoded objects exist");
+        Ok(ResourceAsset::Font {
+            name: font.name,
+            file: std::path::absolute(file).map_err(|error| PlayerError::Io {
+                path: file.to_owned(),
+                source: error,
+            })?,
+            offset: object.offset + font.font_data.start as u64,
+            length: (font.font_data.end - font.font_data.start) as u64,
+        })
     }
 
     fn text_asset(&mut self, file: &Path, path_id: i64) -> Result<ResourceAsset, PlayerError> {

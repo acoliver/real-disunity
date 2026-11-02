@@ -88,16 +88,10 @@ public sealed partial class CanvasRenderer : NativeComponent
         set => Update(r => { r.softness_x = value.x; r.softness_y = value.y; return r; });
     }
 
-    /// <summary>Clears the mesh, the materials (the count becomes 0), both textures and the secondary textures.</summary>
-    public void Clear()
-    {
-        Update(r =>
-        {
-            r.mesh = 0; r.texture = 0; r.alpha_texture = 0; r.material_count = 0;
-            return r;
-        });
-        _secondary.Clear();
-    }
+    /// <summary>Clears the mesh and the geometry drawn from it. The materials, both textures, the secondary textures
+    /// and the color stay (the engine's choice): a graphic that clears its renderer and then sends a new mesh, as
+    /// text does when its content changes, draws with the texture it set before.</summary>
+    public void Clear() => SetMesh(null);
 
     /// <summary>Sets the mesh; null clears it. The mesh is found again by <see cref="GetMesh"/> while it is alive.</summary>
     public void SetMesh(Mesh? mesh)

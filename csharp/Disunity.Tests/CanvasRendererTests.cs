@@ -112,7 +112,8 @@ internal static class CanvasRendererTests
         Ensure(renderer.GetMesh() == mesh, "a rejected mesh changes nothing");
         renderer.SetColor(new Color(0.5f, 0f, 0f, 1f));
         renderer.Clear();
-        Ensure(renderer.GetMesh() is null && renderer.MainTexture is null && renderer.AlphaTexture is null && renderer.materialCount == 0, "Clear drops the mesh, textures and materials");
+        Ensure(renderer.GetMesh() is null && ReferenceEquals(renderer.MainTexture, texture) && ReferenceEquals(renderer.AlphaTexture, alpha)
+            && renderer.materialCount == 1 && renderer.GetMaterial(0) is not null, "Clear drops the mesh and keeps the textures and materials");
         Ensure(renderer.GetColor().r == 0.5f, "Clear keeps the color");
         EngineObject.DestroyImmediate(mesh);
         renderer.SetMesh(new Mesh());

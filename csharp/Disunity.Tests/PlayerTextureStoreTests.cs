@@ -1,6 +1,8 @@
 using Disunity.Hosting;
 using Disunity.Native;
 using UnityEngine;
+using UnityEngine.TextCore;
+using UnityEngine.TextCore.LowLevel;
 
 /// <summary>A texture's bytes reach the host when it takes a renderer identity and again on Apply.</summary>
 internal static class PlayerTextureStoreTests
@@ -13,6 +15,7 @@ internal static class PlayerTextureStoreTests
             StoresTheBytesWhenTheTextureTakesAnIdentity();
             StoresAgainOnApplyAndOnlyOnceAnIdentityExists();
             ReportsSrgbTexturesAsNotLinear();
+            MarksAtlasesHoldingDistanceFields();
         }
         finally { DisunityHost.UnloadWorld(); }
     }
@@ -71,5 +74,32 @@ internal static class PlayerTextureStoreTests
         var info = Read(TwoPixelTexture(linear: false).RendererIdentity).Info;
         Expect.That(info.linear == 0, "an sRGB texture is stored with the linear flag clear");
         Console.WriteLine("PASS: an sRGB texture is stored as not linear");
+    }
+
+    private static (Texture2D Atlas, ulong Identity) DrawnAtlas(int padding, GlyphRenderMode mode)
+    {
+        FontEngine.LoadFontFace(SyntheticFont.Bytes(), 100);
+        var atlas = new Texture2D(128, 128, TextureFormat.Alpha8, false);
+        var identity = atlas.RendererIdentity;
+        var free = new List<GlyphRect> { new(0, 0, 128, 128) };
+        Expect.That(FontEngine.TryAddGlyphToTexture(1, padding, GlyphPackingMode.BestShortSideFit, free, new List<GlyphRect>(), mode, atlas, out _), $"{mode} glyph drawn");
+        return (atlas, identity);
+    }
+
+    private static void MarksAtlasesHoldingDistanceFields()
+    {
+        Expect.That(Read(TwoPixelTexture(linear: true).RendererIdentity).Info.distance_spread == 0, "a plain texture holds no distance field");
+        var (_, field) = DrawnAtlas(4, GlyphRenderMode.SDFAA);
+        Expect.That(Read(field).Info.distance_spread == 4, "an atlas drawn with a distance field of padding 4 is stored with spread 4");
+        var (_, thin) = DrawnAtlas(0, GlyphRenderMode.SDF);
+        Expect.That(Read(thin).Info.distance_spread == 1, "a distance field with no padding is spread over one texel, as the glyph drawing does");
+        var (_, coverage) = DrawnAtlas(4, GlyphRenderMode.SMOOTH);
+        Expect.That(Read(coverage).Info.distance_spread == 0, "an atlas drawn as coverage is stored with no spread");
+        var (mixed, remade) = DrawnAtlas(4, GlyphRenderMode.SDFAA);
+        FontEngine.ResetAtlasTexture(mixed);
+        mixed.Apply(false);
+        Expect.That(Read(remade).Info.distance_spread == 0, "clearing an atlas leaves no distance field in it");
+        FontEngine.UnloadFontFace();
+        Console.WriteLine("PASS: an atlas the font engine drew distance fields into is stored with its spread");
     }
 }

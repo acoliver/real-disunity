@@ -1,14 +1,15 @@
-//! Cameras, 3D lights and canvas groups of a player scene as plan components.
+//! Cameras, 3D lights, canvases and canvas groups of a player scene as plan components.
 //!
 //! Colors keep the numbers the player stored, as the project planner keeps its YAML colors.
 
 use worldrunner_unity_serialized::{
-    camera::Camera as Serialized, light::Light as SerializedLight,
-    ui::CanvasGroup as SerializedGroup,
+    camera::Camera as Serialized,
+    light::Light as SerializedLight,
+    ui::{Canvas as SerializedCanvas, CanvasGroup as SerializedGroup},
 };
 
 use crate::{
-    components::{Camera, CameraOutput, CanvasGroupInput, ClearFlags, Light3D},
+    components::{Camera, CameraOutput, CanvasGroupInput, ClearFlags, Light3D, RenderMode},
     plan::PlanComponent,
 };
 
@@ -139,4 +140,31 @@ pub(crate) fn plan_canvas_group(group: &SerializedGroup) -> PlanComponent {
             ignore_parent_groups: group.input.ignore_parent_groups,
         },
     }
+}
+
+/// The plan canvas for a decoded one. `camera` is the planned camera component the canvas
+/// renders through, when it names one.
+///
+/// # Errors
+/// Fails when the render mode is not one of the three serialized modes.
+pub(crate) fn plan_canvas(
+    owner: &str,
+    canvas: &SerializedCanvas,
+    camera: Option<[usize; 2]>,
+) -> Result<PlanComponent, String> {
+    let render_mode = match canvas.render_mode {
+        0 => RenderMode::ScreenSpaceOverlay,
+        1 => RenderMode::ScreenSpaceCamera,
+        2 => RenderMode::WorldSpace,
+        other => return Err(format!("{owner}: canvas render mode {other} is not known")),
+    };
+    Ok(PlanComponent::Canvas {
+        render_mode,
+        camera,
+        plane_distance: canvas.plane_distance.into(),
+        pixel_perfect: canvas.pixel_perfect.enabled,
+        sorting_layer_id: canvas.sorting.layer_id.into(),
+        sorting_order: canvas.sorting.order.into(),
+        target_display: canvas.target_display.into(),
+    })
 }

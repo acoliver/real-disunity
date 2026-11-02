@@ -114,6 +114,7 @@ internal sealed partial class ResourceDatabase
     private Type AssetType(JsonElement asset) => asset.Str("type") switch
     {
         "TextAsset" => typeof(TextAsset),
+        "Font" => typeof(Font),
         "Texture2D" => typeof(Texture2D),
         "Texture2DArray" => typeof(Texture2DArray),
         "Sprite" => typeof(Sprite),
@@ -176,6 +177,7 @@ internal sealed partial class ResourceDatabase
         return asset.Str("type") switch
         {
             "TextAsset" => _built[index] = Text(asset),
+            "Font" => _built[index] = PlayerFont(asset),
             "Texture2D" => _built[index] = Texture(asset),
             "Texture2DArray" => _built[index] = TextureArray(asset),
             "Sprite" => _built[index] = PlayerSprite(asset),
@@ -205,8 +207,19 @@ internal sealed partial class ResourceDatabase
         return new TextAsset(name, bytes);
     }
 
+    private static Font PlayerFont(JsonElement asset)
+    {
+        var (name, path) = (asset.Str("name"), asset.Str("file"));
+        var (offset, length) = (asset.GetProperty("offset").GetInt64(), asset.GetProperty("length").GetInt64());
+        if (length < 0 || length > int.MaxValue)
+            throw new InvalidDataException($"resource font {name}: {length} bytes cannot be read");
+        var bytes = new byte[length];
+        ReadBytes(name, path, offset, bytes);
+        return new Font(name, bytes);
+    }
+
     /// <summary>Fills <paramref name="destination"/> from <paramref name="path"/> at <paramref name="offset"/>.</summary>
-    private static void ReadBytes(string name, string path, long offset, Span<byte> destination)
+    internal static void ReadBytes(string name, string path, long offset, Span<byte> destination)
     {
         using var file = File.OpenRead(path);
         if (offset < 0 || offset > file.Length - destination.Length)

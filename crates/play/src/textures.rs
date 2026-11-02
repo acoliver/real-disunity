@@ -114,7 +114,7 @@ pub fn format_name(format: u32) -> String {
 }
 
 /// The base level of a texture the managed engine stored, as a scene texture with its rows top
-/// first. RGBA32, RGB24 and Alpha8 become RGBA8 texels (Alpha8 as white with that alpha). DXT1,
+/// first. RGBA32, RGB24 and Alpha8 become RGBA8 texels (Alpha8 as white with that alpha, or with the coverage of its distance field when the texture holds one). DXT1,
 /// DXT5 and BC4 follow `path`: one-level DX10 DDS containers in their sRGB forms when the texture
 /// is not linear (BC4 holds data and is always linear), or decoded RGBA8 texels (BC4 as red). BC7 is only drawn decoded.
 /// Further mip levels are not carried, as the engine's choice for now.
@@ -125,7 +125,14 @@ pub fn player_scene_texture(
     match texture.format {
         4 => texels(texture, "RGBA32", 4, |t| [t[0], t[1], t[2], t[3]]),
         3 => texels(texture, "RGB24", 3, |t| [t[0], t[1], t[2], 255]),
-        1 => texels(texture, "Alpha8", 1, |t| [255, 255, 255, t[0]]),
+        1 => texels(texture, "Alpha8", 1, |t| {
+            [
+                255,
+                255,
+                255,
+                alpha8_coverage(t[0], texture.distance_spread),
+            ]
+        }),
         10 => block(texture, "DXT1", BlockLayout::Bc1, path),
         12 => block(texture, "DXT5", BlockLayout::Bc3, path),
         25 => block(texture, "BC7", BlockLayout::Bc7, path),
@@ -134,6 +141,20 @@ pub fn player_scene_texture(
             format: format_name(other),
         }),
     }
+}
+
+/// The coverage of an `Alpha8` texel. Coverage atlases (`spread` zero) are used as they are. A
+/// distance field byte `d` (0.5 at a glyph's edge, `1 / (2 * spread)` per texel of distance)
+/// becomes `clamp((d - 0.5) * 2 * spread + 0.5, 0, 1)`: 0 outside, 1 inside, and a ramp one texel
+/// wide across the edge, the smoothing width the engine chooses for text drawn without a
+/// distance field material.
+fn alpha8_coverage(texel: u8, spread: u32) -> u8 {
+    if spread == 0 {
+        return texel;
+    }
+    // In bytes, the coverage is (2 * texel - 255) * spread + 127.5, rounded half up.
+    let scaled = (2 * i64::from(texel) - 255) * i64::from(spread) + 128;
+    u8::try_from(scaled.clamp(0, 255)).unwrap_or(u8::MAX)
 }
 
 fn color_space(linear: bool) -> TextureColorSpace {

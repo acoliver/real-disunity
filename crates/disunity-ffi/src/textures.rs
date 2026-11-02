@@ -11,14 +11,13 @@ pub const FIRST_PLAYER_TEXTURE: u64 = 1 << 40;
 /// The largest texture payload accepted, 512 MiB: an 8192 by 8192 RGBA32 image with room to spare.
 const MAX_TEXTURE_BYTES: u32 = 1 << 29;
 
-/// A stored texture's description. `present` is zero when a read names an identity nothing stored.
+/// A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per texel), or zero.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityTextureInfo {
     pub identity: u64,
     /// Starts at 1 and rises by one each time the identity is stored again.
     pub generation: u64,
-    /// The engine's `TextureFormat` value.
     pub format: u32,
     pub width: u32,
     pub height: u32,
@@ -27,6 +26,7 @@ pub struct DisunityTextureInfo {
     pub linear: u32,
     pub length: u32,
     pub present: u32,
+    pub distance_spread: u32,
 }
 
 /// One texture of a world's session, kept until the world is unloaded.

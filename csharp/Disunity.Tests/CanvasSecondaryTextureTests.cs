@@ -12,7 +12,7 @@ internal static class CanvasSecondaryTextureTests
             CountAndSlots();
             Console.WriteLine("PASS: CanvasRenderer secondary textures: the count, named slots, bounds and a negative count");
             LoweringTheCountDropsSlots();
-            Console.WriteLine("PASS: lowering the secondary texture count drops the slots past it and Clear empties them");
+            Console.WriteLine("PASS: lowering the secondary texture count drops the slots past it and Clear keeps them");
             CloneHasItsOwnSlots();
             Console.WriteLine("PASS: a cloned CanvasRenderer keeps the secondary textures and edits them apart");
         }
@@ -55,7 +55,8 @@ internal static class CanvasSecondaryTextureTests
         renderer.SetSecondaryTextureCount(3);
         Expect.That(renderer.SecondaryTextureAt(2) is (null, null), "a slot that came back is empty");
         renderer.Clear();
-        Expect.Equal(0, renderer.SecondaryTextureCount, "Clear empties the secondary textures");
+        Expect.Equal(3, renderer.SecondaryTextureCount, "Clear keeps the secondary textures");
+        Expect.That(renderer.SecondaryTextureAt(0).Name == "_A", "Clear keeps what the slots hold");
     }
 
     private static void CloneHasItsOwnSlots()

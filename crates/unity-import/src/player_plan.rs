@@ -26,7 +26,7 @@ use worldrunner_unity_serialized::{
     object::PPtr,
     script_data::ScriptLayouts,
     sorting_group::SortingGroup,
-    ui::{CanvasGroup, CanvasRenderer},
+    ui::{Canvas, CanvasRenderer},
 };
 
 use crate::{
@@ -35,7 +35,7 @@ use crate::{
     plan::{PlanComponent, PlanObject, PlanSortingLayer, ScenePlan},
     player_animators::plan_animator,
     player_files::PlayerFiles,
-    player_graphics::{plan_camera, plan_canvas_group, plan_light},
+    player_graphics::{plan_camera, plan_canvas, plan_canvas_group, plan_light},
     player_scripts::script_fields,
     player_shader_refs::SceneSource,
     player_sorting::plan_sorting_group,
@@ -280,6 +280,7 @@ impl<'t> PlayerPlanner<'t> {
         if [
             ClassId::CAMERA,
             ClassId::LIGHT,
+            ClassId::CANVAS,
             ClassId::CANVAS_GROUP,
             ClassId::CANVAS_RENDERER,
             ClassId::SORTING_GROUP,
@@ -371,13 +372,6 @@ impl<'t> PlayerPlanner<'t> {
                 .decode(component.path_id)?;
             return plan_light(owner, &light, &mut self.differences).map_err(invalid);
         }
-        if class == ClassId::CANVAS_GROUP {
-            let group: CanvasGroup = src
-                .files()
-                .local(&path, component)?
-                .decode(component.path_id)?;
-            return Ok(plan_canvas_group(&group));
-        }
         if class == ClassId::SORTING_GROUP {
             let group = src
                 .files()
@@ -385,14 +379,8 @@ impl<'t> PlayerPlanner<'t> {
                 .decode::<SortingGroup>(component.path_id);
             return plan_sorting_group(owner, group, &mut self.differences);
         }
-        if class == ClassId::CANVAS_RENDERER {
-            let renderer: CanvasRenderer = src
-                .files()
-                .local(&path, component)?
-                .decode(component.path_id)?;
-            return Ok(PlanComponent::CanvasRenderer {
-                cull_transparent_mesh: renderer.cull_transparent_mesh,
-            });
+        if let Some(planned) = self.ui_component(src, owner, class, component)? {
+            return Ok(planned);
         }
         if class == ClassId::ANIMATOR {
             let animator: Animator = src
@@ -408,6 +396,59 @@ impl<'t> PlayerPlanner<'t> {
             ));
         }
         self.mesh_component(src, owner, class, component)
+    }
+
+    /// A canvas, canvas group or canvas renderer as its plan component, or `None` for any other
+    /// class.
+    fn ui_component(
+        &mut self,
+        src: &mut impl PlanSource,
+        owner: &str,
+        class: ClassId,
+        component: PPtr,
+    ) -> Result<Option<PlanComponent>, PlayerError> {
+        let path = self.path.clone();
+        let id = component.path_id;
+        Ok(Some(match class {
+            ClassId::CANVAS_GROUP => {
+                plan_canvas_group(&src.files().local(&path, component)?.decode(id)?)
+            }
+            ClassId::CANVAS_RENDERER => {
+                let renderer: CanvasRenderer = src.files().local(&path, component)?.decode(id)?;
+                PlanComponent::CanvasRenderer {
+                    cull_transparent_mesh: renderer.cull_transparent_mesh,
+                }
+            }
+            ClassId::CANVAS => {
+                let canvas: Canvas = src.files().local(&path, component)?.decode(id)?;
+                let camera = self.canvas_camera(owner, canvas.camera);
+                plan_canvas(owner, &canvas, camera).map_err(|reason| {
+                    PlayerError::InvalidHierarchy {
+                        path: path.clone(),
+                        reason,
+                    }
+                })?
+            }
+            _ => return Ok(None),
+        }))
+    }
+
+    /// The planned component a canvas renders through. A camera the plan does not hold is
+    /// listed in the differences, and the canvas then draws as an overlay.
+    fn canvas_camera(&mut self, owner: &str, camera: PPtr) -> Option<[usize; 2]> {
+        if camera.is_null() {
+            return None;
+        }
+        let planned = (camera.file_id == 0)
+            .then(|| self.index.get(&camera.path_id))
+            .flatten();
+        if let Some(&Target::Component(object, component)) = planned {
+            return Some([object, component]);
+        }
+        self.differences.push(format!(
+            "{owner}: the canvas renders through a camera the plan does not hold"
+        ));
+        None
     }
 
     /// A mesh filter or a renderer of meshes as its plan component, and any other engine class

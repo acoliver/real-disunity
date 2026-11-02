@@ -139,7 +139,7 @@ pub(crate) fn class_of(files: &mut PlayerFiles, key: &ObjectKey) -> Option<Class
 pub(crate) struct SceneSource {
     files: PlayerFiles,
     pub(crate) assets: Vec<PlanAsset>,
-    planned: Vec<(ObjectKey, usize)>,
+    pub(crate) planned: Vec<(ObjectKey, usize)>,
     /// What the planned materials could not hold.
     pub(crate) differences: Vec<String>,
 }
@@ -156,6 +156,13 @@ impl SceneSource {
 
     pub(crate) fn files_mut(&mut self) -> &mut PlayerFiles {
         &mut self.files
+    }
+
+    /// Adds the asset planned for `key`, returning its index.
+    pub(crate) fn push_asset(&mut self, key: ObjectKey, asset: PlanAsset) -> usize {
+        self.assets.push(asset);
+        self.planned.push((key, self.assets.len() - 1));
+        self.assets.len() - 1
     }
 
     fn plan_asset(
@@ -194,6 +201,9 @@ impl PlanSource for SceneSource {
             .map_err(|_| not_held(pptr))?;
         let key = (file, pptr.path_id);
         let class = class_of(&mut self.files, &key);
+        if class == Some(ClassId::SPRITE) {
+            return self.sprite_asset(&key, pptr);
+        }
         for held_by_resources in [
             ClassId::TEXTURE_2D,
             ClassId::MESH,
@@ -214,8 +224,6 @@ impl PlanSource for SceneSource {
             return Ok(*index);
         }
         let asset = self.plan_asset(&key, class, pptr)?;
-        self.assets.push(asset);
-        self.planned.push((key, self.assets.len() - 1));
-        Ok(self.assets.len() - 1)
+        Ok(self.push_asset(key, asset))
     }
 }

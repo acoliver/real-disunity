@@ -139,6 +139,10 @@ public sealed partial class Canvas
         }
     }
 
+    /// <summary>The size in pixels of the display the canvas draws to: the screen in every render mode, whatever
+    /// rectangle its camera covers (the engine's choice, since a frame has one display).</summary>
+    public Vector2 renderingDisplaySize => new(Screen.width, Screen.height);
+
     /// <summary>The screen for a screen-space canvas; in world space the world camera's pixels, or the screen without one.</summary>
     public Rect pixelRect
     {

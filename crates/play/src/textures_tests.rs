@@ -27,8 +27,38 @@ fn player(format: u32, size: [u32; 2], linear: bool, bytes: Vec<u8>) -> PlayerTe
         mips: 1,
         linear,
         generation: 1,
+        distance_spread: 0,
         bytes,
     }
+}
+
+/// An Alpha8 atlas holding distance fields of the given spread, one row of `bytes`.
+fn field(spread: u32, bytes: Vec<u8>) -> PlayerTexture {
+    PlayerTexture {
+        distance_spread: spread,
+        ..player(
+            ALPHA8,
+            [u32::try_from(bytes.len()).unwrap(), 1],
+            true,
+            bytes,
+        )
+    }
+}
+
+/// The coverage a distance field's bytes become, one alpha per input byte.
+fn coverage(spread: u32, field_bytes: &[u8]) -> Vec<u8> {
+    let scene = player_scene_texture(&field(spread, field_bytes.to_vec())).unwrap();
+    let (_, rows) = texels(&scene);
+    rows.chunks_exact(4)
+        .map(|texel| {
+            assert_eq!(
+                texel[..3],
+                [255, 255, 255],
+                "coverage is white with an alpha"
+            );
+            texel[3]
+        })
+        .collect()
 }
 
 fn texels(texture: &SceneTexture) -> (TextureColorSpace, &[u8]) {
@@ -419,4 +449,56 @@ fn bc7_crops_blocks_past_the_edge_checks_the_length_and_is_never_a_container() {
             format: "BC7".into()
         })
     );
+}
+
+#[test]
+fn a_distance_field_is_full_inside_empty_outside_and_half_at_the_edge() {
+    let alpha = coverage(4, &[255, 200, 160, 128, 127, 96, 40, 0]);
+    assert_eq!(alpha[..3], [255, 255, 255], "inside the glyph");
+    assert_eq!(alpha[5..], [0, 0, 0], "outside the glyph");
+    assert!(
+        (126..=133).contains(&alpha[3]) && (123..=130).contains(&alpha[4]),
+        "the edge is about one half: {alpha:?}"
+    );
+}
+
+#[test]
+fn a_distance_field_edge_is_one_texel_wide_whatever_the_spread() {
+    // One texel of distance is 255 / (2 * spread) bytes of field.
+    for (spread, texel_bytes) in [(1u32, 127_u16), (2, 64), (4, 32), (8, 16)] {
+        let ramp: Vec<u8> = (0..=255).collect();
+        let transition = coverage(spread, &ramp)
+            .into_iter()
+            .filter(|alpha| (1..255).contains(alpha))
+            .count();
+        assert!(
+            u16::try_from(transition).unwrap().abs_diff(texel_bytes) <= 2,
+            "spread {spread}: {transition} bytes of field between empty and full, wanted about {texel_bytes}"
+        );
+    }
+}
+
+#[test]
+fn a_distance_field_becomes_coverage_without_going_backwards() {
+    let ramp: Vec<u8> = (0..=255).collect();
+    let alpha = coverage(3, &ramp);
+    assert!(alpha.windows(2).all(|pair| pair[0] <= pair[1]), "{alpha:?}");
+    assert_eq!((alpha[0], alpha[255]), (0, 255));
+}
+
+#[test]
+fn coverage_atlases_pass_through_unchanged() {
+    let bytes: Vec<u8> = vec![0, 40, 128, 200, 255];
+    assert_eq!(coverage(0, &bytes), bytes);
+}
+
+#[test]
+fn a_distance_field_keeps_its_rows_top_first() {
+    let texture = PlayerTexture {
+        distance_spread: 4,
+        ..player(ALPHA8, [1, 2], true, vec![255, 0])
+    };
+    let scene = player_scene_texture(&texture).unwrap();
+    let (_, rows) = texels(&scene);
+    assert_eq!(rows, [255, 255, 255, 0, 255, 255, 255, 255]);
 }

@@ -11,6 +11,16 @@ pub fn font_with(contours: i16, ascent: i16, descent: i16) -> Vec<u8> {
 
 /// A font of `glyphs`, in order, with 1000 units per em and the given vertical metrics.
 pub fn assemble(glyphs: &[Vec<u8>], ascent: i16, descent: i16) -> Vec<u8> {
+    assemble_with(glyphs, ascent, descent, Vec::new())
+}
+
+/// Like [`assemble`], with `extra` tables added after the required ones, in tag order.
+pub fn assemble_with(
+    glyphs: &[Vec<u8>],
+    ascent: i16,
+    descent: i16,
+    extra: Vec<([u8; 4], Vec<u8>)>,
+) -> Vec<u8> {
     let count = u16::try_from(glyphs.len()).unwrap();
     let mut head = vec![0; 54];
     head[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
@@ -40,7 +50,7 @@ pub fn assemble(glyphs: &[Vec<u8>], ascent: i16, descent: i16) -> Vec<u8> {
         hmtx.extend(0_u16.to_be_bytes());
     }
     let cmap = cmap();
-    let tables = [
+    let mut tables = vec![
         (*b"cmap", cmap),
         (*b"glyf", glyf),
         (*b"head", head),
@@ -49,9 +59,11 @@ pub fn assemble(glyphs: &[Vec<u8>], ascent: i16, descent: i16) -> Vec<u8> {
         (*b"loca", loca),
         (*b"maxp", maxp),
     ];
+    tables.extend(extra);
+    tables.sort_by_key(|(tag, _)| *tag);
     let mut out = vec![0; 12 + tables.len() * 16];
     out[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
-    out[4..6].copy_from_slice(&7_u16.to_be_bytes());
+    out[4..6].copy_from_slice(&u16::try_from(tables.len()).unwrap().to_be_bytes());
     for (i, (tag, bytes)) in tables.into_iter().enumerate() {
         let offset = u32::try_from(out.len()).unwrap();
         let length = u32::try_from(bytes.len()).unwrap();

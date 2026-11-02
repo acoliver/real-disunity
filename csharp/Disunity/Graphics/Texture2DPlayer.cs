@@ -11,6 +11,10 @@ public sealed partial class Texture2D
 {
     private ulong _identity;
 
+    /// <summary>Zero for colour, data and coverage. After the font engine draws distance fields into an Alpha8 atlas, the
+    /// spread in texels they were drawn with, which the renderer needs to turn the field back into coverage.</summary>
+    internal uint DistanceSpread { get; set; }
+
     /// <summary>The identity the renderer knows this texture by: allocated the first time a sprite is made over it,
     /// from <see cref="DisunityHost.FirstPlayerTextureIdentity"/> up, and kept for the texture's lifetime.</summary>
     internal ulong RendererIdentity
@@ -33,10 +37,19 @@ public sealed partial class Texture2D
         var info = new DisunityTextureInfo
         {
             identity = _identity, format = (uint)_format, width = (uint)_width, height = (uint)_height, mips = (uint)_mipCount,
-            linear = GraphicsFormats.IsSrgb(_graphics) ? 0u : 1u, length = (uint)_data.Length,
+            linear = GraphicsFormats.IsSrgb(_graphics) ? 0u : 1u, length = (uint)_data.Length, distance_spread = DistanceSpread,
         };
         fixed (byte* bytes = _data)
             DisunityHost.ThrowIfError(NativeBindings.disunity_texture_store(DisunityHost.WorldHandle, _identity, &info, bytes, info.length));
+    }
+
+    /// <summary>Marks the texture as holding distance fields of this spread, storing it again for the renderer when the
+    /// spread changes and it already has an identity.</summary>
+    internal void MarkDistanceField(uint spread)
+    {
+        if (DistanceSpread == spread) return;
+        DistanceSpread = spread;
+        if (_identity != 0) StoreForRenderer();
     }
 
     /// <summary>The raw bytes, which a player's pixels are read into.</summary>

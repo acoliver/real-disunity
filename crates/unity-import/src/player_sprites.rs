@@ -37,6 +37,46 @@ pub struct TextureData {
     pub size: u64,
 }
 
+/// A 2D texture as a plan holds it, in resource plans and scene plans alike. `format` is the
+/// `TextureFormat` value and `color_space` the decoded value; `filter_mode` and the wrap modes
+/// are the sampler's values.
+#[derive(Debug, Serialize)]
+pub struct Texture2DAsset {
+    pub name: String,
+    pub width: i32,
+    pub height: i32,
+    pub format: i32,
+    pub mip_count: i32,
+    pub readable: bool,
+    pub color_space: i32,
+    pub filter_mode: i32,
+    pub wrap_u: i32,
+    pub wrap_v: i32,
+    pub wrap_w: i32,
+    pub aniso_level: i32,
+    pub mip_bias: f32,
+    pub data: TextureData,
+}
+
+/// A rectangle of a texture, in resource plans and scene plans alike. Rectangles and the border
+/// are in pixels (x, y, width, height and left, bottom, right, top); the pivot is a fraction of
+/// the rectangle. `packing_rotation` and `mesh_type` are the sprite's packed settings bits.
+#[derive(Debug, Serialize)]
+pub struct SpriteAsset {
+    pub name: String,
+    pub rect: [f32; 4],
+    pub pivot: [f32; 2],
+    pub pixels_per_unit: f32,
+    pub border: [f32; 4],
+    pub extrude: u32,
+    pub texture: Option<AssetRef>,
+    pub texture_rect: [f32; 4],
+    pub texture_rect_offset: [f32; 2],
+    pub packed: bool,
+    pub packing_rotation: u32,
+    pub mesh_type: u32,
+}
+
 const SETTINGS_PACKED: u32 = 1;
 const SETTINGS_ROTATION_SHIFT: u32 = 2;
 const SETTINGS_ROTATION_MASK: u32 = 0xf;
@@ -112,8 +152,15 @@ pub(crate) fn plan_texture(
     } else {
         streamed_data(file, &texture)?
     };
-    let settings = texture.settings;
     Ok(ResourceAsset::Texture2D {
+        texture: texture_asset(texture, data),
+    })
+}
+
+/// The texture's planned fields over the pixels at `data`.
+fn texture_asset(texture: Texture2D, data: TextureData) -> Texture2DAsset {
+    let settings = texture.settings;
+    Texture2DAsset {
         name: texture.name,
         width: texture.width,
         height: texture.height,
@@ -128,7 +175,37 @@ pub(crate) fn plan_texture(
         aniso_level: settings.aniso,
         mip_bias: settings.mip_bias,
         data,
-    })
+    }
+}
+
+/// Plans a texture for a scene plan, which has no directory of its own: pixels inside the
+/// texture's object are named in place in the serialized file (an absolute path), and pixels in
+/// a `.resS` file as for [`plan_texture`].
+pub(crate) fn plan_scene_texture(
+    files: &mut PlayerFiles,
+    key: &ObjectKey,
+) -> Result<Texture2DAsset, PlayerError> {
+    let (file, path_id) = key;
+    let open = files.open_path(file)?;
+    let texture: Texture2D = open.decode(*path_id)?;
+    let data = if texture.stream.path.is_empty() {
+        let object = *open.file.object(*path_id).expect("decoded objects exist");
+        let range = texture.image_data.clone();
+        if range.end > object.size as usize {
+            return Err(invalid(
+                file,
+                format!("texture {}: image data lies outside it", texture.name),
+            ));
+        }
+        TextureData {
+            file: std::path::absolute(file).map_err(io_error(file))?,
+            offset: object.offset + range.start as u64,
+            size: range.len() as u64,
+        }
+    } else {
+        streamed_data(file, &texture)?
+    };
+    Ok(texture_asset(texture, data))
 }
 
 /// The pixels a texture keeps in a `.resS` file beside its serialized `file`.
@@ -177,37 +254,76 @@ pub(crate) fn plan_sprite(
     registry: &mut Registry,
     key: &ObjectKey,
 ) -> Result<ResourceAsset, PlayerError> {
-    let (file, path_id) = key;
-    let sprite: Sprite = registry.files.open_path(file)?.decode(*path_id)?;
-    let place = format!("resource sprite {}", sprite.name);
-    if !sprite.bones.is_empty() {
-        registry.notes.push(format!("{place}: bones are not built"));
-    }
-    if !sprite.render_data.secondary_textures.is_empty() {
-        registry
-            .notes
-            .push(format!("{place}: secondary textures are not built"));
-    }
-    let placed = placement(registry, file, &sprite)?;
+    let parts = read_sprite(&mut registry.files, key)?;
+    registry.notes.extend(parts.notes.iter().cloned());
     let texture = asset_ref(
         registry,
-        &placed.owner,
-        placed.texture,
-        &format!("{place}.texture"),
+        &parts.placed.owner,
+        parts.placed.texture,
+        &format!("{}.texture", parts.place),
     );
     Ok(ResourceAsset::Sprite {
-        rect: sprite.rect,
-        pivot: sprite.pivot,
-        pixels_per_unit: sprite.pixels_to_units,
-        border: sprite.border,
-        extrude: sprite.extrude,
-        texture,
-        texture_rect: placed.texture_rect,
-        texture_rect_offset: placed.texture_rect_offset,
-        packed: placed.settings & SETTINGS_PACKED != 0,
-        packing_rotation: (placed.settings >> SETTINGS_ROTATION_SHIFT) & SETTINGS_ROTATION_MASK,
-        mesh_type: (placed.settings >> SETTINGS_MESH_SHIFT) & 1,
-        name: sprite.name,
+        sprite: parts.into_asset(texture),
+    })
+}
+
+/// A decoded sprite, before its texture is planned.
+pub(crate) struct SpriteParts {
+    sprite: Sprite,
+    /// `resource sprite <name>`, which names the sprite in differences.
+    place: String,
+    /// What the plan leaves out of the sprite.
+    pub(crate) notes: Vec<String>,
+    placed: Placement,
+}
+
+impl SpriteParts {
+    /// The file the texture reference is relative to, and the reference.
+    pub(crate) fn texture(&self) -> (&Path, PPtr) {
+        (&self.placed.owner, self.placed.texture)
+    }
+
+    /// The sprite over its planned texture, `None` when it has none.
+    pub(crate) fn into_asset(self, texture: Option<AssetRef>) -> SpriteAsset {
+        let (sprite, placed) = (self.sprite, self.placed);
+        SpriteAsset {
+            rect: sprite.rect,
+            pivot: sprite.pivot,
+            pixels_per_unit: sprite.pixels_to_units,
+            border: sprite.border,
+            extrude: sprite.extrude,
+            texture,
+            texture_rect: placed.texture_rect,
+            texture_rect_offset: placed.texture_rect_offset,
+            packed: placed.settings & SETTINGS_PACKED != 0,
+            packing_rotation: (placed.settings >> SETTINGS_ROTATION_SHIFT) & SETTINGS_ROTATION_MASK,
+            mesh_type: (placed.settings >> SETTINGS_MESH_SHIFT) & 1,
+            name: sprite.name,
+        }
+    }
+}
+
+/// Decodes the sprite and finds the texture it draws.
+pub(crate) fn read_sprite(
+    files: &mut PlayerFiles,
+    key: &ObjectKey,
+) -> Result<SpriteParts, PlayerError> {
+    let (file, path_id) = key;
+    let sprite: Sprite = files.open_path(file)?.decode(*path_id)?;
+    let place = format!("resource sprite {}", sprite.name);
+    let mut notes = Vec::new();
+    if !sprite.bones.is_empty() {
+        notes.push(format!("{place}: bones are not built"));
+    }
+    if !sprite.render_data.secondary_textures.is_empty() {
+        notes.push(format!("{place}: secondary textures are not built"));
+    }
+    let placed = placement(files, file, &sprite)?;
+    Ok(SpriteParts {
+        sprite,
+        place,
+        notes,
+        placed,
     })
 }
 
@@ -225,7 +341,7 @@ struct Placement {
 /// names no texture, the atlas's entry for the sprite's render data key, which holds the packed
 /// texture and the sprite's place in it.
 fn placement(
-    registry: &mut Registry,
+    files: &mut PlayerFiles,
     file: &Path,
     sprite: &Sprite,
 ) -> Result<Placement, PlayerError> {
@@ -240,9 +356,8 @@ fn placement(
     if !data.texture.is_null() || sprite.sprite_atlas.is_null() {
         return Ok(own);
     }
-    let owner = registry.files.referenced_file(file, sprite.sprite_atlas)?;
-    let atlas: SpriteAtlas = registry
-        .files
+    let owner = files.referenced_file(file, sprite.sprite_atlas)?;
+    let atlas: SpriteAtlas = files
         .open_path(&owner)?
         .decode(sprite.sprite_atlas.path_id)?;
     let Some((_, entry)) = atlas

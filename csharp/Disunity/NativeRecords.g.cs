@@ -651,7 +651,7 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  A stored texture's description. `present` is zero when a read names an identity nothing stored.
+    ///  A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per texel), or zero.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityTextureInfo
@@ -661,9 +661,6 @@ namespace Disunity.Native
         ///  Starts at 1 and rises by one each time the identity is stored again.
         /// </summary>
         public ulong generation;
-        /// <summary>
-        ///  The engine's `TextureFormat` value.
-        /// </summary>
         public uint format;
         public uint width;
         public uint height;
@@ -674,6 +671,75 @@ namespace Disunity.Native
         public uint linear;
         public uint length;
         public uint present;
+        public uint distance_spread;
+    }
+
+    /// <summary>
+    ///  Face measurements in pixels at the face's point size.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityFaceInfo
+    {
+        public uint face_index;
+        public uint units_per_em;
+        public float point_size;
+        public float scale;
+        public float line_height;
+        public float ascent_line;
+        public float cap_line;
+        public float mean_line;
+        public float baseline;
+        public float descent_line;
+        public float superscript_offset;
+        public float superscript_size;
+        public float subscript_offset;
+        public float subscript_size;
+        public float underline_offset;
+        public float underline_thickness;
+        public float strikethrough_offset;
+        public float strikethrough_thickness;
+        public float tab_width;
+    }
+
+    /// <summary>
+    ///  A glyph's size and placement in pixels at the face's point size.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityGlyphMetrics
+    {
+        public float width;
+        public float height;
+        public float bearing_x;
+        public float bearing_y;
+        public float advance;
+    }
+
+    /// <summary>
+    ///  A change to the advance of `first` when `second` follows it.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityGlyphPair
+    {
+        public uint first;
+        public uint second;
+        public float x_advance;
+    }
+
+    /// <summary>
+    ///  One glyph to draw into an atlas. `mode` is 0 for coverage and 1 for a signed distance field.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityGlyphRender
+    {
+        public uint glyph;
+        public uint mode;
+        public uint padding;
+        public uint x;
+        public uint y;
+        public uint width;
+        public uint height;
+        public uint atlas_width;
+        public uint atlas_height;
     }
 
 

@@ -9,6 +9,9 @@ use worldrunner_play::{Game, PlayDriver, key_code, prepare, prepare_player, run_
 use worldrunner_render_plan::simulation::SpriteTextures;
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
+/// The window a player opens in when `--size` is not given.
+const WINDOW_SIZE: [u32; 2] = [1920, 1080];
+
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
@@ -119,10 +122,12 @@ fn player(data: &std::path::Path, arguments: Arguments) -> Result<(), String> {
         return Err("--player takes no game name, --font or --seed".into());
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
-    let prepared =
-        prepare_player(data, scene, &arguments.command_line).map_err(|error| error.to_string())?;
     let windowed =
         arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
+    // The window opens at `--size`, else at the size the live loop defaults to.
+    let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
+    let prepared = prepare_player(data, scene, &arguments.command_line, screen)
+        .map_err(|error| error.to_string())?;
     if windowed {
         let driver = PlayDriver::boot(
             &prepared.config,
@@ -132,7 +137,7 @@ fn player(data: &std::path::Path, arguments: Arguments) -> Result<(), String> {
         )
         .map_err(|error| error.to_string())?;
         let title = format!("Disunity: {}", data.display());
-        return live(driver, title, [1920, 1080], arguments);
+        return live(driver, title, WINDOW_SIZE, arguments);
     }
     let dt = arguments
         .fixed_dt

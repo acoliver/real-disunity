@@ -8,6 +8,7 @@ pub use worldrunner_render_scene::device::{AdapterClass, AdapterIdentity};
 /// sizes presentation storage without choosing an engine quality preset.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameSettings {
+    pub shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
     pub frame_profile: crate::FrameProfile,
     pub presentation_budget: crate::PresentationBudgetPolicy,
 }
@@ -55,8 +56,7 @@ pub(crate) fn resolve(
             .map_err(crate::ViewerError::Driver)?
     {
         let mut resolved = options.clone();
-        resolved.frame_profile = settings.frame_profile;
-        resolved.presentation_budget = settings.presentation_budget;
+        apply_settings(&mut resolved, settings);
         crate::validate(scene, &resolved)?;
         *options = resolved;
         return Ok(true);
@@ -100,3 +100,18 @@ impl std::fmt::Debug for AdapterCallback {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod content_tests;
+
+pub(crate) fn apply_settings(options: &mut crate::ViewerOptions, settings: FrameSettings) {
+    options.frame_profile = settings.frame_profile;
+    options.presentation_budget = settings.presentation_budget;
+    options.shadows = settings.shadows;
+}
+
+/// Initial scene and optional options chosen on the selected rendering adapter.
+pub struct InitialContent {
+    pub scene: worldrunner_render_plan::RenderScene,
+    pub settings: Option<FrameSettings>,
+}

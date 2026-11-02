@@ -6,6 +6,8 @@ use std::sync::{Arc, mpsc};
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
+mod startup;
+use startup::Resolved;
 mod capture;
 mod environment;
 mod execution;
@@ -61,6 +63,7 @@ struct PlainScene {
 }
 
 impl Renderer {
+    #[cfg(all(test, target_os = "linux"))]
     pub async fn new(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
@@ -69,51 +72,31 @@ impl Renderer {
         profile: crate::FrameProfile,
         startup: Startup,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, scene, shadows, |_| Ok((profile, startup))).await
-    }
-
-    async fn with_options(
-        display: OwnedDisplayHandle,
-        window: Arc<Window>,
-        scene: &RenderScene,
-        options: &mut crate::ViewerOptions,
-        retained: Option<(
-            &mut u64,
-            &mut crate::retained::Captures,
-            &crate::retained::readiness::Readiness,
-        )>,
-    ) -> Result<Self, ViewerError> {
-        let shadows = options.shadows;
-        Self::surface(display, window, scene, shadows, |adapter| {
-            let recipes = retained.is_some();
-            let mut retained = retained;
-            crate::adapter::resolve_startup(
-                &adapter.get_info().into(),
-                scene,
-                options,
-                retained
-                    .as_mut()
-                    .map(|(pool, captures, readiness)| (&mut **pool, &mut **captures, *readiness)),
-            )?;
-            let mut startup = Startup::from(&*options);
-            startup.recipes = recipes;
-            if let Some((pool, _, _)) = retained {
-                startup.capture_pool = *pool;
-            }
-            Ok((options.frame_profile, startup))
+        Self::surface(display, window, |_| {
+            Ok(Resolved {
+                scene: std::borrow::Cow::Borrowed(scene),
+                shadows,
+                profile,
+                startup,
+            })
         })
         .await
     }
 
-    async fn surface(
+    async fn surface<'a>(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
-        scene: &RenderScene,
-        shadows: Option<DirectionalShadowSettings>,
-        resolve: impl FnOnce(&wgpu::Adapter) -> Result<(crate::FrameProfile, Startup), ViewerError>,
+        resolve: impl FnOnce(&wgpu::Adapter) -> Result<Resolved<'a>, ViewerError>,
     ) -> Result<Self, ViewerError> {
-        let (instance, surface, context, policy, profile, startup) =
-            surface_context(display, window.clone(), scene, resolve).await?;
+        let (instance, surface, context, policy, resolved) =
+            surface_context(display, window.clone(), resolve).await?;
+        let Resolved {
+            scene,
+            shadows,
+            profile,
+            startup,
+        } = resolved;
+        let scene = scene.as_ref();
         let errors = device_errors(context.device(), context.submission());
         let size = window.inner_size();
         let extents = Extents::for_device([size.width, size.height], context.device())?;
@@ -636,19 +619,17 @@ impl From<usize> for Startup {
     }
 }
 
-async fn surface_context(
+async fn surface_context<'a>(
     display: OwnedDisplayHandle,
     window: Arc<Window>,
-    scene: &RenderScene,
-    resolve: impl FnOnce(&wgpu::Adapter) -> Result<(crate::FrameProfile, Startup), ViewerError>,
+    resolve: impl FnOnce(&wgpu::Adapter) -> Result<Resolved<'a>, ViewerError>,
 ) -> Result<
     (
         wgpu::Instance,
         wgpu::Surface<'static>,
         GpuContext,
         SurfacePolicy,
-        crate::FrameProfile,
-        Startup,
+        Resolved<'a>,
     ),
     ViewerError,
 > {
@@ -664,10 +645,16 @@ async fn surface_context(
         .await?;
     let size = window.inner_size();
     let capabilities = surface.get_capabilities(&adapter);
-    let (profile, startup) = resolve(&adapter)?;
-    let policy = surface_policy(&capabilities, [size.width, size.height], &startup)?;
-    let context = timing::context(adapter, required_features(scene), startup.gpu_timing).await?;
-    Ok((instance, surface, context, policy, profile, startup))
+    let resolved = resolve(&adapter)?;
+    let startup = &resolved.startup;
+    let policy = surface_policy(&capabilities, [size.width, size.height], startup)?;
+    let context = timing::context(
+        adapter,
+        required_features(&resolved.scene),
+        startup.gpu_timing,
+    )
+    .await?;
+    Ok((instance, surface, context, policy, resolved))
 }
 
 #[cfg(test)]
@@ -675,3 +662,6 @@ mod adapter_tests;
 
 #[cfg(test)]
 mod adapter_frame_tests;
+
+#[cfg(test)]
+mod adapter_content_tests;

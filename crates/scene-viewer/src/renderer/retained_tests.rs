@@ -453,12 +453,12 @@ fn publish(
 }
 
 fn replace_tables(host: &mut crate::RetainedHost) -> SceneObject {
-    let mut meshes = host.scene.geometry().meshes().to_vec();
+    let mut meshes = host.scene().geometry().meshes().to_vec();
     meshes.push(meshes[0].clone());
-    let mut materials = host.scene.resources().materials().to_vec();
+    let mut materials = host.scene().resources().materials().to_vec();
     materials.push(materials[0]);
     let resources =
-        SceneResources::new(host.scene.resources().textures().to_vec(), materials).unwrap();
+        SceneResources::new(host.scene().resources().textures().to_vec(), materials).unwrap();
     host.apply(crate::RetainedUpdate::Resources { resources, meshes })
         .unwrap();
     SceneObject::new(

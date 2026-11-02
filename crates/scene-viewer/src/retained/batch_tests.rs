@@ -60,7 +60,7 @@ fn batch_adds_replaces_and_removes_in_one_generation() {
     assert_eq!(ids, [ObjectId(0), ObjectId(9)]);
     host.materialize_objects().unwrap();
     let objects: Vec<_> = host.objects().map(|(_, object)| object).collect();
-    assert_eq!(host.scene.geometry().objects(), objects.as_slice());
+    assert_eq!(host.scene().geometry().objects(), objects.as_slice());
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn invalid_edit_leaves_host_unchanged_and_names_its_index() {
         .unwrap_err();
     assert!(error.to_string().contains("object edit 1"), "{error}");
     assert_eq!(snapshot(&host), before);
-    assert_eq!(host.scene.geometry().objects().len(), before.len());
+    assert_eq!(host.scene().geometry().objects().len(), before.len());
     assert_eq!(host.accepted_generation(), generation);
     assert_eq!(host.preparations_in_flight(), in_flight);
 }

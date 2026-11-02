@@ -37,7 +37,7 @@ fn host(limit: usize) -> RetainedHost {
 #[test]
 fn unrelated_edits_and_resource_replacement_share_unchanged_terrain() {
     let mut host = host(4);
-    let original = host.scene.clone();
+    let original = host.scene().clone();
     host.apply(RetainedUpdate::Replace {
         id: ObjectId(0),
         object: host.object(ObjectId(0)).unwrap(),
@@ -45,16 +45,16 @@ fn unrelated_edits_and_resource_replacement_share_unchanged_terrain() {
     .unwrap();
     assert!(std::ptr::eq(
         original.terrain().unwrap(),
-        host.scene.terrain().unwrap()
+        host.scene().terrain().unwrap()
     ));
     host.apply(RetainedUpdate::Resources {
-        resources: host.scene.resources().clone(),
-        meshes: host.scene.geometry().meshes().to_vec(),
+        resources: host.scene().resources().clone(),
+        meshes: host.scene().geometry().meshes().to_vec(),
     })
     .unwrap();
     assert!(std::ptr::eq(
         original.terrain().unwrap(),
-        host.scene.terrain().unwrap()
+        host.scene().terrain().unwrap()
     ));
     let prepared = host.readiness.queue[1]
         .scene
@@ -72,14 +72,14 @@ fn unrelated_edits_and_resource_replacement_share_unchanged_terrain() {
 #[test]
 fn terrain_preparations_keep_each_atomic_generation_and_obey_pressure() {
     let mut host = host(3);
-    let first = Arc::new(host.scene.terrain().unwrap().clone());
+    let first = Arc::new(host.scene().terrain().unwrap().clone());
     let second = Arc::new(first.as_ref().clone());
     host.apply(RetainedUpdate::Terrain(Some(first.clone())))
         .unwrap();
     host.apply(RetainedUpdate::Terrain(Some(second.clone())))
         .unwrap();
     host.apply(RetainedUpdate::Terrain(None)).unwrap();
-    assert!(host.scene.terrain().is_none());
+    assert!(host.scene().terrain().is_none());
     assert_eq!(host.ready_generation(), 0);
     assert!(matches!(
         host.apply(RetainedUpdate::Terrain(Some(first.clone()))),
@@ -132,5 +132,5 @@ fn invalid_terrain_references_leave_accepted_state_unchanged() {
     );
     assert_eq!(host.accepted_generation(), 0);
     assert_eq!(host.preparations_in_flight(), 0);
-    assert!(host.scene.terrain().is_none());
+    assert!(host.scene().terrain().is_none());
 }

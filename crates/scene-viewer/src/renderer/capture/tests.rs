@@ -7,7 +7,7 @@ fn recipe_returns_linear_hdr_before_tone_mapping_and_plain_bytes_are_unchanged()
         },
         crate::presentation::COLOR,
     );
-    let effects = bright_effects(h.host.scene.effects().unwrap());
+    let effects = bright_effects(h.host.scene().effects().unwrap());
     h.host
         .apply(RetainedUpdate::Settings(Box::new(effects)))
         .unwrap();
@@ -319,7 +319,7 @@ impl Harness {
         }
     }
     fn replacement(&mut self, pixel: [u8; 4]) {
-        let source = self.host.scene.clone();
+        let source = self.host.scene().clone();
         let texture = SceneTexture::Texels {
             format: TexelFormat::Rgba8Unorm,
             color_space: TextureColorSpace::Srgb,

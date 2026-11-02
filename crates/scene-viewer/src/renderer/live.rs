@@ -43,34 +43,10 @@ impl Renderer {
         window: Arc<Window>,
         source: SceneSource<'_>,
     ) -> Result<Self, ViewerError> {
-        match source {
-            SceneSource::Static { scene, options } => {
-                Self::with_options(display, window, scene, options, None).await
-            }
-            SceneSource::Retained(host) => {
-                let renderer = Self::with_options(
-                    display,
-                    window,
-                    &host.initial_scene,
-                    &mut host.options,
-                    Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
-                )
-                .await?;
-                Ok(renderer)
-            }
-            SceneSource::Live => {
-                let scene = empty_scene();
-                Self::new(
-                    display,
-                    window,
-                    &scene,
-                    None,
-                    crate::FrameProfile::Legacy,
-                    2.into(),
-                )
-                .await
-            }
-        }
+        Self::surface(display, window, |adapter| {
+            super::startup::resolve(source, adapter)
+        })
+        .await
     }
 
     pub fn render_viewport(&self) -> Viewport {
@@ -254,7 +230,7 @@ impl Capture {
     }
 }
 
-fn empty_scene() -> RenderScene {
+pub(super) fn empty_scene() -> RenderScene {
     use worldrunner_render_plan::{SceneGeometry, SceneParts, SceneResources};
     RenderScene::new(SceneParts {
         resources: SceneResources::new(vec![], vec![]).expect("empty resources"),

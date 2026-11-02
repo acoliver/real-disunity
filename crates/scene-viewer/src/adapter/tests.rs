@@ -13,8 +13,9 @@ fn identity() -> AdapterIdentity {
     }
 }
 
-fn settings() -> FrameSettings {
+pub(super) fn settings() -> FrameSettings {
     FrameSettings {
+        shadows: Some(crate::renderer::retained_tests::shadow_settings()),
         frame_profile: FrameProfile::Hdr {
             samples: 4,
             tone_map: ToneMap::Reinhard,
@@ -123,7 +124,7 @@ fn adapter_frame_derived_pool_uses_resolved_sample_count() {
     host.captures.recipes.insert(0, recipe());
     resolve_startup(
         &identity(),
-        &host.initial_scene,
+        host.initial_scene.as_ref().unwrap(),
         &mut host.options,
         Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
     )
@@ -147,7 +148,7 @@ fn adapter_frame_none_preserves_existing_pool() {
     let before = host.capture_pool_bytes();
     resolve_startup(
         &identity(),
-        &host.initial_scene,
+        host.initial_scene.as_ref().unwrap(),
         &mut host.options,
         Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
     )
@@ -212,7 +213,7 @@ fn adapter_frame_rejects_prequeued_hdr_capture_when_resolving_legacy() {
     assert!(matches!(
         resolve_startup(
             &identity(),
-            &host.initial_scene,
+            host.initial_scene.as_ref().unwrap(),
             &mut host.options,
             Some((&mut host.capture_pool, &mut host.captures, &host.readiness,))
         ),
@@ -236,7 +237,7 @@ fn retained_host(profile: FrameProfile) -> crate::RetainedHost {
 
 fn queue_ssr(host: &mut crate::RetainedHost) {
     let effects = host
-        .scene
+        .scene()
         .effects()
         .unwrap()
         .clone()
@@ -249,7 +250,7 @@ fn queue_ssr(host: &mut crate::RetainedHost) {
 fn resolve_host(host: &mut crate::RetainedHost) -> Result<(), ViewerError> {
     resolve_startup(
         &identity(),
-        &host.initial_scene,
+        host.initial_scene.as_ref().unwrap(),
         &mut host.options,
         Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
     )
@@ -271,12 +272,12 @@ fn adapter_frame_rejects_prequeued_ssr_when_resolving_legacy() {
 #[test]
 fn adapter_frame_rejects_incompatible_intermediate_settings_generation() {
     let mut host = retained_host(FrameProfile::Legacy);
-    let initial = host.scene.effects().unwrap().clone();
+    let initial = host.scene().effects().unwrap().clone();
     queue_ssr(&mut host);
     host.apply(crate::RetainedUpdate::Settings(Box::new(initial)))
         .unwrap();
     assert_eq!(host.accepted_generation(), 2);
-    assert!(host.scene.effects().unwrap().ssr().is_none());
+    assert!(host.scene().effects().unwrap().ssr().is_none());
     assert!(matches!(
         resolve_host(&mut host),
         Err(ViewerError::UnsupportedScene(
@@ -289,7 +290,7 @@ fn adapter_frame_rejects_incompatible_intermediate_settings_generation() {
 fn adapter_frame_compatible_prequeued_settings_resolve_without_gpu() {
     for profile in [FrameProfile::Legacy, settings().frame_profile] {
         let mut host = retained_host(profile);
-        let initial = host.scene.effects().unwrap().clone();
+        let initial = host.scene().effects().unwrap().clone();
         host.apply(crate::RetainedUpdate::Settings(Box::new(initial)))
             .unwrap();
         if profile != FrameProfile::Legacy {

@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod startup;
 mod timing;
 pub use timing::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
@@ -175,8 +176,9 @@ pub struct RetainedHost {
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
     pub(crate) capture_pool: u64,
-    pub(crate) scene: RenderScene,
-    pub(crate) initial_scene: RenderScene,
+    pub(crate) scene: Option<RenderScene>,
+    pub(crate) initial_scene: Option<RenderScene>,
+    initial_content: Option<startup::Supplier>,
     pub(crate) readiness: readiness::Readiness,
     pub(crate) options: ViewerOptions,
     objects: BTreeMap<ObjectId, SceneObject>,
@@ -190,68 +192,6 @@ pub struct RetainedHost {
 }
 
 impl RetainedHost {
-    pub fn new(scene: RenderScene, options: ViewerOptions) -> Result<Self, ViewerError> {
-        let scene = crate::reflection_settings::startup_scene(scene, &options)?;
-        crate::validate(&scene, &options)?;
-        worldrunner_render_scene::draw::validate_decal_materials(&scene)?;
-        let objects = scene
-            .geometry()
-            .objects()
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(index, object)| (ObjectId(index as u64), object))
-            .collect();
-        let size = options.size;
-        Ok(Self {
-            statistics: None,
-            gpu_timing: if options.gpu_timing {
-                GpuTiming::Pending
-            } else {
-                GpuTiming::Disabled
-            },
-            captures: capture::Captures::default(),
-            capture_pool: options.capture_pool.effective_bytes(
-                options.frame_profile.target().1,
-                capture::ao_format(scene.effects()),
-            )?,
-            initial_scene: scene.clone(),
-            readiness: readiness::Readiness {
-                queue: std::collections::VecDeque::new(),
-                limit: 64,
-                accepted: 0,
-                ready: 0,
-                published: 0,
-                capture_features: capture::features(scene.effects()),
-                capture_ao_format: capture::ao_format(scene.effects()),
-                pages_enabled: scene
-                    .terrain()
-                    .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
-                    .is_some(),
-                page_wait: false,
-                geometry_wait: false,
-                camera: (options.pose, options.camera, options.camera_convention),
-                #[cfg(test)]
-                preparation_hook: None,
-            },
-            decals: scene
-                .decals()
-                .iter()
-                .copied()
-                .enumerate()
-                .map(|(i, d)| (i as u64, d))
-                .collect(),
-            scene,
-            options,
-            objects,
-            objects_stale: false,
-            input_state: input::InputState::default(),
-            size,
-            exit: false,
-            occluded: false,
-        })
-    }
-
     /// Effective startup options, including any selected-adapter frame decision.
     pub fn options(&self) -> &ViewerOptions {
         &self.options
@@ -278,6 +218,7 @@ impl RetainedHost {
 
     /// Invalid edits fail before changing CPU state or enqueuing GPU work.
     pub fn apply(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
+        self.require_initial_scene()?;
         if self.preparations_in_flight() == self.readiness.limit {
             return Err(ViewerError::BackPressure {
                 limit: self.readiness.limit,
@@ -302,11 +243,11 @@ impl RetainedHost {
         if let RetainedUpdate::Terrain(terrain) = &update {
             self.materialize_objects()?;
             let scene = self
-                .scene
+                .scene()
                 .with_terrain(terrain.clone())
                 .map_err(|error| ViewerError::Driver(error.to_string()))?;
             crate::validate(&scene, &self.options)?;
-            self.scene = scene;
+            self.scene = Some(scene);
             self.enqueue(update, true);
             return Ok(());
         }
@@ -355,12 +296,12 @@ impl RetainedHost {
     /// Settings and resource updates, which read or replace the whole scene.
     fn apply_scene_replacement(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
         self.materialize_objects()?;
-        let mut effects = self.scene.effects().cloned();
+        let mut effects = self.scene().effects().cloned();
         let mut replacement = None;
         let rebuild = match &update {
             RetainedUpdate::Settings(next) => {
                 Self::validate_streamed_effects(next, &self.options)?;
-                let rebuild = readiness::resource_settings_changed(self.scene.effects(), next);
+                let rebuild = readiness::resource_settings_changed(self.scene().effects(), next);
                 effects = Some(*next.clone());
                 rebuild
             }
@@ -375,7 +316,7 @@ impl RetainedHost {
         };
         let scene = self.edited_scene(replacement, &self.objects, effects)?;
         worldrunner_render_scene::draw::validate_decal_materials(&scene)?;
-        self.scene = scene;
+        self.scene = Some(scene);
         self.enqueue(update, rebuild);
         Ok(())
     }
@@ -394,7 +335,7 @@ impl RetainedHost {
             crate::validate(&scene, &self.options)?;
             Ok(scene)
         } else {
-            self.scene
+            self.scene()
                 .with_objects_and_effects(objects.values().copied().collect(), effects)
                 .map_err(|error| ViewerError::Driver(error.to_string()))
         }
@@ -422,8 +363,8 @@ impl RetainedHost {
             .transform()
             .validate()
             .map_err(worldrunner_render_scene::draw::InstanceError::from)?;
-        if object.mesh().raw() as usize >= self.scene.geometry().meshes().len()
-            || object.material().raw() as usize >= self.scene.resources().materials().len()
+        if object.mesh().raw() as usize >= self.scene().geometry().meshes().len()
+            || object.material().raw() as usize >= self.scene().resources().materials().len()
         {
             return Err(ViewerError::Driver(
                 "object references a nonresident resource".into(),
@@ -448,7 +389,7 @@ impl RetainedHost {
     }
 
     pub fn view(&self) -> Result<Option<SceneView>, ViewerError> {
-        if self.size.contains(&0) || self.occluded {
+        if self.initial_scene.is_none() || self.size.contains(&0) || self.occluded {
             return Ok(None);
         }
         Ok(Some(SceneView::with_convention(

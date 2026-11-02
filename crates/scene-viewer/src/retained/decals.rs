@@ -29,12 +29,12 @@ impl RetainedHost {
             }
         }
         let scene = self
-            .scene
+            .scene()
             .with_decals(decals.values().copied().collect())
             .map_err(|error| ViewerError::Driver(error.to_string()))?;
         crate::validate(&scene, &self.options)?;
         worldrunner_render_scene::draw::validate_decal_materials(&scene)?;
-        self.scene = scene;
+        self.scene = Some(scene);
         self.decals = decals;
         self.enqueue(RetainedUpdate::Decal(update), false);
         Ok(())
@@ -83,7 +83,7 @@ mod tests {
                 }))
                 .is_err()
             );
-            assert_eq!(host.scene, scene);
+            assert_eq!(host.scene(), &scene);
             assert_eq!(host.accepted_generation(), 0);
             assert_eq!(host.preparations_in_flight(), 0);
             assert!(host.readiness.queue.is_empty());
@@ -93,7 +93,7 @@ mod tests {
             decal: decal(),
         }))
         .unwrap();
-        let previous = host.scene.clone();
+        let previous = host.scene().clone();
         let mut invalid = decal();
         invalid.write_mask = worldrunner_render_plan::SceneDecalWriteMask::from_bits(8);
         assert!(
@@ -103,7 +103,7 @@ mod tests {
             }))
             .is_err()
         );
-        assert_eq!(host.scene, previous);
+        assert_eq!(host.scene(), &previous);
         assert_eq!(host.accepted_generation(), 1);
         assert_eq!(host.readiness.queue.len(), 1);
     }
@@ -111,7 +111,7 @@ mod tests {
     fn retained_decal_edits_are_ordered_atomic_without_scene_preparation() {
         let scene = crate::renderer::retained_tests::source();
         let mut host = RetainedHost::new(scene, crate::tests::options()).unwrap();
-        let original = host.scene.clone();
+        let original = host.scene().clone();
         let edit = |edit| RetainedUpdate::Decal(edit);
         host.apply(edit(DecalUpdate::Add {
             id: 7,
@@ -143,7 +143,7 @@ mod tests {
             .is_err()
         );
         assert_eq!(host.accepted_generation(), 1);
-        assert_eq!(host.scene.decals(), &[decal()]);
+        assert_eq!(host.scene().decals(), &[decal()]);
         replacement.material = MaterialHandle::from_raw(0);
         host.apply(edit(DecalUpdate::Replace {
             id: 7,
@@ -152,7 +152,7 @@ mod tests {
         .unwrap();
         host.apply(edit(DecalUpdate::Remove(7))).unwrap();
         assert!(host.apply(edit(DecalUpdate::Remove(7))).is_err());
-        assert_eq!(host.scene, original);
+        assert_eq!(host.scene(), &original);
         assert_eq!(host.readiness.queue.len(), 3);
         assert!(host.readiness.queue.iter().all(|p| p.scene.is_none()));
     }

@@ -283,7 +283,7 @@ fn retained_capture_decodes_gather_ao() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut host = camera_host(None);
-    let effects = host.scene.effects().unwrap().clone();
+    let effects = host.scene().effects().unwrap().clone();
     let mut ao = *effects.ssao().unwrap();
     ao.receiver = worldrunner_render_plan::SceneSsaoReceiver::DepthAwareGather;
     host.apply(RetainedUpdate::Settings(Box::new(

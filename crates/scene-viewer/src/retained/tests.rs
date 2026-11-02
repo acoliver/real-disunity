@@ -13,7 +13,7 @@ fn environment_intensity_updates_are_retained_without_gpu_work() {
         host.apply(RetainedUpdate::Settings(Box::new(effects)))
             .unwrap();
         assert_eq!(
-            host.scene.effects().unwrap().environment(),
+            host.scene().effects().unwrap().environment(),
             Some(environment)
         );
         assert_eq!(host.ready_generation(), 0);
@@ -28,7 +28,7 @@ fn environment_intensity_updates_are_retained_without_gpu_work() {
     );
     assert_eq!(host.accepted_generation(), generation);
     assert_eq!(
-        host.scene
+        host.scene()
             .effects()
             .unwrap()
             .environment()
@@ -78,16 +78,18 @@ use worldrunner_render_plan::*;
 #[test]
 fn atmospheric_settings_are_prepared_in_generation_order() {
     let mut host = host();
-    let base = host.scene.effects().unwrap().clone();
+    let base = host.scene().effects().unwrap().clone();
     let atmosphere = policy_atmosphere();
     let initial = base.clone().with_atmosphere(atmosphere.clone()).unwrap();
-    host.scene = RenderScene::new(SceneParts {
-        resources: host.scene.resources().clone(),
-        geometry: host.scene.geometry().clone(),
-        terrain: None,
-        effects: Some(initial.clone()),
-    })
-    .unwrap();
+    host.scene = Some(
+        RenderScene::new(SceneParts {
+            resources: host.scene().resources().clone(),
+            geometry: host.scene().geometry().clone(),
+            terrain: None,
+            effects: Some(initial.clone()),
+        })
+        .unwrap(),
+    );
     host.apply(RetainedUpdate::Settings(Box::new(initial.clone())))
         .unwrap();
     let mut generation = host.accepted_generation();
@@ -115,7 +117,7 @@ fn atmospheric_settings_are_prepared_in_generation_order() {
         generation += 1;
         assert_eq!(host.accepted_generation(), generation);
         assert_eq!(host.ready_generation(), 0);
-        assert_eq!(host.scene.effects(), Some(&effects));
+        assert_eq!(host.scene().effects(), Some(&effects));
     }
 }
 
@@ -352,7 +354,7 @@ fn assert_camera_mirror_and_default_bytes(
 }
 
 fn install_environment_resources(host: &mut RetainedHost) -> (SceneEffects, SceneEnvironment) {
-    let mut textures = host.scene.resources().textures().to_vec();
+    let mut textures = host.scene().resources().textures().to_vec();
     let cube = TextureHandle::from_raw(u32::try_from(textures.len()).unwrap());
     textures.push(SceneTexture::SpecularCube(
         SceneSpecularCube::rgba16_float(1, 1, vec![0; 48].into()).unwrap(),
@@ -367,22 +369,23 @@ fn install_environment_resources(host: &mut RetainedHost) -> (SceneEffects, Scen
         bytes: vec![0; 4].into(),
     });
     let resources =
-        SceneResources::new(textures, host.scene.resources().materials().to_vec()).unwrap();
+        SceneResources::new(textures, host.scene().resources().materials().to_vec()).unwrap();
     let initial = host
-        .scene
+        .scene()
         .effects()
         .unwrap()
         .clone()
         .with_ssr(SceneSsr::default())
         .unwrap();
-    host.scene = host
-        .scene
-        .with_resources(
-            resources,
-            host.scene.geometry().clone(),
-            Some(initial.clone()),
-        )
-        .unwrap();
+    host.scene = Some(
+        host.scene()
+            .with_resources(
+                resources,
+                host.scene().geometry().clone(),
+                Some(initial.clone()),
+            )
+            .unwrap(),
+    );
     let environment = SceneEnvironment::new(
         cube,
         brdf_lut,

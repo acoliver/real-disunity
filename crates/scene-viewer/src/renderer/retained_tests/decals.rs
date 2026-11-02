@@ -40,7 +40,7 @@ fn unsupported_decal_normal_controls_preserve_scene_and_pending_edits() {
         decal: decal(first),
     }))
     .unwrap();
-    let previous = host.scene.clone();
+    let previous = host.scene().clone();
     let pending = format!("{:?}", host.readiness.queue.front().unwrap().update);
     for material in first + 1..first + 4 {
         for update in [
@@ -54,7 +54,7 @@ fn unsupported_decal_normal_controls_preserve_scene_and_pending_edits() {
             },
         ] {
             assert!(host.apply(RetainedUpdate::Decal(update)).is_err());
-            assert_eq!(host.scene, previous);
+            assert_eq!(host.scene(), &previous);
             assert_eq!(host.accepted_generation(), 1);
             assert_eq!(host.preparations_in_flight(), 1);
             assert_eq!(host.readiness.queue.len(), 1);
@@ -154,7 +154,7 @@ fn unsupported_maps_and_incompatible_arrays_reject_before_acceptance_then_valid_
             }))
             .is_err()
         );
-        assert_eq!(host.scene, scene);
+        assert_eq!(host.scene(), &scene);
         assert_eq!(host.accepted_generation(), 0);
         assert_eq!(host.preparations_in_flight(), 0);
         assert!(host.readiness.queue.is_empty());

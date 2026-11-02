@@ -34,7 +34,7 @@ fn windowless_custom_budget_survives_resize_settings_and_single_sample_recipe() 
     renderer.drain().unwrap();
     let generation = renderer.presentation.scheduler.generation();
     let effects = host
-        .scene
+        .scene()
         .effects()
         .unwrap()
         .clone()
@@ -106,7 +106,7 @@ fn native_rcas_settings_publish_once_with_an_earlier_frame_in_flight() {
     let authority = renderer.context.submission();
     assert!(authority.submitted_serial() > authority.completed_serial());
     let generation = renderer.presentation.scheduler.generation();
-    let effects = host.scene.effects().unwrap().clone();
+    let effects = host.scene().effects().unwrap().clone();
     host.apply(crate::RetainedUpdate::Settings(Box::new(effects)))
         .unwrap();
     renderer.publish_retained(&mut host).unwrap();

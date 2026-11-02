@@ -181,6 +181,20 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  What the host draws one material slot of a renderer with: a linear colour multiplier and the
+    ///  renderer identity of a texture, 0 for none.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityDrawnMaterial
+    {
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public ulong texture;
+    }
+
+    /// <summary>
     ///  A sorting group's settings; booleans are 0 or 1. A write rejects a boolean above 1 and
     ///  changes nothing. Sorting layer 0 is the only layer the engine registers.
     /// </summary>
@@ -728,18 +742,6 @@ namespace Disunity.Native
         public float g;
         public float b;
         public float a;
-    }
-
-    /// <summary>
-    ///  A run of triangle indices that one material slot draws. `slot` is the sub-mesh's number in
-    ///  the managed mesh, so a left-out sub-mesh leaves a gap in the slots.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityMeshSubMesh
-    {
-        public uint slot;
-        public uint first_index;
-        public uint index_count;
     }
 
 }

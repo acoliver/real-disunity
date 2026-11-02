@@ -1,8 +1,12 @@
 //! Mesh renderer, skinned mesh renderer and mesh filter component settings. The rules live in
 //! world-simulation; this file converts records.
-use crate::{DisunityResult, callbacks::mutate, errors::AbiError, physics::component};
+use crate::{
+    DisunityResult, callbacks::mutate, errors::AbiError, meshes::FIRST_PLAYER_MESH,
+    physics::component,
+};
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
+    ComponentDesc, ComponentHandle, DrawnMaterial, MAX_RENDERER_MATERIALS, MeshFilter,
+    MeshRenderer, RendererKind, RendererSwitches,
 };
 
 /// A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer, 1 for a
@@ -66,7 +70,7 @@ impl DisunityMeshRenderer {
         if flags.iter().any(|flag| *flag > 1) {
             return Err("renderer boolean settings must be 0 or 1".into());
         }
-        if self.kind != Self::from_native(current).kind {
+        if self.kind != Self::from_native(current.clone()).kind {
             return Err("a renderer's kind cannot be changed".into());
         }
         Ok(MeshRenderer {
@@ -87,6 +91,13 @@ impl DisunityMeshRenderer {
             sorting_layer: self.sorting_layer,
             sorting_order: self.sorting_order,
             material_count: self.material_count,
+            // Only `disunity_mesh_renderer_slots_write` sets what the slots draw with; the ones
+            // past a lowered material count go with the materials.
+            drawn: current
+                .drawn
+                .into_iter()
+                .take(self.material_count as usize)
+                .collect(),
         })
     }
 }
@@ -96,8 +107,8 @@ fn renderer(
     handle: u64,
 ) -> Result<(ComponentHandle, MeshRenderer), AbiError> {
     let id = component(session, handle)?;
-    match session.native.component(id)?.desc {
-        ComponentDesc::MeshRenderer(renderer) => Ok((id, renderer)),
+    match &session.native.component(id)?.desc {
+        ComponentDesc::MeshRenderer(renderer) => Ok((id, renderer.clone())),
         _ => Err("component is not a MeshRenderer or SkinnedMeshRenderer".into()),
     }
 }
@@ -233,9 +244,159 @@ pub unsafe extern "C" fn disunity_mesh_filter_read(
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_mesh_filter_write(world: u64, handle: u64, mesh: u64) -> DisunityResult {
     mutate(world, |s| {
-        let (id, _) = filter(s, handle)?;
+        let (id, current) = filter(s, handle)?;
+        let drawn_mesh = if mesh == current.mesh {
+            current.drawn_mesh
+        } else {
+            0
+        };
+        s.native.set_component(
+            id,
+            ComponentDesc::MeshFilter(MeshFilter { mesh, drawn_mesh }),
+        )?;
+        Ok(())
+    })
+}
+
+/// Sets the renderer identity the host knows the filter's mesh contents by; 0 for none. A
+/// nonzero identity must be a player mesh identity. Naming another mesh with
+/// `disunity_mesh_filter_write` resets it.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_mesh_filter_drawn_write(
+    world: u64,
+    handle: u64,
+    identity: u64,
+) -> DisunityResult {
+    mutate(world, |s| {
+        if identity != 0 && identity < FIRST_PLAYER_MESH {
+            return Err("a mesh filter draws a player mesh identity or none".into());
+        }
+        let (id, current) = filter(s, handle)?;
+        s.native.set_component(
+            id,
+            ComponentDesc::MeshFilter(MeshFilter {
+                drawn_mesh: identity,
+                ..current
+            }),
+        )?;
+        Ok(())
+    })
+}
+
+/// Reads the renderer identity the host knows the filter's mesh contents by, 0 for none.
+/// # Safety
+/// Output is writable for one identity.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_mesh_filter_drawn_read(
+    world: u64,
+    handle: u64,
+    output: *mut u64,
+) -> DisunityResult {
+    if output.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (_, value) = filter(s, handle)?;
+        unsafe { *output = value.drawn_mesh };
+        Ok(())
+    })
+}
+
+/// What the host draws one material slot of a renderer with: a linear colour multiplier and the
+/// renderer identity of a texture, 0 for none.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityDrawnMaterial {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub texture: u64,
+}
+
+/// Replaces what the host draws each material slot with. `count` is at most the renderer's
+/// `material_count`; slots past it draw white and untextured. Colour channels must be finite and
+/// not negative, and a nonzero texture must be a player texture identity. A rejected call changes
+/// nothing.
+///
+/// # Safety
+/// `slots` is readable for `count` records, or null when `count` is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_mesh_renderer_slots_write(
+    world: u64,
+    handle: u64,
+    slots: *const DisunityDrawnMaterial,
+    count: u32,
+) -> DisunityResult {
+    if count > MAX_RENDERER_MATERIALS || (count > 0 && slots.is_null()) {
+        return DisunityResult::invalid_argument();
+    }
+    let given: &[DisunityDrawnMaterial] = if count == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(slots, count as usize) }
+    };
+    mutate(world, |s| {
+        let (id, mut current) = renderer(s, handle)?;
+        if given
+            .iter()
+            .any(|slot| slot.texture != 0 && slot.texture < crate::textures::FIRST_PLAYER_TEXTURE)
+        {
+            return Err("a renderer slot draws a player texture identity or none".into());
+        }
+        current.drawn = given
+            .iter()
+            .map(|slot| DrawnMaterial {
+                color: [slot.r, slot.g, slot.b, slot.a],
+                texture: slot.texture,
+            })
+            .collect();
         s.native
-            .set_component(id, ComponentDesc::MeshFilter(MeshFilter { mesh }))?;
+            .set_component(id, ComponentDesc::MeshRenderer(current))?;
+        Ok(())
+    })
+}
+
+/// Reads the slots the host draws with into `slots` (up to `capacity` records) and writes how
+/// many the renderer holds to `count`.
+///
+/// # Safety
+/// `slots` is writable for `capacity` records, or null when `capacity` is zero; `count` is
+/// writable for one value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_mesh_renderer_slots_read(
+    world: u64,
+    handle: u64,
+    slots: *mut DisunityDrawnMaterial,
+    capacity: u32,
+    count: *mut u32,
+) -> DisunityResult {
+    if count.is_null() || (capacity > 0 && slots.is_null()) {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (_, current) = renderer(s, handle)?;
+        let held = u32::try_from(current.drawn.len()).map_err(|_| "slot count overflow")?;
+        unsafe { *count = held };
+        if capacity == 0 {
+            return Ok(());
+        }
+        if capacity < held {
+            return Err("renderer slot capacity is too small".into());
+        }
+        for (index, slot) in current.drawn.iter().enumerate() {
+            let [r, g, b, a] = slot.color;
+            let texture = slot.texture;
+            unsafe {
+                slots.add(index).write(DisunityDrawnMaterial {
+                    r,
+                    g,
+                    b,
+                    a,
+                    texture,
+                });
+            }
+        }
         Ok(())
     })
 }

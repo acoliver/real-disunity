@@ -12,6 +12,18 @@ namespace Disunity.Native
 {
 
     /// <summary>
+    ///  A run of triangle indices that one material slot draws. `slot` is the sub-mesh's number in
+    ///  the managed mesh, so a left-out sub-mesh leaves a gap in the slots.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshSubMesh
+    {
+        public uint slot;
+        public uint first_index;
+        public uint index_count;
+    }
+
+    /// <summary>
     ///  Face measurements in pixels at the face's point size.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]

@@ -326,6 +326,12 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityMeshRenderer>("sorting_order").ToInt32() != 52) throw new InvalidOperationException("DisunityMeshRenderer.sorting_order offset");
         if (Marshal.OffsetOf<DisunityMeshRenderer>("material_count").ToInt32() != 56) throw new InvalidOperationException("DisunityMeshRenderer.material_count offset");
         if (Marshal.SizeOf<DisunityMeshRenderer>() != 60 || typeof(DisunityMeshRenderer).GetFields().Length != 15) throw new InvalidOperationException("DisunityMeshRenderer layout");
+        if (Marshal.OffsetOf<DisunityDrawnMaterial>("r").ToInt32() != 0) throw new InvalidOperationException("DisunityDrawnMaterial.r offset");
+        if (Marshal.OffsetOf<DisunityDrawnMaterial>("g").ToInt32() != 4) throw new InvalidOperationException("DisunityDrawnMaterial.g offset");
+        if (Marshal.OffsetOf<DisunityDrawnMaterial>("b").ToInt32() != 8) throw new InvalidOperationException("DisunityDrawnMaterial.b offset");
+        if (Marshal.OffsetOf<DisunityDrawnMaterial>("a").ToInt32() != 12) throw new InvalidOperationException("DisunityDrawnMaterial.a offset");
+        if (Marshal.OffsetOf<DisunityDrawnMaterial>("texture").ToInt32() != 16) throw new InvalidOperationException("DisunityDrawnMaterial.texture offset");
+        if (Marshal.SizeOf<DisunityDrawnMaterial>() != 24 || typeof(DisunityDrawnMaterial).GetFields().Length != 5) throw new InvalidOperationException("DisunityDrawnMaterial layout");
         if (Marshal.OffsetOf<DisunitySortingGroup>("enabled").ToInt32() != 0) throw new InvalidOperationException("DisunitySortingGroup.enabled offset");
         if (Marshal.OffsetOf<DisunitySortingGroup>("sorting_layer").ToInt32() != 4) throw new InvalidOperationException("DisunitySortingGroup.sorting_layer offset");
         if (Marshal.OffsetOf<DisunitySortingGroup>("sorting_order").ToInt32() != 8) throw new InvalidOperationException("DisunitySortingGroup.sorting_order offset");

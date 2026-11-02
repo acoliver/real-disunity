@@ -11,6 +11,42 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  # Safety
+        ///  `keys` and `axis` are writable for one value each.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_read(ulong world, uint phase, uint code, uint* keys, float* axis);
+        /// <summary>
+        ///  # Safety
+        ///  `bytes` spans `length` readable bytes; `config` points to one readable record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_axis_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_axis_register(ulong world, uint id, byte* bytes, uint length, DisunityInputAxis* config);
+        /// <summary>
+        ///  # Safety
+        ///  `bytes` spans `length` readable bytes; `output` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_axis_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_axis_read(ulong world, uint phase, byte* bytes, uint length, uint raw, float* output);
+        /// <summary>
+        ///  # Safety
+        ///  `bytes` spans `length` readable bytes; `output` is writable for one ID.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_axis_id", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_axis_id(ulong world, byte* bytes, uint length, uint* output);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_create(ulong world, ulong @object, uint kind, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  `value` points to one readable body record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_write(ulong world, ulong handle, DisunityBody2d* value);
+        /// <summary>
         ///  Sets whether the body is drawn between its poses either side of the last physics step,
         ///  Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
         /// </summary>

@@ -126,6 +126,16 @@ pub struct DisunityMeshRenderer {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityDrawnMaterial {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub texture: u64,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunitySortingGroup {
     pub enabled: u32,

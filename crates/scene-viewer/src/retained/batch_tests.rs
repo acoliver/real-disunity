@@ -58,7 +58,9 @@ fn batch_adds_replaces_and_removes_in_one_generation() {
     assert_eq!(x_of(&host, 7), None);
     let ids: Vec<_> = host.objects().map(|(id, _)| id).collect();
     assert_eq!(ids, [ObjectId(0), ObjectId(9)]);
-    assert_eq!(host.scene.geometry().objects().len(), 2);
+    host.materialize_objects().unwrap();
+    let objects: Vec<_> = host.objects().map(|(_, object)| object).collect();
+    assert_eq!(host.scene.geometry().objects(), objects.as_slice());
 }
 
 #[test]

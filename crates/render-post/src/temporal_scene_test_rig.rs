@@ -19,7 +19,6 @@ pub(crate) struct SceneRig {
     device: wgpu::Device,
     queue: wgpu::Queue,
     chain: PostChain<Recording>,
-    hdr: wgpu::Texture,
     history: [wgpu::Texture; 2],
     frames: crate::history_parity::SubmittedFrames,
     sink: wgpu::Texture,
@@ -27,7 +26,6 @@ pub(crate) struct SceneRig {
     mask_pipeline: Option<wgpu::RenderPipeline>,
     render: [u32; 2],
     output: [u32; 2],
-    slot_output: Arc<Mutex<Option<wgpu::Texture>>>,
     slot_history: Arc<Mutex<Option<[wgpu::Texture; 2]>>>,
     slot_lock_bank: Arc<Mutex<Option<wgpu::Texture>>>,
     pub(crate) jitter: ProjectionJitter,
@@ -141,21 +139,14 @@ impl SceneRig {
         let (device, queue) = gpu.clone();
         let config = FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
-        let slot_output = Arc::new(Mutex::new(None));
         let slot_history = Arc::new(Mutex::new(None));
         let slot_lock_bank = Arc::new(Mutex::new(None));
         let factory = Recording {
             inner: public_factory(&device, post),
-            output: slot_output.clone(),
             history: slot_history.clone(),
             lock_bank: slot_lock_bank.clone(),
         };
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
-        let hdr = slot_output
-            .lock()
-            .unwrap()
-            .take()
-            .expect("slot 0 was built");
         let history = slot_history
             .lock()
             .unwrap()
@@ -171,13 +162,11 @@ impl SceneRig {
             device,
             queue,
             chain,
-            hdr,
             history,
             frames: crate::history_parity::SubmittedFrames::default(),
             sink,
             render,
             output,
-            slot_output,
             slot_history,
             slot_lock_bank,
             jitter: ProjectionJitter::for_extents(render, output).unwrap(),
@@ -189,12 +178,6 @@ impl SceneRig {
         self.chain
             .resize_extents(&self.device, render, output)
             .unwrap();
-        self.hdr = self
-            .slot_output
-            .lock()
-            .unwrap()
-            .take()
-            .expect("slot 0 was rebuilt");
         self.history = self
             .slot_history
             .lock()
@@ -385,10 +368,13 @@ impl SceneRig {
 
     /// The HDR reconstruction of the last frame, mean of the colour channels, row major.
     pub(crate) fn image(&self) -> Vec<f64> {
-        read((&self.device, &self.queue), &self.hdr)
-            .iter()
-            .map(|p| (p[0] + p[1] + p[2]) / 3.0)
-            .collect()
+        read(
+            (&self.device, &self.queue),
+            &self.history[self.frames.written()],
+        )
+        .iter()
+        .map(|p| (p[0] + p[1] + p[2]) / 3.0)
+        .collect()
     }
 }
 

@@ -85,22 +85,16 @@ impl StageSet {
                 }
                 identities.push(stage.id);
             }
-            match &stage.operation {
-                Operation::Fullscreen {
-                    target: StageTarget::Output,
-                    ..
-                } => {
-                    outputs += 1;
-                    output_seen = true;
-                }
-                Operation::Compute { dispatch, .. }
-                    if dispatch.iter().any(|&count| {
-                        count == 0 || count > device.limits().max_compute_workgroups_per_dimension
-                    }) =>
-                {
-                    return Err(PostError::Dispatch(*dispatch));
-                }
-                _ => {}
+            if stage.operation.writes_output() {
+                outputs += 1;
+                output_seen = true;
+            }
+            if let Some(dispatch) = stage.operation.direct_dispatch()
+                && dispatch.iter().any(|&count| {
+                    count == 0 || count > device.limits().max_compute_workgroups_per_dimension
+                })
+            {
+                return Err(PostError::Dispatch(dispatch));
             }
         }
         if outputs != 1 {

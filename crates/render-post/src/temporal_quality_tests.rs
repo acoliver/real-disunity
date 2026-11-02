@@ -27,11 +27,11 @@ pub(crate) const OUTPUT: [u32; 2] = [160, 96];
 const BORDER: usize = 2;
 const EDGE_BAND: f64 = 2.0;
 
-/// The public factory, which also keeps the reconstruction output of slot 0 so the test can read HDR.
+/// The public factory, which also keeps the colour histories of slot 0 so the test can read HDR.
 pub(crate) struct Recording {
     pub(crate) inner: ToneMapOutput,
-    pub(crate) output: Arc<Mutex<Option<wgpu::Texture>>>,
-    /// The two history textures, the second and third texture of slot 0 in the temporal bank.
+    /// The two history textures, the first and second texture of slot 0 in the temporal bank: the
+    /// stages after the upscale read the one the last submitted frame wrote.
     pub(crate) history: Arc<Mutex<Option<[wgpu::Texture; 2]>>>,
     /// The lock bank of slot 0, present only when the locks are on.
     pub(crate) lock_bank: Arc<Mutex<Option<wgpu::Texture>>>,
@@ -64,13 +64,12 @@ impl StageFactory for Recording {
             .inner
             .build_for_slot(device, targets, persistent, slot)?;
         if slot == 0 {
-            *self.output.lock().unwrap() = set.resources.textures.first().cloned();
-            *self.history.lock().unwrap() = set.resources.textures.get(1..3).map(|pair| {
+            *self.history.lock().unwrap() = set.resources.textures.get(0..2).map(|pair| {
                 let [even, odd] = pair else { unreachable!() };
                 [even.clone(), odd.clone()]
             });
             *self.lock_bank.lock().unwrap() = crate::taa_upscale_gpu::locks_enabled()
-                .then(|| set.resources.textures.get(3).cloned())
+                .then(|| set.resources.textures.get(2).cloned())
                 .flatten();
         }
         Ok(set)
@@ -89,7 +88,7 @@ pub(crate) struct Rig {
     device: wgpu::Device,
     queue: wgpu::Queue,
     chain: PostChain<Recording>,
-    hdr: wgpu::Texture,
+    history: [wgpu::Texture; 2],
     sink: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
     frames: crate::history_parity::SubmittedFrames,
@@ -102,17 +101,24 @@ impl Rig {
         let (device, queue) = gpu.clone();
         let config = FrameConfig::new(OUTPUT, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
-        let output = Arc::new(Mutex::new(None));
+        let slot_history = Arc::new(Mutex::new(None));
         let factory = Recording {
             inner: public_factory(&device, &settings()),
-            output: output.clone(),
-            history: Arc::default(),
+            history: slot_history.clone(),
             lock_bank: Arc::default(),
         };
         let frames = crate::history_parity::SubmittedFrames::default();
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
-        let hdr = output.lock().unwrap().take().expect("slot 0 was built");
-        assert_eq!((hdr.width(), hdr.height()), (OUTPUT[0], OUTPUT[1]));
+        let history: [wgpu::Texture; 2] = slot_history
+            .lock()
+            .unwrap()
+            .take()
+            .expect("slot 0 was built");
+        assert!(
+            history
+                .iter()
+                .all(|texture| (texture.width(), texture.height()) == (OUTPUT[0], OUTPUT[1]))
+        );
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("analytic scene"),
             source: wgpu::ShaderSource::Wgsl(scene::wgsl().into()),
@@ -129,7 +135,7 @@ impl Rig {
             device,
             queue,
             chain,
-            hdr,
+            history,
             sink,
             pipeline,
             frames,
@@ -231,10 +237,13 @@ impl Rig {
 
     /// The HDR reconstruction of the last frame, mean of the three colour channels per pixel.
     pub(crate) fn image(&self) -> Vec<f64> {
-        read((&self.device, &self.queue), &self.hdr)
-            .iter()
-            .map(|p| (p[0] + p[1] + p[2]) / 3.0)
-            .collect()
+        read(
+            (&self.device, &self.queue),
+            &self.history[self.frames.written()],
+        )
+        .iter()
+        .map(|p| (p[0] + p[1] + p[2]) / 3.0)
+        .collect()
     }
 }
 

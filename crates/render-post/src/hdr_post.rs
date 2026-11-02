@@ -1,4 +1,5 @@
 //! Retained HDR effects. GPU state belongs to admitted frame slots, not queue writes.
+use crate::scene_color::{self, Read};
 use crate::{FrameTargets, PostError, Stage, StageSet};
 use wgpu::util::DeviceExt;
 
@@ -304,7 +305,7 @@ impl HdrPost {
         let mut set = StageSet::default();
         let exposure = &self.exposure[slot];
         let color = self.settings.resolve.active_taa().map_or_else(
-            || targets.resolved().clone(),
+            || crate::scene_color::SceneColor::single(targets.resolved().clone()),
             |taa| {
                 crate::hdr_taa::append(
                     device,
@@ -373,39 +374,58 @@ impl HdrPost {
             enabled: true,
             operation: crate::Operation::Clear(bins.clone()),
         });
-        for (entry, dispatch) in [
+        for pass in [
             ("histogram", [size[0].div_ceil(8), size[1].div_ceil(8), 1]),
             ("reduce", [1, 1, 1]),
         ] {
-            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            let stage = self.meter_stage(scene, slot, (&module, &constants), (&bins, pass));
+            set.stages.push(stage);
+        }
+        set.resources.buffers.push(bins);
+    }
+    /// The histogram pass reads the scene colour, so it alternates with the temporal parity.
+    fn meter_stage(
+        &self,
+        scene: &crate::hdr_taa::Scene<'_>,
+        slot: usize,
+        (module, constants): (&wgpu::ShaderModule, &[(&str, f64)]),
+        (bins, (entry, dispatch)): (&wgpu::Buffer, (&'static str, [u32; 3])),
+    ) -> Stage {
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
-                module: &module,
+                module,
                 entry_point: Some(entry),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &constants,
+                    constants,
                     ..Default::default()
                 },
                 cache: None,
             });
-            let entries = self.meter_entries(scene.color, slot, &bins, entry);
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(entry),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &entries,
-            });
-            set.stages.push(Stage {
-                id: crate::StageId::new(entry, 0),
-                label: entry,
-                enabled: true,
-                operation: crate::Operation::Compute {
-                    pipeline,
-                    groups: vec![group],
-                    dispatch,
-                },
-            });
-        }
-        set.resources.buffers.push(bins);
+        let histogram = [Read::Scene(scene.color)];
+        let reads: &[Read<'_>] = if entry == "histogram" {
+            &histogram
+        } else {
+            &[]
+        };
+        let groups: Vec<_> = (0..scene_color::variants(reads))
+            .map(|variant| {
+                let entries = self.meter_entries(scene.color.view(variant), slot, bins, entry);
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(entry),
+                    layout: &pipeline.get_bind_group_layout(0),
+                    entries: &entries,
+                })
+            })
+            .collect();
+        scene_color::compute_stage(
+            crate::StageId::new(entry, 0),
+            &pipeline,
+            (reads, &groups),
+            dispatch,
+        )
     }
     fn meter_entries<'a>(
         &'a self,

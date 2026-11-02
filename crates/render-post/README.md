@@ -440,8 +440,8 @@ presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
 With a TAA resolve, one sample per pixel and a render extent of at least half the output,
 `hdr_taa::append` builds a temporal bank instead of the native one: the `temporal upscale` stage
 (`taa_upscale.wgsl`) reads the render-extent frame, the velocity target and the `Rgba16Float`
-history the previous frame wrote, and writes one of three per-slot outputs and the other history,
-all at the output extent. The bank holds two such histories shared by every slot and the pass
+history the previous frame wrote, and writes the other history at the output extent; the stages
+after it read that history and there is no per-slot output texture. The bank holds two such histories shared by every slot and the pass
 alternates them (see "History without a copy" below). Three compute
 stages at the render extent (`taa_reconstruct.wgsl`, scheduled by `taa_reconstruct_gpu::append`) run
 ahead of it, listed below. A `TemporalBlock` (48 bytes: both extents, jitter, phase count, history weight, clip scale,
@@ -453,13 +453,13 @@ keyed by render extent, output extent, mode and sample count and replaced transa
 rejected configuration keeps the committed bank (`StageFactory::settle_build`).
 `HdrPostSettings::effective_jitter` gives `ProjectionJitter::for_extents(render, output)` when no
 explicit sequence is chosen, and `validate_jitter` rejects a shorter one. The allocation budget
-counts two shared histories and three outputs at the output extent, plus per slot the dilated depth (R32Float), dilated motion (Rg32Float), depth confidence (R32Float) and reconstructed depth buffer at the render extent (20R bytes), each a per-generation entry (a shared entry would need one descriptor across generations, #399). Measured static error ratios
+counts two shared histories at the output extent and no output texture, plus per slot the dilated depth (R32Float), dilated motion (Rg32Float), depth confidence (R32Float) and reconstructed depth buffer at the render extent (20R bytes), each a per-generation entry (a shared entry would need one descriptor across generations, #399). Measured static error ratios
 against reset-every-frame are in [docs/rendering.md](../../docs/rendering.md#temporal-upscaling).
 
 Passes of a temporal slot, in order (each a `StageSet` stage). Pass 4, the lock half of pass 5 and the lock history copy of
 pass 6 exist only when the thin-feature locks are on, which is test only (`WithLocks`). With locks off, the
 default, there is no `temporal create locks`, no `temporal lock history`, no lock bank and no lock
-memory, and `temporal upscale` runs its `taa_upscale_unlocked` entry point with the output and the history as its two targets.
+memory, and `temporal upscale` runs its `taa_upscale_unlocked` entry point with the history as its only target.
 
 1. `temporal depth clear`: fills the reconstructed depth buffer (`array<atomic<u32>>`, 4R bytes) with the bits of +inf.
 2. `temporal reconstruct dilate`: per texel, the nearest valid depth (`0 < z < 1`) of the 3x3 neighbourhood
@@ -486,12 +486,12 @@ memory, and `temporal upscale` runs its `taa_upscale_unlocked` entry point with 
 6. With locks only, `temporal lock history`: the shared copy of the lock bank. The colour history has no copy.
 
 History without a copy. The bank holds two `Rgba16Float` histories at the output extent. `temporal upscale`
-writes its colour to the slot output and, as an extra colour target, to the history it does not read, so
-the former `temporal upscale history` texture copy (about 1.5 ms of the 1080p frame on a Radeon 780M, the
-ablation with the copy stage disabled) is gone. The targets are output and history unlocked (16 bytes per
-sample) and output, lock bank and history locked (8 + 8 + 8 = 24 bytes per sample), inside the 32 byte
-colour attachment limit. The stage keeps two bind group and target variants of one pipeline
-(`Operation::FullscreenAlternating`); the variant is chosen at encode time by a `HistoryParity`. The host
+writes its colour only to the history it does not read, and tone, exposure metering and bloom read that
+history (`scene_color::SceneColor`, bind groups per parity), so there is no slot output texture and the former `temporal upscale history` texture copy (about 1.5 ms of the 1080p frame on a Radeon 780M, the
+ablation with the copy stage disabled) is gone. The target is the history alone unlocked (8 bytes per
+sample) and history and lock bank locked (8 + 8 = 16 bytes per sample). The stage keeps two bind group and target variants of one pipeline
+(`Operation::FullscreenAlternating`), and each reader of the history keeps two bind groups
+(`FullscreenAlternating`, `ComputeAlternating` for the luminance histogram); the variant is chosen at encode time by a `HistoryParity`. The host
 sets the parity with `ToneMapOutput::select_history_parity` before it encodes a frame: `render-scene`
 passes the parity of its submitted frame count (`TemporalHistory::frame_index`), which advances only when
 a frame is submitted and is zero after a reset. An encoded frame that is cancelled or fails therefore
@@ -499,7 +499,9 @@ does not change which history the next frame reads, and a reset starts even. Eve
 history and writes the first, odd parity the reverse; a stage never reads and writes one texture in a pass.
 The output is bit-identical to the copying version (checked on lavapipe for the pass alone, locked and
 unlocked, and for eight frames of the quality scene at three render scales). The second history costs
-8 O bytes (16,588,800 bytes at 1920x1080).
+8 O bytes (16,588,800 bytes at 1920x1080). Reading the history the pass wrote, instead of a separate
+output, removes the three per-slot output textures (3 x 8 O bytes, 49,766,400 bytes at 1920x1080) and the
+second colour target of the pass.
 
 With a temporal mask, `temporal mask dilate` runs after `temporal depth clip` and the upscale pass consumes the
 prepared mask; see [Reactive and composition mask](#reactive-and-composition-mask).

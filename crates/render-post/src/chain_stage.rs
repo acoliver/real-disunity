@@ -45,6 +45,14 @@ pub enum Operation {
         groups: Vec<wgpu::BindGroup>,
         target: StageTarget,
     },
+    /// A compute dispatch of one pipeline with two bind groups, picked by `parity` like
+    /// [`Self::FullscreenAlternating`].
+    ComputeAlternating {
+        pipeline: wgpu::ComputePipeline,
+        parity: HistoryParity,
+        groups: Box<[wgpu::BindGroup; 2]>,
+        dispatch: [u32; 3],
+    },
     /// A fullscreen pass of one pipeline with two sets of bind groups and targets. `parity`
     /// picks the set at encode time: the first when even, the second when odd.
     FullscreenAlternating {
@@ -67,6 +75,27 @@ impl Operation {
             self,
             Self::Clear(_) | Self::CopyBuffer { .. } | Self::CopyTexture { .. }
         )
+    }
+
+    /// Whether the operation is a fullscreen pass that writes the chain's output in every variant.
+    pub(super) fn writes_output(&self) -> bool {
+        match self {
+            Self::Fullscreen { target, .. } => matches!(target, StageTarget::Output),
+            Self::FullscreenAlternating { variants, .. } => variants
+                .iter()
+                .all(|(_, target)| matches!(target, StageTarget::Output)),
+            _ => false,
+        }
+    }
+
+    /// The workgroup counts of a compute pass whose counts the stage itself fixes.
+    pub(super) fn direct_dispatch(&self) -> Option<[u32; 3]> {
+        match self {
+            Self::Compute { dispatch, .. } | Self::ComputeAlternating { dispatch, .. } => {
+                Some(*dispatch)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -137,6 +166,27 @@ impl Stage {
         }
     }
 
+    /// A compute dispatch whose bind group alternates with the parity of the history.
+    pub(crate) fn compute_alternating(
+        id: crate::StageId,
+        pipeline: &wgpu::ComputePipeline,
+        parity: &HistoryParity,
+        groups: [&wgpu::BindGroup; 2],
+        dispatch: [u32; 3],
+    ) -> Self {
+        Self {
+            id,
+            label: id.name,
+            enabled: true,
+            operation: Operation::ComputeAlternating {
+                pipeline: pipeline.clone(),
+                parity: parity.clone(),
+                groups: Box::new(groups.map(wgpu::BindGroup::clone)),
+                dispatch,
+            },
+        }
+    }
+
     fn compute_pass<'e>(
         &self,
         encoder: &'e mut wgpu::CommandEncoder,
@@ -190,6 +240,44 @@ impl Stage {
         );
     }
 
+    fn encode_compute(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        stamp: Option<&crate::timing::Stamp>,
+    ) {
+        match &self.operation {
+            Operation::Compute {
+                pipeline,
+                groups,
+                dispatch,
+            } => {
+                let mut pass = self.compute_pass(encoder, stamp, pipeline, groups);
+                pass.dispatch_workgroups(dispatch[0], dispatch[1], dispatch[2]);
+            }
+            Operation::ComputeAlternating {
+                pipeline,
+                parity,
+                groups,
+                dispatch,
+            } => {
+                let group = &groups[usize::from(parity.odd())];
+                let mut pass =
+                    self.compute_pass(encoder, stamp, pipeline, std::slice::from_ref(group));
+                pass.dispatch_workgroups(dispatch[0], dispatch[1], dispatch[2]);
+            }
+            Operation::ComputeIndirect {
+                pipeline,
+                groups,
+                arguments,
+                offset,
+            } => {
+                let mut pass = self.compute_pass(encoder, stamp, pipeline, groups);
+                pass.dispatch_workgroups_indirect(arguments, *offset);
+            }
+            _ => unreachable!("only compute operations are encoded here"),
+        }
+    }
+
     pub(super) fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -214,23 +302,9 @@ impl Stage {
                 destination.as_image_copy(),
                 source.size(),
             ),
-            Operation::Compute {
-                pipeline,
-                groups,
-                dispatch,
-            } => {
-                let mut pass = self.compute_pass(encoder, stamp, pipeline, groups);
-                pass.dispatch_workgroups(dispatch[0], dispatch[1], dispatch[2]);
-            }
-            Operation::ComputeIndirect {
-                pipeline,
-                groups,
-                arguments,
-                offset,
-            } => {
-                let mut pass = self.compute_pass(encoder, stamp, pipeline, groups);
-                pass.dispatch_workgroups_indirect(arguments, *offset);
-            }
+            Operation::Compute { .. }
+            | Operation::ComputeAlternating { .. }
+            | Operation::ComputeIndirect { .. } => self.encode_compute(encoder, stamp),
             Operation::Fullscreen {
                 pipeline,
                 groups,

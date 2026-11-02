@@ -15,7 +15,7 @@ use worldrunner_render_program::state::{RenderState, resolve_state};
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
 use worldrunner_unity_serialized::shader_state::ShaderState;
 
-use crate::common::{fixed, opaque_state, runtime, stage};
+use crate::common::{fixed, opaque_state, read_target, run, runtime, stage};
 
 const FLAT: &str = "
 struct VOut { @builtin(position) position: vec4<f32>, @location(0) color: vec4<f32> }
@@ -54,7 +54,7 @@ fn triangle(runtime: &mut ProgramRuntime, corners: [[f32; 3]; 3], color: [f32; 4
         .flat_map(|value| value.to_le_bytes())
         .collect();
     VertexInput {
-        buffer: runtime.create_buffer("triangle", &bytes),
+        buffer: runtime.create_buffer("triangle", &bytes).unwrap(),
         stride: 28,
         step: wgpu::VertexStepMode::Vertex,
         attributes: vec![
@@ -78,17 +78,21 @@ fn draw(
     (state, front_face): (&RenderState, FrontFace),
     (target, input): (TargetHandle, &VertexInput),
 ) {
-    runtime
-        .draw(&DrawRequest {
-            program,
-            state,
-            front_face,
-            target,
-            vertex_inputs: std::slice::from_ref(input),
-            bindings: &[],
-            geometry: Geometry::Vertices { first: 0, count: 3 },
-        })
-        .unwrap();
+    run(runtime, |runtime, encoder| {
+        runtime.draw(
+            encoder,
+            &DrawRequest {
+                program,
+                state,
+                front_face,
+                target,
+                vertex_inputs: std::slice::from_ref(input),
+                bindings: &[],
+                geometry: Geometry::Vertices { first: 0, count: 3 },
+            },
+        )
+    })
+    .unwrap();
 }
 
 fn new_target(runtime: &mut ProgramRuntime, depth: bool) -> TargetHandle {
@@ -100,7 +104,10 @@ fn new_target(runtime: &mut ProgramRuntime, depth: bool) -> TargetHandle {
             depth.then_some(wgpu::TextureFormat::Depth32Float),
         )
         .unwrap();
-    runtime.clear_target(handle, [0.0; 4], 1.0).unwrap();
+    run(runtime, |runtime, encoder| {
+        runtime.clear_target(encoder, handle, [0.0; 4], 1.0)
+    })
+    .unwrap();
     handle
 }
 
@@ -127,7 +134,7 @@ fn positive_clip_y_lands_in_the_bottom_rows_as_in_vulkan() {
         (&uncull(), FrontFace::Cw),
         (target, &input),
     );
-    let image = runtime.read_target(target).unwrap();
+    let image = read_target(&mut runtime, target);
     // At row 6 (center y = 6.5 of 8, clip y = 0.625) the triangle spans clip x = +-0.31, which
     // is pixel columns 3 to 4 by center.
     assert_eq!(image.pixel(4, 6), bytes(RED));
@@ -156,7 +163,7 @@ fn the_clip_depth_range_is_zero_to_one_and_the_nearer_triangle_wins() {
     draw(&mut runtime, &program, flags, (target, &near));
     let far = triangle(&mut runtime, corners(0.75), RED);
     draw(&mut runtime, &program, flags, (target, &far));
-    let image = runtime.read_target(target).unwrap();
+    let image = read_target(&mut runtime, target);
     assert_eq!(image.pixel(4, 4), bytes(GREEN));
 
     // Clip z outside 0..w is clipped. With OpenGL's -1..1 range, z = -0.5 would be visible.
@@ -165,7 +172,7 @@ fn the_clip_depth_range_is_zero_to_one_and_the_nearer_triangle_wins() {
     draw(&mut runtime, &program, flags, (behind, &clipped_near));
     let clipped_far = triangle(&mut runtime, corners(1.5), RED);
     draw(&mut runtime, &program, flags, (behind, &clipped_far));
-    assert_eq!(runtime.read_target(behind).unwrap().pixel(4, 4), CLEAR);
+    assert_eq!(read_target(&mut runtime, behind).pixel(4, 4), CLEAR);
 }
 
 #[test]
@@ -181,7 +188,7 @@ fn front_face_is_the_winding_seen_in_the_image_and_cull_back_drops_the_other() {
         let target = new_target(runtime, false);
         let input = triangle(runtime, corners, RED);
         draw(runtime, &program, (state, face), (target, &input));
-        runtime.read_target(target).unwrap().pixel(4, 3).to_vec() == bytes(RED)
+        read_target(runtime, target).pixel(4, 3).to_vec() == bytes(RED)
     };
     // Cull Back with Cw front faces keeps the clockwise triangle and drops the other.
     assert!(drawn(&mut runtime, clockwise, &culled_back, FrontFace::Cw));

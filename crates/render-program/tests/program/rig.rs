@@ -16,7 +16,7 @@ use worldrunner_unity_serialized::shader_program::{
     TextureParam, ValueParam,
 };
 
-use crate::common::{same, spirv};
+use crate::common::{read_target, run, same, spirv};
 use crate::fixtures::textured;
 
 pub const TINT: i32 = 0;
@@ -254,7 +254,7 @@ fn quad(runtime: &mut ProgramRuntime) -> VertexInput {
         .flat_map(|v| v.to_le_bytes())
         .collect();
     VertexInput {
-        buffer: runtime.create_buffer("quad", &bytes),
+        buffer: runtime.create_buffer("quad", &bytes).unwrap(),
         stride: 16,
         step: wgpu::VertexStepMode::Vertex,
         attributes: wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2].to_vec(),
@@ -294,7 +294,11 @@ fn constant_bindings(
     let bindings = packed
         .iter()
         .map(|((set, binding), bytes)| {
-            BoundResource::buffer(*set, *binding, runtime.create_buffer("constants", bytes))
+            BoundResource::buffer(
+                *set,
+                *binding,
+                runtime.create_buffer("constants", bytes).unwrap(),
+            )
         })
         .collect();
     (bindings, missing)
@@ -330,29 +334,36 @@ pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
     let target = runtime
         .create_render_target("quad", [2, 2], wgpu::TextureFormat::Rgba8Unorm, None)
         .unwrap();
-    runtime.clear_target(target, scene.clear, 1.0).unwrap();
+    run(runtime, |runtime, encoder| {
+        runtime.clear_target(encoder, target, scene.clear, 1.0)
+    })
+    .unwrap();
     let input = quad(runtime);
     let index_bytes: Vec<u8> = scene.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
-    let index_buffer = runtime.create_buffer("indices", &index_bytes);
-    runtime
-        .draw(&DrawRequest {
-            program: &program,
-            state: scene.state,
-            front_face: wgpu::FrontFace::Cw,
-            target,
-            vertex_inputs: &[input],
-            bindings: &bindings,
-            geometry: Geometry::Indexed {
-                buffer: index_buffer,
-                format: wgpu::IndexFormat::Uint16,
-                first: 0,
-                count: u32::try_from(scene.indices.len()).unwrap(),
-                base_vertex: 0,
+    let index_buffer = runtime.create_buffer("indices", &index_bytes).unwrap();
+    run(runtime, |runtime, encoder| {
+        runtime.draw(
+            encoder,
+            &DrawRequest {
+                program: &program,
+                state: scene.state,
+                front_face: wgpu::FrontFace::Cw,
+                target,
+                vertex_inputs: &[input],
+                bindings: &bindings,
+                geometry: Geometry::Indexed {
+                    buffer: index_buffer,
+                    format: wgpu::IndexFormat::Uint16,
+                    first: 0,
+                    count: u32::try_from(scene.indices.len()).unwrap(),
+                    base_vertex: 0,
+                },
             },
-        })
-        .unwrap();
+        )
+    })
+    .unwrap();
     Rendered {
-        image: runtime.read_target(target).unwrap(),
+        image: read_target(runtime, target),
         missing,
     }
 }

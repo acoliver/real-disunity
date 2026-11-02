@@ -16,28 +16,27 @@ pub struct DispatchRequest<'a> {
 }
 
 impl ProgramRuntime {
-    /// Runs the kernel and submits the work; read results back with `read_buffer`.
+    /// Records the kernel's dispatch into `encoder`; the caller submits the frame and reads
+    /// results back with `read_buffer`.
     ///
     /// # Errors
-    /// Fails on a binding that does not fit the program or a GPU validation error.
-    pub fn dispatch(&mut self, request: &DispatchRequest<'_>) -> Result<(), ProgramError> {
+    /// Fails on a binding that does not fit the program, an encoder that is not the
+    /// authority's, a lost device or a GPU validation error.
+    pub fn dispatch(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        request: &DispatchRequest<'_>,
+    ) -> Result<(), ProgramError> {
+        self.recording(encoder)?;
         let pipeline = self.compute_pipeline(request.program)?;
         let groups = self.bind_groups(&request.program.gpu, request.bindings)?;
         self.guarded(|| {
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("render-program dispatch"),
-                });
-            {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-                pass.set_pipeline(&pipeline);
-                for (set, group) in &groups {
-                    pass.set_bind_group(*set, group, &[]);
-                }
-                pass.dispatch_workgroups(request.groups[0], request.groups[1], request.groups[2]);
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(&pipeline);
+            for (set, group) in &groups {
+                pass.set_bind_group(*set, group, &[]);
             }
-            self.queue.submit([encoder.finish()]);
+            pass.dispatch_workgroups(request.groups[0], request.groups[1], request.groups[2]);
         })
     }
 

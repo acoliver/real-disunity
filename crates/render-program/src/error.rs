@@ -1,5 +1,8 @@
 //! Errors of the GPU-facing operations.
 
+use worldrunner_render_gpu::submission::{LeaseError, SubmitError, TransactionError};
+use worldrunner_render_gpu::texture::UploadError;
+
 use crate::layout::LayoutError;
 use crate::module::ModuleError;
 
@@ -46,13 +49,39 @@ pub enum ProgramError {
     },
     #[error("writing {len} bytes at {offset} does not fit a buffer of {size}")]
     WriteRange { offset: u64, len: u64, size: u64 },
+    #[error("writing {len} bytes at {offset} is not a multiple of four")]
+    WriteAlignment { offset: u64, len: u64 },
     #[error("the program has a {found:?} stage where a {expected:?} stage is needed")]
     WrongStage {
         expected: crate::module::StageKind,
         found: crate::module::StageKind,
     },
+    #[error(transparent)]
+    TextureUpload(#[from] UploadError),
+    /// The encoder is not one the submission authority handed out for the frame being recorded.
+    #[error(transparent)]
+    Transaction(#[from] TransactionError),
+    #[error(transparent)]
+    Lease(#[from] LeaseError),
+    #[error("an unsubmitted frame is already prepared")]
+    Busy,
+    #[error("device lost: {0}")]
+    DeviceLost(String),
     #[error("the GPU rejected the operation: {0}")]
     Gpu(String),
     #[error("reading back from the GPU failed: {0}")]
     Readback(String),
+}
+
+/// The authority's refusals keep their names here, so a caller sees device loss and a busy
+/// queue the same way whether it came from beginning a frame or from using the runtime.
+impl From<SubmitError> for ProgramError {
+    fn from(error: SubmitError) -> Self {
+        match error {
+            SubmitError::Lease(error) => Self::Lease(error),
+            SubmitError::Transaction(error) => Self::Transaction(error),
+            SubmitError::Busy => Self::Busy,
+            SubmitError::DeviceLost(message) => Self::DeviceLost(message),
+        }
+    }
 }

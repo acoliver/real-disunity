@@ -48,23 +48,22 @@ pub struct DrawRequest<'a> {
 }
 
 impl ProgramRuntime {
-    /// Fills a target's color with `color` and its depth, when it has one, with `depth`.
+    /// Records a fill of a target's color with `color` and its depth, when it has one, with
+    /// `depth`.
     ///
     /// # Errors
-    /// Fails on an unknown handle or a GPU validation error.
+    /// Fails on an unknown handle, an encoder that is not the authority's, a lost device or a
+    /// GPU validation error.
     pub fn clear_target(
         &self,
+        encoder: &mut wgpu::CommandEncoder,
         target: TargetHandle,
         color: [f64; 4],
         depth: f32,
     ) -> Result<(), ProgramError> {
+        self.recording(encoder)?;
         let target = self.store.target(target)?;
         self.guarded(|| {
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("render-program clear"),
-                });
             let attachment = wgpu::RenderPassColorAttachment {
                 view: &target.color.view,
                 depth_slice: None,
@@ -94,29 +93,28 @@ impl ProgramRuntime {
             drop(
                 encoder.begin_render_pass(&pass_descriptor(&[Some(attachment)], depth_attachment)),
             );
-            self.queue.submit([encoder.finish()]);
         })
     }
 
-    /// Draws the geometry with the program, state and bindings, and submits the work.
+    /// Records the geometry's draw with the program, state and bindings into `encoder`; the
+    /// caller submits the frame.
     ///
     /// # Errors
-    /// Fails on an unknown handle, a binding that does not fit the program, or a GPU
-    /// validation error such as a vertex layout that does not match the shader's inputs.
-    pub fn draw(&mut self, request: &DrawRequest<'_>) -> Result<(), ProgramError> {
+    /// Fails on an unknown handle, a binding that does not fit the program, an encoder that is
+    /// not the authority's, a lost device or a GPU validation error such as a vertex layout
+    /// that does not match the shader's inputs.
+    pub fn draw(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        request: &DrawRequest<'_>,
+    ) -> Result<(), ProgramError> {
+        self.recording(encoder)?;
         let pipeline = self.render_pipeline(request)?;
         let groups = self.bind_groups(&request.program.gpu, request.bindings)?;
         let target = self.store.target(request.target)?;
         self.guarded(|| {
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("render-program draw"),
-                });
-            self.record_draw(&mut encoder, (&pipeline, &groups), target, request);
-            self.queue.submit([encoder.finish()]);
+            self.record_draw(encoder, (&pipeline, &groups), target, request);
         })
-        .and(Ok(()))
     }
 
     fn record_draw(

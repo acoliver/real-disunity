@@ -6,6 +6,7 @@ mod constants;
 mod conventions;
 mod drawn_state;
 mod fixtures;
+mod frames;
 mod layout;
 mod module;
 mod pass;

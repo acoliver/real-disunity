@@ -11,7 +11,7 @@ use worldrunner_unity_serialized::shader_program::{
     ConstantBuffer, ProgramParameters, UavParam, ValueParam,
 };
 
-use crate::common::{binding, runtime, same, stage, words_to_bytes};
+use crate::common::{binding, run, runtime, same, stage, submit, words_to_bytes};
 
 const KERNEL: &str = "
 struct Params { scale: u32, bias: u32, count: u32 }
@@ -88,22 +88,34 @@ fn a_kernel_writes_the_storage_buffer_and_only_within_its_count() {
     assert!(packed.missing.is_empty());
 
     let source: Vec<u32> = (0..12).map(|i| 7 * i + 1).collect();
-    let uniform = runtime.create_buffer("params", &packed.bytes);
-    let input = runtime.create_buffer("source", &words_to_bytes(&source));
-    let output = runtime.create_buffer("result", &words_to_bytes(&[SENTINEL; 12]));
-    runtime
-        .dispatch(&DispatchRequest {
-            program: &program,
-            bindings: &[
-                BoundResource::buffer(0, 3, uniform),
-                BoundResource::buffer(0, 5, input),
-                BoundResource::buffer(0, 7, output),
-            ],
-            groups: [3, 1, 1],
-        })
+    let uniform = runtime.create_buffer("params", &packed.bytes).unwrap();
+    let input = runtime
+        .create_buffer("source", &words_to_bytes(&source))
         .unwrap();
+    let output = runtime
+        .create_buffer("result", &words_to_bytes(&[SENTINEL; 12]))
+        .unwrap();
+    run(&mut runtime, |runtime, encoder| {
+        runtime.dispatch(
+            encoder,
+            &DispatchRequest {
+                program: &program,
+                bindings: &[
+                    BoundResource::buffer(0, 3, uniform),
+                    BoundResource::buffer(0, 5, input),
+                    BoundResource::buffer(0, 7, output),
+                ],
+                groups: [3, 1, 1],
+            },
+        )
+    })
+    .unwrap();
 
-    let bytes = runtime.read_buffer(output).unwrap();
+    let (pending, index) = submit(&mut runtime, |runtime, encoder| {
+        runtime.read_buffer(encoder, output)
+    })
+    .unwrap();
+    let bytes = pending.resolve(index).unwrap();
     let got: Vec<u32> = bytes
         .chunks_exact(4)
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
@@ -129,20 +141,24 @@ fn failure(
     program: &ComputeProgram,
     bindings: &[BoundResource],
 ) -> ProgramError {
-    runtime
-        .dispatch(&DispatchRequest {
-            program,
-            bindings,
-            groups: [1, 1, 1],
-        })
-        .unwrap_err()
+    run(runtime, |runtime, encoder| {
+        runtime.dispatch(
+            encoder,
+            &DispatchRequest {
+                program,
+                bindings,
+                groups: [1, 1, 1],
+            },
+        )
+    })
+    .unwrap_err()
 }
 
 #[test]
 fn a_binding_set_that_differs_from_the_programs_is_a_named_error() {
     let mut runtime = runtime();
     let program = kernel_program(&runtime);
-    let big = runtime.create_buffer("big", &[0; 64]);
+    let big = runtime.create_buffer("big", &[0; 64]).unwrap();
     let complete = [
         BoundResource::buffer(0, 3, big),
         BoundResource::buffer(0, 5, big),
@@ -178,8 +194,8 @@ fn a_binding_set_that_differs_from_the_programs_is_a_named_error() {
 fn a_resource_that_does_not_suit_its_binding_is_a_named_error() {
     let mut runtime = runtime();
     let program = kernel_program(&runtime);
-    let big = runtime.create_buffer("big", &[0; 64]);
-    let small = runtime.create_buffer("small", &[0; 4]);
+    let big = runtime.create_buffer("big", &[0; 64]).unwrap();
+    let small = runtime.create_buffer("small", &[0; 4]).unwrap();
     let texture = runtime
         .create_texture_2d("t", [1, 1], wgpu::TextureFormat::Rgba8Unorm, &[0; 4])
         .unwrap();
@@ -213,7 +229,7 @@ fn equal_dispatches_share_one_pipeline_and_one_module() {
     let mut runtime = runtime();
     let program = kernel_program(&runtime);
     let [uniform, input, output] =
-        ["u", "i", "o"].map(|name| runtime.create_buffer(name, &[0; 64]));
+        ["u", "i", "o"].map(|name| runtime.create_buffer(name, &[0; 64]).unwrap());
     let bindings = [
         BoundResource::buffer(0, 3, uniform),
         BoundResource::buffer(0, 5, input),
@@ -224,20 +240,28 @@ fn equal_dispatches_share_one_pipeline_and_one_module() {
         bindings: &bindings,
         groups: [1, 1, 1],
     };
-    runtime.dispatch(&request).unwrap();
-    runtime.dispatch(&request).unwrap();
+    for _ in 0..2 {
+        run(&mut runtime, |runtime, encoder| {
+            runtime.dispatch(encoder, &request)
+        })
+        .unwrap();
+    }
     assert_eq!(
         (runtime.cached_pipelines(), runtime.cached_modules()),
         (1, 1)
     );
     // A program built again from the same SPIR-V has the same content.
     let again = kernel_program(&runtime);
-    runtime
-        .dispatch(&DispatchRequest {
-            program: &again,
-            ..request
-        })
-        .unwrap();
+    run(&mut runtime, |runtime, encoder| {
+        runtime.dispatch(
+            encoder,
+            &DispatchRequest {
+                program: &again,
+                ..request
+            },
+        )
+    })
+    .unwrap();
     assert_eq!(
         (runtime.cached_pipelines(), runtime.cached_modules()),
         (1, 1)

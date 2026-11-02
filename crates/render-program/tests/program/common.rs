@@ -162,20 +162,73 @@ pub fn stage(
     StageProgram::new(module, parameters).unwrap()
 }
 
-use worldrunner_render_gpu::device::headless_instance;
-use worldrunner_render_program::runtime::ProgramRuntime;
+use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_program::error::ProgramError;
+use worldrunner_render_program::runtime::{ProgramRuntime, TargetHandle, TargetImage};
 
-/// A runtime on the adapter the environment selects: lavapipe in CI, or a hardware GPU.
+/// The device and submission authority every runtime in a test shares, obtained the way the
+/// renderer's own crates obtain them.
+pub struct Gpu {
+    pub device: wgpu::Device,
+    pub authority: SubmissionAuthority,
+}
+
+impl Gpu {
+    /// A device on the adapter the environment selects: lavapipe in CI, or a hardware GPU.
+    pub fn new() -> Self {
+        let instance = headless_instance();
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .expect("the program tests need a GPU adapter");
+        announce_adapter(&adapter);
+        let (device, queue, _) =
+            pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))
+                .expect("the adapter gives a device");
+        Self {
+            device,
+            authority: SubmissionAuthority::new(queue),
+        }
+    }
+
+    pub fn runtime(&self) -> ProgramRuntime {
+        ProgramRuntime::new(self.device.clone(), self.authority.clone())
+    }
+}
+
+/// A runtime on its own device and authority.
 pub fn runtime() -> ProgramRuntime {
-    let instance = headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .expect("the program tests need a GPU adapter");
-    announce_adapter(&adapter);
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-            .expect("the adapter gives a device");
-    ProgramRuntime::new(device, queue)
+    Gpu::new().runtime()
+}
+
+/// Records `record` into one authority frame and submits it, as a caller composing a frame does.
+pub fn submit<T>(
+    runtime: &mut ProgramRuntime,
+    record: impl FnOnce(&mut ProgramRuntime, &mut wgpu::CommandEncoder) -> Result<T, ProgramError>,
+) -> Result<(T, wgpu::SubmissionIndex), ProgramError> {
+    let authority = runtime.authority().clone();
+    let device = runtime.device().clone();
+    let mut frame = authority.begin(&device)?;
+    let value = record(runtime, &mut frame)?;
+    let index = frame.finish().submit()?;
+    Ok((value, index))
+}
+
+/// Submits `record` as a frame and discards the submission.
+pub fn run(
+    runtime: &mut ProgramRuntime,
+    record: impl FnOnce(&mut ProgramRuntime, &mut wgpu::CommandEncoder) -> Result<(), ProgramError>,
+) -> Result<(), ProgramError> {
+    submit(runtime, record).map(|_| ())
+}
+
+/// The color texture of `target` after the work submitted so far.
+pub fn read_target(runtime: &mut ProgramRuntime, target: TargetHandle) -> TargetImage {
+    let (pending, index) = submit(runtime, |runtime, encoder| {
+        runtime.read_target(encoder, target)
+    })
+    .unwrap();
+    pending.resolve(index).unwrap()
 }
 
 /// Names the adapter once per test binary so a log shows which GPU produced the results.

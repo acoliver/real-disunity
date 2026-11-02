@@ -267,7 +267,9 @@ fn indices_that_do_not_make_whole_triangles_are_rejected() {
     bad.indices.pop();
     bad.info.index_count = 5;
     bad.submeshes.pop();
+    bad.info.submesh_count = 1;
     assert_ne!(store(world, FIRST, &bad).code, 0);
+    assert_eq!(read(world, FIRST, 0, [0; 3]).info.present, 0);
 }
 
 #[test]

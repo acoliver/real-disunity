@@ -284,7 +284,7 @@ SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();
 PlayerTextureStoreTests.Run();
-PlayerMeshTests.Run();
+PlayerMeshStoreTests.Run();
 
 EnabledTests.Run();
 PlayerServiceTests.Run();

@@ -201,3 +201,29 @@ fn a_changed_mesh_replaces_the_scene_mesh_and_an_unusable_one_is_reported_once()
     assert_eq!(meshes.reported.len(), 1);
     assert_eq!(meshes.seen.get(&7), Some(&2));
 }
+
+#[test]
+fn missing_normals_of_a_face_in_each_plane_follow_the_cross_product() {
+    // (0,1,0) x (0,0,1) = (1,0,0), (0,0,1) x (1,0,0) = (0,1,0), (1,0,0) x (0,1,0) = (0,0,1).
+    let cases = [
+        (
+            [[0., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+            [1_000_000, 0, 0],
+        ),
+        (
+            [[0., 0., 0.], [0., 0., 1.], [1., 0., 0.]],
+            [0, 1_000_000, 0],
+        ),
+        (
+            [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+            [0, 0, 1_000_000],
+        ),
+    ];
+    for (positions, expected) in cases {
+        let mesh = PlayerMesh {
+            positions: positions.to_vec(),
+            ..triangle()
+        };
+        assert_eq!(level(&mesh).vertices()[0].normal_micro, expected);
+    }
+}

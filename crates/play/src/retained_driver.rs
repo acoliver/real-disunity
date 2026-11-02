@@ -16,9 +16,9 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
-    CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget, PresentationCadence, RenderClock,
-    RetainedCaptureOutcome, RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost,
-    RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions, WindowSizeUnit,
+    CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget, PresentationCadence,
+    RenderClock, RetainedCaptureOutcome, RetainedDriver, RetainedEvent, RetainedEventHost,
+    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions, WindowSizeUnit,
 };
 
 use crate::{
@@ -191,16 +191,19 @@ impl PlayerRetainedDriver {
         for key in due {
             self.push_key(key.code, key.pressed)?;
         }
-        let dt = self
-            .window
-            .fixed_dt
-            .unwrap_or(if tick.frame == 0 { Duration::ZERO } else { tick.dt });
+        let dt = self.window.fixed_dt.unwrap_or(if tick.frame == 0 {
+            Duration::ZERO
+        } else {
+            tick.dt
+        });
         let nanos = u64::try_from(dt.as_nanos())
             .map_err(|_| PlayError::Invalid("frame delta too long".into()))?;
         self.host.advance(nanos, 1_000_000_000)?;
         self.simulated += dt;
         self.size = viewer.size().map(|side| side.max(1));
-        let presentation = self.host.export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
+        let presentation = self
+            .host
+            .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
         let objects = self.host.mesh_objects()?;
         let shown = objects
             .iter()

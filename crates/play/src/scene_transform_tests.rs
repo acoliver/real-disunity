@@ -42,7 +42,10 @@ fn turned(axis: usize, degrees: f32, scale: f32) -> [f32; 16] {
 fn the_identity_matrix_places_the_mesh_at_the_origin_unturned_and_unscaled() {
     let transform = scene_transform(&IDENTITY).unwrap();
     assert_eq!(transform.position_millimeters, [0, 0, 0]);
-    assert_eq!(transform.rotation, worldrunner_render_plan::SceneRotation::IDENTITY);
+    assert_eq!(
+        transform.rotation,
+        worldrunner_render_plan::SceneRotation::IDENTITY
+    );
     assert_eq!(transform.scale_millionths, 1_000_000);
 }
 
@@ -77,7 +80,9 @@ fn the_opposite_turn_flips_the_vector_part_and_keeps_w_positive() {
 #[test]
 fn a_reverse_turn_past_a_quarter_keeps_w_positive_on_every_axis() {
     for axis in 0..3 {
-        let rotation = scene_transform(&turned(axis, -135.0, 1.0)).unwrap().rotation;
+        let rotation = scene_transform(&turned(axis, -135.0, 1.0))
+            .unwrap()
+            .rotation;
         let parts = [rotation.x, rotation.y, rotation.z];
         assert!(rotation.w > 0, "axis {axis}: {rotation:?}");
         assert!(close(rotation.w, 382_683, 3), "axis {axis}: {rotation:?}");
@@ -129,7 +134,10 @@ fn a_zero_scale_is_rejected() {
 fn different_scales_per_axis_are_rejected_as_the_scene_scales_uniformly() {
     let mut matrix = IDENTITY;
     matrix[0] = 2.0;
-    assert_eq!(scene_transform(&matrix), Err(TransformError::NonUniformScale));
+    assert_eq!(
+        scene_transform(&matrix),
+        Err(TransformError::NonUniformScale)
+    );
 }
 
 #[test]

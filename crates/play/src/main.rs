@@ -119,7 +119,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 /// `--capture` or `--key` it plays in a window like an original game; otherwise it runs
 /// headless for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
 /// Each `--arg` is one argument of the player's command line, after its executable path.
-fn player(data: &std::path::Path, arguments: Arguments) -> Result<(), String> {
+fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     if arguments.game.is_some() || arguments.font.is_some() || arguments.seed.is_some() {
         return Err("--player takes no game name, --font or --seed".into());
     }
@@ -197,7 +197,7 @@ fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<
 
 fn play(arguments: Arguments) -> Result<(), String> {
     if let Some(data) = arguments.player.clone() {
-        return player(&data, arguments);
+        return player(&data, &arguments);
     }
     let game = arguments.game.ok_or("name a game")?;
     let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)

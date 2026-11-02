@@ -73,7 +73,10 @@ fn releasing_the_button_ends_the_drag() {
 
 #[test]
 fn the_wheel_zooms_towards_the_target_in_lines_or_pixels() {
-    for delta in [WheelDelta::Lines([0.0, 2.0]), WheelDelta::Pixels([0.0, 80.0])] {
+    for delta in [
+        WheelDelta::Lines([0.0, 2.0]),
+        WheelDelta::Pixels([0.0, 80.0]),
+    ] {
         let mut navigation = started();
         navigation.accept(&RetainedInput::Wheel(delta), SIZE);
         let moved = navigation.take_moved().expect("the wheel moved the camera");

@@ -58,9 +58,7 @@ fn content(meshes: &[u64]) -> Content {
 }
 
 fn at(x: f32, y: f32, z: f32) -> [f32; 16] {
-    [
-        1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., x, y, z, 1.,
-    ]
+    [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., x, y, z, 1.]
 }
 
 fn object(object: u64, mesh: u64, matrix: [f32; 16]) -> MeshObjectView {
@@ -75,11 +73,7 @@ fn object(object: u64, mesh: u64, matrix: [f32; 16]) -> MeshObjectView {
     }
 }
 
-fn update(
-    tables: &mut SceneTables,
-    objects: &[MeshObjectView],
-    content: &Content,
-) -> FrameUpdate {
+fn update(tables: &mut SceneTables, objects: &[MeshObjectView], content: &Content) -> FrameUpdate {
     tables
         .update(objects, content, &Changes::default())
         .expect("the tables stay valid")
@@ -134,7 +128,11 @@ fn the_first_frame_appends_its_meshes_and_adds_its_objects_in_one_update() {
         object(9, 101, at(2., 0., 0.)),
     ];
     let first = update(&mut tables, &objects, &content(&[100, 101]));
-    assert_eq!(mesh_count(&first), 2, "two distinct meshes serve three objects");
+    assert_eq!(
+        mesh_count(&first),
+        2,
+        "two distinct meshes serve three objects"
+    );
     let added = adds(&first);
     assert_eq!(added.len(), 3);
     assert_eq!(
@@ -148,7 +146,10 @@ fn the_first_frame_appends_its_meshes_and_adds_its_objects_in_one_update() {
 #[test]
 fn an_unchanged_frame_applies_nothing() {
     let mut tables = SceneTables::new().unwrap();
-    let objects = [object(7, 100, at(0., 0., 0.)), object(8, 101, at(1., 0., 0.))];
+    let objects = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 101, at(1., 0., 0.)),
+    ];
     let shown = content(&[100, 101]);
     update(&mut tables, &objects, &shown);
     let again = update(&mut tables, &objects, &shown);
@@ -160,9 +161,15 @@ fn an_unchanged_frame_applies_nothing() {
 fn a_moved_object_is_replaced_under_the_id_it_was_added_with() {
     let mut tables = SceneTables::new().unwrap();
     let shown = content(&[100]);
-    let before = [object(7, 100, at(0., 0., 0.)), object(8, 100, at(1., 0., 0.))];
+    let before = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 100, at(1., 0., 0.)),
+    ];
     let added = adds(&update(&mut tables, &before, &shown));
-    let after = [object(7, 100, at(0., 0., 0.)), object(8, 100, at(5., 0., 0.))];
+    let after = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 100, at(5., 0., 0.)),
+    ];
     let moved = update(&mut tables, &after, &shown);
     assert!(moved.resources.is_none());
     assert_eq!(replaces(&moved), vec![added[1]]);
@@ -173,7 +180,10 @@ fn a_moved_object_is_replaced_under_the_id_it_was_added_with() {
 fn a_vanished_object_is_removed_and_a_returning_one_is_added_again() {
     let mut tables = SceneTables::new().unwrap();
     let shown = content(&[100]);
-    let both = [object(7, 100, at(0., 0., 0.)), object(8, 100, at(1., 0., 0.))];
+    let both = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 100, at(1., 0., 0.)),
+    ];
     let added = adds(&update(&mut tables, &both, &shown));
     let one = [object(7, 100, at(0., 0., 0.))];
     let gone = update(&mut tables, &one, &shown);
@@ -189,7 +199,10 @@ fn a_new_mesh_is_appended_after_the_existing_ones_without_touching_their_objects
     let shown = content(&[100, 101]);
     let first = [object(7, 100, at(0., 0., 0.))];
     update(&mut tables, &first, &shown);
-    let second = [object(7, 100, at(0., 0., 0.)), object(8, 101, at(1., 0., 0.))];
+    let second = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 101, at(1., 0., 0.)),
+    ];
     let next = update(&mut tables, &second, &shown);
     assert_eq!(mesh_count(&next), 2);
     assert_eq!(adds(&next).len(), 1);
@@ -220,7 +233,10 @@ fn a_changed_mesh_replaces_its_table_entry_and_leaves_the_objects_alone() {
 #[test]
 fn an_object_whose_mesh_is_not_converted_yet_waits_and_appears_when_it_is() {
     let mut tables = SceneTables::new().unwrap();
-    let objects = [object(7, 100, at(0., 0., 0.)), object(8, 101, at(1., 0., 0.))];
+    let objects = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 101, at(1., 0., 0.)),
+    ];
     let early = update(&mut tables, &objects, &content(&[100]));
     assert_eq!(adds(&early).len(), 1, "only the object whose mesh exists");
     let later = update(&mut tables, &objects, &content(&[100, 101]));
@@ -244,7 +260,11 @@ fn an_object_with_a_matrix_the_scene_cannot_place_is_reported_and_left_out() {
 fn an_object_that_becomes_unplaceable_is_removed() {
     let mut tables = SceneTables::new().unwrap();
     let shown = content(&[100]);
-    let added = adds(&update(&mut tables, &[object(7, 100, at(0., 0., 0.))], &shown));
+    let added = adds(&update(
+        &mut tables,
+        &[object(7, 100, at(0., 0., 0.))],
+        &shown,
+    ));
     let mut flat = at(0., 0., 0.);
     flat[0] = 0.0;
     flat[5] = 0.0;
@@ -268,7 +288,8 @@ fn material_of(update: &FrameUpdate, id: ObjectId) -> u32 {
         .edits
         .iter()
         .find_map(|edit| match edit {
-            SceneObjectEdit::Add { id: at, object } | SceneObjectEdit::Replace { id: at, object }
+            SceneObjectEdit::Add { id: at, object }
+            | SceneObjectEdit::Replace { id: at, object }
                 if *at == id =>
             {
                 Some(object.material().raw())
@@ -283,7 +304,8 @@ fn tint_of(update: &FrameUpdate, id: ObjectId) -> [u32; 3] {
         .edits
         .iter()
         .find_map(|edit| match edit {
-            SceneObjectEdit::Add { id: at, object } | SceneObjectEdit::Replace { id: at, object }
+            SceneObjectEdit::Add { id: at, object }
+            | SceneObjectEdit::Replace { id: at, object }
                 if *at == id =>
             {
                 Some(object.tint().channels())
@@ -316,7 +338,11 @@ fn the_slot_colour_tints_the_object_and_the_slot_texture_picks_the_material() {
         "a textured slot draws with its own material"
     );
     let (resources, _) = first.resources.expect("a texture and a material are new");
-    assert_eq!(resources.textures().len(), 2, "the white texture and texture 5");
+    assert_eq!(
+        resources.textures().len(),
+        2,
+        "the white texture and texture 5"
+    );
     assert_eq!(resources.materials().len(), 2);
 }
 
@@ -337,7 +363,7 @@ fn a_texture_that_has_no_texels_yet_draws_white_until_it_arrives() {
     let mut tables = SceneTables::new().unwrap();
     let mut shown = content(&[100]);
     let view = with_slot(object(1, 100, at(0., 0., 0.)), slot([1.; 4], 5));
-    let early = update(&mut tables, &[view.clone()], &shown);
+    let early = update(&mut tables, std::slice::from_ref(&view), &shown);
     let id = adds(&early)[0];
     assert_eq!(material_of(&early, id), 0, "the white material");
     shown.textures.insert(5, texture(90));
@@ -348,7 +374,15 @@ fn a_texture_that_has_no_texels_yet_draws_white_until_it_arrives() {
     let later = tables.update(&[view], &shown, &changed).unwrap();
     assert_eq!(replaces(&later), vec![id]);
     assert_ne!(material_of(&later, id), 0);
-    assert_eq!(later.resources.expect("textures changed").0.textures().len(), 2);
+    assert_eq!(
+        later
+            .resources
+            .expect("textures changed")
+            .0
+            .textures()
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -365,7 +399,10 @@ fn an_object_without_material_slots_draws_white_and_untinted() {
 #[test]
 fn a_colour_above_one_or_below_zero_stays_within_the_tint_range() {
     let mut tables = SceneTables::new().unwrap();
-    let view = with_slot(object(1, 100, at(0., 0., 0.)), slot([9., -3., f32::NAN, 1.], 0));
+    let view = with_slot(
+        object(1, 100, at(0., 0., 0.)),
+        slot([9., -3., f32::NAN, 1.], 0),
+    );
     let first = update(&mut tables, &[view], &content(&[100]));
     let id = adds(&first)[0];
     assert_eq!(tint_of(&first, id), [4_000_000, 0, 0]);
@@ -394,7 +431,16 @@ fn objects_sharing_a_texture_share_one_material_across_frames() {
     let first = update(&mut tables, &two(0.), &shown);
     let ids = adds(&first);
     assert_eq!(material_of(&first, ids[0]), material_of(&first, ids[1]));
-    assert_eq!(first.resources.as_ref().expect("new texture").0.materials().len(), 2);
+    assert_eq!(
+        first
+            .resources
+            .as_ref()
+            .expect("new texture")
+            .0
+            .materials()
+            .len(),
+        2
+    );
     let moved = update(&mut tables, &two(3.), &shown);
     assert!(moved.resources.is_none(), "no further material is built");
     assert_eq!(material_of(&moved, ids[0]), material_of(&first, ids[0]));

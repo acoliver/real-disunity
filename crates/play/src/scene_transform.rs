@@ -89,7 +89,10 @@ pub fn scene_transform(matrix: &[f32; 16]) -> Result<SceneTransform, TransformEr
         return Err(TransformError::Shear);
     }
     let mean = scales.iter().sum::<f64>() / 3.0;
-    if scales.iter().any(|scale| (scale - mean).abs() > TOLERANCE * mean) {
+    if scales
+        .iter()
+        .any(|scale| (scale - mean).abs() > TOLERANCE * mean)
+    {
         return Err(TransformError::NonUniformScale);
     }
     if dot(cross(axes[0], axes[1]), axes[2]) < 0.0 {
@@ -97,7 +100,8 @@ pub fn scene_transform(matrix: &[f32; 16]) -> Result<SceneTransform, TransformEr
     }
     let scale = round_to_i64(mean * MICRO).and_then(|micro| u64::try_from(micro).ok());
     let position = [12, 13, 14].map(|at| {
-        round_to_i64(f64::from(matrix[at]) * MILLIMETERS_PER_METER).ok_or(TransformError::OutOfRange)
+        round_to_i64(f64::from(matrix[at]) * MILLIMETERS_PER_METER)
+            .ok_or(TransformError::OutOfRange)
     });
     Ok(SceneTransform {
         position_millimeters: [position[0]?, position[1]?, position[2]?],
@@ -110,49 +114,49 @@ pub fn scene_transform(matrix: &[f32; 16]) -> Result<SceneTransform, TransformEr
 
 /// The unit quaternion, with `w` not negative, of the rotation whose columns are `axes`.
 fn rotation(axes: [Vec3; 3]) -> Result<SceneRotation, TransformError> {
-    // `r(row, column)` of the rotation matrix.
-    let r = |row: usize, col: usize| axes[col][row];
-    let trace = r(0, 0) + r(1, 1) + r(2, 2);
-    let [x, y, z, w] = if trace > 0.0 {
-        let s = (trace + 1.0).sqrt() * 2.0;
+    // `entry(row, column)` of the rotation matrix.
+    let entry = |row: usize, col: usize| axes[col][row];
+    let trace = entry(0, 0) + entry(1, 1) + entry(2, 2);
+    let parts: [f64; 4] = if trace > 0.0 {
+        let norm = (trace + 1.0).sqrt() * 2.0;
         [
-            (r(2, 1) - r(1, 2)) / s,
-            (r(0, 2) - r(2, 0)) / s,
-            (r(1, 0) - r(0, 1)) / s,
-            s / 4.0,
+            (entry(2, 1) - entry(1, 2)) / norm,
+            (entry(0, 2) - entry(2, 0)) / norm,
+            (entry(1, 0) - entry(0, 1)) / norm,
+            norm / 4.0,
         ]
-    } else if r(0, 0) > r(1, 1) && r(0, 0) > r(2, 2) {
-        let s = (1.0 + r(0, 0) - r(1, 1) - r(2, 2)).sqrt() * 2.0;
+    } else if entry(0, 0) > entry(1, 1) && entry(0, 0) > entry(2, 2) {
+        let norm = (1.0 + entry(0, 0) - entry(1, 1) - entry(2, 2)).sqrt() * 2.0;
         [
-            s / 4.0,
-            (r(0, 1) + r(1, 0)) / s,
-            (r(0, 2) + r(2, 0)) / s,
-            (r(2, 1) - r(1, 2)) / s,
+            norm / 4.0,
+            (entry(0, 1) + entry(1, 0)) / norm,
+            (entry(0, 2) + entry(2, 0)) / norm,
+            (entry(2, 1) - entry(1, 2)) / norm,
         ]
-    } else if r(1, 1) > r(2, 2) {
-        let s = (1.0 + r(1, 1) - r(0, 0) - r(2, 2)).sqrt() * 2.0;
+    } else if entry(1, 1) > entry(2, 2) {
+        let norm = (1.0 + entry(1, 1) - entry(0, 0) - entry(2, 2)).sqrt() * 2.0;
         [
-            (r(0, 1) + r(1, 0)) / s,
-            s / 4.0,
-            (r(1, 2) + r(2, 1)) / s,
-            (r(0, 2) - r(2, 0)) / s,
+            (entry(0, 1) + entry(1, 0)) / norm,
+            norm / 4.0,
+            (entry(1, 2) + entry(2, 1)) / norm,
+            (entry(0, 2) - entry(2, 0)) / norm,
         ]
     } else {
-        let s = (1.0 + r(2, 2) - r(0, 0) - r(1, 1)).sqrt() * 2.0;
+        let norm = (1.0 + entry(2, 2) - entry(0, 0) - entry(1, 1)).sqrt() * 2.0;
         [
-            (r(0, 2) + r(2, 0)) / s,
-            (r(1, 2) + r(2, 1)) / s,
-            s / 4.0,
-            (r(1, 0) - r(0, 1)) / s,
+            (entry(0, 2) + entry(2, 0)) / norm,
+            (entry(1, 2) + entry(2, 1)) / norm,
+            norm / 4.0,
+            (entry(1, 0) - entry(0, 1)) / norm,
         ]
     };
-    let sign = if w < 0.0 { -1.0 } else { 1.0 };
+    let sign = if parts[3] < 0.0 { -1.0 } else { 1.0 };
     let micro = |part: f64| round_to_i64(part * sign * MICRO).ok_or(TransformError::OutOfRange);
     Ok(SceneRotation {
-        x: micro(x)?,
-        y: micro(y)?,
-        z: micro(z)?,
-        w: micro(w)?,
+        x: micro(parts[0])?,
+        y: micro(parts[1])?,
+        z: micro(parts[2])?,
+        w: micro(parts[3])?,
     })
 }
 
@@ -210,7 +214,10 @@ pub fn scene_camera(state: &CameraState) -> Result<(CameraPose, SceneCamera), Ca
         eye_millimeters: millimeters(eye)?,
         target_millimeters: millimeters(target)?,
     };
-    Ok((pose, scene_lens(vertical_fov_radians, near_meters, far_meters)?))
+    Ok((
+        pose,
+        scene_lens(vertical_fov_radians, near_meters, far_meters)?,
+    ))
 }
 
 /// The point the orbit centres on for an eye looking along the unit vector `forward`.

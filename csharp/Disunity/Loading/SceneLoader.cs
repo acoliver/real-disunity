@@ -107,6 +107,8 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
                 "Script" => Asset(asset),
                 "Shader" => PlayerShaders.Build(asset, differences.Add),
                 "Material" => PlayerMaterials.Build(asset, PlannedAsset),
+                "Texture2D" => PlayerSprites.BuildTexture(asset, ""),
+                "Sprite" => PlayerSprites.BuildSprite(asset, PlannedAsset),
                 var other => throw new SceneLoadException($"asset type {other} is not supported"),
             });
     }

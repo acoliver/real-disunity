@@ -96,23 +96,10 @@ pub enum ResourceAsset {
     Prefab { name: String, plan: String },
     /// A prefab the planner could not plan, with the reason loading it reports.
     UnplannedPrefab { name: String, error: String },
-    /// A 2D texture. `format` is the `TextureFormat` value and `color_space` the decoded
-    /// value; `filter_mode` and the wrap modes are the sampler's values.
+    /// A 2D texture (see [`player_sprites::Texture2DAsset`]).
     Texture2D {
-        name: String,
-        width: i32,
-        height: i32,
-        format: i32,
-        mip_count: i32,
-        readable: bool,
-        color_space: i32,
-        filter_mode: i32,
-        wrap_u: i32,
-        wrap_v: i32,
-        wrap_w: i32,
-        aniso_level: i32,
-        mip_bias: f32,
-        data: TextureData,
+        #[serde(flatten)]
+        texture: player_sprites::Texture2DAsset,
     },
     /// A stack of equally sized slices. `graphics_format` is the `GraphicsFormat` value of the
     /// pixels, `depth` the number of slices; the other fields are those of `Texture2D`.
@@ -133,22 +120,10 @@ pub enum ResourceAsset {
         mip_bias: f32,
         data: TextureData,
     },
-    /// A rectangle of a texture. Rectangles and the border are in pixels (x, y, width,
-    /// height and left, bottom, right, top); the pivot is a fraction of the rectangle.
-    /// `packing_rotation` and `mesh_type` are the sprite's packed settings bits.
+    /// A rectangle of a texture (see [`player_sprites::SpriteAsset`]).
     Sprite {
-        name: String,
-        rect: [f32; 4],
-        pivot: [f32; 2],
-        pixels_per_unit: f32,
-        border: [f32; 4],
-        extrude: u32,
-        texture: Option<AssetRef>,
-        texture_rect: [f32; 4],
-        texture_rect_offset: [f32; 2],
-        packed: bool,
-        packing_rotation: u32,
-        mesh_type: u32,
+        #[serde(flatten)]
+        sprite: player_sprites::SpriteAsset,
     },
     /// Sprites packed together, in the atlas's order.
     SpriteAtlas {

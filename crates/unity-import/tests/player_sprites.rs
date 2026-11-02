@@ -6,7 +6,7 @@ use serde_json::json;
 use worldrunner_unity_import::{
     PlayerError,
     player_resources::{ResourceAsset, ResourcesPlan, plan_player_resources},
-    player_sprites::TextureData,
+    player_sprites::{SpriteAsset, Texture2DAsset, TextureData},
 };
 use worldrunner_unity_serialized::{
     ClassId, External, SerializedType,
@@ -265,20 +265,23 @@ fn planned() -> (tempfile::TempDir, ResourcesPlan) {
 fn plans_a_texture_with_inline_pixels_into_a_bin_file() {
     let (dir, plan) = planned();
     let ResourceAsset::Texture2D {
-        name,
-        width,
-        height,
-        format,
-        mip_count,
-        readable,
-        color_space,
-        filter_mode,
-        wrap_u,
-        wrap_v,
-        wrap_w,
-        aniso_level,
-        mip_bias,
-        data,
+        texture:
+            Texture2DAsset {
+                name,
+                width,
+                height,
+                format,
+                mip_count,
+                readable,
+                color_space,
+                filter_mode,
+                wrap_u,
+                wrap_v,
+                wrap_w,
+                aniso_level,
+                mip_bias,
+                data,
+            },
     } = &plan.assets[0]
     else {
         panic!("the first asset is the sheet texture: {:?}", plan.assets[0])
@@ -315,10 +318,13 @@ fn plans_a_texture_with_inline_pixels_into_a_bin_file() {
 fn plans_a_streamed_texture_by_its_range_in_the_resource_stream() {
     let (dir, plan) = planned();
     let ResourceAsset::Texture2D {
-        name,
-        readable,
-        data,
-        ..
+        texture:
+            Texture2DAsset {
+                name,
+                readable,
+                data,
+                ..
+            },
     } = &plan.assets[5]
     else {
         panic!("the sixth asset is the far texture: {:?}", plan.assets[5])
@@ -344,18 +350,21 @@ fn fails_to_plan_a_texture_whose_streamed_data_is_missing() {
 fn plans_a_sprite_with_its_texture_and_geometry() {
     let (_dir, plan) = planned();
     let ResourceAsset::Sprite {
-        name,
-        rect,
-        pivot,
-        pixels_per_unit,
-        border,
-        extrude,
-        texture,
-        texture_rect,
-        texture_rect_offset,
-        packed,
-        packing_rotation,
-        mesh_type,
+        sprite:
+            SpriteAsset {
+                name,
+                rect,
+                pivot,
+                pixels_per_unit,
+                border,
+                extrude,
+                texture,
+                texture_rect,
+                texture_rect_offset,
+                packed,
+                packing_rotation,
+                mesh_type,
+            },
     } = &plan.assets[1]
     else {
         panic!("the second asset is the first sprite: {:?}", plan.assets[1])
@@ -392,7 +401,10 @@ fn plans_an_atlas_with_its_sprites_in_order_and_the_ones_it_alone_reaches() {
     );
     let planned: Vec<_> = sprites.iter().map(|s| s.asset).collect();
     assert_eq!(planned, [1, 4]);
-    let ResourceAsset::Sprite { name, texture, .. } = &plan.assets[4] else {
+    let ResourceAsset::Sprite {
+        sprite: SpriteAsset { name, texture, .. },
+    } = &plan.assets[4]
+    else {
         panic!(
             "the atlas's second sprite follows the listed assets: {:?}",
             plan.assets[4]
@@ -493,12 +505,15 @@ fn plans_a_packed_sprite_from_its_atlas_entry() {
         .iter()
         .find_map(|asset| match asset {
             ResourceAsset::Sprite {
-                name,
-                texture,
-                texture_rect,
-                texture_rect_offset,
-                packing_rotation,
-                ..
+                sprite:
+                    SpriteAsset {
+                        name,
+                        texture,
+                        texture_rect,
+                        texture_rect_offset,
+                        packing_rotation,
+                        ..
+                    },
             } if name == "packed" => Some((
                 texture.as_ref().map(|reference| reference.asset),
                 *texture_rect,
@@ -512,7 +527,7 @@ fn plans_a_packed_sprite_from_its_atlas_entry() {
         .0
         .expect("the atlas's texture is the sprite's texture");
     assert!(
-        matches!(&plan.assets[texture], ResourceAsset::Texture2D { name, .. } if name == "packed-texture"),
+        matches!(&plan.assets[texture], ResourceAsset::Texture2D { texture } if texture.name == "packed-texture"),
         "the sprite refers to the atlas's texture: {:?}",
         plan.assets[texture]
     );

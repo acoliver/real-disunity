@@ -206,7 +206,7 @@ internal sealed partial class ResourceDatabase
     }
 
     /// <summary>Fills <paramref name="destination"/> from <paramref name="path"/> at <paramref name="offset"/>.</summary>
-    private static void ReadBytes(string name, string path, long offset, Span<byte> destination)
+    internal static void ReadBytes(string name, string path, long offset, Span<byte> destination)
     {
         using var file = File.OpenRead(path);
         if (offset < 0 || offset > file.Length - destination.Length)

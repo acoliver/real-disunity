@@ -266,10 +266,21 @@ pub enum PlanAsset {
         subshader_count: usize,
     },
     /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. Its
-    /// texture slots are empty: scene plans hold no textures.
+    /// texture slots are empty: a scene plan holds only the textures its sprites draw.
     Material {
         #[serde(flatten)]
         material: crate::player_materials::PlanMaterial,
+    },
+    /// A texture a sprite of a player scene draws, with its pixels named in place (see
+    /// [`crate::player_sprites::plan_scene_texture`]).
+    Texture2D {
+        #[serde(flatten)]
+        texture: crate::player_sprites::Texture2DAsset,
+    },
+    /// A sprite a player scene's script field references, after the texture it draws.
+    Sprite {
+        #[serde(flatten)]
+        sprite: crate::player_sprites::SpriteAsset,
     },
 }
 

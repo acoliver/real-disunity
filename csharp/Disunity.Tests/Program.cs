@@ -294,6 +294,7 @@ ResourceTests.Run();
 PrefabResourceTests.Run();
 PlayerShaderTests.Run();
 PlayerMaterialTests.Run();
+PlayerSceneSpriteTests.Run();
 PlayerMeshTests.Run();
 PlayerAnimatorTests.Run();
 PlayerRenderTextureTests.Run();

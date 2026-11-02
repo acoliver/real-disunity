@@ -181,8 +181,8 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  What the host draws one material slot of a renderer with: a linear colour multiplier and the
-    ///  renderer identity of a texture, 0 for none.
+    ///  What the host draws one material slot of a renderer with: a colour multiplier as the
+    ///  material holds it and the renderer identity of a texture, 0 for none.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityDrawnMaterial

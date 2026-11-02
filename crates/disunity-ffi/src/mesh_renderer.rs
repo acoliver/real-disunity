@@ -302,8 +302,8 @@ pub unsafe extern "C" fn disunity_mesh_filter_drawn_read(
     })
 }
 
-/// What the host draws one material slot of a renderer with: a linear colour multiplier and the
-/// renderer identity of a texture, 0 for none.
+/// What the host draws one material slot of a renderer with: a colour multiplier as the
+/// material holds it and the renderer identity of a texture, 0 for none.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityDrawnMaterial {

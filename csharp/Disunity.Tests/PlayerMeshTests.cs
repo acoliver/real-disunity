@@ -1,193 +1,211 @@
-using System.Text.Json.Nodes;
 using Disunity.Hosting;
+using Disunity.Native;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-/// <summary>Meshes a player's resource plan holds: each plans once with its channels, sub-meshes and bounds, every
-/// <c>MeshFilter</c> that names one shares the object, and the caller-list getters fill a list after clearing it.</summary>
+/// <summary>A mesh a filter holds reaches the host with its data and again, once per frame, after it changes; a
+/// renderer's materials give the host a colour and texture identity per slot.</summary>
 internal static class PlayerMeshTests
 {
     public static void Run()
     {
-        PlanHarness.WithPlan(WritePlan, () =>
-        {
-            DisunityHost.LoadScene("""{"scene":"main","objects":[],"assets":[],"sprites":[],"textures":[],"fonts":[],"axes":[]}""",
-                new SceneLoadOptions(typeof(PlayerMeshTests).Assembly, _ => []));
-            AMeshBuildsWithItsChannelsAndSubMeshes();
-            FiltersThatNameOneMeshShareIt();
-            ClonesShareTheMeshAndFilterMeshCopiesIt();
-            ListGettersClearTheCallersListAndFillIt();
-            ABigIndexFormatAndAMissingMeshArePlanned();
-        });
-        LaterUvChannelsAndTrailingBytes();
-    }
-
-    /// <summary>Builds <paramref name="asset"/> from a resource holding <paramref name="floats"/> then the indices.</summary>
-    private static Mesh BuildDirect(JsonObject asset, float[] floats, int[] indices, int trailing)
-    {
-        var directory = Directory.CreateTempSubdirectory("disunity-mesh-").FullName;
+        DisunityHost.LoadWorld();
         try
         {
-            using (var writer = new BinaryWriter(File.Create(Path.Combine(directory, "mesh.bin"))))
-            {
-                foreach (var value in floats) writer.Write(value);
-                foreach (var index in indices) writer.Write(index);
-                writer.Write(new byte[trailing]);
-            }
-            using var plan = System.Text.Json.JsonDocument.Parse(asset.ToJsonString());
-            return PlayerMeshes.Build(plan.RootElement, directory);
+            StoresTheMeshWhenAFilterTakesIt();
+            StoresChangesOncePerFlush();
+            LeavesOutOtherTopologiesAndAppliesBaseVertex();
+            GivesEachMeshOneIdentityAboveTheTextures();
+            ClearsTheDrawnMeshWithTheFilter();
+            SendsColourAndTexturePerSlot();
+            DropsTheSlotsTheMaterialsNoLongerHold();
         }
-        finally { Directory.Delete(directory, true); }
+        finally { DisunityHost.UnloadWorld(); }
     }
 
-    private static void LaterUvChannelsAndTrailingBytes()
+    private static GameObject NewObject() => new("mesh object");
+
+    private static unsafe (DisunityMeshInfo Info, DisunityMeshVertex[] Vertices, uint[] Indices, DisunityMeshSubMesh[] Runs) Read(ulong identity)
     {
-        JsonObject Asset() => new()
-        {
-            ["type"] = "Mesh", ["name"] = "Second", ["vertex_count"] = 3, ["index_count"] = 3, ["index_format"] = 0, ["resource"] = "mesh.bin",
-            ["channels"] = new JsonArray(Channel("position", 3), Channel("uv2", 2)),
-            ["sub_meshes"] = new JsonArray(new JsonObject
-            {
-                ["first_index"] = 0, ["index_count"] = 3, ["topology"] = 0, ["base_vertex"] = 0, ["first_vertex"] = 0, ["vertex_count"] = 3,
-            }),
-            ["bounds"] = new JsonObject { ["center"] = Floats(0, 0, 0), ["extent"] = Floats(1, 1, 0) },
-        };
-        float[] floats = [0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25f, 0.5f, 0.75f, 1, 0, 0];
-        var mesh = BuildDirect(Asset(), floats, [0, 1, 2], 0);
-        var third = new List<Vector2>();
-        mesh.GetUVs(2, third);
-        Expect.Sequence(new[] { new Vector2(0.25f, 0.5f), new(0.75f, 1), new(0, 0) }, third, "a uv2 channel lands in the third uv set");
-        Expect.Equal(0, mesh.uv.Length, "the first uv set stays empty");
-        Expect.Throws<InvalidDataException>(() => BuildDirect(Asset(), floats, [0, 1, 2], 4), "bytes after the indices");
-        Console.WriteLine("PASS: a later uv channel lands in its own set and extra resource bytes are refused");
+        var info = new DisunityMeshInfo();
+        DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_read(DisunityHost.WorldHandle, identity, &info, null, null, null));
+        var vertices = new DisunityMeshVertex[info.vertex_count];
+        var indices = new uint[info.index_count];
+        var runs = new DisunityMeshSubMesh[info.submesh_count];
+        var request = info;
+        request.generation = 0;
+        fixed (DisunityMeshVertex* vertexPointer = vertices)
+        fixed (uint* indexPointer = indices)
+        fixed (DisunityMeshSubMesh* runPointer = runs)
+            DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_read(DisunityHost.WorldHandle, identity, &request, vertexPointer, indexPointer, runPointer));
+        return (info, vertices, indices, runs);
     }
 
-    private static JsonArray Floats(params float[] values) => new(values.Select(v => (JsonNode)JsonValue.Create(v)!).ToArray());
-
-    private static JsonObject Channel(string name, int dimension) => new() { ["name"] = name, ["dimension"] = dimension };
-
-    private static JsonObject Sub(int first, int count, int baseVertex) => new()
+    private static Mesh Quad() => new()
     {
-        ["first_index"] = first, ["index_count"] = count, ["topology"] = 0, ["base_vertex"] = baseVertex, ["first_vertex"] = 0, ["vertex_count"] = 4,
+        vertices = [new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(1, 1, 0), new Vector3(0, 1, 0)],
+        normals = [Vector3.back, Vector3.back, Vector3.back, Vector3.back],
+        uv = [new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1)],
+        colors = [Color.red, Color.green, Color.blue, Color.white],
+        triangles = [0, 2, 1, 0, 3, 2],
     };
 
-    private static JsonObject MeshAsset(string resource, int indexFormat) => new()
+    private static unsafe ulong ReadDrawn(MeshFilter filter)
     {
-        ["type"] = "Mesh", ["name"] = "Hex", ["vertex_count"] = 4, ["index_count"] = 6, ["index_format"] = indexFormat, ["resource"] = resource,
-        ["channels"] = new JsonArray(Channel("position", 3), Channel("uv0", 2)),
-        ["sub_meshes"] = new JsonArray(Sub(0, 3, 0), Sub(3, 3, 1)),
-        ["bounds"] = new JsonObject { ["center"] = Floats(0.5f, 0.5f, 0), ["extent"] = Floats(0.5f, 0.5f, 0.25f) },
-    };
-
-    private static void WriteResource(string path)
-    {
-        using var writer = new BinaryWriter(File.Create(path));
-        float[] positions = [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0];
-        float[] uvs = [0, 0, 1, 0, 0, 1, 1, 1];
-        foreach (var value in positions.Concat(uvs)) writer.Write(value);
-        foreach (var index in new[] { 0, 1, 2, 0, 1, 2 }) writer.Write(index);
+        ulong identity;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_filter_drawn_read(DisunityHost.WorldHandle, filter.Handle, &identity));
+        return identity;
     }
 
-    private static JsonObject Obj(string name, params JsonNode[] components) => new()
+    private static void StoresTheMeshWhenAFilterTakesIt()
     {
-        ["name"] = name, ["tag"] = "Untagged", ["layer"] = 0, ["active"] = true, ["parent"] = null, ["template"] = true,
-        ["position"] = Floats(0, 0, 0), ["rotation"] = Floats(0, 0, 0, 1), ["scale"] = Floats(1, 1, 1), ["rect"] = null,
-        ["components"] = new JsonArray(components),
-    };
-
-    private static void SavePrefab(string directory, string file, string name, JsonNode? mesh)
-    {
-        var plan = new JsonObject
-        {
-            ["scene"] = name, ["objects"] = new JsonArray(Obj(name, new JsonObject { ["type"] = "MeshFilter", ["mesh"] = mesh })),
-            ["assets"] = new JsonArray(), ["sprites"] = new JsonArray(), ["textures"] = new JsonArray(), ["fonts"] = new JsonArray(), ["axes"] = new JsonArray(),
-        };
-        File.WriteAllText(Path.Combine(directory, file), plan.ToJsonString());
+        var standalone = Quad();
+        Expect.That(Read(standalone.RendererIdentity).Info.present == 1, "asking for the identity stores the mesh");
+        var mesh = Quad();
+        var filter = NewObject().AddComponent<MeshFilter>();
+        filter.sharedMesh = mesh;
+        var identity = mesh.RendererIdentity;
+        var (info, vertices, indices, runs) = Read(identity);
+        Expect.That(info.present == 1 && info.generation == 1, "assigning a mesh to a filter stores it once");
+        Expect.That(info.vertex_count == 4 && info.index_count == 6 && info.submesh_count == 1 && info.channels == 7 && info.left_out == 0,
+            $"the description counts vertices, indices and sub-meshes and names all three channels, got {info.vertex_count}/{info.index_count}/{info.submesh_count}/{info.channels}");
+        Expect.That(vertices[2].x == 1 && vertices[2].y == 1 && vertices[2].z == 0, "positions are stored in order");
+        Expect.That(vertices[1].nz == -1 && vertices[1].u == 1 && vertices[1].v == 0, "normals and the first uv are stored");
+        Expect.That(vertices[1].r == 0 && vertices[1].g == 1 && vertices[1].b == 0 && vertices[1].a == 1, "colours are stored");
+        Expect.Sequence(new uint[] { 0, 2, 1, 0, 3, 2 }, indices, "triangle indices are stored");
+        Expect.That(runs.Length == 1 && runs[0].slot == 0 && runs[0].first_index == 0 && runs[0].index_count == 6, "the sub-mesh is a run of its indices");
+        Expect.That(ReadDrawn(filter) == identity, "the filter records the identity of its mesh");
+        var bare = new Mesh { vertices = [Vector3.zero, Vector3.right, Vector3.up], triangles = [0, 1, 2] };
+        Expect.That(Read(bare.RendererIdentity).Info.channels == 0, "a mesh without normals, uvs or colours stores none of them");
+        Console.WriteLine("PASS: a mesh a filter holds is stored with its positions, normals, uvs, colours, indices and sub-mesh runs");
     }
 
-    private static string WritePlan(string directory)
+    private static void StoresChangesOncePerFlush()
     {
-        Directory.CreateDirectory(Path.Combine(directory, "resources"));
-        WriteResource(Path.Combine(directory, "resources", "0.bin"));
-        File.Copy(Path.Combine(directory, "resources", "0.bin"), Path.Combine(directory, "resources", "3.bin"));
-        SavePrefab(directory, "rock.json", "Rock", 0);
-        SavePrefab(directory, "twin.json", "Twin", 0);
-        SavePrefab(directory, "bare.json", "Bare", null);
-        var assets = new JsonArray
-        {
-            MeshAsset("resources/0.bin", 0),
-            new JsonObject { ["type"] = "Prefab", ["name"] = "Rock", ["plan"] = "rock.json" },
-            new JsonObject { ["type"] = "Prefab", ["name"] = "Twin", ["plan"] = "twin.json" },
-            MeshAsset("resources/3.bin", 1),
-            new JsonObject { ["type"] = "Prefab", ["name"] = "Bare", ["plan"] = "bare.json" },
-        };
-        string[] paths = ["meshes/hex", "prefabs/rock", "prefabs/twin", "meshes/wide", "prefabs/bare"];
-        string[] classes = ["Mesh", "GameObject", "GameObject", "Mesh", "GameObject"];
-        var entries = new JsonArray(paths.Select((path, i) => (JsonNode)new JsonObject { ["path"] = path, ["class"] = classes[i], ["asset"] = i }).ToArray());
-        return PlanHarness.WriteJson(directory, entries, assets);
+        var mesh = Quad();
+        var identity = mesh.RendererIdentity;
+        mesh.vertices = [new Vector3(0, 0, 5), new Vector3(1, 0, 5), new Vector3(1, 1, 5), new Vector3(0, 1, 5)];
+        mesh.uv = [Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero];
+        mesh.SetTriangles(new[] { 0, 1, 2 }, 0);
+        Expect.That(Read(identity).Info.generation == 1, "changes are not stored until the frame is about to be drawn");
+        DisunityHost.StoreChangedMeshes();
+        var (info, vertices, indices, _) = Read(identity);
+        Expect.That(info.generation == 2, "several edits store the mesh once");
+        Expect.That(vertices[0].z == 5 && indices.Length == 3 && vertices[1].u == 0, "the stored data is the edited data");
+        DisunityHost.StoreChangedMeshes();
+        Expect.That(Read(identity).Info.generation == 2, "a mesh that did not change is not stored again");
+        mesh.RecalculateNormals();
+        mesh.subMeshCount = 2;
+        DisunityHost.StoreChangedMeshes();
+        Expect.That(Read(identity).Info.generation == 3, "recalculating normals and adding a sub-mesh store it");
+        mesh.UploadMeshData(false);
+        DisunityHost.StoreChangedMeshes();
+        Expect.That(Read(identity).Info.generation == 4, "UploadMeshData stores the mesh again");
+        mesh.Clear();
+        DisunityHost.StoreChangedMeshes();
+        var cleared = Read(identity).Info;
+        Expect.That(cleared.vertex_count == 0 && cleared.generation == 5, "Clear stores the empty mesh");
+        var before = DisunityHost.AllocatePlayerMeshIdentity();
+        var untouched = Quad();
+        untouched.vertices = [Vector3.zero, Vector3.one, Vector3.up, Vector3.right];
+        DisunityHost.StoreChangedMeshes();
+        Expect.That(DisunityHost.AllocatePlayerMeshIdentity() == before + 1, "editing a mesh without an identity gives it none");
+        Console.WriteLine("PASS: edits to a stored mesh are stored once before the next frame, and only for meshes with an identity");
     }
 
-    private static void AMeshBuildsWithItsChannelsAndSubMeshes()
+    private static void LeavesOutOtherTopologiesAndAppliesBaseVertex()
     {
-        var mesh = Resources.Load<Mesh>("meshes/hex")!;
-        Expect.Equal("Hex", mesh.name, "the mesh has its planned name");
-        Expect.Equal(4, mesh.vertexCount, "the mesh has its vertices");
-        Expect.That(mesh.isReadable, "a planned mesh is readable");
-        Expect.Sequence(new[] { new Vector3(0, 0, 0), new(1, 0, 0), new(0, 1, 0), new(1, 1, 0) }, mesh.vertices, "the positions");
-        Expect.Sequence(new[] { new Vector2(0, 0), new(1, 0), new(0, 1), new(1, 1) }, mesh.uv, "the first uv channel");
-        Expect.Equal(0, mesh.normals.Length, "a channel the plan does not name is empty");
-        Expect.Equal(2, mesh.subMeshCount, "the mesh has its sub-meshes");
-        Expect.Sequence(new[] { 0, 1, 2 }, mesh.GetIndices(0), "sub-mesh 0 indices");
-        Expect.Sequence(new[] { 1, 2, 3 }, mesh.GetIndices(1), "sub-mesh 1 indices with its base vertex");
-        Expect.Sequence(new[] { 0, 1, 2 }, mesh.GetIndices(1, false), "sub-mesh 1 indices without its base vertex");
-        Expect.Equal(1u, mesh.GetBaseVertex(1), "sub-mesh 1 base vertex");
-        Expect.Equal(MeshTopology.Triangles, mesh.GetTopology(1), "sub-mesh topology");
-        Expect.Equal(new Vector3(0.5f, 0.5f, 0), mesh.bounds.center, "the bounds center");
-        Expect.Equal(new Vector3(1, 1, 0.5f), mesh.bounds.size, "the bounds size is twice the planned extent");
-        Console.WriteLine("PASS: a planned mesh has its name, vertices, uvs, sub-mesh indices, base vertex, topology and bounds");
+        var mesh = new Mesh { vertices = [Vector3.zero, Vector3.right, Vector3.up, Vector3.one, Vector3.forward, Vector3.back] };
+        mesh.subMeshCount = 3;
+        mesh.SetTriangles(new[] { 0, 1, 2 }, 0);
+        mesh.SetIndices(new[] { 0, 1, 2, 3 }, MeshTopology.Quads, 1);
+        mesh.SetTriangles(new[] { 0, 1, 2 }, 2, true, 3);
+        var (info, _, indices, runs) = Read(mesh.RendererIdentity);
+        Expect.That(info.left_out == 1, "a quad sub-mesh is counted as left out");
+        Expect.That(info.submesh_count == 2 && runs[0].slot == 0 && runs[1].slot == 2, "the runs keep their sub-mesh numbers, with a gap for the left-out one");
+        Expect.Sequence(new uint[] { 0, 1, 2, 3, 4, 5 }, indices, "the base vertex is applied to the indices");
+        Expect.That(runs[1].first_index == 3 && runs[1].index_count == 3, "a later run starts after the earlier ones");
+        Console.WriteLine("PASS: sub-meshes of other topologies are left out and counted, and base vertices are applied");
     }
 
-    private static void FiltersThatNameOneMeshShareIt()
+    private static void GivesEachMeshOneIdentityAboveTheTextures()
     {
-        var rock = Resources.Load<GameObject>("prefabs/rock")!.GetComponent<MeshFilter>()!.sharedMesh;
-        var twin = Resources.Load<GameObject>("prefabs/twin")!.GetComponent<MeshFilter>()!.sharedMesh;
-        Expect.That(rock is not null && ReferenceEquals(rock, twin), "two filters that name one planned mesh get one object");
-        Expect.That(ReferenceEquals(rock, Resources.Load<Mesh>("meshes/hex")), "Resources.Load<Mesh> returns the filters' mesh");
-        Console.WriteLine("PASS: filters that name one planned mesh share it");
+        var first = Quad();
+        var second = Quad();
+        Expect.That(first.RendererIdentity != second.RendererIdentity, "meshes get different identities");
+        Expect.That(first.RendererIdentity == first.RendererIdentity, "a mesh keeps its identity");
+        Expect.That(first.RendererIdentity >= DisunityHost.FirstPlayerMeshIdentity && DisunityHost.FirstPlayerMeshIdentity > DisunityHost.FirstPlayerTextureIdentity,
+            "mesh identities start above the texture identities");
+        Console.WriteLine("PASS: each mesh has one identity, from a range above the textures'");
     }
 
-    private static void ClonesShareTheMeshAndFilterMeshCopiesIt()
+    private static void ClearsTheDrawnMeshWithTheFilter()
     {
-        var shared = Resources.Load<Mesh>("meshes/hex")!;
-        var clone = UnityEngine.Object.Instantiate(Resources.Load<GameObject>("prefabs/rock")!);
-        var filter = clone.GetComponent<MeshFilter>()!;
-        Expect.That(ReferenceEquals(filter.sharedMesh, shared), "a clone's filter shares the planned mesh");
-        var own = filter.mesh!;
-        Expect.That(!ReferenceEquals(own, shared) && own.name == "Hex Instance" && own.vertexCount == 4, "mesh gives the filter its own copy");
-        Expect.That(ReferenceEquals(shared, Resources.Load<Mesh>("meshes/hex")), "the planned mesh is unchanged");
-        Console.WriteLine("PASS: clones share the planned mesh and mesh copies it on first read");
+        var filter = NewObject().AddComponent<MeshFilter>();
+        var mesh = Quad();
+        filter.sharedMesh = mesh;
+        Expect.That(ReadDrawn(filter) == mesh.RendererIdentity, "the filter names the mesh's identity");
+        var other = Quad();
+        filter.sharedMesh = other;
+        Expect.That(ReadDrawn(filter) == other.RendererIdentity, "naming another mesh changes it");
+        filter.sharedMesh = null;
+        Expect.That(ReadDrawn(filter) == 0, "no mesh draws nothing");
+        Console.WriteLine("PASS: a filter's drawn mesh follows its shared mesh");
     }
 
-    private static void ListGettersClearTheCallersListAndFillIt()
+    private static unsafe DisunityDrawnMaterial[] ReadSlots(Renderer renderer)
     {
-        var mesh = Resources.Load<Mesh>("meshes/hex")!;
-        var vertices = new List<Vector3> { new(9, 9, 9), new(8, 8, 8), new(7, 7, 7), new(6, 6, 6), new(5, 5, 5) };
-        mesh.GetVertices(vertices);
-        Expect.Equal(4, vertices.Count, "GetVertices clears the list before it fills it");
-        var uvs = new List<Vector2> { new(9, 9) };
-        mesh.GetUVs(0, uvs);
-        Expect.Sequence(new[] { new Vector2(0, 0), new(1, 0), new(0, 1), new(1, 1) }, uvs, "GetUVs fills the list");
-        var indices = new List<int> { 42, 43, 44, 45 };
-        mesh.GetIndices(indices, 1);
-        Expect.Sequence(new[] { 1, 2, 3 }, indices, "GetIndices(list, submesh) clears the list and applies the base vertex");
-        Console.WriteLine("PASS: GetVertices, GetUVs and GetIndices fill the caller's list after clearing it");
+        uint count;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_renderer_slots_read(DisunityHost.WorldHandle, renderer.Handle, null, 0, &count));
+        var slots = new DisunityDrawnMaterial[count];
+        fixed (DisunityDrawnMaterial* pointer = slots)
+            DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_renderer_slots_read(DisunityHost.WorldHandle, renderer.Handle, pointer, count, &count));
+        return slots;
     }
 
-    private static void ABigIndexFormatAndAMissingMeshArePlanned()
+    /// <summary>A material on a shader that declares no properties, holding only <paramref name="property"/>.</summary>
+    private static Material Coloured(string property, Color color)
     {
-        Expect.Equal(IndexFormat.UInt32, Resources.Load<Mesh>("meshes/wide")!.indexFormat, "a 32-bit index format is kept");
-        Expect.Equal(IndexFormat.UInt16, Resources.Load<Mesh>("meshes/hex")!.indexFormat, "a 16-bit index format is kept");
-        Expect.That(Resources.Load<GameObject>("prefabs/bare")!.GetComponent<MeshFilter>()!.sharedMesh is null, "a filter without a planned mesh has none");
-        Console.WriteLine("PASS: the index format is kept and a filter without a mesh stays empty");
+        var material = new Material(DisunityHost.RegisterShader("Test/PlayerMesh/Plain"));
+        material.SetColor(property, color);
+        return material;
+    }
+
+    private static void SendsColourAndTexturePerSlot()
+    {
+        var renderer = NewObject().AddComponent<MeshRenderer>();
+        var texture = new Texture2D(2, 2);
+        var textured = Coloured("_Color", new Color(0.1f, 0.2f, 0.3f, 0.4f));
+        textured.mainTexture = texture;
+        var based = Coloured("_BaseColor", new Color(0.5f, 0.6f, 0.7f, 1f));
+        var plain = new Material(DisunityHost.RegisterShader("Test/PlayerMesh/Plain"));
+        var undrawn = new Material(DisunityHost.RegisterShader("Test/PlayerMesh/Plain")) { mainTexture = new Texture2D(0, 0) };
+        renderer.sharedMaterials = [textured, based, plain, null, undrawn];
+        var slots = ReadSlots(renderer);
+        Expect.That(slots.Length == 5, "one slot per material");
+        Expect.That(Math.Abs(slots[0].r - 0.1f) < 1e-6f && Math.Abs(slots[0].a - 0.4f) < 1e-6f && slots[0].texture == texture.RendererIdentity,
+            "a material sends its _Color and the identity of its Texture2D");
+        Expect.That(Math.Abs(slots[1].g - 0.6f) < 1e-6f && slots[1].texture == 0, "_BaseColor is used when there is no _Color");
+        Expect.That(slots[2].r == 1 && slots[2].g == 1 && slots[2].b == 1 && slots[2].a == 1 && slots[2].texture == 0, "a material with neither colour is white");
+        Expect.That(slots[3].r == 1 && slots[3].texture == 0, "an empty slot is white and untextured");
+        Expect.That(slots[4].texture == 0, "a texture of no size sends no texture");
+        Expect.That(texture.RendererIdentity >= DisunityHost.FirstPlayerTextureIdentity, "the texture identity is a player texture's");
+        renderer.sharedMaterial = Coloured("_Color", new Color(-1f, float.NaN, 2f, 1f));
+        var clamped = ReadSlots(renderer);
+        Expect.That(clamped.Length == 5 && clamped[0].r == 0 && clamped[0].g == 1 && clamped[0].b == 2, "negative channels clamp to 0 and a value that is not a number is 1");
+        Console.WriteLine("PASS: a renderer sends each slot's colour and player texture identity when its materials are set");
+    }
+
+    private static void DropsTheSlotsTheMaterialsNoLongerHold()
+    {
+        var renderer = NewObject().AddComponent<MeshRenderer>();
+        renderer.sharedMaterials = [Coloured("_Color", Color.red), Coloured("_Color", Color.blue)];
+        Expect.That(ReadSlots(renderer).Length == 2, "two materials, two slots");
+        renderer.sharedMaterials = [Coloured("_Color", Color.green)];
+        var slots = ReadSlots(renderer);
+        Expect.That(slots.Length == 1 && slots[0].g == 1 && slots[0].r == 0, "setting fewer materials replaces the slots");
+        renderer.sharedMaterials = [];
+        Expect.That(ReadSlots(renderer).Length == 0, "no materials, no slots");
+        Console.WriteLine("PASS: setting the materials replaces the slots");
     }
 }

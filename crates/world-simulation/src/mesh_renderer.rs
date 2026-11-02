@@ -38,7 +38,7 @@ impl Default for RendererSwitches {
     }
 }
 
-/// What the host draws one material slot of a mesh renderer with: a linear colour multiplier
+/// What the host draws one material slot of a mesh renderer with: a colour multiplier as the material holds it
 /// and the renderer identity of a texture, 0 for none.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawnMaterial {

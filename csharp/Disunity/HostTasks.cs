@@ -66,7 +66,7 @@ public static partial class DisunityHost
         switch (message)
         {
             case DelayedTasksMessage: _mainThreadContext?.Execute(); return true;
-            case WillRenderMessage: Canvas.RaiseWillRender(); return true;
+            case WillRenderMessage: Canvas.RaiseWillRender(); StoreChangedMeshes(); return true;
             default: return false;
         }
     }

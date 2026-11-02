@@ -30,5 +30,6 @@ public partial class Mesh
             _subMeshes.Add(new SubMesh { Indices = subMesh.Indices, Topology = subMesh.Topology, BaseVertex = subMesh.BaseVertex });
         _bounds = data.Bounds;
         _indexFormat = data.IndexFormat;
+        Changed();
     }
 }

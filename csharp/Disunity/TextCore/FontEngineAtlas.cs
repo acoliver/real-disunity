@@ -23,8 +23,9 @@ public static unsafe partial class FontEngine
     /// Draws one glyph into the atlas texture: its rectangle (the glyph's size rounded up, plus <c>padding</c> on every
     /// side) is taken from <c>freeGlyphRects</c> by the packing mode, moved to <c>usedGlyphRects</c>, and filled with
     /// coverage (the <c>SMOOTH</c> and <c>RASTER</c> modes) or a signed distance field spread over the padding (the
-    /// <c>SDF</c> modes). A glyph with nothing to draw, such as a space, takes no space and gets an empty rectangle.
-    /// Returns false, changing nothing, when there is no face, no such glyph, or no room.
+    /// <c>SDF</c> modes). The glyph's own <c>glyphRect</c> is that rectangle without the padding, the place of the
+    /// glyph's pixels, as a font asset stores it; text adds the padding back around it when it draws. A glyph with
+    /// nothing to draw, such as a space, takes no space and gets an empty rectangle. Returns false, changing nothing, when there is no face, no such glyph, or no room.
     /// </summary>
     public static bool TryAddGlyphToTexture(uint glyphIndex, int padding, GlyphPackingMode packingMode,
         List<GlyphRect> freeGlyphRects, List<GlyphRect> usedGlyphRects, GlyphRenderMode renderMode, Texture2D texture, out Glyph? glyph)
@@ -109,7 +110,7 @@ public static unsafe partial class FontEngine
             target.Free.AddRange(free);
             return null;
         }
-        glyph.glyphRect = rect;
+        glyph.glyphRect = new GlyphRect(rect.x + target.Padding, rect.y + target.Padding, rect.width - 2 * target.Padding, rect.height - 2 * target.Padding);
         return glyph;
     }
 

@@ -200,22 +200,22 @@ internal static class FontEngineTests
         var free = new List<GlyphRect> { new(0, 0, 128, 128) };
         var used = new List<GlyphRect>();
         Expect.That(FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, free, used, Sdf, texture, out var glyph), "TryAddGlyphToTexture");
-        var rect = glyph!.glyphRect;
-        Expect.That(rect.width == 58 && rect.height == 78, $"the rectangle is the glyph plus the padding on each side: {rect.width}x{rect.height}");
-        Expect.That(used.Count == 1 && used[0] == rect, "the rectangle moves to the used list");
+        var rect = used[0];
+        Expect.That(used.Count == 1 && rect.width == 58 && rect.height == 78, $"the used rectangle is the glyph plus the padding on each side: {rect.width}x{rect.height}");
+        Expect.That(glyph!.glyphRect == new GlyphRect(rect.x + 4, rect.y + 4, 50, 70), $"the glyph's own rectangle is the glyph without the padding: {glyph.glyphRect.x},{glyph.glyphRect.y} {glyph.glyphRect.width}x{glyph.glyphRect.height}");
         Expect.That(free.Count > 0 && free.All(f => !Overlap(f, rect) && f.x >= 0 && f.y >= 0 && f.x + f.width <= 128 && f.y + f.height <= 128), "the free rectangles stay inside the atlas and clear of the glyph");
         Expect.Near(60, glyph.metrics.horizontalAdvance, "the glyph keeps its metrics", 1e-3f);
         Expect.That(texture.updateCount > before, "the texture is applied so the renderer sees the glyph");
         Expect.That(NonZero(texture) > 1000, "the glyph is drawn into the texture");
-        var left = rect.x + 4;
-        var bottom = rect.y + 4;
+        var left = glyph.glyphRect.x;
+        var bottom = glyph.glyphRect.y;
         Expect.That(Pixel(texture, left + 4, bottom + 4) > 200, "the field is high inside the outline");
         Expect.That(Pixel(texture, left + 45, bottom + 65) < 40, "the field is low outside the outline");
         Expect.That(Pixel(texture, left, bottom + 20) is >= 100 and <= 160, "the field is about one half at the edge");
         Expect.That(Pixel(texture, 120, 120) == 0, "pixels outside the glyph rectangle are untouched");
         var coverage = Atlas(128);
         FontEngine.TryAddGlyphToTexture(1, 2, GlyphPackingMode.BestShortSideFit, [new GlyphRect(0, 0, 128, 128)], new List<GlyphRect>(), GlyphRenderMode.SMOOTH, coverage, out var plain);
-        Expect.That(Pixel(coverage, plain!.glyphRect.x + 2 + 3, plain.glyphRect.y + 2 + 3) > 240 && Pixel(coverage, plain.glyphRect.x, plain.glyphRect.y) == 0, "a coverage glyph is solid inside and empty in the padding");
+        Expect.That(Pixel(coverage, plain!.glyphRect.x + 3, plain.glyphRect.y + 3) > 240 && Pixel(coverage, plain.glyphRect.x - 2, plain.glyphRect.y - 2) == 0, "a coverage glyph is solid inside and empty in the padding");
         Expect.That(FontEngine.TryAddGlyphToTexture(0, 4, GlyphPackingMode.BestShortSideFit, free, used, Sdf, texture, out var empty)
             && empty!.glyphRect == GlyphRect.zero && used.Count == 1, "a glyph with no outline takes no space");
         Expect.That(!FontEngine.TryAddGlyphToTexture(99, 4, GlyphPackingMode.BestShortSideFit, free, used, Sdf, texture, out var missing) && missing == null && used.Count == 1, "no such glyph");
@@ -234,6 +234,7 @@ internal static class FontEngineTests
         var all = FontEngine.TryAddGlyphsToTexture(new List<uint> { 1, 0, 1, 1 }, 2, GlyphPackingMode.BestAreaFit, free, used, Sdf, texture, out var glyphs);
         Expect.That(all && glyphs.Length == 4 && used.Count == 3, $"four glyphs, one with no outline, are added: {glyphs.Length}, {used.Count}");
         Expect.That(glyphs[1].glyphRect == GlyphRect.zero, "the empty glyph has the empty rectangle");
+        Expect.That(glyphs[0].glyphRect == new GlyphRect(used[0].x + 2, used[0].y + 2, used[0].width - 4, used[0].height - 4), "a listed glyph's rectangle is inside its used rectangle by the padding");
         for (var i = 0; i < used.Count; i++)
             for (var j = i + 1; j < used.Count; j++) Expect.That(!Overlap(used[i], used[j]), "used rectangles do not overlap");
         Expect.That(NonZero(texture) > 100, "the glyphs are drawn");
@@ -247,7 +248,7 @@ internal static class FontEngineTests
         var texture2 = Atlas(64);
         var done = FontEngine.TryAddGlyphsToTexture(toAdd, added, 2, GlyphPackingMode.ContactPointRule, [new GlyphRect(0, 0, 64, 64)], new List<GlyphRect>(), Sdf, texture2);
         Expect.That(!done && added.Count == 3 && toAdd.Count == 1 && toAdd[0].index == 77, "added glyphs move over, the glyph that cannot be drawn stays");
-        Expect.That(added.All(g => g.glyphRect.width == 24 && g.glyphRect.height == 32 && g.metrics.width > 0), "the added glyphs carry their rectangle and metrics");
+        Expect.That(added.All(g => g.glyphRect.width == 20 && g.glyphRect.height == 28 && g.metrics.width > 0), "the added glyphs carry their rectangle and metrics");
         Expect.Throws<ArgumentNullException>(() => FontEngine.TryAddGlyphsToTexture(null!, added, 2, GlyphPackingMode.BestShortSideFit, free, used, Sdf, texture2), "null glyphs to add");
         Expect.Throws<ArgumentNullException>(() => FontEngine.TryAddGlyphsToTexture(new List<uint>(), 2, GlyphPackingMode.BestShortSideFit, free, used, Sdf, null!, out _), "null texture");
         Expect.Throws<ArgumentOutOfRangeException>(() => FontEngine.TryAddGlyphsToTexture(new List<uint>(), -1, GlyphPackingMode.BestShortSideFit, free, used, Sdf, texture2, out _), "negative padding");
@@ -271,7 +272,7 @@ internal static class FontEngineTests
         var bottomLeft = new List<GlyphRect> { new(0, 0, 96, 96) };
         var bottomLeftUsed = new List<GlyphRect>();
         FontEngine.TryAddGlyphToTexture(1, 1, GlyphPackingMode.BottomLeftRule, bottomLeft, bottomLeftUsed, GlyphRenderMode.SMOOTH, Atlas(96), out var first);
-        Expect.That(first!.glyphRect.x == 0 && first.glyphRect.y == 0, "the first rectangle goes to the corner");
+        Expect.That(first!.glyphRect.x == 1 && first.glyphRect.y == 1 && bottomLeftUsed[0].x == 0 && bottomLeftUsed[0].y == 0, "the first rectangle goes to the corner");
     }
 
     private static GlyphRect Place(GlyphPackingMode mode, params GlyphRect[] slots)
@@ -279,8 +280,8 @@ internal static class FontEngineTests
         var free = new List<GlyphRect>(slots);
         var used = new List<GlyphRect>();
         Expect.That(FontEngine.TryAddGlyphToTexture(1, 4, mode, free, used, GlyphRenderMode.SMOOTH, Atlas(512), out var glyph), $"{mode}: the glyph fits");
-        var rect = glyph!.glyphRect;
-        Expect.That(used.Count == 1 && used[0] == rect, $"{mode}: the placed rectangle is recorded");
+        var rect = used[0];
+        Expect.That(used.Count == 1 && glyph!.glyphRect == new GlyphRect(rect.x + 4, rect.y + 4, rect.width - 8, rect.height - 8), $"{mode}: the placed rectangle is recorded");
         Expect.That(free.All(f => !Overlap(f, rect)), $"{mode}: free space excludes the glyph");
         Expect.That(free.Select((a, i) => free.Where((b, j) => i != j && a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height).Any())
             .All(contained => !contained), $"{mode}: no free rectangle lies inside another");

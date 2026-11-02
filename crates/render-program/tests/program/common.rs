@@ -171,10 +171,23 @@ pub fn runtime() -> ProgramRuntime {
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .expect("the program tests need a GPU adapter");
+    announce_adapter(&adapter);
     let (device, queue) =
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
             .expect("the adapter gives a device");
     ProgramRuntime::new(device, queue)
+}
+
+/// Names the adapter once per test binary so a log shows which GPU produced the results.
+fn announce_adapter(adapter: &wgpu::Adapter) {
+    static ANNOUNCED: std::sync::Once = std::sync::Once::new();
+    ANNOUNCED.call_once(|| {
+        let info = adapter.get_info();
+        eprintln!(
+            "render-program tests adapter: {} ({:?}, {:?})",
+            info.name, info.backend, info.device_type
+        );
+    });
 }
 
 pub fn words_to_bytes(words: &[u32]) -> Vec<u8> {

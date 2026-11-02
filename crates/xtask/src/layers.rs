@@ -224,6 +224,7 @@ fn forbidden(name: &str) -> bool {
                 | "worldrunner-render-shadow"
                 | "worldrunner-render-lighting"
                 | "worldrunner-render-post"
+                | "worldrunner-render-program"
                 | "worldrunner-scene-viewer"
                 | "worldrunner-disunity-runtime"
         )

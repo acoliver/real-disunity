@@ -31,7 +31,10 @@ fn unsupported(kind: impl Into<String>) -> LayoutError {
 }
 
 /// The table entry for a Unity binding, which must be unique across descriptor sets.
-fn entry(table: &[ModuleBinding], unity_binding: i32) -> Result<&ModuleBinding, LayoutError> {
+pub(crate) fn entry(
+    table: &[ModuleBinding],
+    unity_binding: i32,
+) -> Result<&ModuleBinding, LayoutError> {
     let wanted = u32::try_from(unity_binding).map_err(|_| LayoutError::UnboundResource {
         unity_binding: i64::from(unity_binding),
     })?;

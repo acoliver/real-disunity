@@ -34,6 +34,8 @@ pub enum LayoutError {
     UnboundResource { unity_binding: i64 },
     #[error("binding {unity_binding} is in several descriptor sets of the binding table")]
     AmbiguousBinding { unity_binding: u32 },
+    #[error("constant buffer name {name_index} has a binding but no buffer record")]
+    UndescribedConstantBuffer { name_index: i32 },
     #[error("the module uses {name} at set {set} binding {binding}, which no parameter declares")]
     UndeclaredResource {
         set: u32,

@@ -7,4 +7,6 @@ mod conventions;
 mod fixtures;
 mod layout;
 mod module;
+mod pass;
+mod rig;
 mod state;

@@ -18,8 +18,41 @@ pub(super) struct CascadeViews {
 }
 
 impl CascadeViews {
+    /// Cascades for the declared splits, with casters fitted to them.
     pub fn new(
         gpu: &SceneGpu,
+        view: &SceneView,
+        effects: &SceneEffects,
+        settings: DirectionalShadowSettings,
+        sun: Vec3,
+    ) -> Result<Self, ShadowError> {
+        let mut value = Self::declared(view, effects, settings, sun)?;
+        value.fit_casters(gpu, view, settings, sun)?;
+        Ok(value)
+    }
+
+    /// Cascades refitted to a depth range. Casters are fitted once, against the final splits:
+    /// the refitted ones when there are receivers, otherwise the declared ones.
+    pub fn fitted(
+        scene: (&SceneGpu, &SceneEffects),
+        view: &SceneView,
+        settings: DirectionalShadowSettings,
+        sun: Vec3,
+        fitting: (
+            worldrunner_render_shadow::DepthRange,
+            worldrunner_render_shadow::RangeFit,
+        ),
+    ) -> Result<Self, ShadowError> {
+        let (gpu, effects) = scene;
+        let mut value = Self::declared(view, effects, settings, sun)?;
+        value.apply_depth_fit(view, fitting)?;
+        value.fit_casters(gpu, view, settings, sun)?;
+        Ok(value)
+    }
+
+    /// Declared splits and their validated receiver matrices. `matrices` holds receivers until
+    /// [`Self::fit_casters`] replaces them with caster-fitted ones.
+    fn declared(
         view: &SceneView,
         effects: &SceneEffects,
         settings: DirectionalShadowSettings,
@@ -54,19 +87,14 @@ impl CascadeViews {
                 return Err(ShadowError::InvalidSettings);
             }
             let receiver = value.receiver_matrix(index, count, view, settings, sun)?;
-            let matrix = gpu.caster_matrix(receiver);
-            if !matrix.is_finite()
-                || !matrix.determinant().is_finite()
-                || matrix.determinant() == 0.0
-            {
-                return Err(ShadowError::InvalidSettings);
-            }
-            value.depth_bias[index] = normalized_depth_bias(settings, matrix)?;
-            value.matrices.push(matrix);
+            value.matrices.push(valid(receiver)?);
         }
         Ok(value)
     }
 
+    /// Refits cascades built by [`Self::new`], fitting casters a second time. Rendering uses
+    /// [`Self::fitted`]; tests use this as the reference it must match.
+    #[cfg(test)]
     pub fn refit_depth(
         &mut self,
         gpu: &SceneGpu,
@@ -78,6 +106,22 @@ impl CascadeViews {
             worldrunner_render_shadow::RangeFit,
         ),
     ) -> Result<(), ShadowError> {
+        if self.apply_depth_fit(view, fitting)? {
+            self.fit_casters(gpu, view, settings, sun)?;
+        }
+        Ok(())
+    }
+
+    /// Moves the splits to a measured depth range. Returns whether there were receivers; with
+    /// none, only `no_receivers` changes.
+    fn apply_depth_fit(
+        &mut self,
+        view: &SceneView,
+        fitting: (
+            worldrunner_render_shadow::DepthRange,
+            worldrunner_render_shadow::RangeFit,
+        ),
+    ) -> Result<bool, ShadowError> {
         use worldrunner_render_shadow::DepthRange;
         fitting
             .1
@@ -87,24 +131,21 @@ impl CascadeViews {
             .1
             .clip(fitting.0, view.clip_distances_meters())
             .map_err(|_| ShadowError::InvalidSettings)?;
-        let DepthRange::Receivers { near, .. } = depth else {
+        let DepthRange::Receivers { near, far } = depth else {
             self.no_receivers = true;
-            return Ok(());
+            return Ok(false);
         };
-        let count = self.matrices.len();
+        let count = u16::try_from(self.matrices.len()).expect("four cascades");
         if let worldrunner_render_shadow::SplitPolicy::OverlapRecurrence {
             multiplier,
             overlap,
         } = fitting.1.split_policy
         {
-            let DepthRange::Receivers { near, far } = depth else {
-                unreachable!()
-            };
             self.recurrence = Some(
                 fitting
                     .1
                     .split_policy
-                    .intervals(near, far, u16::try_from(count).expect("four cascades"))
+                    .intervals(near, far, count)
                     .map_err(|_| ShadowError::InvalidSettings)?,
             );
             self.blend = overlap;
@@ -112,7 +153,7 @@ impl CascadeViews {
         }
         let splits = fitting
             .1
-            .splits(depth, u16::try_from(count).expect("four cascades"))
+            .splits(depth, count)
             .map_err(|_| ShadowError::InvalidSettings)?;
         self.near = near;
         self.camera_splits = true;
@@ -120,15 +161,22 @@ impl CascadeViews {
         for (index, split) in splits.into_iter().enumerate() {
             self.splits[index] = split;
         }
+        Ok(true)
+    }
+
+    /// Scans shadow casters once per cascade against the current splits and stores the
+    /// caster-fitted matrices and their depth biases.
+    fn fit_casters(
+        &mut self,
+        gpu: &SceneGpu,
+        view: &SceneView,
+        settings: DirectionalShadowSettings,
+        sun: Vec3,
+    ) -> Result<(), ShadowError> {
+        let count = self.matrices.len();
         for index in 0..count {
             let receiver = self.receiver_matrix(index, count, view, settings, sun)?;
-            let matrix = gpu.caster_matrix(receiver);
-            if !matrix.is_finite()
-                || !matrix.determinant().is_finite()
-                || matrix.determinant() == 0.0
-            {
-                return Err(ShadowError::InvalidSettings);
-            }
+            let matrix = valid(gpu.caster_matrix(receiver))?;
             self.depth_bias[index] = normalized_depth_bias(settings, matrix)?;
             self.matrices[index] = matrix;
         }
@@ -171,6 +219,13 @@ impl CascadeViews {
             coverage_matrix(settings, sun, self.splits[index])
         }
     }
+}
+
+fn valid(matrix: Mat4) -> Result<Mat4, ShadowError> {
+    if !matrix.is_finite() || !matrix.determinant().is_finite() || matrix.determinant() == 0.0 {
+        return Err(ShadowError::InvalidSettings);
+    }
+    Ok(matrix)
 }
 
 fn normalized_depth_bias(

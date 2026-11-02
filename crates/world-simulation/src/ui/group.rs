@@ -59,11 +59,11 @@ impl CanvasGroup {
 }
 
 /// The enabled groups of a world by owning object.
-pub(crate) fn groups_by_object(
-    components: &[crate::ComponentSnapshot],
+pub(crate) fn groups_by_object<'a>(
+    components: impl IntoIterator<Item = &'a crate::ComponentSnapshot>,
 ) -> BTreeMap<ObjectHandle, CanvasGroup> {
     components
-        .iter()
+        .into_iter()
         .filter_map(|c| match c.desc {
             ComponentDesc::CanvasGroup(group) if group.enabled => Some((c.object, group)),
             _ => None,

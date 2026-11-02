@@ -472,12 +472,7 @@ impl World {
             lifecycle: false,
         });
         self.lifecycle.mutations.clear();
-        let objects: Vec<_> = self
-            .snapshot()
-            .objects
-            .into_iter()
-            .map(|o| o.handle)
-            .collect();
+        let objects: Vec<_> = self.published_objects().collect();
         for object in objects {
             self.destroy(object, DestroyWhen::EndOfFrame)?;
         }

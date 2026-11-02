@@ -41,8 +41,10 @@ public sealed partial class CanvasRenderer
 
     /// <summary>Tells the native renderer which texture the quads sample. A <see cref="Texture2D"/> that has pixels
     /// gives its renderer identity, which stores its bytes for the host; no texture draws plain color; any other
-    /// texture gives an identity with no texels, so the frame leaves its quads out. So does a renderer whose first
-    /// material writes no colour channel (the graphic of a mask that is not shown), whatever the texture.</summary>
+    /// texture gives an identity with no texels, so the frame leaves its quads out. So does a one-texel alpha texture,
+    /// the placeholder atlas of a dynamic font that has drawn no glyph (the engine's choice: it holds no glyph shape).
+    /// So does a renderer whose first material writes no colour channel (the graphic of a mask that is not shown),
+    /// whatever the texture.</summary>
     private void SendTexture(Texture? texture)
     {
         var material = GetMaterial(0);
@@ -51,6 +53,7 @@ public sealed partial class CanvasRenderer
             : texture switch
             {
                 null => 0UL,
+                Texture2D { width: 1, height: 1, format: TextureFormat.Alpha8 } => DisunityHost.UndrawnTextureIdentity(texture),
                 Texture2D { width: > 0, height: > 0 } plain => plain.RendererIdentity,
                 _ => DisunityHost.UndrawnTextureIdentity(texture),
             };

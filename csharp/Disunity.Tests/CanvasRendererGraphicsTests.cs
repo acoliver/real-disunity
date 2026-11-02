@@ -18,6 +18,8 @@ internal static class CanvasRendererGraphicsTests
             Console.WriteLine("PASS: CanvasRenderer.SetMesh(null) and Clear drop the native geometry");
             TexturesGiveTheirIdentity();
             Console.WriteLine("PASS: CanvasRenderer.SetTexture and SetMaterial record the renderer identity of a Texture2D");
+            APlaceholderGlyphAtlasHasNoTexelsToDraw();
+            Console.WriteLine("PASS: a CanvasRenderer drawing a one-texel alpha texture (an unfilled dynamic font atlas) gets an identity with no texels");
             AMaterialThatWritesNoColourHidesTheQuads();
             Console.WriteLine("PASS: a CanvasRenderer whose material writes no colour (a hidden mask graphic) gets an identity with no texels");
         }
@@ -117,6 +119,24 @@ internal static class CanvasRendererGraphicsTests
         renderer.SetTexture(stored);
         Ensure(Read(renderer).Info.texture == target, "a render texture keeps its identity");
         EngineObject.DestroyImmediate(stored);
+    }
+
+    private static void APlaceholderGlyphAtlasHasNoTexelsToDraw()
+    {
+        var renderer = NewRenderer();
+        var atlas = new Texture2D(1, 1, TextureFormat.Alpha8, false);
+        renderer.SetTexture(atlas);
+        var undrawn = Read(renderer).Info.texture;
+        Ensure(undrawn >= DisunityHost.FirstPlayerTextureIdentity && undrawn != atlas.RendererIdentity && DisunityHost.PlayerTexture(undrawn) is null,
+            "a one-texel alpha texture holds no glyph, so its quads are left out");
+        var filled = new Texture2D(2, 2, TextureFormat.Alpha8, false);
+        renderer.SetTexture(filled);
+        Ensure(Read(renderer).Info.texture == filled.RendererIdentity, "an alpha texture with more than one texel is drawn");
+        var oneColour = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+        renderer.SetTexture(oneColour);
+        Ensure(Read(renderer).Info.texture == oneColour.RendererIdentity, "a one-texel colour texture is drawn");
+        renderer.SetTexture(Texture2D.whiteTexture);
+        Ensure(Read(renderer).Info.texture == Texture2D.whiteTexture.RendererIdentity, "the white texture is drawn");
     }
 
     private static void AMaterialThatWritesNoColourHidesTheQuads()

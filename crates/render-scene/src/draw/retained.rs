@@ -25,6 +25,30 @@ impl SceneGpu {
         Ok(())
     }
 
+    /// Changes screen-space reflection parameters without rebuilding the resident scene.
+    /// Enabling or disabling reflections changes the receiver pipelines, so it still needs a
+    /// rebuild and is rejected here; nothing changes on error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`worldrunner_render_post::FrameError::SsrSettings`] for invalid settings or
+    /// when the change turns reflections on or off.
+    pub fn set_ssr_settings(
+        &mut self,
+        ssr: Option<worldrunner_render_plan::SceneSsr>,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        if let Some(settings) = &ssr {
+            crate::ssr::validate_settings(settings)?;
+        }
+        if reflections_enabled(self.ssr.as_ref()) != reflections_enabled(ssr.as_ref()) {
+            return Err(worldrunner_render_post::FrameError::SsrSettings(
+                "enabling or disabling reflections changes pipelines; rebuild the resident",
+            ));
+        }
+        self.ssr = ssr;
+        Ok(())
+    }
+
     pub(crate) fn caster_generation(&self) -> u64 {
         self.caster_generation
     }
@@ -276,4 +300,10 @@ impl SceneGpu {
         }
         Ok(())
     }
+}
+
+/// Whether `ssr` draws reflections, the only SSR property the resident pipelines depend on.
+#[must_use]
+pub fn reflections_enabled(ssr: Option<&worldrunner_render_plan::SceneSsr>) -> bool {
+    ssr.is_some_and(|settings| settings.enabled)
 }

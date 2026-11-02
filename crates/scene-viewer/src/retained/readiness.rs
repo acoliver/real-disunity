@@ -236,10 +236,13 @@ fn prepare(scene: &RenderScene) -> Result<PreparedScene, ViewerError> {
     Ok(PreparedScene::new(scene)?)
 }
 
+/// Whether moving from effects `a` to `b` needs the resident scene rebuilt. SSR parameters
+/// apply in place; only turning reflections on or off changes the resident pipelines.
 pub(super) fn resource_settings_changed(a: Option<&SceneEffects>, b: &SceneEffects) -> bool {
+    use worldrunner_render_scene::draw::reflections_enabled;
     a.is_none_or(|a| {
         a.ssao() != b.ssao()
-            || a.ssr() != b.ssr()
+            || reflections_enabled(a.ssr()) != reflections_enabled(b.ssr())
             || a.water_bodies() != b.water_bodies()
             || a.atmosphere() != b.atmosphere()
             || a.sky() != b.sky()

@@ -337,12 +337,7 @@ impl ShadowedScene {
             )
             .into());
         }
-        if self.effects.ssr() != effects.ssr() {
-            return Err(worldrunner_render_post::FrameError::SsrSettings(
-                "settings are immutable; rebuild the profile and resident",
-            )
-            .into());
-        }
+        self.gpu.set_ssr_settings(effects.ssr().copied())?;
         if self.effects.shadows() != effects.shadows() {
             self.invalidate_shadows();
         }

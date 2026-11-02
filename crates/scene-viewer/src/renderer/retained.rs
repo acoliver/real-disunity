@@ -174,6 +174,7 @@ impl Resident {
         match self {
             Self::Shadowed(scene) => scene.set_effects(effects)?,
             Self::Plain(plain) => {
+                plain.gpu.set_ssr_settings(effects.ssr().copied())?;
                 plain.gpu.set_post_settings(effects)?;
                 plain.effects = Some(effects.clone());
             }

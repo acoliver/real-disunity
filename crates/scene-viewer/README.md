@@ -75,6 +75,14 @@ celestial sun are unchanged. Interactive frames and same-frame captures use the
 same shadow direction, including when depth fitting is enabled.
 
 ## Batch object updates
+## Retained reflection settings
+
+A `RetainedUpdate::Settings` that changes only screen-space reflection parameters,
+such as distance, steps or thickness after a resize, reconfigures the frame renderer
+and keeps the resident scene. Turning reflections on or off changes the receiver
+pipelines, so that update prepares a new resident scene in the background. Changes to
+SSAO, water, atmosphere or sky also prepare a new resident scene.
+
 
 `RetainedUpdate::Objects(Vec<SceneObjectEdit>)` applies many `Add { id, object }`,
 `Replace { id, object }` and `Remove(id)` edits as one atomic update. The host

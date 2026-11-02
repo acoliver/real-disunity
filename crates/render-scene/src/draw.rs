@@ -32,6 +32,7 @@ mod pages;
 pub(crate) mod pass_statistics;
 mod publication;
 mod retained;
+pub use retained::reflections_enabled;
 mod statistics;
 pub use pass_statistics::PassDrawStatistics;
 mod streaming;

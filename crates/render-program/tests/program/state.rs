@@ -248,3 +248,24 @@ fn state_this_slice_does_not_draw_is_a_named_error() {
         );
     }
 }
+
+#[test]
+fn an_integer_property_is_a_state_value_too() {
+    let mut state = opaque_state();
+    state.depth.cull = named(2.0, "_Cull");
+    state.depth.test = named(4.0, "_ZTest");
+    let mut material = PropertySet::new();
+    material.set("_Cull", PropertyValue::Int(1));
+    material.set("_ZTest", PropertyValue::Int(i32::MAX));
+    assert_eq!(
+        resolve_state(&state, &[&material]).unwrap_err(),
+        StateError::UnknownValue {
+            field: "ZTest",
+            value: f32::from(i16::MAX)
+        }
+    );
+    material.set("_ZTest", PropertyValue::Int(5));
+    let resolved = resolve_state(&state, &[&material]).unwrap();
+    assert_eq!(resolved.state.cull, Some(Face::Front));
+    assert_eq!(resolved.state.depth_compare, CompareFunction::Greater);
+}

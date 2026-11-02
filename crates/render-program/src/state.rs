@@ -48,6 +48,10 @@ impl Resolver<'_> {
         };
         match lookup(self.layers, property) {
             Some(PropertyValue::Float(found)) => Ok(*found),
+            // An integer beyond i16 is no state value; it becomes one the field rejects.
+            Some(PropertyValue::Int(found)) => {
+                Ok(f32::from(i16::try_from(*found).unwrap_or(i16::MAX)))
+            }
             Some(_) => Err(StateError::NotAFloat {
                 property: property.clone(),
             }),

@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyValue {
     Float(f32),
+    /// An integer or boolean (0 or 1).
+    Int(i32),
     /// A vector or color; a vector of fewer components uses the leading ones.
     Vector([f32; 4]),
     /// Sixteen floats, copied to the constant buffer in the order given.

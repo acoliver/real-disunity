@@ -380,6 +380,7 @@ PlayerInputTests.Run();
 GraphicsTargetTests.Run();
 Texture3DTests.Run();
 FontEventTests.Run();
+TextGeneratorTests.Run();
 CursorTests.Run();
 PanelInputConfigurationTests.Run();
 UIElementsPanelTests.Run();

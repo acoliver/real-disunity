@@ -277,6 +277,7 @@ PlayerTextureStoreTests.Run();
 EnabledTests.Run();
 PlayerServiceTests.Run();
 PlayerCommandLineTests.Run();
+PlayerScreenTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();

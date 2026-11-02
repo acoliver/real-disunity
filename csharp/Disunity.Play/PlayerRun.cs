@@ -32,8 +32,9 @@ internal static class PlayerRun
         // Entering the player's context makes those lookups resolve there for the rest of the run.
         context.EnterContextualReflection();
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
-        // A headless run has no window, so the screen is 1920 by 1080, the engine's choice.
-        DisunityHost.SetScreen(1920, 1080, 96f, 60f);
+        // The screen is the window the frame is drawn into, so the game's canvases scale for the size they are drawn at.
+        var (screenWidth, screenHeight) = PlayerScreen.Size(request);
+        DisunityHost.SetScreen(screenWidth, screenHeight, 96f, 60f);
         var commandLine = PlayerCommandLine.Build(request);
         PlayerCommandLine.Install(commandLine);
         Log($"command line: {string.Join(' ', commandLine)}");

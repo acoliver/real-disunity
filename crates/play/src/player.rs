@@ -24,11 +24,13 @@ pub struct PreparedPlayer {
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
 /// scene file `scene` and the player's resources with them, and builds the managed bridge,
 /// all into `<target>/play/player`. `arguments` become the player's command line after its
-/// executable path.
+/// executable path. `screen` is the size of the window the frame is drawn into, which is the size
+/// the player's `Screen` reports; a headless run gives none.
 pub fn prepare_player(
     data: &Path,
     scene: &str,
     arguments: &[String],
+    screen: Option<[u32; 2]>,
 ) -> Result<PreparedPlayer, PlayError> {
     let root = workspace_root()?;
     let output = target(&root).join("play").join("player");
@@ -59,7 +61,7 @@ pub fn prepare_player(
         &output,
         data,
         [&plan_path, &resources_path],
-        (&scenes, arguments),
+        (&scenes, arguments, screen),
     )?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
@@ -154,10 +156,10 @@ fn write_request(
     output: &Path,
     data: &Path,
     plans: [&Path; 2],
-    launch: (&[serde_json::Value], &[String]),
+    launch: (&[serde_json::Value], &[String], Option<[u32; 2]>),
 ) -> Result<PathBuf, PlayError> {
     let [plan, resources] = plans;
-    let (scenes, arguments) = launch;
+    let (scenes, arguments, screen) = launch;
     let identity = player_identity(data)?;
     eprintln!(
         "[player] {} {} {} built with Unity {} for {}",
@@ -172,7 +174,12 @@ fn write_request(
         .join(path_component(&identity.company_name))
         .join(path_component(&identity.product_name));
     let request = output.join("request.json");
-    let mut body = request_body(data, [plan, resources, &persistent], &identity, arguments);
+    let mut body = request_body(
+        data,
+        [plan, resources, &persistent],
+        &identity,
+        (arguments, screen),
+    );
     body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
@@ -184,14 +191,16 @@ fn write_request(
 /// The bridge's request. `paths` are the scene plan, the resource plan and the persistent data
 /// directory. The managed side derives the player's executable path from `player` and the
 /// platform in `identity`, and puts `arguments` after it in `Environment.GetCommandLineArgs()`.
+/// `screen` is the window size, listed as `screen` when there is a window.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
     identity: &PlayerIdentity,
-    arguments: &[String],
+    launch: (&[String], Option<[u32; 2]>),
 ) -> serde_json::Value {
     let [plan, resources, persistent] = paths;
-    serde_json::json!({
+    let (arguments, screen) = launch;
+    let mut body = serde_json::json!({
         "player": data,
         "plan": plan,
         "resources": resources,
@@ -199,7 +208,11 @@ fn request_body(
         "persistent": persistent,
         "arguments": arguments,
         "first_texture": FIRST_TEXTURE,
-    })
+    });
+    if let Some(screen) = screen {
+        body["screen"] = serde_json::json!(screen);
+    }
+    body
 }
 
 /// A name as one path component: characters that separate or escape paths become `_`, and an
@@ -259,6 +272,10 @@ mod tests {
     }
 
     fn body(arguments: &[String]) -> serde_json::Value {
+        body_in(arguments, None)
+    }
+
+    fn body_in(arguments: &[String], screen: Option<[u32; 2]>) -> serde_json::Value {
         let (plan, resources, persistent) = (
             Path::new("plan.json"),
             Path::new("resources.json"),
@@ -268,8 +285,19 @@ mod tests {
             Path::new("/games/Game/Game_Data"),
             [plan, resources, persistent],
             &identity(),
-            arguments,
+            (arguments, screen),
         )
+    }
+
+    #[test]
+    fn the_request_names_the_window_size_the_player_reads_as_its_screen() {
+        let request = body_in(&[], Some([960, 540]));
+        assert_eq!(request["screen"], serde_json::json!([960, 540]));
+    }
+
+    #[test]
+    fn a_headless_request_names_no_screen() {
+        assert!(body(&[]).get("screen").is_none());
     }
 
     #[test]

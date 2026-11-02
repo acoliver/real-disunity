@@ -10,10 +10,10 @@ fn windowless_ignores_surface_support_and_reports_the_device_it_uses_once() {
     options.present_mode = wgpu::PresentMode::Mailbox;
     options.adapter_callback = Some(AdapterCallback::new(move |identity| {
         received.lock().unwrap().push(identity.clone());
-        Ok(())
+        Ok(None)
     }));
-    let host = RetainedHost::new(crate::tests::scene(false), options).unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let mut host = RetainedHost::new(crate::tests::scene(false), options).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     let observed = observed.lock().unwrap();
     assert_eq!(observed.as_slice(), &[renderer.context.adapter_identity()]);
     assert!(!observed[0].name.is_empty());
@@ -34,9 +34,9 @@ fn windowless_ignores_surface_support_and_reports_the_device_it_uses_once() {
 fn adapter_callback_failure_stops_startup_before_scene_preparation() {
     let mut options = crate::tests::options();
     options.adapter_callback = Some(AdapterCallback::new(|_| Err("quality rejected".into())));
-    let host = RetainedHost::new(crate::tests::scene(false), options).unwrap();
+    let mut host = RetainedHost::new(crate::tests::scene(false), options).unwrap();
     assert!(matches!(
-        pollster::block_on(Renderer::windowless(&host)),
+        pollster::block_on(Renderer::windowless(&mut host)),
         Err(ViewerError::Driver(message)) if message == "quality rejected"
     ));
 }

@@ -4,19 +4,10 @@ use super::{
 };
 
 impl Renderer {
-    pub(crate) async fn windowless(host: &crate::RetainedHost) -> Result<Self, ViewerError> {
-        let options = &host.options;
+    pub(crate) async fn windowless(host: &mut crate::RetainedHost) -> Result<Self, ViewerError> {
+        let (instance, context) = windowless_context(host).await?;
         let scene = &host.initial_scene;
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
-            .await?;
-        if let Some(callback) = &options.adapter_callback {
-            callback.notify(&adapter)?;
-        }
-        let context =
-            super::timing::context(adapter, required_features(scene), options.gpu_timing).await?;
+        let options = &host.options;
         let errors = device_errors(context.device(), context.submission());
         let extents = Extents::new(
             options.size,
@@ -61,9 +52,34 @@ impl Renderer {
             streaming: readiness::Streaming::new(options.shadows, options.frame_profile),
         };
         renderer.check_errors()?;
+        #[cfg(not(all(test, target_os = "linux")))]
+        drop(instance);
         Ok(renderer)
     }
     pub(crate) fn set_clock(&mut self, clock: crate::RenderClock) {
         self.clock.select(clock);
     }
+}
+
+async fn windowless_context(
+    host: &mut crate::RetainedHost,
+) -> Result<(wgpu::Instance, super::GpuContext), ViewerError> {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .await?;
+    crate::adapter::resolve_startup(
+        &adapter.get_info().into(),
+        &host.initial_scene,
+        &mut host.options,
+        Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
+    )?;
+    let context = super::timing::context(
+        adapter,
+        required_features(&host.initial_scene),
+        host.options.gpu_timing,
+    )
+    .await?;
+    Ok((instance, context))
 }

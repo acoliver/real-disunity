@@ -24,11 +24,11 @@ pub use input::{
     WheelDelta,
 };
 mod capture;
-pub(crate) use capture::ao_format_from_settings;
 pub use capture::{
     CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureOutcome,
     RetainedCaptureProducts, RetainedCaptureRecipe,
 };
+pub(crate) use capture::{Captures, ao_format_from_settings};
 pub(crate) mod readiness;
 pub(crate) mod session;
 pub(crate) use session::Session;
@@ -171,7 +171,7 @@ pub struct RetainedHost {
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
-    capture_pool: u64,
+    pub(crate) capture_pool: u64,
     pub(crate) scene: RenderScene,
     pub(crate) initial_scene: RenderScene,
     pub(crate) readiness: readiness::Readiness,
@@ -244,6 +244,11 @@ impl RetainedHost {
             exit: false,
             occluded: false,
         })
+    }
+
+    /// Effective startup options, including any selected-adapter frame decision.
+    pub fn options(&self) -> &ViewerOptions {
+        &self.options
     }
 
     /// Selects shader time independently of CPU edit generations.
@@ -343,7 +348,7 @@ impl RetainedHost {
                 unreachable!("camera and terrain accepted above")
             }
             RetainedUpdate::Settings(next) => {
-                self.validate_streamed_effects(next)?;
+                Self::validate_streamed_effects(next, &self.options)?;
                 let rebuild = readiness::resource_settings_changed(self.scene.effects(), next);
                 effects = Some(*next.clone());
                 rebuild

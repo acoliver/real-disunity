@@ -1,6 +1,6 @@
 use super::{
-    Arc, DirectionalShadowSettings, Extents, GpuContext, OwnedDisplayHandle, RenderScene, Renderer,
-    Resident, SceneTexture, SceneView, ViewerError, Viewport, Window,
+    Arc, Extents, GpuContext, OwnedDisplayHandle, RenderScene, Renderer, Resident, SceneTexture,
+    SceneView, ViewerError, Viewport, Window,
 };
 use worldrunner_render_gpu::flight::CompletionTicket;
 use worldrunner_render_post::{FrameConfig, contracts::AsyncReadback};
@@ -9,10 +9,9 @@ use worldrunner_render_scene::{dynamic::DynamicQuad, offscreen::RgbaImage};
 pub(crate) enum SceneSource<'a> {
     Static {
         scene: &'a RenderScene,
-        shadows: Option<DirectionalShadowSettings>,
-        profile: crate::FrameProfile,
-        startup: super::Startup,
+        options: &'a mut crate::ViewerOptions,
     },
+    Retained(&'a mut crate::RetainedHost),
     Live,
 }
 
@@ -45,12 +44,20 @@ impl Renderer {
         source: SceneSource<'_>,
     ) -> Result<Self, ViewerError> {
         match source {
-            SceneSource::Static {
-                scene,
-                shadows,
-                profile,
-                startup,
-            } => Self::new(display, window, scene, shadows, profile, startup).await,
+            SceneSource::Static { scene, options } => {
+                Self::with_options(display, window, scene, options, None).await
+            }
+            SceneSource::Retained(host) => {
+                let renderer = Self::with_options(
+                    display,
+                    window,
+                    &host.initial_scene,
+                    &mut host.options,
+                    Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
+                )
+                .await?;
+                Ok(renderer)
+            }
             SceneSource::Live => {
                 let scene = empty_scene();
                 Self::new(

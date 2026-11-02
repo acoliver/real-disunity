@@ -154,15 +154,15 @@ impl RetainedHost {
         Ok(())
     }
 
-    pub(super) fn validate_streamed_effects(
-        &self,
+    pub(crate) fn validate_streamed_effects(
         effects: &SceneEffects,
+        options: &ViewerOptions,
     ) -> Result<(), ViewerError> {
         worldrunner_render_scene::post_settings(effects)?;
         if let Some(water) = effects.water() {
             worldrunner_render_scene::water::validate_settings(water)?;
         }
-        if matches!(self.options.frame_profile, crate::FrameProfile::Legacy)
+        if matches!(options.frame_profile, crate::FrameProfile::Legacy)
             && (effects.ssao().is_some() || effects.ssr().is_some() || effects.water().is_some())
         {
             return Err(ViewerError::UnsupportedScene(

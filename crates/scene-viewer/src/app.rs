@@ -34,7 +34,7 @@ pub(super) trait Content {
     }
     fn window_ready(&mut self, _window: Arc<Window>) {}
     fn device_event(&mut self, _event: &DeviceEvent) {}
-    fn source(&self) -> SceneSource<'_>;
+    fn source(&mut self) -> SceneSource<'_>;
     fn event(&mut self, event: &WindowEvent, viewport: Option<Viewport>);
     fn surface_size(&mut self, _size: [u32; 2]) {}
     fn close_immediately(&self) -> bool {

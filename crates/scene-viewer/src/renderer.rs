@@ -72,7 +72,7 @@ impl Renderer {
         profile: crate::FrameProfile,
         startup: Startup,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, |_| {
+        Self::surface(display, window, |_, _| {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows,
@@ -86,7 +86,7 @@ impl Renderer {
     async fn surface<'a>(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
-        resolve: impl FnOnce(&wgpu::Adapter) -> Result<Resolved<'a>, ViewerError>,
+        resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
     ) -> Result<Self, ViewerError> {
         let (instance, surface, context, policy, resolved) =
             surface_context(display, window.clone(), resolve).await?;
@@ -98,8 +98,7 @@ impl Renderer {
         } = resolved;
         let scene = scene.as_ref();
         let errors = device_errors(context.device(), context.submission());
-        let size = window.inner_size();
-        let extents = Extents::for_device([size.width, size.height], context.device())?;
+        let extents = Extents::for_device(policy.size, context.device())?;
         let initial = extents.unwrap_or_else(Extents::placeholder);
         let viewport = extents.map(|extents| extents.surface);
         let mut presentation = Presentation::with_settings(
@@ -143,6 +142,14 @@ impl Renderer {
             errors,
         };
         renderer.check_errors().map(|()| renderer)
+    }
+
+    pub(crate) fn surface_extent(&self) -> [u32; 2] {
+        let target::Execution::Surface(surface) = &self.execution else {
+            panic!("windowed renderer");
+        };
+        let configuration = surface.presenter.configuration();
+        [configuration.width, configuration.height]
     }
 
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
@@ -622,7 +629,7 @@ impl From<usize> for Startup {
 async fn surface_context<'a>(
     display: OwnedDisplayHandle,
     window: Arc<Window>,
-    resolve: impl FnOnce(&wgpu::Adapter) -> Result<Resolved<'a>, ViewerError>,
+    resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
 ) -> Result<
     (
         wgpu::Instance,
@@ -637,15 +644,15 @@ async fn surface_context<'a>(
         Box::new(display),
     ));
     let surface = instance.create_surface(window.clone())?;
+    let size = window.inner_size();
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&surface),
             ..Default::default()
         })
         .await?;
-    let size = window.inner_size();
     let capabilities = surface.get_capabilities(&adapter);
-    let resolved = resolve(&adapter)?;
+    let resolved = resolve(&adapter, [size.width, size.height])?;
     let startup = &resolved.startup;
     let policy = surface_policy(&capabilities, [size.width, size.height], startup)?;
     let context = timing::context(

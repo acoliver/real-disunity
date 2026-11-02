@@ -143,6 +143,8 @@ pub struct DisunityHost {
     bridge: ManagedBridge,
     /// The world of the in-flight slice run; cleared by [`DisunityHost::unload_slice`].
     world: Option<u64>,
+    /// How many mesh renderers the last prepared frame showed.
+    last_mesh_objects: u32,
     /// GCHandle pinned for the in-flight run; freed on unload. Kept
     /// engine-side so a leak is observable here, not only in managed memory.
     live_token: Option<isize>,
@@ -188,6 +190,7 @@ impl DisunityHost {
             store_statistics,
             bridge,
             world: None,
+            last_mesh_objects: 0,
             live_token: None,
             _claim: claim,
             _thread_affinity: std::marker::PhantomData,
@@ -219,6 +222,7 @@ impl DisunityHost {
             return Err(HostError::SliceRun { code, message });
         }
         self.world = Some(unsafe { (self.bridge.world_handle)() });
+        self.last_mesh_objects = 0;
         Ok(())
     }
 
@@ -441,7 +445,9 @@ mod tests {
 mod sprites;
 
 mod input;
+mod meshes;
 mod presentation;
 mod textures;
 
+pub use meshes::{MeshObjectView, MeshRun, MeshSlot, PlayerMesh};
 pub use textures::PlayerTexture;

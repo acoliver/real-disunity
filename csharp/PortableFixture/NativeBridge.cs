@@ -55,7 +55,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1"))
+            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1"))
             {
                 return -2;
             }
@@ -73,6 +73,7 @@ public static class NativeBridge
             if (kind is "portable-perspective-v1" or "portable-camera-rect-v1") AddPerspectiveCamera(kind == "portable-camera-rect-v1");
             if (kind == "portable-texture-v1") AddTexture();
             if (kind == "portable-atlas-v1") AddAtlas();
+            if (kind == "portable-mesh-v1") AddMesh();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
             DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
@@ -121,6 +122,24 @@ public static class NativeBridge
         var free = new List<GlyphRect> { new(0, 0, 64, 64) };
         FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, free,
             new List<GlyphRect>(), GlyphRenderMode.SDFAA, atlas, out _);
+    }
+    /// <summary>A scripted quad of two sub-meshes, one material and a position, so the host can read the mesh and where it is drawn.</summary>
+    private static void AddMesh()
+    {
+        var shown = DisunityHost.CreateGameObject();
+        shown.transform.position = new Vector3(3, 0, 2);
+        var mesh = new Mesh
+        {
+            vertices = [new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(1, 1, 0), new Vector3(0, 1, 0)],
+            uv = [new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1)],
+            subMeshCount = 2,
+        };
+        mesh.SetTriangles(new[] { 0, 2, 1 }, 0);
+        mesh.SetTriangles(new[] { 0, 3, 2 }, 1);
+        shown.AddComponent<MeshFilter>().sharedMesh = mesh;
+        var material = new Material(DisunityHost.RegisterShader("Fixture/Plain"));
+        material.SetColor("_Color", new Color(0.25f, 0.5f, 0.75f, 1f));
+        shown.AddComponent<MeshRenderer>().sharedMaterials = [material, null];
     }
     private static void AddPerspectiveCamera(bool partialRect)
     {

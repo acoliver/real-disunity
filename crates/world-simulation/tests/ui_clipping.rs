@@ -237,3 +237,9 @@ fn a_nested_canvas_measures_the_clip_rectangle_in_its_root_canvas() {
     near(&bounds(&world), &[450., 250., 500., 350.]);
     near(&uv_rect(&world), &[0.25, 0., 0.5, 0.5]);
 }
+
+#[test]
+fn a_clip_rectangle_without_height_drops_everything() {
+    let world = one_quad(Some([-10., -10., 20., 0.]));
+    assert!(graphics(&world)[0].quads.is_empty());
+}

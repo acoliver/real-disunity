@@ -20,8 +20,24 @@ public sealed partial class Canvas
         {
             if (_defaultMaterial) return _defaultMaterial!;
             var shader = DisunityHost.RegisterShader("UI/Default").Declare(TransparentQueue, 1, 1);
-            return _defaultMaterial = new Material(shader) { name = "Default UI Material" };
+            var material = new Material(shader) { name = "Default UI Material" };
+            DeclareStencilProperties(material);
+            return _defaultMaterial = material;
         }
+    }
+
+    /// <summary>The stencil and colour mask properties of <c>UI/Default</c> with their defaults: the stencil always
+    /// passes and every colour channel is written. A mask copies the material and sets these, and it only does so
+    /// for a material that declares them.</summary>
+    private static void DeclareStencilProperties(Material material)
+    {
+        material.SetInt("_StencilComp", 8);
+        material.SetInt("_Stencil", 0);
+        material.SetInt("_StencilOp", 0);
+        material.SetInt("_StencilWriteMask", 255);
+        material.SetInt("_StencilReadMask", 255);
+        material.SetInt("_ColorMask", 15);
+        material.SetInt("_UseUIAlphaClip", 0);
     }
 
     /// <summary>The material for a graphic whose texture is split into colour and alpha. The engine has no split

@@ -18,6 +18,8 @@ internal static class CanvasRendererGraphicsTests
             Console.WriteLine("PASS: CanvasRenderer.SetMesh(null) and Clear drop the native geometry");
             TexturesGiveTheirIdentity();
             Console.WriteLine("PASS: CanvasRenderer.SetTexture and SetMaterial record the renderer identity of a Texture2D");
+            AMaterialThatWritesNoColourHidesTheQuads();
+            Console.WriteLine("PASS: a CanvasRenderer whose material writes no colour (a hidden mask graphic) gets an identity with no texels");
         }
         finally { DisunityHost.UnloadWorld(); }
     }
@@ -115,5 +117,32 @@ internal static class CanvasRendererGraphicsTests
         renderer.SetTexture(stored);
         Ensure(Read(renderer).Info.texture == target, "a render texture keeps its identity");
         EngineObject.DestroyImmediate(stored);
+    }
+
+    private static void AMaterialThatWritesNoColourHidesTheQuads()
+    {
+        var renderer = NewRenderer();
+        var texture = new Texture2D(2, 2);
+        var hidden = new Material(Canvas.GetDefaultCanvasMaterial());
+        hidden.SetInt("_ColorMask", 0);
+        renderer.materialCount = 1;
+        renderer.SetMaterial(hidden, 0);
+        renderer.SetTexture(texture);
+        var undrawn = Read(renderer).Info.texture;
+        Ensure(undrawn >= DisunityHost.FirstPlayerTextureIdentity && undrawn != texture.RendererIdentity && DisunityHost.PlayerTexture(undrawn) is null,
+            "a texture drawn through a material with colour mask 0 has no texels");
+        renderer.SetTexture(null);
+        Ensure(Read(renderer).Info.texture == undrawn, "plain colour through a material with colour mask 0 is left out too");
+        var shown = new Material(Canvas.GetDefaultCanvasMaterial());
+        renderer.SetMaterial(shown, 0);
+        Ensure(Read(renderer).Info.texture == 0, "a material that writes colour draws plain colour again");
+        renderer.SetTexture(texture);
+        Ensure(Read(renderer).Info.texture == texture.RendererIdentity, "a material that writes colour draws the texture");
+        renderer.SetMaterial(hidden, 0);
+        Ensure(Read(renderer).Info.texture == undrawn, "assigning the hiding material to a drawn renderer hides it");
+        var partial = new Material(Canvas.GetDefaultCanvasMaterial());
+        partial.SetInt("_ColorMask", 14);
+        renderer.SetMaterial(partial, 0);
+        Ensure(Read(renderer).Info.texture == texture.RendererIdentity, "a material that writes some colour channels still draws");
     }
 }

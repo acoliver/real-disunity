@@ -52,12 +52,13 @@ public static partial class DisunityHost
         }
     }
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Texture, System.Runtime.CompilerServices.StrongBox<ulong>> UndrawnTextures = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UnityEngine.Object, System.Runtime.CompilerServices.StrongBox<ulong>> UndrawnTextures = new();
 
-    /// <summary>A renderer identity, from the player range, for a texture whose texels the host is never given (a
-    /// render texture, which no camera draws into yet, or a texture of no size). The frame leaves out what samples it
-    /// and names the identity once, rather than drawing plain colour. The texture keeps it for its lifetime.</summary>
-    internal static ulong UndrawnTextureIdentity(Texture texture)
+    /// <summary>A renderer identity, from the player range, for something whose texels the host is never given (a
+    /// render texture, which no camera draws into yet, a texture of no size, or a material that writes no colour).
+    /// The frame leaves out what samples it and names the identity once, rather than drawing plain colour. The
+    /// object keeps it for its lifetime.</summary>
+    internal static ulong UndrawnTextureIdentity(UnityEngine.Object texture)
     {
         lock (PlayerTextures)
             return UndrawnTextures.GetValue(texture, _ => new System.Runtime.CompilerServices.StrongBox<ulong>(_nextPlayerTexture++)).Value;

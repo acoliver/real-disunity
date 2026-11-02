@@ -41,13 +41,21 @@ public sealed partial class CanvasRenderer
 
     /// <summary>Tells the native renderer which texture the quads sample. A <see cref="Texture2D"/> that has pixels
     /// gives its renderer identity, which stores its bytes for the host; no texture draws plain color; any other
-    /// texture gives an identity with no texels, so the frame leaves its quads out.</summary>
-    private void SendTexture(Texture? texture) =>
-        DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_renderer_texture_write(
-            DisunityHost.WorldHandle, Handle, texture switch
+    /// texture gives an identity with no texels, so the frame leaves its quads out. So does a renderer whose first
+    /// material writes no colour channel (the graphic of a mask that is not shown), whatever the texture.</summary>
+    private void SendTexture(Texture? texture)
+    {
+        var material = GetMaterial(0);
+        var identity = material is not null && WritesNoColour(material)
+            ? DisunityHost.UndrawnTextureIdentity(material)
+            : texture switch
             {
                 null => 0UL,
                 Texture2D { width: > 0, height: > 0 } plain => plain.RendererIdentity,
                 _ => DisunityHost.UndrawnTextureIdentity(texture),
-            }));
+            };
+        DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_renderer_texture_write(DisunityHost.WorldHandle, Handle, identity));
+    }
+
+    private static bool WritesNoColour(Material material) => material.HasProperty("_ColorMask") && material.GetInt("_ColorMask") == 0;
 }

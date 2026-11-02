@@ -3,6 +3,7 @@
 mod common;
 mod compute;
 mod constants;
+mod conventions;
 mod fixtures;
 mod layout;
 mod module;

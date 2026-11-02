@@ -10,15 +10,13 @@ use wgpu::util::DeviceExt;
 
 use crate::error::ProgramError;
 use crate::module::StageProgram;
-use crate::resources::{
-    BufferEntry, BufferHandle, Store, TargetEntry, TargetHandle, TextureEntry, TextureHandle,
-};
+use crate::resources::{BufferEntry, Store, TargetEntry, TextureEntry};
 
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
 pub use crate::program::{ComputeProgram, GraphicsProgram};
 pub use crate::readback::TargetImage;
-pub use crate::resources::{BoundResource, Resource};
+pub use crate::resources::{BoundResource, BufferHandle, Resource, TargetHandle, TextureHandle};
 
 /// Owns a wgpu device and queue, the resources it creates by handle, and caches of shader
 /// modules and pipelines keyed by their content.

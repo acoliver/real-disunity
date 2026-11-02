@@ -683,6 +683,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_script_type_messages",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_shared_material_read",
       "since": "2.0.0",
       "rets": "DisunityResult"

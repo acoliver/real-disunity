@@ -245,7 +245,7 @@ impl Renderer {
                 retained_capture,
                 ticket.clone(),
                 self.frame_time,
-                self.resident.scene_mut().statistics(),
+                &self.resident.scene_mut().statistics(),
             )?;
         } else {
             self.streaming.captures.advance_frame();

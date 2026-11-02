@@ -1,6 +1,66 @@
 use super::*;
 
 #[test]
+fn geometry_capture_observations_freeze_source_submission() {
+    let base = crate::renderer::retained_tests::terrain_source();
+    let terrain = base.terrain().unwrap().clone().with_streaming_policy(Some(
+        worldrunner_render_plan::TerrainStreamingPolicy::new(1, 9, 4, 1000).unwrap(),
+    ));
+    let source = base
+        .with_terrain(Some(std::sync::Arc::new(terrain)))
+        .unwrap();
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = host(source).windowless(&mut driver).unwrap();
+    let id = run.host_mut().request_capture(0).unwrap();
+    run.frame().unwrap();
+    let first = *run.host().statistics().unwrap();
+    let Some(crate::TerrainGeometryStatistics::Streaming(geometry)) = first.scene.terrain_geometry
+    else {
+        panic!("streaming source observation");
+    };
+    assert!(geometry.complete);
+    run.host_mut().apply(RetainedUpdate::Terrain(None)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while run.host().statistics().unwrap().generation == 0 {
+        run.frame().unwrap();
+        run.poll().unwrap();
+        assert!(Instant::now() < deadline);
+    }
+    assert_eq!(
+        run.host().statistics().unwrap().scene.terrain_geometry,
+        None
+    );
+    run.renderer.drain().unwrap();
+    run.poll().unwrap();
+    let events = events.borrow();
+    let outcome = events
+        .iter()
+        .find_map(|event| match event {
+            RetainedEvent::Capture {
+                id: actual,
+                outcome,
+                ..
+            } if *actual == id => Some(outcome),
+            _ => None,
+        })
+        .unwrap();
+    let RetainedCaptureOutcome::Completed {
+        frame, observation, ..
+    } = outcome
+    else {
+        panic!("completed capture");
+    };
+    assert_eq!(*frame, first.frame);
+    assert_eq!(
+        observation.scene.terrain_geometry,
+        first.scene.terrain_geometry
+    );
+    drop(events);
+    run.shutdown().unwrap();
+}
+
+#[test]
 fn supplier_prestart_capture_freezes_selected_scene_statistics_and_shadows() {
     for shadows in [
         None,

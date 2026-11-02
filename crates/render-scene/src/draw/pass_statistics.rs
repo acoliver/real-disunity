@@ -45,6 +45,7 @@ impl PassCounter {
 
 #[derive(Debug, Default)]
 pub(crate) struct PassCounters {
+    pub geometry: Rc<Cell<Option<super::TerrainGeometryStatistics>>>,
     pub terrain: PassCounter,
     pub water: PassCounter,
     pub sky: PassCounter,

@@ -13,7 +13,8 @@ mod statistics;
 pub use statistics::{
     DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainPageStatistics,
+    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
+    TerrainPageStatistics, TerrainStreamingStatistics,
 };
 mod decals;
 pub use decals::DecalUpdate;

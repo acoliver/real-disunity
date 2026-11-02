@@ -311,7 +311,7 @@ impl Harness {
                 capture,
                 ticket.clone(),
                 std::time::Duration::ZERO,
-                self.resident.scene_mut().statistics(),
+                &self.resident.scene_mut().statistics(),
             )
             .unwrap();
         ticket

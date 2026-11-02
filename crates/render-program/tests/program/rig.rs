@@ -7,7 +7,7 @@ use worldrunner_render_program::constants::pack_constant_buffer;
 use worldrunner_render_program::module::{ModuleBinding, StageKind, StageModule, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::runtime::{
-    BoundResource, DrawRequest, Geometry, ProgramRuntime, TargetImage, VertexInput,
+    BoundResource, DrawRequest, Geometry, GraphicsProgram, ProgramRuntime, TargetImage, VertexInput,
 };
 use worldrunner_render_program::state::RenderState;
 use worldrunner_render_program::variant::select_sub_program;
@@ -261,27 +261,17 @@ fn quad(runtime: &mut ProgramRuntime) -> VertexInput {
     }
 }
 
-/// Draws the quad with the textured pass into a cleared 2x2 target and reads it back.
-pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
-    let enabled: BTreeSet<u16> = scene.enabled.iter().copied().collect();
-    let vertex = stage(
-        scene.pass,
-        &scene.pass.vertex,
-        &enabled,
-        ("vs_main", StageKind::Vertex),
-    );
-    let fragment = stage(
-        scene.pass,
-        &scene.pass.fragment,
-        &enabled,
-        ("fs_main", StageKind::Fragment),
-    );
-    let program = runtime.graphics_program(&vertex, &fragment).unwrap();
-
-    let mut bindings = Vec::new();
+/// Packs each constant buffer the stages declare once, from the material then the globals,
+/// and uploads it at its prepared binding. Also returns the properties that were missing.
+fn constant_bindings(
+    runtime: &mut ProgramRuntime,
+    scene: &Scene<'_>,
+    program: &GraphicsProgram,
+    stages: [&StageProgram; 2],
+) -> (Vec<BoundResource>, Vec<String>) {
     let mut packed: BTreeMap<(u32, u32), Vec<u8>> = BTreeMap::new();
     let mut missing = Vec::new();
-    for stage in [&vertex, &fragment] {
+    for stage in stages {
         for target in stage.constant_buffer_targets().unwrap() {
             let min = program
                 .layout()
@@ -301,13 +291,33 @@ pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
                 .or_insert(result.bytes);
         }
     }
-    for ((set, binding), bytes) in &packed {
-        bindings.push(BoundResource::buffer(
-            *set,
-            *binding,
-            runtime.create_buffer("constants", bytes),
-        ));
-    }
+    let bindings = packed
+        .iter()
+        .map(|((set, binding), bytes)| {
+            BoundResource::buffer(*set, *binding, runtime.create_buffer("constants", bytes))
+        })
+        .collect();
+    (bindings, missing)
+}
+
+/// Draws the quad with the textured pass into a cleared 2x2 target and reads it back.
+pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
+    let enabled: BTreeSet<u16> = scene.enabled.iter().copied().collect();
+    let vertex = stage(
+        scene.pass,
+        &scene.pass.vertex,
+        &enabled,
+        ("vs_main", StageKind::Vertex),
+    );
+    let fragment = stage(
+        scene.pass,
+        &scene.pass.fragment,
+        &enabled,
+        ("fs_main", StageKind::Fragment),
+    );
+    let program = runtime.graphics_program(&vertex, &fragment).unwrap();
+
+    let (mut bindings, missing) = constant_bindings(runtime, scene, &program, [&vertex, &fragment]);
     let texels: Vec<u8> = TEXELS.iter().flatten().copied().collect();
     let texture = runtime
         .create_texture_2d("main", [2, 2], wgpu::TextureFormat::Rgba8Unorm, &texels)

@@ -67,6 +67,11 @@ pub(crate) struct ScriptTypes {
 }
 
 impl ScriptTypes {
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.by_assembly.is_empty()
+    }
+
     /// Notes a new script of the type and returns the set it starts with.
     pub(crate) fn enroll(
         &mut self,
@@ -79,14 +84,21 @@ impl ScriptTypes {
         entry.messages.unwrap_or_default()
     }
 
-    /// Forgets a script that was removed or retired.
+    /// Forgets a script that was removed or retired, and its type once no script is left. A host
+    /// that reports per script would otherwise leave an entry for every script ever created; a
+    /// report for a type with no live script only costs the speed the report buys.
     pub(crate) fn leave(&mut self, assembly: &str, type_name: &str, script: ComponentHandle) {
-        if let Some(entry) = self
-            .by_assembly
-            .get_mut(assembly)
-            .and_then(|types| types.get_mut(type_name))
-        {
+        let Some(types) = self.by_assembly.get_mut(assembly) else {
+            return;
+        };
+        if let Some(entry) = types.get_mut(type_name) {
             entry.scripts.remove(&script);
+            if entry.scripts.is_empty() {
+                types.remove(type_name);
+            }
+        }
+        if types.is_empty() {
+            self.by_assembly.remove(assembly);
         }
     }
 
@@ -173,6 +185,54 @@ mod tests {
             .flat_map(BTreeMap::values)
             .map(|entry| entry.scripts.len())
             .sum()
+    }
+
+    fn type_count(world: &World) -> (usize, usize) {
+        let by_assembly = &world.lifecycle.types.by_assembly;
+        (
+            by_assembly.len(),
+            by_assembly.values().map(BTreeMap::len).sum(),
+        )
+    }
+
+    #[test]
+    fn churn_of_reported_scripts_leaves_no_type_entries() {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let object = world.create_object(ObjectDesc::default()).unwrap();
+        for identity in 0..50 {
+            let name = identity.to_string();
+            world
+                .set_script_type_messages("Managed", &name, ScriptMessages::NONE)
+                .unwrap();
+            let desc = ComponentDesc::Script {
+                assembly: "Managed".into(),
+                type_name: name,
+            };
+            let script = world.add_component(object, desc).unwrap();
+            world.destroy_component(script).unwrap();
+        }
+        world.destroy(object, DestroyWhen::EndOfFrame).unwrap();
+        world.take_cleanup();
+        world.finish_phase();
+        assert_eq!(type_count(&world), (0, 0));
+    }
+
+    #[test]
+    fn a_report_made_before_the_first_script_is_taken_by_it() {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let object = world.create_object(ObjectDesc::default()).unwrap();
+        world
+            .set_script_type_messages("Managed", "7", ScriptMessages::UPDATE)
+            .unwrap();
+        let desc = ComponentDesc::Script {
+            assembly: "Managed".into(),
+            type_name: "7".into(),
+        };
+        let script = world.add_component(object, desc).unwrap();
+        assert_eq!(
+            world.lifecycle.scripts[&script].messages,
+            ScriptMessages::UPDATE
+        );
     }
 
     #[test]

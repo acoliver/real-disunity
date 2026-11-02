@@ -240,3 +240,26 @@ impl World {
         self.components.check_additional(renderers.len())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ObjectDesc, WorldSettings};
+
+    #[test]
+    fn rolling_back_a_staged_script_removes_it_from_its_type() {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let object = world.create_object(ObjectDesc::default()).unwrap();
+        world.staging = Some(Staging {
+            undo: Vec::new(),
+            physics: None,
+        });
+        let desc = ComponentDesc::Script {
+            assembly: "Example".into(),
+            type_name: "Actor".into(),
+        };
+        world.add_component(object, desc).unwrap();
+        world.roll_back();
+        assert!(world.lifecycle.types.is_empty());
+    }
+}

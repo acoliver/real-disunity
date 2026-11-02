@@ -182,7 +182,11 @@ pub(crate) fn round_to_i64(value: f64) -> Option<i64> {
 /// that says what the frame holds.
 #[derive(Debug, Default)]
 pub struct PlayerMeshes {
-    converted: BTreeMap<u64, (u64, PlayerSceneMesh)>,
+    /// The scene meshes that converted.
+    converted: BTreeMap<u64, PlayerSceneMesh>,
+    /// The generation last read of each shown mesh, converted or not, so an unchanged one is not
+    /// copied again.
+    seen: BTreeMap<u64, u64>,
     reported: std::collections::BTreeSet<u64>,
     frames: u64,
 }
@@ -196,21 +200,11 @@ impl PlayerMeshes {
         objects: &[MeshObjectView],
     ) -> Result<(), PlayError> {
         for identity in objects.iter().map(|object| object.mesh) {
-            let known = self.converted.get(&identity).map_or(0, |held| held.0);
+            let known = self.seen.get(&identity).copied().unwrap_or(0);
             let Some(stored) = host.player_mesh(identity, known)? else {
                 continue;
             };
-            match player_scene_mesh(&stored) {
-                Ok(scene) => {
-                    self.converted.insert(identity, (stored.generation, scene));
-                }
-                Err(error) => {
-                    self.converted.remove(&identity);
-                    if self.reported.insert(identity) {
-                        eprintln!("mesh {identity}: {error}; its renderers are left out");
-                    }
-                }
-            }
+            self.take(identity, &stored);
         }
         self.frames += 1;
         if self.frames % 10 == 1 {
@@ -219,10 +213,32 @@ impl PlayerMeshes {
         Ok(())
     }
 
+    /// Converts `stored` and keeps it under `identity`. A mesh with no triangles yet (a script has
+    /// not built it) draws nothing and is held back silently; a mesh that cannot be converted is
+    /// named once on stderr and left out, so its renderers stay unresolved.
+    fn take(&mut self, identity: u64, stored: &PlayerMesh) {
+        self.seen.insert(identity, stored.generation);
+        if stored.indices.is_empty() {
+            self.converted.remove(&identity);
+            return;
+        }
+        match player_scene_mesh(stored) {
+            Ok(scene) => {
+                self.converted.insert(identity, scene);
+            }
+            Err(error) => {
+                self.converted.remove(&identity);
+                if self.reported.insert(identity) {
+                    eprintln!("mesh {identity}: {error}; its renderers are left out");
+                }
+            }
+        }
+    }
+
     /// The converted mesh stored under renderer `identity`.
     #[must_use]
     pub fn get(&self, identity: u64) -> Option<&PlayerSceneMesh> {
-        self.converted.get(&identity).map(|held| &held.1)
+        self.converted.get(&identity)
     }
 
     fn log(&self, objects: &[MeshObjectView]) {

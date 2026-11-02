@@ -167,3 +167,37 @@ fn rounding_to_integers_is_exact_and_bounded() {
     assert_eq!(round_to_i64(f64::NAN), None);
     assert_eq!(round_to_i64(f64::INFINITY), None);
 }
+
+#[test]
+fn a_mesh_not_built_yet_is_held_back_without_a_report_and_read_once() {
+    let mut meshes = crate::player_meshes::PlayerMeshes::default();
+    let mut empty = triangle();
+    empty.indices.clear();
+    empty.submeshes.clear();
+    meshes.take(7, &empty);
+    assert!(meshes.get(7).is_none());
+    assert!(meshes.reported.is_empty(), "an empty mesh is not an error");
+    assert_eq!(
+        meshes.seen.get(&7),
+        Some(&1),
+        "its generation is remembered"
+    );
+}
+
+#[test]
+fn a_changed_mesh_replaces_the_scene_mesh_and_an_unusable_one_is_reported_once() {
+    let mut meshes = crate::player_meshes::PlayerMeshes::default();
+    meshes.take(7, &triangle());
+    assert_eq!(meshes.get(7).unwrap().slots.len(), 1);
+    let mut broken = triangle();
+    broken.generation = 2;
+    broken.positions[0] = [1e30, 0., 0.];
+    meshes.take(7, &broken);
+    meshes.take(7, &broken);
+    assert!(
+        meshes.get(7).is_none(),
+        "the failed update drops the old mesh"
+    );
+    assert_eq!(meshes.reported.len(), 1);
+    assert_eq!(meshes.seen.get(&7), Some(&2));
+}

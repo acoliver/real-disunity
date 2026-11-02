@@ -50,6 +50,79 @@ fn depth_fit_keeps_offscreen_casters_and_rescales_bias_with_extent() {
     }
     assert_ne!(fits[0], fits[1]);
 }
+/// The fitted constructor scans casters once, against the final splits. Its result must equal
+/// declared cascades refitted afterwards, with and without receivers and for both split policies.
+#[test]
+fn fitted_cascades_equal_declared_cascades_refitted() {
+    let context = context();
+    let source = scene(&[[1_500, 0, 2_000], [-800, 300, 4_000]], 600_000, None);
+    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let sun = Vec3::new(0.6, 0.0, 0.8);
+    let recurrence = RangeFit {
+        split_policy: worldrunner_render_shadow::SplitPolicy::OverlapRecurrence {
+            multiplier: 2.0,
+            overlap: 0.2,
+        },
+        ..policy()
+    };
+    let ranges = [
+        DepthRange::Receivers {
+            near: 1.0,
+            far: 10.0,
+        },
+        DepthRange::Receivers {
+            near: 2.5,
+            far: 18.0,
+        },
+        DepthRange::EmptyDepth,
+    ];
+    for fitting in ranges
+        .into_iter()
+        .flat_map(|range| [(range, policy()), (range, recurrence)])
+    {
+        let mut expected = CascadeViews::new(
+            &renderer.gpu,
+            &view(),
+            source.effects().unwrap(),
+            settings(),
+            sun,
+        )
+        .unwrap();
+        expected
+            .refit_depth(&renderer.gpu, &view(), settings(), sun, fitting)
+            .unwrap();
+        let fitted = CascadeViews::fitted(
+            (&renderer.gpu, source.effects().unwrap()),
+            &view(),
+            settings(),
+            sun,
+            fitting,
+        )
+        .unwrap();
+        assert_eq!(snapshot(&fitted), snapshot(&expected), "{fitting:?}");
+    }
+}
+
+fn snapshot(views: &CascadeViews) -> String {
+    let bits = |values: &[f32]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+    let matrices: Vec<_> = views
+        .matrices
+        .iter()
+        .map(|m| bits(&m.to_cols_array()))
+        .collect();
+    format!(
+        "{matrices:?} {:?} {:?} {:?} {:?} {:?} {} {} {:?}",
+        bits(&views.depth_bias),
+        bits(&views.splits),
+        bits(&[views.near, views.blend, views.multiplier]),
+        bits(&views.view_depth.to_array()),
+        views.recurrence,
+        views.camera_splits,
+        views.no_receivers,
+        views.matrices.len(),
+    )
+}
+
 #[test]
 fn empty_depth_has_explicit_zero_receiver_uniform() {
     let context = context();

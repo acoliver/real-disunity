@@ -441,11 +441,12 @@ impl ShadowedScene {
         fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
     ) -> Result<cascades::CascadeViews, ShadowError> {
         let (gpu, effects, settings) = scene;
-        let mut cascades = cascades::CascadeViews::new(gpu, view, effects, settings, sun)?;
-        if let Some(fitting) = fitting {
-            cascades.refit_depth(gpu, view, settings, sun, fitting)?;
+        match fitting {
+            Some(fitting) => {
+                cascades::CascadeViews::fitted((gpu, effects), view, settings, sun, fitting)
+            }
+            None => cascades::CascadeViews::new(gpu, view, effects, settings, sun),
         }
-        Ok(cascades)
     }
 
     fn update_caster_pipelines(&mut self, context: &GpuContext) {

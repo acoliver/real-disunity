@@ -26,6 +26,7 @@ pub mod construction;
 #[cfg(test)]
 mod construction_tests;
 pub mod errors;
+pub mod faces;
 pub mod hierarchy;
 pub mod input;
 pub mod input_axes;

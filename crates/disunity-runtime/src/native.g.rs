@@ -558,6 +558,62 @@ pub struct DisunityTextureInfo {
     pub present: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityFaceInfo {
+    pub face_index: u32,
+    pub units_per_em: u32,
+    pub point_size: f32,
+    pub scale: f32,
+    pub line_height: f32,
+    pub ascent_line: f32,
+    pub cap_line: f32,
+    pub mean_line: f32,
+    pub baseline: f32,
+    pub descent_line: f32,
+    pub superscript_offset: f32,
+    pub superscript_size: f32,
+    pub subscript_offset: f32,
+    pub subscript_size: f32,
+    pub underline_offset: f32,
+    pub underline_thickness: f32,
+    pub strikethrough_offset: f32,
+    pub strikethrough_thickness: f32,
+    pub tab_width: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityGlyphMetrics {
+    pub width: f32,
+    pub height: f32,
+    pub bearing_x: f32,
+    pub bearing_y: f32,
+    pub advance: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityGlyphPair {
+    pub first: u32,
+    pub second: u32,
+    pub x_advance: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityGlyphRender {
+    pub glyph: u32,
+    pub mode: u32,
+    pub padding: u32,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub atlas_width: u32,
+    pub atlas_height: u32,
+}
+
 /// The ABI revision these records belong to.
 pub const DISUNITY_ABI_VERSION: u32 = 7;
 

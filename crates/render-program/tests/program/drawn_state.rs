@@ -6,9 +6,7 @@ use worldrunner_render_program::runtime::TargetImage;
 use worldrunner_render_program::state::resolve_state;
 
 use crate::common::{named, opaque_state};
-use crate::rig::{
-    MULTIPLY, QUAD, Samplers, Scene, TEXELS, TINT_VALUE, pass, properties, render,
-};
+use crate::rig::{MULTIPLY, QUAD, Samplers, Scene, TEXELS, TINT_VALUE, pass, properties, render};
 
 /// Unity's `BlendMode` numbers for `SrcAlpha` and `OneMinusSrcAlpha`, and `CullMode` for off.
 const SRC_ALPHA: f32 = 5.0;

@@ -12,7 +12,7 @@ use worldrunner_render_program::runtime::{
 use worldrunner_render_program::state::RenderState;
 use worldrunner_render_program::variant::select_sub_program;
 use worldrunner_unity_serialized::shader_program::{
-    Binding, BindChannels, ConstantBuffer, Program, ProgramParameters, SamplerParam, SubProgram,
+    BindChannels, Binding, ConstantBuffer, Program, ProgramParameters, SamplerParam, SubProgram,
     TextureParam, ValueParam,
 };
 
@@ -90,7 +90,9 @@ fn parameters(draw_binding: Option<i32>, samplers: Samplers) -> ProgramParameter
         ..ProgramParameters::default()
     };
     if let Some(binding) = draw_binding {
-        parameters.constant_buffer_bindings.push(cb_binding(DRAW, binding));
+        parameters
+            .constant_buffer_bindings
+            .push(cb_binding(DRAW, binding));
     } else {
         parameters.textures.push(TextureParam {
             name_index: MAIN_TEX,
@@ -182,7 +184,12 @@ pub fn pass(samplers: Samplers) -> Pass {
     }
 }
 
-fn stage(pass: &Pass, program: &Program, enabled: &BTreeSet<u16>, entry: (&str, StageKind)) -> StageProgram {
+fn stage(
+    pass: &Pass,
+    program: &Program,
+    enabled: &BTreeSet<u16>,
+    entry: (&str, StageKind),
+) -> StageProgram {
     let chosen = select_sub_program(program, enabled).unwrap();
     let module = StageModule {
         words: pass.blobs[chosen.blob_index as usize].clone(),
@@ -241,7 +248,11 @@ fn quad(runtime: &mut ProgramRuntime) -> VertexInput {
         [1.0, 1.0, 1.0, 1.0],
         [-1.0, 1.0, 0.0, 1.0],
     ];
-    let bytes: Vec<u8> = corners.iter().flatten().flat_map(|v| v.to_le_bytes()).collect();
+    let bytes: Vec<u8> = corners
+        .iter()
+        .flatten()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
     VertexInput {
         buffer: runtime.create_buffer("quad", &bytes),
         stride: 16,
@@ -253,8 +264,18 @@ fn quad(runtime: &mut ProgramRuntime) -> VertexInput {
 /// Draws the quad with the textured pass into a cleared 2x2 target and reads it back.
 pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
     let enabled: BTreeSet<u16> = scene.enabled.iter().copied().collect();
-    let vertex = stage(scene.pass, &scene.pass.vertex, &enabled, ("vs_main", StageKind::Vertex));
-    let fragment = stage(scene.pass, &scene.pass.fragment, &enabled, ("fs_main", StageKind::Fragment));
+    let vertex = stage(
+        scene.pass,
+        &scene.pass.vertex,
+        &enabled,
+        ("vs_main", StageKind::Vertex),
+    );
+    let fragment = stage(
+        scene.pass,
+        &scene.pass.fragment,
+        &enabled,
+        ("fs_main", StageKind::Fragment),
+    );
     let program = runtime.graphics_program(&vertex, &fragment).unwrap();
 
     let mut bindings = Vec::new();
@@ -262,7 +283,11 @@ pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
     let mut missing = Vec::new();
     for stage in [&vertex, &fragment] {
         for target in stage.constant_buffer_targets().unwrap() {
-            let min = program.layout().slot(target.set, target.binding).unwrap().min_size;
+            let min = program
+                .layout()
+                .slot(target.set, target.binding)
+                .unwrap()
+                .min_size;
             let result = pack_constant_buffer(
                 target.buffer,
                 &scene.pass.names,
@@ -271,11 +296,17 @@ pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
             )
             .unwrap();
             missing.extend(result.missing);
-            packed.entry((target.set, target.binding)).or_insert(result.bytes);
+            packed
+                .entry((target.set, target.binding))
+                .or_insert(result.bytes);
         }
     }
     for ((set, binding), bytes) in &packed {
-        bindings.push(BoundResource::buffer(*set, *binding, runtime.create_buffer("constants", bytes)));
+        bindings.push(BoundResource::buffer(
+            *set,
+            *binding,
+            runtime.create_buffer("constants", bytes),
+        ));
     }
     let texels: Vec<u8> = TEXELS.iter().flatten().copied().collect();
     let texture = runtime

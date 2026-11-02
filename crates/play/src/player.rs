@@ -14,6 +14,7 @@ use worldrunner_unity_import::{
 
 use crate::PlayError;
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
+use crate::{driver::FIRST_COVERAGE_TEXTURE, player_meshes::PlayerMeshes};
 
 /// A player scene ready to boot: the host configuration and the request its bridge loads.
 pub struct PreparedPlayer {
@@ -243,8 +244,13 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     let nanos = u64::try_from(dt.as_nanos())
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
     let mut result = Ok(());
+    let mut meshes = PlayerMeshes::default();
     for frame in 0..frames {
-        if let Err(error) = host.advance(nanos, 1_000_000_000) {
+        let stepped = host
+            .advance(nanos, 1_000_000_000)
+            .map_err(PlayError::from)
+            .and_then(|()| present_meshes(&mut host, &mut meshes));
+        if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
             break;
         }
@@ -255,6 +261,14 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
+}
+
+/// Prepares the frame's presentation at the size of a small window and brings its meshes in, so a
+/// headless run reports what the player shows in 3D.
+fn present_meshes(host: &mut DisunityHost, meshes: &mut PlayerMeshes) -> Result<(), PlayError> {
+    host.export_presentation([960, 540], FIRST_COVERAGE_TEXTURE)?;
+    let objects = host.mesh_objects()?;
+    meshes.refresh(host, &objects)
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@ mod block_texture;
 mod driver;
 mod keys;
 mod player;
+mod player_meshes;
 mod player_textures;
 mod prepare;
 mod textures;
@@ -26,6 +27,9 @@ mod unresolved;
 pub use driver::{Capture, PlayDriver};
 pub use keys::key_code;
 pub use player::{PreparedPlayer, prepare_player, run_player};
+pub use player_meshes::{
+    MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,
+};
 pub use prepare::{Prepared, prepare};
 pub use worldrunner_original_games::Game;
 

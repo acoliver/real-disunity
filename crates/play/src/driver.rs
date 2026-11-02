@@ -6,7 +6,9 @@ use std::time::Duration;
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_render_plan::simulation::{SpriteTextures, from_presentation};
 
-use crate::{player_textures::PlayerTextures, unresolved::UnresolvedTextures};
+use crate::{
+    player_meshes::PlayerMeshes, player_textures::PlayerTextures, unresolved::UnresolvedTextures,
+};
 use worldrunner_render_scene::{Viewport, simulation::WorldSceneContribution};
 use worldrunner_scene_viewer::{
     LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample, LiveReceipt, LiveTick,
@@ -15,7 +17,7 @@ use worldrunner_scene_viewer::{
 use crate::{PlayError, Prepared, keys::key_code};
 
 /// Glyph coverage textures the presentation creates take identities from here up.
-const FIRST_COVERAGE_TEXTURE: u64 = 1 << 32;
+pub(crate) const FIRST_COVERAGE_TEXTURE: u64 = 1 << 32;
 
 /// One presented frame as the window showed it: tightly packed sRGB RGBA rows, top first.
 #[derive(Clone, Debug)]
@@ -73,6 +75,7 @@ pub struct PlayDriver {
     host: DisunityHost,
     textures: SpriteTextures,
     player_textures: PlayerTextures,
+    player_meshes: PlayerMeshes,
     unresolved: UnresolvedTextures,
     simulated: Duration,
     capture_frames: BTreeSet<u64>,
@@ -108,6 +111,7 @@ impl PlayDriver {
             host,
             textures,
             player_textures: PlayerTextures::default(),
+            player_meshes: PlayerMeshes::default(),
             unresolved: UnresolvedTextures::default(),
             simulated: Duration::ZERO,
             capture_frames: capture_frames.into_iter().collect(),
@@ -129,6 +133,8 @@ impl PlayDriver {
             presentation.quads.iter().filter_map(|quad| quad.texture),
             &mut self.textures,
         )?;
+        let mesh_objects = self.host.mesh_objects()?;
+        self.player_meshes.refresh(&self.host, &mesh_objects)?;
         let mut plan = from_presentation(presentation, &self.textures);
         // A texture with no texels to draw (an unsupported player format, say) leaves its sprites
         // out of the frame, each texture named once on stderr.

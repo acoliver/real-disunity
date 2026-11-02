@@ -161,3 +161,22 @@ pub fn stage(
     };
     StageProgram::new(module, parameters).unwrap()
 }
+
+use worldrunner_render_gpu::device::headless_instance;
+use worldrunner_render_program::runtime::ProgramRuntime;
+
+/// A runtime on the adapter the environment selects: lavapipe in CI, or a hardware GPU.
+pub fn runtime() -> ProgramRuntime {
+    let instance = headless_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("the program tests need a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("the adapter gives a device");
+    ProgramRuntime::new(device, queue)
+}
+
+pub fn words_to_bytes(words: &[u32]) -> Vec<u8> {
+    words.iter().flat_map(|w| w.to_le_bytes()).collect()
+}

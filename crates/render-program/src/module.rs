@@ -6,7 +6,8 @@ use std::sync::Arc;
 use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
 
-use crate::reflect::{Reflected, reflect};
+pub use crate::reflect::Reflected;
+use crate::reflect::reflect;
 
 /// A pipeline stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

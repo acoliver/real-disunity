@@ -189,6 +189,8 @@ pub struct PlayerMeshes {
     /// copied again.
     seen: BTreeMap<u64, u64>,
     reported: std::collections::BTreeSet<u64>,
+    /// The meshes converted again since [`PlayerMeshes::take_changed`] last ran.
+    changed: std::collections::BTreeSet<u64>,
     frames: u64,
 }
 
@@ -226,6 +228,7 @@ impl PlayerMeshes {
         match player_scene_mesh(stored) {
             Ok(scene) => {
                 self.converted.insert(identity, scene);
+                self.changed.insert(identity);
             }
             Err(error) => {
                 self.converted.remove(&identity);
@@ -234,6 +237,11 @@ impl PlayerMeshes {
                 }
             }
         }
+    }
+
+    /// The meshes converted new or again since the last call.
+    pub fn take_changed(&mut self) -> std::collections::BTreeSet<u64> {
+        std::mem::take(&mut self.changed)
     }
 
     /// The converted mesh stored under renderer `identity`.

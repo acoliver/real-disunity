@@ -1,12 +1,14 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
-//! `play --player <data directory>`: starts a built Unity player's scene, in a window when
-//! `--size`, `--capture` or `--key` is given and headless otherwise.
+//! `play --player <data directory>`: starts a built Unity player's scene, in a window that draws
+//! its 3D objects when `--size`, `--capture` or `--key` is given and headless otherwise.
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use worldrunner_play::{Game, PlayDriver, key_code, prepare, prepare_player, run_player};
-use worldrunner_render_plan::simulation::SpriteTextures;
+use worldrunner_play::{
+    Capture, Game, PlayDriver, PlayerWindow, ScheduledKey, key_code, play_player_window, prepare,
+    prepare_player, run_player,
+};
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
 /// The window a player opens in when `--size` is not given.
@@ -129,15 +131,16 @@ fn player(data: &std::path::Path, arguments: Arguments) -> Result<(), String> {
     let prepared = prepare_player(data, scene, &arguments.command_line, screen)
         .map_err(|error| error.to_string())?;
     if windowed {
-        let driver = PlayDriver::boot(
-            &prepared.config,
-            &prepared.request,
-            SpriteTextures::default(),
-            arguments.captures.iter().map(|(frame, _)| *frame),
-        )
-        .map_err(|error| error.to_string())?;
-        let title = format!("Disunity: {}", data.display());
-        return live(driver, title, WINDOW_SIZE, arguments);
+        let window = PlayerWindow {
+            title: format!("Disunity: {}", data.display()),
+            size: arguments.size.unwrap_or(WINDOW_SIZE),
+            fixed_dt: arguments.fixed_dt,
+            max_frames: arguments.frames,
+            capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
+            keys: scheduled_keys(&arguments.keys),
+        };
+        let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
+        return write_captures(&captured, &arguments.captures);
     }
     let dt = arguments
         .fixed_dt
@@ -157,16 +160,35 @@ fn live(
     options.max_frames = arguments.frames;
     options.scheduled_input = arguments.keys;
     run_live(&mut driver, options).map_err(|error| error.to_string())?;
-    for capture in driver.captures() {
-        let (_, file) = arguments
-            .captures
+    write_captures(driver.captures(), &arguments.captures)
+}
+
+/// The keys the command line schedules, as the game's key codes.
+fn scheduled_keys(keys: &[ScheduledInput]) -> Vec<ScheduledKey> {
+    keys.iter()
+        .filter_map(|input| match &input.event {
+            LiveInputEvent::Key { key, pressed, .. } => Some(ScheduledKey {
+                frame: input.frame,
+                code: key_code(key)?,
+                pressed: *pressed,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Writes each captured frame to the file requested for it, and fails when a requested frame
+/// was never presented.
+fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<(), String> {
+    for capture in captured {
+        let (_, file) = requested
             .iter()
             .find(|(frame, _)| *frame == capture.frame)
             .expect("requested capture");
         capture.write_png(file).map_err(|error| error.to_string())?;
         println!("frame {} captured to {}", capture.frame, file.display());
     }
-    let missing = arguments.captures.len() - driver.captures().len();
+    let missing = requested.len() - captured.len();
     if missing > 0 {
         return Err(format!("{missing} requested frames were not presented"));
     }

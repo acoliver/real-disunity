@@ -20,6 +20,7 @@ mod player_meshes;
 mod player_textures;
 mod navigation;
 mod prepare;
+mod retained_driver;
 mod scene_tables;
 mod scene_transform;
 mod textures;
@@ -34,6 +35,7 @@ pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,
 };
 pub use prepare::{Prepared, prepare};
+pub use retained_driver::{PlayerWindow, ScheduledKey, play_player_window};
 pub use worldrunner_original_games::Game;
 
 use std::path::PathBuf;

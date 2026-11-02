@@ -21,9 +21,16 @@ const BLOCK_PATH: BlockPath = BlockPath::Rgba8;
 pub struct PlayerTextures {
     generations: BTreeMap<u64, u64>,
     reported: BTreeSet<u64>,
+    /// The textures converted again since [`PlayerTextures::take_changed`] last ran.
+    changed: BTreeSet<u64>,
 }
 
 impl PlayerTextures {
+    /// The textures converted new or again since the last call.
+    pub fn take_changed(&mut self) -> BTreeSet<u64> {
+        std::mem::take(&mut self.changed)
+    }
+
     /// Converts each player texture among the `shown` identities that is new or changed since the last
     /// call into `textures`. A texture that cannot be converted is named once on stderr and left
     /// out, so its quads stay unresolved.
@@ -46,6 +53,7 @@ impl PlayerTextures {
             match player_scene_texture(&stored, BLOCK_PATH) {
                 Ok(scene) => {
                     textures.textures.insert(identity, scene);
+                    self.changed.insert(identity);
                 }
                 Err(error) => {
                     textures.textures.remove(&identity);

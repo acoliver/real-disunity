@@ -2,4 +2,7 @@
 
 mod common;
 mod constants;
+mod fixtures;
+mod layout;
+mod module;
 mod state;

@@ -77,3 +77,87 @@ pub fn opaque_state() -> ShaderState {
         lighting: false,
     }
 }
+
+use naga::back::spv;
+use naga::valid::{Capabilities, ValidationFlags, Validator};
+use worldrunner_render_program::module::{ModuleBinding, StageKind, StageModule, StageProgram};
+use worldrunner_unity_serialized::shader_program::{
+    Binding, ProgramParameters, SamplerParam, TextureParam,
+};
+
+/// SPIR-V for a WGSL module, written as a Vulkan shader: the position output is not flipped,
+/// as in the modules Unity ships.
+pub fn spirv(wgsl: &str) -> Vec<u32> {
+    let module = naga::front::wgsl::parse_str(wgsl).unwrap();
+    let info = Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(&module)
+        .unwrap();
+    let options = spv::Options {
+        flags: spv::WriterFlags::empty(),
+        ..spv::Options::default()
+    };
+    spv::write_vec(&module, &info, &options, None).unwrap()
+}
+
+/// A binding table entry whose prepared binding is Unity's.
+pub fn same(set: u32, binding: u32) -> ModuleBinding {
+    ModuleBinding {
+        set,
+        unity_binding: binding,
+        binding,
+        sampler_binding: None,
+    }
+}
+
+pub fn binding(index: i32) -> Binding {
+    Binding {
+        name_index: index,
+        index,
+        array_size: 1,
+    }
+}
+
+pub fn texture(index: i32, dimension: i8) -> TextureParam {
+    TextureParam {
+        name_index: index,
+        index,
+        sampler_index: -1,
+        multisampled: false,
+        dimension,
+    }
+}
+
+pub fn sampler(bind_point: i32) -> SamplerParam {
+    SamplerParam {
+        sampler: 0,
+        bind_point,
+    }
+}
+
+pub fn parameters(
+    constant_buffers: &[i32],
+    textures: Vec<TextureParam>,
+    samplers: Vec<SamplerParam>,
+) -> ProgramParameters {
+    ProgramParameters {
+        constant_buffer_bindings: constant_buffers.iter().map(|i| binding(*i)).collect(),
+        textures,
+        samplers,
+        ..ProgramParameters::default()
+    }
+}
+
+pub fn stage(
+    wgsl: &str,
+    (entry_point, kind): (&str, StageKind),
+    bindings: Vec<ModuleBinding>,
+    parameters: ProgramParameters,
+) -> StageProgram {
+    let module = StageModule {
+        words: spirv(wgsl),
+        entry_point: entry_point.to_owned(),
+        kind,
+        bindings,
+    };
+    StageProgram::new(module, parameters).unwrap()
+}

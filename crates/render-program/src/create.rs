@@ -75,7 +75,7 @@ impl ProgramRuntime {
             });
         }
         let alignment = wgpu::COPY_BUFFER_ALIGNMENT;
-        if offset % alignment != 0 || len % alignment != 0 {
+        if !offset.is_multiple_of(alignment) || !len.is_multiple_of(alignment) {
             return Err(ProgramError::WriteAlignment { offset, len });
         }
         if bytes.is_empty() {

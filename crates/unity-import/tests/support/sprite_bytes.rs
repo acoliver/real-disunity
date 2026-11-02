@@ -42,8 +42,9 @@ pub fn texture(name: &str, images: i32, dimension: i32, pixels: &Pixels) -> Vec<
 }
 
 /// A sprite named `name` of a 16x8 rectangle at (2, 4) with a half pivot, 50 pixels per unit and
-/// a border, drawn from the texture object `texture` of its own file.
-pub fn sprite(name: &str, texture: i64) -> Vec<u8> {
+/// a border, drawn from the texture object `texture` of its own file (none when 0), with one bone
+/// when `bones` is set.
+pub fn sprite(name: &str, texture: i64, bones: bool) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string(name).unwrap();
     w.floats(&[2.0, 4.0, 16.0, 8.0]).floats(&[0.0, 0.0]);
@@ -74,7 +75,16 @@ pub fn sprite(name: &str, texture: i64) -> Vec<u8> {
         .floats(&[50.0, 8.0, 50.0, 2.0])
         .f32(1.0);
     w.i32(0).align();
-    w.i32(0);
+    if bones {
+        w.i32(1).string("root").unwrap().string("guid").unwrap();
+        w.floats(&[0.0; 3])
+            .floats(&[0.0, 0.0, 0.0, 1.0])
+            .f32(1.0)
+            .i32(-1)
+            .u32(0);
+    } else {
+        w.i32(0);
+    }
     w.align().pptrs(&[]).unwrap();
     w.finish()
 }

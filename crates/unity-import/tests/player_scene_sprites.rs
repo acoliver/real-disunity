@@ -119,7 +119,7 @@ fn layouts(fields: &[&str]) -> ScriptLayouts {
     }])
 }
 
-const FIELDS: [&str; 5] = ["first", "again", "sibling", "cube", "far"];
+const FIELDS: [&str; 7] = ["first", "again", "sibling", "cube", "far", "bare", "boned"];
 
 /// A scene whose root holds sprites 10 (twice), 11, 12 and 13 of its shared assets file: 10 and
 /// 11 draw the inline texture 20, 12 a cube map and 13 a texture in the `.resS` file.
@@ -142,7 +142,15 @@ fn write_player(dir: &Path) {
         w.pptrs(&[]).unwrap().pptr(ptr(0, 0));
         w.finish()
     };
-    let references = [ptr(1, 10), ptr(1, 10), ptr(1, 11), ptr(1, 12), ptr(1, 13)];
+    let references = [
+        ptr(1, 10),
+        ptr(1, 10),
+        ptr(1, 11),
+        ptr(1, 12),
+        ptr(1, 13),
+        ptr(1, 14),
+        ptr(1, 15),
+    ];
     write_file(
         dir,
         "level0",
@@ -174,10 +182,12 @@ fn write_player(dir: &Path) {
                 texture("cube", 6, 4, &Pixels::Inline(&[])),
             ),
             object(22, ClassId::TEXTURE_2D, texture("far", 1, 2, &streamed)),
-            object(10, ClassId::SPRITE, sprite("first", 20)),
-            object(11, ClassId::SPRITE, sprite("sibling", 20)),
-            object(12, ClassId::SPRITE, sprite("cubed", 21)),
-            object(13, ClassId::SPRITE, sprite("distant", 22)),
+            object(10, ClassId::SPRITE, sprite("first", 20, false)),
+            object(11, ClassId::SPRITE, sprite("sibling", 20, false)),
+            object(12, ClassId::SPRITE, sprite("cubed", 21, false)),
+            object(13, ClassId::SPRITE, sprite("distant", 22, false)),
+            object(14, ClassId::SPRITE, sprite("bare", 0, false)),
+            object(15, ClassId::SPRITE, sprite("boned", 20, true)),
         ],
         &[],
     );
@@ -217,6 +227,73 @@ fn a_referenced_sprite_is_a_scene_asset_after_the_texture_it_draws() {
     assert_eq!(assets[1]["texture"], json!({"$asset": 0}));
     assert_eq!(assets[1]["rect"], json!([2.0, 4.0, 16.0, 8.0]));
     assert_eq!(assets[1]["pixels_per_unit"], 50.0);
+    assert_eq!(assets[1]["border"], json!([1.0, 2.0, 3.0, 4.0]));
+    assert_eq!(assets[1]["pivot"], json!([0.5, 0.25]));
+    assert_eq!(assets[1]["texture_rect"], json!([3.0, 5.0, 14.0, 6.0]));
+    assert_eq!(assets[1]["texture_rect_offset"], json!([1.0, 0.5]));
+    assert_eq!(
+        (
+            &assets[1]["packed"],
+            &assets[1]["packing_rotation"],
+            &assets[1]["mesh_type"]
+        ),
+        (&json!(true), &json!(3), &json!(1))
+    );
+}
+
+#[test]
+fn a_texture_carries_its_size_format_and_sampler() {
+    let (_dir, plan) = planned();
+    let texture = &assets(&plan)[0];
+    assert_eq!(
+        (
+            &texture["width"],
+            &texture["height"],
+            &texture["format"],
+            &texture["mip_count"]
+        ),
+        (&json!(2), &json!(2), &json!(4), &json!(1))
+    );
+    assert_eq!(
+        (
+            &texture["readable"],
+            &texture["color_space"],
+            &texture["filter_mode"]
+        ),
+        (&json!(true), &json!(1), &json!(1))
+    );
+    assert_eq!(
+        (&texture["wrap_u"], &texture["wrap_v"], &texture["wrap_w"]),
+        (&json!(0), &json!(1), &json!(2))
+    );
+    assert_eq!(
+        (&texture["aniso_level"], &texture["mip_bias"]),
+        (&json!(4), &json!(-0.5))
+    );
+}
+
+#[test]
+fn a_sprite_with_no_texture_binds_null_and_is_listed() {
+    let (_dir, plan) = planned();
+    assert!(
+        plan.differences
+            .iter()
+            .any(|line| line.starts_with("Root.Example.Holder.bare:")
+                && line.contains("texture is not planned")),
+        "{:?}",
+        plan.differences
+    );
+}
+
+#[test]
+fn what_the_engine_does_not_build_of_a_sprite_is_listed() {
+    let (_dir, plan) = planned();
+    assert!(
+        plan.differences
+            .contains(&"resource sprite boned: bones are not built".to_owned()),
+        "{:?}",
+        plan.differences
+    );
 }
 
 #[test]
@@ -230,6 +307,8 @@ fn script_fields_refer_to_the_sprites_and_a_shared_sprite_is_one_asset() {
             "sibling": {"$asset": 2},
             "cube": null,
             "far": {"$asset": 4},
+            "bare": null,
+            "boned": {"$asset": 5},
         })
     );
 }

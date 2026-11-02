@@ -18,7 +18,10 @@ mod keys;
 mod player;
 mod player_meshes;
 mod player_textures;
+mod navigation;
 mod prepare;
+mod scene_tables;
+mod scene_transform;
 mod textures;
 #[cfg(test)]
 mod textures_tests;

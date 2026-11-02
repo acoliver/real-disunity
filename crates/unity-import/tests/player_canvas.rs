@@ -7,15 +7,17 @@ use worldrunner_unity_import::{plan::PlanComponent, player_plan::plan_player_sce
 use worldrunner_unity_serialized::{
     ClassId, SerializedType,
     object::PPtr,
-    script_data::ScriptLayouts,
+    script_data::{FieldType, ScriptField, ScriptLayouts, ScriptType},
     write::{FileContents, ObjectData, ObjectWriter},
 };
 
-const TYPES: [ClassId; 4] = [
+const TYPES: [ClassId; 6] = [
     ClassId::GAME_OBJECT,
     ClassId::TRANSFORM,
     ClassId::CANVAS,
     ClassId::CAMERA,
+    ClassId::MONO_BEHAVIOUR,
+    ClassId::MONO_SCRIPT,
 ];
 
 fn ptr(path_id: i64) -> PPtr {
@@ -30,7 +32,7 @@ fn class(class_id: ClassId) -> SerializedType {
         class_id,
         stripped: false,
         script_type_index: -1,
-        script_id: None,
+        script_id: (class_id == ClassId::MONO_BEHAVIOUR).then_some([7; 16]),
         old_type_hash: [0; 16],
         type_tree: None,
         dependencies: Vec::new(),
@@ -92,33 +94,41 @@ fn camera_bytes() -> Vec<u8> {
     w.floats(&[2.0, 11.0, 0.25, 0.5, 36.0, 24.0, 0.1, -0.1]);
     w.floats(&[0.125, 0.25, 0.5, 0.75]);
     w.floats(&[0.5, 500.0, 50.0]).u8(0).align().f32(5.0);
-    w.f32(2.0).u32(0xffff_fffb).i32(-1).pptr(ptr(0)).i32(1).i32(2);
+    w.f32(2.0)
+        .u32(0xffff_fffb)
+        .i32(-1)
+        .pptr(ptr(0))
+        .i32(1)
+        .i32(2);
     w.bytes(&[1, 0, 1, 0, 1]).align().f32(0.022).f32(0.064);
     w.finish()
 }
 
 fn plan_canvases(canvas: &CanvasFields, with_camera: bool) -> Vec<PlanComponent> {
     let dir = tempfile::tempdir().unwrap();
-    write_scene(dir.path(), canvas, with_camera);
+    let (components, extra) = if with_camera {
+        (vec![ptr(3), ptr(4), ptr(5)], vec![camera_object()])
+    } else {
+        (vec![ptr(3), ptr(4)], Vec::new())
+    };
+    write_scene(dir.path(), canvas, &components, extra);
     let layouts = ScriptLayouts::new(Vec::new());
     let mut plan = plan_player_scene(dir.path(), "level0", &layouts).unwrap();
     plan.objects.remove(0).components
 }
 
-fn write_scene(dir: &Path, canvas: &CanvasFields, with_camera: bool) {
-    let components = if with_camera {
-        vec![ptr(3), ptr(4), ptr(5)]
-    } else {
-        vec![ptr(3), ptr(4)]
-    };
+fn camera_object() -> ObjectData {
+    object(5, ClassId::CAMERA, camera_bytes())
+}
+
+/// A scene of one object holding the listed components, the canvas among them, and `extra` objects.
+fn write_scene(dir: &Path, canvas: &CanvasFields, components: &[PPtr], extra: Vec<ObjectData>) {
     let mut objects = vec![
-        object(2, ClassId::GAME_OBJECT, game_object("Canvas", &components)),
+        object(2, ClassId::GAME_OBJECT, game_object("Canvas", components)),
         object(3, ClassId::TRANSFORM, transform(2)),
         object(4, ClassId::CANVAS, canvas_bytes(canvas)),
     ];
-    if with_camera {
-        objects.push(object(5, ClassId::CAMERA, camera_bytes()));
-    }
+    objects.extend(extra);
     let contents = FileContents {
         version: 22,
         big_endian: false,
@@ -155,6 +165,7 @@ fn plans_a_canvas_with_its_mode_sorting_and_pixel_settings() {
         pixel_perfect: true,
         sorting_layer_id: 934_472_021,
         sorting_order: -7,
+        target_display: 1,
         ..overlay()
     };
     let components = plan_canvases(&canvas, false);
@@ -163,7 +174,7 @@ fn plans_a_canvas_with_its_mode_sorting_and_pixel_settings() {
         json!([{
             "type": "Canvas", "render_mode": "WorldSpace", "camera": null,
             "plane_distance": 12.5, "pixel_perfect": true,
-            "sorting_layer_id": 934_472_021, "sorting_order": -7, "target_display": 0
+            "sorting_layer_id": 934_472_021, "sorting_order": -7, "target_display": 1
         }])
     );
 }
@@ -203,4 +214,47 @@ fn every_render_mode_maps_to_its_plan_name() {
         let planned = serde_json::to_value(&components[0]).unwrap();
         assert_eq!(planned["render_mode"], name, "mode {mode}");
     }
+}
+
+/// A `Hud` script on the canvas's object with one field that references the canvas component.
+fn hud_objects() -> Vec<ObjectData> {
+    let mut script = ObjectWriter::new(false);
+    script.string("Hud").unwrap().i32(0).bytes(&[0; 16]);
+    script.string("Hud").unwrap().string("Example").unwrap();
+    script.string("Example.Game.dll").unwrap();
+    let mut behaviour = ObjectWriter::new(false);
+    behaviour.pptr(ptr(2)).u8(1).align().pptr(ptr(6));
+    behaviour.string("").unwrap().pptr(ptr(4));
+    vec![
+        object(5, ClassId::MONO_BEHAVIOUR, behaviour.finish()),
+        object(6, ClassId::MONO_SCRIPT, script.finish()),
+    ]
+}
+
+#[test]
+fn a_script_field_can_reference_the_canvas_component() {
+    let dir = tempfile::tempdir().unwrap();
+    let components = [ptr(3), ptr(4), ptr(5)];
+    write_scene(dir.path(), &overlay(), &components, hud_objects());
+    let layouts = ScriptLayouts::new(vec![ScriptType {
+        key: "Example.Game:Example.Hud".to_owned(),
+        value_type: false,
+        fields: vec![ScriptField {
+            name: "canvas".to_owned(),
+            ty: FieldType::Object("UnityEngine.Object".to_owned()),
+        }],
+    }]);
+    let plan = plan_player_scene(dir.path(), "level0", &layouts).unwrap();
+    let [
+        PlanComponent::Canvas { .. },
+        PlanComponent::Script { fields, .. },
+    ] = &plan.objects[0].components[..]
+    else {
+        panic!(
+            "the object has a canvas and a script: {:?}",
+            plan.objects[0].components
+        )
+    };
+    assert_eq!(*fields, json!({"canvas": {"$component": [0, 0]}}));
+    assert_eq!(plan.differences, Vec::<String>::new());
 }
